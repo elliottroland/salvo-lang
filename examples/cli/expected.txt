@@ -1,0 +1,50 @@
+$ tool serve -p 80 index.html app.js
+  serve index.html,app.js on 127.0.0.1:80 as text, plain, 1 worker(s)
+$ tool -v serve --host=0.0.0.0 --workers 4 --cert c.pem --key k.pem --output json site
+  serve site on 0.0.0.0:8080 as json, tls c.pem, 4 worker(s) (verbose)
+$ tool fetch --url https://example.com --header Accept: text/html --header X-Id: 7
+  fetch https://example.com (timeout 30s) with 2 header(s)
+$ tool fetch --from-stdin
+  fetch standard input with 0 header(s)
+$ tool serve -p 0 --output xml --cert c.pem
+  error: invalid value 'xml' for '--output': expected one of json, text
+  error: '--cert' requires '--key'
+  error: '<files>' is required
+  error: invalid value '0' for '--port': 0 is not in 1..65535
+$ tool fetch --url u --file f
+  error: '--file' cannot be used with '--url'
+$ tool deploy
+  error: unrecognized command 'deploy'
+$ tool --help
+A toy file server.
+
+Usage: tool [OPTIONS] [COMMAND]
+
+Commands:
+  serve          Serve files over HTTP.
+  fetch          Fetch a document.
+
+Options:
+  -v, --verbose  Print more.
+  -h, --help     Print help
+$ tool serve --help
+Serve files over HTTP.
+
+Usage: tool serve [OPTIONS] <files>...
+
+Arguments:
+  <files>...               Files to serve.
+
+Options:
+  -p, --port <PORT>        Port to listen on. [default: 8080]
+      --output <OUTPUT>    Output format. [possible values: json, text] [default: text]
+  -h, --help               Print help
+
+Network options:
+      --host <HOST>        Address to bind. [default: 127.0.0.1]
+      --workers <WORKERS>  Connections served at once.
+
+TLS (give both or neither):
+      --cert <CERT>        Certificate file.
+      --key <KEY>          Private key file.
+argv: nothing to do

@@ -1,5 +1,8 @@
 # Command-line tools
 
+`examples/cli` is a complete tool built this way, with sub-commands, groups
+and every kind of field below.
+
 A command line is described by a struct. One clause gives the struct a
 parser, and the parser's result is the struct itself, so the program reads
 its options as typed fields and the compiler checks every use:
@@ -56,8 +59,9 @@ Options:
 ## What each field becomes
 
 Each field is an option named after it in kebab case: `max_workers` is
-`--max-workers`. Its doc comment is its help. What it takes depends on its
-type:
+`--max-workers`. Its doc comment, the `//` lines directly above it, is its
+help; a blank line ends a doc comment, so a remark meant for the reader of
+the source can sit above it, apart. What a field takes depends on its type:
 
 | Field type | On the command line |
 |---|---|
@@ -229,6 +233,13 @@ let r: Ok Serve | Errs NonEmpty List<ArgError> = parse_args(List("-p", "0", "a.t
 ```
 
 `message(e)` is an error as the line above prints it.
+
+## Validating the whole command line
+
+A rule between options that no type says, `--min` at most `--max`, is
+checked after parsing, with a qualifier the rest of the program can demand
+(`fn run(o: Valid Serve)`). How the parser could call such a check itself is
+still being decided.
 
 ## What is checked where
 

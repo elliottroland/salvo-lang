@@ -7236,7 +7236,9 @@ can have one capability without the other.
   (`Usage: serve [OPTIONS] --port <PORT> <files>...`), then `Arguments:`
   and `Options:` in two aligned columns, each row its doc comment, choices
   (`[possible values: json, text]`) and default (`[default: 8080]`), and
-  `-h, --help` last.
+  `-h, --help` last. A doc comment of several lines is one row, its lines
+  joined by spaces; the comment ends at a blank line, so a comment for the
+  reader can sit above it apart (`examples/cli`).
 * [args-groups] **A struct-typed field is a group of options** (ARG_PARSE.md
   §10.3, Q15), and the struct it holds declares `: FromArgs<self> by args`
   too, since the parent's derive calls its `arg_spec()` and `from_found`:

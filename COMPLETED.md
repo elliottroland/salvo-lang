@@ -138,6 +138,24 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — `examples/cli`, and help that reads a doc comment as one row
+
+Phase 2.6, without retiring ARG_PARSE.md (the validation hook, ROADMAP §2d
+item 16, is still the user's call). `examples/cli` is a tool with an
+optional sub-command, a flattened group, an all-or-none group, an exclusive
+group with an empty arm, a qualified port, choices, repeatable and
+positional options; it parses eight lines with `parse_args`, then its real
+argv with `args_or_exit`. Command-Line.md links it and says where a
+whole-line rule goes.
+
+[args-help]: a multi-line doc comment is one help row (its lines joined by
+spaces), and a heading likewise. Writing the example found that a doc
+comment is help, so the source's remarks for readers sit apart from it,
+above a blank line, which ends a doc comment.
+
+Tests: the examples suite picks `examples/cli` up (both backends, the
+checked-in trees and `expected.txt`).
+
 ### 2026-10-20 — A failed value says why; the validation hook waits on a decision
 
 Phase 2.5, first half (ARG_PARSE.md §5.2, Q10, Q16). [args-explain]: the

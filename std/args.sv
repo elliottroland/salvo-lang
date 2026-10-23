@@ -737,13 +737,13 @@ export fn help_text<T>(spec: Spec<T>) [] -> Str => spec {
     let rights: Mut List<Str> = Mut List<Str>()
     for a in spec.args {
         add(lefts, if a.many { "${arg_name(a.field)}..." } else { arg_name(a.field) })
-        add(rights, copy(a.help ?: ""))
+        add(rights, one_line(a.help))
     }
     let nargs = size(lefts)
     // [args-commands] The sub-commands, each with what it does.
     for c in spec.commands {
         add(lefts, copy(c.name))
-        add(rights, copy(c.about ?: ""))
+        add(rights, one_line(c.about))
     }
     let ncommands = size(lefts) - nargs
     // [args-groups] Each option under its section: the command's own under
@@ -764,7 +764,7 @@ export fn help_text<T>(spec: Spec<T>) [] -> Str => spec {
             append(left, " <${value_name(o.field)}>")
         }
         add(lefts, copy(left))
-        let right: Mut Str = Mut Str(copy(o.help ?: ""))
+        let right: Mut Str = Mut Str(one_line(o.help))
         if !is_empty(o.choices) {
             append(right, " [possible values: ${join(o.choices, ", ")}]")
         }
@@ -829,6 +829,14 @@ export fn help_text<T>(spec: Spec<T>) [] -> Str => spec {
     return out
 }
 
+// [args-help] A doc comment as one row of help: its lines joined by spaces.
+fn one_line(text: Str?) [] -> Str => text {
+    if text is None {
+        return ""
+    }
+    return replace(text, "\n", " ")
+}
+
 // The rows `rows` of help's two columns, the left padded to `width`.
 fn help_rows(out: Mut Str, lefts: List<Str>, rights: List<Str>, rows: List<Int>, width: Int) [] -> None => out: Mut, lefts, rights, rows {
     for i in rows {
@@ -857,7 +865,7 @@ fn section<T>(spec: Spec<T>, group: Str?) [] -> Str => spec, group {
     }
     for g in spec.groups {
         if g.key == top && g.heading !is None {
-            return trim_suffix(copy(g.heading), ".")
+            return trim_suffix(one_line(g.heading), ".")
         }
     }
     return ""

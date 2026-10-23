@@ -19,6 +19,7 @@ compiler generated for it and the output it prints.
 | [`cluster/`](cluster/) | actors across machines: two virtual nodes over the in-memory transport, actor groups found by name, a singleton behind an election (`Elected`), shards by `Key` (`Sharded`), scatter and hedge as hand-written routers `of any E`, and failover when a node leaves |
 | [`aws_sqs/`](aws_sqs/) | a **generated** AWS service: `aws.sqs` from its Smithy model, every operation non-blocking through a `Reply`, the generated recording fake and a hand-written in-memory double — no SDK in the build |
 | [`aws_s3/`](aws_s3/) | a **generated** AWS service with **streaming bodies**: `aws.s3`'s `PutObject` from a file and `GetObject` to a file with `pipe`, bodies as `stream.InStream` in linear structs, the generated fake and an in-memory double over `MemFs` — no SDK in the build |
+| [`cli/`](cli/) | a command-line tool from its types: `FromArgs<self> by args`, switches, defaults, choices, `Short` and `Positional`, a qualified port re-tested, option groups (flattened, all-or-none, exclusive), sub-commands, every error at once, and help |
 | [`aws_profile/`](aws_profile/) | a **dependency**: the `aws` module from `modules/aws/`, named under `[dependencies]` and found under `[build] modules`; a dependency's modules as ordinary modules, and a module's own doc comment |
 
 Every one of these is **checked by the test suite** (added 2026-09-16, after
