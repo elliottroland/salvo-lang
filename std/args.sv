@@ -53,7 +53,7 @@ export threadsafe platform handler HostArgs() of Args
 // [args-errors] Every way a command line can fail to parse, and the request
 // for help, which is an outcome rather than a side effect so parsing stays
 // pure (Q17). A parse reports all of its errors at once.
-export type ArgError = UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | HelpRequested
+export type ArgError = UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | HelpRequested
 
 // An option the command does not have: `--prot`, `-x`.
 export struct UnknownOption {
@@ -87,6 +87,25 @@ export struct Repeated {
     option: Str
 }
 
+// [args-groups] An option of a group given without one the group requires:
+// `--cert` without `--key`, for `tls: Tls?`.
+export struct Requires {
+    option: Str,
+    needs: Str
+}
+
+// [args-groups] Options of two arms of an exclusive group: `--file` with
+// `--url`, for `source: FromUrl | FromFile`.
+export struct Conflict {
+    option: Str,
+    other: Str
+}
+
+// [args-groups] None of an exclusive group's arms, when one is required.
+export struct MissingOne {
+    options: List<Str>
+}
+
 // `--help` or `-h`: the help text, to print and exit successfully.
 export struct HelpRequested {
     text: Str
@@ -101,6 +120,9 @@ export fn message(e: ArgError) [] -> Str => e {
         is Invalid { return "invalid value '${e.value}' for '${e.what}': ${e.reason}" }
         is Unexpected { return "unexpected argument '${e.value}'" }
         is Repeated { return "option '${e.option}' was given more than once" }
+        is Requires { return "'${e.option}' requires '${e.needs}'" }
+        is Conflict { return "'${e.option}' cannot be used with '${e.other}'" }
+        is MissingOne { return "one of '${join(e.options, "', '")}' is required" }
         is HelpRequested { return "help was requested" }
     }
 }
@@ -124,7 +146,25 @@ export struct OptSpec {
     // Its default, as help shows it.
     default_text: Str? = None,
     // The values it accepts, when they are a fixed set.
-    choices: List<Str> = List<Str>()
+    choices: List<Str> = List<Str>(),
+    // [args-groups] The group it belongs to, by key (`tls`, `source/FromUrl`,
+    // `outer/tls`), or `None` for the command's own.
+    group: Str? = None
+}
+
+// [args-groups] A group of options: a struct-typed field and what it adds.
+export struct GroupSpec {
+    // `tls`, `source`, `source/FromUrl`: the field's name, an arm's after its
+    // union's, each nested group after its parent's.
+    key: Str,
+    // `flat` (`net: NetOpts`, always there), `together` (`tls: Tls?`: all or
+    // none), `one` (`source: FromUrl | FromFile`: exactly one arm), `arm` (one
+    // arm of a `one`).
+    kind: Str,
+    // Whether a `one` group needs an arm (its union has no `None`).
+    required: Bool = false,
+    // Its heading in help: the field's doc comment, or the struct's.
+    heading: Str? = None
 }
 
 // [args-runtime] One positional argument of a command, taken in order.
@@ -144,7 +184,60 @@ export struct Spec<T> {
     // What the command does: the struct's doc comment.
     about: Str? = None,
     opts: List<OptSpec>,
-    args: List<ArgSpec>
+    args: List<ArgSpec>,
+    groups: List<GroupSpec> = List<GroupSpec>()
+}
+
+// [args-groups] Adds a group's options to a command's: `child`, the spec of
+// the struct a field of kind `kind` holds, under `key`. Its own groups nest
+// under `key`; an empty arm (`struct FromStdin {}`) is chosen by a switch
+// named after it, `--from-stdin`.
+export fn merge_group<C>(opts: Mut List<OptSpec>, groups: Mut List<GroupSpec>, child: Spec<C>, key: Str, kind: Str, heading: Str?) [] -> None
+=> opts: Mut, groups: Mut, child, key, kind, !heading {
+    if !is_empty(child.args) {
+        unreachable!("`${key}` is a group of options, and `${child.name}` takes positionals")
+    }
+    add(groups, GroupSpec { key: copy(key), kind: copy(kind), heading: heading ?: copy(child.about) })
+    for g in child.groups {
+        add(groups, GroupSpec { key: "${key}/${g.key}", kind: copy(g.kind), required: g.required, heading: copy(g.heading) })
+    }
+    for o in child.opts {
+        let group = if o.group is None { copy(key) } else { "${key}/${o.group}" }
+        add(opts, OptSpec {
+            field: copy(o.field),
+            short: o.short,
+            takes_value: o.takes_value,
+            repeats: o.repeats,
+            required: o.required,
+            help: copy(o.help),
+            default_text: copy(o.default_text),
+            choices: copy(o.choices),
+            group: group
+        })
+    }
+    if kind == "arm" && is_empty(child.opts) {
+        add(opts, OptSpec { field: replace(command_name(child.name), "-", "_"), takes_value: false, help: copy(child.about), group: copy(key) })
+    }
+}
+
+// [args-groups] The exclusive group for a union-typed field: its key, and
+// whether an arm is required (no `None` arm).
+export fn add_one(groups: Mut List<GroupSpec>, key: Str, required: Bool, heading: Str?) [] -> None => groups: Mut, key, !heading {
+    add(groups, GroupSpec { key: copy(key), kind: "one", required: required, heading: heading })
+}
+
+// [args-groups] Whether the scan found any of `spec`'s options: whether a
+// group (`tls: Tls?`) or an exclusive arm was given.
+export fn any_given<C>(found: Found, spec: Spec<C>) [] -> Bool => found, spec {
+    if is_empty(spec.opts) {
+        return given(found, replace(command_name(spec.name), "-", "_"))
+    }
+    for o in spec.opts {
+        if given(found, o.field) {
+            return true
+        }
+    }
+    return false
 }
 
 // The long spelling of a field's option: `max_workers` is `--max-workers`.
@@ -303,7 +396,37 @@ export fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
             add(errors, Repeated { option: copy(flag) })
         }
         if count == 0 && o.required {
-            add(errors, Missing { what: copy(flag) })
+            // [args-groups] Inside a group that is all-or-none (or one arm
+            // of an exclusive group), required only once the group is used.
+            let why = unmet_group(spec, hits, o.group)
+            when {
+                why is Str { add(errors, Requires { option: why, needs: copy(flag) }) }
+                live(spec, hits, o.group) { add(errors, Missing { what: copy(flag) }) }
+                else {}
+            }
+        }
+    }
+    // [args-groups] Exclusive groups: at most one arm, and one when required.
+    for g in spec.groups {
+        if g.kind == "one" && live(spec, hits, g.key) {
+            let first: Str? = None
+            let names: Mut List<Str> = Mut List<Str>()
+            for a in spec.groups {
+                if a.kind == "arm" && parent_is(a.key, g.key) {
+                    add(names, first_option(spec, a.key))
+                    let here = given_in(spec, hits, a.key)
+                    if here !is None {
+                        if first is None {
+                            first = here
+                        } else {
+                            add(errors, Conflict { option: here, other: copy(first) })
+                        }
+                    }
+                }
+            }
+            if first is None && g.required {
+                add(errors, MissingOne { options: names })
+            }
         }
     }
     // Positionals: one word each, the last taking what is left.
@@ -336,6 +459,102 @@ export fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
         w = w + 1
     }
     return Found { hits: hits, errors: errors, help: help }
+}
+
+// [args-groups] The group a key nests in: `source` for `source/FromUrl`.
+fn parent_key(key: Str) [] -> Str? => key {
+    let cut = split_last(key, "/")
+    if cut is None {
+        return None
+    }
+    let (parent, _) = cut
+    return parent
+}
+
+// [args-groups] Whether `key` is `parent`'s direct member.
+fn parent_is(key: Str, parent: Str) [] -> Bool => key, parent {
+    let p = parent_key(key)
+    if p is None {
+        return false
+    }
+    return p == parent
+}
+
+// Whether an option's group is exactly `key`.
+fn in_group(group: Str?, key: Str) [] -> Bool => group, key {
+    if group is None {
+        return false
+    }
+    return group == key
+}
+
+// [args-groups] The first option given in the group `key` (or nested in
+// it), as it was spelled long.
+fn given_in<T>(spec: Spec<T>, hits: List<Hit>, key: Str) [] -> Str? => spec, hits, key {
+    for h in hits {
+        for o in spec.opts {
+            if o.field == h.field && o.group !is None {
+                let g = copy(o.group)
+                if g == key || starts_with(g, "${key}/") {
+                    return long_name(o.field)
+                }
+            }
+        }
+    }
+    return None
+}
+
+// [args-groups] How an arm is named when none was given: its first
+// required option, or its first.
+fn first_option<T>(spec: Spec<T>, key: Str) [] -> Str => spec, key {
+    for o in spec.opts {
+        if o.required && in_group(o.group, key) {
+            return long_name(o.field)
+        }
+    }
+    for o in spec.opts {
+        if in_group(o.group, key) {
+            return long_name(o.field)
+        }
+    }
+    return copy(key)
+}
+
+// [args-groups] Whether options in group `key` count: every all-or-none
+// group and exclusive arm it is in was used. The command's own always do.
+fn live<T>(spec: Spec<T>, hits: List<Hit>, key: Str?) [] -> Bool => spec, hits, key {
+    let k: Str? = copy(key)
+    while k !is None {
+        let here = copy(k)
+        for g in spec.groups {
+            if g.key == here && (g.kind == "together" || g.kind == "arm") && given_in(spec, hits, here) is None {
+                return false
+            }
+        }
+        k = parent_key(here)
+    }
+    return true
+}
+
+// [args-groups] For a required option of group `key` that is missing: the
+// option given in its innermost conditional group, which is what requires
+// it, when that group is used and every group around it counts.
+fn unmet_group<T>(spec: Spec<T>, hits: List<Hit>, key: Str?) [] -> Str? => spec, hits, key {
+    let k: Str? = copy(key)
+    while k !is None {
+        let here = copy(k)
+        for g in spec.groups {
+            if g.key == here && (g.kind == "together" || g.kind == "arm") {
+                let why = given_in(spec, hits, here)
+                if why !is None && live(spec, hits, parent_key(here)) {
+                    return why
+                }
+                return None
+            }
+        }
+        k = parent_key(here)
+    }
+    return None
 }
 
 // The option spelled `--name`.
@@ -413,8 +632,11 @@ export fn usage<T>(spec: Spec<T>) [] -> Str => spec {
     if !is_empty(spec.opts) {
         append(out, " [OPTIONS]")
     }
+    let none: List<Hit> = List<Hit>()
     for o in spec.opts {
-        if o.required {
+        // [args-groups] An option a group requires is not required of the
+        // command.
+        if o.required && live(spec, none, o.group) {
             append(out, " ${long_name(o.field)} <${value_name(o.field)}>")
         }
     }
@@ -447,6 +669,17 @@ export fn help_text<T>(spec: Spec<T>) [] -> Str => spec {
         add(rights, copy(a.help ?: ""))
     }
     let nargs = size(lefts)
+    // [args-groups] Each option under its section: the command's own under
+    // `Options:`, a group's with a heading under it, in field order.
+    let sections: Mut List<Str> = Mut List<Str>()
+    let section_of: Mut List<Str> = Mut List<Str>()
+    for o in spec.opts {
+        let heading = section(spec, o.group)
+        if heading != "" && !contains(sections, heading) {
+            add(sections, copy(heading))
+        }
+        add(section_of, heading)
+    }
     for o in spec.opts {
         let left: Mut Str = Mut Str(if o.short is None { "    " } else { "-${o.short}, " })
         append(left, long_name(o.field))
@@ -471,23 +704,75 @@ export fn help_text<T>(spec: Spec<T>) [] -> Str => spec {
             width = size(l)
         }
     }
-    let row = 0
-    for l in lefts {
-        if row == 0 && nargs > 0 {
-            append(out, "\nArguments:\n")
+    let help_row = size(lefts) - 1
+    let rows: Mut List<Int> = Mut List<Int>()
+    if nargs > 0 {
+        append(out, "\nArguments:\n")
+        let i: Int = 0
+        while i < nargs {
+            add(rows, i + 0)
+            i = i + 1
         }
-        if row == nargs {
-            append(out, "\nOptions:\n")
+        help_rows(out, lefts, rights, rows, width)
+    }
+    let mine: Mut List<Int> = Mut List<Int>()
+    let k = 0
+    for s in section_of {
+        if s == "" {
+            add(mine, nargs + k)
         }
-        let r = get(rights, row)!
+        k = k + 1
+    }
+    add(mine, help_row)
+    append(out, "\nOptions:\n")
+    help_rows(out, lefts, rights, mine, width)
+    for heading in sections {
+        let these: Mut List<Int> = Mut List<Int>()
+        let j = 0
+        for s in section_of {
+            if s == heading {
+                add(these, nargs + j)
+            }
+            j = j + 1
+        }
+        append(out, "\n${heading}:\n")
+        help_rows(out, lefts, rights, these, width)
+    }
+    return out
+}
+
+// The rows `rows` of help's two columns, the left padded to `width`.
+fn help_rows(out: Mut Str, lefts: List<Str>, rights: List<Str>, rows: List<Int>, width: Int) [] -> None => out: Mut, lefts, rights, rows {
+    for i in rows {
+        let l = get(lefts, i)!
+        let r = get(rights, i)!
         if is_empty(r) {
             append(out, "  ${l}\n")
         } else {
             append(out, "  ${l}${repeat(" ", width - size(l))}  ${r}\n")
         }
-        row = row + 1
     }
-    return out
+}
+
+// [args-groups] The heading an option's group is shown under: its
+// outermost group's doc comment, its last `.` dropped, or `""` for the
+// command's own options.
+fn section<T>(spec: Spec<T>, group: Str?) [] -> Str => spec, group {
+    if group is None {
+        return ""
+    }
+    let top = copy(group)
+    let cut = split_once(top, "/")
+    if cut !is None {
+        let (head, _) = cut
+        top = head
+    }
+    for g in spec.groups {
+        if g.key == top && g.heading !is None {
+            return trim_suffix(copy(g.heading), ".")
+        }
+    }
+    return ""
 }
 
 // ===== the derive =====
@@ -596,7 +881,14 @@ export fn args_or_exit<T>(args: List<Str>, ?FromArgs<T>) [Console, Process] -> T
 // one, and a positional after one that takes every word.
 fn check_spec<T>(spec: Spec<T>) [] -> None => spec {
     let shorts: Mut List<Char> = Mut List<Char>()
+    let fields: Mut List<Str> = Mut List<Str>()
     for o in spec.opts {
+        // [args-groups] A flattened group's options are the command's own,
+        // unprefixed, so one name twice is a clash.
+        if contains(fields, o.field) {
+            unreachable!("two options of `${spec.name}` are spelled `${long_name(o.field)}`")
+        }
+        add(fields, copy(o.field))
         if o.field == "help" {
             unreachable!("`--help` is the parser's own: name the field of `${spec.name}` something else")
         }
@@ -611,6 +903,23 @@ fn check_spec<T>(spec: Spec<T>) [] -> None => spec {
             add(shorts, s)
         }
     }
+    // [args-groups] An exclusive arm is chosen by its options, so one whose
+    // options are all optional is chosen by nothing when none is given.
+    for g in spec.groups {
+        if g.kind == "arm" {
+            let count = 0
+            let required = false
+            for o in spec.opts {
+                if in_group(o.group, g.key) {
+                    count = count + 1
+                    required = required || o.required
+                }
+            }
+            if count > 0 && !required && !(count == 1 && !opt_takes_value(spec, g.key)) {
+                unreachable!("every option of `${g.key}` is optional, so nothing chooses that arm: make one required")
+            }
+        }
+    }
     let optional = false
     let many = false
     for a in spec.args {
@@ -623,6 +932,17 @@ fn check_spec<T>(spec: Spec<T>) [] -> None => spec {
         optional = optional || !a.required
         many = a.many
     }
+}
+
+// Whether the one option of group `key` takes a value: an empty arm's
+// switch does not.
+fn opt_takes_value<T>(spec: Spec<T>, key: Str) [] -> Bool => spec, key {
+    for o in spec.opts {
+        if in_group(o.group, key) {
+            return o.takes_value
+        }
+    }
+    return true
 }
 
 // [args-derive] Runs `f`: a block in a place that takes an expression, which
@@ -700,94 +1020,208 @@ export fn shown_name(field: Str, positional: Bool) [] -> Str => field {
     return long_name(field)
 }
 
+// [args-derive] The text of a literal arm's name: `json` for `"json"`.
+export fn literal_text(name: Str) [] -> Str => name {
+    return trim_suffix(trim_prefix(name, "\""), "\"")
+}
+
+// [args-groups] A group's value from its own `from_found`, adding the
+// errors it found beyond the scan's (the first `skip`, which the caller
+// already has).
+export fn group_errors<C>(errors: Mut List<ArgError>, r: Ok C | Errs NonEmpty List<ArgError>, skip: Int) [] -> None
+=> errors: Mut, !r {
+    if r is Errs {
+        let i = 0
+        for e in r {
+            if i >= skip {
+                add(errors, copy(e))
+            }
+            i = i + 1
+        }
+    }
+}
+
+// [args-groups] A group's value, once every check has passed.
+export fn built<C>(r: Ok C | Errs NonEmpty List<ArgError>) [] -> C => !r {
+    when r {
+        is Ok { return r }
+        is Errs { unreachable!("a group failed after its checks passed") }
+    }
+}
+
 // [args-derive] `T`'s command line, from its fields: one option or
-// positional per field, as [args-derive]'s mapping says.
+// positional per field, as [args-derive]'s mapping says, and a group's
+// options for a struct-typed field [args-groups].
 export comptime fn arg_spec<T is Struct>() [] -> Spec<T> {
     let opts: Mut List<OptSpec> = Mut List<OptSpec>()
     let args: Mut List<ArgSpec> = Mut List<ArgSpec>()
+    let groups: Mut List<GroupSpec> = Mut List<GroupSpec>()
     [for field in T.fields] {
-        [if field.kind is Struct] {
-            refuse!("a struct-typed field is a group of options, which `args` does not take yet")
-        }
-        let required = false
-        let many = false
-        let switch = false
-        let default_text: Str? = None
-        let choices: Mut List<Str> = Mut List<Str>()
-        [if field.type is Bool] {
-            switch = true
+        [if field.type is <S> S? && S.kind is Struct] {
+            [if field is Positional] {
+                refuse!("a positional takes words, and a group of options does not")
+            }
+            // All or none.
+            let child: Spec<S> = arg_spec()
+            merge_group(opts, groups, child, field.name, "together", field.docs)
         } else {
-            [if field.type is List<*>] {
-                many = true
-                [if field.type is NonEmpty List<*>] {
-                    required = true
-                }
+        [if field.kind is Struct] {
+            [if field is Positional] {
+                refuse!("a positional takes words, and a group of options does not")
+            }
+            // A flattened group: the struct's options, as this command's.
+            let child: Spec<[field.type]> = arg_spec()
+            merge_group(opts, groups, child, field.name, "flat", field.docs)
+        } else {
+            let required = false
+            let many = false
+            let switch = false
+            let default_text: Str? = None
+            let choices: Mut List<Str> = Mut List<Str>()
+            let exclusive = false
+            [if field.type is Bool] {
+                switch = true
             } else {
-                [if field.type is <E> E?] {
-                    [if E.kind is Union] {
-                        [for lit in E.literals] {
-                            add(choices, lit.name)
-                        }
+                [if field.type is List<*>] {
+                    many = true
+                    [if field.type is NonEmpty List<*>] {
+                        required = true
                     }
                 } else {
                     [if field.default is None] {
-                        required = true
+                        [if field.type is *?] {} else {
+                            required = true
+                        }
                     } else {
-                        default_text = "${field.default}"
+                        [if field.type is *?] {} else {
+                            default_text = "${field.default}"
+                        }
                     }
-                    [if field.kind is Union] {
-                        [for lit in field.type.literals] {
-                            add(choices, lit.name)
+                    // A union: its literals are choices, its struct arms an
+                    // exclusive group of options.
+                    [if field.type is <E> E?] {
+                        [if E.kind is Union] {
+                            [for arm in field.type.arms] {
+                                [if arm.kind is Struct] {
+                                    let child: Spec<[arm.type]> = arg_spec()
+                                    merge_group(opts, groups, child, "${field.name}/${arm.name}", "arm", None)
+                                    exclusive = true
+                                } else {
+                                    [if arm.type is None] {} else {
+                                        add(choices, literal_text(arm.name))
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        [if field.kind is Union] {
+                            [for arm in field.type.arms] {
+                                [if arm.kind is Struct] {
+                                    let child: Spec<[arm.type]> = arg_spec()
+                                    merge_group(opts, groups, child, "${field.name}/${arm.name}", "arm", None)
+                                    exclusive = true
+                                } else {
+                                    [if arm.type is None] {} else {
+                                        add(choices, literal_text(arm.name))
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
-        let short: Char? = None
-        [if field is <c> Short(c)] {
-            short = c
-        }
-        let opt = OptSpec {
-            field: field.name,
-            short: short,
-            takes_value: !switch,
-            repeats: many,
-            required: required,
-            help: field.docs,
-            default_text: default_text,
-            choices: choices
-        }
-        [if field is Positional] {
-            [if field is Short] {
-                refuse!("a positional has no short name")
+            if exclusive {
+                add_one(groups, field.name, required, field.docs)
             }
-            [if field.type is Bool] {
-                refuse!("a positional takes a word, and a `Bool` is a switch")
+            let short: Char? = None
+            [if field is <c> Short(c)] {
+                short = c
             }
-            add(args, ArgSpec { field: copy(opt.field), help: copy(opt.help), required: opt.required, many: opt.repeats })
-        } else {
-            add(opts, opt)
+            let opt = OptSpec {
+                field: field.name,
+                short: short,
+                takes_value: !switch,
+                repeats: many,
+                required: required && !exclusive,
+                help: field.docs,
+                default_text: default_text,
+                choices: choices
+            }
+            [if field is Positional] {
+                [if field is Short] {
+                    refuse!("a positional has no short name")
+                }
+                [if field.type is Bool] {
+                    refuse!("a positional takes a word, and a `Bool` is a switch")
+                }
+                if exclusive {
+                    unreachable!("positional `${field.name}` is a choice of option groups")
+                }
+                add(args, ArgSpec { field: copy(opt.field), help: copy(opt.help), required: opt.required, many: opt.repeats })
+            } else {
+                // An exclusive group is chosen by its arms' options, and has
+                // none of its own unless it mixes in literals.
+                if !exclusive || !is_empty(opt.choices) {
+                    add(opts, opt)
+                }
+            }
+        }
         }
     }
     let name = command_name(T.name)
     [if T is <n> Named(n)] {
         name = n
     }
-    return Spec<T> { name: name, about: T.docs, opts: opts, args: args }
+    return Spec<T> { name: name, about: T.docs, opts: opts, args: args, groups: groups }
 }
 
 // [args-derive] `T` from a scan: first every value checked against its
 // field's type (each failure an error, after the scan's own), then, when
-// there are none, `T` built from the values and the defaults.
+// there are none, `T` built from the values and the defaults. A group's
+// value comes from its own struct's `from_found` [args-groups].
 export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEmpty List<ArgError> => found {
     let errors: Mut List<ArgError> = Mut List<ArgError>()
     for e in found.errors {
         add(errors, copy(e))
     }
     [for field in T.fields] {
-        // A switch has no value, and a literal union's was checked by the
-        // scan against its choices.
-        [if field.type is Bool || field.kind is Union && field.type !is *?] {} else {
+        [if field.type is <S> S? && S.kind is Struct] {
+            let s: Spec<S> = arg_spec()
+            if any_given(found, s) {
+                let r: Ok S | Errs NonEmpty List<ArgError> = from_found(found)
+                group_errors(errors, r, size(found.errors))
+            }
+        } else {
+        [if field.kind is Struct] {
+            let r: Ok [field.type] | Errs NonEmpty List<ArgError> = from_found(found)
+            group_errors(errors, r, size(found.errors))
+        } else {
+        [if field.type is <E> E? && E.kind is Union] {
+            // A literal's value was checked by the scan, against its choices.
+            [for arm in field.type.arms] {
+                [if arm.kind is Struct] {
+                    let s: Spec<[arm.type]> = arg_spec()
+                    if any_given(found, s) {
+                        let r: Ok [arm.type] | Errs NonEmpty List<ArgError> = from_found(found)
+                        group_errors(errors, r, size(found.errors))
+                    }
+                }
+            }
+        } else {
+        [if field.kind is Union && field.type !is *?] {
+            // A literal's value was checked by the scan, against its choices.
+            [for arm in field.type.arms] {
+                [if arm.kind is Struct] {
+                    let s: Spec<[arm.type]> = arg_spec()
+                    if any_given(found, s) {
+                        let r: Ok [arm.type] | Errs NonEmpty List<ArgError> = from_found(found)
+                        group_errors(errors, r, size(found.errors))
+                    }
+                }
+            }
+        } else {
+        // A switch has no value to check.
+        [if field.type is Bool] {} else {
             let positional = false
             [if field is Positional] {
                 positional = true
@@ -804,13 +1238,7 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                 check_value<E>(errors, found, field.name, shown, what, (_v: E) -> true)
             } else {
                 [if field.type is <E> E?] {
-                    // A literal's value was checked by the scan, against
-                    // its choices, and every word is a `Str`.
-                    [if E.kind is Union] {
-                        check_value<Str>(errors, found, field.name, shown, what, (_v: Str) -> true)
-                    } else {
-                        check_value<E>(errors, found, field.name, shown, what, (_v: E) -> true)
-                    }
+                    check_value<E>(errors, found, field.name, shown, what, (_v: E) -> true)
                 } else {
                     [if field.type is Str] {
                         check_value<Str>(errors, found, field.name, shown, what, (v: Str) -> v is [field.type])
@@ -832,6 +1260,10 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                 }
             }
         }
+        }
+        }
+        }
+        }
     }
     if errors is NonEmpty {
         return Errs(errors)
@@ -839,6 +1271,76 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
     return Ok(T {
         [for field in T.fields] {
             [field]: eval<[field.type]>(() -> {
+                [if field.type is <S> S? && S.kind is Struct] {
+                    let s: Spec<S> = arg_spec()
+                    if any_given(found, s) {
+                        return built<S>(from_found(found))
+                    }
+                    return None
+                } else {
+                [if field.kind is Struct] {
+                    return built<[field.type]>(from_found(found))
+                } else {
+                [if field.type is <E> E? && E.kind is Union] {
+                    // The arm whose options were given, or the literal the value names.
+                    [for arm in field.type.arms] {
+                        [if arm.kind is Struct] {
+                            let s: Spec<[arm.type]> = arg_spec()
+                            if any_given(found, s) {
+                                return built<[arm.type]>(from_found(found))
+                            }
+                        }
+                    }
+                    let v = value_of(found, field.name)
+                    if v !is None {
+                        [for arm in field.type.arms] {
+                            [if arm.kind is Struct || arm.type is None] {} else {
+                                if v is [arm.type] {
+                                    return v
+                                }
+                            }
+                        }
+                    }
+                    [if field.default is None] {
+                        [if field.type is *?] {
+                            return None
+                        } else {
+                            unreachable!("`${field.name}` was checked as required")
+                        }
+                    } else {
+                        return field.default
+                    }
+                } else {
+                [if field.kind is Union && field.type !is *?] {
+                    // The arm whose options were given, or the literal the value names.
+                    [for arm in field.type.arms] {
+                        [if arm.kind is Struct] {
+                            let s: Spec<[arm.type]> = arg_spec()
+                            if any_given(found, s) {
+                                return built<[arm.type]>(from_found(found))
+                            }
+                        }
+                    }
+                    let v = value_of(found, field.name)
+                    if v !is None {
+                        [for arm in field.type.arms] {
+                            [if arm.kind is Struct || arm.type is None] {} else {
+                                if v is [arm.type] {
+                                    return v
+                                }
+                            }
+                        }
+                    }
+                    [if field.default is None] {
+                        [if field.type is *?] {
+                            return None
+                        } else {
+                            unreachable!("`${field.name}` was checked as required")
+                        }
+                    } else {
+                        return field.default
+                    }
+                } else {
                 [if field.type is Bool] {
                     [if field.default is None] {
                         return given(found, field.name)
@@ -854,21 +1356,6 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                     unreachable!("`${field.name}` was checked as required")
                 } else {
                 [if field.type is <E> E?] {
-                    [if E.kind is Union] {
-                        let s = value_of(found, field.name)
-                        if s !is None {
-                            [for lit in E.literals] {
-                                if s == lit.value {
-                                    return lit.value
-                                }
-                            }
-                        }
-                        [if field.default is None] {
-                            return None
-                        } else {
-                            return field.default
-                        }
-                    } else {
                     [if field.default is None] {
                         return read_optional<E>(found, field.name)
                     } else {
@@ -876,22 +1363,6 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                         if v !is None {
                             return v
                         }
-                        return field.default
-                    }
-                    }
-                } else {
-                [if field.kind is Union] {
-                    let s = value_of(found, field.name)
-                    if s !is None {
-                        [for lit in field.type.literals] {
-                            if s == lit.value {
-                                return lit.value
-                            }
-                        }
-                    }
-                    [if field.default is None] {
-                        unreachable!("`${field.name}` was checked")
-                    } else {
                         return field.default
                     }
                 } else {
@@ -908,6 +1379,9 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                     return read_value<Double, [field.type]>(found, field.name, field.default, (v: Double) -> if v is [field.type] { v } else { None })
                 } else {
                     return read_value<[field.type], [field.type]>(found, field.name, field.default, (v: [field.type]) -> v)
+                }
+                }
+                }
                 }
                 }
                 }

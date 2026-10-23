@@ -1156,6 +1156,161 @@ fn main() [use] -> None {
     __stamp.verified();
 }
 
+/// [args-groups] Groups of options, each a struct with its own `FromArgs`:
+/// flattened (`net: Net`, its options the command's own, under a heading),
+/// all-or-none (`tls: Tls?`: `--cert` requires `--key`), and exclusive
+/// (`source: FromUrl | FromFile | FromStdin`: chosen by which arm's options
+/// appear, an empty arm by a switch named after it, one required), on both
+/// backends; and a clash between a group's option and the command's is
+/// refused as the parser starts.
+#[test]
+fn derived_option_groups_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("derived_option_groups_run_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    const SRC: &str = r#"import args
+
+// Network options.
+struct Net : FromArgs<self> by args {
+    // Address to bind.
+    host: Str = "127.0.0.1"
+    Short('p') port: Int = 8080
+}
+
+// TLS. Give both or neither.
+struct Tls : FromArgs<self> by args {
+    // Certificate file.
+    cert: Str
+    // Private key file.
+    key: Str
+    ca: Str?
+}
+
+struct FromUrl : FromArgs<self> by args {
+    url: Str
+    timeout: Int = 30
+}
+
+struct FromFile : FromArgs<self> by args {
+    file: Str
+}
+
+// Read standard input.
+struct FromStdin : FromArgs<self> by args {}
+
+// Fetch something.
+struct Fetch : FromArgs<self> by args {
+    net: Net
+    tls: Tls?
+    // Where to read.
+    source: FromUrl | FromFile | FromStdin
+    output: "json" | "text" = "text"
+}
+
+fn show(args: List<Str>) [Console] -> None => args {
+    let r: Ok Fetch | Errs NonEmpty List<ArgError> = parse_args(args)
+    when r {
+        is Ok {
+            let src = r.source
+            let s = when src {
+                is FromUrl { "url ${src.url} ${src.timeout}" }
+                is FromFile { "file ${src.file}" }
+                is FromStdin { "stdin" }
+            }
+            let t = r.tls
+            let tls = if t is None { "-" } else { "${t.cert}+${t.key}+${t.ca ?: "-"}" }
+            println("ok ${r.net.host}:${r.net.port} ${tls} ${s} ${r.output}")
+        }
+        is Errs {
+            for e in r {
+                let one = copy(e)
+                if one is HelpRequested {
+                    print(one.text)
+                } else {
+                    println("error: ${message(one)}")
+                }
+            }
+        }
+    }
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    show(List("--url", "http://x"))
+    show(List("-p", "9", "--cert", "c", "--key", "k", "--file", "f", "--output", "json"))
+    show(List("--from-stdin", "--timeout", "5"))
+    show(List("--cert", "c", "--url", "u", "--file", "f"))
+    show(List("--host", "h"))
+    show(List("--help"))
+}
+"#;
+    const EXPECTED: &str = r#"ok 127.0.0.1:8080 - url http://x 30 text
+ok 127.0.0.1:9 c+k+- file f json
+error: '--timeout' requires '--url'
+error: '--from-stdin' cannot be used with '--timeout'
+error: '--cert' requires '--key'
+error: '--file' cannot be used with '--url'
+error: one of '--url', '--file', '--from-stdin' is required
+Fetch something.
+
+Usage: fetch [OPTIONS]
+
+Options:
+      --output <OUTPUT>    [possible values: json, text] [default: text]
+  -h, --help               Print help
+
+Network options:
+      --host <HOST>        Address to bind. [default: 127.0.0.1]
+  -p, --port <PORT>        [default: 8080]
+
+TLS. Give both or neither:
+      --cert <CERT>        Certificate file.
+      --key <KEY>          Private key file.
+      --ca <CA>
+
+Where to read:
+      --url <URL>
+      --timeout <TIMEOUT>  [default: 30]
+      --file <FILE>
+      --from-stdin         Read standard input.
+"#;
+    const CLASH: &str = r#"import args
+
+struct Net : FromArgs<self> by args {
+    host: Str = "a"
+}
+
+struct Cli : FromArgs<self> by args {
+    net: Net
+    host: Str = "b"
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let r: Ok Cli | Errs NonEmpty List<ArgError> = parse_args(List<Str>())
+    println("parsed ${r is Ok}")
+}
+"#;
+    let dir = work_dir("option_groups");
+    fs::write(dir.join("main.sv"), SRC).unwrap();
+    let clash = work_dir("option_group_clash");
+    fs::write(clash.join("main.sv"), CLASH).unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), EXPECTED, "{backend}");
+        let out = salvo_in(&clash, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(!out.status.success(), "{backend}: a clash should trap");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("two options of `cli` are spelled `--host`"), "{backend}: {stderr}");
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

@@ -938,6 +938,29 @@ reproduced in a scratch project; the repros are below.
     helpers private and cannot change what a site's own names mean. Until
     decided, (a).
 
+11. **Rust: a local initialised from a borrowed optional parameter stays a
+    borrow.** Found 2026-10-20 (2.3). `fn walk(key: Str?) [] -> Int => key {
+    let k = key; while k !is None { let here = copy(k); k = up(here) } … }`
+    with `fn up(s: Str) [] -> Str?`: the local is `Option<&String>`, and
+    assigning `up(…)`'s `Option<String>` is E0308. `let k: Str? = copy(key)`
+    compiles; `args`' `live` and `unmet_group` say that.
+
+12. **An `Int` passed to a consuming parameter is moved.** Found 2026-10-20
+    (2.3). `let x: Int = 1`, `add(rows, x)` with `rows: Mut List<Int>`, then
+    `println("${x}")`: "`x` … was consumed (moved) by an earlier call". The
+    deduction docs say Copy scalars are exempt (a move of one is free), and
+    the same loop `while i < n { add(rows, i); i = i + 1 }` is refused.
+    Pre-existing (reproduced with 2.2's unification change reverted).
+    `args`' help writes `add(rows, i + 0)`.
+
+13. **A literal `is` on an un-narrowed `Str?` is refused.** Found
+    2026-10-20 (2.3). `fn pick(s: Str?) … { if s is "json" { return s } }`:
+    "this check can never succeed". After `if s !is None` the same test
+    works (fixed in 2.3: it recorded no runtime test). The narrowing math
+    matches the literal against the arms (`Str`, `None`) and finds none; it
+    should match the `Str` arm, with the value condition the test already
+    records.
+
 ### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 
 Both defects of the 2026-09-25 round are closed — a bare generic struct literal

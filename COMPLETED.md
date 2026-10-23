@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1997 tests, complete: the toolchain tests are
+cargo test                  # 1999 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Groups of options: flattened, all-or-none, exclusive
+
+Phase 2.3 (ARG_PARSE.md §10.3, Q15, D-5, D-6; no new decision).
+[args-groups]: a struct-typed field is a group, and its struct declares
+`FromArgs` too, since the parent's derive calls its `arg_spec()` (merged
+into the parent's spec under a key: `tls`, `source/FromUrl`) and its
+`from_found` (its errors past the scan's added, its value taken once all
+checks pass). `net: Net` flattens (a clash trapped), `tls: Tls?` is all or
+none (`'--cert' requires '--key'`), `source: A | B | C` exactly one arm by
+which options appear (`Conflict`, `MissingOne`; an empty arm is a switch).
+Help shows a group's options under its heading; usage lists only the
+command's own required options. The derive's union handling now walks
+`field.type.arms` for literal and struct arms alike, so `.literals` is no
+longer needed there.
+
+Fixed on the way, in general:
+- [comptime-pattern] A binder from `&&`'s left side is in scope on its
+  right (`<S> S? && S.kind is Struct` read an unbound `S`), and a failed
+  left side decides the test.
+- [comptime-is-splice] A literal arm splices into `is` (`v is [arm.type]`).
+- [is-union] [type-literal] `v is "json"` on a `Str?` narrowed to `Str`
+  recorded no runtime test, emitted `if (())` (Kotlin) and `matches!(v, )`
+  (Rust); it is now the `Str` arm holding that value.
+Recorded, not fixed (ROADMAP §2d items 11–13): a Rust local copied from a
+borrowed optional parameter stays a borrow; an `Int` passed to `add` is
+moved; a literal `is` on an un-narrowed `Str?` is refused.
+
+Tests: comptime_tests `a_binder_is_in_scope_on_the_right_of_and`; CLI run
+`derived_option_groups_run_on_both_backends` (all three kinds, errors, help
+sections, and a clash trapped).
 
 ### 2026-10-20 — `FromArgs<self> by args`: a struct derives its command line
 
@@ -27370,7 +27401,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1997 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1999 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

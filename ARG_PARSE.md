@@ -126,7 +126,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Phase 2: `std/args`**
 - [x] 2.1 Lexer, `ArgError`, internal runtime layer (§4.0, Q12, Q17, Q18).
 - [x] 2.2 The derive: flags, defaults, `Short`, `Positional`, help (§10.1).
-- [ ] 2.3 Groups: flattened, co-occurring, exclusive (§10.3, Q15).
+- [x] 2.3 Groups: flattened, co-occurring, exclusive (§10.3, Q15).
 - [ ] 2.4 Sub-commands (§10.2, Q14).
 - [ ] 2.5 Validation hook and qualifier re-testing (§5.2, Q16).
 - [ ] 2.6 An example in `examples/`, the docs page, and retiring this
@@ -135,6 +135,18 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 2.3 done ("Add option groups to the args derive"):
+  [args-groups]; 1999 tests. Not built (recorded in ROADMAP at 2.6):
+  provenance-tagged scalar arms (`FromUrl Str | FromFile Str`), prefixed
+  groups, a valued selector. Next: 2.4 (sub-commands). Plan: a field marked
+  with a new comptime qualifier `Subcommand of Field` (§10.2; Q13 names it),
+  whose type is a union of command structs, each `FromArgs`; `scan` stops at
+  the first word when the spec has commands (`Spec.commands`, names by
+  `command_name`/`Named`), keeping the rest as raw args in `Found` (a new
+  `rest: List<Str>` and `command: Str?`); the parent's `from_found` picks the
+  arm by name and calls its `parse_args`-like path on `rest` (help nested:
+  `git clone --help`). Refuse a `Subcommand` beside `Positional` fields and
+  two of them.
 - 2026-10-20: 2.2 done ("Derive a command-line parser from a struct"):
   [args-derive], [comptime-is-splice]; 1997 tests; docs page
   Command-Line.md. Fixed: `X?` patterns on 3+-arm unions, lambda params in

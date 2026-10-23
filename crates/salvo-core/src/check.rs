@@ -27628,6 +27628,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 values: Vec::new(),
             });
         }
+        // [type-literal] [is-union] `v is "json"` on a `Str?` (or any union
+        // with a `Str` arm) is that arm holding that value. It found no arm
+        // before (a literal is not a `Str`), and the empty test was emitted as
+        // `if (())` on Kotlin and `matches!(v, )` on Rust.
+        if let (Some(Ty::Lit(lit)), true) = (&pat.base, pat.quals.is_empty()) {
+            let at = value_arms.iter().position(|a| matches!(a.strip_quals(), Ty::Named { name, args } if args.is_empty() && name == lit.base()));
+            if let Some(i) = at {
+                return Some(UnionTest { size, arms: vec![i], nullable, match_none: false, values: vec![(i, false, vec![lit.clone()])] });
+            }
+        }
         let arms: Vec<usize> = value_arms
             .iter()
             .enumerate()

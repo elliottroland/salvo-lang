@@ -433,7 +433,9 @@ A binder is the part as written, qualifiers and all; it has a `.kind` like a
 field (`[if E.kind is Union]`), and it is in scope only in
 the branch the test guards — under `||` or `!` the test proves nothing about
 the branch, so a binder there is an error. Writing the same binder twice
-constrains: `<K> Pair<K, K>` matches only a pair of one type. Matching ignores
+constrains: `<K> Pair<K, K>` matches only a pair of one type. On the right
+of `&&` a binder from its left is in scope: `[if field.type is <S> S? &&
+S.kind is Struct]`. Matching ignores
 the type's qualifiers (a `List<Int> canbe Mut` field is a `List<*>`) unless
 the pattern writes some, and a union matches arm by arm, in order.
 

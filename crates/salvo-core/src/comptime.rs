@@ -2792,9 +2792,30 @@ impl<'w> Expander<'w> {
             // [comptime-logic] Both sides are always evaluated: a misspelled
             // name on the side that would short-circuit away is still a
             // mistake, and is still reported.
+            // [comptime-pattern] What the left side bound is in scope on the
+            // right: `field.type is <S> S? && S.kind is Struct`.
             CompCond::And(a, b, _) => {
+                let before = binds.len();
                 let x = self.eval_cond(a, binds, can_bind);
+                // A failed test bound nothing, so the right side cannot read
+                // what it would have bound: decided here.
+                if x == Some(false) && cond_binds(a) {
+                    return Some(false);
+                }
+                let base = self.type_binders.len();
+                if x == Some(true) {
+                    for (id, ty) in &binds[before..] {
+                        self.type_binders.push((id.name.clone(), ty.clone(), id.span, 0));
+                    }
+                }
                 let y = self.eval_cond(b, binds, can_bind);
+                let lent: Vec<(String, Type, Span, usize)> = self.type_binders.drain(base..).collect();
+                for (name, _, span, uses) in lent {
+                    if uses > 0 {
+                        let written = self.unmap(span);
+                        self.binder_used.entry((written.start, name)).or_insert((written, false)).1 = true;
+                    }
+                }
                 Some(x? && y?)
             }
             CompCond::Or(a, b, _) => {
@@ -3784,6 +3805,15 @@ fn arm_name(arm: &Type) -> String {
     }
 }
 
+/// [comptime-pattern] Whether a condition declares a pattern binder.
+fn cond_binds(c: &CompCond) -> bool {
+    match c {
+        CompCond::Is { binders, .. } => binders.iter().any(|b| !b.name.starts_with(|c: char| c.is_lowercase())),
+        CompCond::And(a, b, _) => cond_binds(a) || cond_binds(b),
+        _ => false,
+    }
+}
+
 /// The `is` check that selects an arm: its qualifiers then its base.
 fn arm_check(arm: &Type) -> Option<Vec<TypeRef>> {
     match arm {
@@ -3792,6 +3822,8 @@ fn arm_check(arm: &Type) -> Option<Vec<TypeRef>> {
             out.push(base.clone());
             Some(out)
         }
+        // [comptime-is-splice] A literal arm tests the value: `v is "json"`.
+        Type::Literal { value, span } => Some(vec![value.as_type_ref(*span)]),
         _ => None,
     }
 }

@@ -83,6 +83,57 @@ Three comptime qualifiers say what the type cannot:
 - `Named("rm")` before a struct names the command; otherwise it is named
   after the struct, `Serve` as `serve`.
 
+## Groups of options
+
+A field whose type is a struct is a group of that struct's options. The
+struct says `: FromArgs<self> by args` too, and its doc comment, or the
+field's, is the group's heading in help.
+
+```
+// Network options.
+struct Net : FromArgs<self> by args {
+    host: Str = "127.0.0.1"
+    Short('p') port: Int = 8080
+}
+
+struct Tls : FromArgs<self> by args {
+    cert: Str
+    key: Str
+}
+
+struct FromUrl : FromArgs<self> by args {
+    url: Str
+    timeout: Int = 30
+}
+
+struct FromFile : FromArgs<self> by args {
+    file: Str
+}
+
+// Read standard input.
+struct FromStdin : FromArgs<self> by args {}
+
+struct Fetch : FromArgs<self> by args {
+    net: Net
+    // TLS. Give both or neither.
+    tls: Tls?
+    // Where to read.
+    source: FromUrl | FromFile | FromStdin
+}
+```
+
+- `net: Net` is **flattened**: `--host` and `--port` are `fetch`'s own
+  options. A name that both `Net` and `Fetch` use is an error.
+- `tls: Tls?` is **all or none**: `None` when neither `--cert` nor `--key`
+  is given, and `--cert` alone is an error, `'--cert' requires '--key'`.
+- `source: FromUrl | FromFile | FromStdin` is **exactly one** of its arms,
+  chosen by whose options appear: `--url` picks `FromUrl`, after which
+  `--timeout` is allowed and `--file` is an error. An arm with no fields is a
+  switch named after it, `--from-stdin`. With no `None` in the union one arm
+  is required: `one of '--url', '--file', '--from-stdin' is required`.
+
+Groups nest: an exclusive arm may hold an all-or-none group, and so on.
+
 ## The conventions
 
 - `--port 80` and `--port=80`; `-p 80` and `-p80`.
@@ -121,8 +172,9 @@ let r: Ok Serve | Errs NonEmpty List<ArgError> = parse_args(List("-p", "0", "a.t
 ## What is checked where
 
 A mistake the derive can see is reported where the struct says `by args`: a
-struct-typed field (option groups are not built yet), `Short` on a
-positional, a `Bool` positional. The rest is checked as the parser starts,
-so the first run of the program fails rather than a user's: two options with
-one short name, `Short('h')`, a field named `help`, a required positional
-after an optional one, a positional after one that takes every word.
+positional group, `Short` on a positional, a `Bool` positional. The rest is
+checked as the parser starts, so the first run of the program fails rather
+than a user's: two options with one name (a group's and the command's) or
+one short name, `Short('h')`, a field named `help`, an exclusive arm whose
+options are all optional, a required positional after an optional one, a
+positional after one that takes every word.

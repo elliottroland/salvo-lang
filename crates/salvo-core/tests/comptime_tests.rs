@@ -605,6 +605,21 @@ fn an_optional_pattern_matches_an_optional_literal_union() {
     assert_eq!(refused(src), ["one:n", "union:both", "union:level"]);
 }
 
+/// [comptime-pattern] What the left side of `&&` bound is in scope on the
+/// right (`<S> S? && S.kind is Struct`), and a left side that fails decides
+/// the test without reading the binder it did not bind.
+#[test]
+fn a_binder_is_in_scope_on_the_right_of_and() {
+    let src = "struct A { x: Int }\nstruct S {\n    a: A?,\n    n: Int?,\n    m: Int\n}\n\n\
+               comptime fn pick(s: S) [] -> Int => s {\n    \
+               [for f in S.fields] {\n        \
+               [if f.type is <E> E? && E.kind is Struct] { refuse!(\"group:${f.name}\") }\n    \
+               }\n    return 0\n}\n";
+    assert_eq!(refused(src), ["group:a"]);
+    let warns = warnings(src);
+    assert!(warns.is_empty(), "a binder read on the right is used: {warns:?}");
+}
+
 /// [comptime-pattern] Binders are declared before the pattern (`is <E>
 /// List<E>`) and bind the part they stand at, in the then-branch: usable as a
 /// type there, and as a root of further comptime tests.

@@ -2559,6 +2559,12 @@ Conventions:
     `true` for every string on both backends — silently wrong code
     [backend-never-wrong]. A literal of another base (`n is "json"` on an
     `Int`) can never succeed and is an error.
+  * **On a union whose representation has the literal's base arm** — a
+    `Str?` narrowed to `Str` by flow — the test is that arm holding that
+    value (fixed 2026-10-20: no arm matched, and the empty test emitted
+    `if (())` on Kotlin and `matches!(v, )` on Rust). The same test written
+    on the un-narrowed `Str?` is still refused as never succeeding (ROADMAP
+    §2d item 13).
   * A narrowed literal union of the same runtime shape as its declared type
     (a `Str` narrowed to `"json" | "text"`) is read as its literal type where
     a literal union is expected (`coerce_repr`).
@@ -5239,7 +5245,9 @@ Conventions:
     is Int]`, `[for f in E.fields]`). It is not in scope in the `else`.
   * **What a test proves holds only where the test did** [flow-or-not]: under
     `||` or `!` (including `!is`) a binder binds nothing, so declaring one
-    there is an error naming `*`; `&&` keeps what both sides bind.
+    there is an error naming `*`; `&&` keeps what both sides bind, and what
+    its left side bound is in scope on its right (`<S> S? && S.kind is
+    Struct`); a left side that fails decides the test without the right.
   * **A binder met twice constrains**: `<K> Pair<K, K>` matches only a pair
     of one type. A binder may not reuse the name of a type, a type parameter
     or an enclosing binder ([var-no-shadow]'s reason), and one no copy uses
@@ -5280,8 +5288,9 @@ Conventions:
   written): its qualifiers, then its base, spliced per copy as an arm's `is`
   check is written. So a value parsed as an `Int` is re-tested against the
   field's `InRange(1, 65535) Int` and narrowed to it, and against a plain
-  `Int` field the test is the trivial one. The binder's type must be a named
-  type, qualified or not: a union or optional is refused naming the type.
+  `Int` field the test is the trivial one. A literal arm's type tests the
+  value (`v is [arm.type]` is `v is "json"`). The binder's type must be a
+  named type or a literal: a union or optional is refused naming the type.
 * [comptime-access] **`v.[field]`** reads the field an enclosing `[for …]`
   is at (the binder in brackets), rewritten by the expansion to `v.name`;
   **`[field]: expr`** is the same entry in a struct literal, and `[for
@@ -7214,7 +7223,8 @@ can have one capability without the other.
   * `command_name("Remote.Add")` is `add`, `RemoteAdd` `remote-add`.
 * [args-errors] **`ArgError` is every way a command line fails**, and the
   request for help: `UnknownOption | MissingValue | Missing | Invalid |
-  Unexpected | Repeated | HelpRequested`. Help is an outcome, so parsing is
+  Unexpected | Repeated | Requires | Conflict | MissingOne | HelpRequested`
+  (the middle three for groups [args-groups]). Help is an outcome, so parsing is
   pure (Q17); `message(e)` is one line in the user's terms (`invalid value
   'xml' for '--output': expected one of json, text`).
 * [args-help] **`help_text(spec)`** is the about line, `usage(spec)`
@@ -7222,6 +7232,28 @@ can have one capability without the other.
   and `Options:` in two aligned columns, each row its doc comment, choices
   (`[possible values: json, text]`) and default (`[default: 8080]`), and
   `-h, --help` last.
+* [args-groups] **A struct-typed field is a group of options** (ARG_PARSE.md
+  §10.3, Q15), and the struct it holds declares `: FromArgs<self> by args`
+  too, since the parent's derive calls its `arg_spec()` and `from_found`:
+  * `net: Net` is **flattened**: `Net`'s options are the command's own,
+    unprefixed; a name both declare is trapped as the parser starts.
+  * `tls: Tls?` is **all or none**: `None` when none of `Tls`'s options was
+    given, otherwise its required ones are (`'--cert' requires '--key'`).
+  * `source: FromUrl | FromFile | FromStdin` is **exclusive**: the arm whose
+    options appear, `'--file' cannot be used with '--url'` for two, `one of
+    '--url', '--file', '--from-stdin' is required` for none unless the union
+    has `None`; an empty arm is a switch named after it (`--from-stdin`);
+    an arm whose options are all optional is trapped (nothing chooses it).
+  * Groups nest. `OptSpec.group` is the key (`tls`, `source/FromUrl`,
+    `outer/tls`) and `Spec.groups` lists them with their kind (`flat`,
+    `together`, `one`, `arm`); a group's required options are required only
+    once every all-or-none group and arm around them is used, and usage
+    lists only the command's own.
+  * Help shows a group's options under its heading (the field's doc comment,
+    or the struct's, without its last `.`), after the command's own.
+  * A group's `from_found` reads the same `Found`; its errors after the
+    scan's are added (`group_errors`), and its value taken once every check
+    passed (`built`).
 * [args-derive] **`struct S : FromArgs<self> by args` derives a parser**
   (ARG_PARSE.md §10.1, Q7, Q13): `params FromArgs<T> { fn arg_spec() ->
   Spec<T>; fn from_found(found: Found) -> Ok T | Errs NonEmpty
@@ -7248,8 +7280,8 @@ can have one capability without the other.
     then builds `T` with each entry `[field]: eval<[field.type]>(() -> {
     … })`, a block lambda being the statement context a struct-literal
     entry lacks.
-  * **Refused** at the `by` site: a struct-typed field (groups are not
-    built yet), `Short` on a positional, a `Bool` positional. **Trapped as
+  * **Refused** at the `by` site: a positional group, `Short` on a
+    positional, a `Bool` positional. **Trapped as
     the parser starts** (`check_spec`, which the derive cannot see): two
     options with one short name, `Short('h')`, a field named `help`, a
     required positional after an optional one, a positional after a list.
