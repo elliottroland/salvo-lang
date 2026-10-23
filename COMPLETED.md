@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1987 tests, complete: the toolchain tests are
+cargo test                  # 1988 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,34 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — `Errs`: the accumulating outcome
+
+Phase 1.10 of the argument-parsing build (ARG_PARSE.md X12, Q11; the arm is
+`Errs`). [result-errs]: `core.result` gains `provenance qualifier Errs<T> of
+T`, `errs(e)`, `Errs(list)`, `both(a, b)` and `map2(a, b, f)` over `Ok T |
+Errs NonEmpty List<E>`, which keep every error after a failure. The examples
+reaching `core.result` regenerated (the added fns only), as did four golden
+snapshots and `snapshot_std_result`.
+
+What it took, and what it ran into:
+- Moving errors from two lists into one: a `for` over a list reads views,
+  so the join copies (`?copy: (v: E) -> E`, as `partition` does); `drain`
+  takes a callback, and a lambda that mutates a captured list moves it, so it
+  could not fill two lists. `all(List<…>)` was dropped for the same reason.
+- A helper returning a list it built from kept parameters came back a
+  projection of them (`NonEmpty List<proj ?>`); `joined` consumes its lists.
+- **A defect recorded, not fixed** (ROADMAP §2d item 7): a generic caller
+  forwarding its `?copy` to a callee whose type parameter has the same name
+  (`E` and `E`) misinfers it from a visible `copy`. `joined` names its
+  parameter `X`.
+- `map2`'s `f` consumes its arguments (`=>[f] !x, !y`); without it the
+  callback could not build a pair from them.
+
+Tests: CLI run `accumulated_errors_run_on_both_backends` (two successes, two
+failures with both errors in order, one failure; both backends). The full
+run after the std change took 7m15s, past the ~7 minute fresh budget,
+because every stamp keyed on std missed.
 
 ### 2026-10-20 — `explain`: a predicate qualifier says why a value failed
 
@@ -27243,7 +27271,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1987 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1988 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

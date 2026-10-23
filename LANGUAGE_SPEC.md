@@ -2007,6 +2007,17 @@ Conventions:
     mention its names.
   * There is no `Result` type: the union *is* the result. A `type
     Result<T, E> = Ok T | Err E` alias would only hide the arms.
+* [result-errs] **The accumulating outcome, `Ok T | Errs NonEmpty List<E>`**
+  (ARG_PARSE.md X12, Q11, the arm's name `Errs`; built 2026-10-20), in
+  `core.result`: every error, not the first. `provenance qualifier Errs<T> of
+  T`, its constructors `errs(e)` (one error) and `Errs(list)`, and
+  `both(a, b)` (both values as a pair) and `map2(a, b, f)`, which keep
+  collecting after a failure: two failures give `a`'s errors then `b`'s.
+  Joining two error lists copies them, so both take `?copy: (v: E) -> E`, as
+  `partition` does.
+  * `all(List<…>)` over a list of outcomes is not there: a `for` over a list
+    reads its elements as views, so moving each outcome out needs a
+    consuming iteration std does not have yet.
 * [qual-ctor-simple] Constructor return types must be simple (no
   union/tuple); the constructed qualifier must satisfy the `of` type.
 * [qual-ctor-predicate] Predicate qualifiers may have constructor

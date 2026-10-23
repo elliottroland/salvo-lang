@@ -839,6 +839,32 @@ fn explain_messages_run_on_both_backends() {
     __stamp.verified();
 }
 
+/// [result-errs] The accumulating outcome keeps every error: `map2` of two
+/// successes, of two failures (both errors, in order), and of one failure,
+/// on both backends.
+#[test]
+fn accumulated_errors_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("accumulated_errors_run_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("errs");
+    fs::write(dir.join("main.sv"), "fn port(s: Str) [] -> Ok Int | Errs NonEmpty List<Str> => s {\n    let n = parse_int(s)\n    if n is None {\n        return errs(\"not a port: ${s}\")\n    }\n    return Ok(n)\n}\n\nfn name(s: Str) [] -> Ok Str | Errs NonEmpty List<Str> => !s {\n    if size(s) == 0 {\n        return errs(\"empty name\")\n    }\n    return Ok(s)\n}\n\nfn show(o: Ok Str | Errs NonEmpty List<Str>) [] -> Str => o {\n    when o {\n        is Ok { return \"ok ${o}\" }\n        is Errs { return \"errors ${o}\" }\n    }\n}\n\nfn main() [use] -> None {\n    use StdConsole()\n    println(show(map2(port(\"80\"), name(\"web\"), (p: Int, n: Str) -> \"${n}:${p}\")))\n    println(show(map2(port(\"x\"), name(\"\"), (p: Int, n: Str) -> \"${n}:${p}\")))\n    println(show(map2(port(\"x\"), name(\"ok\"), (p: Int, n: Str) -> \"${n}:${p}\")))\n}\n").unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "ok web:80\nerrors [not a port: x, empty name]\nerrors [not a port: x]\n",
+            "{backend}"
+        );
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

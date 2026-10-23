@@ -891,6 +891,19 @@ reproduced in a scratch project; the repros are below.
    so a literal there is a literal of the union. Recommendation: (a), plus
    the expected type. Until decided, the derive narrows with `!is None`.
 
+7. **A generic caller and callee sharing a type parameter's name misinfer a
+   forwarded implicit.** Found 2026-10-20 building `Errs` (1.10). Repro:
+   `fn g2<E>(a: NonEmpty List<E>, ?copy: (v: E) -> E) [] -> NonEmpty List<E>
+   => !a { return a }` and `fn h2<E>(x: NonEmpty List<E>, ?copy: (v: E) ->
+   E) [] -> NonEmpty List<E> => !x { return g2(x) }`: "expected return type
+   `NonEmpty List<E>`, found `NonEmpty List<proj ?>`". Renaming `g2`'s
+   parameter to `X` compiles. [implicit-infer]'s `learn_from_implicits_once`
+   treats the caller's `Var("E")` as the callee's unbound `E` and learns it
+   from a visible `copy` instead of the forwarded `?copy`. Fix: substitute
+   the callee's generics apart from the caller's before inference, or learn
+   from a forwarded own implicit first. `core.result`'s `joined` names its
+   parameter `X` until then.
+
 ### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 
 Both defects of the 2026-09-25 round are closed — a bare generic struct literal

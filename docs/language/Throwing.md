@@ -58,3 +58,23 @@ Details worth knowing:
 - **Nothing linear may be live across a call that may throw**: the code after the call does not run on the throw path, so the obligation would be owed on a path with no code left to discharge it. Release before the call, or move the value onward so the obligation travels with it. (`defer` used to be the third option — a block spliced at every exit, including the throw path — and it was removed 2026-09-10: linearity is what *checks* the obligation, so the construct that discharged it out of sight was the partial solution to a problem already solved.)
 
 Both backends implement this without colouring any function the author did not annotate: Rust returns `ControlFlow<M, T>` from a function that declares `[Throw<M>]` (a throw is a plain `return`, propagation is `?`), and Kotlin throws a generated signal the innermost `try` catches.
+
+## Every error, not the first: `Errs`
+
+`throw` stops at the first failure, and so does an `Ok T | Err E` result. When the user should see every problem at once (each bad flag, each invalid row), `core.result` has an accumulating outcome, `Ok T | Errs NonEmpty List<E>`, and combinators that keep collecting after a failure:
+
+```
+fn port(s: Str) [] -> Ok Int | Errs NonEmpty List<Str> => s {
+    let n = parse_int(s)
+    if n is None {
+        return errs("not a port: ${s}")
+    }
+    return Ok(n)
+}
+
+map2(port("x"), name(""), (p: Int, n: Str) -> "${n}:${p}")
+// Errs ["not a port: x", "empty name"]
+```
+
+`errs(e)` is the failure with one error, `both(a, b)` pairs two values, and `map2(a, b, f)` combines them; when both sides failed, the result holds `a`'s errors and then `b`'s.
+
