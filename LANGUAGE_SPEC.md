@@ -4981,6 +4981,18 @@ Conventions:
   * A constant binder takes precedence over a local of the same name visible
     from outside the branch: the expansion replaces every remaining use of
     the name. Pick a fresh name; nothing checks it yet.
+* [comptime-arm] **A copy over a union's arms can build its arm** (ARG_PARSE.md
+  X5, Q6; built 2026-10-20). A struct arm is `[arm.type] { [for f in
+  arm.type.fields] { [f]: … } }` [comptime-inline]; a qualified arm is
+  `[arm.type](value)`, a call to its claim's type-named constructor
+  [fn-type-named] — `Ok(value)` for an `Ok Str` arm, as one writes it, with
+  the subject passed as the type argument when the claim is generic over it
+  (`qualifier Ok<T> of T`, so `Ok<Str>(value)`); a plain named arm calls its
+  base's type-named fn; `None` is written `None`, and calling a `None` arm is
+  an error. The parser carries the callee as the splice's name and the
+  expansion names it per copy; the checker sees the ordinary call.
+  * Several qualifiers on one arm call the fn named for the run
+    (`A_B(value)`), which exists only where someone declared it.
 * [comptime-default] **`field.default` is the field's declared default**
   (ARG_PARSE.md X1, built 2026-10-20 as engineering under round 2): in a copy
   it is the `= expr` the field declares, evaluated where the struct is

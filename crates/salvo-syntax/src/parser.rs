@@ -6981,6 +6981,15 @@ impl<'s> Parser<'s> {
         if self.at_type_splice() && !self.no_struct {
             let snap = self.snapshot();
             if let Some(ty) = self.parse_type_atom() {
+                // [comptime-arm] `[arm.type](value)`: the arm's constructor,
+                // named once the expansion knows the arm (`Ok(value)` for an
+                // `Ok Str` arm). The callee is carried as the splice's name.
+                if self.at(&TokenKind::LParen) && self.same_line() {
+                    if let (Type::Named { base, .. }, Some((args, named, end))) = (&ty, self.parse_call_args()) {
+                        let callee = Expr::Ident(base.name.clone());
+                        return Some(Expr::Call { callee: Box::new(callee), type_args: Vec::new(), args, named, span: ty.span().to(end) });
+                    }
+                }
                 let shorthand = matches!(self.peek_at(1).kind, TokenKind::Ident(_))
                     && matches!(self.peek_at(2).kind, TokenKind::Comma | TokenKind::RBrace);
                 if self.at(&TokenKind::LBrace)
@@ -6993,8 +7002,8 @@ impl<'s> Parser<'s> {
             self.rollback(snap);
             let span = self.peek().span;
             self.error(
-                "a type splice in an expression is the head of a struct literal: \
-                 `[arm.type] { … }` [comptime-inline]",
+                "a type splice in an expression is the head of a struct literal or a \
+                 constructor call: `[arm.type] { … }`, `[arm.type](value)` [comptime-inline]",
                 span,
             );
             return None;

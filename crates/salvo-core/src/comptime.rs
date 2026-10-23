@@ -140,7 +140,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                 }
                 // [comptime-qualifier] Comptime qualifiers, which a head tests
                 // for (`[if field is Short]`).
-                Item::Qualifier(q) if q.comptime => {
+                Item::Qualifier(q) => {
                     comptime_quals.entry(q.name.name.clone()).or_default().push((file.module.clone(), q.clone()));
                 }
                 _ => {}
@@ -1156,7 +1156,9 @@ struct World {
     /// visible at all).
     imports: std::cell::RefCell<Vec<Vec<String>>>,
     groups: HashMap<String, ParamsDecl>,
-    /// [comptime-qualifier] Every `comptime qualifier`, by name.
+    /// [comptime-qualifier] Every qualifier, by name: a head tests for the
+    /// comptime ones, and an arm's constructor reads an ordinary one's
+    /// generics [comptime-arm].
     comptime_quals: HashMap<String, Vec<(ModulePath, QualifierDecl)>>,
     module_paths: Vec<ModulePath>,
 }
@@ -1216,6 +1218,11 @@ impl World {
 
     /// [comptime-qualifier] The comptime qualifier `name` means here.
     fn comptime_qual(&self, name: &str) -> Option<&QualifierDecl> {
+        self.qual_named(name).filter(|q| q.comptime)
+    }
+
+    /// The qualifier `name` means here, comptime or not.
+    fn qual_named(&self, name: &str) -> Option<&QualifierDecl> {
         let all = self.comptime_quals.get(name)?;
         self.pick_decl(name, all).map(|(_, d)| d)
     }
@@ -3276,6 +3283,44 @@ impl MutVisitor for Expander<'_> {
                     crate::types::Const::Str(text) => self.str_lit(&text, span),
                 };
                 return;
+            }
+        }
+        // [comptime-arm] `[arm.type](value)`: the constructor of the arm's
+        // type — its qualifiers' type-fn for a qualified arm (`Ok(value)` for
+        // `Ok Str`, as one writes it), the base's for a plain one.
+        if let Expr::Call { callee, type_args, .. } = expr {
+            if let Expr::Ident(id) = &mut **callee {
+                if let Some(b) = id.name.strip_suffix(".type").map(str::to_string) {
+                    let span = id.span;
+                    match self.binding(&b).map(|bd| bd.ty.clone()) {
+                        Some(Type::Named { base, .. }) if base.name.name == "None" => {
+                            self.error(span, "a `None` arm is built with `None`, not called [comptime-arm]");
+                        }
+                        Some(Type::Named { qualifiers, base }) => {
+                            if qualifiers.is_empty() {
+                                id.name = base.name.name.clone();
+                            } else {
+                                id.name = qualifiers.iter().map(|q| q.name.name.clone()).collect::<Vec<_>>().join("_");
+                                // A generic claim over its subject (`Ok<T> of
+                                // T`) is told the subject: `Ok<Str>(value)`.
+                                let generic = qualifiers.len() == 1
+                                    && self.world.qual_named(&qualifiers[0].name.name).is_some_and(|q| {
+                                        q.generics.len() == 1
+                                            && matches!(&q.of, Type::Named { qualifiers, base: of } if qualifiers.is_empty() && of.args.is_empty() && of.name.name == q.generics[0].name)
+                                    });
+                                if generic && type_args.is_empty() {
+                                    type_args.push(Type::Named { qualifiers: Vec::new(), base: base.clone() });
+                                }
+                            }
+                        }
+                        Some(other) => {
+                            self.error(span, format!("`{other}` has no constructor to call: an arm built this way is a named type, qualified or not; a `None` arm is `None` [comptime-arm]"));
+                        }
+                        None => {
+                            self.error(span, format!("`{b}` is not a binder of an enclosing `[for …]` or `[when …]` [comptime-fields]"));
+                        }
+                    }
+                }
             }
         }
         match expr {

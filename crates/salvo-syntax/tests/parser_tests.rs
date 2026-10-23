@@ -4115,3 +4115,18 @@ fn comptime_qualifiers_parse_where_they_are_written() {
     let (_, diagnostics) = salvo_syntax::parse_module("Named(\"x\")\nfn f() {}\n");
     assert!(diagnostics.iter().any(|d| d.message.contains("only a `struct` may follow it")), "{diagnostics:?}");
 }
+
+/// [comptime-arm] `[arm.type](value)` is a call whose callee is the splice,
+/// named once the expansion knows the arm.
+#[test]
+fn a_spliced_arm_type_is_a_constructor_call() {
+    use salvo_syntax::ast::{Expr, Item, Stmt};
+    let source = "comptime fn f<T is Union>(v: T) [] -> T => v {\n    [for arm in T.arms] {\n        let x = [arm.type](1)\n    }\n    return v\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    let Item::Fn(f) = &module.items[0] else { panic!() };
+    let Stmt::Comp(salvo_syntax::ast::CompStmt::For { body, .. }) = &f.body.as_ref().unwrap().stmts[0] else { panic!() };
+    let Stmt::Let { value: Expr::Call { callee, args, .. }, .. } = &body.stmts[0] else { panic!("{:?}", body.stmts[0]) };
+    assert!(matches!(&**callee, Expr::Ident(id) if id.name == "arm.type"), "{callee:?}");
+    assert_eq!(args.len(), 1);
+}

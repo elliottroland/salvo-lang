@@ -291,6 +291,24 @@ export comptime fn to_str<T is Union>(value: T) [] -> Str => value {
 position, which is how the union `cmp` orders across arms. A union field of a
 struct is reached the same way, through `value.[field]`.
 
+A comptime fn can also **build** an arm. In the copy for each arm, a struct
+arm is a struct literal headed by the arm's type, a qualified arm is a call
+to its claim's constructor, and `None` is `None`:
+
+```
+comptime fn first() [] -> Pick {                 // type Pick = A | Ok Str | None
+    [for arm in Pick.arms] {
+        [if arm.kind is Struct] {
+            return [arm.type] { [for f in arm.type.fields] { [f]: make() } }
+        }
+        [if arm.type is Ok *] {
+            return [arm.type]("text")            // `Ok<Str>("text")`
+        }
+    }
+    return None
+}
+```
+
 ### The model: `core.comptime`
 
 Everything a comptime fn may know about a type is declared, as compile-time

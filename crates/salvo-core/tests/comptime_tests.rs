@@ -1090,3 +1090,30 @@ fn comptime_qualifier_tests_refuse_what_they_cannot_mean() {
     );
     assert!(errs.iter().any(|e| e.contains("an arm carries no comptime qualifiers yet")), "{errs:?}");
 }
+
+// ===== [comptime-arm] building a union arm =====
+
+/// [comptime-arm] Each arm of a union is built in its copy: a struct arm by
+/// `[arm.type] { [for f in arm.type.fields] { [f]: … } }`, a qualified arm by
+/// `[arm.type](value)` — its claim's constructor, told the subject when the
+/// claim is generic — and `None` by `None`; calling a `None` arm is refused.
+#[test]
+fn every_arm_of_a_union_is_built_in_its_copy() {
+    let src = |none_arm: &str| {
+        format!(
+            "struct A {{ n: Int, m: Int }}\nprovenance qualifier Tag<T> of T\n\
+             fn Tag<T>(value: T) [] -> +Tag T => !value {{\n    return value\n}}\n\
+             type Pick = A | Tag Int | None\n\n\
+             comptime fn build(i: Int) [] -> Pick => i {{\n    \
+             [for arm in Pick.arms] {{\n        if i == arm.index {{\n            \
+             [if arm.kind is Struct] {{\n                return [arm.type] {{ [for f in arm.type.fields] {{ [f]: arm.index }} }}\n            }}\n            \
+             [if arm.type is Tag *] {{\n                return [arm.type](i)\n            }}\n            \
+             [if arm.type is None] {{\n                return {none_arm}\n            }}\n        }}\n    }}\n    \
+             return None\n}}\n"
+        )
+    };
+    let errs = messages(&src("None"));
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+    let errs = messages(&src("[arm.type](i)"));
+    assert!(errs.iter().any(|e| e.contains("a `None` arm is built with `None`")), "{errs:?}");
+}

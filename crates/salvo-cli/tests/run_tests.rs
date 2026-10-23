@@ -739,6 +739,28 @@ fn comptime_qualifiers_run_on_both_backends() {
     __stamp.verified();
 }
 
+/// [comptime-arm] A comptime fn builds every kind of union arm — a struct arm
+/// field by field, a qualified arm through its claim's constructor, `None` —
+/// and the values run identically on both backends.
+#[test]
+fn comptime_builds_each_arm_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("comptime_builds_each_arm_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("comptime_arms");
+    fs::write(dir.join("main.sv"), "struct A { n: Int, s: Str }\nstruct B { m: Int }\ntype Pick = A | B | Ok Str | None\n\nfn make() [] -> Int {\n    return 7\n}\n\nfn make() [] -> Str {\n    return \"s\"\n}\n\ncomptime fn build(i: Int) [] -> Pick => i {\n    [for arm in Pick.arms] {\n        if i == arm.index {\n            [if arm.kind is Struct] {\n                return [arm.type] { [for f in arm.type.fields] { [f]: make() } }\n            }\n            [if arm.type is Ok *] {\n                return [arm.type](make())\n            }\n            [if arm.type is None] {\n                return None\n            }\n        }\n    }\n    return None\n}\n\nfn show(p: Pick) [] -> Str => p {\n    when p {\n        is A { return \"A ${p.n} ${p.s}\" }\n        is B { return \"B ${p.m}\" }\n        is Ok { return \"Ok ${p}\" }\n        is None { return \"None\" }\n    }\n}\n\nfn main() [use] -> None {\n    use StdConsole()\n    for i in List(0, 1, 2, 3) {\n        println(show(build(i)))\n    }\n}\n").unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "A 7 s\nB 7\nOk s\nNone\n", "{backend}");
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),
