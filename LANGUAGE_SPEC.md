@@ -4946,6 +4946,41 @@ Conventions:
     the expansion records each comptime name's type at its written span — `T
     is Struct`, `field: Field`, `field.type`, `T.fields: List<Field>` —
     and the language server answers from that record before its usual tables.
+* [comptime-qualifier] **A comptime qualifier describes a declaration and is
+  read by comptime code** (ARG_PARSE.md round 1 D-1, §10.1c (B), Q5; built
+  2026-10-20): `export comptime qualifier Short(c: Char) of Field`, written
+  before a field's name (`Short('p') port: InRange(1, 65535) Int = 8080`),
+  and `comptime qualifier Named(name: Str) of Struct`, written before a
+  struct declaration, ahead of its modifiers and on its line or the line
+  above (`Named("rm") export struct Remove`), as Kotlin places annotations.
+  * **Its subject is `core.comptime`'s `Field` or `Struct`** (`Arm` and
+    `Union` when a use appears), which is the one ordinary position a
+    comptime type may be named in. It has **no body** — nothing runs at
+    compile time to test it — no type parameters and no fn slots, and its
+    value slots hold constants (`Int`, `Char`, `Str` [qual-const]). It is
+    minted only by being written, and is erased: never part of a type (a
+    comptime qualifier in a type position is an error naming where it goes),
+    never on a value, never emitted.
+  * **Where it is written is checked**: each names a comptime qualifier of
+    that subject, once, with a constant of its slot's type in every slot. A
+    non-comptime qualifier there is an error saying a claim about the value
+    goes in the type; one on a `state` field or a qualifier's field override
+    is a parse error. A doc comment above the qualifier line is the struct's.
+  * **Comptime reads it with `is`**: `[if field is Short]`, `[if field !is
+    Positional]`, and `[if field is <c> Short(c)]`, which binds the
+    constant to the **constant binder** `c` — lowercase, declared before the
+    pattern as a type binder is, and read in the branch as the constant
+    itself (`"-${c}"`; an interpolated `Int` or `Char` constant folds into the
+    text). A constant written instead of a binder (`Short('f')`) is
+    compared. A struct's own are read on the bound `T` or a named root:
+    `[if T is <n> Named(n)]`. Under `||` or `!` a binder binds nothing
+    [flow-or-not]; an uppercase binder is refused (it would bind a type);
+    an arm binder carries none yet.
+  * The same binder form reads a field **type's** qualifier constants (X7):
+    `[if field.type is <lo, hi> InRange(lo, hi) *]` [comptime-pattern].
+  * A constant binder takes precedence over a local of the same name visible
+    from outside the branch: the expansion replaces every remaining use of
+    the name. Pick a fresh name; nothing checks it yet.
 * [comptime-default] **`field.default` is the field's declared default**
   (ARG_PARSE.md X1, built 2026-10-20 as engineering under round 2): in a copy
   it is the `= expr` the field declares, evaluated where the struct is
@@ -5115,8 +5150,13 @@ Conventions:
     of one type. A binder may not reuse the name of a type, a type parameter
     or an enclosing binder ([var-no-shadow]'s reason), and one no copy uses
     is a warning naming `*`.
-  * **Matching** erases qualifiers (so a `List<Int> canbe Mut` field is a
-    `List<*>`) and expands an argument-less alias, as `is <Type>` always did;
+  * **Matching** erases the type's qualifiers (so a `List<Int> canbe Mut`
+    field is a `List<*>`) and expands an argument-less alias, as `is <Type>`
+    always did — unless the pattern writes qualifiers in front
+    [comptime-qualifier]: `[if field.type is <lo, hi> InRange(lo, hi) *]`
+    requires the type to carry `InRange` (through an alias too) and binds its
+    constants, and a constant written there (`InRange(1, 10) *`) is compared.
+    Only the pattern's outermost qualifiers are read;
     a union matches **arm by arm, in order** (`Int | Str` is not `Str | Int`),
     and `T?` is the union `T | None`. A pattern with neither `*` nor binders is
     the plain type test it always was.

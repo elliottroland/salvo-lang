@@ -7493,6 +7493,7 @@ Module {
                     },
                 ],
                 has_body: true,
+                comptime: false,
                 span: 14261..15546,
             },
         ),
@@ -14485,6 +14486,7 @@ Module {
                     "backends keep their native loop as a fast path for a `for` over a list",
                     "[iter-for-native], so this shape is what *combinators* see.",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "ListYield",
@@ -14591,6 +14593,7 @@ Module {
                             "whatever each literal stores there [proj-field]; `iter` above lends",
                             "its `list`, which the checker reads off its body [proj-infer].",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "items",
                             span: 23053..23058,
@@ -14655,6 +14658,7 @@ Module {
                         docs: [
                             "The index of the next element to emit.",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "at",
                             span: 23124..23126,
@@ -15095,6 +15099,7 @@ Module {
                 docs: [
                     "The iterator struct of `iter fn reversed`, generated from it [iter-fn].",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "__Iter_reversed_List",
@@ -15203,6 +15208,7 @@ Module {
                         docs: [
                             "The `list` being iterated — borrowed, so the iterator is a view of it [proj-field]: nothing is copied at the mint, and the value cannot be moved or mutated while the iterator lives [iter-fn].",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "list",
                             span: 24217..24218,
@@ -15268,6 +15274,7 @@ Module {
                             "The index of the next element to emit, counting down; `-1` is the",
                             "end, which [get] reports as `None` like any out-of-range index.",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "at",
                             span: 24456..24458,
@@ -15994,6 +16001,7 @@ Module {
                     "charge every step), and a `proj` **field** is exactly the declared lend the",
                     "tuple lacks [proj-field].",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "Enumerated",
@@ -16012,6 +16020,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "index",
                             span: 25221..25226,
@@ -16041,6 +16050,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "elem",
                             span: 25237..25241,
@@ -16097,6 +16107,7 @@ Module {
                 docs: [
                     "The iterator struct of `iter fn enumerate`, generated from it [iter-fn].",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "__Iter_enumerate_List",
@@ -16203,6 +16214,7 @@ Module {
                         docs: [
                             "The `list` being iterated — borrowed, so the iterator is a view of it [proj-field]: nothing is copied at the mint, and the value cannot be moved or mutated while the iterator lives [iter-fn].",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "list",
                             span: 25609..25610,
@@ -16267,6 +16279,7 @@ Module {
                         docs: [
                             "The index of the next element to emit.",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "at",
                             span: 25763..25765,
@@ -17063,6 +17076,7 @@ Module {
                 docs: [
                     "The iterator struct of `iter fn enumerate_rev`, generated from it [iter-fn].",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "__Iter_enumerate_rev_List",
@@ -17169,6 +17183,7 @@ Module {
                         docs: [
                             "The `list` being iterated — borrowed, so the iterator is a view of it [proj-field]: nothing is copied at the mint, and the value cannot be moved or mutated while the iterator lives [iter-fn].",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "list",
                             span: 26289..26290,
@@ -17231,6 +17246,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "at",
                             span: 26397..26399,
@@ -18825,6 +18841,7 @@ Module {
                     },
                 ],
                 has_body: true,
+                comptime: false,
                 span: 28432..29028,
             },
         ),

@@ -340,6 +340,7 @@ Module {
                 state: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "i",
                             span: 301..302,

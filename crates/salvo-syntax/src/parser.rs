@@ -577,6 +577,36 @@ impl<'s> Parser<'s> {
     /// `platform` / `provenance`, so a declaration reads
     /// "who can see it, what kind it is, what it is called".
     fn parse_item(&mut self) -> Option<Item> {
+        // [comptime-qualifier] `Named("rm") export struct Remove`: comptime
+        // qualifiers before a declaration, ahead of its modifiers. At item
+        // level an uppercase name is otherwise an error, so this is the only
+        // reading; the next line may hold the declaration.
+        if matches!(&self.kind(), TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase())) {
+            let docs = self.docs_here();
+            let start = self.peek().span;
+            let mut annotations = Vec::new();
+            while matches!(&self.kind(), TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase())) {
+                annotations.push(self.parse_type_ref()?);
+            }
+            let item = self.parse_item()?;
+            return match item {
+                Item::Struct(mut s) => {
+                    s.annotations.extend(annotations);
+                    if s.docs.is_empty() {
+                        s.docs = docs;
+                    }
+                    Some(Item::Struct(s))
+                }
+                other => {
+                    self.error(
+                        "a comptime qualifier before a declaration describes a struct: \
+                         only a `struct` may follow it [comptime-qualifier]",
+                        start,
+                    );
+                    Some(other)
+                }
+            };
+        }
         let export_span = match self.kind() {
             TokenKind::Ident(name) if name == EXPORT_MODIFIER => {
                 let span = self.peek().span;
@@ -862,12 +892,19 @@ impl<'s> Parser<'s> {
                         t.comptime = true;
                         Some(Item::Type(t))
                     }
+                    // [comptime-qualifier] `comptime qualifier Short(c: Char) of Field`.
+                    TokenKind::KwQualifier => {
+                        self.bump();
+                        let mut q = self.parse_qualifier(false, QualSubject::Provenance)?;
+                        q.comptime = true;
+                        Some(Item::Qualifier(q))
+                    }
                     _ => {
                         let found = self.peek_at(1).kind.describe();
                         self.error(
                             format!(
-                                "expected `fn`, `struct` or `type` after `comptime`, found \
-                                 {found} [comptime-bound]"
+                                "expected `fn`, `struct`, `type` or `qualifier` after `comptime`, \
+                                 found {found} [comptime-bound]"
                             ),
                             span,
                         );
@@ -1743,6 +1780,8 @@ impl<'s> Parser<'s> {
         }
         let end = self.expect(&TokenKind::RBrace)?.span;
         Some(StructDecl {
+            // [comptime-qualifier] Set by `parse_item`, which reads them.
+            annotations: Vec::new(),
             // [mod-export] Set by `parse_item`, which reads the modifier.
             exported: false,
             // [noremote] Set by `parse_declaration`, which peels the word.
@@ -1959,6 +1998,24 @@ impl<'s> Parser<'s> {
     /// struct field or qualifier override always writes its type.
     fn parse_field_decl(&mut self, allow_inferred: bool) -> Option<FieldDecl> {
         let docs = self.docs_here();
+        // [comptime-qualifier] `Short('p') port: Int`: comptime qualifiers
+        // before the field's name. A field name is lowercase [name-casing],
+        // so an uppercase name here can only be one.
+        let mut annotations = Vec::new();
+        while matches!(&self.kind(), TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+            && !matches!(self.peek_at(1).kind, TokenKind::Colon | TokenKind::Eq)
+        {
+            annotations.push(self.parse_type_ref()?);
+        }
+        if allow_inferred {
+            if let Some(a) = annotations.first() {
+                self.error(
+                    "a comptime qualifier describes a struct's field; a `state` field is \
+                     never walked by comptime code [comptime-qualifier]",
+                    a.span,
+                );
+            }
+        }
         // [comptime-fields] `type` is a keyword, and `Field.type` is the one
         // field spelled with it — the projection a comptime body reads as
         // `field.type`. Accepted as a field name here so `core.comptime` can
@@ -1981,6 +2038,7 @@ impl<'s> Parser<'s> {
             let span = name.span.to(value.span());
             return Some(FieldDecl {
                 docs,
+                annotations,
                 name,
                 ty: None,
                 canbe_mut: false,
@@ -2019,6 +2077,7 @@ impl<'s> Parser<'s> {
         let span = name.span.to(end);
         Some(FieldDecl {
             docs,
+            annotations,
             name,
             ty: Some(ty),
             canbe_mut,
@@ -2064,7 +2123,15 @@ impl<'s> Parser<'s> {
                     // qualifier does not own.
                     refns.push(self.parse_refn()?);
                 } else {
-                    field_overrides.push(self.parse_field_decl(false)?);
+                    let field = self.parse_field_decl(false)?;
+                    if let Some(a) = field.annotations.first() {
+                        self.error(
+                            "a qualifier's field override is a claim about the field's value; a \
+                             comptime qualifier belongs on the struct's own field [comptime-qualifier]",
+                            a.span,
+                        );
+                    }
+                    field_overrides.push(field);
                     self.eat(&TokenKind::Comma);
                 }
             }
@@ -2086,6 +2153,7 @@ impl<'s> Parser<'s> {
             fns,
             refns,
             has_body,
+            comptime: false,
             span: start.to(end),
         })
     }
@@ -4064,6 +4132,25 @@ impl<'s> Parser<'s> {
             r.established = established;
             refs.push(r);
         }
+        // [comptime-qualifier] Qualifiers on any type, in a comptime pattern:
+        // `InRange(lo, hi) *`.
+        if self.in_comp_pattern && self.at(&TokenKind::Star) && self.same_line() {
+            let span = self.bump().span;
+            return Some(Type::Named {
+                qualifiers: refs,
+                base: TypeRef {
+                    name: Ident { name: "*".to_string(), span },
+                    args: Vec::new(),
+                    value_args: Vec::new(),
+                    from: Vec::new(),
+                    at: None,
+                    binder: false,
+                    established: false,
+                    alias: None,
+                    span,
+                },
+            });
+        }
         // [comptime-inline] Qualifiers applied to a type splice: `Mut
         // [field.type]`. Every ref read so far is a qualifier; the expansion
         // puts them in front of the binder's own.
@@ -5389,6 +5476,34 @@ impl<'s> Parser<'s> {
     /// `b.first`, `b.last`, `x.index == y.index`, each `is` also as `!is`.
     fn parse_comp_cond_leaf(&mut self) -> Option<CompCond> {
         let start = self.peek().span;
+        // [comptime-qualifier] `field is Short`, `field is <c> Short(c)`,
+        // `field !is Positional`: a binder tested for a comptime qualifier.
+        if let TokenKind::Ident(b) = self.kind().clone() {
+            let is_next = matches!(self.peek_at(1).kind, TokenKind::KwIs)
+                || (matches!(self.peek_at(1).kind, TokenKind::Bang) && matches!(self.peek_at(2).kind, TokenKind::KwIs));
+            if b.starts_with(|c: char| c.is_lowercase()) && is_next {
+                let subject = self.ident()?;
+                let negated = self.comp_is_or_not_is()?;
+                let (binders, target) = self.comp_type_pattern()?;
+                let span = start.to(target.span());
+                let qual = match target {
+                    Type::Named { qualifiers, base } if qualifiers.is_empty() => base,
+                    other => {
+                        self.error(
+                            format!(
+                                "`{} is …` tests a comptime qualifier (`{} is Short`); a type is \
+                                 tested on `.type` (`{}.type is Int`) [comptime-qualifier]",
+                                subject.name, subject.name, subject.name
+                            ),
+                            other.span(),
+                        );
+                        return None;
+                    }
+                };
+                let cond = CompCond::Annotated { subject, binders, qual, span };
+                return Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond });
+            }
+        }
         // `binder.name …`, `binder.kind is …`, `binder.first`, `binder.last`,
         // `x.index == y.index`
         if let TokenKind::Ident(b) = self.kind().clone() {
@@ -5581,7 +5696,10 @@ impl<'s> Parser<'s> {
             self.bump();
             self.group_depth += 1;
             loop {
-                match self.ident_type("pattern binder") {
+                // [comptime-qualifier] A lowercase binder stands for a
+                // constant (`<c> Short(c)`, `<lo, hi> InRange(lo, hi) *`), an
+                // uppercase one for a type.
+                match self.ident() {
                     Some(b) => binders.push(b),
                     None => {
                         self.group_depth -= 1;

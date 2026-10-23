@@ -8,6 +8,7 @@ Module {
         Struct(
             StructDecl {
                 docs: [],
+                annotations: [],
                 exported: false,
                 name: Ident {
                     name: "Countdown",
@@ -21,6 +22,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "from",
                             span: 23..27,
@@ -62,6 +64,7 @@ Module {
                 docs: [
                     "The iterator struct of `iter fn iter`, generated from it [iter-fn].",
                 ],
+                annotations: [],
                 exported: false,
                 name: Ident {
                     name: "__Iter_iter_Countdown",
@@ -143,6 +146,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "at",
                             span: 111..113,

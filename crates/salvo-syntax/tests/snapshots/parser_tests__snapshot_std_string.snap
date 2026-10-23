@@ -956,6 +956,7 @@ Module {
                     "[iter-protocol] The pass a string is walked by: the string plus a position",
                     "in it. A `Str` is immutable, so the iterator holds it and moves the index.",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "StrYield",
@@ -1039,6 +1040,7 @@ Module {
                         docs: [
                             "The string being walked.",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "text",
                             span: 2630..2634,
@@ -1085,6 +1087,7 @@ Module {
                         docs: [
                             "The index of the next character to emit.",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "at",
                             span: 2698..2700,
@@ -3620,6 +3623,7 @@ Module {
                     "exclusive. A **struct**, not a tuple — a qualifier cannot apply to a tuple",
                     "[qual-union-arm], and the pair's validity is exactly what [SpanOf] claims.",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "Span",
@@ -3633,6 +3637,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "start",
                             span: 5719..5724,
@@ -3662,6 +3667,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "end",
                             span: 5735..5738,
@@ -3977,6 +3983,7 @@ Module {
                 ],
                 refns: [],
                 has_body: true,
+                comptime: false,
                 span: 6112..6287,
             },
         ),

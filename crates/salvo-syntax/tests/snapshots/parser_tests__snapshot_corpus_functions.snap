@@ -1185,6 +1185,7 @@ Module {
                 docs: [
                     "The iterator struct of `iter fn range`, generated from it [iter-fn].",
                 ],
+                annotations: [],
                 exported: false,
                 name: Ident {
                     name: "__Iter_range_Int_Int",
@@ -1268,6 +1269,7 @@ Module {
                         docs: [
                             "The `start` being iterated — a scalar, owned [iter-fn].",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "start",
                             span: 972..973,
@@ -1299,6 +1301,7 @@ Module {
                         docs: [
                             "The `end` being iterated — a scalar, owned [iter-fn].",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "end",
                             span: 972..973,
@@ -1328,6 +1331,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "at",
                             span: 1049..1051,
@@ -1930,6 +1934,7 @@ Module {
                 docs: [
                     "The written-out form, for an iterator struct a program has to name.",
                 ],
+                annotations: [],
                 exported: false,
                 name: Ident {
                     name: "Countdown",
@@ -2011,6 +2016,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "at",
                             span: 1307..1309,

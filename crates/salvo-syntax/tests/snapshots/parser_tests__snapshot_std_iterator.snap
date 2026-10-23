@@ -66,6 +66,7 @@ Module {
                 fns: [],
                 refns: [],
                 has_body: false,
+                comptime: false,
                 span: 1207..1232,
             },
         ),
@@ -76,6 +77,7 @@ Module {
                     "nothing for it to qualify: it carries no element, and reusing `None` would",
                     "say \"absent\" where the claim is \"the sequence ended\".",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "Finished",

@@ -533,6 +533,7 @@ fn expand(
                     proj_of(&p.ty, field_span)
                 };
                 fields.push(FieldDecl {
+                    annotations: Vec::new(),
                     docs: vec![format!(
                         "The `{}` being iterated — {} [iter-fn].",
                         p.name.name,
@@ -573,6 +574,7 @@ fn expand(
                 let mut map = BTreeMap::new();
                 for (used, hidden, ty, docs) in list {
                     fields.push(FieldDecl {
+                        annotations: Vec::new(),
                         docs: docs.clone(),
                         name: Ident {
                             name: hidden.clone(),
@@ -630,6 +632,7 @@ fn expand(
         // read it back there. The generated struct field therefore keeps the
         // **original** `state` field-name span, which nothing else may reuse.
         fields.push(FieldDecl {
+            annotations: Vec::new(),
             docs: field.docs.clone(),
             name: field.name.clone(),
             ty: field.ty.clone(),
@@ -662,6 +665,7 @@ fn expand(
         }
     }
     let pass_struct = StructDecl {
+        annotations: Vec::new(),
         fns: Vec::new(),
         // [noremote] An iterator holds a position into a value the frame owns;
         // it is never sent anywhere, so the flag is moot — off.

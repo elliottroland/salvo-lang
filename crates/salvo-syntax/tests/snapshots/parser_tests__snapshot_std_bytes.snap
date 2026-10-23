@@ -2544,6 +2544,7 @@ Module {
                     "[iter-protocol] The pass a buffer is walked by: the buffer plus a position",
                     "in it. The buffer is borrowed, not copied [proj-field].",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "BytesYield",
@@ -2627,6 +2628,7 @@ Module {
                         docs: [
                             "The buffer being walked.",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 5920..5924,
@@ -2673,6 +2675,7 @@ Module {
                         docs: [
                             "The index of the next byte to emit.",
                         ],
+                        annotations: [],
                         name: Ident {
                             name: "at",
                             span: 5985..5987,

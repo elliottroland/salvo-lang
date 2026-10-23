@@ -87,6 +87,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
     let mut structs: HashMap<String, Vec<(ModulePath, StructDecl)>> = HashMap::new();
     let mut types: HashMap<String, Vec<(ModulePath, TypeDecl)>> = HashMap::new();
     let mut groups: HashMap<String, ParamsDecl> = HashMap::new();
+    let mut comptime_quals: HashMap<String, Vec<(ModulePath, QualifierDecl)>> = HashMap::new();
     // [std-shadow] The repository root opened as a workspace loads `std/` a
     // second time as user files (`std.core.auto` beside the embedded
     // `core.auto`, ROADMAP §4). A copy — same content, module ending in the
@@ -137,11 +138,17 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                 Item::Params(g) => {
                     groups.entry(g.name.name.clone()).or_insert_with(|| g.clone());
                 }
+                // [comptime-qualifier] Comptime qualifiers, which a head tests
+                // for (`[if field is Short]`).
+                Item::Qualifier(q) if q.comptime => {
+                    comptime_quals.entry(q.name.name.clone()).or_default().push((file.module.clone(), q.clone()));
+                }
                 _ => {}
             }
         }
     }
     let world = World {
+        comptime_quals,
         compfns,
         structs,
         types,
@@ -583,6 +590,16 @@ impl HoverRecorder<'_> {
                         *span,
                         &format!("{}.{}: Bool", binder.name, if *last { "last" } else { "first" }),
                         "Whether this copy is for the first/last element.",
+                    );
+                }
+            }
+            CompCond::Annotated { subject, qual, span, .. } => {
+                if self.binder_kind(&subject.name).is_some() {
+                    self.push(
+                        *span,
+                        &format!("{} is {}", subject.name, qual.name.name),
+                        "Whether the field carries this comptime qualifier, written before its name \
+                         [comptime-qualifier].",
                     );
                 }
             }
@@ -1139,6 +1156,8 @@ struct World {
     /// visible at all).
     imports: std::cell::RefCell<Vec<Vec<String>>>,
     groups: HashMap<String, ParamsDecl>,
+    /// [comptime-qualifier] Every `comptime qualifier`, by name.
+    comptime_quals: HashMap<String, Vec<(ModulePath, QualifierDecl)>>,
     module_paths: Vec<ModulePath>,
 }
 
@@ -1192,6 +1211,12 @@ impl World {
 
     fn type_named(&self, name: &str) -> Option<&TypeDecl> {
         let all = self.types.get(name)?;
+        self.pick_decl(name, all).map(|(_, d)| d)
+    }
+
+    /// [comptime-qualifier] The comptime qualifier `name` means here.
+    fn comptime_qual(&self, name: &str) -> Option<&QualifierDecl> {
+        let all = self.comptime_quals.get(name)?;
         self.pick_decl(name, all).map(|(_, d)| d)
     }
 
@@ -1999,6 +2024,9 @@ struct Binding {
     /// [comptime-docs] The element's doc comment as text, or `None`: a
     /// field's own, an arm's the declaration it names.
     docs: Option<String>,
+    /// [comptime-qualifier] The comptime qualifiers written before a field's
+    /// name; an arm has none.
+    annotations: Vec<TypeRef>,
 }
 
 /// [comptime-docs] A doc block as a value: its lines joined, as hover joins
@@ -2043,6 +2071,13 @@ struct Expander<'w> {
     /// name, the type it bound, its declaration's span, and how often this
     /// scope used it.
     type_binders: Vec<(String, Type, Span, usize)>,
+    /// [comptime-qualifier] The constant binders in scope (`c` of `[if field
+    /// is <c> Short(c)]`): name, the constant, its declaration's span, and
+    /// how often this scope used it — the value twin of `type_binders`.
+    value_binders: Vec<(String, crate::types::Const, Span, usize)>,
+    /// [comptime-qualifier] What the condition being evaluated bound as
+    /// constants, consumed by the `[if]` that keeps its branch.
+    value_binds: Vec<(Ident, crate::types::Const)>,
     /// [comptime-pattern] Per binder declaration (keyed by its written span
     /// and name): whether *any* copy used it — an unused binder warns once,
     /// and only if no copy used it.
@@ -2070,6 +2105,8 @@ impl<'w> Expander<'w> {
             remaps: Vec::new(),
             fn_generics: Vec::new(),
             type_binders: Vec::new(),
+            value_binders: Vec::new(),
+            value_binds: Vec::new(),
             binder_used: HashMap::new(),
             when_arms: Vec::new(),
         }
@@ -2243,6 +2280,7 @@ impl<'w> Expander<'w> {
                         siblings: siblings.clone(),
                         sibling_owner: sibling_owner.clone(),
                         default_of: None,
+                        annotations: Vec::new(),
                     })
                     .collect(),
             );
@@ -2321,6 +2359,7 @@ impl<'w> Expander<'w> {
                     sibling_owner: type_name.clone(),
                     default_of: f.default.as_ref().map(|_| ty.clone()),
                     docs: doc_text(&f.docs),
+                    annotations: f.annotations.clone(),
                 })
                 .collect(),
         )
@@ -2406,6 +2445,123 @@ impl<'w> Expander<'w> {
                     && self.check_type_names(ret, span, allowed)
             }
             Type::Literal { .. } => true,
+        }
+    }
+
+    /// [comptime-qualifier] Whether `annotations` (a field's or a struct's)
+    /// carry the comptime qualifier `qual`: without arguments it asks only
+    /// that; with them, each is a constant binder (bound to the written
+    /// constant) or a constant (compared).
+    fn match_annotation(&mut self, annotations: &[TypeRef], qual: &TypeRef, binders: &[Ident], subject: &str, span: Span, can_bind: bool) -> Option<bool> {
+        let Some(decl) = self.world.comptime_qual(&qual.name.name) else {
+            self.error(span, format!("`{}` is not a comptime qualifier [comptime-qualifier]", qual.name.name));
+            return None;
+        };
+        let of = match &decl.of {
+            Type::Named { base, .. } => base.name.name.clone(),
+            _ => String::new(),
+        };
+        let slots = decl.value_slots.len();
+        if of != subject {
+            self.error(span, format!("`{}` describes a `{of}`, not a `{subject}` [comptime-qualifier]", qual.name.name));
+            return None;
+        }
+        if let Some(b) = binders.iter().find(|b| !b.name.starts_with(|c: char| c.is_lowercase())) {
+            self.error(span, format!("`{}` would bind a type, and a comptime qualifier holds constants: name a constant binder in lowercase [comptime-qualifier]", b.name));
+            return None;
+        }
+        if !binders.is_empty() && !can_bind {
+            self.error(span, "a pattern's binders bind nothing under `||` or `!` — what the test proves holds only where it did: write `*` there [comptime-pattern] [flow-or-not]");
+            return None;
+        }
+        if !qual.value_args.is_empty() && qual.value_args.len() != slots {
+            self.error(span, format!("`{}` takes {slots} constant(s), found {} [comptime-qualifier]", qual.name.name, qual.value_args.len()));
+            return None;
+        }
+        let Some(found) = annotations.iter().find(|a| a.name.name == qual.name.name) else {
+            return Some(false);
+        };
+        let mut bound = Vec::new();
+        for (p, a) in qual.value_args.iter().zip(&found.value_args) {
+            let Some(actual) = const_arg(a) else { return Some(false) };
+            match self.match_const(p, binders, span)? {
+                Some(id) => bound.push((id, actual)),
+                None if Some(&actual) == const_arg(p).as_ref() => {}
+                None => return Some(false),
+            }
+        }
+        self.value_binds.extend(bound);
+        Some(true)
+    }
+
+    /// [comptime-qualifier] A pattern argument: `Some(binder)` when it is one
+    /// of `binders` (the caller binds it), `None` when it is a constant to
+    /// compare, and an error for anything else.
+    fn match_const(&mut self, pattern: &Type, binders: &[Ident], span: Span) -> Option<Option<Ident>> {
+        if let Type::Named { qualifiers, base } = pattern {
+            if qualifiers.is_empty() {
+                if let Some(b) = binders.iter().find(|b| b.name == base.name.name) {
+                    if self.value_binds.iter().any(|(v, _)| v.name == b.name) {
+                        self.error(span, format!("pattern binder `{}` is declared twice in one condition [comptime-pattern]", b.name));
+                        return None;
+                    }
+                    return Some(Some(b.clone()));
+                }
+                if const_arg(pattern).is_some() {
+                    return Some(None);
+                }
+            }
+        }
+        self.error(span, format!("a qualifier's argument in a pattern is a constant binder declared before it (`<c> Short(c)`) or a constant, not `{pattern}` [comptime-qualifier]"));
+        None
+    }
+
+    /// [comptime-qualifier] Whether the type `actual` carries every
+    /// qualifier `pattern` writes, binding or comparing their constants
+    /// (`<lo, hi> InRange(lo, hi) *`). An alias is looked through.
+    fn match_type_quals(&mut self, pattern: &[TypeRef], actual: &Type, binders: &[Ident], span: Span) -> Option<bool> {
+        let have = self.type_quals(actual, 0);
+        let mut bound = Vec::new();
+        for want in pattern {
+            let Some(found) = have.iter().find(|h| h.name.name == want.name.name) else {
+                return Some(false);
+            };
+            if !want.value_args.is_empty() && want.value_args.len() != found.value_args.len() {
+                return Some(false);
+            }
+            for (p, a) in want.value_args.iter().zip(&found.value_args) {
+                let Some(actual) = const_arg(a) else { return Some(false) };
+                match self.match_const(p, binders, span)? {
+                    Some(id) => bound.push((id, actual)),
+                    None if Some(&actual) == const_arg(p).as_ref() => {}
+                    None => return Some(false),
+                }
+            }
+        }
+        self.value_binds.extend(bound);
+        Some(true)
+    }
+
+    /// The qualifiers written on a type, through an argument-less alias.
+    fn type_quals(&self, ty: &Type, depth: u32) -> Vec<TypeRef> {
+        match ty {
+            Type::Named { qualifiers, base } => {
+                let mut out = qualifiers.clone();
+                if base.args.is_empty() && depth < 8 {
+                    if let Some(t) = self.world.type_named(base.name.name.as_str()) {
+                        if let (Some(alias), false) = (&t.alias, t.intrinsic) {
+                            out.extend(self.type_quals(alias, depth + 1));
+                        }
+                    }
+                }
+                out
+            }
+            Type::QualifiedGroup { qualifiers, base, .. } => {
+                let mut out = qualifiers.clone();
+                out.extend(self.type_quals(base, depth + 1));
+                out
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -2557,9 +2713,49 @@ impl<'w> Expander<'w> {
                 Some(kind_matches(*kind, actual))
             }
             CompCond::Is { ty, binders, target, span } => {
+                // [comptime-qualifier] `T is Named`, `T is <n> Named(n)`: the
+                // struct's own comptime qualifiers, not a type test.
+                if let Type::Named { qualifiers, base } = target {
+                    if qualifiers.is_empty() && self.world.comptime_qual(&base.name.name).is_some() {
+                        if ty.via_type {
+                            self.error(*span, format!("`{}` describes a declaration, not a type: test the binder itself (`{} is {}`) [comptime-qualifier]", base.name.name, ty.root.name, base.name.name));
+                            return None;
+                        }
+                        let annotations = match &self.bound {
+                            Some((param, target)) if *param == ty.root.name => self.world.struct_named(&target.name).map(|s| s.annotations.clone()),
+                            _ => self.world.struct_named(&ty.root.name).map(|s| s.annotations.clone()),
+                        };
+                        let Some(annotations) = annotations else {
+                            self.error(*span, format!("`{}` is not a struct, so it carries no comptime qualifiers [comptime-qualifier]", ty.root.name));
+                            return None;
+                        };
+                        return self.match_annotation(&annotations, base, binders, "Struct", *span, can_bind);
+                    }
+                }
                 let t = self.resolve_ty(ty)?;
+                // [comptime-qualifier] A pattern's qualifiers are tested, and
+                // their constants bound (`<lo, hi> InRange(lo, hi) *`); a
+                // pattern without qualifiers still ignores the type's.
+                let (target, quals_ok) = match target {
+                    Type::Named { qualifiers, base } if !qualifiers.is_empty() => {
+                        let values = binders.iter().any(|b| b.name.starts_with(|c: char| c.is_lowercase()));
+                        if values && !can_bind {
+                            self.error(*span, "a pattern's binders bind nothing under `||` or `!` — what the test proves holds only where it did: write `*` there [comptime-pattern] [flow-or-not]");
+                            return None;
+                        }
+                        let ok = self.match_type_quals(qualifiers, &t, binders, *span)?;
+                        (Type::Named { qualifiers: Vec::new(), base: base.clone() }, ok)
+                    }
+                    other => (other.clone(), true),
+                };
+                let target = &target;
+                let type_binders: Vec<Ident> = binders.iter().filter(|b| !b.name.starts_with(|c: char| c.is_lowercase())).cloned().collect();
+                let binders = &type_binders;
                 if !self.check_pattern(binders, target, *span) {
                     return None;
+                }
+                if !quals_ok {
+                    return Some(false);
                 }
                 if !binders.is_empty() && !can_bind {
                     self.error(
@@ -2613,6 +2809,17 @@ impl<'w> Expander<'w> {
                     return None;
                 };
                 Some(if *last { b.last } else { b.first })
+            }
+            CompCond::Annotated { subject, binders, qual, span } => {
+                let Some(b) = self.binding(&subject.name).cloned() else {
+                    self.error(*span, format!("`{}` is not a binder [comptime-inline]", subject.name));
+                    return None;
+                };
+                if b.is_arm {
+                    self.error(*span, format!("`{}` is an arm, and an arm carries no comptime qualifiers yet [comptime-qualifier]", subject.name));
+                    return None;
+                }
+                self.match_annotation(&b.annotations, qual, binders, "Field", *span, can_bind)
             }
             CompCond::Unset { binder, docs: true, span } => {
                 if let Some(b) = self.binding(&binder.name) {
@@ -2727,9 +2934,22 @@ impl<'w> Expander<'w> {
             }
             CompStmt::If { cond, then, else_, .. } => {
                 let mut binds = Vec::new();
-                let Some(taken) = self.eval_cond(&cond, &mut binds, true) else { return };
+                let saved_values = std::mem::take(&mut self.value_binds);
+                let taken = self.eval_cond(&cond, &mut binds, true);
+                let values = std::mem::replace(&mut self.value_binds, saved_values);
+                let Some(taken) = taken else { return };
                 if taken {
+                    let base = self.value_binders.len();
+                    for (id, c) in values {
+                        self.value_binders.push((id.name.clone(), c, id.span, 0));
+                    }
                     self.expand_bound(binds, then, out);
+                    let scope: Vec<(String, crate::types::Const, Span, usize)> = self.value_binders.drain(base..).collect();
+                    for (name, _, span, uses) in scope {
+                        let written = self.unmap(span);
+                        let entry = self.binder_used.entry((written.start, name)).or_insert((written, false));
+                        entry.1 |= uses > 0;
+                    }
                 } else if let Some(chosen) = else_ {
                     self.expand_scoped(chosen, out);
                 }
@@ -2899,6 +3119,7 @@ impl<'w> Expander<'w> {
                         sibling_owner: sibling_owner.clone(),
                         default_of: None,
                         docs: self.world.docs_of(arm),
+                        annotations: Vec::new(),
                     };
                     let body = self.copy(&body, &binder.name, &b);
                     // The check's spans come from the union's declaration; two
@@ -3044,6 +3265,19 @@ impl MutVisitor for Expander<'_> {
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
+        // [comptime-qualifier] A constant binder reads as its constant.
+        if let Expr::Ident(id) = expr {
+            if let Some(i) = self.value_binders.iter().rposition(|(n, ..)| *n == id.name) {
+                self.value_binders[i].3 += 1;
+                let span = id.span;
+                *expr = match self.value_binders[i].1.clone() {
+                    crate::types::Const::Int(value) => Expr::Int { value, long: false, span },
+                    crate::types::Const::Char(value) => Expr::Char { value, span },
+                    crate::types::Const::Str(text) => self.str_lit(&text, span),
+                };
+                return;
+            }
+        }
         match expr {
             // `v.[field]` → `v.field`; `field.name` / `field.index` /
             // `field.first` / `field.last`; `T.name`.
@@ -3166,6 +3400,11 @@ impl MutVisitor for Expander<'_> {
                                         }
                                     }
                                 }
+                                // [comptime-qualifier] A constant binder's
+                                // `Int` or `Char` reads as its text, as it
+                                // would at run time.
+                                Expr::Int { value, long: false, .. } => push_text(&mut folded, &value.to_string()),
+                                Expr::Char { value, .. } => push_text(&mut folded, &value.to_string()),
                                 other => folded.push(StrExprPart::Interp(Box::new(other))),
                             }
                         }
@@ -3541,5 +3780,13 @@ impl MutVisitor for RenameLocals<'_> {
             Expr::For { pattern, .. } => self.pattern(pattern),
             _ => {}
         }
+    }
+}
+
+/// [comptime-qualifier] The constant a written value argument holds.
+fn const_arg(t: &Type) -> Option<crate::types::Const> {
+    match t {
+        Type::Named { qualifiers, base } if qualifiers.is_empty() && !base.binder => crate::types::Const::parse(&base.name.name),
+        _ => None,
     }
 }

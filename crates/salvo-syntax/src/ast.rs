@@ -377,6 +377,10 @@ pub struct StructDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
+    /// [comptime-qualifier] The comptime qualifiers `of Struct` written
+    /// before the declaration (`Named("rm") export struct Remove`): read by
+    /// comptime code, erased everywhere else.
+    pub annotations: Vec<TypeRef>,
     /// [mod-export] `export`: visible to other modules. Declarations are
     /// module-private by default (user decision 2026-09-18), so this is the
     /// whole of a module's public surface — a name without it can be used
@@ -662,6 +666,11 @@ pub enum CompCond {
     NameIs { binder: Ident, lits: Vec<String>, span: Span },
     /// `field.first` / `field.last`.
     Flag { binder: Ident, last: bool, span: Span },
+    /// [comptime-qualifier] `field is Short`, `field is <c> Short(c)`: whether
+    /// the binder's field carries the comptime qualifier `qual`, binding the
+    /// constants its value arguments name (`binders`, declared before it as
+    /// a type pattern's are) or comparing the ones written. `!is` is `Not`.
+    Annotated { subject: Ident, binders: Vec<Ident>, qual: TypeRef, span: Span },
     /// [comptime-default] [comptime-docs] `field.default is None`,
     /// `field.docs is None`, `T.docs is None`: the element declares no
     /// default, or carries no doc comment. `docs` says which projection;
@@ -693,6 +702,7 @@ impl CompCond {
             | CompCond::NameIs { span, .. }
             | CompCond::Flag { span, .. }
             | CompCond::Unset { span, .. }
+            | CompCond::Annotated { span, .. }
             | CompCond::IndexCmp { span, .. }
             | CompCond::Not(_, span)
             | CompCond::And(_, _, span)
@@ -818,6 +828,10 @@ pub struct FieldDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
+    /// [comptime-qualifier] The comptime qualifiers `of Field` written
+    /// before the field's name (`Short('p') port: Int`): read by comptime
+    /// code, erased everywhere else.
+    pub annotations: Vec<TypeRef>,
     pub name: Ident,
     /// The written type. `None` only for an **inferred state field**
     /// (`name = value` in a handler's or `iter fn`'s `state { … }` block
@@ -911,6 +925,11 @@ pub struct QualifierDecl {
     pub refns: Vec<RefnDecl>,
     /// True when the declaration had a `{ ... }` body (predicate qualifier).
     pub has_body: bool,
+    /// [comptime-qualifier] `comptime qualifier Short(c: Char) of Field`: a
+    /// qualifier on a `core.comptime` description, written on a declaration
+    /// and read by comptime code; it has no body and claims nothing about a
+    /// value.
+    pub comptime: bool,
     pub span: Span,
 }
 

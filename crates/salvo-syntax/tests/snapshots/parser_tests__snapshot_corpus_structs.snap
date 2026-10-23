@@ -8,6 +8,7 @@ Module {
         Struct(
             StructDecl {
                 docs: [],
+                annotations: [],
                 exported: false,
                 name: Ident {
                     name: "Person",
@@ -36,6 +37,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "name",
                             span: 30..34,
@@ -65,6 +67,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "surname",
                             span: 45..52,
@@ -104,6 +107,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "age",
                             span: 71..74,
@@ -143,6 +147,7 @@ Module {
         Struct(
             StructDecl {
                 docs: [],
+                annotations: [],
                 exported: false,
                 name: Ident {
                     name: "Pair",
@@ -165,6 +170,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "first",
                             span: 107..112,
@@ -194,6 +200,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "second",
                             span: 121..127,

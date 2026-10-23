@@ -4085,3 +4085,33 @@ fn a_default_test_compares_with_none_only() {
     let (_, diags) = salvo_syntax::parse_module(bad);
     assert!(diags.iter().any(|d| d.message.contains("`field.default is None`")), "{diags:?}");
 }
+
+/// [comptime-qualifier] `comptime qualifier Short(c: Char) of Field`, and the
+/// qualifiers written before a field's name and before a declaration — on
+/// its line or the line above, ahead of `export` — with the doc comment above
+/// them kept as the declaration's.
+#[test]
+fn comptime_qualifiers_parse_where_they_are_written() {
+    use salvo_syntax::ast::Item;
+    let source = "comptime qualifier Short(c: Char) of Field\n\n\
+                  // Serves.\n\
+                  Named(\"srv\")\n\
+                  export struct Serve {\n    Short('p') Env(\"PORT\") port: Int = 8080,\n    host: Str\n}\n\n\
+                  Named(\"rm\") struct Remove {}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    let Item::Qualifier(q) = &module.items[0] else { panic!() };
+    assert!(q.comptime && !q.has_body);
+    let Item::Struct(s) = &module.items[1] else { panic!() };
+    assert!(s.exported);
+    assert_eq!(s.docs, ["Serves."]);
+    assert_eq!(s.annotations.iter().map(|a| a.name.name.as_str()).collect::<Vec<_>>(), ["Named"]);
+    let names: Vec<&str> = s.fields[0].annotations.iter().map(|a| a.name.name.as_str()).collect();
+    assert_eq!(names, ["Short", "Env"]);
+    assert_eq!(s.fields[0].annotations[0].value_args.len(), 1);
+    assert!(s.fields[1].annotations.is_empty());
+    let Item::Struct(r) = &module.items[2] else { panic!() };
+    assert_eq!(r.annotations[0].name.name, "Named");
+    let (_, diagnostics) = salvo_syntax::parse_module("Named(\"x\")\nfn f() {}\n");
+    assert!(diagnostics.iter().any(|d| d.message.contains("only a `struct` may follow it")), "{diagnostics:?}");
+}

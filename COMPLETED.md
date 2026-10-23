@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1973 tests, complete: the toolchain tests are
+cargo test                  # 1978 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,51 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Comptime qualifiers: `Short('p') port: Int`, read with `[if field is <c> Short(c)]`
+
+Phase 1.5 of the argument-parsing build; the user's design (ARG_PARSE.md
+round 1 D-1, §10.1c (B), Q5 (a)–(e), X7). [comptime-qualifier]: `comptime
+qualifier Short(c: Char) of Field` is written before a field's name and
+`comptime qualifier Named(name: Str) of Struct` before a struct, and a
+comptime fn reads them with `[if field is <c> Short(c)]`, `[if field !is
+Positional]` and `[if T is <n> Named(n)]`. The same constant binders read a
+field type's qualifiers: `[if field.type is <lo, hi> InRange(lo, hi) *]`.
+
+What it took:
+- **AST**: `QualifierDecl.comptime`, and `annotations: Vec<TypeRef>` on
+  `FieldDecl` and `StructDecl`. The parser reads a run of uppercase refs
+  before a field's name (an uppercase name followed by `:` is still a field,
+  left to the casing rule) and before an item, where an uppercase name was
+  otherwise an error; the doc comment above an annotation line is the
+  struct's. `CompCond::Annotated` is the binder test; a pattern binder may
+  now be lowercase (a constant), and `*` may follow qualifiers in a pattern.
+- **Checker**: the declaration (subject `Field` or `Struct`, no body, no
+  generics or fn slots, constant slots), every annotation (a comptime
+  qualifier of that subject, once, constants of the slots' types), and a
+  comptime qualifier in a type position. The duplicate "does not apply to
+  `Int`" error that followed the last is suppressed.
+- **Expansion**: `World` collects comptime qualifiers; a field binding
+  carries its annotations; `eval_cond` matches them, and the `[if]` that
+  keeps its branch puts the bound constants in scope (`value_binders`), where
+  an identifier of that name becomes the constant. An `Int` or `Char`
+  literal inside an interpolation now folds into the text, as a `Str` one
+  did, so `refuse!("${c}")` and `"-${c}"` read the constant.
+- Type patterns with qualifiers: `match_type_quals` reads the type's written
+  qualifiers (through an alias) and binds or compares their constants; the
+  pattern's base then matches as before. A pattern without qualifiers still
+  ignores the type's, so no existing pattern changed meaning.
+- The AST gained fields, so eleven parser snapshots gained `annotations: []`
+  and `comptime: false` lines and nothing else.
+- Not covered, in the spec: a constant binder hides a local of the same name
+  visible from outside its branch, unchecked; `Short()` with empty parens is
+  a parse error that does not say why.
+
+Tests: comptime_tests `comptime_qualifiers_are_read_where_they_are_written`,
+`comptime_qualifiers_are_checked_where_written`,
+`comptime_qualifier_tests_refuse_what_they_cannot_mean`; parser_tests
+`comptime_qualifiers_parse_where_they_are_written`; CLI run
+`comptime_qualifiers_run_on_both_backends`.
 
 ### 2026-10-20 — `Char` and `Str` constants in qualifier slots
 
@@ -27079,7 +27124,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1973 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1978 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

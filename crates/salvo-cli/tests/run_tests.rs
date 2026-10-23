@@ -697,6 +697,48 @@ fn char_and_str_qualifier_constants_run_on_both_backends() {
     __stamp.verified();
 }
 
+/// [comptime-qualifier] Comptime qualifiers end to end: a comptime fn reads
+/// a struct's own (`Named`), each field's (`Short('p')`, `Positional`) and a
+/// field type's qualifier constants, and the struct itself compiles and runs
+/// with the qualifiers erased, on both backends.
+#[test]
+fn comptime_qualifiers_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("comptime_qualifiers_run_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("comptime_qualifiers");
+    fs::write(
+        dir.join("main.sv"),
+        "comptime qualifier Short(c: Char) of Field\ncomptime qualifier Positional of Field\n\
+         comptime qualifier Named(name: Str) of Struct\n\n\
+         Named(\"srv\")\nstruct Serve {\n    Short('p') port: InRange(1, 65535) Int = 8080,\n    host: Str = \"127.0.0.1\",\n    \
+         Positional files: List<Str>\n}\n\n\
+         comptime fn help() [] -> Str {\n    let out: Mut Str = Mut Str(\"\")\n    \
+         [if Serve is <n> Named(n)] {\n        append(out, \"command ${n}\\n\")\n    }\n    \
+         [for f in Serve.fields] {\n        [if f is <c> Short(c)] {\n            append(out, \"-${c} \")\n        }\n        \
+         [if f is Positional] {\n            append(out, \"<${f.name}>\")\n        } else {\n            append(out, \"--${f.name}\")\n        }\n        \
+         [if f.type is <lo, hi> InRange(lo, hi) *] {\n            append(out, \" (${lo}..${hi})\")\n        }\n        \
+         append(out, \"\\n\")\n    }\n    return out\n}\n\n\
+         fn main() [use] -> None {\n    use StdConsole()\n    print(help())\n    \
+         let s = Serve { files: List(\"a\") }\n    println(\"${s.port} ${s.host}\")\n}\n",
+    )
+    .unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "command srv\n-p --port (1..65535)\n--host\n<files>\n8080 127.0.0.1\n",
+            "{backend}"
+        );
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

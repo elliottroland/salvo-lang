@@ -361,6 +361,14 @@ pub fn walk_comp_cond<V: MutVisitor>(v: &mut V, c: &mut CompCond) {
             v.visit_span(span);
             v.visit_ident(binder);
         }
+        CompCond::Annotated { subject, binders, qual, span } => {
+            v.visit_span(span);
+            v.visit_ident(subject);
+            for b in binders {
+                v.visit_ident(b);
+            }
+            walk_type_ref(v, qual);
+        }
         CompCond::IndexCmp { a, b, span, .. } => {
             v.visit_span(span);
             v.visit_ident(a);

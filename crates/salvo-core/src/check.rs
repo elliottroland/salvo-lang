@@ -4272,6 +4272,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Item::Qualifier(q) => {
                     let saved = self.enter_generics(&q.generics);
+                    // [comptime-qualifier] A comptime qualifier's subject is a
+                    // `core.comptime` type, the one ordinary position one may
+                    // be named in.
+                    self.in_comptime_decl = q.comptime;
                     self.check_fn_slots(&q.name.name, &q.fn_slots, &q.generics);
                     // [qual-depend] One kind of slot per qualifier for now:
                     // nothing in std or the design's catalog mixes an
@@ -4287,6 +4291,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.validate_type(&v.ty);
                     }
                     self.check_qualifier_decl(q);
+                    self.in_comptime_decl = false;
                     for f in &q.fns {
                         self.check_fn(f, &[], &[]);
                     }
@@ -4295,6 +4300,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Struct(s) => {
                     let saved = self.enter_generics(&s.generics);
                     self.in_comptime_decl = s.comptime;
+                    self.check_annotations(&s.annotations, "Struct");
+                    for field in &s.fields {
+                        self.check_annotations(&field.annotations, "Field");
+                    }
                     self.check_fn_slots(&s.name.name, &s.fn_slots, &s.generics);
                     self.validate_auto_quals(&s.auto_qualifiers);
                     self.check_obligations(s);
@@ -20264,6 +20273,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.validate_type(a);
             }
         }
+        // [comptime-qualifier] A comptime qualifier describes a declaration,
+        // not a value: it is never part of a type.
+        for q in qualifiers {
+            if self.qual_decl(&q.name.name).is_some_and(|d| d.comptime) {
+                self.error(
+                    q.name.span,
+                    format!(
+                        "`{0}` is a comptime qualifier: it is written before a field's name \
+                         (`{0}(…) port: Int`) or a declaration, and is never part of a type \
+                         [comptime-qualifier]",
+                        q.name.name
+                    ),
+                );
+            }
+        }
         // The same qualifier cannot be applied twice [qual-no-dup].
         for (i, q) in qualifiers.iter().enumerate() {
             if qualifiers[..i].iter().any(|p| p.name.name == q.name.name) {
@@ -20309,6 +20333,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [qual-of].
         if !matches!(base, Ty::Unknown | Ty::Var(_)) {
             for (q, decl) in qualifiers.iter().zip(&decls) {
+                // [comptime-qualifier] Reported above, once.
+                if decl.is_some_and(|d| d.comptime) {
+                    continue;
+                }
                 // `Mut` is the language-level auto-qualifier: valid only
                 // on declarations that opt in with `canbe Mut`
                 // [struct-mut] [type-canbe-mut].
@@ -20812,7 +20840,156 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// well-formed `qualifies` function [qual-predicate]; field overrides
     /// must refine real fields of the `of` struct [qual-field-override];
     /// bodiless (constructive) qualifiers take neither [qual-constructive].
+    /// [comptime-qualifier] The comptime qualifiers written on a declaration
+    /// (`subject` is `Struct`) or before a field's name (`Field`): each names
+    /// a `comptime qualifier` of that subject, once, with a constant of its
+    /// slot's type in every slot.
+    fn check_annotations(&mut self, annotations: &[TypeRef], subject: &str) {
+        for (i, a) in annotations.iter().enumerate() {
+            let name = a.name.name.as_str();
+            if annotations[..i].iter().any(|b| b.name.name == name) {
+                self.error(a.span, format!("qualifier `{name}` is applied more than once"));
+                continue;
+            }
+            self.require_name(a, true);
+            let Some(decl) = self.qual_decl(name) else { continue };
+            if self.scope.is_qualifier(name) {
+                self.record_def_ref(a.name.span, name);
+            }
+            if !decl.comptime {
+                let place = if subject == "Field" { "before a field's name" } else { "before a declaration" };
+                self.error(
+                    a.name.span,
+                    format!(
+                        "`{name}` is not a comptime qualifier: what is written {place} is a \
+                         `comptime qualifier … of {subject}`, read by comptime code; a claim \
+                         about the value goes in the type [comptime-qualifier]"
+                    ),
+                );
+                continue;
+            }
+            let of = match &decl.of {
+                ast::Type::Named { base, .. } => base.name.name.as_str(),
+                _ => "",
+            };
+            if of != subject {
+                self.error(
+                    a.name.span,
+                    format!("`{name}` describes a `{of}`, not a `{subject}` [comptime-qualifier]"),
+                );
+                continue;
+            }
+            if !a.args.is_empty() {
+                self.error(a.span, format!("`{name}` takes no type arguments [comptime-qualifier]"));
+            }
+            if a.value_args.len() != decl.value_slots.len() {
+                self.error(
+                    a.span,
+                    format!(
+                        "`{name}` takes {} constant(s), found {} [comptime-qualifier]",
+                        decl.value_slots.len(),
+                        a.value_args.len()
+                    ),
+                );
+                continue;
+            }
+            for (written, slot) in a.value_args.iter().zip(&decl.value_slots) {
+                let constant = match written {
+                    ast::Type::Named { qualifiers, base } if qualifiers.is_empty() && !base.binder => {
+                        crate::types::Const::parse(&base.name.name).map(|c| (c, base.span))
+                    }
+                    _ => None,
+                };
+                let want = match &slot.ty {
+                    ast::Type::Named { base, .. } => base.name.name.as_str(),
+                    _ => "",
+                };
+                match constant {
+                    Some((c, _)) if c.base() == want => {}
+                    Some((c, span)) => self.error(
+                        span,
+                        format!(
+                            "`{c}` fills the `{}` slot of `{name}`, which needs `{want}`, not `{}` [qual-const]",
+                            slot.name.name,
+                            c.base()
+                        ),
+                    ),
+                    None => self.error(
+                        written.span(),
+                        "a comptime qualifier's slot takes a constant (`'p'`, `\"rm\"`, `3`): \
+                         nothing else exists where it is written [comptime-qualifier]",
+                    ),
+                }
+            }
+        }
+    }
+
+    /// [comptime-qualifier] A `comptime qualifier`: its subject is
+    /// `core.comptime`'s `Field` or `Struct`, it has no body (nothing runs at
+    /// compile time to test it), no type parameters and no fn slots, and its
+    /// value slots hold constants (`Int`, `Char`, `Str`).
+    fn check_comptime_qualifier_decl(&mut self, q: &'p QualifierDecl) {
+        let of = match &q.of {
+            ast::Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() => {
+                Some(base.name.name.as_str())
+                    .filter(|n| matches!(*n, "Field" | "Struct"))
+                    .filter(|n| self.scope.structs.get(*n).is_some_and(|s| s.comptime))
+            }
+            _ => None,
+        };
+        if of.is_none() {
+            self.error(
+                q.of.span(),
+                format!(
+                    "a comptime qualifier describes a `core.comptime` `Field` or `Struct`, \
+                     not `{}` [comptime-qualifier]",
+                    q.of
+                ),
+            );
+        }
+        if q.has_body {
+            self.error(
+                q.name.span,
+                format!(
+                    "comptime qualifier `{}` cannot have a body: it is written on a \
+                     declaration and read by comptime code, so there is nothing to test or \
+                     refine [comptime-qualifier]",
+                    q.name.name
+                ),
+            );
+        }
+        if !q.generics.is_empty() || !q.fn_slots.is_empty() {
+            self.error(
+                q.name.span,
+                format!(
+                    "comptime qualifier `{}` takes no type parameters or fn slots: `{}` already \
+                     ranges over every declaration it can describe [comptime-qualifier]",
+                    q.name.name,
+                    of.unwrap_or("Field")
+                ),
+            );
+        }
+        for v in &q.value_slots {
+            let ok = matches!(&v.ty, ast::Type::Named { qualifiers, base }
+                if qualifiers.is_empty() && base.args.is_empty() && matches!(base.name.name.as_str(), "Int" | "Char" | "Str"));
+            if !ok {
+                self.error(
+                    v.ty.span(),
+                    format!(
+                        "a comptime qualifier's slot holds a constant: `Int`, `Char` or `Str`, \
+                         not `{}` [comptime-qualifier]",
+                        v.ty
+                    ),
+                );
+            }
+        }
+    }
+
     fn check_qualifier_decl(&mut self, q: &'p QualifierDecl) {
+        if q.comptime {
+            self.check_comptime_qualifier_decl(q);
+            return;
+        }
         self.validate_type(&q.of);
         let of_ty = self.lower_type(&q.of);
         match &of_ty {

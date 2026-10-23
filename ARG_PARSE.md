@@ -110,7 +110,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 1.2 `field.default` (X1).
 - [x] 1.3 `field.docs` (and on `Struct`, `Arm`, `Union`) (X2).
 - [x] 1.4 `Char`/`Str` constant slots in qualifiers (Q5c).
-- [ ] 1.5 Comptime qualifiers `of Field` / `of Struct`: declaration, placement
+- [x] 1.5 Comptime qualifiers `of Field` / `of Struct`: declaration, placement
   before a field's name or a declaration, comptime `field is Q` and
   `[if field is <c> Q(c)]`; the same binder form for qualifiers on a field's
   type, `[if field.type is <lo, hi> InRange(lo, hi) *]` (round 1, Q5, X7).
@@ -135,6 +135,9 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 1.5 done ("Add comptime qualifiers"): [comptime-qualifier]; 1978
+  tests. `Field` and `Struct` subjects; constant binders are lowercase and
+  read as the constant. Next: 1.6 (building a union arm in comptime).
 - 2026-10-20: 1.4 done ("Allow Char and Str constants in qualifier slots"):
   [qual-const]; 1973 tests. `Ty::Const(Const)`; constants are now checked
   against their slot's type. Next: 1.5 (comptime qualifiers).

@@ -364,8 +364,17 @@ A binder is the part as written, qualifiers and all, and is in scope only in
 the branch the test guards — under `||` or `!` the test proves nothing about
 the branch, so a binder there is an error. Writing the same binder twice
 constrains: `<K> Pair<K, K>` matches only a pair of one type. Matching ignores
-qualifiers (a `List<Int> canbe Mut` field is a `List<*>`), and a union matches
-arm by arm, in order.
+the type's qualifiers (a `List<Int> canbe Mut` field is a `List<*>`) unless
+the pattern writes some, and a union matches arm by arm, in order.
+
+A pattern that writes a qualifier requires it, and a lowercase binder reads
+its constant:
+
+```
+[if field.type is <lo, hi> InRange(lo, hi) *] {
+    append(out, " (${lo}..${hi})")      // " (1..65535)" for `InRange(1, 65535) Int`
+}
+```
 
 `[when field.type]` dispatches by pattern, trying the arms in order:
 
@@ -400,6 +409,46 @@ Struct>`, whose `T` is only known where it is stamped — cannot dispatch on
 `[when f.type]` or `[when f.name]` over `T`'s fields at all: it dispatches on
 `[when f.kind]`, or tests one type at a time with
 `[if f.type is …]`.
+
+### Describing a declaration: comptime qualifiers
+
+A comptime fn sometimes needs a fact about a field that its type does not
+carry: the short flag a parser accepts for it, or that it is positional. A
+**comptime qualifier** says it, written before the field's name:
+
+```
+export comptime qualifier Short(c: Char) of Field
+export comptime qualifier Positional of Field
+export comptime qualifier Named(name: Str) of Struct
+
+Named("srv")
+struct Serve {
+    Short('p') port: InRange(1, 65535) Int = 8080
+    Positional files: List<Str>
+}
+```
+
+Its subject is `core.comptime`'s `Field` (written before a field's name) or
+`Struct` (written before a struct, ahead of `export`, on its line or the line
+above). It has no body and claims nothing about a value: `port` is an
+ordinary `InRange(1, 65535) Int`, and `Short` exists only where it is written
+and for the comptime code that reads it. Its slots hold constants: an `Int`,
+a `Char` or a `Str`.
+
+Comptime code tests for one with `is`, and reads its constants through a
+lowercase binder declared before it:
+
+```
+[for field in T.fields] {
+    [if field is <c> Short(c)] {
+        append(out, "-${c} ")           // "-p "
+    }
+    [if field !is Positional] {
+        append(out, "--${field.name}")
+    }
+}
+[if T is <n> Named(n)] { … }            // a struct's own
+```
 
 ### A comptime fn expanded in place
 

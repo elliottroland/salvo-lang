@@ -19,6 +19,11 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type List<T> canbe Mut\n",
     "export intrinsic fn to_str(value: Int) [] -> Str => value\n",
     "export intrinsic fn to_str(value: Bool) [] -> Str => value\n",
+    "export intrinsic type Char\n",
+    "export intrinsic fn to_str(value: Char) [] -> Str => value\n",
+    // [comptime-qualifier] The two subjects a comptime qualifier may have.
+    "export comptime struct Field {}\n",
+    "export comptime struct Struct {}\n",
 );
 
 /// A reported error: its message and the 1-based line it lands on in its file.
@@ -1007,4 +1012,81 @@ fn a_copys_docs_are_tested_in_a_head() {
          [for f in S.fields] {\n        append(out, f.docs ?: \"-\")\n    }\n    return out\n}\n",
     );
     assert!(errs.iter().any(|e| e.contains("when `f` is `a`") && e.contains("`?:`")), "{errs:?}");
+}
+
+// ===== [comptime-qualifier] qualifiers on declarations, read by comptime =====
+
+const ANNOTATED: &str = "comptime qualifier Short(c: Char) of Field\n\
+                         comptime qualifier Positional of Field\n\
+                         comptime qualifier Named(name: Str) of Struct\n\
+                         qualifier Small(hi: Int) of Int {\n    fn qualifies(n: Int, hi: Int) -> Bool {\n        return n < hi\n    }\n}\n\n\
+                         // Serves.\n\
+                         Named(\"srv\")\n\
+                         struct Serve {\n    Short('p') port: Small(100) Int = 80,\n    host: Str,\n    Positional Short('f') files: List<Str>\n}\n\n";
+
+/// [comptime-qualifier] `[if field is Short]`, `[if field is <c> Short(c)]`
+/// (the constant bound and read as a value), a constant compared
+/// (`Short('f')`), `!is`, a struct's own (`Serve is <n> Named(n)`), and a
+/// field type's qualifier constants (`<hi> Small(hi) *`).
+#[test]
+fn comptime_qualifiers_are_read_where_they_are_written() {
+    let src = format!(
+        "{ANNOTATED}comptime fn help() [] -> Int {{\n    \
+         [if Serve is <n> Named(n)] {{\n        refuse!(\"named ${{n}}\")\n    }}\n    \
+         [for f in Serve.fields] {{\n        \
+         [if f is <c> Short(c)] {{\n            refuse!(\"${{f.name}} short ${{c}}\")\n        }}\n        \
+         [if f is Short('f')] {{\n            refuse!(\"${{f.name}} is f\")\n        }}\n        \
+         [if f !is Positional] {{\n            refuse!(\"${{f.name}} named\")\n        }}\n        \
+         [if f.type is <hi> Small(hi) *] {{\n            refuse!(\"${{f.name}} below ${{hi}}\")\n        }}\n    \
+         }}\n    return 0\n}}\n"
+    );
+    assert_eq!(
+        refused(&src),
+        ["files is f", "files short f", "host named", "named srv", "port below 100", "port named", "port short p"]
+    );
+}
+
+/// [comptime-qualifier] A comptime qualifier's declaration and its uses are
+/// checked: its subject, its body, its constants, and where it is written.
+#[test]
+fn comptime_qualifiers_are_checked_where_written() {
+    let errs = messages(
+        "comptime qualifier Short(c: Char) of Field\n\
+         comptime qualifier Named(name: Str) of Struct\n\
+         comptime qualifier Bad of Int\n\
+         comptime qualifier Wide(x: List<Int>) of Field\n\
+         qualifier Plain of Int\n\n\
+         struct S {\n    Short(\"p\") a: Int,\n    Named(\"x\") c: Int,\n    Plain d: Int,\n    e: Short('p') Int\n}\n",
+    );
+    for want in [
+        "describes a `core.comptime` `Field` or `Struct`, not `Int`",
+        "a comptime qualifier's slot holds a constant: `Int`, `Char` or `Str`, not `List<Int>`",
+        "`\"p\"` fills the `c` slot of `Short`, which needs `Char`, not `Str`",
+        "`Named` describes a `Struct`, not a `Field`",
+        "`Plain` is not a comptime qualifier",
+        "`Short` is a comptime qualifier: it is written before a field's name",
+    ] {
+        assert!(errs.iter().any(|e| e.contains(want)), "missing {want:?} in {errs:?}");
+    }
+    assert!(!errs.iter().any(|e| e.contains("does not apply to")), "one error per misplaced qualifier: {errs:?}");
+}
+
+/// [comptime-qualifier] A constant binder is lowercase (an uppercase one would
+/// bind a type), binds nothing under `!`, and an arm carries no comptime
+/// qualifiers yet.
+#[test]
+fn comptime_qualifier_tests_refuse_what_they_cannot_mean() {
+    for (body, want) in [
+        ("        [if f is <C> Short] { }", "would bind a type"),
+        ("        [if !(f is <c> Short(c))] { }", "bind nothing under `||` or `!`"),
+    ] {
+        let src = format!("{ANNOTATED}comptime fn help() [] -> Int {{\n    [for f in Serve.fields] {{\n{body}\n    }}\n    return 0\n}}\n");
+        let errs = messages(&src);
+        assert!(errs.iter().any(|e| e.contains(want)), "{body}: {errs:?}");
+    }
+    let errs = messages(
+        "comptime qualifier Short(c: Char) of Field\nstruct A { n: Int }\nstruct B { n: Int }\ntype U = A | B\n\n\
+         comptime fn count() [] -> Int {\n    [for arm in U.arms] {\n        [if arm is Short] { }\n    }\n    return 0\n}\n",
+    );
+    assert!(errs.iter().any(|e| e.contains("an arm carries no comptime qualifiers yet")), "{errs:?}");
 }

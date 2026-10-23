@@ -3594,6 +3594,7 @@ Module {
                 docs: [
                     "[seq-lazy] The source's elements, each passed through a function.",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "Mapping",
@@ -3688,6 +3689,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "src",
                             span: 6069..6072,
@@ -3717,6 +3719,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "step",
                             span: 6082..6086,
@@ -3830,6 +3833,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "f",
                             span: 6129..6130,
@@ -4812,6 +4816,7 @@ Module {
                 docs: [
                     "[seq-lazy] The source's elements a predicate accepts.",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "Filtering",
@@ -4902,6 +4907,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "src",
                             span: 6789..6792,
@@ -4931,6 +4937,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "step",
                             span: 6802..6806,
@@ -5044,6 +5051,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "keep",
                             span: 6849..6853,
@@ -5987,6 +5995,7 @@ Module {
                 docs: [
                     "[seq-lazy] The first [n] elements of the source.",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "Taking",
@@ -6077,6 +6086,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "src",
                             span: 7585..7588,
@@ -6106,6 +6116,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "step",
                             span: 7598..7602,
@@ -6219,6 +6230,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "left",
                             span: 7645..7649,
@@ -7012,6 +7024,7 @@ Module {
                 docs: [
                     "[seq-lazy] The source's elements while a predicate accepts them.",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "TakingWhile",
@@ -7102,6 +7115,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "src",
                             span: 8226..8229,
@@ -7131,6 +7145,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "step",
                             span: 8239..8243,
@@ -7244,6 +7259,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "keep",
                             span: 8286..8290,
@@ -7305,6 +7321,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "done",
                             span: 8312..8316,
@@ -8302,6 +8319,7 @@ Module {
                 docs: [
                     "[seq-lazy] The source's elements after the first few.",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "Skipping",
@@ -8392,6 +8410,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "src",
                             span: 9174..9177,
@@ -8421,6 +8440,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "step",
                             span: 9187..9191,
@@ -8534,6 +8554,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "left",
                             span: 9234..9238,
@@ -9400,6 +9421,7 @@ Module {
                 docs: [
                     "[seq-lazy] The source's elements from the first one a predicate refuses.",
                 ],
+                annotations: [],
                 exported: true,
                 name: Ident {
                     name: "SkippingWhile",
@@ -9490,6 +9512,7 @@ Module {
                 fields: [
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "src",
                             span: 9918..9921,
@@ -9519,6 +9542,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "step",
                             span: 9931..9935,
@@ -9632,6 +9656,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "skip",
                             span: 9978..9982,
@@ -9693,6 +9718,7 @@ Module {
                     },
                     FieldDecl {
                         docs: [],
+                        annotations: [],
                         name: Ident {
                             name: "started",
                             span: 10004..10011,

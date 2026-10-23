@@ -530,6 +530,7 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
         // [route-stub] The view version its selector has seen: the stub tells
         // the selector when the view moved past it.
         state: vec![salvo_syntax::ast::FieldDecl {
+            annotations: Vec::new(),
             docs: Vec::new(),
             name: ident("seen", spans),
             ty: Some(named("Long", Vec::new(), spans)),
