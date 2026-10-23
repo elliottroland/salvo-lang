@@ -904,6 +904,40 @@ reproduced in a scratch project; the repros are below.
    from a forwarded own implicit first. `core.result`'s `joined` names its
    parameter `X` until then.
 
+8. **Two std modules declaring one type name break the wire codecs.** Found
+   2026-10-20 building `args.lex` (2.1), whose token union was first named
+   `Token` beside `runtime`'s `linear struct Token`. The earlier module
+   (`args.lex`) took the plain key and `runtime`'s became `Token§runtime`
+   [type-identity], but the codecs are named by the written name: Kotlin's
+   `runtime.kt` referred to an `__Codec_Token` that was never emitted, and
+   Rust's `Option<Token>` had no `__Wire`. Repro: rename `args.lex`'s
+   `ArgToken` back to `Token` and run `salvo test --src std`. A user module
+   is not affected (std's declarations come first). Fix: name a codec after
+   the key. `args.lex` says `ArgToken` until then.
+
+9. **Rust: a value read through a temporary's field inside `!` dies too
+   soon.** Found 2026-10-20 (2.1). `copy(get(make().items, 0)!)` emits a
+   block that binds `make().items` to a local inside the `!` block and hands
+   out a reference to it, then clones outside: E0597 (a rustc error, so not
+   wrong code). Repro: `struct Box { items: List<Str> }`, `fn make() [] ->
+   Box`, `println(show(copy(get(make().items, 0)!)))`. Binding `make()` to a
+   local first compiles. Fix: hoist the temporary out of the `!` block, or
+   apply `copy` inside it.
+
+10. **A stamped body resolves only in the stamping module's scope
+    (DECISION).** Found 2026-10-20 (2.1). A `by args` stamp lands in the
+    user's module, so every function and type the derive's template names
+    must be visible there: a private helper of `args`, or one in `args.lex`
+    the user did not import, is "not in scope" (probed). `core.auto` never
+    met this because `core` is visible everywhere. So `args` exports its
+    runtime layer ([args-runtime]), which Q12 meant to keep internal.
+    Options: (a) keep it: a derive exports what it calls, documented as its
+    layer; (b) a name the stamping site cannot resolve falls back to the
+    template's module, private declarations included (hygiene, as Rust's
+    `$crate::` gives macros). Recommendation: (b), which keeps a derive's
+    helpers private and cannot change what a site's own names mean. Until
+    decided, (a).
+
 ### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 
 Both defects of the 2026-09-25 round are closed — a bare generic struct literal

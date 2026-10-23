@@ -124,7 +124,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 1.12 Stamping a decoder: `struct S : FromArgs<self> by args` (X6, Q7).
 
 **Phase 2: `std/args`**
-- [ ] 2.1 Lexer, `ArgError`, internal runtime layer (§4.0, Q12, Q17, Q18).
+- [x] 2.1 Lexer, `ArgError`, internal runtime layer (§4.0, Q12, Q17, Q18).
 - [ ] 2.2 The derive: flags, defaults, `Short`, `Positional`, help (§10.1).
 - [ ] 2.3 Groups: flattened, co-occurring, exclusive (§10.3, Q15).
 - [ ] 2.4 Sub-commands (§10.2, Q14).
@@ -135,6 +135,23 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 2.1 done ("Add the argument lexer and scan to std/args"):
+  [args-lex], [args-runtime], [args-errors], [args-help]; 1992 tests, 150
+  std tests. The layer is exported (a stamp resolves at the site; ROADMAP
+  §2d item 10 asks whether to fall back to the template's module). **The
+  derive's plan (2.2)**, worked out and partly probed: the group is
+  `FromArgs<T> { fn arg_spec() -> Spec<T>; fn from_found(found: Found) ->
+  Ok T | Errs NonEmpty List<ArgError> }` (return-only members, picked by
+  type); `parse_args<T>(args, ?FromArgs<T>)` = spec, scan, help or
+  `from_found`. `from_found` runs a check pass (statements, errors into a
+  `Mut List`) then builds `T` with each entry `[field]: eval<[field.type]>(()
+  -> { … })` — a block lambda is the statement context a struct-literal
+  entry lacks. Qualified fields (`InRange(1, 65535) Int`) parse the base by
+  an `[if field.type is Int]` chain over the std scalars, then re-test with
+  the new `v is [field.type]` splice. Stashed for 2.2 (`git stash list`, "2.2
+  prereqs"): that splice (parser `parse_is_check`, comptime.rs `Expr::Is`),
+  and a Rust fix: a `move` closure's capture of a borrowed parameter is an
+  owned clone inside it, passed on as `&x` (body.rs `lambda`).
 - 2026-10-20: 1.12 done ("Stamp a member that only returns its type"):
   [obligation-return]; 1992 tests. It already worked; a hand-written
   return-only fulfilment is now attached. **Phase 1 is complete.** Next: 2.1

@@ -7177,6 +7177,40 @@ can have one capability without the other.
   HostEnv() of Env` reads the host's (`System.getenv`, `std::env::var`). A
   variable that is not valid Unicode is `None` on Rust, where a `Str` could
   not hold it; the JVM decodes it.
+* [args-lex] **`args.lex` splits a command line into tokens** with no
+  knowledge of which flags exist (ARG_PARSE.md §4.0, Q18): `LongToken {
+  name, value: Str? }` for `--name` and `--name=value`, `ShortToken {
+  letters }` for a bundle (`-jt`, `-p8080`, split above, where it is known
+  which letters take a value), `WordToken { value }`, and `EndToken` for
+  `--`, after which every argument is a word. A lone `-` and a negative
+  number (`-3`, `-.5`) are words. No abbreviations. The union is `ArgToken`.
+* [args-runtime] **`args` reads tokens against a command's description**, as
+  the layer under the derive (Q12 (b)): `Spec<T> { name, about, opts:
+  List<OptSpec>, args: List<ArgSpec> }` for the type `T` it parses into,
+  `scan(spec, args) -> Found` collecting the values by field (`Hit`s) and
+  every error, and the readers `given`, `value_of` and `values_of`.
+  * An option's long name is its field's in kebab case (`max_workers` is
+    `--max-workers`); a value is attached (`--port=80`, `-p80`) or the next
+    word (`--port 80`, `--offset -3`); a switch given a value, an option
+    given twice that does not repeat, a value outside its choices, a
+    required option or positional absent, an unknown option and a word no
+    positional takes are all errors, every one reported.
+  * Positionals take one word each in order, and a `many` one the rest.
+  * `--help` and `-h` (in a bundle too) are reserved, and set `found.help`.
+  * The layer is exported because a stamped body resolves its names where
+    it is stamped [comptime-instantiate]; it is not yet a surface to build
+    parsers by hand.
+  * `command_name("Remote.Add")` is `add`, `RemoteAdd` `remote-add`.
+* [args-errors] **`ArgError` is every way a command line fails**, and the
+  request for help: `UnknownOption | MissingValue | Missing | Invalid |
+  Unexpected | Repeated | HelpRequested`. Help is an outcome, so parsing is
+  pure (Q17); `message(e)` is one line in the user's terms (`invalid value
+  'xml' for '--output': expected one of json, text`).
+* [args-help] **`help_text(spec)`** is the about line, `usage(spec)`
+  (`Usage: serve [OPTIONS] --port <PORT> <files>...`), then `Arguments:`
+  and `Options:` in two aligned columns, each row its doc comment, choices
+  (`[possible values: json, text]`) and default (`[default: 8080]`), and
+  `-h, --help` last.
 
 ## Network (std, module `net`) — step ① of the network sequence
 

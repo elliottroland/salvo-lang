@@ -138,6 +138,34 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — `std/args`: the lexer, the errors and the scan under the derive
+
+Phase 2.1 of the argument-parsing build (ARG_PARSE.md §4.0, Q12 (b), Q17,
+Q18). No new decision; the layer the derive (2.2) builds on:
+- [args-lex] `args.lex`: a command line as `ArgToken`s (`LongToken`,
+  `ShortToken` bundles kept whole, `WordToken`, `EndToken`), knowing no
+  flags. A lone `-` and a negative number are words.
+- [args-runtime] `Spec<T>` (options, positionals), `scan(spec, args) ->
+  Found` (values by field, every error), readers `given`, `value_of`,
+  `values_of`; kebab-case long names; `--help`/`-h` reserved.
+- [args-errors] `ArgError`, with `HelpRequested` as an outcome; `message`.
+- [args-help] `usage` and `help_text`, clap's layout.
+
+What building it found:
+- The layer is **exported**: a stamped body resolves names where it is
+  stamped, so a private helper of `args` is "not in scope" from the user's
+  module (ROADMAP §2d item 10, a DECISION: fall back to the template's
+  module).
+- `args.lex`'s union was first `Token`, beside `runtime`'s `Token`, and the
+  std build broke on both backends: codecs are named by the written name,
+  not the type key (§2d item 8). Renamed `ArgToken`.
+- Rust: `copy(get(make().items, 0)!)` drops the temporary too soon (E0597,
+  §2d item 9); the test binds the value first.
+- No `else if`: the scan's branches are `when { … }` chains.
+
+Tests: `std/args/lex.test.sv` (4) and `std/args.test.sv` (11), run on both
+backends by `salvo test --src std` (150 std tests).
+
 ### 2026-10-20 — A clause stamps a member that only returns its type
 
 Phase 1.12, the last of phase 1 (ARG_PARSE.md X6, Q7 (a): an obligation
