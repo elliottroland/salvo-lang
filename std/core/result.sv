@@ -43,7 +43,7 @@ export fn Err<T canbe linear>(value: T) [] -> +Err T => !value {
 }
 
 // [result-errs] The accumulating outcome: `Ok T | Errs NonEmpty List<E>` —
-// every error, not the first (ARG_PARSE.md X12, Q11). Where `throw` and
+// every error, not the first (the CLI design record X12, Q11). Where `throw` and
 // `Err E` stop at the first failure, a validation that wants the user to fix
 // all problems at once (bad flags, a config file, a batch of rows) collects
 // them; `both`, `map2` and `all` keep collecting after a failure. A

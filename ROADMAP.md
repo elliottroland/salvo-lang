@@ -817,21 +817,10 @@ in build order:
 - **The `json` module** (`Json` union per SERDE.md SD-1, `to_json`/`from_json`
   comptime fns spelled `by json`, tag rules per SD-4) — waits on SERDE.md's SD-1 and
   SD-4 decisions and on section 6 for container fields.
-- **Command-line parsing** (`std/args`), **decided 2026-10-20, not built**
-  (ARG_PARSE.md rounds 1 and 2): a comptime derive from a struct; per-field
-  metadata as comptime qualifiers on `core.comptime`'s `Field`
-  (`export comptime qualifier Short(c: Char) of Field`, used as `Short('p')
-  port: …`); the recommended comptime and std extensions built alongside
-  (ARG_PARSE.md §7, §11); **overloading by return type** added to the
-  language (§12: the return type decides only among identical parameter
-  lists; subtype-related return types refused); comptime splices bracketed
-  (§13: `[field.type]`, `[arm.type] { … }`). Build order: phase 0 (section 2d's
-  defects, `Process`/`Env`, value parsers, return-type overloading; **done**
-  2026-10-20, see COMPLETED.md), phase 1
-  (comptime qualifiers, union-arm construction, `FromArgs<self> by args`,
-  literal members, multi-literal `is`, `explain`, an accumulating outcome,
-  `field.default`, `field.docs`), phase 2 (`std/args`). The derive shares its
-  decoder prerequisites with the codec slice above.
+- ✅ **Command-line parsing** (`std/args`): built 2026-10-20 (COMPLETED.md,
+  "Design record: command-line parsing"; [args-derive] and the rules beside
+  it). What it left open is §2d items 10 and 15 below and the deferred
+  features in "Recorded, not scheduled".
 - **Docs**: a `Compile-Time-Functions.md` page exists; LANGUAGE_SPEC has
   `[comptime-*]`, `[obligation-by]`, `[fn-by]`. Both COMPTIME.md working
   documents were deleted with their rounds in COMPLETED.md (the second, the
@@ -854,7 +843,8 @@ narrowed to `Manual`) make `${value}` ambiguous at the interpolation while
 
 ### 2d — Fix alongside the `std/args` work: defects found 2026-10-20
 
-Found while designing ARG_PARSE.md and the `[if]` scoping fix; the user asked
+Found while designing and building `std/args` (COMPLETED.md, "Design record:
+command-line parsing") and the `[if]` scoping fix; the user asked
 (2026-10-20) for each to be fixed **in general**, not only where the args
 design touches it, and scheduled **alongside the planned `std/args` derive
 and comptime work**. None is a decision except where marked. Each was
@@ -1761,6 +1751,19 @@ it would save only the cheap transcription and inherit every coupling of the
    depending on the program first). Depends on step 3 landing.
 
 ## Recorded, not scheduled
+
+- **`std/args`, the features deferred** (from the CLI design record,
+  2026-10-20): a `--no-x` form for a defaulted `Bool` (AP-11); `--version`
+  (Q17 (c): until asked for; a manifest version or a `Version("1.2")`
+  qualifier were the options); options accepted after a sub-command's name
+  (`global`, D-3); prefixed flattened groups (`Prefixed("net")`, D-5); a
+  valued selector for an exclusive group (`--source url`, D-6);
+  provenance-tagged scalar arms (`source: FromUrl Str | FromFile Str` as
+  `--from-url V`, §10.3); long-name, metavariable and environment overrides
+  (`Long`, `Meta`, `Env` comptime qualifiers, §10.1); config files and shell
+  completion (§6); a public combinator API under the derive (Q12 (a));
+  declared rules between flags (§5.3); `FieldOf<T>`, a type naming a
+  struct's field names (X8).
 
 - **Return-type overloading, the two places it does not reach** (recorded
   2026-10-20 with [fn-overload-return]): effect members still overload by

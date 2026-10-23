@@ -250,7 +250,7 @@ Conventions:
   each field, so a field of any type that itself renders — a scalar, a float
   by [interp-float], a nested struct with its own opt-in — renders inside it,
   where the old derivation stopped at natively renderable fields.
-* [str-parse] **Reading a scalar from a string** (ARG_PARSE.md X11, Q4,
+* [str-parse] **Reading a scalar from a string** (the CLI design record X11, Q4,
   user decision 2026-10-20). `core.string` has `parse_int`, `parse_long`,
   `parse_double` and `parse_bool`, each returning `None` for text that does
   not spell a value, and one `from_str` overloaded by return type
@@ -362,7 +362,7 @@ Conventions:
     pattern (`ref __v if *__v == "A"`, the last `when` branch the `_` rustc
     needs).
 * [type-literal-qualified] **A qualified literal is its literal** (user
-  decision 2026-10-20, ARG_PARSE.md round 2 Q1): `Short "port" | Short
+  decision 2026-10-20, the CLI design record round 2 Q1): `Short "port" | Short
   "verbose" | "host"` collapses into one `Str` at run time like any literal
   union [union-arm-identity], because the qualifier erases [qual-erasure];
   `is Short` is a value test against the literals carrying `Short`
@@ -1466,13 +1466,13 @@ Conventions:
   [handler-state] (one checker helper, `check_default`, so the sites cannot
   drift). Until 2026-10-20 the struct-field and parameter sites checked the
   expression and discarded the result, so `port: InRange(1, 10) Int = 8080`
-  compiled, and the claim was false on both backends (ARG_PARSE.md, ROADMAP
+  compiled, and the claim was false on both backends (the CLI design record, ROADMAP
   §2d item 1). The error: "this default does not fit its type: expected …,
   found …".
 * [default-predicate] **A default may lack a predicate qualifier with
   constant arguments**, which is then **tested where the default is
   applied** and traps when it fails, as `x!` traps on `None` (user decision
-  2026-10-20, ARG_PARSE.md round 2 Q2): `port: InRange(1, 65535) Int = 8080`
+  2026-10-20, the CLI design record round 2 Q2): `port: InRange(1, 65535) Int = 8080`
   compiles, and an `Opts {}` whose default does not satisfy the claim stops
   there with "the default for field `port` is not `InRange(1, 65535) Int`".
   * Testable means: the qualifier has `qualifies` [qual-predicate], every
@@ -1840,7 +1840,7 @@ Conventions:
     semantics — recorded in ROADMAP.md with literal establishment
     (`listen(8080)` proving itself), the two remainders of the step.
   * **`Int`, `Char` and `Str` constants** (`Char`/`Str` added 2026-10-20,
-    ARG_PARSE.md Q5c, for `Short('p')` and ordinary qualifiers such as
+    the CLI design record Q5c, for `Short('p')` and ordinary qualifiers such as
     `Prefix("arn:") Str`): `Ty::Const(Const::{Int, Char, Str})`. A constant
     must be of its slot's type, checked where a type is written
     (`validate_quals`) and in an `is` test: "`\"p\"` fills the `c` slot of
@@ -1943,7 +1943,7 @@ Conventions:
     first — `x is Int && x is Positive`. Lifting this needs qualifiers
     over unions; see D4 in ROADMAP.md.
 * [qual-explain] **A predicate qualifier may say why a value failed**
-  (ARG_PARSE.md X9, Q10; built 2026-10-20): an optional `fn explain` beside
+  (the CLI design record X9, Q10; built 2026-10-20): an optional `fn explain` beside
   `qualifies`, with exactly its parameters, returning the message as a
   `Str`. std's `InRange` has one ("70000 is not in 1..65535").
   * **`assert!(x is Q(…))` with no message of its own fails with it**: the
@@ -2012,7 +2012,7 @@ Conventions:
   * There is no `Result` type: the union *is* the result. A `type
     Result<T, E> = Ok T | Err E` alias would only hide the arms.
 * [result-errs] **The accumulating outcome, `Ok T | Errs NonEmpty List<E>`**
-  (ARG_PARSE.md X12, Q11, the arm's name `Errs`; built 2026-10-20), in
+  (the CLI design record X12, Q11, the arm's name `Errs`; built 2026-10-20), in
   `core.result`: every error, not the first. `provenance qualifier Errs<T> of
   T`, its constructors `errs(e)` (one error) and `Errs(list)`, and
   `both(a, b)` (both values as a pair) and `map2(a, b, f)`, which keep
@@ -2546,7 +2546,7 @@ Conventions:
     total `get` over a `List<P?>` answers `proj(xs) P?`, a view of the whole
     optional, and `s is P p` binds `p: proj(xs) P` — each side keeps the
     `proj`. It used to bind `p` at `P?` (a field read on it was refused).
-* [is-union] **`x is A | B` is `x is A || x is B`** (ARG_PARSE.md X4, Q9;
+* [is-union] **`x is A | B` is `x is A || x is B`** (the CLI design record X4, Q9;
   built 2026-10-20), and **`||` narrows** a place both of its sides narrow,
   to the union of the two: `s is "json" | "text"` makes a `Str` a `"json" |
   "text"`, `x is Int | Str` makes an `Int | Str | Bool` an `Int | Str`. The
@@ -3073,7 +3073,7 @@ Conventions:
   an overload set — reported at the second one. Parameter names take no part
   in selection, so nothing at a call site could tell them apart.
 * [fn-overload-return] **Overloads may differ only in their return type**
-  (user decision 2026-10-20, ARG_PARSE.md rounds 2 to 4, consistent with
+  (user decision 2026-10-20, the CLI design record rounds 2 to 4, consistent with
   [fn-value-select], which already chose a fn value by its result type):
   `fn from_str(s: Str) -> Int?` beside `fn from_str(s: Str) -> Bool?`.
   * **Selection** is unchanged until the parameters can decide no more:
@@ -4917,7 +4917,7 @@ Conventions:
     or generates a `Comparable` for a struct: a `List<Point>` or `(Int,
     Point)` **key** reaches the element's Salvo fn [col-hashed-ordered].
 * [obligation-return] **A member that only returns the type is stamped at the
-  clause too** (ARG_PARSE.md X6, Q7 (a); confirmed 2026-10-20): the clause
+  clause too** (the CLI design record X6, Q7 (a); confirmed 2026-10-20): the clause
   names its target (`self`), so `struct Serve : FromArgs<self> by args`
   stamps `from_args(args: List<Str>) -> … Serve …` though no parameter
   mentions `Serve`; the template's bound `T` is substituted in the return as
@@ -5046,7 +5046,7 @@ Conventions:
     is Struct`, `field: Field`, `field.type`, `T.fields: List<Field>` —
     and the language server answers from that record before its usual tables.
 * [comptime-qualifier] **A comptime qualifier describes a declaration and is
-  read by comptime code** (ARG_PARSE.md round 1 D-1, §10.1c (B), Q5; built
+  read by comptime code** (the CLI design record round 1 D-1, §10.1c (B), Q5; built
   2026-10-20): `export comptime qualifier Short(c: Char) of Field`, written
   before a field's name (`Short('p') port: InRange(1, 65535) Int = 8080`),
   and `comptime qualifier Named(name: Str) of Struct`, written before a
@@ -5080,7 +5080,7 @@ Conventions:
   * A constant binder takes precedence over a local of the same name visible
     from outside the branch: the expansion replaces every remaining use of
     the name. Pick a fresh name; nothing checks it yet.
-* [comptime-arm] **A copy over a union's arms can build its arm** (ARG_PARSE.md
+* [comptime-arm] **A copy over a union's arms can build its arm** (the CLI design record
   X5, Q6; built 2026-10-20). A struct arm is `[arm.type] { [for f in
   arm.type.fields] { [f]: … } }` [comptime-inline]; a qualified arm is
   `[arm.type](value)`, a call to its claim's type-named constructor
@@ -5093,7 +5093,7 @@ Conventions:
   * Several qualifiers on one arm call the fn named for the run
     (`A_B(value)`), which exists only where someone declared it.
 * [comptime-literals] **`[for lit in X.literals]` walks a literal union's
-  members** (ARG_PARSE.md X3, Q8; built 2026-10-20): `X` is a binder's type
+  members** (the CLI design record X3, Q8; built 2026-10-20): `X` is a binder's type
   (`field.type`), the bound `T`, or a named alias (`Level`). The members are
   the union's literal arms in declaration order — `None` and any non-literal
   arm skipped, a qualified literal (`Short "port"`) read as its literal —
@@ -5106,7 +5106,7 @@ Conventions:
   `comptime struct Literal { value: Value, name: Str, index: Int, first:
   Bool, last: Bool }`.
 * [comptime-default] **`field.default` is the field's declared default**
-  (ARG_PARSE.md X1, built 2026-10-20 as engineering under round 2): in a copy
+  (the CLI design record X1, built 2026-10-20 as engineering under round 2): in a copy
   it is the `= expr` the field declares, evaluated where the struct is
   declared [default-scope] and tested against the field's predicate
   qualifiers like any applied default [default-predicate]; where the field
@@ -5126,7 +5126,7 @@ Conventions:
   * In a copy the value is one thing or the other — the default, or `None`
     — so it is tested in a head, not with `?:`, which each copy refuses as
     on any value with one arm. Passing it to a `T?` needs neither.
-* [comptime-docs] **`.docs` is a doc comment as text** (ARG_PARSE.md X2,
+* [comptime-docs] **`.docs` is a doc comment as text** (the CLI design record X2,
   built 2026-10-20 under round 2: "text as hover prints it"): on a field
   binder its own [doc-comment], on an arm binder the comment of the
   declaration the arm names (a struct or a `type`), and on the bound `T` or
@@ -5138,7 +5138,7 @@ Conventions:
   tested in a head rather than with `?:`.
 * [comptime-inline] **The comptime constructs are written in brackets** (user
   decision 2026-09-29, replacing the `inline` word; restated 2026-10-20,
-  ARG_PARSE.md §13 (B)). Two kinds of bracket, one principle — a bracket marks
+  the CLI design record §13 (B)). Two kinds of bracket, one principle — a bracket marks
   where expansion acts on the code itself:
   * **A head** — `[for …]`, `[if …]`, `[when …]` — is a construct whose
     unbracketed text would be a runtime loop, test or dispatch.
@@ -5239,7 +5239,7 @@ Conventions:
     decision 2026-10-20): the names are known only where it is
     stamped, so the declaration cannot check the dispatch [comptime-pattern].
     `[if field.name is …]` still works there.
-  * **Two binders' names compare** (ARG_PARSE.md X16, built 2026-10-20):
+  * **Two binders' names compare** (the CLI design record X16, built 2026-10-20):
     `[if a.name == b.name]` and `!=`, for binders of two walks — a derive
     merging two structs finds the field names they share. Both sides must be
     binders; a literal is compared as above.
@@ -5312,7 +5312,7 @@ Conventions:
     the template; its `by` sites stay quiet. `[when f.kind]` ranges over
     `Kind`, the same everywhere, so it stays [comptime-kind].
 * [comptime-is-splice] **`v is [field.type]` tests what a binder's type
-  says** (ARG_PARSE.md 2.2, under §13 (B): a splice wherever a type is
+  says** (the CLI design record 2.2, under §13 (B): a splice wherever a type is
   written): its qualifiers, then its base, spliced per copy as an arm's `is`
   check is written. So a value parsed as an `Int` is re-tested against the
   field's `InRange(1, 65535) Int` and narrowed to it, and against a plain
@@ -7197,7 +7197,7 @@ surface is imported — `import args` brings `Args`, `args()` and `HostArgs`
 
 ## Exit status and environment (std, `process` and `env`)
 
-Built 2026-10-20 (ARG_PARSE.md X10, Q3, user decisions of the same day). Each
+Built 2026-10-20 (the CLI design record X10, Q3, user decisions of the same day). Each
 is a module of its own, imported like `args` [mod-import-module], so a function
 can have one capability without the other.
 
@@ -7226,7 +7226,7 @@ can have one capability without the other.
   variable that is not valid Unicode is `None` on Rust, where a `Str` could
   not hold it; the JVM decodes it.
 * [args-lex] **`args.lex` splits a command line into tokens** with no
-  knowledge of which flags exist (ARG_PARSE.md §4.0, Q18): `LongToken {
+  knowledge of which flags exist (the CLI design record §4.0, Q18): `LongToken {
   name, value: Str? }` for `--name` and `--name=value`, `ShortToken {
   letters }` for a bundle (`-jt`, `-p8080`, split above, where it is known
   which letters take a value), `WordToken { value }`, and `EndToken` for
@@ -7263,7 +7263,7 @@ can have one capability without the other.
   `-h, --help` last. A doc comment of several lines is one row, its lines
   joined by spaces; the comment ends at a blank line, so a comment for the
   reader can sit above it apart (`examples/cli`).
-* [args-groups] **A struct-typed field is a group of options** (ARG_PARSE.md
+* [args-groups] **A struct-typed field is a group of options** (the CLI design record
   §10.3, Q15), and the struct it holds declares `: FromArgs<self> by args`
   too, since the parent's derive calls its `arg_spec()` and `from_found`:
   * `net: Net` is **flattened**: `Net`'s options are the command's own,
@@ -7285,7 +7285,7 @@ can have one capability without the other.
   * A group's `from_found` reads the same `Found`; its errors after the
     scan's are added (`group_errors`), and its value taken once every check
     passed (`built`).
-* [args-commands] **A `Subcommand` field takes a sub-command** (ARG_PARSE.md
+* [args-commands] **A `Subcommand` field takes a sub-command** (the CLI design record
   §10.2, Q14, D-3, D-4): `export comptime qualifier Subcommand of Field`, on
   a field whose type is a union of command structs, each declaring
   `FromArgs`; `(A | B)?` makes the command optional.
@@ -7307,7 +7307,7 @@ can have one capability without the other.
     `Subcommand` that is also `Positional` or `Short`, a field type that is
     not a union, a non-struct arm.
 * [args-derive] **`struct S : FromArgs<self> by args` derives a parser**
-  (ARG_PARSE.md §10.1, Q7, Q13): `params FromArgs<T> { fn arg_spec() ->
+  (the CLI design record §10.1, Q7, Q13): `params FromArgs<T> { fn arg_spec() ->
   Spec<T>; fn from_found(found: Found) -> Ok T | Errs NonEmpty
   List<ArgError> }`, both return-only and picked by type
   [fn-overload-return]. `parse_args<T>(args)` is spec, scan, then the help
@@ -7326,13 +7326,13 @@ can have one capability without the other.
     ("expected an integer"), and a qualifier failure says why
     [args-explain].
 * [args-explain] **A value that fails its field's qualifiers says why**
-  (ARG_PARSE.md §5.2, Q10, Q16): `check_value`'s test answers the reason
+  (the CLI design record §5.2, Q10, Q16): `check_value`'s test answers the reason
   (`None` when accepted). For std's `InRange`, found with `[if field.type
   is <lo, hi> InRange(lo, hi) *]`, it is `InRange.explain` (`invalid value
   '70000' for '--port': 70000 is not in 1..65535`); any other qualifier is
   "the value is not accepted", since comptime cannot yet walk a type's
   qualifiers to call each one's `explain` (ROADMAP §2d item 15).
-* [args-validate] **The validation hook** (ARG_PARSE.md §5.2, Q16; user
+* [args-validate] **The validation hook** (the CLI design record §5.2, Q16; user
   decision 2026-10-20, option (a)): `parse_valid<T, V>(args, ?FromArgs<T>,
   ?validate: (o: T) [Throw<ArgError>] -> V)` parses, then calls the
   `validate` in scope — found as an implicit, so `T` comes from it — inside

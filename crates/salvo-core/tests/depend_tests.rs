@@ -370,7 +370,7 @@ fn different_constants_refuse() {
     );
 }
 
-/// [qual-const] `Char` and `Str` constants (ARG_PARSE.md Q5c): `Tag('p')`
+/// [qual-const] `Char` and `Str` constants (the CLI design record Q5c): `Tag('p')`
 /// and `Prefix("arn:")` fill slots of their own type, establish by `is`, and
 /// agree exactly — a `Prefix("arm:")` claim does not fill a
 /// `Prefix("arn:")` position.

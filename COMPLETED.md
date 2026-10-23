@@ -138,9 +138,18 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — ARG_PARSE.md retired
+
+Its decisions all landed (phases 0–2), so per its lifecycle it is gone: the
+rounds, the labels code and specs cite, and what was built differently are
+"Design record: command-line parsing" below; the deferred features are in
+ROADMAP's "Recorded, not scheduled"; the open items from building it were
+already in ROADMAP §2d (items 10 and 15 are the args ones). References to
+the file now name the record.
+
 ### 2026-10-20 — The validation hook: `parse_valid` and `valid_args_or_exit`
 
-Phase 2.5's second half (ARG_PARSE.md §5.2, Q16), option (a) of ROADMAP
+Phase 2.5's second half (the CLI design record §5.2, Q16), option (a) of ROADMAP
 §2d item 16, chosen by the user with "I'd like to fix both gaps" — the two
 compiler gaps the probe found, closed in the two commits before this one.
 [args-validate]: `parse_valid<T, V>(args, ?FromArgs<T>, ?validate: (o: T)
@@ -226,7 +235,7 @@ expects `takes(eq)` to check (it asserted the old refusal).
 
 ### 2026-10-20 — `examples/cli`, and help that reads a doc comment as one row
 
-Phase 2.6, without retiring ARG_PARSE.md (the validation hook, ROADMAP §2d
+Phase 2.6, without retiring the CLI design record (the validation hook, ROADMAP §2d
 item 16, is still the user's call). `examples/cli` is a tool with an
 optional sub-command, a flattened group, an all-or-none group, an exclusive
 group with an empty arm, a qualified port, choices, repeatable and
@@ -244,7 +253,7 @@ checked-in trees and `expected.txt`).
 
 ### 2026-10-20 — A failed value says why; the validation hook waits on a decision
 
-Phase 2.5, first half (ARG_PARSE.md §5.2, Q10, Q16). [args-explain]: the
+Phase 2.5, first half (the CLI design record §5.2, Q10, Q16). [args-explain]: the
 derive's check of a qualified value answers the reason, and for std's
 `InRange` it is `InRange.explain` (`invalid value '70000' for '--port':
 70000 is not in 1..65535`); other qualifiers say "the value is not
@@ -266,7 +275,7 @@ Tests: the derived-parser run test's port error now reads the `explain`.
 
 ### 2026-10-20 — Sub-commands in the args derive
 
-Phase 2.4 (ARG_PARSE.md §10.2, Q14, D-3, D-4; no new decision).
+Phase 2.4 (the CLI design record §10.2, Q14, D-3, D-4; no new decision).
 [args-commands]: `export comptime qualifier Subcommand of Field` on a field
 whose type is a union of `FromArgs` command structs (`(A | B)?` optional).
 The scan takes the first word as the command and keeps the rest for it
@@ -285,7 +294,7 @@ optional level, `Named`, a namespaced arm, errors, help at each level).
 
 ### 2026-10-20 — Groups of options: flattened, all-or-none, exclusive
 
-Phase 2.3 (ARG_PARSE.md §10.3, Q15, D-5, D-6; no new decision).
+Phase 2.3 (the CLI design record §10.3, Q15, D-5, D-6; no new decision).
 [args-groups]: a struct-typed field is a group, and its struct declares
 `FromArgs` too, since the parent's derive calls its `arg_spec()` (merged
 into the parent's spec under a key: `tls`, `source/FromUrl`) and its
@@ -316,7 +325,7 @@ sections, and a clash trapped).
 
 ### 2026-10-20 — `FromArgs<self> by args`: a struct derives its command line
 
-Phase 2.2 of the argument-parsing build (ARG_PARSE.md §10.1, Q7, Q13, Q17;
+Phase 2.2 of the argument-parsing build (the CLI design record §10.1, Q7, Q13, Q17;
 no new decision). [args-derive]: `params FromArgs<T> { arg_spec() ->
 Spec<T>; from_found(found) -> Ok T | Errs NonEmpty List<ArgError> }`, both
 stamped by `args`'s comptime fns and picked by return type; `parse_args`
@@ -358,7 +367,7 @@ Tests: comptime_tests
 
 ### 2026-10-20 — `std/args`: the lexer, the errors and the scan under the derive
 
-Phase 2.1 of the argument-parsing build (ARG_PARSE.md §4.0, Q12 (b), Q17,
+Phase 2.1 of the argument-parsing build (the CLI design record §4.0, Q12 (b), Q17,
 Q18). No new decision; the layer the derive (2.2) builds on:
 - [args-lex] `args.lex`: a command line as `ArgToken`s (`LongToken`,
   `ShortToken` bundles kept whole, `WordToken`, `EndToken`), knowing no
@@ -386,7 +395,7 @@ backends by `salvo test --src std` (150 std tests).
 
 ### 2026-10-20 — A clause stamps a member that only returns its type
 
-Phase 1.12, the last of phase 1 (ARG_PARSE.md X6, Q7 (a): an obligation
+Phase 1.12, the last of phase 1 (the CLI design record X6, Q7 (a): an obligation
 clause, `struct Serve : FromArgs<self> by args`). [obligation-return]: the
 clause path already stamped at the declaring type — the template's bound `T`
 is substituted in the return as in the parameters, and the "first
@@ -406,7 +415,7 @@ field with `from_str`, both backends).
 
 ### 2026-10-20 — Two binders' names compare in a comptime head
 
-Phase 1.11 of the argument-parsing build (ARG_PARSE.md X16; no decision
+Phase 1.11 of the argument-parsing build (the CLI design record X16; no decision
 needed). [comptime-name]: `[if a.name == b.name]` and `!=` for binders of
 two walks, so a derive merging a group into its parent can refuse a reused
 flag name at the declaration. `CompCond::NameEq`, parsed where a `.name ==`
@@ -415,7 +424,7 @@ comptime_tests `two_binders_names_compare`.
 
 ### 2026-10-20 — `Errs`: the accumulating outcome
 
-Phase 1.10 of the argument-parsing build (ARG_PARSE.md X12, Q11; the arm is
+Phase 1.10 of the argument-parsing build (the CLI design record X12, Q11; the arm is
 `Errs`). [result-errs]: `core.result` gains `provenance qualifier Errs<T> of
 T`, `errs(e)`, `Errs(list)`, `both(a, b)` and `map2(a, b, f)` over `Ok T |
 Errs NonEmpty List<E>`, which keep every error after a failure. The examples
@@ -443,7 +452,7 @@ because every stamp keyed on std missed.
 
 ### 2026-10-20 — `explain`: a predicate qualifier says why a value failed
 
-Phase 1.9 of the argument-parsing build (ARG_PARSE.md X9, Q10, accepted with
+Phase 1.9 of the argument-parsing build (the CLI design record X9, Q10, accepted with
 the call spelling `InRange.explain(n, 1, 65535)`). [qual-explain]: an
 optional `fn explain` with `qualifies`'s parameters returns the message;
 `assert!(x is Q(…))` without a message of its own traps with it; `Q.qualifies`
@@ -468,7 +477,7 @@ both backends).
 
 ### 2026-10-20 — `x is A | B`, `||` narrows, and a literal test compares the value
 
-Phase 1.8 of the argument-parsing build (ARG_PARSE.md X4, Q9: both forms).
+Phase 1.8 of the argument-parsing build (the CLI design record X4, Q9: both forms).
 [is-union]: `s is "json" | "text"` and `x is Int | Str` are the disjunction
 of the tests, and `||` now narrows a place both sides narrow to the union of
 the two.
@@ -503,7 +512,7 @@ literal tests, both backends).
 
 ### 2026-10-20 — A literal union's members in comptime, and a narrowed optional union read as itself
 
-Phase 1.7 of the argument-parsing build (ARG_PARSE.md X3, Q8, accepted as
+Phase 1.7 of the argument-parsing build (the CLI design record X3, Q8, accepted as
 recommended). [comptime-literals]: `[for lit in field.type.literals]` (also
 on `T` and a named alias) makes one copy per literal member in declaration
 order, with `lit.value` the member as a literal of the union, `lit.name`,
@@ -536,7 +545,7 @@ tested, a type with no literals); CLI run
 
 ### 2026-10-20 — Building a union arm in comptime
 
-Phase 1.6 of the argument-parsing build (ARG_PARSE.md X5, Q6, accepted as
+Phase 1.6 of the argument-parsing build (the CLI design record X5, Q6, accepted as
 recommended). [comptime-arm]: in a copy over `U.arms`, a struct arm is
 `[arm.type] { [for f in arm.type.fields] { [f]: … } }` (which 1.1's splice
 already built), a qualified arm is `[arm.type](value)`, and `None` is `None`.
@@ -562,7 +571,7 @@ arm, `None`, both backends).
 
 ### 2026-10-20 — Comptime qualifiers: `Short('p') port: Int`, read with `[if field is <c> Short(c)]`
 
-Phase 1.5 of the argument-parsing build; the user's design (ARG_PARSE.md
+Phase 1.5 of the argument-parsing build; the user's design (the CLI design record
 round 1 D-1, §10.1c (B), Q5 (a)–(e), X7). [comptime-qualifier]: `comptime
 qualifier Short(c: Char) of Field` is written before a field's name and
 `comptime qualifier Named(name: Str) of Struct` before a struct, and a
@@ -607,7 +616,7 @@ Tests: comptime_tests `comptime_qualifiers_are_read_where_they_are_written`,
 
 ### 2026-10-20 — `Char` and `Str` constants in qualifier slots
 
-Phase 1.4 of the argument-parsing build (ARG_PARSE.md Q5c, accepted: both
+Phase 1.4 of the argument-parsing build (the CLI design record Q5c, accepted: both
 kinds, for ordinary qualifiers too). [qual-const]: `Ty::ConstInt(i64)`
 became `Ty::Const(Const)` with `Int`, `Char` and `Str`, so `Prefix("arn:")
 Str` and `Initial('p') Str` are claims like `InRange(0, 65535) Int`:
@@ -636,7 +645,7 @@ signature, a predicate default, and a failing default's trap naming
 
 ### 2026-10-20 — `.docs`: a doc comment as a comptime value
 
-Phase 1.3 of the argument-parsing build (ARG_PARSE.md X2; "text as hover
+Phase 1.3 of the argument-parsing build (the CLI design record X2; "text as hover
 prints it", round 2). [comptime-docs]: `field.docs`, `arm.docs`, `T.docs`
 and a named root's `Serve.docs` are the doc comment above the declaration,
 lines joined with newlines and `[symbol]` references left as written, or
@@ -664,7 +673,7 @@ and a two-line comment, read back through `refuse!`),
 
 ### 2026-10-20 — `field.default`, and a default is evaluated where it is declared
 
-Phase 1.2 of the argument-parsing build (ARG_PARSE.md X1; engineering under
+Phase 1.2 of the argument-parsing build (the CLI design record X1; engineering under
 round 2, which listed it as needing no decision). [comptime-default]: in a
 copy, `field.default` is the field's declared `= expr`, or `None` where it
 declares none, and `[if field.default is None]` / `!is None` tests which.
@@ -710,7 +719,7 @@ parser_tests `a_default_test_compares_with_none_only`.
 
 ### 2026-10-20 — A comptime type is spliced in brackets: `[field.type]`, `[arm.type] { … }`
 
-Phase 1.1 of the argument-parsing build; the user's decision (ARG_PARSE.md
+Phase 1.1 of the argument-parsing build; the user's decision (the CLI design record
 §13, round 4: (B)). [comptime-inline] is restated as one principle: a bracket
 marks where expansion acts on the code, either a head (`[for …]`, `[if …]`,
 `[when …]`) or a **splice**, where a comptime value becomes part of the
@@ -732,7 +741,7 @@ What it took:
   identifier, found `type`". No std body, test or example wrote the bare
   form, so nothing else needed rewriting; the comment in
   `std/core/comptime.sv`, the Compile-Time-Functions page, [comptime-fields],
-  [comptime-access] and ARG_PARSE.md's examples were.
+  [comptime-access] and the CLI design record's examples were.
 - Expansion messages said "an enclosing `inline for`", the spelling retired
   on 2026-09-29; they now say `[for …]`/`[when …]`.
 - `[arm.type] { … }` already builds a struct arm on both backends (probe:
@@ -763,7 +772,7 @@ tokens found no other hang. Test: parser_tests
 
 ### 2026-10-20 — `Process` and `Env`: exit status and environment variables
 
-Phase 0.7, the last of phase 0 of the argument-parsing build (ARG_PARSE.md
+Phase 0.7, the last of phase 0 of the argument-parsing build (the CLI design record
 X10, Q3, accepted as recommended). [cli-process]: `import process` brings
 `effect Process { fn exit(code: Int) -> Never }` and `HostProcess()`, which
 flushes stdout and stderr and then exits. [cli-env]: `import env` brings
@@ -799,7 +808,7 @@ and an unset variable); linear_release_tests
 
 ### 2026-10-20 — `parse_long`, `parse_double`, `parse_bool` and `from_str`
 
-Phase 0.6 of the argument-parsing build (ARG_PARSE.md X11, Q4; `Bool` accepts
+Phase 0.6 of the argument-parsing build (the CLI design record X11, Q4; `Bool` accepts
 `true`/`false` only, by the user's call in round 2). [str-parse]:
 `core.string` gains `parse_long` and `parse_double` (platform), `parse_bool`
 (Salvo), one `from_str` overloaded by return type for `Str?`, `Int?`,
@@ -830,7 +839,7 @@ refused spellings, a `?from_str` implicit filled at `Int`, and each
 
 ### 2026-10-20 — Overloading by return type
 
-Phase 0.5 of the argument-parsing build; the user's decision (ARG_PARSE.md
+Phase 0.5 of the argument-parsing build; the user's decision (the CLI design record
 round 2, Q4), with R-1 (a), R-2 (b) and R-3 decided in rounds 3 and 4.
 [fn-overload-return]: overloads may share their parameter types and differ in
 the return type, and the expected type at the call chooses — only among
@@ -899,7 +908,7 @@ Tests: comptime_tests `a_warning_in_copies_is_reported_once_on_the_written_code`
 ### 2026-10-20 — A type name shadows `core` whatever kind declares it
 
 Phase 0.3 of the argument-parsing build. **The defect** (found probing
-ARG_PARSE.md §10.1b, and again testing 0.2): with `type Field = …` in a file,
+the CLI design record §10.1b, and again testing 0.2): with `type Field = …` in a file,
 one use of `Field` was checked against the alias and the next refused as
 "`Field` is a compile-time type (`core.comptime`)". Resolution's
 [mod-collision] provenance is keyed by (kind, name), so a user *alias* did not
@@ -920,7 +929,7 @@ test fails without the fix.
 ### 2026-10-20 — A qualified literal is its literal: unions of them compile, `Short "port"` parses
 
 Phase 0.2 of the argument-parsing build. **The defect** (found designing
-ARG_PARSE.md §10.1b): `type F = Short Port | Short Verbose | "host"` checked,
+the CLI design record §10.1b): `type F = Short Port | Short Verbose | "host"` checked,
 then both backends emitted `Union2<String, String>` and constructed `U3`.
 `literal::layout` counted an arm as a literal only when it was a bare
 `Ty::Lit`, so each qualified literal took a runtime arm of its own while
@@ -954,8 +963,8 @@ Tests: `literal.rs` unit `a_qualified_literal_collapses_like_a_bare_one`;
 
 ### 2026-10-20 — Defaults are checked against their type; a predicate default is tested where it is applied
 
-Phase 0.1 of the argument-parsing build (ARG_PARSE.md). **The defect**
-(found designing ARG_PARSE.md §10.1a): two of the three `= default` sites in
+Phase 0.1 of the argument-parsing build (the CLI design record). **The defect**
+(found designing the CLI design record §10.1a): two of the three `= default` sites in
 the checker called `check_expr(default, Some(&expected))` and discarded the
 result (struct fields and parameters; only a handler's state tested
 `is_subtype`), so `port: InRange(1, 10) Int = 8080` compiled and
@@ -27462,6 +27471,118 @@ effect members render only their path face; a platform handler cannot
 implement a `ref` result; a union of borrows fits a kept owned union arm
 by arm (the user's generalization of the optional case), visible in the IR
 as `BorrowAs`; and element containers by prefix and by handle anchors.
+
+## Design record: command-line parsing (ARG_PARSE.md, retired 2026-10-20)
+
+The working document for `std/args` (user request 2026-10-20: "how to
+implement CLI parsing in Salvo … as type-safe as is reasonable, as well as
+allow inter-argument validation"), decided in four rounds the same day and
+built in phases 0–2 (the decision-log entries from "Check defaults against
+their type…" to "Add the args validation hook"). The rules are in
+LANGUAGE_SPEC.md ([args-lex], [args-runtime], [args-errors], [args-help],
+[args-derive], [args-groups], [args-commands], [args-explain],
+[args-validate], and the language rules listed under each phase below); the
+user's page is `docs/language/Command-Line.md`, and `examples/cli` is the
+worked example. Code and specs cite it as "the CLI design record", with the
+retired document's labels — §n, AP-n, D-n, Qn, Xn, R-n — so they are kept
+here as a key.
+
+**The survey (§2–§3).** Procedural parsers (C `getopt`, Go `flag`, Python
+`argparse`) build a runtime spec and read values back by name; Rust's clap
+and Swift's ArgumentParser derive from a type, with attributes for
+metadata; Kotlin's Clikt delegates properties; the functional ones (Haskell
+optparse-applicative, OCaml Cmdliner, Scala decline, F# Argu) compose
+applicative parsers, accumulate every error, and get help from the static
+half. What carried over: one lexer under everything (lexopt's split, §4.0);
+help and errors from the same description; every error at once (decline);
+validation by shape first and a function second.
+
+**The options (§4).** A, a runtime spec with typed handles; B, applicative
+combinators; C, a comptime derive from a struct; D, a usage string
+(set aside: comptime never declares a type); E, a derive on top of
+combinators. **AP-1: C** (round 1), with comptime extended as needed; Q12
+(b) keeps the runtime layer under the derive internal (exported only because
+a stamp resolves at its site, ROADMAP §2d item 10).
+
+**Validation (§5).** §5.1 by construction (the type cannot hold an invalid
+state: exclusive is a literal union or `A | B | None`, one-of `A | B`,
+co-occurring `S?`, at-least-one `NonEmpty List<T>`); §5.2 by evidence (a
+qualifier on the parsed value, minted by a `validate` that throws an
+`ArgError`); §5.3 by declaration (`conflicts_with`-style rules naming flags)
+left optional and not built. **AP-7**: §5.1 first, §5.2 for the rest; **Q16**
+the parse calls a user `validate` (built as `parse_valid` /
+`valid_args_or_exit`, option (a) of ROADMAP §2d item 16).
+
+**The extensions (§7), each justified beyond parsing**, and where they went:
+X1 `field.default` [comptime-default]; X2 `field.docs` [comptime-docs]; X3
+literal members `[for lit in t.literals]` [comptime-literals]; X4 `s is "a" |
+"b"` [is-union]; X5 building a union arm [comptime-arm]; X6 a `by` site for a
+return-only member [obligation-return]; X7 comptime patterns over
+qualifiers [comptime-pattern]; X8 `FieldOf<T>` (not built); X9 `explain`
+[qual-explain]; X10 `Process`/`Env` [cli-process] [cli-env]; X11 `from_str`
+per type and `FromStr<T>` [str-parse]; X12 `Errs` [result-errs]; X13
+attributes and X14 comptime-declared types (recorded, not recommended); X15
+marker aliases and X17 declared annotations (superseded by comptime
+qualifiers); X16 comparing binders' names [comptime-name].
+
+**The decision points.** AP-1 the approach (C). AP-2 metadata (superseded
+by D-1). AP-3 `field.default` (yes). AP-4 how a decoder is stamped (the
+obligation clause, Q7 (a)). AP-5 union-arm construction (yes). AP-6 the
+mapping (a literal union is one valued option; positionals marked; kebab
+case). AP-7 validation (above). AP-8 errors (all, help as an outcome). AP-9
+exit status (a `Process` effect). AP-10 value parsers (one `from_str`, made
+possible by return-type overloading). AP-11 lexing (bundles, attached
+values, `=`, `--`, lone `-`, negative numbers as values, no abbreviations;
+`--no-x` deferred). AP-12 the user's `std/args/parse.sv` (deleted, round 2).
+
+**The derive's design (§10).** §10.1 short names and positionals, as
+comptime qualifiers; §10.1a the spelling `Short('p') Int` probed and found
+to be a claim the value must carry; §10.1b provenance qualifiers on
+`FieldOf<T>`, whose runtime half the user dropped; §10.1c the declaration
+spelling, **(B) `comptime qualifier Short(c: Char) of Field`** (round 1,
+D-1). §10.2 sub-commands: a `Subcommand` field over a union of command
+structs (a marker, because the same shape is an exclusive group);
+§10.3 groups, all four from the field's type. D-1 metadata (comptime
+qualifiers); D-2 marker order (moot); D-3 parent options before the command
+(global options later); D-4 a command's name is its type's last segment in
+kebab case, `Named` to rename; D-5 flattened groups unprefixed, clashes
+refused; D-6 an exclusive arm chosen by which options appear.
+
+**Round 2 (§11, Q0–Q19, all accepted but two).** Q0/Q19: the user's
+`parse.sv` deleted, one `args` module with a lexer submodule. Q1 qualified
+literals in unions supported. Q2 a predicate-qualified default tested where
+applied. Q3 `Process`/`Env`, `exit` flushing first. **Q4 changed by the
+user: overloading by return type** rather than a witness parameter ("we
+aren't really going to support wildcards, etc."). Q5 comptime qualifiers'
+rules (subjects `Field` and `Struct`; placement before a field or a
+declaration; `Char`/`Str` constants, Q5c; constant binders; no body). Q6 arm
+construction. Q7 (a) the obligation clause. Q8 literal members. Q9
+multi-test `is`. Q10 `explain`, callable as `InRange.explain(…)`. Q11 `Errs`.
+Q12 (b). Q13 the mapping. Q14 sub-commands. Q15 groups. Q16 the hook. Q17
+all errors, help as an outcome, (c) no `--version` until asked for. Q18
+lexing as AP-11.
+
+**Round 3 and 4 (§12, §13).** §12 return-type overloading: R-1 (a) the
+return type decides only among candidates with identical parameter lists
+("less action at a distance"); R-2 return types related by subtyping are
+refused at the declaration; R-3 the expected type reaches a value `if`'s
+branches and a value `when`'s arms [fn-overload-return]. §13 (B): **a
+bracket marks a splice** — `[field.type]`, `[arm.type] { … }`, `v.[field]`,
+`[field]: …` — and declared names and values stay bare [comptime-inline].
+
+**Built differently from the document.** The help renderer was written
+fresh rather than adapted from `parse.sv`. A struct-typed group's struct
+declares `FromArgs` too, since the parent's stamp calls its members by
+return type. The hook needed two general fixes first ([fn-value],
+[fn-throw-value], and [fn-effects] narrowed by the user to fns with no
+written effect list).
+
+**Deferred, in ROADMAP "Recorded, not scheduled"**: `--no-x`, `--version`,
+global options, prefixed groups, a valued selector for an exclusive group,
+provenance-tagged scalar arms (`FromUrl Str | FromFile Str`), long-name,
+metavariable and environment overrides (`Long`, `Meta`, `Env` qualifiers),
+config files and shell completion, a public combinator API (Q12 (a)), §5.3's
+declared rules, X8 `FieldOf<T>`.
 
 ## Design record: comptime expansion (COMPTIME.md, retired 2026-10-20)
 

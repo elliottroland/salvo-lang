@@ -4008,7 +4008,7 @@ impl<'s> Parser<'s> {
     }
 
     /// [comptime-inline] [comptime-fields] `[field.type]`: a binder's type
-    /// spliced into a type position (ARG_PARSE.md §13 (B), user decision
+    /// spliced into a type position (the CLI design record §13 (B), user decision
     /// 2026-10-20). Carried as a ref named `field.type` — a name with a dot
     /// in it, which no written type can spell — that the expansion replaces
     /// per copy; the span covers the brackets.
@@ -4342,7 +4342,7 @@ impl<'s> Parser<'s> {
         }
         // [comptime-inline] A bare `field.type` in a type position is not the
         // language: a binder's type is spliced in brackets, `[field.type]`
-        // (ARG_PARSE.md §13 (B)). Reported here and still read as the splice,
+        // (the CLI design record §13 (B)). Reported here and still read as the splice,
         // so a speculative parse that rolls back (a generic call's `<…>`)
         // does not turn it into a misleading error elsewhere.
         if matches!(&self.kind(), TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
@@ -6140,7 +6140,7 @@ impl<'s> Parser<'s> {
         let (check, binding, lifted) = self.parse_is_check()?;
         // [is-union] `s is "json" | "text"`, `x is Int | Str`: the
         // disjunction of the tests, which narrows to the union of what they
-        // test (ARG_PARSE.md X4, Q9). Written over a place, read once per
+        // test (the CLI design record X4, Q9). Written over a place, read once per
         // test as `s is "json" || s is "text"` is; a value with a binding or
         // a lift has nothing single to name.
         if self.at(&TokenKind::Pipe) && self.same_line() {
@@ -7048,7 +7048,7 @@ impl<'s> Parser<'s> {
 
     fn parse_primary(&mut self) -> Option<Expr> {
         // [comptime-inline] `[arm.type] { … }`: a struct literal whose head is
-        // a binder's type, spliced per copy (ARG_PARSE.md §13 (B)).
+        // a binder's type, spliced per copy (the CLI design record §13 (B)).
         if self.at_type_splice() && !self.no_struct {
             let snap = self.snapshot();
             if let Some(ty) = self.parse_type_atom() {

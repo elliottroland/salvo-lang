@@ -44,7 +44,7 @@ fn plain_base(ty: &Ty) -> Option<&str> {
 /// `"port"` and `Short "port"` both hold `"port"`. A qualifier on a literal
 /// erases like every qualifier [qual-erasure], so the value alone says which
 /// arm it is, and a qualified literal collapses into its base exactly as a
-/// bare one does (user decision 2026-10-20, ARG_PARSE.md round 2 Q1).
+/// bare one does (user decision 2026-10-20, the CLI design record round 2 Q1).
 pub fn arm_lit(ty: &Ty) -> Option<&TypeLit> {
     match ty.strip_quals() {
         Ty::Lit(l) => Some(l),

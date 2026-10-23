@@ -46,7 +46,7 @@ export threadsafe platform handler HostArgs() of Args
 // (`scan`, answering a `Found`), the readers the derived code takes values
 // with, the errors, and the help text. Exported because a stamped body
 // resolves its names where it is stamped; it is the derive's layer, not yet
-// a surface to build parsers by hand (ARG_PARSE.md Q12 (b)).
+// a surface to build parsers by hand (the CLI design record Q12 (b)).
 
 // ----- what can go wrong -----
 
@@ -874,7 +874,7 @@ fn section<T>(spec: Spec<T>, group: Str?) [] -> Str => spec, group {
 // ===== the derive =====
 //
 // [args-derive] A struct describes its command line, and one clause gives
-// it a parser (ARG_PARSE.md §10.1, Q7, Q13):
+// it a parser (the CLI design record §10.1, Q7, Q13):
 //
 //     import args
 //
@@ -981,7 +981,7 @@ export fn args_or_exit<T>(args: List<Str>, ?FromArgs<T>) [Console, Process] -> T
 }
 
 // [args-validate] Parses `args` into a `T` and validates it with the
-// `validate` in scope, so the answer is the validated type (ARG_PARSE.md
+// `validate` in scope, so the answer is the validated type (the CLI design record
 // §5.2, Q16): with
 //
 //     qualifier Valid of Serve

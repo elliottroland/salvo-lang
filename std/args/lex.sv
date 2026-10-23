@@ -1,6 +1,6 @@
 // [args-lex] The bottom layer of command-line parsing: a command line split
 // into tokens by the usual conventions, with no knowledge of which flags
-// exist (ARG_PARSE.md §4.0, Q18). `args` reads the tokens against what a
+// exist (the CLI design record §4.0, Q18). `args` reads the tokens against what a
 // command accepts; nothing here knows what a flag takes.
 //
 // - `--name` and `--name=value` are long flags; the value, when attached, is

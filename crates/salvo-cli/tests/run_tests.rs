@@ -418,7 +418,7 @@ fn the_programs_exit_code_is_the_commands() {
 
 /// A default whose slot carries a predicate qualifier it does not satisfy is
 /// tested where it is applied and traps there, on both backends (user
-/// decision 2026-10-20, ARG_PARSE.md round 2 Q2): a parameter default that
+/// decision 2026-10-20, the CLI design record round 2 Q2): a parameter default that
 /// holds runs, and a field default that does not stops the program at the
 /// literal with a message naming the field and the claim. Before the fix the
 /// default was not checked at all and printed 8080 through an `InRange(1,

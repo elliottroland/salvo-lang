@@ -669,7 +669,7 @@ pub enum CompCond {
     /// `field.first` / `field.last`.
     Flag { binder: Ident, last: bool, span: Span },
     /// [comptime-name] `a.name == b.name`: two binders' names, from two walks
-    /// (ARG_PARSE.md X16). `!=` is `Not` of it.
+    /// (the CLI design record X16). `!=` is `Not` of it.
     NameEq { a: Ident, b: Ident, span: Span },
     /// [comptime-qualifier] `field is Short`, `field is <c> Short(c)`: whether
     /// the binder's field carries the comptime qualifier `qual`, binding the

@@ -1741,7 +1741,7 @@ fn an_intrinsic_type_with_a_missing_member_still_errors() {
 
 /// [obligation-return] `struct S : FromStrs<self> by decode` stamps a member
 /// whose parameters do not mention `S` — a decoder, `from_strs(args:
-/// List<Str>) -> S` — at the struct the clause is on (ARG_PARSE.md X6, Q7
+/// List<Str>) -> S` — at the struct the clause is on (the CLI design record X6, Q7
 /// (a)). Two structs stamping it in one module are return-type overloads
 /// [fn-overload-return], chosen by where the result goes.
 #[test]

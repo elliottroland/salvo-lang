@@ -593,7 +593,7 @@ fn a_wildcard_matches_any_type() {
 
 /// [comptime-pattern] `X?` matches any union with a `None` arm, `X` standing
 /// for the rest: an optional literal union is three arms, and arm-by-arm
-/// matching against the pattern's two found none (ARG_PARSE.md 2.2).
+/// matching against the pattern's two found none (the CLI design record 2.2).
 #[test]
 fn an_optional_pattern_matches_an_optional_literal_union() {
     let src = "struct S {\n    level: (\"low\" | \"high\")?,\n    n: Int?,\n    both: Int | Str | None,\n    either: Int | Str\n}\n\n\
@@ -916,7 +916,7 @@ fn a_warning_in_copies_is_reported_once_on_the_written_code() {
 /// [comptime-inline] [comptime-fields] `[field.type]` stands for the field's
 /// type in every type position — a `let` annotation, a type argument of a
 /// call or of another type, under `?` and after a qualifier — substituted
-/// per copy (ARG_PARSE.md §13 (B), user decision 2026-10-20).
+/// per copy (the CLI design record §13 (B), user decision 2026-10-20).
 #[test]
 fn a_spliced_binder_type_is_the_fields_type_in_each_copy() {
     let src = |init: &str| {
@@ -947,7 +947,7 @@ fn a_spliced_binder_type_is_the_fields_type_in_each_copy() {
 /// [comptime-inline] `[arm.type] { … }` is a struct literal whose head is the
 /// arm's type, per copy: over a union of structs each copy builds its own arm
 /// (the literal checked against that struct's fields). Building a qualified or
-/// literal arm is ARG_PARSE.md step 1.6.
+/// literal arm is the CLI design record step 1.6.
 #[test]
 fn a_spliced_arm_type_heads_a_struct_literal() {
     let src = |entries: &str| {
@@ -1176,7 +1176,7 @@ fn literal_members_are_walked_in_order() {
 }
 
 /// [comptime-name] `[if a.name == b.name]` relates binders of two walks
-/// (ARG_PARSE.md X16): a derive merging two structs finds the shared field
+/// (the CLI design record X16): a derive merging two structs finds the shared field
 /// names — `!=` too — and a side that is not a binder is an error.
 #[test]
 fn two_binders_names_compare() {

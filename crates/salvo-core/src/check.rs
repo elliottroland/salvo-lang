@@ -18271,7 +18271,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// A default may lack a **predicate** qualifier the slot carries when the
     /// qualifier can be tested where the default is applied ([`Self::
     /// default_checkable`]): the IR then tests it there and traps on failure,
-    /// as `x!` does ([default-predicate], user decision 2026-10-20, ARG_PARSE.md
+    /// as `x!` does ([default-predicate], user decision 2026-10-20, the CLI design record
     /// round 2 Q2). Any other mismatch is an error.
     fn check_default(&mut self, default: &'p ast::Expr, expected: &Ty) {
         let got = self.check_expr(default, Some(expected));

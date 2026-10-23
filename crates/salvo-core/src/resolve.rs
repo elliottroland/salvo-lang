@@ -644,7 +644,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     // overloads: nothing at a call site could tell them apart. Parameter
     // names take no part in selection; the return type does, among
     // candidates whose parameters are identical [fn-overload-return] (user
-    // decision 2026-10-20, ARG_PARSE.md round 2). Reported at the second
+    // decision 2026-10-20, the CLI design record round 2). Reported at the second
     // declaration (user decision 2026-09-07).
     {
         let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();

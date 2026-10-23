@@ -4008,7 +4008,7 @@ fn a_qualifier_may_stand_before_a_literal_type() {
 }
 
 /// [comptime-inline] [comptime-fields] A binder's type spliced into a type
-/// position is bracketed, `[field.type]` (ARG_PARSE.md §13 (B), user decision
+/// position is bracketed, `[field.type]` (the CLI design record §13 (B), user decision
 /// 2026-10-20): in a `let`, a call's and a type's arguments, under `?` and
 /// `[]`, after a qualifier, and as a struct literal's head. Each is the ref
 /// named `field.type` the expansion substitutes, its span covering the
