@@ -8588,6 +8588,17 @@ between endpoints and delivers what arrives into the scheduler.
     backends, so a program's legality never depends on the target.
   * `proj` on a Copy scalar erases: `proj Int` *is* `Int` — the number is
     the value itself on both backends [copy-scalar-free].
+  * [proj-local] **A variable is a borrow or an owner for its whole life**
+    (user decision 2026-10-20). `let k = get(xs, 0)` is a `proj Str?`, and
+    assigning it an owned value later (`k = up(here)`) is an error naming the
+    remedy: make it the owner where it is declared, `let k = copy(get(xs,
+    0))`. `X <: proj X` still lets an owned value *stand* where a borrow is
+    read — an argument to a `proj` parameter needs nothing — but a variable
+    has to be one or the other, and `copy` is the operation that turns the
+    general type into the specific one. Only a top-level borrow (`proj`/`ref`,
+    or a union with such an arm) counts; `None` may be assigned (it borrows
+    nothing). A variable fate-linked to a parameter is not a projection
+    (`let k = key` is a `Str?`), and reassigning it is fine [fate-poison].
   * Unification treats `proj` in a *pattern* as optional (like `once`): a
     parameter written `proj T` accepts an owned argument (binding `T` to
     it whole) and a projected one (binding `T` to the base minus the

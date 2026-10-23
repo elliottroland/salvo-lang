@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2016 tests, complete: the toolchain tests are
+cargo test                  # 2017 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,35 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A reassigned local is an owner or a borrow for its whole life
+
+ROADMAP §2d item 11, and the case beside it. The user first guessed the
+repro was a `proj Str?` given an owned value; it was not — `let k = key` on a
+kept `Str?` parameter is a plain `Str?` fate-linked to `key`, and reassigning
+it is legal Salvo (Kotlin printed the answer). The Rust `let` emitter stored
+"another name for a union of borrows" as `Option<&String>` without asking
+whether the name is reassigned, which every other borrow-local path asks
+[rs-borrow-locals]; such a local now owns its value from the start, cloned arm
+by arm (`own_borrowed_union`). `args`' `live` and `unmet_group` lose their
+`let k: Str? = copy(key)` workaround.
+
+The neighbouring case is the one the user had in mind: `let k = get(xs, 0)`
+really is `proj Str?`, assigning it an owned value passed the checker (`X <:
+proj X`) and failed rustc the same way. The user asked whether `X <: proj X`
+was the wrong way round; it is right (an owned value can stand wherever a
+borrow is read), and the user drew the rule from it: "it makes sense that
+there should be a specific operation (copy()) which gives the more specific
+type from the more general … Going the other way (passing an X into a
+function which only needs a proj X) shouldn't need any special operation".
+So [proj-local]: a variable of a top-level projected type assigned an owned
+value is an error naming `let k = copy(…)`. Rejected: cloning such a local
+into an owner silently on Rust (the user: "it would be awkward to
+automatically clone a `proj Mut` value"), and leaving it to rustc.
+
+Tests: CLI `a_reassigned_local_owns_or_borrows_for_its_whole_life_on_both_backends`
+(the item 11 repro running on both backends, the `get` case refused with the
+remedy in the message, and the remedy running).
 
 ### 2026-10-20 — A literal test on an un-narrowed `Str?` narrows
 
@@ -27805,7 +27834,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2016 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2017 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

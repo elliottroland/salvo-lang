@@ -1042,6 +1042,46 @@ fn a_literal_test_on_an_optional_str_runs_on_both_backends() {
     __stamp.verified();
 }
 
+/// [rs-borrow-locals] [rs-opt-borrow] [proj-local] A local bound from a kept
+/// `Str?` parameter and later reassigned owns its value from the start: Rust
+/// stored it as the parameter's `Option<&String>`, and the assignment of an
+/// owned `Option<String>` was E0308 (ROADMAP §2d item 11). A local whose type
+/// is a projection (`let k = get(xs, 0)`) is a borrow for its whole life:
+/// assigning it an owned value is refused, with `copy` at the declaration
+/// the remedy (user decision 2026-10-20), which then runs on both backends.
+#[test]
+fn a_reassigned_local_owns_or_borrows_for_its_whole_life_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("a_reassigned_local_owns_or_borrows_for_its_whole_life_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    const UP: &str = "fn up(s: Str) [] -> Str? {\n    if size(s) > 1 {\n        return substr(s, 1, size(s))\n    }\n    return None\n}\n\n";
+    const WALK: &str = "fn walk(key: Str?) [] -> Int => key {\n    let k = key\n    let n = 0\n    while k !is None {\n        let here = copy(k)\n        n = n + 1\n        k = up(here)\n    }\n    return n\n}\n\n";
+    let walk_list = |bind: &str| format!("fn walk_list(xs: List<Str>) [] -> Int => xs {{\n    let k = {bind}\n    let n = 0\n    while k !is None {{\n        let here = copy(k)\n        n = n + 1\n        k = up(here)\n    }}\n    return n\n}}\n\n");
+    const MAIN: &str = "fn main() [use] -> None {\n    use StdConsole()\n    println(\"${walk(\"abcd\")} ${walk_list(List(\"xyz\"))}\")\n}\n";
+    let refused = work_dir("projlocal_refused");
+    fs::write(refused.join("main.sv"), format!("{UP}{WALK}{}{MAIN}", walk_list("get(xs, 0)"))).unwrap();
+    let out = salvo_in(&refused, &["compile", "--backend", "rust", "--src", ".", "--target", "out"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "a borrow assigned an owned value must be refused");
+    assert!(
+        stderr.contains("`k` holds a borrow (`proj Str?`), and this is an owned `Str?`") && stderr.contains("`let k = copy(…)` [proj-local]"),
+        "{stderr}"
+    );
+    let dir = work_dir("projlocal");
+    fs::write(dir.join("main.sv"), format!("{UP}{WALK}{}{MAIN}", walk_list("copy(get(xs, 0))"))).unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend} failed: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "4 3\n", "{backend}: {stderr}");
+    }
+    __stamp.verified();
+}
+
 /// [result-errs] The accumulating outcome keeps every error: `map2` of two
 /// successes, of two failures (both errors, in order), and of one failure,
 /// on both backends.

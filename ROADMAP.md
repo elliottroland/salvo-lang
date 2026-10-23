@@ -933,12 +933,8 @@ reproduced in a scratch project; the repros are below.
     helpers private and cannot change what a site's own names mean. Until
     decided, (a).
 
-11. **Rust: a local initialised from a borrowed optional parameter stays a
-    borrow.** Found 2026-10-20 (2.3). `fn walk(key: Str?) [] -> Int => key {
-    let k = key; while k !is None { let here = copy(k); k = up(here) } … }`
-    with `fn up(s: Str) [] -> Str?`: the local is `Option<&String>`, and
-    assigning `up(…)`'s `Option<String>` is E0308. `let k: Str? = copy(key)`
-    compiles; `args`' `live` and `unmet_group` say that.
+11. ✅ **A reassigned local owns or borrows for its whole life** — done
+    2026-10-20 ([proj-local], [rs-opt-borrow], COMPLETED.md).
 
 12. **An `Int` passed to a consuming parameter is moved.** Found 2026-10-20
     (2.3). `let x: Int = 1`, `add(rows, x)` with `rows: Mut List<Int>`, then

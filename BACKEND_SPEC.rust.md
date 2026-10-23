@@ -905,7 +905,11 @@ the blanket rule:
     another name for it copies it, a narrowing takes the borrow its arm
     holds (`match x { U1(__v) => __v, … }`, `s.unwrap()`, a mutable one
     through `match &mut x` or `.as_deref_mut()`), and `copy` of it clones
-    arm by arm (`.cloned()` for an optional of one).
+    arm by arm (`.cloned()` for an optional of one). Another name that is
+    **reassigned** later owns its value from the start — it is cloned arm by
+    arm into the IR's owned union (`let mut k: Option<String> = match key {
+    Some(__v) => Some(__v.clone()), None => None }`), since an owned value is
+    stored in it [rs-borrow-locals] (2026-10-20, ROADMAP §2d item 11).
   * A single borrowed value (`proj X` into a kept `X`) is already `&X`:
     `salvo_core::ir::walk::unwrap_single_borrows` reduces its `BorrowAs` to the
     value (or a `DropMut`).

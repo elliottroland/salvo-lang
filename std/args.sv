@@ -572,7 +572,7 @@ fn first_option<T>(spec: Spec<T>, key: Str) [] -> Str => spec, key {
 // [args-groups] Whether options in group `key` count: every all-or-none
 // group and exclusive arm it is in was used. The command's own always do.
 fn live<T>(spec: Spec<T>, hits: List<Hit>, key: Str?) [] -> Bool => spec, hits, key {
-    let k: Str? = copy(key)
+    let k = key
     while k !is None {
         let here = copy(k)
         for g in spec.groups {
@@ -589,7 +589,7 @@ fn live<T>(spec: Spec<T>, hits: List<Hit>, key: Str?) [] -> Bool => spec, hits, 
 // option given in its innermost conditional group, which is what requires
 // it, when that group is used and every group around it counts.
 fn unmet_group<T>(spec: Spec<T>, hits: List<Hit>, key: Str?) [] -> Str? => spec, hits, key {
-    let k: Str? = copy(key)
+    let k = key
     while k !is None {
         let here = copy(k)
         for g in spec.groups {

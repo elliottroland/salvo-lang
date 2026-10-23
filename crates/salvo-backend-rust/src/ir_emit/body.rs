@@ -667,8 +667,23 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         }
         // [rs-opt-borrow] Another name for a union of borrows: a copy of
-        // it (`Option<&T>`, `Union2<&A, &B>` are `Copy`).
-        if bare(value).is_some() && !super::is_borrowed_union(ty) {
+        // it (`Option<&T>`, `Union2<&A, &B>` are `Copy`) — unless the name is
+        // reassigned later, which stores an owned value of the IR type in it:
+        // such a local owns its value from the start [rs-borrow-locals]
+        // (ROADMAP §2d item 11: `let k = key` then `k = up(here)` was E0308).
+        let reassigned = self.f.assigned.contains(&local.0);
+        if bare(value).is_some() && !super::is_borrowed_union(ty) && reassigned {
+            let st = self.storage_ty(value);
+            if super::is_borrowed_union(&st) {
+                let src = self.value(value, indent);
+                let sarms: Vec<Ty> = st.value_arms().into_iter().cloned().collect();
+                let code = self.own_borrowed_union(&src, &sarms, st.has_none_arm(), ty);
+                self.f.kinds.insert(local.0.clone(), Kind::Owned);
+                let annot = if self.annotatable(ty) { format!(": {}", self.ty(ty)) } else { String::new() };
+                return format!("{pad}let mut {n}{annot} = {code};\n");
+            }
+        }
+        if bare(value).is_some() && !super::is_borrowed_union(ty) && !reassigned {
             let st = self.storage_ty(value);
             if super::is_borrowed_union(&st) {
                 let code = self.value(value, indent);

@@ -922,7 +922,7 @@ pub fn first_option(spec: &crate::args::Spec, key: &String) -> String {
 }
 
 pub fn live(spec: &crate::args::Spec, hits: &Vec<crate::args::Hit>, mut key: Option<&String>) -> bool {
-    let mut k: Option<String> = (key).cloned();
+    let mut k: Option<String> = (match key.clone() { Some(__v) => Some((__v).clone()), None => None, #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
     loop {
         if !(!(k.is_none())) {
             break;
@@ -940,7 +940,7 @@ pub fn live(spec: &crate::args::Spec, hits: &Vec<crate::args::Hit>, mut key: Opt
 }
 
 pub fn unmet_group(spec: &crate::args::Spec, hits: &Vec<crate::args::Hit>, mut key: Option<&String>) -> Option<String> {
-    let mut k: Option<String> = (key).cloned();
+    let mut k: Option<String> = (match key.clone() { Some(__v) => Some((__v).clone()), None => None, #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
     loop {
         if !(!(k.is_none())) {
             break;

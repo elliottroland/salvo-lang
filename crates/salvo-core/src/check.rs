@@ -1637,6 +1637,17 @@ fn check_std_deductions_total(program: &Program, out: &mut Checked) {
     }
 }
 
+/// [proj-local] Whether a type is itself a borrow at its top level: a `proj`
+/// or `ref` value, or a union with such an arm (`proj Str?`). A Copy scalar's
+/// `proj` erases, so it never is.
+fn holds_top_borrow(t: &Ty) -> bool {
+    let top = |t: &Ty| t.quals().iter().any(|q| crate::types::is_proj_name(&q.name));
+    match t.strip_quals() {
+        Ty::Union(arms) => top(t) || arms.iter().any(top),
+        _ => top(t),
+    }
+}
+
 /// [copy-scalar-free] A parameter typed as a bare Copy scalar (`Int`, `Long`,
 /// `Float`, `Double`, `Bool`, `Char`, `Byte`, no qualifiers, no arguments):
 /// its deduction is keep-all and no caller can change it, so a total clause
@@ -23150,6 +23161,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                 } else if let Expr::Ident(id) = target {
                     let value_ty = value_ty.clone();
+                    // [proj-local] A variable of a projected type holds a
+                    // borrow, and an owned value cannot be stored in one:
+                    // `X <: proj X` lets an owned value *stand* where a borrow
+                    // is read, but a variable has to be one or the other for
+                    // the whole of its life. The program says which, once,
+                    // where the variable is declared (user decision
+                    // 2026-10-20: "a specific operation (copy()) which gives
+                    // the more specific type from the more general").
+                    if holds_top_borrow(&target_ty) && !holds_top_borrow(&value_ty) && !value_ty.is_none_ty() && !value_ty.is_unknown() && !matches!(value_ty, Ty::Never) {
+                        self.error(
+                            value.span(),
+                            format!(
+                                "`{}` holds a borrow (`{target_ty}`), and this is an owned `{value_ty}`: a variable \
+                                 is a borrow or an owner for its whole life. Make it the owner where it is declared, \
+                                 `let {} = copy(…)` [proj-local]",
+                                id.name, id.name
+                            ),
+                        );
+                    }
                     // [param-const] A parameter is a constant binding.
                     self.reject_param_assignment(&id.name, id.span, "assign to");
                     // [linear-obligation] Overwriting a variable that
