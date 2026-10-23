@@ -1145,3 +1145,19 @@ fn literal_members_are_walked_in_order() {
     );
     assert!(errs.iter().any(|e| e.contains("`Int` has no literals")), "{errs:?}");
 }
+
+/// [comptime-name] `[if a.name == b.name]` relates binders of two walks
+/// (ARG_PARSE.md X16): a derive merging two structs finds the shared field
+/// names — `!=` too — and a side that is not a binder is an error.
+#[test]
+fn two_binders_names_compare() {
+    let src = "struct A { port: Int, host: Str }\nstruct B { host: Str, verbose: Bool }\n\n\
+               comptime fn clash() [] -> Int {\n    \
+               [for a in A.fields] {\n        [for b in B.fields] {\n            \
+               [if a.name == b.name] {\n                refuse!(\"shared ${a.name}\")\n            }\n            \
+               [if a.name != b.name && a.first && b.first] {\n                refuse!(\"differ ${a.name} ${b.name}\")\n            }\n        }\n    }\n    \
+               return 0\n}\n";
+    assert_eq!(refused(src), ["differ port host", "shared host"]);
+    let errs = messages("struct A { port: Int }\n\ncomptime fn f() [] -> Int {\n    [for a in A.fields] {\n        [if a.name == z.name] { }\n    }\n    return 0\n}\n");
+    assert!(errs.iter().any(|e| e.contains("both sides of a `.name` comparison must be binders")), "{errs:?}");
+}

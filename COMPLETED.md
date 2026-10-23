@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1988 tests, complete: the toolchain tests are
+cargo test                  # 1989 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,15 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Two binders' names compare in a comptime head
+
+Phase 1.11 of the argument-parsing build (ARG_PARSE.md X16; no decision
+needed). [comptime-name]: `[if a.name == b.name]` and `!=` for binders of
+two walks, so a derive merging a group into its parent can refuse a reused
+flag name at the declaration. `CompCond::NameEq`, parsed where a `.name ==`
+is followed by another binder's `.name` rather than a literal. Test:
+comptime_tests `two_binders_names_compare`.
 
 ### 2026-10-20 — `Errs`: the accumulating outcome
 
@@ -27271,7 +27280,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1988 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1989 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

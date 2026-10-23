@@ -5580,6 +5580,22 @@ impl<'s> Parser<'s> {
                     _ => {
                         // `name`: `==`/`!=` one literal, or `is`/`!is` a
                         // union of them [comptime-name].
+                        // [comptime-name] `a.name == b.name`: another
+                        // binder's name, not a literal.
+                        if matches!(self.kind(), TokenKind::EqEq | TokenKind::BangEq)
+                            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
+                            && matches!(self.peek_at(2).kind, TokenKind::Dot)
+                            && matches!(&self.peek_at(3).kind, TokenKind::Ident(p) if p == "name")
+                        {
+                            let negated = self.at(&TokenKind::BangEq);
+                            self.bump();
+                            let other = self.ident()?;
+                            self.bump(); // .
+                            let end = self.bump().span; // name
+                            let span = start.to(end);
+                            let cond = CompCond::NameEq { a: binder, b: other, span };
+                            return Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond });
+                        }
                         let negated;
                         let lits = if self.eat(&TokenKind::EqEq).is_some() {
                             negated = false;

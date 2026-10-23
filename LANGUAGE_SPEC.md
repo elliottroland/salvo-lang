@@ -5193,6 +5193,10 @@ Conventions:
     decision 2026-10-20): the names are known only where it is
     stamped, so the declaration cannot check the dispatch [comptime-pattern].
     `[if field.name is …]` still works there.
+  * **Two binders' names compare** (ARG_PARSE.md X16, built 2026-10-20):
+    `[if a.name == b.name]` and `!=`, for binders of two walks — a derive
+    merging two structs finds the field names they share. Both sides must be
+    binders; a literal is compared as above.
 * [comptime-kind] **A type and its kind are separate projections** (user
   decision 2026-10-20): `field.kind` / `T.kind` is the kind — an arm of
   `core.comptime`'s `Kind`, `Struct | Union | Tuple | FnType | Opaque` — and

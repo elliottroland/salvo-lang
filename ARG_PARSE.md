@@ -120,7 +120,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 1.8 Multi-literal / multi-type `is` in ordinary code (X4, Q9).
 - [x] 1.9 `explain` on predicate qualifiers (X9, Q10).
 - [x] 1.10 An accumulating outcome `Ok T | Errs NonEmpty List<E>` (X12, Q11).
-- [ ] 1.11 Comparing two binders' names in comptime (X16).
+- [x] 1.11 Comparing two binders' names in comptime (X16).
 - [ ] 1.12 Stamping a decoder: `struct S : FromArgs<self> by args` (X6, Q7).
 
 **Phase 2: `std/args`**
@@ -135,6 +135,8 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 1.11 done ("Compare two binders' names in comptime"):
+  [comptime-name]; 1989 tests. Next: 1.12 (`FromArgs<self> by args`).
 - 2026-10-20: 1.10 done ("Add an accumulating outcome to core.result"):
   [result-errs]; 1988 tests. `errs`, `Errs`, `both`, `map2` (copying errors);
   no `all` yet. Recorded ROADMAP §2d item 7 (generic-name implicit

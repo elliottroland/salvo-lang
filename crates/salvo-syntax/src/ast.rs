@@ -668,6 +668,9 @@ pub enum CompCond {
     NameIs { binder: Ident, lits: Vec<String>, span: Span },
     /// `field.first` / `field.last`.
     Flag { binder: Ident, last: bool, span: Span },
+    /// [comptime-name] `a.name == b.name`: two binders' names, from two walks
+    /// (ARG_PARSE.md X16). `!=` is `Not` of it.
+    NameEq { a: Ident, b: Ident, span: Span },
     /// [comptime-qualifier] `field is Short`, `field is <c> Short(c)`: whether
     /// the binder's field carries the comptime qualifier `qual`, binding the
     /// constants its value arguments name (`binders`, declared before it as
@@ -703,6 +706,7 @@ impl CompCond {
             | CompCond::Mutable { span, .. }
             | CompCond::NameIs { span, .. }
             | CompCond::Flag { span, .. }
+            | CompCond::NameEq { span, .. }
             | CompCond::Unset { span, .. }
             | CompCond::Annotated { span, .. }
             | CompCond::IndexCmp { span, .. }

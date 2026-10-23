@@ -150,6 +150,7 @@ Str` (a type, up to aliases), and `field.kind is Struct` (a kind — an arm of
 ```
 [if field.kind is Struct && !field.last] { … }
 [if field.name !is "id" | "created_at"] { … }
+[if a.name == b.name] { … }               // binders of two walks
 ```
 
 `[for …]` and `[if …]` also take a terminal `...` body, as `for` and `if` do:

@@ -619,6 +619,17 @@ impl HoverRecorder<'_> {
                     self.push(*span, &format!("{}.{proj}", binder.name), note);
                 }
             }
+            CompCond::NameEq { a, b, .. } => {
+                for id in [a, b] {
+                    if self.binder_kind(&id.name).is_some() {
+                        self.push(
+                            Span::new(id.span.start, id.span.end + 5),
+                            &format!("{}.name", id.name),
+                            "The declared name, compared with another binder's [comptime-name].",
+                        );
+                    }
+                }
+            }
             CompCond::IndexCmp { a, b, .. } => {
                 for id in [a, b] {
                     if self.binder_kind(&id.name).is_some() {
@@ -2916,6 +2927,13 @@ impl<'w> Expander<'w> {
                     return None;
                 }
                 Some(b.default_of.is_none())
+            }
+            CompCond::NameEq { a, b, span } => {
+                let (Some(x), Some(y)) = (self.binding(&a.name).map(|b| b.name.clone()), self.binding(&b.name).map(|b| b.name.clone())) else {
+                    self.error(*span, "both sides of a `.name` comparison must be binders [comptime-name]");
+                    return None;
+                };
+                Some(x == y)
             }
             CompCond::IndexCmp { a, b, op, span } => {
                 let (Some(x), Some(y)) = (self.binding(&a.name).map(|b| b.index), self.binding(&b.name).map(|b| b.index)) else {

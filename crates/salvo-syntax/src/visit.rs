@@ -370,6 +370,11 @@ pub fn walk_comp_cond<V: Visitor>(v: &mut V, c: &CompCond) {
             }
             walk_type_ref(v, qual);
         }
+        CompCond::NameEq { a, b, span } => {
+            v.visit_span(span);
+            v.visit_ident(a);
+            v.visit_ident(b);
+        }
         CompCond::IndexCmp { a, b, span, .. } => {
             v.visit_span(span);
             v.visit_ident(a);
