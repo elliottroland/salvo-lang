@@ -523,7 +523,13 @@ impl HoverRecorder<'_> {
 
     fn seq(&mut self, seq: &CompSeq) {
         self.comp_ty(&seq.ty);
-        let (what, elem) = if seq.arms { ("arms", "Arm") } else { ("fields", "Field") };
+        let (what, elem) = if seq.literals {
+            ("literals", "Literal")
+        } else if seq.arms {
+            ("arms", "Arm")
+        } else {
+            ("fields", "Field")
+        };
         self.push(
             seq.span,
             &format!("{}.{what}: List<{elem}>", comp_ty_text(&seq.ty)),
@@ -642,8 +648,8 @@ impl HoverRecorder<'_> {
                     ..
                 } => {
                     self.seq(seq);
-                    self.binder(binder, seq.arms);
-                    self.binders.push((binder.name.clone(), seq.arms));
+                    self.binder(binder, seq.arms || seq.literals);
+                    self.binders.push((binder.name.clone(), seq.arms || seq.literals));
                     self.block(body);
                     self.binders.pop();
                 }
@@ -757,6 +763,7 @@ impl HoverRecorder<'_> {
                             "name" => ("Str", "The declared name, as a literal in each copy."),
                             "index" => ("Int", "The declared position, from zero."),
                             "first" => ("Bool", "Whether this copy is for the first element."),
+                            "value" => ("Value", "The literal member itself, as a literal in each copy [comptime-literals]."),
                             "last" => ("Bool", "Whether this copy is for the last element."),
                             "type" => ("Type", "The declared type itself (`core.comptime`)."),
                             "kind" => ("Kind", "The declared type's kind (`core.comptime`), tested in a comptime head."),
@@ -855,8 +862,8 @@ impl HoverRecorder<'_> {
                         StructLitFieldKind::Spread(e) => self.expr(e),
                         StructLitFieldKind::InlineFor { binder, seq, entries } => {
                             self.seq(seq);
-                            self.binder(binder, seq.arms);
-                            self.binders.push((binder.name.clone(), seq.arms));
+                            self.binder(binder, seq.arms || seq.literals);
+                            self.binders.push((binder.name.clone(), seq.arms || seq.literals));
                             for entry in entries {
                                 if let StructLitFieldKind::Named { name, value } = &entry.kind {
                                     if let Some(b) = name.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
@@ -2034,6 +2041,9 @@ struct Binding {
     /// [comptime-qualifier] The comptime qualifiers written before a field's
     /// name; an arm has none.
     annotations: Vec<TypeRef>,
+    /// [comptime-literals] The member a `[for lit in X.literals]` copy is
+    /// for; `None` for a field or an arm.
+    literal: Option<salvo_syntax::ast::TypeLit>,
 }
 
 /// [comptime-docs] A doc block as a value: its lines joined, as hover joins
@@ -2262,6 +2272,57 @@ impl<'w> Expander<'w> {
     fn elements(&mut self, seq: &CompSeq) -> Option<Vec<Binding>> {
         let ty = self.resolve_ty(&seq.ty)?;
         let kind = self.world.classify(&ty, &self.generics(), 0);
+        // [comptime-literals] A literal union's members, in declaration order:
+        // the literals the runtime collapses into one arm [type-literal].
+        if seq.literals {
+            let arms = match &ty {
+                Type::Literal { .. } => vec![ty.clone()],
+                _ => self.arms_of_type(&ty),
+            };
+            let lits: Vec<(Type, salvo_syntax::ast::TypeLit)> = arms
+                .into_iter()
+                .filter_map(|a| match &a {
+                    Type::Literal { value, .. } => Some((a.clone(), value.clone())),
+                    Type::QualifiedGroup { base, .. } => match &**base {
+                        Type::Literal { value, .. } => Some((a.clone(), value.clone())),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect();
+            if lits.is_empty() {
+                self.error(seq.span, format!("`{}` has no literals: `.literals` walks a literal union's members (`\"json\" | \"text\"`) [comptime-literals]", self.world.normalized(&ty)));
+                return None;
+            }
+            let n = lits.len();
+            let text = |l: &salvo_syntax::ast::TypeLit| match l {
+                salvo_syntax::ast::TypeLit::Str(s) => s.clone(),
+                other => other.to_string(),
+            };
+            let siblings: Vec<String> = lits.iter().map(|(_, l)| text(l)).collect();
+            let owner = named_base(&ty).unwrap_or_else(|| self.world.normalized(&ty));
+            return Some(
+                lits.into_iter()
+                    .enumerate()
+                    .map(|(i, (t, l))| Binding {
+                        name: text(&l),
+                        decl_span: t.span(),
+                        label: format!("{owner} literal {l}"),
+                        ty: t,
+                        index: i,
+                        first: i == 0,
+                        last: i + 1 == n,
+                        is_arm: true,
+                        siblings: siblings.clone(),
+                        sibling_owner: owner.clone(),
+                        default_of: None,
+                        docs: None,
+                        annotations: Vec::new(),
+                        literal: Some(l),
+                    })
+                    .collect(),
+            );
+        }
         if seq.arms {
             if kind != TypeKindWord::Union {
                 self.error(seq.span, format!("`{}` is a `{}`, and only a `Union` has `.arms` [comptime-fields]", self.world.normalized(&ty), kind.word()));
@@ -2288,6 +2349,7 @@ impl<'w> Expander<'w> {
                         sibling_owner: sibling_owner.clone(),
                         default_of: None,
                         annotations: Vec::new(),
+                        literal: None,
                     })
                     .collect(),
             );
@@ -2367,6 +2429,7 @@ impl<'w> Expander<'w> {
                     default_of: f.default.as_ref().map(|_| ty.clone()),
                     docs: doc_text(&f.docs),
                     annotations: f.annotations.clone(),
+                    literal: None,
                 })
                 .collect(),
         )
@@ -3127,6 +3190,7 @@ impl<'w> Expander<'w> {
                         default_of: None,
                         docs: self.world.docs_of(arm),
                         annotations: Vec::new(),
+                        literal: None,
                     };
                     let body = self.copy(&body, &binder.name, &b);
                     // The check's spans come from the union's declaration; two
@@ -3356,6 +3420,14 @@ impl MutVisitor for Expander<'_> {
                             }
                         }
                         "first" => *expr = Expr::Bool { value: bd.first, span },
+                        // [comptime-literals] The member itself, as a literal.
+                        "value" => match &bd.literal {
+                            Some(salvo_syntax::ast::TypeLit::Str(s)) => *expr = self.str_lit(s, span),
+                            Some(salvo_syntax::ast::TypeLit::Int(v)) => *expr = Expr::Int { value: *v, long: false, span },
+                            Some(salvo_syntax::ast::TypeLit::Long(v)) => *expr = Expr::Int { value: *v, long: true, span },
+                            Some(salvo_syntax::ast::TypeLit::Bool(v)) => *expr = Expr::Bool { value: *v, span },
+                            None => self.error(span, format!("`{}.value` is a literal member's, read in a `[for … in x.literals]` [comptime-literals]", root.name)),
+                        },
                         "last" => *expr = Expr::Bool { value: bd.last, span },
                         // [comptime-docs] The element's doc comment, as a
                         // `Str` literal, or `None`.

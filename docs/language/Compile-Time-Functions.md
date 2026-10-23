@@ -309,6 +309,22 @@ comptime fn first() [] -> Pick {                 // type Pick = A | Ok Str | Non
 }
 ```
 
+A **literal union**'s members are one arm at run time, but comptime can walk
+them: `[for lit in field.type.literals]` makes one copy per member, in
+declaration order, with `lit.value` the member itself:
+
+```
+// output: "json" | "text"
+[for lit in field.type.literals] {
+    if s == lit.value {
+        return lit.value                     // a `"json" | "text"`
+    }
+}
+```
+
+`lit.name` is its text, and `lit.index`, `lit.first` and `lit.last` are as
+for fields. A named alias walks the same way: `[for lit in Level.literals]`.
+
 ### The model: `core.comptime`
 
 Everything a comptime fn may know about a type is declared, as compile-time

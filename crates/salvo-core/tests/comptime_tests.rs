@@ -1117,3 +1117,31 @@ fn every_arm_of_a_union_is_built_in_its_copy() {
     let errs = messages(&src("[arm.type](i)"));
     assert!(errs.iter().any(|e| e.contains("a `None` arm is built with `None`")), "{errs:?}");
 }
+
+// ===== [comptime-literals] a literal union's members =====
+
+/// [comptime-literals] `[for lit in X.literals]` walks a literal union's
+/// members in declaration order — a field's type, a named alias, `None`
+/// skipped — with `lit.value` the member as a literal of the union (so it
+/// can be returned where the union is expected); a type with no literals,
+/// and `.value` on another binder, are errors.
+#[test]
+fn literal_members_are_walked_in_order() {
+    let src = "type Level = \"debug\" | \"info\"\n\
+               struct Opts {\n    output: (\"json\" | \"text\")?,\n    level: Level,\n    n: Int\n}\n\n\
+               comptime fn names() [] -> Int {\n    \
+               [for lit in Opts.fields] { }\n    \
+               [for lit in Level.literals] {\n        refuse!(\"level ${lit.index} ${lit.value}\")\n        [if lit.name is \"info\"] {\n            refuse!(\"named info\")\n        }\n    }\n    \
+               return 0\n}\n\n\
+               comptime fn parse(s: Str) [] -> (\"json\" | \"text\")? => s {\n    \
+               [for f in Opts.fields] {\n        [if f.name is \"output\"] {\n            \
+               [for lit in f.type.literals] {\n                if s == lit.value {\n                    return lit.value\n                }\n            }\n        }\n    }\n    \
+               return None\n}\n";
+    assert_eq!(refused(src), ["level 0 debug", "level 1 info", "named info"]);
+    let errs = messages(&src.replace("refuse!(\"level ${lit.index} ${lit.value}\")", "let k = 0").replace("refuse!(\"named info\")", "let j = 0"));
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+    let errs = messages(
+        "struct P { n: Int }\n\ncomptime fn f() [] -> Int {\n    [for f in P.fields] {\n        [for lit in f.type.literals] { }\n        let v = f.value\n    }\n    return 0\n}\n",
+    );
+    assert!(errs.iter().any(|e| e.contains("`Int` has no literals")), "{errs:?}");
+}

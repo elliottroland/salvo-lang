@@ -114,8 +114,8 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
   before a field's name or a declaration, comptime `field is Q` and
   `[if field is <c> Q(c)]`; the same binder form for qualifiers on a field's
   type, `[if field.type is <lo, hi> InRange(lo, hi) *]` (round 1, Q5, X7).
-- [ ] 1.6 Comptime construction of a union arm (X5, Q6).
-- [ ] 1.7 Literal members in comptime: `[for lit in field.type.literals]`
+- [x] 1.6 Comptime construction of a union arm (X5, Q6).
+- [x] 1.7 Literal members in comptime: `[for lit in field.type.literals]`
   (X3, Q8).
 - [ ] 1.8 Multi-literal / multi-type `is` in ordinary code (X4, Q9).
 - [ ] 1.9 `explain` on predicate qualifiers (X9, Q10).
@@ -135,6 +135,13 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 1.7 done ("Walk a literal union's members in comptime"):
+  [comptime-literals]; 1983 tests. Fixed: a narrowed `(A | B)?` passed as
+  `A | B` was rewrapped on Rust. Recorded (ROADMAP §2d item 6, DECISION): `?:`
+  on an optional literal union; use `!is None` in the derive. Next: 1.8.
+- 2026-10-20: 1.6 done ("Build union arms in comptime"): [comptime-arm]; 1981
+  tests. `[arm.type](value)` calls the claim's constructor, given the subject
+  as a type argument when the claim is generic. Next: 1.7 (literal members).
 - 2026-10-20: 1.5 done ("Add comptime qualifiers"): [comptime-qualifier]; 1978
   tests. `Field` and `Struct` subjects; constant binders are lowercase and
   read as the constant. Next: 1.6 (building a union arm in comptime).

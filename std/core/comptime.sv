@@ -74,7 +74,21 @@ export comptime type Kind = Struct | Union | Tuple | FnType | Opaque
 
 // A type itself, as a binder's `.type` holds it: usable as a type inside the
 // body, compared with `is <Type>`; its description is the binder's `.kind`.
+// A literal union's members are `.literals`, a `List<Literal>` a `[for lit in
+// field.type.literals]` walks [comptime-literals].
 export comptime struct Type {}
+
+// One member of a literal union (`"json"` of `"json" | "text"`), in
+// declaration order [comptime-literals].
+export comptime struct Literal {
+    // The member itself, a literal of the union in each copy.
+    value: Value,
+    // Its text: a literal of the union of the members' texts.
+    name: Str,
+    index: Int,
+    first: Bool,
+    last: Bool
+}
 
 // A value a declaration writes, as a field's `.default` holds it: in a copy it
 // is that expression, evaluated where it was declared [comptime-default].

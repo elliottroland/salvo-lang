@@ -566,6 +566,11 @@ Conventions:
     still readable after the form ([elvis-guard], and the arms the right side
     reads). Kotlin needs no copy, its values being references.
 
+  * **A `(A | B)?` narrowed past `None` is its `A | B`** (2026-10-20): the
+    narrowing binding holds the inner union, so a use of it is not rewrapped
+    from the optional. Before, `("json" | "text")?` narrowed by `!is None`
+    and passed to a `"json" | "text"` field was rewrapped from `Str?` on Rust,
+    which rustc refused.
 * [placeholder] `_` reads as **the arms a pick left behind** — the sub-union of
   the subject after its first arm (the arm `?:`/`?>` did not pick)
   [elvis]. It reads only inside a pick's right-hand side; reading it anywhere
@@ -4993,6 +4998,19 @@ Conventions:
   expansion names it per copy; the checker sees the ordinary call.
   * Several qualifiers on one arm call the fn named for the run
     (`A_B(value)`), which exists only where someone declared it.
+* [comptime-literals] **`[for lit in X.literals]` walks a literal union's
+  members** (ARG_PARSE.md X3, Q8; built 2026-10-20): `X` is a binder's type
+  (`field.type`), the bound `T`, or a named alias (`Level`). The members are
+  the union's literal arms in declaration order — `None` and any non-literal
+  arm skipped, a qualified literal (`Short "port"`) read as its literal —
+  though at run time they are one arm [union-arm-identity]; a type with
+  none is an error. A binder has `lit.value`, the member itself as a literal
+  in each copy (so `return lit.value` fits a slot of the union), `lit.name`
+  (its text, a literal of the union of the members' texts, testable with
+  `[if lit.name is "json"]`), `lit.index`, `lit.first` and `lit.last`.
+  `.value` on any other binder is an error. `core.comptime` models it as
+  `comptime struct Literal { value: Value, name: Str, index: Int, first:
+  Bool, last: Bool }`.
 * [comptime-default] **`field.default` is the field's declared default**
   (ARG_PARSE.md X1, built 2026-10-20 as engineering under round 2): in a copy
   it is the `= expr` the field declares, evaluated where the struct is

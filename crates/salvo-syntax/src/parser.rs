@@ -5353,15 +5353,17 @@ impl<'s> Parser<'s> {
     fn parse_comp_seq(&mut self) -> Option<CompSeq> {
         let ty = self.parse_comp_ty()?;
         self.expect(&TokenKind::Dot)?;
-        let what = self.ident_value("`fields` or `arms`")?;
-        let arms = match what.name.as_str() {
-            "fields" => false,
-            "arms" => true,
+        let what = self.ident_value("`fields`, `arms` or `literals`")?;
+        let (arms, literals) = match what.name.as_str() {
+            "fields" => (false, false),
+            "arms" => (true, false),
+            // [comptime-literals] A literal union's members.
+            "literals" => (false, true),
             other => {
                 self.error(
                     format!(
-                        "an `inline for` walks `.fields` (of a struct) or `.arms` (of a \
-                         union), not `.{other}` [comptime-fields]"
+                        "a `[for …]` walks `.fields` (of a struct), `.arms` (of a union) or \
+                         `.literals` (of a literal union), not `.{other}` [comptime-fields]"
                     ),
                     what.span,
                 );
@@ -5369,7 +5371,7 @@ impl<'s> Parser<'s> {
             }
         };
         let span = ty.span.to(what.span);
-        Some(CompSeq { ty, arms, span })
+        Some(CompSeq { ty, arms, literals, span })
     }
 
     /// The compile-time conditions [comptime-inline] [comptime-logic]: leaves

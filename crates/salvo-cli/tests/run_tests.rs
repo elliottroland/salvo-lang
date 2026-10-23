@@ -761,6 +761,32 @@ fn comptime_builds_each_arm_on_both_backends() {
     __stamp.verified();
 }
 
+/// [comptime-literals] A literal union's members walked in comptime: listed
+/// with their positions, and matched to decode a string into the union, on
+/// both backends.
+#[test]
+fn literal_members_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("literal_members_run_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("literal_members");
+    fs::write(dir.join("main.sv"), "type Level = \"debug\" | \"info\" | \"warn\"\n\nstruct Opts {\n    output: \"json\" | \"text\" = \"text\",\n    level: Level = \"info\",\n    n: 1 | 2 | 3 = 1\n}\n\n\ncomptime fn choices() [] -> Str {\n    let out: Mut Str = Mut Str(\"\")\n    [for f in Opts.fields] {\n        append(out, \"${f.name}:\")\n        [for lit in f.type.literals] {\n            append(out, \" ${lit.value}\")\n            [if lit.last] {\n                append(out, \" (${lit.index + 1})\")\n            }\n        }\n        append(out, \"\\n\")\n    }\n    [for lit in Level.literals] {\n        [if lit.first] {\n            append(out, \"first ${lit.value}\\n\")\n        }\n    }\n    return out\n}\n\n\ncomptime fn parse_output(s: Str) [] -> (\"json\" | \"text\")? => s {\n    [for f in Opts.fields] {\n        [if f.name is \"output\"] {\n            [for lit in f.type.literals] {\n                if s == lit.value {\n                    return lit.value\n                }\n            }\n        }\n    }\n    return None\n}\n\nfn main() [use] -> None {\n    use StdConsole()\n    print(choices())\n    let picked = parse_output(\"json\")\n    if picked !is None {\n        let o = Opts { output: picked }\n        println(\"${o.output} ${parse_output(\"xml\") is None}\")\n    }\n}\n").unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "output: json text (2)\nlevel: debug info warn (3)\nn: 1 2 3 (3)\nfirst debug\njson true\n",
+            "{backend}"
+        );
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

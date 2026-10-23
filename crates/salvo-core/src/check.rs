@@ -28266,6 +28266,19 @@ impl<'p, 'r> Checker<'p, 'r> {
             && !matches!(logical, Ty::Union(_))
         {
             logical.clone()
+        } else if repr.has_none_arm()
+            && matches!(repr, Ty::Union(_))
+            && matches!(logical, Ty::Union(_))
+            && !logical.has_none_arm()
+            && logical.value_arms() == repr.value_arms()
+        {
+            // [rewrap] A `(A | B)?` narrowed past `None` is read through the
+            // narrowing binding, which holds the `A | B` itself (the IR's
+            // `Narrow` has the logical type). Found 2026-10-20 with `("json"
+            // | "text")?` into a `"json" | "text"` field: a rewrap from the
+            // optional was applied to the already-unwrapped value, and rustc
+            // refused the `match` on a `String`.
+            logical.clone()
         } else {
             repr.clone()
         };

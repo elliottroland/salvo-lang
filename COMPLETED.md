@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1978 tests, complete: the toolchain tests are
+cargo test                  # 1983 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,65 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A literal union's members in comptime, and a narrowed optional union read as itself
+
+Phase 1.7 of the argument-parsing build (ARG_PARSE.md X3, Q8, accepted as
+recommended). [comptime-literals]: `[for lit in field.type.literals]` (also
+on `T` and a named alias) makes one copy per literal member in declaration
+order, with `lit.value` the member as a literal of the union, `lit.name`,
+`lit.index`, `lit.first`, `lit.last`. `core.comptime` gains `Literal`.
+
+What it took:
+- `CompSeq.literals`; `elements` takes the literal arms of the type's
+  flattened arms (`None` and non-literal arms skipped, a qualified literal
+  read as its literal). A literal binding is arm-like (`is_arm`), so field
+  access, `.default` and annotation tests on it are refused as for an arm.
+- **A defect found writing the end-to-end test** [rewrap]: a `("json" |
+  "text")?` narrowed by `!is None` and passed to a `"json" | "text"` field
+  failed rustc ("expected `String`, found `Option<_>`"). The checker's
+  `coerce_repr` took the unnarrowed representation whenever the logical type
+  was a union, and recorded a rewrap from the optional; but the IR's
+  narrowing binding already holds the inner union. A narrowing that only
+  drops `None` from a union is now its logical type. A struct-union version
+  (`(A | B)?` into an `A | B` field) runs on both backends too.
+- **A second one recorded, not fixed** (ROADMAP §2d item 6, DECISION): `?:`
+  on an optional literal union picks its first *declared* literal, which no
+  runtime test can tell from the others, and the right side's literal is
+  typed `Str`. The derive avoids it by narrowing with `!is None`.
+
+Tests: comptime_tests `literal_members_are_walked_in_order` (an alias, a
+field's optional literal union decoded by matching `lit.value`, `lit.name`
+tested, a type with no literals); CLI run
+`literal_members_run_on_both_backends` (members listed with positions for a
+`Str`, an alias and an `Int` literal union, and a string decoded into a
+`"json" | "text"` field after `!is None`).
+
+### 2026-10-20 — Building a union arm in comptime
+
+Phase 1.6 of the argument-parsing build (ARG_PARSE.md X5, Q6, accepted as
+recommended). [comptime-arm]: in a copy over `U.arms`, a struct arm is
+`[arm.type] { [for f in arm.type.fields] { [f]: … } }` (which 1.1's splice
+already built), a qualified arm is `[arm.type](value)`, and `None` is `None`.
+
+What it took:
+- `[arm.type](value)` parses as a call whose callee is the splice's name;
+  the expansion renames it per copy to the arm's constructor: the
+  qualifiers' type-named fn for a qualified arm (`Ok`, as `Ok(value)` is
+  written), the base's for a plain one.
+- The first probe failed on `Ok Str`: `fn Ok<T>(value: T)` cannot infer `T`
+  from an argument whose own type depends on the expected type (a
+  return-type overload). The expansion now passes the subject as the type
+  argument when the claim is generic over it (`qualifier Ok<T> of T`), so the
+  copy reads `Ok<Str>(make())`. The comptime `World` therefore collects
+  every qualifier, not only the comptime ones.
+- Calling a `None` arm is an error naming `None`.
+
+Tests: comptime_tests `every_arm_of_a_union_is_built_in_its_copy`;
+parser_tests `a_spliced_arm_type_is_a_constructor_call`; CLI run
+`comptime_builds_each_arm_on_both_backends` (a struct arm built field by
+field with return-type overloads choosing each field's value, an `Ok Str`
+arm, `None`, both backends).
 
 ### 2026-10-20 — Comptime qualifiers: `Short('p') port: Int`, read with `[if field is <c> Short(c)]`
 
@@ -27124,7 +27183,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1978 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1983 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

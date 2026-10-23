@@ -873,6 +873,24 @@ reproduced in a scratch project; the repros are below.
 5. ✅ **Warnings in comptime copies land on the written code, once** (done
    2026-10-20, COMPLETED.md; [comptime-copy-warn]).
 
+6. **`?:` on an optional literal union picks one literal (DECISION).** Found
+   2026-10-20 building 1.7. The positional pick keeps the subject's first
+   *declared* arm [elvis], so `parse_output(s) ?: "text"` with
+   `parse_output: (Str) -> ("json" | "text")?` picks `"json"` alone and leaves
+   `"text" | None` to the right side. But the literals are one runtime arm
+   [union-arm-identity], so no runtime test can tell `"json"` from `"text"`
+   without comparing values, and the right side's `"text"` is typed `Str`
+   (the expected type is not passed to it), so the join is `"json" | Str`:
+   `let o = Opts { output: parse_output("json") ?: "text" }` is refused with
+   "a value of type `"json"` matches multiple arms of `"json" | Str`".
+   Repro: that program, with `struct Opts { output: "json" | "text" =
+   "text" }`. Options: (a) the pick keeps a **base's literals together**, as
+   the runtime arm does (`"json" | "text"` picked, `None` left) — the
+   reading the derive needs; (b) keep the declared-arm pick and add a value
+   test for a literal arm. Also: pass the expected type to the right side,
+   so a literal there is a literal of the union. Recommendation: (a), plus
+   the expected type. Until decided, the derive narrows with `!is None`.
+
 ### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 
 Both defects of the 2026-09-25 round are closed — a bare generic struct literal

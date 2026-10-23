@@ -592,6 +592,8 @@ pub struct CompTy {
 pub struct CompSeq {
     pub ty: CompTy,
     pub arms: bool,
+    /// [comptime-literals] `field.type.literals`: a literal union's members.
+    pub literals: bool,
     pub span: Span,
 }
 
