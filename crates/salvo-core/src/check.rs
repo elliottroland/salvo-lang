@@ -27541,6 +27541,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             // subject's type and narrow nothing, so nothing cascades
             // [name-resolve].
             _ if pat.unresolved => (subj_ty.clone(), None),
+            // [is-union] [type-literal] `s is "json"` on a `Str?` (or any
+            // union with the literal's base arm): the `Str` arm holding that
+            // value. It matched no arm (a `Str` is not a `"json"`), so the
+            // test was refused as one that can never succeed, though the
+            // runtime test was recorded. The matched side is the literal;
+            // the other side keeps every arm, `Str` included, since other
+            // strings remain.
+            Ty::Union(arms) if Self::literal_on_base_arm(arms, &pat) => {
+                let Some(Ty::Lit(lit)) = &pat.base else { unreachable!() };
+                (Ty::Lit(lit.clone()), Some(subj_ty.clone()))
+            }
             Ty::Union(arms) => {
                 let (m, r): (Vec<Ty>, Vec<Ty>) = arms
                     .iter()
@@ -27751,6 +27762,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             is_none: false,
             unresolved,
         }
+    }
+
+    /// [type-literal] Whether `pat` is a bare literal that no arm of `arms`
+    /// is, but one arm is the literal's base: `"json"` against `Str | None`.
+    fn literal_on_base_arm(arms: &[Ty], pat: &CheckPat) -> bool {
+        let (Some(Ty::Lit(lit)), true, false) = (&pat.base, pat.quals.is_empty(), pat.is_none) else { return false };
+        let is_lit = |a: &Ty| matches!(a.strip_quals(), Ty::Lit(l) if l == lit);
+        let is_base = |a: &Ty| matches!(a.strip_quals(), Ty::Named { name, args } if args.is_empty() && name == lit.base());
+        !arms.iter().any(is_lit) && arms.iter().any(is_base)
     }
 
     /// Whether a union arm matches an `is` check pattern.

@@ -2586,9 +2586,12 @@ Conventions:
   * **On a union whose representation has the literal's base arm** — a
     `Str?` narrowed to `Str` by flow — the test is that arm holding that
     value (fixed 2026-10-20: no arm matched, and the empty test emitted
-    `if (())` on Kotlin and `matches!(v, )` on Rust). The same test written
-    on the un-narrowed `Str?` is still refused as never succeeding (ROADMAP
-    §2d item 13).
+    `if (())` on Kotlin and `matches!(v, )` on Rust). Written on the
+    un-narrowed `Str?` it is the same test, and narrows: the matched side is
+    the literal, and the other side keeps every arm, `Str` included, since
+    other strings remain (2026-10-20, ROADMAP §2d item 13; it was refused as
+    never succeeding, because the narrowing matched the literal against the
+    arms and found none).
   * A narrowed literal union of the same runtime shape as its declared type
     (a `Str` narrowed to `"json" | "text"`) is read as its literal type where
     a literal union is expected (`coerce_repr`).

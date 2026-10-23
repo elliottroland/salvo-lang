@@ -1013,6 +1013,35 @@ fn a_clashing_type_name_is_judged_by_its_own_declaration_on_both_backends() {
     __stamp.verified();
 }
 
+/// [is-union] [type-literal] `s is "json"` on an un-narrowed `Str?` tests the
+/// `Str` arm for that value, and narrows `s` to the literal inside. It was
+/// refused as "this check can never succeed" until 2026-10-20 (ROADMAP §2d
+/// item 13): the narrowing matched the literal against the arms and found
+/// none, though the runtime test was already recorded. On both backends.
+#[test]
+fn a_literal_test_on_an_optional_str_runs_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("a_literal_test_on_an_optional_str_runs_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("litopt");
+    fs::write(
+        dir.join("main.sv"),
+        "fn pick(s: Str?) [] -> Str => !s {\n    if s is \"json\" {\n        return s\n    }\n    if s is None {\n        return \"none\"\n    }\n    return \"other ${s}\"\n}\n\nfn main() [use] -> None {\n    use StdConsole()\n    println(pick(\"json\"))\n    println(pick(\"x\"))\n    println(pick(None))\n}\n",
+    )
+    .unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend} failed: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "json\nother x\nnone\n", "{backend}: {stderr}");
+    }
+    __stamp.verified();
+}
+
 /// [result-errs] The accumulating outcome keeps every error: `map2` of two
 /// successes, of two failures (both errors, in order), and of one failure,
 /// on both backends.

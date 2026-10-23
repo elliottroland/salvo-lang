@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2015 tests, complete: the toolchain tests are
+cargo test                  # 2016 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,19 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A literal test on an un-narrowed `Str?` narrows
+
+ROADMAP §2d item 13 (agreed by the user). `if s is "json"` on a `Str?` was
+refused as "this check can never succeed": the runtime test was recorded
+([is-union], since 2.3), but the narrowing partitioned the arms by
+`arm_matches`, and no arm is a subtype of the literal. A union with the
+literal's base arm and no arm that is the literal now narrows to the literal
+on the matched side and keeps the whole union on the other, since a `Str`
+that is not `"json"` remains (`Checker::literal_on_base_arm`). The plain-`Str`
+case already narrowed this way.
+
+Tests: CLI `a_literal_test_on_an_optional_str_runs_on_both_backends`.
 
 ### 2026-10-20 — The wire predicates resolve a written name where it was written
 
@@ -27792,7 +27805,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2015 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2016 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
