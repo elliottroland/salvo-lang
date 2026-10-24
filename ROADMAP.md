@@ -545,6 +545,34 @@ immutable/plan walk likely trips on). Fix: give `copy_plan` a `Map` case
 copy is Identity. A backend-parity bug — Rust already does the right thing —
 not a language decision.
 
+### 0n — Open defect: a call's named argument reads a parameter binding (found 2026-10-20)
+
+Silently wrong code, both backends' input (the IR): when a fn's default reads
+an earlier parameter, `Lower::args_for` binds that parameter under its own
+name in a pushed scope and then lowers the remaining **named** values inside
+that scope — so a named value mentioning a program variable of the same name
+reads the parameter instead:
+
+```
+fn f(a: Int, b: Int = a, c: Int = 0) -> Int {
+    return a * 100 + b * 10 + c
+}
+fn main() [use] {
+    use StdConsole()
+    let a = 7
+    println("${f(1, c = a)}")   // prints 111; should be 117
+}
+```
+
+Fix (what `construct_handler` does for a handler's constructor, 2026-10-20):
+lower the named values before pushing the scope, and bind to a fresh local.
+A smaller ordering point on the same path: only the parameters a default reads
+are bound into the prelude, so an earlier positional argument that is *not*
+read is evaluated after a later one that is (`f(g(), h())` with a default
+reading the second runs `h()` first; `construct_handler` mirrors this) — bind
+every argument up to the last one read, in order, if evaluation order is to
+hold.
+
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
 **What it is.** When a message makes an actor runnable, the scheduler unparks

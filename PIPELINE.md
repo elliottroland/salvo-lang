@@ -193,6 +193,29 @@ cutoff, §6).
   dropped**, for a uniform rule: an implied dependency is a dependency like
   a written one, wherever it is allowed.
 
+### R7 (2026-10-20)
+
+Route stubs, derived per effect in the IR (step 6, piece 5):
+
+- **The "no route stub for `X` in this module" refusal is dropped**: a
+  `use` routes whatever protocol its group's resolved type names.
+- **A protocol member marking more than one `Key` is refused at the effect
+  declaration**, whether or not anything routes it.
+- **One stub per routed protocol, in the protocol's module**, and only for
+  protocols something routes.
+- **`spawn` of a route stays unsupported** (the addr would bind a strong
+  `X`; ROADMAP ⑥).
+- **Respelled as a modifier on `use`**: `use any stock` (a group handle,
+  `eff[ActorGroup<X>]`) replaces `use route_any(stock)`, so the statement
+  reads like the availability it binds, `any X`; `use any` on anything but
+  a group handle is an error.
+- **The wait settings live with the policy (option A)**: `RouteSelector<E>`
+  gains `fn config() -> RouteConfig`, and std's policies take `config:
+  RouteConfig = default_route_config()` as a constructor parameter, so
+  `use Sharded<Inventory>(config = RouteConfig { … })` overrides them. Needs
+  defaults on handler constructor parameters ([fn-param-default] extended),
+  built first as its own piece.
+
 ## 4. Body-derived interface facts (D2)
 
 Six facts a declaration's callers read today come from type-checking its
@@ -659,8 +682,21 @@ log current so the work can resume after a context reset). Newest last.
 - **Step 6, piece 1 (done, committed "Cache a file's own expansions with
   its parse").** `expand::expand_file` / `expand_program`; the language
   server's `ParseCache` keyed by (text, module, annex).
-- **Step 6, piece 5 (route stubs derived per effect in the IR): surveyed,
-  not started; waiting on the user (R7 questions).** Today `route.rs`
+- **Step 6, piece 5a (defaults on handler constructor parameters): done**
+  ("Let a handler's constructor parameters have defaults") — [fn-param-default]
+  for `use`, `spawn` and `with` constructions, the prerequisite of R7's
+  option A.
+- **Step 6, piece 5 (route stubs derived per effect in the IR): decided
+  (R7), next after 5a.** Build: `Stmt::Use.any` parsed from `use any e`;
+  the checker types `e` as `eff[ActorGroup<X>]` (else an error), requires a
+  `RouteSelector<X>` in scope, records `route_uses[site] = X` and the dep,
+  binds `any X`; the two-`Key` error and a `route_keys` table at the effect
+  declaration; `actors::generate` derives `__Route_X` per routed `X` in X's
+  module before Phase 2 (body: `route_pick(group, seen[, key_hash(k)])`
+  with the config read from the selector, `seen` assigned, the send);
+  `construct_handler` builds it from `route_uses`; deadlock router node per
+  routed `X`; `route.rs`'s generator and `default_route_config` rewrite
+  deleted. Survey, as written before R7: Today `route.rs`
   writes a `__Route_X` AST handler into every *routing* module before
   resolution (plain-name effect table, first declarer wins; synthetic
   imports; spans past EOF), and `use route_any(g)` is checked as a

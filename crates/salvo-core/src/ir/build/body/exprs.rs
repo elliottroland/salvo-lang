@@ -1671,6 +1671,15 @@ impl<'a, 'p> Lower<'a, 'p> {
             .position(|m| m.items.iter().any(|i| matches!(i, ast::Item::Struct(s) if std::ptr::eq(s, decl))))
     }
 
+    /// [default-scope] The file that declares the handler `decl`.
+    fn handler_file(&self, decl: &ast::HandlerDecl) -> Option<usize> {
+        self.ctx
+            .program
+            .modules
+            .iter()
+            .position(|m| m.items.iter().any(|i| matches!(i, ast::Item::Handler(h) if std::ptr::eq(h, decl))))
+    }
+
     /// [default-scope] The file that declares the effect member `m`.
     fn member_file(&self, m: &ast::FnDecl) -> Option<usize> {
         self.ctx.program.modules.iter().position(|module| {
@@ -2971,10 +2980,65 @@ impl<'a, 'p> Lower<'a, 'p> {
             args: self.ctx.checked.use_handler_args.get(&key).map(|v| v.iter().map(erase).collect()).unwrap_or_default(),
         };
         let mut fields: Vec<(String, Expr)> = Vec::new();
+        let value_params: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
         for (i, a) in args.iter().enumerate() {
             let v = self.expr(a);
-            let pname = decl.params.iter().filter(|p| !p.implicit).nth(i).map(|p| p.name.name.clone()).unwrap_or(format!("__arg{i}"));
+            let pname = value_params.get(i).map(|p| p.name.name.clone()).unwrap_or(format!("__arg{i}"));
             fields.push((pname, v));
+        }
+        // [fn-param-default] The value parameters the positional arguments
+        // did not reach, in declaration order (Kotlin passes a handler's
+        // fields in order, so a filled default sits at its parameter's
+        // position): each from a `name = value` argument if the construction
+        // gave one, else from the parameter's own default, lowered fresh
+        // here in the declaring file — `args_for`'s rule for a call. A
+        // parameter a default reads is bound once, as there; the bindings
+        // run ahead of the enclosing statement (`pending`), since `use` and
+        // `spawn` read the construction as a bare `Construct`.
+        if !value_params.iter().any(|p| p.variadic) {
+            let default_file = self.handler_file(decl);
+            // The named values first, in the construction's own scope: a
+            // name they mention is the program's, never a parameter bound
+            // below for a default to read.
+            let mut by_name: Vec<Option<Expr>> = Vec::with_capacity(value_params.len());
+            for (i, p) in value_params.iter().enumerate() {
+                let named_value = if i < fields.len() { None } else { named.iter().find(|a| a.name.name == p.name.name) };
+                by_name.push(named_value.map(|a| self.expr(&a.value)));
+            }
+            let referenced: std::collections::HashSet<String> =
+                value_params.iter().filter_map(|p| p.default.as_ref()).flat_map(mentioned_idents).collect();
+            let scoped = !referenced.is_empty();
+            if scoped {
+                self.push_scope();
+            }
+            for (i, p) in value_params.iter().enumerate() {
+                let at = if i < args.len() {
+                    i
+                } else {
+                    let v = match (by_name[i].take(), &p.default) {
+                        (Some(v), _) => v,
+                        (None, Some(d)) => self.param_default(p, d, span, default_file),
+                        (None, None) => continue, // a required gap — a checker error already
+                    };
+                    fields.push((p.name.name.clone(), v));
+                    fields.len() - 1
+                };
+                if referenced.contains(p.name.name.as_str()) {
+                    // A fresh local, not the parameter's own name: the
+                    // binding is hoisted into the program's scope, where a
+                    // variable of that name may live.
+                    let ty = fields[at].1.ty.clone();
+                    let id = self.id();
+                    let local = self.fresh(&format!("__{}", p.name.name));
+                    self.scopes.last_mut().unwrap().insert(p.name.name.clone(), super::Bound { local: local.clone(), ty: ty.clone(), owned: true });
+                    let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false } };
+                    let moved = std::mem::replace(&mut fields[at].1, read);
+                    self.pending.push(Stmt::Let { id, local, ty, value: moved });
+                }
+            }
+            if scoped {
+                self.pop_scope();
+            }
         }
         let filled = self.ctx.checked.implicit_args.get(&key).or_else(|| self.ctx.checked.implicit_args.get(&self.key(call_span))).cloned().unwrap_or_default();
         let implicits = self.implicit_list(&filled, &named, span);

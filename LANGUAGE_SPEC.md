@@ -3576,6 +3576,30 @@ Conventions:
     defaulted one reaching the same arity — are an ordinary
     [fn-overload-rank] ambiguity, reported the same way a union-versus-plain
     tie is: narrow an argument, or give one overload its own name.
+  * **A handler's constructor parameters take defaults by the same rules**
+    (user decision 2026-10-20, PIPELINE R7's prerequisite): checked once at
+    the handler declaration against the parameter's type, with no effects
+    available and only the earlier constructor parameters in scope; lowered
+    fresh at each construction that omits one; a positional construction
+    omits only a trailing run of defaulted parameters, and a defaulted one
+    anywhere may be filled by name (`Span(5, step = 2)`), naming one with no
+    default refused with the fn message. It holds wherever a handler is
+    constructed — `use H(…)`, `spawn H(…)` (actor, monitor and mixed), and a
+    `with` item — since all of them go through `check_handler_construction`
+    in the checker and `Lower::construct_handler` in the IR builder.
+    * A construction's `name = value` is matched against the value
+      parameters first and only then against the constructor's implicits
+      [implicit-override], as a call's is (`call_fixed_params`); a name
+      matching neither is refused. (Until this rule a construction's named
+      arguments were dropped without a word, implicit overrides included.)
+    * The IR `Construct` carries every value parameter, filled ones at
+      their parameter's position — the Kotlin emitter passes a mixed spawn's
+      fields in order, and the Rust emitter finds them by name. A
+      parameter a default reads is bound once to a **fresh** local (not the
+      parameter's own name), and those bindings run ahead of the enclosing
+      statement (`pending`) rather than in a block around the construction,
+      because `use` and `spawn` read the construction as a bare `Construct`
+      and the hoisted local lives in the program's scope.
 * [implicit-param] `?cmp: (T, T) -> Int` declares an **implicit parameter**:
   one the caller need not pass (user decisions 2026-09-05). Its type must be
   a fn type — what fills it is a function — and implicit parameters trail the

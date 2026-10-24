@@ -527,3 +527,141 @@ fn variadic_and_implicit_parameters_refuse_a_default() {
         "errors: {errors:?}"
     );
 }
+
+/// The handler every [fn-param-default] handler-constructor test builds:
+/// `lo` required, `hi` defaulted from it, `step` defaulted.
+const SPAN_HANDLER: &str = "effect Spanned {\n\
+    \x20   fn width() -> Int\n\
+     }\n\
+     handler Span(lo: Int, hi: Int = lo + 10, step: Int = 1) of Spanned {\n\
+    \x20   fn width() -> Int {\n\
+    \x20       return (hi - lo) * step\n\
+    \x20   }\n\
+     }\n";
+
+// [fn-param-default] A handler's constructor parameters take defaults with
+// the fn rules: a trailing run omitted positionally, a defaulted parameter
+// anywhere filled by name — in a `use`, a `with` item and a `spawn` alike —
+// and a default that reads an earlier constructor parameter.
+#[test]
+fn a_handler_constructor_default_may_be_omitted_or_named() {
+    let errors = check_errors(&format!(
+        "{SPAN_HANDLER}\
+         effect Twice {{\n\
+        \x20   fn twice() -> Int\n\
+         }}\n\
+         handler Doubling [Spanned] of Twice {{\n\
+        \x20   fn twice() -> Int {{\n\
+        \x20       return width() * 2\n\
+        \x20   }}\n\
+         }}\n\
+         actor effect Desk {{\n\
+        \x20   send fn ask(out: Reply<Int>) => !out\n\
+         }}\n\
+         handler Desking(room: Int = 4, capacity: Int = 2) of Desk {{\n\
+        \x20   mailbox {{ capacity: capacity }}\n\
+        \x20   send fn ask(out: Reply<Int>) {{\n\
+        \x20       send(out, room)\n\
+        \x20   }}\n\
+         }}\n\
+         fn f() [use, spawn] -> None {{\n\
+        \x20   use Span(1)\n\
+        \x20   use Span(1, 5)\n\
+        \x20   use Span(1, step = 2)\n\
+        \x20   use Doubling with Span(2, step = 3)\n\
+        \x20   let a = spawn Desking() on pool(1)\n\
+        \x20   let b = spawn Desking(room = 9) on pool(1)\n\
+         }}\n"
+    ));
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+// [fn-param-default] Naming a constructor parameter that has no default is
+// refused with the fn message; a name matching no parameter is refused too
+// (it used to be dropped without a word).
+#[test]
+fn naming_a_handler_parameter_with_no_default_is_refused() {
+    let errors = check_errors(&format!(
+        "{SPAN_HANDLER}\
+         fn f() [use] -> None {{\n\
+        \x20   use Span(lo = 1)\n\
+        \x20   use Span(1, size = 2)\n\
+         }}\n"
+    ));
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("`lo` has no default") && e.contains("only a defaulted parameter may be named")),
+        "errors: {errors:?}"
+    );
+    assert!(
+        errors.iter().any(|e| e.contains("`Span` has no implicit parameter named `size`")),
+        "errors: {errors:?}"
+    );
+}
+
+// [fn-param-default] Omitting a constructor parameter that has no default
+// is still refused, naming it; so is giving one both ways, or too many.
+#[test]
+fn omitting_a_required_handler_parameter_is_refused() {
+    let errors = check_errors(&format!(
+        "{SPAN_HANDLER}\
+         fn f() [use] -> None {{\n\
+        \x20   use Span()\n\
+        \x20   use Span(step = 2)\n\
+        \x20   use Span(1, 2, hi = 3)\n\
+        \x20   use Span(1, 2, 3, 4)\n\
+         }}\n"
+    ));
+    assert_eq!(
+        errors.iter().filter(|e| e.contains("handler `Span` is constructed without `lo`, which has no default")).count(),
+        2,
+        "errors: {errors:?}"
+    );
+    assert!(errors.iter().any(|e| e.contains("`hi` is already given positionally")), "errors: {errors:?}");
+    assert!(
+        errors.iter().any(|e| e.contains("handler `Span` takes at most 3 constructor argument(s), found 4")),
+        "errors: {errors:?}"
+    );
+}
+
+// [fn-param-default] A constructor parameter's default sees only the
+// earlier parameters, as a fn's does.
+#[test]
+fn a_handler_default_cannot_reference_a_later_parameter() {
+    let errors = check_errors(
+        "effect Tell {\n\
+        \x20   fn tell() -> Int\n\
+         }\n\
+         handler Teller(a: Int = b, b: Int) of Tell {\n\
+        \x20   fn tell() -> Int {\n\
+        \x20       return a + b\n\
+        \x20   }\n\
+         }\n",
+    );
+    assert!(errors.iter().any(|e| e.contains("named `b` is in scope")), "errors: {errors:?}");
+}
+
+// [fn-param-default] A constructor parameter's default is checked with no
+// effects available: an effectful one is refused at the declaration.
+#[test]
+fn an_effectful_handler_default_is_refused() {
+    let errors = check_errors(
+        "fn noisy() [Console] -> Int {\n\
+        \x20   println(\"hi\")\n\
+        \x20   return 1\n\
+         }\n\
+         effect Tell {\n\
+        \x20   fn tell() -> Int\n\
+         }\n\
+         handler Teller(n: Int = noisy()) [Console] of Tell {\n\
+        \x20   fn tell() -> Int {\n\
+        \x20       return n\n\
+        \x20   }\n\
+         }\n",
+    );
+    assert!(
+        errors.iter().any(|e| e.contains("no handler for effect `Console`") && e.contains("`noisy`")),
+        "errors: {errors:?}"
+    );
+}

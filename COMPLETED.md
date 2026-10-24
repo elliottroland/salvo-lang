@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2026 tests, complete: the toolchain tests are
+cargo test                  # 2032 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,52 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A handler's constructor parameters may have defaults
+
+User-approved, PIPELINE.md §3 R7: the prerequisite of R7's route config on
+the selector. [fn-param-default] now covers a handler's constructor:
+`handler Span(lo: Int, hi: Int = lo + 10, step: Int = 1)` is checked at the
+declaration (`check_module`'s `Item::Handler` branch: the parameter's type, no
+effects, only earlier parameters in scope), and `use Span(5)`,
+`use Span(5, step = 2)`, `spawn Desking()`, `use Plus with Teller(n = 40)`
+and `spawn Telling() with Teller(n = 11)` all construct. Before, the
+declaration parsed and every omitting construction was refused with
+"expects 1 constructor argument(s), found 0".
+
+- **Checker** (`check_handler_construction`, now handed the construction's
+  named arguments by `handler_construction`): positional and named values
+  are matched to parameters first (`given`), then typed, moved, unified and
+  fitted as positional ones always were; naming a parameter with no default
+  is the fn message; a missing required one names it ("constructed without
+  `lo`, which has no default"); the old message stays for a handler with no
+  defaults. The rest go to `fill_implicits` with `call_fixed_params` set, as
+  a fn call does.
+- **IR** (`Lower::construct_handler`): every value parameter gets a field, in
+  declaration order, from its argument, its `name = value`, or its default
+  lowered in the handler's file (`handler_file`). A parameter a default reads
+  is bound once, to a fresh local, hoisted ahead of the statement through
+  `pending`, because `use`/`spawn` read a bare `Construct` (the emitters
+  match on it) and a block would hide it. Neither emitter changed; the Rust
+  mixed spawn finds fields by name and the Kotlin one passes them in order,
+  which the declaration order satisfies.
+- **Found on the way.** A construction's named arguments were dropped without
+  a word: `use Teller(5, m = 3)` compiled, and an implicit override in a
+  construction was ignored (`fill_implicits` got `&[]`). Both now go through
+  the same matching as a call. The fn path has the scoping bug the handler
+  path avoids (a named value lowered inside the parameter-binding scope reads
+  the parameter, `f(1, c = a)` with a program `a`): recorded with its repro as
+  ROADMAP §0n, not fixed here.
+- Tests: five checker tests in `diag_tests.rs` (omitted / named / with /
+  spawn accepted; naming a non-defaulted or unknown name refused; a missing,
+  doubled or excess argument refused; a later-parameter default refused; an
+  effectful default refused), and one program on both backends
+  (`rustc_compiles_and_runs_handler_parameter_defaults`, Kotlin case
+  `kotlinc_compiles_and_runs_handler_parameter_defaults`) covering `use`, a
+  `with` item, an actor spawn whose mailbox capacity is a defaulted
+  parameter, a spawn's `with` item, a mixed spawn, and defaults reading an
+  earlier `Int` and `List` parameter beside a program variable of the same
+  name.
 
 ### 2026-10-20 — The comptime expansion looks names up through each file's scope
 
@@ -28229,7 +28275,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2026 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2032 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

@@ -4227,6 +4227,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // left anywhere in the language.
                         self.validate_type(&p.ty);
                     }
+                    // [fn-param-default] A constructor parameter's default is
+                    // checked exactly as a fn parameter's is: once, here,
+                    // against the parameter's type, with no effects
+                    // available and only the *earlier* parameters in scope.
+                    // It is lowered fresh at each construction that omits it
+                    // (`Lower::construct_handler`).
+                    if h.params.iter().any(|p| p.default.is_some()) {
+                        let saved_env = std::mem::take(&mut self.effect_env);
+                        for (i, p) in h.params.iter().enumerate() {
+                            let Some(default) = &p.default else { continue };
+                            let frame = self.read_only_frame(&h.params[..i]);
+                            self.locals.push(frame);
+                            let expected = self.lower_type(&p.ty).strip_spread();
+                            self.check_default(default, &expected);
+                            self.locals.pop();
+                        }
+                        self.effect_env = saved_env;
+                    }
                     // [effect-handler-multi] Conformance, face by face: every
                     // member of every implemented effect needs an
                     // implementation here, and a member that implements two
@@ -10239,15 +10257,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return;
             };
             self.out.route_stubs.insert(self.key(span), stub);
-            Some((&decl.name, args.as_slice(), &[][..]))
+            Some((&decl.name, args.as_slice(), &[][..], &[][..]))
         } else {
             self.handler_construction(handler, "use")
         };
-        let Some((id, args, written_type_args)) = construction else {
+        let Some((id, args, written_type_args, named)) = construction else {
             return;
         };
         let Some((concrete, deps)) =
-            self.check_handler_construction(id, args, written_type_args, "use", span)
+            self.check_handler_construction(id, args, written_type_args, named, "use", span)
         else {
             return;
         };
@@ -10351,9 +10369,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             };
         }
-        let (id, args, type_args) = self.handler_construction(item, "with")?;
+        let (id, args, type_args, named) = self.handler_construction(item, "with")?;
         let (effects, deps) =
-            self.check_handler_construction(id, args, type_args, "with", item.span())?;
+            self.check_handler_construction(id, args, type_args, named, "with", item.span())?;
         let effect = effects.first().cloned().unwrap_or(Ty::Unknown);
         // [effect-handler-multi] A multi-face handler in the clause would
         // supply two dependencies from one private instance, and the clause
@@ -10536,16 +10554,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         handler: &'p Expr,
         form: &str,
-    ) -> Option<(&'p Ident, &'p [Expr], &'p [ast::Type])> {
+    ) -> Option<(&'p Ident, &'p [Expr], &'p [ast::Type], &'p [ast::NamedArg])> {
         match handler {
-            Expr::Ident(id) => Some((id, &[], &[])),
+            Expr::Ident(id) => Some((id, &[], &[], &[])),
             Expr::Call {
                 callee,
                 args,
                 type_args,
+                named,
                 ..
             } => match callee.as_ref() {
-                Expr::Ident(id) => Some((id, args.as_slice(), type_args.as_slice())),
+                Expr::Ident(id) => Some((id, args.as_slice(), type_args.as_slice(), named.as_slice())),
                 _ => {
                     let span = handler.span();
                     self.error(
@@ -10581,6 +10600,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         id: &'p Ident,
         args: &'p [Expr],
         written_type_args: &'p [ast::Type],
+        named: &'p [ast::NamedArg],
         form: &str,
         span: Span,
     ) -> Option<(Vec<Ty>, Vec<EffectAvail>)> {
@@ -10612,34 +10632,114 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.record_def_ref(id.span, &id.name);
 
         let has_variadic = value_params.iter().any(|p| p.variadic);
-        if !has_variadic && args.len() != value_params.len() {
-            let dep_note = if deps.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    " (its {} effect dependenc{} come from the enclosing scope)",
-                    deps.len(),
-                    if deps.len() == 1 { "y" } else { "ies" }
-                )
+        // [fn-param-default] Which constructor parameter each written value
+        // fills, as `(parameter index, value)`: the positional arguments in
+        // order, then each `name = value` naming a value parameter — the
+        // same matching a fn call does before implicit resolution
+        // (`call_fixed_params`). A name matching an implicit parameter is an
+        // override [implicit-override], left to `fill_implicits`; any other
+        // name is refused there, or here when there is no implicit to hand
+        // it to.
+        let mut given: Vec<(usize, &'p Expr)> = args.iter().enumerate().collect();
+        let mut by_name = vec![false; value_params.len()];
+        let has_implicits = decl.params.iter().any(|p| p.implicit);
+        for a in named {
+            let Some(i) = value_params.iter().position(|p| p.name.name == a.name.name) else {
+                if !has_implicits {
+                    self.error(
+                        a.span,
+                        format!("`{}` has no implicit parameter named `{}`", id.name, a.name.name),
+                    );
+                    self.check_expr(&a.value, None);
+                }
+                continue;
             };
-            self.error(
-                span,
-                format!(
-                    "handler `{}` expects {} constructor argument(s), found {}{dep_note}",
-                    id.name,
-                    value_params.len(),
-                    args.len()
-                ),
-            );
+            let p = value_params[i];
+            if p.default.is_none() {
+                self.error(
+                    a.span,
+                    format!(
+                        "`{}` has no default, so it cannot be given by name here: \
+                         only a defaulted parameter may be named [fn-param-default]",
+                        a.name.name
+                    ),
+                );
+            }
+            let refused = if has_variadic {
+                Some(format!(
+                    "handler `{}` has a variadic constructor parameter, so its arguments \
+                     are given positionally",
+                    id.name
+                ))
+            } else if i < args.len() {
+                Some(format!("`{}` is already given positionally", a.name.name))
+            } else if by_name[i] {
+                Some(format!("`{}` is given by name twice", a.name.name))
+            } else {
+                None
+            };
+            match refused {
+                Some(msg) => {
+                    self.error(a.span, msg);
+                    self.check_expr(&a.value, None);
+                }
+                None => {
+                    by_name[i] = true;
+                    given.push((i, &a.value));
+                }
+            }
+        }
+        if !has_variadic {
+            let too_many = args.len() > value_params.len();
+            let missing: Vec<String> = value_params
+                .iter()
+                .enumerate()
+                .filter(|(i, p)| *i >= args.len() && !by_name[*i] && p.default.is_none())
+                .map(|(_, p)| format!("`{}`", p.name.name))
+                .collect();
+            if too_many || !missing.is_empty() {
+                let dep_note = if deps.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " (its {} effect dependenc{} come from the enclosing scope)",
+                        deps.len(),
+                        if deps.len() == 1 { "y" } else { "ies" }
+                    )
+                };
+                let msg = if !value_params.iter().any(|p| p.default.is_some()) {
+                    format!(
+                        "handler `{}` expects {} constructor argument(s), found {}{dep_note}",
+                        id.name,
+                        value_params.len(),
+                        args.len()
+                    )
+                } else if too_many {
+                    format!(
+                        "handler `{}` takes at most {} constructor argument(s), found {}{dep_note}",
+                        id.name,
+                        value_params.len(),
+                        args.len()
+                    )
+                } else {
+                    format!(
+                        "handler `{}` is constructed without {}, which ha{} no default \
+                         [fn-param-default]{dep_note}",
+                        id.name,
+                        missing.join(", "),
+                        if missing.len() == 1 { "s" } else { "ve" }
+                    )
+                };
+                self.error(span, msg);
+            }
         }
         // A lambda argument takes its parameter types from the constructor
         // parameter's fn type, as a call's argument does — unless that type
         // is still open in the handler's own generics.
         let own_generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
-        let arg_tys: Vec<Ty> = args
+        let arg_tys: Vec<Ty> = given
             .iter()
-            .enumerate()
-            .map(|(i, a)| {
+            .map(|&(i, a)| {
                 let expected = param_tys
                     .get(i)
                     .filter(|t| matches!(a, Expr::Lambda { .. }) && !ty_mentions_vars(t, &own_generics));
@@ -10649,7 +10749,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // A handler-constructor argument is stored in the handler for the
         // rest of the scope: passing a bare identifier moves it
         // [deduce-consume].
-        for a in args {
+        for &(_, a) in &given {
             self.fate_move(a, "store", "a `use` handler registration", a.span());
         }
         let mut subst: HashMap<String, Ty> = HashMap::new();
@@ -10675,7 +10775,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 subst.insert(g.name.clone(), lowered);
             }
         }
-        for (p, a) in param_tys.iter().zip(&arg_tys) {
+        for (&(i, _), a) in given.iter().zip(&arg_tys) {
+            let Some(p) = param_tys.get(i) else { continue };
             let mut from_args: HashMap<String, Ty> = HashMap::new();
             unify(p, a, &mut from_args);
             for (name, ty) in from_args {
@@ -10711,11 +10812,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.out.use_handler_args.insert(self.key(span), args);
         }
         // Record argument coercions against the substituted param types.
-        for (i, p) in param_tys.iter().enumerate().take(arg_tys.len()) {
+        for (&(i, arg), logical) in given.iter().zip(&arg_tys) {
+            let Some(p) = param_tys.get(i) else { continue };
             let sp = substitute_vars(p, &subst, &generic_set);
-            let logical = arg_tys[i].clone();
-            let repr = self.repr_of(&args[i], &logical);
-            self.maybe_coerce(args[i].span(), &logical, &repr, &sp);
+            let logical = logical.clone();
+            let repr = self.repr_of(arg, &logical);
+            self.maybe_coerce(arg.span(), &logical, &repr, &sp);
             // A constructor argument has to *fit* its parameter, exactly as a
             // call's argument does — a handler has no overload set, so nothing
             // else was reporting it and a claim the parameter demands
@@ -10727,7 +10829,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .map(|p| p.name.name.clone())
                     .unwrap_or_else(|| format!("argument {}", i + 1));
                 self.error(
-                    args[i].span(),
+                    arg.span(),
                     format!(
                         "handler `{}` declares `{pname}: {sp}`, and this argument is \
                          `{logical}`",
@@ -10761,7 +10863,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         if !ctor_implicits.is_empty() {
             let mut subst = subst.clone();
-            self.fill_implicits(&ctor_implicits, &id.name, &mut subst, &generic_set, &[], span);
+            // [fn-param-default] The names that filled value parameters above
+            // are this construction's, not unknown implicits.
+            let fixed: HashSet<String> = value_params.iter().map(|p| p.name.name.clone()).collect();
+            let saved_fixed = std::mem::replace(&mut self.call_fixed_params, fixed);
+            self.fill_implicits(&ctor_implicits, &id.name, &mut subst, &generic_set, named, span);
+            self.call_fixed_params = saved_fixed;
         }
         let concrete: Vec<Ty> = of_tys
             .iter()
@@ -15475,12 +15582,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             self.error(span, msg);
         }
-        let Some((id, args, written_type_args)) = self.handler_construction(handler, "spawn")
+        let Some((id, args, written_type_args, named)) = self.handler_construction(handler, "spawn")
         else {
             return Ty::Unknown;
         };
         let Some((effects, declared)) =
-            self.check_handler_construction(id, args, written_type_args, "spawn", span)
+            self.check_handler_construction(id, args, written_type_args, named, "spawn", span)
         else {
             for u in uses {
                 self.check_spawn_dep(u);
@@ -16177,13 +16284,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             _ => false,
         };
         if is_handler {
-            let (id, args, type_args) = self.handler_construction(item, "spawn")?;
+            let (id, args, type_args, named) = self.handler_construction(item, "spawn")?;
             // A dependency constructed for the child: its dependencies are
             // the child's problem in turn, and a handler with any of its own
             // cannot be written in a spawn clause — there is no scope on the
             // child to resolve them from. Named where it is written.
             let (effects, deps) =
-                self.check_handler_construction(id, args, type_args, "spawn", item.span())?;
+                self.check_handler_construction(id, args, type_args, named, "spawn", item.span())?;
             let effect = effects.first().cloned().unwrap_or(Ty::Unknown);
             // [effect-handler-multi] A multi-face handler *constructed* in a
             // spawn clause would have to supply two of the child's

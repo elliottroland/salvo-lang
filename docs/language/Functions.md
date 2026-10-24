@@ -230,3 +230,15 @@ their own way
 of filling themselves when the caller says nothing, so neither takes a
 default.
 
+A handler's constructor parameters take defaults by the same rules, wherever
+the handler is constructed — `use`, `spawn`, and an item of a `with` clause:
+
+```
+handler Span(lo: Int, hi: Int = lo + 10, step: Int = 1) of Spanned { … }
+
+use Span(5)                          // hi = 15, step = 1
+use Span(5, step = 2)                // hi = 15 — the middle one left to its default
+let s = spawn Span(5, hi = 8)        // hi = 8, step = 1
+use Scaled with Span(1, step = 3)    // a `with` item's constructor, too
+```
+

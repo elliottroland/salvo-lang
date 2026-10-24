@@ -17981,3 +17981,156 @@ fn rustc_compiles_and_runs_parameter_defaults() {
     let files = generate(&[("main.sv", PARAM_DEFAULT_DEMO)]);
     run_rust_files(&files, "param-default", PARAM_DEFAULT_OUTPUT);
 }
+
+// [fn-param-default] A handler's constructor parameters take defaults with
+// the fn rules, wherever a handler is constructed: `use` (a trailing run
+// omitted, a defaulted parameter named past another, a default reading an
+// earlier parameter — a scalar and a `List`, bound once — with a program
+// variable of the same name in scope), a `with` item, an actor `spawn`
+// (with the mailbox capacity a defaulted parameter), a spawn's `with` item,
+// and a mixed handler's spawn, whose servant and façade share the filled
+// arguments. The same program and output as the Kotlin backend's case.
+const HANDLER_PARAM_DEFAULT_DEMO: &str = r#"
+effect Tell {
+    fn tell() -> Int
+}
+
+handler Teller(n: Int = 7) of Tell {
+    fn tell() -> Int {
+        return n
+    }
+}
+
+effect Spanned {
+    fn width() -> Int
+    fn stride() -> Int
+}
+
+handler Span(lo: Int, hi: Int = lo + 10, step: Int = 1) of Spanned {
+    fn width() -> Int {
+        return hi - lo
+    }
+    fn stride() -> Int {
+        return step
+    }
+}
+
+effect Counted {
+    fn count() -> Int
+}
+
+handler Bag(xs: List<Int>, n: Int = size(xs)) of Counted {
+    fn count() -> Int {
+        return n + size(xs)
+    }
+}
+
+effect Sum {
+    fn sum() -> Int
+}
+
+handler Plus [Tell] of Sum {
+    fn sum() -> Int {
+        return tell() + 1
+    }
+}
+
+actor effect Desk {
+    send fn ask(out: Reply<Int>) => !out
+}
+
+handler Desking(room: Int = 4, capacity: Int = 2) of Desk {
+    mailbox { capacity: capacity }
+
+    send fn ask(out: Reply<Int>) {
+        send(out, room)
+    }
+}
+
+handler Telling() [Tell] of Desk {
+    mailbox { capacity: 2 }
+
+    send fn ask(out: Reply<Int>) {
+        send(out, tell())
+    }
+}
+
+effect Random {
+    fn next() -> Int
+}
+
+handler CyclicRandom(seed: Int = 5, mult: Int = 31) of Random {
+    mailbox { capacity: 8 }
+    state {
+        cursor: Int = 1
+    }
+
+    send fn advance(out: Reply<Int>) => !out {
+        cursor = (cursor * mult + seed) % 1000
+        send(out, cursor)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+
+fn show() [use, Console] {
+    use Teller(n = 3)
+    println("${tell()}")
+}
+
+fn spans() [use, Console] {
+    use Span(5)
+    println("${width()} ${stride()}")
+    use Span(5, step = 2)
+    println("${width()} ${stride()}")
+    let lo = 100
+    use Span(1, step = lo)
+    println("${width()} ${stride()} ${lo}")
+    use Span(1, 4)
+    println("${width()} ${stride()}")
+}
+
+fn sums() [use, Console] {
+    use Plus with Teller(n = 40)
+    println("${sum()}")
+    use Plus with Teller()
+    println("${sum()}")
+}
+
+fn main() [use, spawn] {
+    use StdConsole()
+    use Teller()
+    println("${tell()}")
+    show()
+    spans()
+    sums()
+    use Bag(List(1, 2, 3))
+    println("count ${count()}")
+    let desk = spawn Desking() on pool(1)
+    let room = waitfor got: Reply<Int> {
+        desk.ask(got)
+    }
+    println("room ${room}")
+    let teller = spawn Telling() with Teller(n = 11) on pool(1)
+    let told = waitfor got: Reply<Int> {
+        teller.ask(got)
+    }
+    println("told ${told}")
+    let rng = spawn CyclicRandom(mult = 2)
+    use rng
+    println("drew ${next()} ${next()}")
+}
+"#;
+
+const HANDLER_PARAM_DEFAULT_OUTPUT: &str =
+    "7\n3\n10 1\n10 2\n10 100 100\n3 1\n41\n8\ncount 6\nroom 4\ntold 11\ndrew 7 19\n";
+
+#[test]
+fn rustc_compiles_and_runs_handler_parameter_defaults() {
+    let files = generate(&[("main.sv", HANDLER_PARAM_DEFAULT_DEMO)]);
+    run_rust_files(&files, "handler-param-default", HANDLER_PARAM_DEFAULT_OUTPUT);
+}
