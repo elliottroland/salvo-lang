@@ -54,6 +54,17 @@ impl FileDiagnostic {
         }
     }
 
+    /// A parse (or per-file expansion) diagnostic, placed in file [file].
+    pub fn from_parse(file: usize, d: Diagnostic) -> Self {
+        FileDiagnostic {
+            file,
+            severity: d.severity,
+            message: d.message,
+            span: d.span,
+            suggested_imports: Vec::new(),
+        }
+    }
+
     /// Attaches import suggestions [diag-import-suggest].
     pub fn with_imports(mut self, imports: Vec<String>) -> Self {
         self.suggested_imports = imports;

@@ -138,6 +138,18 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — A file's own expansions are cached with its parse
+
+PIPELINE.md §7 step 6, its first piece: the expansions that read one file —
+the struct-body hoist [fn-attached], `iter fn`s [iter-fn] and `test` blocks
+[test-decl] — are `expand::expand_file`, a function of the file's text, its
+module path and whether it is an annex. The language server's parse cache
+now holds the parse *with* them (keyed by all three), so an unchanged file is
+not expanded again; `expand::expand_program` does what reads more than one
+file (comptime stamping, route stubs, effect aliases, prerequisites), and
+`expand` still does both for every other driver. `demo/`: the program-wide
+expansion is 3ms where the whole was 10ms.
+
 ### 2026-10-20 — Linear discharge sets are keyed by type key
 
 Found by trying always-qualified type keys (PIPELINE.md step 5, piece 4,

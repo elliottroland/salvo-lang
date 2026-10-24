@@ -646,3 +646,25 @@ log current so the work can resume after a context reset). Newest last.
   likewise move to step 8, where they are first read (cache keys, the std
   cache's transfer): `FnKey`/`DeclId` stay (file, item) until then.
 
+- **Step 6, piece 1 (done, committed "Cache a file's own expansions with
+  its parse").** `expand::expand_file` / `expand_program`; the language
+  server's `ParseCache` keyed by (text, module, annex).
+- **Step 6, piece 2 (effect aliases and prerequisites in scope): surveyed,
+  not started.** Both passes rewrite AST effect lists before resolution
+  (zero-span implied entries, synthetic imports), and about 17 consumers
+  read those lists off the AST: `check_effect_list`,
+  `handler_dep_effects_here`, `lower_fn_effects`, the call-site wants
+  (`check.rs` ~32151, which lowers the *callee's* list), task mints
+  (`resolve_task_effects`), the one zero-span reader (`check_use`'s
+  "implied by" message), the mixed-handler-with-deps refusal, the IR's
+  `interface_decl`/`impl_decl`/`fn_decl` fallback, two IR body sites,
+  `approx_keyed`, deadlock (×3), reach, and the hover signature. Staged plan:
+  (1) one checker helper `expand_effect_list(list, scope)` returning each
+  effect with its origin (written / alias / prerequisite-of), and tables
+  `handler_deps` and a complete `fn_effects`, the AST rewrite kept; (2) every
+  consumer onto them; (3) the rewrite deleted, aliases resolved in scope.
+  **Two calls are the user's before (3)**: whether hover shows an effect
+  list as written or expanded, and whether a mixed handler whose face has a
+  prerequisite is still refused (`check.rs` ~15780 sees the implied
+  dependency today, so the refusal fires; with the rewrite gone it would
+  not). Comptime after interfaces and route stubs in the IR follow it.

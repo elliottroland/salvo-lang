@@ -18,10 +18,12 @@ use salvo_syntax::diag::Diagnostic;
 /// parsed again. Only the edited file misses on a keystroke; std and every
 /// untouched project file hit.
 ///
-/// The cached module is the *pre-expansion* parse (`parse_module_deferred`):
-/// the whole-program `iter fn`/`test`/comptime expansion runs fresh on the
-/// cloned modules each analysis, since it depends on the whole program, not
-/// one file [iter-fn]. Diagnostics here carry no file index — that is
+/// The cached module is the parse **with its per-file expansions**
+/// (`salvo_core::expand::expand_file`: the struct-body hoist, `iter fn`s,
+/// `test` blocks), which depend on the file's text, its module path and
+/// whether it is an annex — the cache key. The program-wide expansions
+/// (comptime, route stubs, aliases, prerequisites) run fresh on the cloned
+/// modules each analysis. Diagnostics here carry no file index — that is
 /// assigned at use, so a cached entry is valid wherever the file lands.
 ///
 /// Keyed by content hash. A collision would reuse the wrong module; with a
@@ -30,7 +32,24 @@ use salvo_syntax::diag::Diagnostic;
 /// keystroke, never miscompilation — the backends never see this).
 #[derive(Default)]
 pub struct ParseCache {
-    entries: HashMap<u64, (Module, Vec<Diagnostic>)>,
+    entries: HashMap<u64, Parsed>,
+}
+
+/// One file parsed and expanded on its own.
+type Parsed = (Module, Vec<Diagnostic>, Vec<salvo_core::expand::FileTest>);
+
+/// A file parsed and through its per-file expansions.
+fn parse_file(file: &salvo_core::source::SourceFile) -> Parsed {
+    let (mut module, mut diags) = salvo_syntax::parse_module_deferred(&file.content);
+    let (tests, more) = salvo_core::expand::expand_file(file, &mut module);
+    diags.extend(more);
+    (module, diags, tests)
+}
+
+/// What a cached parse is keyed by: the text, and the two facts about the
+/// file its per-file expansions read.
+fn parse_key(file: &salvo_core::source::SourceFile) -> u64 {
+    content_hash(&format!("{}\u{0}{}\u{0}{}", file.is_test, file.module, file.content))
 }
 
 impl ParseCache {
@@ -38,14 +57,14 @@ impl ParseCache {
         Self::default()
     }
 
-    /// The parsed module for `content`: the cached one when its hash is
-    /// known, otherwise freshly parsed and remembered.
-    fn parse(&mut self, content: &str) -> (Module, Vec<Diagnostic>) {
-        let key = content_hash(content);
+    /// The parsed module for `file`: the cached one when its key is known,
+    /// otherwise freshly parsed and remembered.
+    fn parse(&mut self, file: &salvo_core::source::SourceFile) -> Parsed {
+        let key = parse_key(file);
         if let Some(hit) = self.entries.get(&key) {
             return hit.clone();
         }
-        let parsed = salvo_syntax::parse_module_deferred(content);
+        let parsed = parse_file(file);
         self.entries.insert(key, parsed.clone());
         parsed
     }
@@ -387,14 +406,16 @@ fn analyze_project(
     let mut modules = Vec::with_capacity(sources.files.len());
     let mut live: std::collections::HashSet<u64> = std::collections::HashSet::new();
     let t = salvo_core::timing::phase("parse");
+    let mut per_file_tests = Vec::with_capacity(sources.files.len());
     for file in &sources.files {
-        let (module, diags) = match cache.as_deref_mut() {
+        let (module, diags, tests) = match cache.as_deref_mut() {
             Some(cache) => {
-                live.insert(content_hash(&file.content));
-                cache.parse(&file.content)
+                live.insert(parse_key(file));
+                cache.parse(file)
             }
-            None => salvo_syntax::parse_module_deferred(&file.content),
+            None => parse_file(file),
         };
+        per_file_tests.push(tests);
         diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic {
             file: modules.len(),
             severity: d.severity,
@@ -409,7 +430,7 @@ fn analyze_project(
     }
     drop(t);
     let t = salvo_core::timing::phase("expand");
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
+    let expansion = salvo_core::expand::expand_program(&sources.files, &mut modules, per_file_tests);
     drop(t);
     diagnostics.extend(expansion.diagnostics);
     let comptime_hovers = expansion.comptime_hovers;

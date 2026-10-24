@@ -1,12 +1,11 @@
-//! The pre-resolution expansions, run over a whole source set.
+//! The pre-resolution expansions.
 //!
-//! Two desugarings live in `salvo-syntax` and must happen before anything
-//! resolves: the `iter fn` expansion [iter-fn], which needs the *rest of the
-//! program*'s struct declarations, and the `test` expansion [test-decl],
-//! which needs to know whether a file is a test annex [test-file]. Every
-//! driver — `salvo compile`, `salvo run`, `salvo analyze`, the language
-//! server, `salvo test` — needs both, so they are one call here rather than a
-//! step each pipeline can forget.
+//! Per file ([`expand_file`]): the struct-body hoist, the `iter fn`
+//! expansion [iter-fn] and the `test` expansion [test-decl], which needs to
+//! know whether a file is a test annex [test-file]. Per program
+//! ([`expand_program`]): comptime stamping, route stubs, effect aliases and
+//! prerequisites. Every driver needs both, so [`expand`] is the one call
+//! that does both, and a driver caching parses calls the halves.
 
 use salvo_syntax::ast::{Item, Module};
 
@@ -52,65 +51,97 @@ pub struct Expansion {
     pub comptime_when_arms: Vec<crate::comptime::CompWhenArms>,
 }
 
-/// Expands every `iter fn` [iter-fn] and every `test` block [test-decl] in
-/// `modules`, which must be aligned with `files`.
-///
-/// A `test` block is expanded only in a test annex [test-file]; one in a
-/// production file is refused here and dropped, so the rule is enforced once,
-/// for every driver, before resolution.
-pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
-    let mut out = Expansion::default();
-    for (file_idx, (file, module)) in files.iter().zip(modules.iter_mut()).enumerate() {
-        let mut diags = salvo_syntax::desugar::expand_iter_fns(module);
-        if file.is_test {
-            let mangled = file.module.0.join("_");
-            let (tests, test_diags) = salvo_syntax::desugar::expand_tests(module, &mangled);
-            diags.extend(test_diags);
-            let mut tested = file.module.0.clone();
-            tested.pop();
-            let tested = ModulePath(tested);
-            out.tests.extend(tests.into_iter().map(|t| TestCase {
-                file: file_idx,
-                tested: tested.clone(),
-                name: t.name,
-                fn_name: t.fn_name,
-                kind: t.kind,
-            }));
-        } else {
-            // [test-file] A `test` block in a production file: refused here,
-            // and dropped, so no driver has to decide what to do with one and
-            // nothing downstream ever sees the form outside an annex. The
-            // diagnostic names the file that would hold it, which is the fix.
-            let annex = file
-                .name
-                .strip_suffix(".sv")
-                .map(|stem| format!("{stem}.test.sv"))
-                .unwrap_or_else(|| format!("{}.test.sv", file.module));
-            let mut kept = Vec::with_capacity(module.items.len());
-            for item in std::mem::take(&mut module.items) {
-                match item {
-                    Item::Test(t) => diags.push(salvo_syntax::Diagnostic::error(
-                        format!(
-                            "a `test` block belongs in a test annex, not in a \
-                             production source file: move it to `{annex}`, which is \
-                             part of this module and sees its private declarations \
-                             [test-file]"
-                        ),
-                        t.name_span,
-                    )),
-                    other => kept.push(other),
-                }
+/// [test-run] A test as one file's expansion finds it: a [`TestCase`]
+/// before the file has a place in a source set.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FileTest {
+    pub tested: ModulePath,
+    pub name: String,
+    pub fn_name: String,
+    pub kind: salvo_syntax::ast::TestKind,
+}
+
+/// The expansions one file needs and nothing else (PIPELINE.md step 6): the
+/// struct-body hoist [fn-attached], every `iter fn` [iter-fn], and the `test`
+/// blocks [test-decl] — expanded in a test annex, refused and dropped in a
+/// production file [test-file]. A function of the file's text, its module path
+/// and whether it is an annex, so a driver may cache its result with the parse.
+pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Vec<salvo_syntax::Diagnostic>) {
+    let mut diags = salvo_syntax::desugar::expand_iter_fns(module);
+    let mut found = Vec::new();
+    if file.is_test {
+        let mangled = file.module.0.join("_");
+        let (tests, test_diags) = salvo_syntax::desugar::expand_tests(module, &mangled);
+        diags.extend(test_diags);
+        let mut tested = file.module.0.clone();
+        tested.pop();
+        let tested = ModulePath(tested);
+        found.extend(tests.into_iter().map(|t| FileTest {
+            tested: tested.clone(),
+            name: t.name,
+            fn_name: t.fn_name,
+            kind: t.kind,
+        }));
+    } else {
+        // [test-file] A `test` block in a production file: refused here,
+        // and dropped, so no driver has to decide what to do with one and
+        // nothing downstream ever sees the form outside an annex. The
+        // diagnostic names the file that would hold it, which is the fix.
+        let annex = file
+            .name
+            .strip_suffix(".sv")
+            .map(|stem| format!("{stem}.test.sv"))
+            .unwrap_or_else(|| format!("{}.test.sv", file.module));
+        let mut kept = Vec::with_capacity(module.items.len());
+        for item in std::mem::take(&mut module.items) {
+            match item {
+                Item::Test(t) => diags.push(salvo_syntax::Diagnostic::error(
+                    format!(
+                        "a `test` block belongs in a test annex, not in a \
+                         production source file: move it to `{annex}`, which is \
+                         part of this module and sees its private declarations \
+                         [test-file]"
+                    ),
+                    t.name_span,
+                )),
+                other => kept.push(other),
             }
-            module.items = kept;
         }
-        out.diagnostics
-            .extend(diags.into_iter().map(|d| FileDiagnostic {
-                file: file_idx,
-                severity: d.severity,
-                message: d.message,
-                span: d.span,
-                suggested_imports: Vec::new(),
-            }));
+        module.items = kept;
+    }
+    (found, diags)
+}
+
+/// Expands every file ([`expand_file`]) and then the program
+/// ([`expand_program`]); `modules` must be aligned with `files`.
+pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
+    let mut per_file = Vec::with_capacity(files.len());
+    let mut diagnostics = Vec::new();
+    for (file_idx, (file, module)) in files.iter().zip(modules.iter_mut()).enumerate() {
+        let (tests, diags) = expand_file(file, module);
+        diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic::from_parse(file_idx, d)));
+        per_file.push(tests);
+    }
+    let mut out = expand_program(files, modules, per_file);
+    diagnostics.append(&mut out.diagnostics);
+    out.diagnostics = diagnostics;
+    out
+}
+
+/// The expansions that read more than one file, over modules each already
+/// through [`expand_file`] (whose tests come in [per_file], aligned with
+/// `files`): comptime stamping, route stubs, effect aliases and
+/// prerequisites.
+pub fn expand_program(files: &[SourceFile], modules: &mut [Module], per_file: Vec<Vec<FileTest>>) -> Expansion {
+    let mut out = Expansion::default();
+    for (file_idx, tests) in per_file.into_iter().enumerate() {
+        out.tests.extend(tests.into_iter().map(|t| TestCase {
+            file: file_idx,
+            tested: t.tested,
+            name: t.name,
+            fn_name: t.fn_name,
+            kind: t.kind,
+        }));
     }
     // [comptime-instantiate] After the per-module expansions (the struct-body
     // hoist has put every `by` declaration at module level) and before the
