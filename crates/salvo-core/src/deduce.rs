@@ -77,19 +77,42 @@ struct FnInfo<'p> {
     decl: &'p FnDecl,
 }
 
-/// Computes (or validates) the deduction list of every top-level `fn` and
-/// stores the result in `checked.deductions`. `claims` carries parameters
-/// the checker saw claimed by move-mode bindings and moved-position
-/// projections [fate-move-mode]: the binding takes ownership of data
-/// reached through the parameter, so the fn demands ownership from its
-/// callers — the claimed parameter is moved. Claims only exist for fns
-/// without a written list, and are applied after every body inference
-/// (facts only disappear, so the fixpoint still terminates).
+/// [deduce-default] Every top-level `fn`'s contract, from its signature
+/// alone: the written entries over the per-parameter defaults. Known before
+/// any body is walked, which is what lets the first checking walk be a real
+/// one (PIPELINE.md step 2). std's come from the cache when there is one.
+/// Shape errors in written lists are reported by [`infer`], not here.
+pub(crate) fn contracts(
+    program: &Program,
+    cache: Option<&crate::check::StdCache>,
+) -> HashMap<FnKey, Vec<ParamDeduction>> {
+    let no_mutations: HashSet<String> = HashSet::new();
+    let skip_below = cache.map(|c| c.std_files);
+    let mut states: HashMap<FnKey, Vec<ParamDeduction>> = match cache {
+        Some(c) => c.std_deductions().map(|(k, d)| (*k, d.clone())).collect(),
+        None => HashMap::new(),
+    };
+    for (file_idx, ast) in program.modules.iter().enumerate() {
+        if skip_below.is_some_and(|n| file_idx < n) {
+            continue;
+        }
+        for (item_idx, item) in ast.items.iter().enumerate() {
+            let Item::Fn(f) = item else { continue };
+            let state = match &f.deductions {
+                Some(list) => from_written(f, list, &no_mutations, |_, _| {}),
+                None => defaults(f),
+            };
+            states.insert(FnKey { file: file_idx, item: item_idx }, state);
+        }
+    }
+    states
+}
+
+/// Validates the deduction list of every top-level `fn` against its body and
+/// stores the contracts in `checked.deductions` [deduce-default].
 pub(crate) fn infer(
     program: &Program,
     checked: &mut Checked,
-    claims: &HashMap<FnKey, HashSet<String>>,
-    mutations: &HashMap<FnKey, HashSet<String>>,
     skip_below: Option<usize>,
 ) {
     let no_mutations: HashSet<String> = HashSet::new();
@@ -190,12 +213,8 @@ pub(crate) fn infer(
     // signature alone (user decision 2026-10-11): the per-parameter default
     // (a `send fn` consumes, a plain `fn` keeps, a `Mut` parameter keeps only
     // `Mut`), with any written entry overriding its parameter. No body
-    // inference, so no fixpoint over the call graph — the contract is known in
-    // one pass. `claims` and `mutations` are no longer consulted here (a
-    // move-mode binding reaching a kept parameter is reported by the fate
-    // analysis and by the body validation below, not resolved by changing the
-    // contract); the parameters are kept so the checker's call sites compile.
-    let _ = (&claims, &mutations);
+    // inference, so no fixpoint over the call graph (`contracts` computes the
+    // same before any walk).
     let mut errors: Vec<FileDiagnostic> = Vec::new();
     let mut states: HashMap<FnKey, Vec<ParamDeduction>> = HashMap::new();
     // [std-cache] Seed std fns' deductions from the cache (in `checked`,

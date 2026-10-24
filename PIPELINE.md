@@ -586,3 +586,17 @@ log current so the work can resume after a context reset). Newest last.
   resolve 17ms, check 500ms = **three** rounds of ~160ms (body walk ~145ms
   each) + deduce ~5ms each. A third round runs on ordinary programs: suspect
   claims (step 2 removes them).
+- **Steps 2 and 3 (done, one commit "Check with signature contracts, and read
+  no interface off a body").**
+  `deduce::contracts` before the first walk; `check_program_rounds` loops
+  while candidates or `mut_fields` change (no claims, no mutations in the
+  test); `syntactic_parking_handlers` seeds parking. Three rounds → two on
+  every program measured; the second is `mut_fields` (step 3). **Deferred to
+  step 5:** the per-body second walk for move-mode candidates (needs facts
+  stored per declaration to replace one body's rows); until then a new
+  candidate re-walks the program.
+  Step 3: `lends::lends_of` is declared-or-default (kept non-Copy params;
+  `kept_params` skips Copy scalars), `infer_from_body` only validates written
+  lists; field-path inference removed (`mut_fields` and `MutFieldFacts`
+  gone). Still two walks on every program measured: std itself has move-mode
+  candidates, so the second walk is for those (step 5's per-body re-walk).

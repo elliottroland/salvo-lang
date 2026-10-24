@@ -1876,13 +1876,13 @@ fn a_parameter_s_field_and_a_local_stay_assignable() {
     assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
 }
 
-/// [deduce-field] **Inference** (2026-09-25): a callee that wrote *no*
-/// clause still narrows the event its callers see, read off its body — so
-/// ordinary code gets the precision without annotating. Note `=> e: Mut`
-/// does *not*, and must not: written, it means "mutated anywhere".
+/// [deduce-field] **No inference** (since 2026-10-20, PIPELINE.md 4.3): a
+/// callee that writes no field entry mutates its parameter *anywhere*, as a
+/// written `=> e: Mut` does — the field set is the callee's interface, never
+/// read off its body. (From 2026-09-25 until then it was inferred.)
 #[test]
-fn a_mutated_field_set_is_inferred_from_the_body() {
-    let inferred = field_errors(
+fn an_unwritten_field_set_means_mutated_anywhere() {
+    let unwritten = field_errors(
         "fn quiet(e: Mut Entity, n: Int) [] -> None {\n    \
          e.hp = e.hp - n\n}\n\
          fn f(e: Mut Entity) [] -> Int {\n    \
@@ -1890,7 +1890,10 @@ fn a_mutated_field_set_is_inferred_from_the_body() {
          quiet(e, 5)\n    \
          return size(rings)\n}\n",
     );
-    assert!(inferred.is_empty(), "expected a clean check, got: {inferred:?}");
+    assert!(
+        unwritten.iter().any(|e| e.contains("`rings` cannot be used here")),
+        "an unwritten field set means anywhere: {unwritten:?}"
+    );
 
     let written_wide = field_errors(
         "fn loud(e: Mut Entity, n: Int) [] -> None => e: Mut, n {\n    \
@@ -1906,8 +1909,9 @@ fn a_mutated_field_set_is_inferred_from_the_body() {
     );
 }
 
-/// [deduce-field] Inference is **conservative**: a body that replaces the
-/// field, or hands the whole value to a mutator, narrows nothing.
+/// [deduce-field] An unwritten field set narrows nothing, whatever the body
+/// does: replacing the field, or handing the whole value to a mutator (these
+/// were the cases where the former inference had to stay conservative).
 #[test]
 fn inference_stays_conservative_where_it_must() {
     let replaces = field_errors(
@@ -1950,7 +1954,7 @@ fn inference_stays_conservative_where_it_must() {
 #[test]
 fn a_claim_about_a_field_survives_a_disjoint_field_mutation() {
     let errs = field_errors(
-        "fn bump(e: Mut Entity) [] -> None {\n    \
+        "fn bump(e: Mut Entity) [] -> None => e.hp: Mut {\n    \
          e.hp = e.hp + 1\n}\n\
          fn f(e: Mut Entity) [] -> Int {\n    \
          if e.rings is NonEmpty {\n        \

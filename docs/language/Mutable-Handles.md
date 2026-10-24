@@ -441,10 +441,8 @@ because an element may be gone.
 
 Written entries are checked against the body: a function claiming
 `=> e.hp: Mut` that also assigns `e.rings` is an error naming the widening
-remedy. Where a function writes no clause, the field set is **inferred**
-from its body, so ordinary code gets the precision without saying anything
-— conservatively, so a body that replaces a field, or hands the whole value
-to another mutator, narrows nothing.
+remedy. Where a function writes no field entry, the parameter is mutated
+*anywhere*: the precision is the callee's to state, never read off its body.
 
 This is also what makes a **qualifier about a field** useful:
 

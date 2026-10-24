@@ -81,6 +81,12 @@ impl StdCache {
         self.checked.param_mutations.iter()
     }
 
+    /// std's contracts, for the contracts known before the first walk
+    /// [deduce-default].
+    pub(crate) fn std_deductions(&self) -> impl Iterator<Item = (&FnKey, &Vec<crate::deduce::ParamDeduction>)> {
+        self.checked.deductions.iter()
+    }
+
     /// std's parking handlers, for seeding the round accumulator that
     /// `deadlock::check` reads.
     fn std_parking_handlers(&self) -> impl Iterator<Item = &String> {
@@ -1726,36 +1732,27 @@ fn check_program_rounds<'p>(
     symbols: &Symbols<'p>,
     cache: Option<&StdCache>,
 ) -> Checked {
-    // [fate-move-mode] S2 state carried across the rounds: bind events
-    // whose bound variable an earlier round saw moved or mutated
-    // (move-mode candidates), and parameters claimed by such bindings
-    // (the binding takes ownership, so the parameter is moved — seeded
-    // into deduction inference between the rounds).
+    // [fate-move-mode] Bind events whose bound variable a walk saw moved or
+    // mutated (move-mode candidates): a binding is declared move-mode when a
+    // later use needs it, which the walk learns only after the binding, so a
+    // walk that finds a new candidate is followed by another.
     let mut candidates: HashSet<Key> = HashSet::new();
-    let mut claims: HashMap<FnKey, HashSet<String>> = HashMap::new();
-    // [deduce-syntax] Parameters whose data the body mutates: those may
-    // not keep "everything else", since mutation can invalidate
-    // qualifiers the signature never mentions.
+    // [deduce-syntax] Parameters whose data the body mutates, published for
+    // the backends' pass modes (`param_mode`); they never feed back into
+    // checking.
     let mut mutations: HashMap<FnKey, HashSet<String>> = HashMap::new();
-    // [deduce-field] Inferred **mutated field paths** per (fn, parameter):
-    // the bodies' own mutations, classified, so a callee that wrote no field
-    // entry still narrows the event its callers see. Threaded across rounds
-    // exactly like `mutations`, and part of the fixpoint's driving facts —
-    // a narrowing discovered in one round changes what the next round's
-    // callers see.
-    let mut mut_fields: MutFieldFacts = HashMap::new();
     // [actor-replyto] Handlers whose members mint a self-targeted
-    // continuation. Only grows, and complete after round one — so the `use`
-    // refusal it drives lands in the round whose diagnostics are kept.
-    let mut parking: HashSet<String> = HashSet::new();
+    // continuation, read off each handler's own text before anything is
+    // walked (PIPELINE.md 4.5), so the `use` refusal it drives is right in
+    // the first walk.
+    let mut parking: HashSet<String> = syntactic_parking_handlers(program);
 
-    // [std-cache] The accumulators are rebuilt each round from the files that
-    // are walked — and std is not. So seed the ones that also surface as `out`
-    // tables with std's cached rows, or the final `out.param_mutations =
-    // mutations` would drop them and `parking_handlers` would lose std's
-    // parking handlers (which `deadlock::check` reads). `candidates`, `claims`
-    // and `mut_fields` drive only inference *of the walked fns*; std fns are
-    // not re-inferred, so they need no std seed.
+    // [std-cache] std is not walked, so the facts that also surface as `out`
+    // tables are seeded with std's cached rows, or the final
+    // `out.param_mutations = mutations` would drop them and
+    // `parking_handlers` would lose std's parking handlers (which
+    // `deadlock::check` reads). `candidates` drive only the walked fns, so
+    // they need no std seed.
     if let Some(cache) = cache {
         mutations.extend(
             cache
@@ -1767,116 +1764,97 @@ fn check_program_rounds<'p>(
 
     // [qual-refn] Refinements are resolved and validated once: they depend
     // on declarations and per-file visibility only, not on anything a
-    // checking round produces. Every round replays their diagnostics and
+    // checking walk produces. Every walk replays their diagnostics and
     // reads their table, so the two sides of a refinement — what it means
-    // at a call site and what it means for an inferred contract — cannot
-    // come from different data.
+    // at a call site and what it means for a contract — cannot come from
+    // different data.
     let t = crate::timing::phase("check: refinements");
     let refinements = crate::refine::collect(program, resolution);
     drop(t);
+    // [deduce-default] Every fn's contract is a function of its signature
+    // (user decision 2026-10-11), so it is known before any body is walked
+    // (PIPELINE.md step 2): the first walk is a real one.
+    let contracts = crate::deduce::contracts(program, cache);
 
-    // Round one: no inferred facts yet (strict S1 behavior).
-    let t = crate::timing::phase("check: round 1");
-    let mut out = check_once(
-        program,
-        resolution,
-        symbols,
-        None,
-        &refinements,
-        &mut candidates,
-        &mut claims,
-        &mut mutations,
-        &mut mut_fields,
-        &mut parking,
-        cache,
-    );
-    drop(t);
-    let t = crate::timing::phase("check: deduce 1");
-    crate::deduce::infer(program, &mut out, &claims, &mutations, cache.map(|c| c.std_files));
-    drop(t);
-    let mut inferred = std::mem::take(&mut out.deductions);
-    let mut prev_candidates = candidates.clone();
-    let mut prev_claims = claims.clone();
-    let mut prev_mutations = mutations.clone();
-    let mut prev_mut_fields = mut_fields.clone();
-
-    // [deduce-fixpoint] Iterate check → infer until the driving facts
-    // stabilize (inferred deductions, move-mode candidates, parameter
-    // claims — checking is deterministic in these inputs), capped at
-    // MAX_ROUNDS total checking rounds (decision L3a: extra rounds run
-    // only when facts changed, so stable programs stay at two rounds; a
-    // program still unstable at the cap gets a deterministic error
-    // naming the oscillating fns, with the written-list remedy). Each
-    // round's diagnostics replace the previous round's (re-derived
-    // identically for the stable part).
+    // [deduce-fixpoint] Walk, then walk again while the walk-derived facts
+    // change (move-mode candidates), capped at
+    // MAX_ROUNDS walks. A program whose walk finds nothing new — most — is
+    // walked once.
     const MAX_ROUNDS: usize = 4;
-    let mut round = 1;
+    let mut round = 0;
     loop {
         round += 1;
+        let before_candidates = candidates.clone();
         let t = crate::timing::phase(format!("check: round {round}"));
-        out = check_once(
+        let mut out = check_once(
             program,
             resolution,
             symbols,
-            Some(&inferred),
+            Some(&contracts),
             &refinements,
             &mut candidates,
-            &mut claims,
             &mut mutations,
-            &mut mut_fields,
             &mut parking,
             cache,
         );
         drop(t);
-        // Deductions are a whole-program fact (strictest over the call
-        // graph), re-inferred against this round's final call
-        // resolutions [deduce-infer].
+        // [deduce-default] Each fn's contract against its body, and the
+        // contracts themselves into the table every consumer reads.
         let t = crate::timing::phase(format!("check: deduce {round}"));
-        crate::deduce::infer(program, &mut out, &claims, &mutations, cache.map(|c| c.std_files));
+        crate::deduce::infer(program, &mut out, cache.map(|c| c.std_files));
         drop(t);
-        let stable = out.deductions == inferred
-            && candidates == prev_candidates
-            && claims == prev_claims
-            && mutations == prev_mutations
-            && mut_fields == prev_mut_fields;
-        if stable {
+        let stable = candidates == before_candidates;
+        if stable || round >= MAX_ROUNDS {
             out.param_mutations = mutations;
             return out;
         }
-        if round >= MAX_ROUNDS {
-            // Make the instability visible [deduce-fixpoint]: name every
-            // fn whose inferred contract still changed in the last round.
-            let mut unstable: Vec<FnKey> = out
-                .deductions
-                .iter()
-                .filter(|(key, ded)| inferred.get(key) != Some(ded))
-                .map(|(key, _)| *key)
-                .collect();
-            unstable.sort_by_key(|k| (k.file, k.item));
-            for key in unstable {
-                if let Some(Item::Fn(f)) = program.modules[key.file].items.get(key.item) {
-                    out.errors.push(FileDiagnostic::error(
-                        key.file,
-                        f.name.span,
-                        format!(
-                            "the inferred deductions of `{}` did not stabilize after \
-                             {MAX_ROUNDS} checking rounds (its contract oscillates \
-                             with overload resolution); write the deduction list \
-                             explicitly",
-                            f.name.name
-                        ),
-                    ));
+    }
+}
+
+/// [actor-replyto] The handlers whose members mint a continuation into the
+/// handler itself — `replyto k(…)` naming one of its own members, or
+/// `self@Face` naming one of its faces — read off each handler's text
+/// (PIPELINE.md 4.5). The walk resolves the same names and refuses a wrong
+/// one, so this over-approximates only for a program already in error.
+fn syntactic_parking_handlers(program: &Program) -> HashSet<String> {
+    use salvo_syntax::visit::{self as v, Visitor};
+    struct Find<'h> {
+        h: &'h ast::HandlerDecl,
+        parks: bool,
+    }
+    impl Visitor for Find<'_> {
+        fn visit_expr(&mut self, e: &Expr) {
+            match e {
+                Expr::ReplyTo { member, .. } if self.h.fns.iter().any(|f| f.name.name == member.name) => {
+                    self.parks = true;
+                }
+                Expr::SelfAddr { face, .. }
+                    if self.h.of.iter().any(|of| matches!(of, ast::Type::Named { base, .. } if base.name.name == face.name.name)) =>
+                {
+                    self.parks = true;
+                }
+                _ => {}
+            }
+            // The walk descends on its own: a hook that walked again would
+            // recurse forever.
+        }
+    }
+    let mut out = HashSet::new();
+    for module in &program.modules {
+        for item in &module.items {
+            let Item::Handler(h) = item else { continue };
+            let mut find = Find { h, parks: false };
+            for f in h.fns.iter().chain(h.init.iter()) {
+                if let Some(body) = &f.body {
+                    v::walk_block(&mut find, body);
                 }
             }
-            out.param_mutations = mutations;
-            return out;
+            if find.parks {
+                out.insert(h.name.name.clone());
+            }
         }
-        inferred = std::mem::take(&mut out.deductions);
-        prev_candidates = candidates.clone();
-        prev_claims = claims.clone();
-        prev_mutations = mutations.clone();
-        prev_mut_fields = mut_fields.clone();
     }
+    out
 }
 
 
@@ -1889,9 +1867,7 @@ fn check_once<'p>(
     inferred: Option<&HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
     refinements: &crate::refine::Refinements,
     move_candidates: &mut HashSet<Key>,
-    param_claims: &mut HashMap<FnKey, HashSet<String>>,
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
-    mut_fields: &mut MutFieldFacts,
     parking_handlers: &mut HashSet<String>,
     cache: Option<&StdCache>,
 ) -> Checked {
@@ -1970,9 +1946,7 @@ fn check_once<'p>(
             refinements,
             &mut out,
             move_candidates,
-            param_claims,
             param_mutations,
-            mut_fields,
             parking_handlers,
         );
         checker.collect_implicit_signatures(ast);
@@ -2006,9 +1980,7 @@ fn check_once<'p>(
         // `take` below does not drop them.
         scratch.iter_returns = out.iter_returns.clone();
         let mut mc = move_candidates.clone();
-        let mut pc = param_claims.clone();
         let mut pm = param_mutations.clone();
-        let mut mf = mut_fields.clone();
         let mut ph = parking_handlers.clone();
         for _ in 0..8 {
             let before = scratch.iter_returns.len();
@@ -2029,9 +2001,7 @@ fn check_once<'p>(
                     refinements,
                     &mut scratch,
                     &mut mc,
-                    &mut pc,
                     &mut pm,
-                    &mut mf,
                     &mut ph,
                 );
                 checker.prepass_iter_returns(ast);
@@ -2061,9 +2031,7 @@ fn check_once<'p>(
             refinements,
             &mut out,
             move_candidates,
-            param_claims,
             param_mutations,
-            mut_fields,
             parking_handlers,
         );
         checker.runtime_files = program
@@ -2446,10 +2414,6 @@ struct VarState {
     moved_places: Vec<MovedPlace>,
 }
 
-/// [deduce-field] Inferred mutation field paths: per fn, per parameter, the
-/// set of `(path, contents_only)` facts the body established. An entry
-/// containing the empty path means "mutated anywhere" — no narrowing.
-type MutFieldFacts = HashMap<FnKey, HashMap<String, Vec<(Vec<Step>, bool)>>>;
 
 /// Flow state of every local, per scope frame [deduce-consume].
 type NarrowSnapshot = Vec<HashMap<String, VarState>>;
@@ -2602,7 +2566,6 @@ struct Checker<'p, 'r> {
     /// projections [fate-move-mode]: the binding takes ownership, so the
     /// parameter is moved. Only recorded for fns *without* a written
     /// deduction list; seeded into deduction inference between rounds.
-    param_claims: &'r mut HashMap<FnKey, HashSet<String>>,
     /// [deduce-syntax] Parameters whose data the body mutates — recorded
     /// for *every* fn (written lists included), since the written-list
     /// validation needs them.
@@ -2610,7 +2573,6 @@ struct Checker<'p, 'r> {
     /// [deduce-field] Inferred mutated field paths, per (fn, parameter):
     /// this round writes the bodies it walks, and call sites read what the
     /// previous rounds established.
-    mut_fields: &'r mut MutFieldFacts,
     /// [actor-replyto] Handlers whose member bodies mint a **self**-targeted
     /// continuation — the names of every handler in which a `replyto` /
     /// `replyto!` resolved lexically. Collected across rounds like
@@ -2971,10 +2933,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         refinements: &'r crate::refine::Refinements,
         out: &'r mut Checked,
         move_candidates: &'r mut HashSet<Key>,
-        param_claims: &'r mut HashMap<FnKey, HashSet<String>>,
-        param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
-        mut_fields: &'r mut MutFieldFacts,
-        parking_handlers: &'r mut HashSet<String>,
+            param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
+            parking_handlers: &'r mut HashSet<String>,
     ) -> Checker<'p, 'r> {
         Checker {
             reported_ineligible_keys: HashSet::new(),
@@ -3013,10 +2973,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             own_mut_paths: Vec::new(),
             next_var_id: 0,
             move_candidates,
-            param_claims,
             parking_handlers,
             param_mutations,
-            mut_fields,
             own_fn: None,
             cur_fn_body: None,
             in_comptime_decl: false,
@@ -8762,9 +8720,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             .map(|r| r.from.iter().map(|i| i.name.clone()).collect())
             .unwrap_or_default();
         // [proj-infer] What this fn's result holds borrows of: declared with
-        // `[p: proj]`, else inferred from the body, else (no body) every kept
-        // parameter. A written list is checked against the body exactly, so
-        // it cannot go stale in either direction.
+        // `holds proj(p)`, else every kept non-Copy parameter — from the
+        // signature alone (PIPELINE.md 4.2). A written list is checked against
+        // what the body visibly lends; the default covers every kept parameter
+        // by construction.
         {
             let lent = self.infer_lends(f);
             self.own_lends_declared = crate::lends::declared_lends(f).is_some();
@@ -9299,36 +9258,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // mutation the body performed must be covered by a declared path,
         // or the narrowing would be a lie (2026-09-25).
         self.check_declared_mut_fields(f);
-        // [deduce-field] …and publish what the body did, so a callee that
-        // wrote *no* field entry still narrows the event its callers see
-        // (inference, 2026-09-25). Conservative by construction: an unknown
-        // path publishes the whole value, which narrows nothing.
-        if let Some(key) = self.own_fn {
-            let mut per_param: HashMap<String, Vec<(Vec<Step>, bool)>> = HashMap::new();
-            for (name, path, contents_only) in &self.own_mut_paths {
-                let entry = per_param.entry(name.clone()).or_default();
-                match path {
-                    Some(p) => {
-                        if !entry.iter().any(|(q, k)| q == p && *k == *contents_only) {
-                            entry.push((p.clone(), *contents_only));
-                        }
-                    }
-                    // Unknown: the whole value, and a replacement (the
-                    // strongest reading).
-                    None => {
-                        if !entry.iter().any(|(q, _)| q.is_empty()) {
-                            entry.push((Vec::new(), false));
-                        }
-                    }
-                }
-            }
-            for (name, paths) in per_param {
-                self.mut_fields
-                    .entry(key)
-                    .or_default()
-                    .insert(name, paths);
-            }
-        }
         self.own_mut_paths = saved_mut_paths;
         // [linear-state] A handler member must leave its state whole. (The
         // linear-obligation leak check moved to the IR analysis [ir-analyze].)
@@ -11797,7 +11726,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         self.record_move_candidates(links);
-        self.record_param_claims(links);
         let root = &links[0].root_name;
         // [proj-readonly] A wholesale projection is the root's own data seen
         // through `proj`: read-only whatever its `Mut` says, and `copy` is
@@ -11858,28 +11786,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         for span in spans {
             self.move_candidates.insert((self.file_idx, span));
-        }
-    }
-
-    /// Claims every parameter root among `links` as moved by the current
-    /// fn [fate-move-mode] — only for parameters whose contract is
-    /// *inferable* (not written in the clause): a binding or projection that
-    /// takes ownership of data reached through a parameter makes the fn
-    /// demand ownership from its callers. Claims are seeded into deduction
-    /// inference between the checking rounds.
-    fn record_param_claims(&mut self, links: &[FateLink]) {
-        let Some(key) = self.own_fn else { return };
-        for l in links {
-            if self.own_written.contains(&l.root_name) {
-                continue;
-            }
-            let is_param = self.var_by_id(l.root_id).is_some_and(|var| var.is_param);
-            if is_param {
-                self.param_claims
-                    .entry(key)
-                    .or_default()
-                    .insert(l.root_name.clone());
-            }
         }
     }
 
@@ -11964,7 +11870,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return links;
             }
         }
-        self.record_param_claims(&links);
         for l in &links {
             // Other variables derived from this root lose their value
             // [fate-poison] — those overlapping *this* link's projection:
@@ -12684,7 +12589,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         if links.is_empty() {
             return Vec::new();
         }
-        self.record_param_claims(&links);
         if self.inferred.is_none() {
             return Vec::new();
         }
@@ -31853,16 +31757,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .unwrap_or_default();
                     // [deduce-field] Which fields this callee says it
                     // mutates (`=> h.tags: Mut`, `=> !h.tags`).
-                    let decl_field_paths = Self::declared_mut_paths(decl, &param.name.name)
-                        .or_else(|| {
-                            // [deduce-field] No written entry: the *inferred*
-                            // set, from the callee's own body (empty until a
-                            // round has walked it — the fixpoint's job).
-                            best.key
-                                .and_then(|k| self.mut_fields.get(&k))
-                                .and_then(|per| per.get(&param.name.name))
-                                .cloned()
-                        });
+                    // No written entry means mutated anywhere: the field set
+                    // is the callee's interface, never read off its body
+                    // (PIPELINE.md 4.3, 2026-10-20).
+                    let decl_field_paths = Self::declared_mut_paths(decl, &param.name.name);
                     let preserved = self.preserved_claims(
                         best.key,
                         decl,

@@ -3966,7 +3966,8 @@ Conventions:
     inside `parse_module`), into a hidden `struct __Iter_<fn>_<param types> :
     Yield<self, T> canbe Mut { <held parameters>, <state fields> }`, a minter
     under the `iter fn`'s own name and parameters returning `Mut __Iter_…` whose
-    body is the struct literal (its lends inferred [proj-infer]), and the
+    body is the struct literal (it lends every kept non-Copy parameter
+    [proj-infer]), and the
     author's body as `fn next(__p: Mut __Iter_…) -> Emitted T | Finished => __p:
     Mut` with the parameters and the state fields written out as field reads (a
     `proj(xs)` in the written return is redirected to `__p` [yield-proj]; a
@@ -6749,6 +6750,11 @@ docs/language/ remains the source of truth for everything that does.
     the mint would target a member of a *local* instance — which has no
     mailbox for the answer to arrive on and no dispatcher to run it, leaving
     the continuation silently dead. Refused at the `use` site, naming `spawn`.
+    * Which handlers park is read off each handler's text before anything
+      is checked (2026-10-20, PIPELINE.md step 2): a member body holding
+      `replyto k(…)` with `k` one of the handler's own members, or `self@F`
+      with `F` one of its faces (`syntactic_parking_handlers`). It
+      over-approximates only for programs refused anyway.
     * The gate is syntactic per **handler**, not per member, because effects
       propagate: a fn declaring `[E]` may call any member, so a `use` site
       cannot know which ones its scope will reach. The over-refusal that
@@ -8216,18 +8222,15 @@ between endpoints and delivers what arrives into the scheduler.
     consume-then-reassign within the body stays clean).
   * Variadic parameters and non-identifier arguments are not tracked.
 
-* [deduce-fixpoint] Checking and deduction inference iterate until the
-  driving facts stabilize (decision L3a, 2026-09-02): after each
-  checking round the move-mode candidates, parameter mutations and
-  parking facts [fate-move-mode] are compared with the previous
-  round's — another round runs only when something changed, capped at
-  four rounds total. (Deductions no longer drive it: since 2026-10-11 a
-  contract is a function of the signature alone [deduce-default], computed
-  once per round and identical each time, so the iteration is for the fate
-  facts the checker needs, not for the contracts.) Stable programs finish
-  in two rounds (the pre-existing behavior and cost); a late-discovered
-  fact (e.g. a move-mode candidate first visible under round-two
-  narrowing) gets one more round, so the diagnostic lands at the true site.
+* [deduce-fixpoint] **The checking walk repeats only while walk-derived facts
+  change** (decision L3a, 2026-09-02; reshaped 2026-10-20, PIPELINE.md step
+  2). Every contract is known before the first walk [deduce-default]
+  (`deduce::contracts`), so the first walk is a real one; another follows
+  only when it recorded new move-mode candidates [fate-move-mode] or new
+  inferred field paths [deduce-field], capped at four walks. Each walk's
+  diagnostics replace the previous one's. Parameter mutations and parking
+  facts no longer drive it (mutations are only read after checking, parking
+  is read off the handlers' text [actor-replyto]).
 * [deduce-same-call] Arguments are evaluated left to right; within one
   call, an argument may not *mention* (read, project, interpolate, or
   capture) a value that an earlier argument of the same call consumed —
@@ -8284,23 +8287,22 @@ between endpoints and delivers what arrives into the scheduler.
   chain moves together (`persons` → `person` → `name` → `longest`), so
   consuming pipelines are zero-copy end to end.
   * Ownership requirement: every live ancestor must be owned by the fn —
-    a local, or a parameter the fn's effective deduction contract moves.
-    When the contract is *inferred*, a move-mode binding reaching a
-    parameter **claims** it (the parameter becomes moved; callers hand
-    over ownership — the claim is seeded into the deduction fixpoint
-    [deduce-infer]). A *written* list that keeps the parameter blocks
-    the claim: the binding stays borrow-mode and the S1 error stands at
-    the move site [fate-derived-readonly].
+    a local, or a parameter the fn's deduction contract moves. The
+    contract is the signature's [deduce-default], so a kept parameter
+    (written or by default) keeps the binding borrow-mode and the S1 error
+    stands at the move site [fate-derived-readonly]; the remedy is `!p` on
+    the parameter. (Until 2026-10-11 an unwritten contract *claimed* such a
+    parameter as moved; the claims, unread since, were removed 2026-10-20.)
   * **A handler member's clause is its contract too** (2026-09-30): the
     member's written list decides which of its parameters it owns, exactly
     as a fn's does, so `let {body} = input` in a member consuming `input`
     is move-mode. Until then a member had no contract in scope and every
     derived binding in it stayed read-only.
-  * Mode inference rides the checking rounds [deduce-fixpoint]: the
-    first round is strict (every derived move/mutation records its bind
-    chain as move-mode candidates and its parameter claims; the errors
-    are discarded), later rounds apply the modes. A candidate first
-    discovered in a later round triggers one more round, so it is
+  * Mode inference rides the checking walks [deduce-fixpoint]: a walk
+    records every derived move/mutation's bind chain as move-mode
+    candidates, and a walk that recorded a new one is followed by another
+    that applies it (the first walk's diagnostics are replaced). A
+    candidate first discovered in a later walk triggers one more, so it is
     applied rather than left as a strict error.
   * A **projection in a moved position** (consuming call argument,
     literal store, spread, `return`/`break`, `use` ctor
@@ -8893,13 +8895,12 @@ between endpoints and delivers what arrives into the scheduler.
     body performs on the parameter must be covered by a declared path, or
     the promise the callers rely on is a lie — an error naming the widening
     remedy.
-  * **Inferred where unwritten** (2026-09-25): a callee with no clause entry
-    for the parameter gets its field set read off its body and propagated
-    through the deduction fixpoint, so ordinary code has the precision
-    without annotating. Conservative by construction — an unknown path, a
-    replacement, or handing the whole value to a mutator publishes the whole
-    value, which narrows nothing. A **written** `=> h: Mut` still means
-    *anywhere*: writing it is a choice, and inference never overrides it.
+  * **Unwritten means anywhere** (user decision 2026-10-20, PIPELINE.md 4.3):
+    a callee with no field entry for a `Mut` parameter mutates it anywhere,
+    exactly as a written `=> h: Mut` does. The precision is a callee's to
+    state. (From 2026-09-25 to 2026-10-20 the field set was read off the
+    callee's body and propagated through the checking rounds; that made
+    every caller depend on the callee's body.)
   * Rust: a binding that **survives** a narrowed mutation cannot be a live
     borrow (the callee still takes the whole value `&mut`), so it renders
     as a *virtual place* — the path re-materialized per use [rs-loc].
@@ -8980,19 +8981,20 @@ between endpoints and delivers what arrives into the scheduler.
   * Assigning a `proj` field re-points the borrow; a fn that does so writes
     `=> v.items: proj(other)` [proj-infer], and Rust renders the
     assignment as a borrow with the struct's lifetime tied to `other`.
-* [proj-infer] **Which parameters a result holds borrows of is inferred**
-  (user decision 2026-09-11: "infer what can be inferred; the user writes
-  what inference cannot reach"):
-  * With a body: read off every returned value — a `proj` field takes the
-    roots of what is stored in it; an owned view-typed field, a forwarding
-    call, a local, a `!`, a branch are followed (`lends.rs`, memoised per
-    declaration, conservative on any shape it cannot follow: every kept
-    parameter). Per field, exact.
-  * Without a body — an effect member, an intrinsic, a fn type — the
-    written statements decide (`-> T holds proj(c)` after the return type,
-    `=> .items: proj(c)` per field — fn types carry the return form too),
-    else conservatively every kept parameter
-    (exact for `iter(list)`; only ever over-links).
+* [proj-infer] **Which parameters a result holds borrows of is part of the
+  signature** (user decision 2026-10-20, PIPELINE.md 4.2, replacing the
+  2026-09-11 body inference): the written statements decide (`-> T holds
+  proj(c)` after the return type, `=> .items: proj(c)` per field — fn types
+  carry the return form too), else **every kept parameter that is not a Copy
+  scalar** (a Copy scalar is copied in, never borrowed [copy-scalar-free]).
+  Only a result that can hold a borrow lends at all (a struct with `proj`
+  fields, or an owned field that is a view; `List<proj T>`). The default is
+  exact for the one-source minters std writes (`iter(list)`), and only ever
+  over-links. A body is never read for it: the label kept its name, but
+  nothing is inferred any more (`lends::lends_of`).
+  * A body is **validated** against a written statement: what it visibly
+    lends (`lends::infer_from_body`, which reads each callee's signature,
+    never its body) must be covered.
   * A written projection statement about the result must name every lend
     the body performs; it may name more (a generic body — `filter`'s
     `add(out, x)` with `x` an element of an opaque iterator — lends through

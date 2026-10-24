@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2022 tests, complete: the toolchain tests are
+cargo test                  # 2023 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,48 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — The first checking walk is a real one, and no interface is read off a body
+
+PIPELINE.md §7 steps 2 and 3, landed together (both rewrite the round driver,
+`check_program_rounds`). Step 2: the facts that drove the checker's rounds and need no
+language change. Every contract is signature-only since 2026-10-11, so
+`deduce::contracts` computes them **before** the first walk, and that walk
+runs with them instead of being a discarded fact-gathering pass; another
+walk follows only while move-mode candidates or inferred field paths change
+[deduce-fixpoint]. The parameter **claims** of [fate-move-mode], which
+`deduce::infer` had stopped reading on 2026-10-11 but which still sat in the
+stability test (and could force a third round that changed nothing), are
+gone. Parameter mutations are no longer compared (only `param_mode` reads
+them, after checking). Which handlers **park** is read off each handler's
+text before anything is walked (`syntactic_parking_handlers`: a `replyto` to
+one of its own members, or a `self@` one of its faces), so the `use` refusal
+is right in the first walk [actor-replyto].
+
+Measured ([phase-timings], `demo/`, `examples/actors`, `examples/borrowing`):
+three rounds became two. The second now runs for the inferred field paths
+(any program with a field-mutating callee), which step 3 removes. The
+per-body second walk for move-mode candidates that PIPELINE.md 4.4 describes
+is deferred to step 5: today a walk writes one shared `Checked`, so walking
+one body again would leave its first walk's rows behind; with facts stored
+per declaration a body is re-walked by replacing its own rows. Until then a
+candidate re-walks the program, as before.
+
+Step 3, the two user decisions of PIPELINE.md R2: **result lends** are the
+signature's [proj-infer] — written `holds proj(…)`, else every kept parameter
+that is not a Copy scalar (`lends::kept_params` now skips those) — and a body
+is only validated against a written statement, reading each callee's
+signature rather than its body; and **mutated field paths** are no longer
+inferred [deduce-field] — an unwritten entry means anywhere. With field paths
+gone, a second walk runs only for move-mode candidates. The `iter fn`
+desugaring writes no `holds`: its minter keeps every non-Copy parameter, so
+the default is already its exact set once a named state holds every
+parameter (step 4).
+
+Tests: `actor_tests::a_parking_handler_declared_after_its_use_is_refused`;
+`deduce_tests::an_unwritten_field_set_means_mutated_anywhere` (was
+`a_mutated_field_set_is_inferred_from_the_body`); `a_claim_about_a_field_survives_a_disjoint_field_mutation`
+now writes the callee's `=> e.hp: Mut`.
 
 ### 2026-10-20 — Phase timings, and one analysis per edit in the language server
 
@@ -27977,7 +28019,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2022 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2023 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

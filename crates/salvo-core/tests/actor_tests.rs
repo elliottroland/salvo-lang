@@ -1394,6 +1394,42 @@ fn main() [use, spawn] {
     );
 }
 
+/// [actor-replyto] Which handlers park is read off their text before any body
+/// is checked (PIPELINE.md step 2), so a `use` written *before* the handler
+/// is refused in the one walk that checks it — no second walk needed to have
+/// seen the handler's `replyto`.
+#[test]
+fn a_parking_handler_declared_after_its_use_is_refused() {
+    let errs = errors(
+        "\
+actor effect Waiting {
+    send fn ask() 
+    send fn got(n: Int)
+}
+
+fn main() [use, spawn] {
+    let c = spawn Counting() with Printing() on pool(1)
+    use c
+    use Asking()
+    ask()
+}
+
+handler Asking() [Counter] of Waiting {
+    mailbox { capacity: 1 }
+
+    send fn ask() {
+        total(replyto got())
+    }
+    send fn got(n: Int) {}
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("so it can only be `spawn`ed")),
+        "expected the parking-handler `use` refusal: {errs:?}"
+    );
+}
+
 /// …and spawning it is fine, which is what makes the refusal a *binding* rule
 /// rather than a restriction on the form.
 #[test]

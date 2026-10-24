@@ -161,6 +161,9 @@ pub fn kept_params(decl: &FnDecl) -> Vec<usize> {
         .iter()
         .enumerate()
         .filter(|(_, p)| !p.implicit)
+        // [copy-scalar-free] A Copy scalar is copied in, never borrowed, so
+        // a result cannot hold a borrow of one.
+        .filter(|(_, p)| !salvo_syntax::is_copy_scalar_type(&p.ty))
         .filter(|(_, p)| match &decl.deductions {
             None => true,
             // [deduce-syntax] Unmentioned is kept (inferred, or the
@@ -205,9 +208,11 @@ pub fn declared_lends(decl: &FnDecl) -> Option<Vec<usize>> {
     Some(out)
 }
 
-/// The lent parameters of `decl`: declared, or inferred from the body, or
-/// conservative for a bodiless declaration. Empty when the result cannot
-/// hold a borrow at all.
+/// The lent parameters of `decl`, from its signature alone (PIPELINE.md 4.2,
+/// user decision 2026-10-20): the written `holds proj(…)` / `=> .f: proj(…)`
+/// entries, else every kept non-Copy parameter, and nothing when the result
+/// cannot hold a borrow at all. A body is never read: it is *validated*
+/// against this (`infer_from_body`, in `check_fn`).
 pub fn lends_of(decl: &FnDecl, env: &mut LendsEnv<'_, '_>) -> Vec<usize> {
     let key = decl as *const FnDecl as usize;
     if let Some(v) = env.memo.get(&key) {
@@ -235,22 +240,9 @@ pub fn lends_of(decl: &FnDecl, env: &mut LendsEnv<'_, '_>) -> Vec<usize> {
         env.memo.insert(key, Vec::new());
         return Vec::new();
     }
-    let conservative = kept_params(decl);
-    // Cycle guard: a recursive fn sees itself as conservative.
-    env.memo.insert(key, conservative.clone());
-    let Some(body) = &decl.body else {
-        return conservative;
-    };
-    let result = match infer_from_body(decl, body, env) {
-        Some(set) => {
-            let mut v: Vec<usize> = set.into_iter().collect();
-            v.sort_unstable();
-            v
-        }
-        None => conservative,
-    };
-    env.memo.insert(key, result.clone());
-    result
+    let default = kept_params(decl);
+    env.memo.insert(key, default.clone());
+    default
 }
 
 /// The inferred set for a fn with a body, or `None` when some returned
