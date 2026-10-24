@@ -8,7 +8,7 @@
 //! server, `salvo test` — needs both, so they are one call here rather than a
 //! step each pipeline can forget.
 
-use salvo_syntax::ast::{Item, Module, ParamsDecl, StructDecl};
+use salvo_syntax::ast::{Item, Module};
 
 use crate::diag::FileDiagnostic;
 use crate::source::{ModulePath, SourceFile};
@@ -60,20 +60,8 @@ pub struct Expansion {
 /// for every driver, before resolution.
 pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
     let mut out = Expansion::default();
-    let all_structs: Vec<StructDecl> = modules
-        .iter()
-        .flat_map(salvo_syntax::desugar::struct_decls)
-        .collect();
-    // [iter-group] The groups every file may spread: which of them take an
-    // iterator (`iter T` in a member) decides whether a spread gets a hidden
-    // generic, and std's `Iter` is declared in another file than any spread.
-    let all_groups: Vec<ParamsDecl> = modules
-        .iter()
-        .flat_map(salvo_syntax::desugar::params_decls)
-        .collect();
     for (file_idx, (file, module)) in files.iter().zip(modules.iter_mut()).enumerate() {
-        let mut diags =
-            salvo_syntax::desugar::expand_iter_fns_with(module, &all_structs, &all_groups);
+        let mut diags = salvo_syntax::desugar::expand_iter_fns(module);
         if file.is_test {
             let mangled = file.module.0.join("_");
             let (tests, test_diags) = salvo_syntax::desugar::expand_tests(module, &mangled);

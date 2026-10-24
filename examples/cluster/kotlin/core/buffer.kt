@@ -56,16 +56,16 @@ fun clear__LongBuffer_Long(buf: salvo.platform.core.buffer.MutLongBuffer, fill: 
     longClearPlatform(buf, fill)
 }
 
-data class __Iter_iter_IntBuffer(
+data class IntBufferIter(
     var buf: salvo.platform.core.buffer.IntBuffer,
     var at: Int,
 )
 
-fun iter__IntBuffer(buf: salvo.platform.core.buffer.IntBuffer): __Iter_iter_IntBuffer {
-    return __Iter_iter_IntBuffer(buf = buf, at = 0)
+fun iter__IntBuffer(buf: salvo.platform.core.buffer.IntBuffer): IntBufferIter {
+    return IntBufferIter(buf = buf, at = 0)
 }
 
-fun next__Iter_iter_IntBuffer(__p: __Iter_iter_IntBuffer): Union2<Int, salvo.core.iterator.Finished> {
+fun next__IntBufferIter(__p: IntBufferIter): Union2<Int, salvo.core.iterator.Finished> {
     if ((__p.at >= intSizePlatform(__p.buf))) {
         return Union2.U2<Int, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
     }
@@ -74,16 +74,16 @@ fun next__Iter_iter_IntBuffer(__p: __Iter_iter_IntBuffer): Union2<Int, salvo.cor
     return Union2.U1<Int, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(value))
 }
 
-data class __Iter_iter_LongBuffer(
+data class LongBufferIter(
     var buf: salvo.platform.core.buffer.LongBuffer,
     var at: Int,
 )
 
-fun iter__LongBuffer(buf: salvo.platform.core.buffer.LongBuffer): __Iter_iter_LongBuffer {
-    return __Iter_iter_LongBuffer(buf = buf, at = 0)
+fun iter__LongBuffer(buf: salvo.platform.core.buffer.LongBuffer): LongBufferIter {
+    return LongBufferIter(buf = buf, at = 0)
 }
 
-fun next__Iter_iter_LongBuffer(__p: __Iter_iter_LongBuffer): Union2<Long, salvo.core.iterator.Finished> {
+fun next__LongBufferIter(__p: LongBufferIter): Union2<Long, salvo.core.iterator.Finished> {
     if ((__p.at >= longSizePlatform(__p.buf))) {
         return Union2.U2<Long, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
     }
@@ -95,7 +95,7 @@ fun next__Iter_iter_LongBuffer(__p: __Iter_iter_LongBuffer): Union2<Long, salvo.
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun toStr__IntBuffer(buf: salvo.platform.core.buffer.IntBuffer): String {
     val out: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>("["))
-    val __pass_1: salvo.core.range.__Iter_range_Int_Int_Int = salvo.core.range.range__Int(size__IntBuffer(buf))
+    val __pass_1: salvo.core.range.Range = salvo.core.range.range__Int(size__IntBuffer(buf))
     while (true) {
         val __step_2: Union2<Int, salvo.core.iterator.Finished> = salvo.core.range.next(__pass_1)
         when {
@@ -119,7 +119,7 @@ fun toStr__IntBuffer(buf: salvo.platform.core.buffer.IntBuffer): String {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun toStr__LongBuffer(buf: salvo.platform.core.buffer.LongBuffer): String {
     val out: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>("["))
-    val __pass_1: salvo.core.range.__Iter_range_Int_Int_Int = salvo.core.range.range__Int(size__LongBuffer(buf))
+    val __pass_1: salvo.core.range.Range = salvo.core.range.range__Int(size__LongBuffer(buf))
     while (true) {
         val __step_2: Union2<Int, salvo.core.iterator.Finished> = salvo.core.range.next(__pass_1)
         when {

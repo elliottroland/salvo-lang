@@ -57,6 +57,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "cmp",
@@ -184,6 +185,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "eq",
@@ -328,6 +330,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "hash",
@@ -404,6 +407,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "eq",
@@ -532,6 +536,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "cmp",
@@ -664,6 +669,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "cmp",
@@ -796,6 +802,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "cmp",
@@ -928,6 +935,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "cmp",
@@ -1060,6 +1068,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "cmp",
@@ -1192,6 +1201,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "cmp",
@@ -1328,6 +1338,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "eq",
@@ -1460,6 +1471,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "eq",
@@ -1592,6 +1604,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "eq",
@@ -1724,6 +1737,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "eq",
@@ -1856,6 +1870,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "eq",
@@ -1988,6 +2003,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "eq",
@@ -2120,6 +2136,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "eq",
@@ -2252,6 +2269,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "eq",
@@ -2395,6 +2413,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "hash",
@@ -2489,6 +2508,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "hash",
@@ -2583,6 +2603,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "hash",
@@ -2677,6 +2698,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "hash",
@@ -2771,6 +2793,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "hash",
@@ -2865,6 +2888,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "hash",
@@ -2966,6 +2990,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "eq",
@@ -3505,6 +3530,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "cmp",
@@ -4091,6 +4117,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "hash",
@@ -4371,6 +4398,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "eq",
@@ -4803,6 +4831,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "cmp",
@@ -5284,6 +5313,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "hash",
@@ -5617,6 +5647,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "eq",
@@ -6206,6 +6237,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "cmp",
@@ -6893,6 +6925,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "hash",
@@ -7347,6 +7380,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "mix_hash",

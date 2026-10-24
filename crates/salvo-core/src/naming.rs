@@ -254,7 +254,7 @@ fn render(ty: &Type, args: bool, quals: bool) -> String {
                     out.push_str(&flat(&q.name.name));
                 }
             }
-            // A generated name's leading underscores (`__Iter_reversed_List`)
+            // A generated name's leading underscores (`__p`)
             // would run into the `__` before the suffix.
             out.push_str(flat(&base.name.name).trim_start_matches('_'));
             if args {

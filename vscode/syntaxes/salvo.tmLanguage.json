@@ -137,11 +137,6 @@
           "match": "\\biter(?=\\s+fn\\b)"
         },
         {
-          "comment": "the iter type former — a keyword by position, not a reserved word",
-          "name": "keyword.other.salvo",
-          "match": "\\biter(?=\\s+(?:[A-Z]|\\())"
-        },
-        {
           "comment": "the effect-handle type former — a keyword by position, not a reserved word",
           "name": "keyword.other.salvo",
           "match": "\\beff(?=\\[)"

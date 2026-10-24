@@ -10,10 +10,10 @@
 // form, so a buffer stays on its node [noremote].
 
 // A run of `Int`s, all written when it is made.
-export iterable platform type IntBuffer canbe Mut : Iter<self, Int>
+export iterable platform type IntBuffer canbe Mut : Iter<self, IntBufferIter, Int>
 
 // A run of `Long`s, the same over `Long`.
-export iterable platform type LongBuffer canbe Mut : Iter<self, Long>
+export iterable platform type LongBuffer canbe Mut : Iter<self, LongBufferIter, Long>
 
 // [buffer-type] A buffer of [size] slots, every one holding [fill]. A
 // negative size is an empty buffer.
@@ -86,7 +86,7 @@ export fn clear(buf: Mut LongBuffer, fill: Long) [] -> None => buf: Mut, fill {
 // [platform-iterable] The slots in order, for a generic fn over `Iter`; a
 // `for` over a buffer is the host's own loop.
 export iter fn iter(buf: IntBuffer) -> Emitted Int | Finished {
-    state {
+    state IntBufferIter {
         at: Int = 0
     }
     if at >= int_size(buf) {
@@ -98,7 +98,7 @@ export iter fn iter(buf: IntBuffer) -> Emitted Int | Finished {
 }
 
 export iter fn iter(buf: LongBuffer) -> Emitted Long | Finished {
-    state {
+    state LongBufferIter {
         at: Int = 0
     }
     if at >= long_size(buf) {

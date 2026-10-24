@@ -599,7 +599,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                 }
                 // [iter-fn] An `iter fn` must be expanded before resolution
                 // (`parse_module` does it; `parse_module_deferred` hands the
-                // duty to a program-level `expand_iter_fns_with`). Checking
+                // duty to the program-level `salvo_core::expand`). Checking
                 // it as an ordinary fn would be silently different behavior,
                 // so a survivor is a loud integration error, never checked.
                 Item::Fn(f) if f.is_iter => {
@@ -608,7 +608,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                         f.name.span,
                         "internal: this `iter fn` reached resolution unexpanded — \
                          the driver that parsed it skipped the `iter fn` expansion \
-                         (`expand_iter_fns_with`); this is a compiler-integration \
+                         (`expand_iter_fns`); this is a compiler-integration \
                          bug, not a mistake in this program",
                     ));
                 }

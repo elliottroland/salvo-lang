@@ -2,7 +2,7 @@
 // built into the compiler: an **iterator struct** is a type declaring
 // `: Yield<self, T>`, and its `next` reports either an element or the end of
 // the sequence. A **source** is a type an `iter` mints an iterator from,
-// declared with `: Iter<self, T>`.
+// declared with `: Iter<self, It, T>`.
 //
 // This is what makes `zip`, `merge`, anything reading two sources at once,
 // anything wanting explicit control of its state, writable by hand. An
@@ -63,25 +63,26 @@ export params Yield<It, T> {
     fn next(it: Mut It) -> Emitted T | Finished => it: Mut
 }
 
-// [iter-group] [iter-type] What a **source** is: a type an `iter` mints an
-// iterator from. `iter T` is the placeholder for that iterator — "a `Mut` type
-// declaring `: Yield<self, T>`" — one type across both members, so the second
-// member is `Yield`'s `next` over it: the two groups are one protocol stated
-// from two sides. The pair is filled **together** (`iter with next`): a caller
-// may override the minter, never the step alone, since the step belongs to
-// whatever the minter answers [implicit-with].
+// [iter-group] What a **source** is: a type an `iter` mints an iterator from.
+// `It` is that iterator — a type declaring `: Yield<self, T>` — one type
+// across both members, so the second member is `Yield`'s `next` over it: the
+// two groups are one protocol stated from two sides. The pair is filled
+// **together** (`iter with next`): a caller may override the minter, never
+// the step alone, since the step belongs to whatever the minter answers
+// [implicit-with].
 //
-// A type joins by declaring `: Iter<self, T>` and either an `iter fn iter(s:
-// self) -> Emitted T | Finished` — the compiler writes the struct and both
-// members — or a fn `iter` of its own returning an iterator struct. Declaring
+// A type joins by declaring `: Iter<self, It, T>`, naming its iterator struct
+// (user decision 2026-10-20), and either an `iter fn iter(s: self) -> Emitted
+// T | Finished` whose `state It { … }` is that struct — the compiler writes
+// it and both members — or a fn `iter` of its own returning one. Declaring
 // both `: Iter` and `: Yield` on one type is refused: `for x in s` would have
 // two answers.
 //
-// Spread as `?Iter<C, T>`, the group brings in `iter: (C) -> iter T` and
-// `next: (iter T) -> Emitted T | Finished` over a **hidden** type parameter
-// for the iterator struct, so a combinator over a generic *source* writes
-// `for x in c` and the loop mints with the one and drives with the other.
-export params Iter<C, T> => iter with next {
-    fn iter(collection: C) -> iter T
-    fn next(iterator: iter T) -> Emitted T | Finished => iterator: Mut
+// Spread as `?Iter<C, It, T>`, the group brings in `iter: (C) -> Mut It` and
+// `next: (Mut It) -> Emitted T | Finished`, so a combinator over a generic
+// *source* writes `for x in c` and the loop mints with the one and drives
+// with the other.
+export params Iter<C, It, T> => iter with next {
+    fn iter(collection: C) -> Mut It
+    fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut
 }

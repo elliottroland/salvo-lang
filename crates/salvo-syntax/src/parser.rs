@@ -851,8 +851,7 @@ impl<'s> Parser<'s> {
             // generated; the declaration is the minter.
             //
             // A **contextual** keyword, and it has to be: `iter` is also the name
-            // of every container's minter and of the `iter T` type former
-            // [iter-type], so it must stay callable and declarable. At item level
+            // of every container's minter, so it must stay callable and declarable. At item level
             // a bare identifier is otherwise a parse error, which is what makes
             // `iter fn` unambiguous with no lookahead beyond the next token.
             TokenKind::Ident(name)
@@ -2708,6 +2707,8 @@ impl<'s> Parser<'s> {
             of.push(self.parse_type()?);
         }
         let mut state = Vec::new();
+        let mut state_name = None;
+        let mut state_seen = false;
         let mut fns = Vec::new();
         let mut mailbox = None;
         let mut init: Option<FnDecl> = None;
@@ -2743,6 +2744,7 @@ impl<'s> Parser<'s> {
                         platform: false,
                         is_iter: false,
                         iter_state: Vec::new(),
+                        iter_state_name: None,
                         is_send: true,
                         name,
                         type_name: None,
@@ -2800,9 +2802,15 @@ impl<'s> Parser<'s> {
                     // that used to sit in the handler body). Each field is
                     // `name: Type = value` or the inferred `name = value`; the
                     // type, when inferred, is the initializer's.
+                    // [state-name] `state Tally { … }` names the struct; the
+                    // name is optional, and the handler's own by default.
                     let state_kw = self.bump().span;
-                    if !state.is_empty() {
+                    if state_seen {
                         self.error("a handler declares one `state` block", state_kw);
+                    }
+                    state_seen = true;
+                    if self.at_ident() {
+                        state_name = self.ident();
                     }
                     if self.expect(&TokenKind::LBrace).is_some() {
                         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
@@ -2878,6 +2886,7 @@ impl<'s> Parser<'s> {
             init,
             mailbox,
             state,
+            state_name,
             fns,
             span: start.to(end),
         })
@@ -3102,9 +3111,10 @@ impl<'s> Parser<'s> {
         // parsed here rather than as a statement so the body that follows is an
         // ordinary block: `state` declares data, it does not run.
         let mut iter_state = Vec::new();
+        let mut iter_state_name = None;
         let body = if by.is_none() && self.at(&TokenKind::LBrace) && self.same_line() {
             if is_iter {
-                Some(self.parse_iter_body(&mut iter_state)?)
+                Some(self.parse_iter_body(&mut iter_state, &mut iter_state_name)?)
             } else {
                 Some(self.parse_block()?)
             }
@@ -3140,6 +3150,7 @@ impl<'s> Parser<'s> {
             is_iter,
             is_send,
             iter_state,
+            iter_state_name,
             name,
             type_name,
             scoped_to,
@@ -4369,19 +4380,13 @@ impl<'s> Parser<'s> {
             return Some(Ident { name: format!("{}.type", binder.name), span });
         }
         let head = self.ident()?;
-        // [iter-fn] A leading `_` is the compiler's namespace: a generated
-        // iterator struct is `__Iter_<fn>_…`, and it exists as a real
-        // declaration after the desugaring, so without this a program could
-        // *name* it — and the whole point of generating it is that an iterator
-        // struct you must name is written by hand. Its spelling is `iter T`
-        // [iter-type].
+        // A leading `_` in a type position is the compiler's namespace: the
+        // names it generates must not be writable, so that none can clash
+        // with a program's own.
         if head.name.starts_with('_') {
             self.error(
                 format!(
-                    "`{}` is a compiler-generated name and cannot be written: an \
-                     iterator struct a program needs to name is declared as a \
-                     struct of its own, with its own `next` — or spelled `iter T` \
-                     where a pattern is allowed",
+                    "`{}` is a compiler-generated name and cannot be written",
                     head.name
                 ),
                 head.span,
@@ -4716,19 +4721,40 @@ impl<'s> Parser<'s> {
 
     // --- Blocks and statements ---
 
-    /// [iter-fn] An `iter fn`'s body: an optional `state { … }` field block,
-    /// then ordinary statements. The block is *declarations only* (user
-    /// decision 2026-09-09) — it is the pass's shape, not code that runs — so
-    /// it is parsed with the same `parse_field_decl` a struct body uses, and
-    /// every field needs an initializer. The type may be written
-    /// (`i: Int = 0`) or inferred from the initializer (`i = 0`) [state-infer].
-    fn parse_iter_body(&mut self, state: &mut Vec<FieldDecl>) -> Option<Block> {
+    /// [iter-fn] An `iter fn`'s body: the `state Name { … }` block naming the
+    /// iterator struct (user decision 2026-10-20, R3/R4), then ordinary
+    /// statements. The block is *declarations only* (user decision
+    /// 2026-09-09) — it is the pass's shape, not code that runs — so it is
+    /// parsed with the same `parse_field_decl` a struct body uses, and every
+    /// field needs an initializer. The type may be written (`i: Int = 0`) or
+    /// inferred from the initializer (`i = 0`) [state-infer]. The block may be
+    /// empty: the struct then holds the parameters only.
+    fn parse_iter_body(
+        &mut self,
+        state: &mut Vec<FieldDecl>,
+        state_name: &mut Option<Ident>,
+    ) -> Option<Block> {
         let start = self.expect(&TokenKind::LBrace)?.span;
         let saved_depth = std::mem::replace(&mut self.group_depth, 0);
         let saved_no_struct = std::mem::replace(&mut self.no_struct, false);
-        if self.at(&TokenKind::KwState) {
+        if !self.at(&TokenKind::KwState) {
+            self.error(
+                "an `iter fn` names its iterator struct: begin the body with \
+                 `state Name { … }`",
+                self.peek().span,
+            );
+        } else {
             let state_span = self.peek().span;
             self.bump();
+            if self.at_ident() {
+                *state_name = self.ident();
+            } else {
+                self.error(
+                    "an `iter fn`'s `state` block names the iterator struct: \
+                     `state Name { … }`",
+                    state_span,
+                );
+            }
             if self.expect(&TokenKind::LBrace).is_some() {
                 while !self.at(&TokenKind::RBrace) && !self.at_eof() {
                     let before = self.pos;
@@ -4754,13 +4780,6 @@ impl<'s> Parser<'s> {
                     self.eat(&TokenKind::Comma);
                 }
                 self.expect(&TokenKind::RBrace)?;
-            }
-            if state.is_empty() {
-                self.error(
-                    "an empty `state` block declares nothing: drop it, or give \
-                     the pass a field",
-                    state_span,
-                );
             }
         }
         let mut stmts = Vec::new();

@@ -39,7 +39,7 @@ fn do_something() {
 // [iter-protocol] — or, when it needs no name, an `iter fn` whose iterator
 // struct the compiler writes [iter-fn]: any name, any parameters.
 iter fn range(start: Int, end: Int) -> Emitted Int | Finished {
-    state {
+    state Range {
         at: Int = start
     }
     if at >= end {

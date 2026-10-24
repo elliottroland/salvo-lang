@@ -45,7 +45,7 @@ fn upto(start: Int, end: Int) -> Upto {
 }
 
 iter fn iter(r: Upto) -> Emitted Int | Finished {
-    state {
+    state UptoIter {
         at: Int = r.start
     }
     if at >= r.end {
@@ -854,7 +854,7 @@ fn show(step: Emitted Int | Finished) [Console] {
 }
 
 iter fn iter(f: Flat) -> Emitted Int | Finished {
-    state { at: Int = 0, inner: Mut ListYield<Int>? = None }
+    state FlatIter { at: Int = 0, inner: Mut ListYield<Int>? = None }
     while true {
         if inner is Mut ListYield<Int> {
             let step = next(inner)
@@ -1667,7 +1667,7 @@ fn rolls(count: Int) -> Rolls {
 }
 
 iter fn iter(r: Rolls) [Random<Int>] -> Emitted Int | Finished {
-    state {
+    state RollsIter {
         made: Int = 0
     }
     if made >= r.count {
@@ -3979,7 +3979,7 @@ fn range(start: Int, end: Int) -> Range {
 }
 
 iter fn iter(r: Range) -> Emitted Int | Finished {
-    state {
+    state RangeIter {
         i: Int = r.start
     }
     if i >= r.end {
@@ -6272,7 +6272,7 @@ fn upto(start: Int, end: Int) -> Upto {
 }
 
 iter fn iter(r: Upto) -> Emitted Int | Finished {
-    state {
+    state UptoIter2 {
         at: Int = r.start
     }
     if at >= r.end {
@@ -11868,7 +11868,7 @@ fn naturals() -> Naturals {
 }
 
 iter fn iter(n: Naturals) -> Emitted Int | Finished {
-    state {
+    state NaturalsIter {
         at = n.from
     }
     let v = copy(at)
@@ -12498,7 +12498,7 @@ fn naturals(from: Int) -> Naturals {
 }
 
 iter fn iter(n: Naturals) -> Emitted Int | Finished {
-    state {
+    state NaturalsIter2 {
         at = n.from
     }
     if at >= n.from + 4 {
@@ -12882,7 +12882,7 @@ struct Countdown {
 }
 
 iter fn iter(c: Countdown) -> Emitted Int | Finished {
-    state {
+    state CountdownIter {
         at: Int = c.from
     }
     if at <= 0 {
@@ -12897,7 +12897,7 @@ struct Fibs {
 }
 
 iter fn iter(f: Fibs) -> Emitted Int | Finished {
-    state {
+    state FibsIter {
         a: Int = 0,
         b: Int = 1,
         made: Int = 0
@@ -12918,7 +12918,7 @@ struct Noisy {
 }
 
 iter fn iter(n: Noisy) [Console] -> Emitted Int | Finished {
-    state {
+    state NoisyIter {
         at: Int = 0
     }
     if at >= n.limit {
@@ -12940,7 +12940,7 @@ fn describe(r: Row) -> Str => r {
 }
 
 iter fn iter(r: Row) -> Emitted Str | Finished {
-    state {
+    state RowIter {
         left: Int = r.times
     }
     if left <= 0 {
@@ -13010,24 +13010,21 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
         .find(|f| f.rel_path == std::path::Path::new("main.kt"))
         .expect("main.kt")
         .content;
-    // [iter-fn] Tier 1 — the body never reads the subject, so the pass holds
-    // nothing of it.
+    // [iter-fn] The struct its `state` block names holds every parameter,
+    // then the state.
     assert!(
-        src.contains("data class __Iter_iter_Countdown(\n    var at: Int,\n)")
-            && src.contains("__Iter_iter_Countdown(at = c.from)"),
-        "expected a subject-free pass:\n{src}"
+        src.contains("data class CountdownIter(\n    var c: Countdown,\n    var at: Int,\n)")
+            && src.contains("CountdownIter(c = c, at = c.from)"),
+        "expected the parameter beside the state:\n{src}"
     );
-    // Tier 2 — one snapshot field for the one subject field the body reads.
     assert!(
-        src.contains("data class __Iter_iter_Fibs(\n    var count: Int,")
-            && src.contains("__Iter_iter_Fibs(count = f.count, a = 0, b = 1, made = 0)")
-            && !src.contains("var f: Fibs"),
-        "expected a per-field snapshot:\n{src}"
+        src.contains("data class FibsIter(\n    var f: Fibs,")
+            && src.contains("FibsIter(f = f, a = 0, b = 1, made = 0)"),
+        "expected the parameter held whatever the body reads of it:\n{src}"
     );
-    // Tier 3 — the whole subject is handed on, so the pass holds it.
     assert!(
-        src.contains("data class __Iter_iter_Row(\n    var r: Row,")
-            && src.contains("__Iter_iter_Row(r = r, left = r.times)"),
+        src.contains("data class RowIter(\n    var r: Row,")
+            && src.contains("RowIter(r = r, left = r.times)"),
         "expected the whole subject to be kept:\n{src}"
     );
     assert!(
@@ -13045,7 +13042,7 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
     // `core.deque` brought two more (2026-10-02).
     assert!(
         // The suffix is the overload's mangle, which moves as std grows.
-        src.contains("= next__Iter_iter_Noisy(__handle_"),
+        src.contains("= next__NoisyIter(__handle_"),
         "expected the handler threaded into the drive:\n{src}"
     );
 }
@@ -13064,7 +13061,7 @@ struct Countdown {
 }
 
 iter fn iter(c: Countdown) -> Emitted Int | Finished {
-    state {
+    state CountdownIter2 {
         at: Int = c.from
     }
     if at <= 0 {
@@ -13277,7 +13274,7 @@ struct Box<T> {
 }
 
 iter fn iter<T>(b: Box<T>) -> Emitted (proj(b) T) | Finished {
-    state {
+    state BoxIter {
         at: Int = 0
     }
     let e = get(b.items, at)

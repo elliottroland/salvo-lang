@@ -38,6 +38,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "map",
@@ -455,6 +456,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "filter",
@@ -960,6 +962,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "reduce",
@@ -1368,6 +1371,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "map",
@@ -1709,6 +1713,7 @@ Module {
                 platform: true,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "filter",
@@ -1951,6 +1956,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "reduce",
@@ -2293,6 +2299,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "map_to",
@@ -2847,6 +2854,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "filter_to",
@@ -3493,6 +3501,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "drop",
@@ -3910,6 +3919,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "next",
@@ -4363,6 +4373,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "mapping",
@@ -5128,6 +5139,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "next",
@@ -5580,6 +5592,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "filtering",
@@ -6275,6 +6288,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "next",
@@ -6641,6 +6655,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "taking",
@@ -7366,6 +7381,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "next",
@@ -7891,6 +7907,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "taking_while",
@@ -8599,6 +8616,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "next",
@@ -9038,6 +9056,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "skipping",
@@ -9763,6 +9782,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "next",
@@ -10301,6 +10321,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "skipping_while",
@@ -10736,6 +10757,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_list",
@@ -11142,6 +11164,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "count",

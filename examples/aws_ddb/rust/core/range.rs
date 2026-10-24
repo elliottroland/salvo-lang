@@ -4,14 +4,14 @@ use crate::core_iterator::finished;
 
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_range_Int_Int_Int {
+pub struct Range {
     pub start: i32,
     pub end: i32,
     pub step: i32,
     pub i: i32,
 }
 
-impl crate::wire::__Wire for __Iter_range_Int_Int_Int {
+impl crate::wire::__Wire for Range {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.start, out);
         crate::wire::__Wire::__enc(&self.end, out);
@@ -28,11 +28,11 @@ impl crate::wire::__Wire for __Iter_range_Int_Int_Int {
     }
 }
 
-pub fn range__Int_Int_Int(mut start: i32, mut end: i32, mut step: i32) -> crate::core_range::__Iter_range_Int_Int_Int {
-    return crate::core_range::__Iter_range_Int_Int_Int { start: start, end: end, step: step, i: start };
+pub fn range__Int_Int_Int(mut start: i32, mut end: i32, mut step: i32) -> crate::core_range::Range {
+    return crate::core_range::Range { start: start, end: end, step: step, i: start };
 }
 
-pub fn next(__p: &mut crate::core_range::__Iter_range_Int_Int_Int) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
+pub fn next(__p: &mut crate::core_range::Range) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
     let mut next: i32 = __p.i;
     return (match if (__p.step == 0i32) {
         crate::unions::Union2::U1(crate::core_iterator::finished())
@@ -46,7 +46,7 @@ pub fn next(__p: &mut crate::core_range::__Iter_range_Int_Int_Int) -> crate::uni
     } { crate::unions::Union2::U1(__v) => crate::unions::Union2::U2(__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U1(__v), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
 }
 
-pub fn range__Int_Int(mut start: i32, mut end: i32) -> crate::core_range::__Iter_range_Int_Int_Int {
+pub fn range__Int_Int(mut start: i32, mut end: i32) -> crate::core_range::Range {
     let mut step: i32 = if (start < end) {
         1i32
     } else if (start > end) {
@@ -57,7 +57,7 @@ pub fn range__Int_Int(mut start: i32, mut end: i32) -> crate::core_range::__Iter
     return crate::core_range::range__Int_Int_Int(start, end, step);
 }
 
-pub fn range__Int(mut end: i32) -> crate::core_range::__Iter_range_Int_Int_Int {
+pub fn range__Int(mut end: i32) -> crate::core_range::Range {
     return crate::core_range::range__Int_Int(0i32, end);
 }
 

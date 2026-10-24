@@ -27,7 +27,7 @@
 // has to arrange deliberately (its `String.compareTo` is UTF-16 code-unit
 // order) [kt-ordered].
 
-export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter<self, T>
+export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter<self, SetYield<T>, T>
 
 // Constructor. The elements are stored, so they are moved; duplicates
 // collapse, and the result is in order however the arguments were written.
@@ -98,7 +98,7 @@ export fn iter<T>(set: SortedSet<T>) [] -> Mut SetYield<T> => set {
     return Mut SetYield<T> { items: to_list(set), at: 0 }
 }
 
-export iterable platform type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut : Iter<self, K>
+export iterable platform type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut : Iter<self, MapKeyYield<K>, K>
 
 // Constructor, from entries written as pairs. A repeated key takes the value
 // of its last appearance [col-duplicate-keys]; position is irrelevant here,

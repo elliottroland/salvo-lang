@@ -1,6 +1,7 @@
 use crate::core_iterator::Finished;
 use crate::core_index::Idx__Int_qualifies;
 use crate::core_string::Mut_Str;
+use crate::core_range::Range;
 use crate::core_string::append_platform;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
@@ -73,16 +74,16 @@ pub fn clear__LongBuffer_Long(buf: &mut crate::core_buffer::LongBuffer, mut fill
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_iter_IntBuffer<'s> {
+pub struct IntBufferIter<'s> {
     pub buf: &'s crate::core_buffer::IntBuffer,
     pub at: i32,
 }
 
-pub fn iter__IntBuffer(buf: &crate::core_buffer::IntBuffer) -> crate::core_buffer::__Iter_iter_IntBuffer<'_> {
-    return crate::core_buffer::__Iter_iter_IntBuffer { buf: buf, at: 0i32 };
+pub fn iter__IntBuffer(buf: &crate::core_buffer::IntBuffer) -> crate::core_buffer::IntBufferIter<'_> {
+    return crate::core_buffer::IntBufferIter { buf: buf, at: 0i32 };
 }
 
-pub fn next__Iter_iter_IntBuffer(__p: &mut crate::core_buffer::__Iter_iter_IntBuffer<'_>) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
+pub fn next__IntBufferIter(__p: &mut crate::core_buffer::IntBufferIter<'_>) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
     if (__p.at >= crate::core_buffer::int_size_platform(__p.buf)) {
         return crate::unions::Union2::U2(crate::core_iterator::finished());
     };
@@ -92,16 +93,16 @@ pub fn next__Iter_iter_IntBuffer(__p: &mut crate::core_buffer::__Iter_iter_IntBu
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_iter_LongBuffer<'s> {
+pub struct LongBufferIter<'s> {
     pub buf: &'s crate::core_buffer::LongBuffer,
     pub at: i32,
 }
 
-pub fn iter__LongBuffer(buf: &crate::core_buffer::LongBuffer) -> crate::core_buffer::__Iter_iter_LongBuffer<'_> {
-    return crate::core_buffer::__Iter_iter_LongBuffer { buf: buf, at: 0i32 };
+pub fn iter__LongBuffer(buf: &crate::core_buffer::LongBuffer) -> crate::core_buffer::LongBufferIter<'_> {
+    return crate::core_buffer::LongBufferIter { buf: buf, at: 0i32 };
 }
 
-pub fn next__Iter_iter_LongBuffer(__p: &mut crate::core_buffer::__Iter_iter_LongBuffer<'_>) -> crate::unions::Union2<i64, crate::core_iterator::Finished> {
+pub fn next__LongBufferIter(__p: &mut crate::core_buffer::LongBufferIter<'_>) -> crate::unions::Union2<i64, crate::core_iterator::Finished> {
     if (__p.at >= crate::core_buffer::long_size_platform(__p.buf)) {
         return crate::unions::Union2::U2(crate::core_iterator::finished());
     };
@@ -112,7 +113,7 @@ pub fn next__Iter_iter_LongBuffer(__p: &mut crate::core_buffer::__Iter_iter_Long
 
 pub fn to_str__IntBuffer(buf: &crate::core_buffer::IntBuffer) -> String {
     let mut out: String = crate::core_string::Mut_Str(vec![String::from("[")]);
-    let mut __pass_1: crate::core_range::__Iter_range_Int_Int_Int = crate::core_range::range__Int(crate::core_buffer::size__IntBuffer(buf));
+    let mut __pass_1: crate::core_range::Range = crate::core_range::range__Int(crate::core_buffer::size__IntBuffer(buf));
     loop {
         let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_range::next(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
@@ -132,7 +133,7 @@ pub fn to_str__IntBuffer(buf: &crate::core_buffer::IntBuffer) -> String {
 
 pub fn to_str__LongBuffer(buf: &crate::core_buffer::LongBuffer) -> String {
     let mut out: String = crate::core_string::Mut_Str(vec![String::from("[")]);
-    let mut __pass_1: crate::core_range::__Iter_range_Int_Int_Int = crate::core_range::range__Int(crate::core_buffer::size__LongBuffer(buf));
+    let mut __pass_1: crate::core_range::Range = crate::core_range::range__Int(crate::core_buffer::size__LongBuffer(buf));
     loop {
         let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_range::next(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {

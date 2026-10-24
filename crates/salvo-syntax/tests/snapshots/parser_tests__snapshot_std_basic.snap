@@ -1181,6 +1181,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_int",
@@ -1275,6 +1276,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_int",
@@ -1369,6 +1371,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_int",
@@ -1463,6 +1466,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_long",
@@ -1557,6 +1561,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_long",
@@ -1651,6 +1656,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_long",
@@ -1745,6 +1751,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_double",
@@ -1839,6 +1846,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_double",
@@ -1933,6 +1941,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_double",
@@ -2027,6 +2036,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_float",
@@ -2121,6 +2131,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_float",
@@ -2215,6 +2226,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_float",
@@ -2316,6 +2328,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_and",
@@ -2448,6 +2461,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_and",
@@ -2580,6 +2594,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_or",
@@ -2712,6 +2727,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_or",
@@ -2844,6 +2860,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_xor",
@@ -2976,6 +2993,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_xor",
@@ -3108,6 +3126,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_not",
@@ -3202,6 +3221,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_not",
@@ -3296,6 +3316,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_shl",
@@ -3428,6 +3449,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_shl",
@@ -3560,6 +3582,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_shr",
@@ -3692,6 +3715,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_shr",
@@ -3824,6 +3848,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_ushr",
@@ -3956,6 +3981,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "bit_ushr",
@@ -4094,6 +4120,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_byte",
@@ -4188,6 +4215,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_int",
@@ -4288,6 +4316,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "copy",
@@ -4417,6 +4446,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "discard",
@@ -4557,6 +4587,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "to_str",
@@ -4648,6 +4679,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_str",
@@ -4742,6 +4774,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_str",
@@ -4836,6 +4869,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_str",
@@ -4930,6 +4964,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_str",
@@ -5024,6 +5059,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_str",
@@ -5118,6 +5154,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_str",
@@ -5215,6 +5252,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_str",
@@ -5309,6 +5347,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_str",
@@ -5406,6 +5445,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_str",
@@ -5726,6 +5766,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "to_str",

@@ -550,6 +550,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "qualifies",
@@ -694,6 +695,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "qualifies",
@@ -869,6 +871,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "qualifies",
@@ -1041,6 +1044,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "random_positive_int",
@@ -1231,6 +1235,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "checks",
@@ -1754,6 +1759,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "describe",
@@ -2190,6 +2196,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "read_only",
@@ -2503,6 +2510,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "qualifies",

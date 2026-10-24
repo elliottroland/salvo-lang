@@ -316,7 +316,7 @@ Conventions:
 
   ```rust
   loop {
-      let mut __step_7: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::next__Iter_halving_Int(&mut __pass_6);
+      let mut __step_7: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::next__Halving(&mut __pass_6);
       if matches!(__step_7, crate::unions::Union2::U1(_)) {
           let mut __emitted_8 = match &__step_7 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
           let mut n: i32 = __emitted_8;
@@ -330,12 +330,11 @@ Conventions:
   A named pass is driven where it lives (`next(&mut *p)` for a `Mut`
   parameter, `next(&mut q)` for a local) and is left where the loop stopped.
   * [iter-fn] An `iter fn` is desugared before emission into that same shape: a
-    struct holding what the body reads of the subject plus its `state` fields
-    (`__Iter_<fn>_<Subject>`, e.g. `__Iter_halving_Int`), an `iter` that mints
-    one, and the body as the `next`. The backend has no rule of its own for
+    struct named by its `state` block holding the parameters plus the `state`
+    fields (`Halving`), a minter, and the body as the `next`. The backend has no rule of its own for
     the form.
   * A `for` over a **container** calls its `iter` once before the loop
-    (`let mut __pass_9: crate::__Iter_iter_Bag<'_> = crate::iter(&bag);`)
+    (`let mut __pass_9: crate::BagIter<'_> = crate::iter(&bag);`)
     and drives the result [iter-mint]; the intrinsic containers keep their
     native loop instead [iter-for-native]: `for mut n in xs.iter().copied()`
     over Copy elements, `for mut f in roster.iter()` over a borrowed list,
@@ -343,7 +342,7 @@ Conventions:
     element is needed from a kept one, `s.chars()` over a `Str`.
   * An **effectful `next`** takes its handles as leading arguments, threaded
     into every turn of the loop from the scope the `for` is written in
-    (`crate::next__Iter_fibs_Int(&__handle_2, &mut __pass_12)`, [fn-effects]).
+    (`crate::next__Fibs(&__handle_2, &mut __pass_12)`, [fn-effects]).
   * [linear-group] A pass with a `close` is **not** released by the loop: the
     program's own `close(p)` after the loop is the discharge (no implicit
     discharge sites, [iter-drive-in-place]), so the loop emits nothing extra.
@@ -657,7 +656,7 @@ the blanket rule:
   `pub struct ListYield<'s, T> { pub items: &'s Vec<T>, pub at: i32 }`, with
   `<'s>` on owned view-typed fields; every mention elides
   (`crate::core_list::ListYield<'_, T>`); a struct literal borrows into its
-  `proj` fields (`crate::__Iter_iter_Bag { items: &bag.items, at: 0i32 }`,
+  `proj` fields (`crate::BagIter { bag: &bag, at: 0i32 }`,
   or the reference itself when the source already is one:
   `crate::Window { roster: roster, at: 0i32 }`); it is returned *by value*
   (the struct carries the lifetime, no `&` wraps it).

@@ -491,12 +491,7 @@ pub(crate) fn type_names<'p>(ty: &'p Type, used: &mut HashSet<&'p str>) {
 }
 
 fn type_ref_names<'p>(r: &'p TypeRef, used: &mut HashSet<&'p str>) {
-    // [iter-type] The `iter T` placeholder names no declaration — and `iter`
-    // is also the name of every container's minter, so counting it pulled
-    // every one of those modules into whatever mentioned the placeholder.
-    if r.name.name != "iter" {
-        used.insert(&r.name.name);
-    }
+    used.insert(&r.name.name);
     for a in &r.args {
         type_names(a, used);
     }

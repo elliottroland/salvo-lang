@@ -70,16 +70,16 @@ fn main::take(lent console: Console; lent_mut p: Mut Countdown, lent count: Int)
   }
 }
 
-struct __Iter_halving_Int canbe Mut wire {
+struct Halving canbe Mut wire {
   start: Int
   at: Int
 }
 
-fn main::halving(lent start: Int) -> Mut __Iter_halving_Int {
-  return construct Mut __Iter_halving_Int { start: read start, at: read start }
+fn main::halving(lent start: Int) -> Mut Halving {
+  return construct Mut Halving { start: read start, at: read start }
 }
 
-fn main::next(Mut __Iter_halving_Int)(lent_mut __p: Mut __Iter_halving_Int) -> Int | Finished {
+fn main::next(Mut Halving)(lent_mut __p: Mut Halving) -> Int | Finished {
   branch#1 cond#0 (read __p.at <= 0) {
     return make_union[Int | Finished]#1(call core.iterator::finished())
   }
@@ -88,7 +88,7 @@ fn main::next(Mut __Iter_halving_Int)(lent_mut __p: Mut __Iter_halving_Int) -> I
   return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
 }
 
-fn main::halving_from_ten() -> Mut __Iter_halving_Int {
+fn main::halving_from_ten() -> Mut Halving {
   return call main::halving(10)
 }
 
@@ -96,17 +96,17 @@ struct Bag wire {
   items: List<Int>
 }
 
-struct __Iter_iter_Bag canbe Mut {
-  items: proj List<Int>
+struct BagIter canbe Mut {
+  bag: proj Bag
   at: Int
 }
 
-fn main::iter(lent bag: Bag) -> Mut __Iter_iter_Bag borrows [bag] {
-  return construct Mut __Iter_iter_Bag { items: read bag.items, at: 0 }
+fn main::iter(lent bag: Bag) -> Mut BagIter borrows [bag] {
+  return construct Mut BagIter { bag: read bag, at: 0 }
 }
 
-fn main::next(Mut __Iter_iter_Bag)(lent_mut __p: Mut __Iter_iter_Bag) -> Int | Finished {
-  bind#1 let e: Int? = call core.list::get(List<T>, Int)<Int>(borrow_as[proj List<Int> -> List<Int>](read __p.items), read __p.at)
+fn main::next(Mut BagIter)(lent_mut __p: Mut BagIter) -> Int | Finished {
+  bind#1 let e: Int? = call core.list::get(List<T>, Int)<Int>(read __p.bag.items, read __p.at)
   branch#2 cond#0 check#3 (read e is none) {
     return make_union[Int | Finished]#1(call core.iterator::finished())
   }
@@ -115,18 +115,18 @@ fn main::next(Mut __Iter_iter_Bag)(lent_mut __p: Mut __Iter_iter_Bag) -> Int | F
   return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(call core.basic::copy<Int>(read e~1)))
 }
 
-struct __Iter_fibs_Int canbe Mut wire {
+struct Fibs canbe Mut wire {
   count: Int
   a: Int
   b: Int
   made: Int
 }
 
-fn main::fibs(lent count: Int) -> Mut __Iter_fibs_Int {
-  return construct Mut __Iter_fibs_Int { count: read count, a: 0, b: 1, made: 0 }
+fn main::fibs(lent count: Int) -> Mut Fibs {
+  return construct Mut Fibs { count: read count, a: 0, b: 1, made: 0 }
 }
 
-fn main::next(Mut __Iter_fibs_Int)(lent console: Console; lent_mut __p: Mut __Iter_fibs_Int) -> Int | Finished {
+fn main::next(Mut Fibs)(lent console: Console; lent_mut __p: Mut Fibs) -> Int | Finished {
   branch#1 cond#0 (read __p.made >= read __p.count) {
     call core.console::println(read console, "3. finished")
     return make_union[Int | Finished]#1(call core.iterator::finished())
@@ -139,16 +139,16 @@ fn main::next(Mut __Iter_fibs_Int)(lent console: Console; lent_mut __p: Mut __It
   return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
 }
 
-struct __Iter_naturals_Int canbe Mut wire {
+struct Naturals canbe Mut wire {
   from: Int
   at: Int
 }
 
-fn main::naturals(lent from: Int) -> Mut __Iter_naturals_Int {
-  return construct Mut __Iter_naturals_Int { from: read from, at: read from }
+fn main::naturals(lent from: Int) -> Mut Naturals {
+  return construct Mut Naturals { from: read from, at: read from }
 }
 
-fn main::next(Mut __Iter_naturals_Int)(lent_mut __p: Mut __Iter_naturals_Int) -> Int | Finished {
+fn main::next(Mut Naturals)(lent_mut __p: Mut Naturals) -> Int | Finished {
   bind#1 let now: Int = call core.basic::copy<Int>(read __p.at)
   assign __p.at = (read __p.at + 1)
   return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
@@ -172,9 +172,9 @@ fn main::sum_of<It>(lent_mut it: Mut It; ?lent next: (Mut It) -> Int | Finished)
   return !read total
 }
 
-fn main::total<C, __It0>(lent c: C; ?lent iter: (C) -> Mut __It0, lent next: (Mut __It0) -> Int | Finished) -> Int {
+fn main::total<C, It>(lent c: C; ?lent iter: (C) -> Mut It, lent next: (Mut It) -> Int | Finished) -> Int {
   bind#1 let total: Int = 0
-  bind#3 let __pass~1: Mut __It0 = call local iter(read c)
+  bind#3 let __pass~1: Mut It = call local iter(read c)
   loop#2 {
     bind#4 let __step~2: Int | Finished = call local next(read __pass~1)
     switch#5 read __step~2 {
@@ -191,7 +191,7 @@ fn main::total<C, __It0>(lent c: C; ?lent iter: (C) -> Mut __It0, lent next: (Mu
   return !read total
 }
 
-fn main::first<__It0>(lent_mut it: Mut __It0; ?lent next: (Mut __It0) -> Int | Finished) -> Int {
+fn main::first<It>(lent_mut it: Mut It; ?lent next: (Mut It) -> Int | Finished) -> Int {
   loop#1 {
     bind#2 let __step~2: Int | Finished = call local next(read it)
     switch#3 read __step~2 {
@@ -230,9 +230,9 @@ fn main::main() -> None {
       }
     }
   }
-  bind#12 let __pass~6: Mut __Iter_halving_Int = call main::halving(20)
+  bind#12 let __pass~6: Mut Halving = call main::halving(20)
   loop#11 {
-    bind#13 let __step~7: Int | Finished = call main::next(Mut __Iter_halving_Int)(read __pass~6)
+    bind#13 let __step~7: Int | Finished = call main::next(Mut Halving)(read __pass~6)
     switch#14 read __step~7 {
       arm#0 (arm 0) {
         narrow#15[switch#14.arm#0] __emitted~8: Int = __step~7
@@ -244,13 +244,13 @@ fn main::main() -> None {
       }
     }
   }
-  bind#17 let hp: Mut __Iter_halving_Int = call main::halving(20)
-  call core.console::println(read __handle~2, concat("2b. summed from a held iterator: ", call core.basic::to_str(Int)(call main::sum_of<__Iter_halving_Int>(read hp, fn main::next(Mut __Iter_halving_Int)))))
-  call core.console::println(read __handle~2, concat("2b. first from a pattern-typed fn: ", call core.basic::to_str(Int)(call main::first<__Iter_halving_Int>(call main::halving_from_ten(), fn main::next(Mut __Iter_halving_Int)))))
+  bind#17 let hp: Mut Halving = call main::halving(20)
+  call core.console::println(read __handle~2, concat("2b. summed from a held iterator: ", call core.basic::to_str(Int)(call main::sum_of<Halving>(read hp, fn main::next(Mut Halving)))))
+  call core.console::println(read __handle~2, concat("2b. first from a fn returning one: ", call core.basic::to_str(Int)(call main::first<Halving>(call main::halving_from_ten(), fn main::next(Mut Halving)))))
   bind#18 let bag: Bag = construct Bag { items: call core.list::List(T, T[])<Int>(7, array[Int[]](8)) }
-  bind#20 let __pass~9: Mut __Iter_iter_Bag = call main::iter(read bag)
+  bind#20 let __pass~9: Mut BagIter = call main::iter(read bag)
   loop#19 {
-    bind#21 let __step~10: Int | Finished = call main::next(Mut __Iter_iter_Bag)(read __pass~9)
+    bind#21 let __step~10: Int | Finished = call main::next(Mut BagIter)(read __pass~9)
     switch#22 read __step~10 {
       arm#0 (arm 0) {
         narrow#23[switch#22.arm#0] __emitted~11: Int = __step~10
@@ -262,10 +262,10 @@ fn main::main() -> None {
       }
     }
   }
-  call core.console::println(read __handle~2, concat("2c. total of a bag ", call core.basic::to_str(Int)(call main::total<Bag, __Iter_iter_Bag>(read bag, fn main::iter, fn main::next(Mut __Iter_iter_Bag))), ", of a list ", call core.basic::to_str(Int)(call main::total<List<Int>, ListYield<Int>>(read xs, fn core.list::iter, fn core.list::next(Mut ListYield<T>)))))
-  bind#26 let __pass~12: Mut __Iter_fibs_Int = call main::fibs(6)
+  call core.console::println(read __handle~2, concat("2c. total of a bag ", call core.basic::to_str(Int)(call main::total<Bag, BagIter>(read bag, fn main::iter, fn main::next(Mut BagIter))), ", of a list ", call core.basic::to_str(Int)(call main::total<List<Int>, ListYield<Int>>(read xs, fn core.list::iter, fn core.list::next(Mut ListYield<T>)))))
+  bind#26 let __pass~12: Mut Fibs = call main::fibs(6)
   loop#25 {
-    bind#27 let __step~13: Int | Finished = call main::next(Mut __Iter_fibs_Int)(read __handle~2, read __pass~12)
+    bind#27 let __step~13: Int | Finished = call main::next(Mut Fibs)(read __handle~2, read __pass~12)
     switch#28 read __step~13 {
       arm#0 (arm 0) {
         narrow#29[switch#28.arm#0] __emitted~14: Int = __step~13
@@ -277,9 +277,9 @@ fn main::main() -> None {
       }
     }
   }
-  bind#32 let __pass~15: Mut __Iter_naturals_Int = call main::naturals(10)
+  bind#32 let __pass~15: Mut Naturals = call main::naturals(10)
   loop#31 {
-    bind#33 let __step~16: Int | Finished = call main::next(Mut __Iter_naturals_Int)(read __pass~15)
+    bind#33 let __step~16: Int | Finished = call main::next(Mut Naturals)(read __pass~15)
     switch#34 read __step~16 {
       arm#0 (arm 0) {
         narrow#35[switch#34.arm#0] __emitted~17: Int = __step~16
@@ -316,15 +316,15 @@ fn main::main() -> None {
     value ((read c == 'i') || (read c == 'o'))
   }, fn core.string::next)
   call core.console::println(read __handle~2, concat("5. vowels: ", call core.basic::to_str(Int)(call core.list::size<Char>(drop_mut(read vowels)))))
-  call core.console::println(read __handle~2, concat("5. halving total ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<__Iter_halving_Int, Int, Int>(call main::halving(20), 0, lambda(lent acc: Int, lent n: Int) -> Int {
+  call core.console::println(read __handle~2, concat("5. halving total ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<Halving, Int, Int>(call main::halving(20), 0, lambda(lent acc: Int, lent n: Int) -> Int {
     value (read acc + read n)
-  }, fn main::next(Mut __Iter_halving_Int)))))
+  }, fn main::next(Mut Halving)))))
   bind#45 let collected: Mut List<Int> = call core.seq::map_to<List<Int>, Countdown, Int, Int>(call core.list::Mut_List()<Int>(), call main::countdown(3), lambda(lent n: Int) -> Int {
     value (read n * 10)
   }, fn core.list::add, fn main::next(Mut Countdown))
   call core.console::println(read __handle~2, concat("6. collected ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read collected)))))
   bind#46 let evens: Mut Str = call core.string::Mut_Str(array[Str[]]())
-  bind#48 let __pass~18: Mut __Iter_range_Int_Int_Int = call core.range::range(Int, Int, Int)(0, 10, 2)
+  bind#48 let __pass~18: Mut Range = call core.range::range(Int, Int, Int)(0, 10, 2)
   loop#47 {
     bind#49 let __step~19: Int | Finished = call core.range::next(read __pass~18)
     switch#50 read __step~19 {

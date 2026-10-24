@@ -77,17 +77,6 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the iterator-fn modifier",
     ),
-    // [iter-type] `iter T`, `iter (proj T)`: the iterator type former, `iter`
-    // in qualifier position before the element type. A type name (uppercase
-    // [name-casing]) or a parenthesised group follows — which is what tells it
-    // from `iter fn` (a lowercase `fn`) and from a *call* of a function named
-    // `iter` (a `(` with no space, or an argument). The space before `[A-Z(]`
-    // is required so `iter(xs)` stays a call.
-    (
-        "\\\\biter(?=\\\\s+(?:[A-Z]|\\\\())",
-        "keyword.other.salvo",
-        "the iter type former",
-    ),
     // [eff-handle] `eff[A, B, …]`: the first-class effect-handle type former,
     // recognised only before `[` so `eff` stays an ordinary name elsewhere
     // (it is not a declared type). The bracket contents highlight as the
@@ -128,7 +117,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the threadsafe-platform modifier",
     ),
-    // [platform-iterable] `iterable platform type List<T> : Iter<self, T>`:
+    // [platform-iterable] `iterable platform type List<T> : Iter<self, It, T>`:
     // only `platform` may follow it.
     (
         "\\\\biterable(?=\\\\s+platform\\\\b)",

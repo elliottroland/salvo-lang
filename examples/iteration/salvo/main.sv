@@ -87,15 +87,15 @@ fn take(p: Mut Countdown, count: Int) [Console] -> None => p: Mut {
 
 // ===== 2b. the same thing, with the struct generated: `iter fn` =====
 //
-// Most iterators need no name — they are only ever driven by a `for`. An
-// `iter fn` is the same hand-written `next` with the boilerplate removed: the
-// declaration is the *minter*, under any name and with any parameters, the
-// `state { … }` block declares the iterator's own fields, and the body is its
-// `next`. The compiler writes the struct; its type is spelled `iter Int`.
+// An `iter fn` is the same hand-written `next` with the boilerplate removed:
+// the declaration is the *minter*, under any name and with any parameters, the
+// `state Halving { … }` block names the iterator struct and declares its own
+// fields, and the body is its `next`. The compiler writes the struct, which
+// holds the parameters beside the state.
 //
 // Nothing suspends, so there is no state machine: the body *is* the `next`.
 iter fn halving(start: Int) -> Emitted Int | Finished {
-    state {
+    state Halving {
         // Evaluated once, when the iterator is minted, and readable and
         // writable for the rest of its life. The parameters are read-only.
         at: Int = start
@@ -108,23 +108,23 @@ iter fn halving(start: Int) -> Emitted Int | Finished {
     return emitted(now)
 }
 
-// A fn returning `iter Int` returns whichever iterator struct its body mints:
-// the annotation is a pattern, filled from the `return`.
-fn halving_from_ten() -> iter Int {
+// The struct is an ordinary type, so a fn handing one out names it.
+fn halving_from_ten() -> Mut Halving {
     return halving(10)
 }
 
 // ===== 2c. a source: `Iter` =====
 //
 // A type becomes a *source* — something `for` mints an iterator from — by
-// declaring `: Iter<self, T>` and an `iter` over it. The `iter fn` named
-// `iter` is the canonical minter the obligation asks for.
-struct Bag : Iter<self, Int> {
+// declaring `: Iter<self, It, T>`, naming its iterator struct, and an `iter`
+// over it. The `iter fn` named `iter` is the canonical minter the obligation
+// asks for, and its `state` names the struct.
+struct Bag : Iter<self, BagIter, Int> {
     items: List<Int>
 }
 
 iter fn iter(bag: Bag) -> Emitted Int | Finished {
-    state {
+    state BagIter {
         at: Int = 0
     }
     let e = get(bag.items, at)
@@ -140,7 +140,7 @@ iter fn iter(bag: Bag) -> Emitted Int | Finished {
 // A `next` is an ordinary function, so effects are ordinary effects: declare
 // them and the `for` that drives supplies the handler, once per turn.
 iter fn fibs(count: Int) [Console] -> Emitted Int | Finished {
-    state {
+    state Fibs {
         a: Int = 0,
         b: Int = 1,
         made: Int = 0
@@ -160,7 +160,7 @@ iter fn fibs(count: Int) [Console] -> Emitted Int | Finished {
 // Nothing runs until a consumer pulls, so an unbounded iterator is an ordinary
 // thing to write: the `break` below is what ends it.
 iter fn naturals(from: Int) -> Emitted Int | Finished {
-    state {
+    state Naturals {
         at: Int = from
     }
     let now = copy(at)
@@ -182,11 +182,10 @@ fn sum_of<It>(it: Mut It, ?Yield<It, Int>) -> Int => it: Mut {
     return total
 }
 
-// `?Iter<C, T>` is the same over a *source*: it brings in the `iter` that
-// mints and the `next` that drives, over a hidden iterator type, so a
-// combinator can take the container itself — a `Bag`, a `List`, anything
-// with an `iter`.
-fn total<C>(c: C, ?Iter<C, Int>) -> Int => c {
+// `?Iter<C, It, T>` is the same over a *source*: it brings in the `iter` that
+// mints an `It` and the `next` that drives it, so a combinator can take the
+// container itself — a `Bag`, a `List`, anything with an `iter`.
+fn total<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c {
     let total = 0
     for n in c {
         total = total + n
@@ -194,10 +193,9 @@ fn total<C>(c: C, ?Iter<C, Int>) -> Int => c {
     return total
 }
 
-// `iter Int` as a parameter is "any iterator struct emitting `Int`": a hidden
-// generic with its `?Yield` spread, so a named struct and an `iter fn`'s both
-// fit.
-fn first(it: iter Int) -> Int => it: Mut {
+// Any iterator struct emitting `Int`: a generic with its `?Yield` spread, so a
+// hand-written struct and an `iter fn`'s both fit.
+fn first<It>(it: Mut It, ?Yield<It, Int>) -> Int => it: Mut {
     for n in it {
         return n
     }
@@ -227,7 +225,7 @@ fn main() [use] {
     }
     let hp = halving(20)
     println("2b. summed from a held iterator: ${sum_of(hp)}")
-    println("2b. first from a pattern-typed fn: ${first(halving_from_ten())}")
+    println("2b. first from a fn returning one: ${first(halving_from_ten())}")
 
     // 2c. a source: `for` over it mints with its `iter`, and so does a
     // combinator over any source.
@@ -286,7 +284,7 @@ fn main() [use] {
     // ===== 7. ranges =====
     //
     // std's `range` is an `iter fn` with three parameters and two delegating
-    // overloads returning `iter Int`.
+    // overloads returning its `Range`.
     let evens = Mut Str()
     for i in range(0, 10, 2) {
         append(evens, "${i} ")

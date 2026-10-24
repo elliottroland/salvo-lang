@@ -221,7 +221,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 .obligations
                 .iter()
                 .find(|o| o.group.name.name == "Iter")
-                .and_then(|o| o.group.args.get(1))
+                // `Iter<self, It, T>`: the element is the last argument.
+                .and_then(|o| o.group.args.get(2))
                 .map(|a| {
                     let fi = file_idx.unwrap_or(0);
                     let ctx_ty = salvo_core::wire::approx_ty(a, &HashMap::new(), self.s.symbols).unwrap_or(Ty::Unknown);

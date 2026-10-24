@@ -334,7 +334,7 @@ pub struct TypeDecl {
     /// [platform-type] `threadsafe platform type Parker`: the handle may be
     /// used from several threads at once (Rust adds `Sync`).
     pub threadsafe: bool,
-    /// [platform-iterable] `iterable platform type List<T> : Iter<self, T>`:
+    /// [platform-iterable] `iterable platform type List<T> : Iter<self, It, T>`:
     /// a `for` over a value of it is the host's own loop, over the host's
     /// `each` (and, on Rust, `each_mut`) rather than the Salvo pass.
     pub iterable: bool,
@@ -1063,6 +1063,10 @@ pub struct HandlerDecl {
     pub mailbox: Option<Expr>,
     /// State fields with initializers, e.g. `i: Int = 0`.
     pub state: Vec<FieldDecl>,
+    /// [state-name] `state Tally { … }`: the state struct's name when written.
+    /// Unwritten, the state is named by the handler; it must be written when
+    /// the handler shares its name with a type.
+    pub state_name: Option<Ident>,
     pub fns: Vec<FnDecl>,
     pub span: Span,
 }
@@ -1105,6 +1109,11 @@ pub struct FnDecl {
     /// [effect-handler]; the initializer may read the parameters and runs when
     /// the iterator is minted.
     pub iter_state: Vec<FieldDecl>,
+    /// [iter-fn] The state struct's name, `state Range { … }`: on the `iter
+    /// fn` as written, and kept on the minter and the `next` the desugaring
+    /// writes, which is how a reader (the language server) tells them from
+    /// hand-written fns. `None` on every other fn.
+    pub iter_state_name: Option<Ident>,
     /// [actor-send-fn] `send fn bump(n: Int)`: an **asynchronous** member —
     /// a message, not a call. Sending one enqueues an invocation on the
     /// target actor and returns immediately, so the member answers

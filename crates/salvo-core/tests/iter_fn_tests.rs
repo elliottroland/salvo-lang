@@ -6,7 +6,7 @@
 //! struct Countdown { from: Int }
 //!
 //! iter fn iter(c: Countdown) -> Emitted Int | Finished {
-//!     state {
+//!     state CountdownIter {
 //!         at: Int = c.from
 //!     }
 //!     if at <= 0 { return finished() }
@@ -16,12 +16,12 @@
 //! ```
 //!
 //! The way to be iterable with the least to declare: the parameters stay
-//! ordinary data, the `state` block is the iterator's own fields, and the
+//! ordinary data, the `state` block names the iterator struct and declares its
+//! own fields, and the
 //! compiler writes the struct plus its `next`. The author's body *is* the
 //! `next`, so what this file checks is mostly that the generated declarations
-//! behave like the hand-written ones they stand for — plus the readings of the
-//! `iter T` placeholder [iter-type], the `Iter` group [iter-group] and the
-//! step-call `for` [iter-step-call] that arrived with the any-name form.
+//! behave like the hand-written ones they stand for — plus the `Iter` group
+//! [iter-group] and the step-call `for` [iter-step-call].
 //!
 //! The expansion happens in `salvo_syntax::desugar`, before resolution, so
 //! every test here goes through the ordinary checker.
@@ -44,7 +44,7 @@ const STD_PRELUDE: &str =
      export fn emitted<T>(value: T) [] -> +Emitted T => !value {\n    return value\n}\n\
      export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
      export params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
-     export params Iter<C, T> => iter with next {\n    fn iter(collection: C) -> iter T\n    fn next(iterator: iter T) -> Emitted T | Finished => iterator: Mut\n}\n\
+     export params Iter<C, It, T> => iter with next {\n    fn iter(collection: C) -> Mut It\n    fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut\n}\n\
      export effect Console {\n    fn print(message: Str) -> None => !message\n}\n\
      export handler StdConsole of Console {\n    fn print(message: Str) -> None => !message {}\n}\n\
      export fn println(message: Str) [Console] -> None => !message {}\n";
@@ -77,9 +77,7 @@ fn errors(src: &str) -> Vec<String> {
         );
         modules.push(ast);
     }
-    // The program-level expansion, as every driver runs it: the `iter fn`
-    // desugaring sees every file's structs, and the `iter T` hoisting sees
-    // the prelude's `Iter` group [iter-group].
+    // The program-level expansion, as every driver runs it.
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     parse_errors.extend(
         expansion
@@ -117,7 +115,7 @@ struct Countdown {
 }
 
 iter fn iter(c: Countdown) -> Emitted Int | Finished {
-    state {
+    state CountdownIter {
         at: Int = c.from
     }
     if at <= 0 {
@@ -170,7 +168,7 @@ fn a_state_field_is_type_checked() {
     let errs = errors(
         "struct S { n: Int }\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int = \"not a number\"\n    }\n    \
+         state SIter {\n        at: Int = \"not a number\"\n    }\n    \
          return finished()\n}\n",
     );
     assert!(
@@ -187,7 +185,7 @@ fn the_subject_is_read_only() {
     let errs = errors(
         "struct S canbe Mut { n: Int }\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int = 0\n    }\n    \
+         state SIter2 {\n        at: Int = 0\n    }\n    \
          s.n = 5\n    return finished()\n}\n",
     );
     assert!(
@@ -205,7 +203,7 @@ fn a_state_initializer_may_not_perform_effects() {
         "struct S { n: Int }\n\
          fn noisy() [Console] -> Int {\n    println(\"hi\")\n    return 1\n}\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int = noisy()\n    }\n    \
+         state SIter3 {\n        at: Int = noisy()\n    }\n    \
          return finished()\n}\n",
     );
     assert!(
@@ -223,7 +221,7 @@ fn a_state_initializer_may_not_perform_effects() {
 fn an_iter_fn_may_have_any_name_and_scalar_parameters() {
     let errs = errors(
         "iter fn countdown(from: Int) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int = from\n    }\n    \
+         state Countdown {\n        at: Int = from\n    }\n    \
          if at <= 0 {\n        return finished()\n    }\n    \
          at = at - 1\n    return emitted(at + 1)\n}\n\
          fn go() -> Int {\n    let sum = 0\n    for n in countdown(3) {\n        sum = sum + n\n    }\n    \
@@ -238,7 +236,7 @@ fn an_iter_fn_may_have_any_name_and_scalar_parameters() {
 fn an_iter_fn_may_take_several_parameters() {
     let errs = errors(
         "iter fn take(xs: List<Int>, count: Int) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int = 0\n    }\n    \
+         state Take {\n        at: Int = 0\n    }\n    \
          if at >= count {\n        return finished()\n    }\n    \
          let e = get(xs, at)\n    if e is None {\n        return finished()\n    }\n    \
          at = at + 1\n    return emitted(copy(e))\n}\n\
@@ -252,7 +250,7 @@ fn an_iter_fn_may_take_several_parameters() {
 #[test]
 fn an_iter_fn_refuses_a_variadic_parameter() {
     let errs = errors(
-        "iter fn each(...xs: Int[]) -> Emitted Int | Finished {\n    return finished()\n}\n",
+        "iter fn each(...xs: Int[]) -> Emitted Int | Finished {\n    state Each {}\n    return finished()\n}\n",
     );
     assert!(
         errs.iter().any(|e| e.contains("cannot take a variadic parameter")),
@@ -266,7 +264,7 @@ fn an_iter_fn_refuses_a_variadic_parameter() {
 fn a_mut_subject_is_refused() {
     let errs = errors(
         "struct S canbe Mut { n: Int }\n\
-         iter fn iter(s: Mut S) -> Emitted Int | Finished {\n    return finished()\n}\n",
+         iter fn iter(s: Mut S) -> Emitted Int | Finished {\n    state SIter {}\n    return finished()\n}\n",
     );
     assert!(
         errs.iter().any(|e| e.contains("read, not advanced")),
@@ -280,7 +278,7 @@ fn a_mut_subject_is_refused() {
 fn the_result_must_be_emitted_or_finished() {
     let errs = errors(
         "struct S { n: Int }\n\
-         iter fn iter(s: S) -> Int {\n    return 1\n}\n",
+         iter fn iter(s: S) -> Int {\n    state SIter4 {}\n    return 1\n}\n",
     );
     assert!(
         errs.iter()
@@ -296,11 +294,11 @@ fn a_binding_may_not_shadow_a_state_field() {
     let errs = errors(
         "struct S { n: Int }\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int = 0\n    }\n    \
+         state SIter5 {\n        at: Int = 0\n    }\n    \
          let at = 3\n    return finished()\n}\n",
     );
     assert!(
-        errs.iter().any(|e| e.contains("would shadow it")),
+        errs.iter().any(|e| e.contains("may not reuse it")),
         "{errs:?}"
     );
 }
@@ -310,11 +308,11 @@ fn a_binding_may_not_shadow_the_subject() {
     let errs = errors(
         "struct S { n: Int }\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int = 0\n    }\n    \
+         state SIter6 {\n        at: Int = 0\n    }\n    \
          for s in List(1, 2) {}\n    return finished()\n}\n",
     );
     assert!(
-        errs.iter().any(|e| e.contains("would shadow it")),
+        errs.iter().any(|e| e.contains("may not reuse it")),
         "{errs:?}"
     );
 }
@@ -326,7 +324,7 @@ fn a_state_field_may_not_be_named_like_the_subject() {
     let errs = errors(
         "struct S { n: Int }\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
-         state {\n        s: Int = 0\n    }\n    \
+         state SIter7 {\n        s: Int = 0\n    }\n    \
          return finished()\n}\n",
     );
     assert!(
@@ -340,7 +338,7 @@ fn a_state_field_may_not_be_named_like_the_subject() {
 #[test]
 fn a_structural_subject_is_refused() {
     let errs = errors(
-        "iter fn iter(items: Int[]) -> Emitted Int | Finished {\n    return finished()\n}\n",
+        "iter fn iter(items: Int[]) -> Emitted Int | Finished {\n    state ItemsIter {}\n    return finished()\n}\n",
     );
     assert!(
         errs.iter().any(|e| e.contains("must be a named type")),
@@ -355,7 +353,7 @@ fn a_state_field_needs_an_initializer() {
     let errs = errors(
         "struct S { n: Int }\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int\n    }\n    \
+         state SIter8 {\n        at: Int\n    }\n    \
          return finished()\n}\n",
     );
     assert!(
@@ -364,46 +362,28 @@ fn a_state_field_needs_an_initializer() {
     );
 }
 
+/// An empty block is a struct holding the parameters only.
 #[test]
-fn an_empty_state_block_is_refused() {
+fn an_empty_state_block_holds_the_parameters() {
     let errs = errors(
         "struct S { n: Int }\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
-         state {\n    }\n    \
+         state SIter9 {\n    }\n    \
          return finished()\n}\n",
     );
-    assert!(
-        errs.iter().any(|e| e.contains("declares nothing")),
-        "{errs:?}"
-    );
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// The generated pass is **not nameable**: `__Iter_iter_S` is the compiler's, and a
-/// written type reference may not reach it. (Without this, the first boundary
-/// the design rests on — a pass you must name is written by hand — would leak.)
-#[test]
-fn the_generated_pass_type_cannot_be_written() {
-    let errs = errors(&format!(
-        "{COUNTDOWN}\nfn hold(p: __Iter_iter_Countdown) -> None => !p {{}}\n"
-    ));
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("compiler-generated name and cannot be written")),
-        "{errs:?}"
-    );
-}
+// --- reading the subject ------------------------------------------------------
 
-// --- how much of the subject the pass holds ---------------------------------
-
-/// [iter-fn] Tier 2: reading a subject field on every turn is fine — the mint
-/// snapshots that field. What matters here is that it still *checks*: the
-/// snapshot carries the field's declared type.
+/// [iter-fn] Reading a subject field on every turn reads it through the
+/// iterator's borrow of the subject, typed by the field's declaration.
 #[test]
 fn a_subject_field_read_per_turn_is_typed_by_its_declaration() {
     let errs = errors(
         "struct S { limit: Int }\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int = 0\n    }\n    \
+         state SIter10 {\n        at: Int = 0\n    }\n    \
          if at >= s.limit {\n        return finished()\n    }\n    \
          at = at + 1\n    return emitted(copy(at))\n}\n",
     );
@@ -411,14 +391,13 @@ fn a_subject_field_read_per_turn_is_typed_by_its_declaration() {
 }
 
 /// A field the subject does not have is reported against the subject's own
-/// type, not against the generated pass — which is why the whole subject is
-/// kept when a read cannot be resolved to a declared field.
+/// type, not against the generated iterator struct.
 #[test]
 fn an_unknown_subject_field_is_reported_against_the_subject() {
     let errs = errors(
         "struct S { limit: Int }\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int = 0\n    }\n    \
+         state SIter11 {\n        at: Int = 0\n    }\n    \
          if at >= s.limmit {\n        return finished()\n    }\n    \
          return finished()\n}\n",
     );
@@ -428,30 +407,28 @@ fn an_unknown_subject_field_is_reported_against_the_subject() {
     );
 }
 
-/// Tier 3: the body hands the subject on as a value, so no per-field snapshot
-/// can stand in for it and the pass keeps a copy. Legality is what is asserted
-/// here; which shape was emitted is each backend's test.
+/// The body may hand the subject on as a value.
 #[test]
 fn the_whole_subject_may_be_handed_on() {
     let errs = errors(
         "struct S { n: Int }\n\
          fn describe(s: S) -> Int => s {\n    return s.n\n}\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
-         state {\n        left: Int = s.n\n    }\n    \
+         state SIter12 {\n        left: Int = s.n\n    }\n    \
          if left <= 0 {\n        return finished()\n    }\n    \
          left = left - 1\n    return emitted(describe(s))\n}\n",
     );
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// A `state` field named like a subject field the body also reads: the snapshot
-/// moves into the compiler's namespace rather than colliding.
+/// A `state` field named like a subject field the body also reads: the
+/// subject is held whole, so the two never meet.
 #[test]
 fn a_state_field_may_share_a_name_with_a_subject_field() {
     let errs = errors(
         "struct S { at: Int, limit: Int }\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int = s.at\n    }\n    \
+         state SIter13 {\n        at: Int = s.at\n    }\n    \
          if at >= s.limit {\n        return finished()\n    }\n    \
          at = at + 1\n    return emitted(copy(at))\n}\n",
     );
@@ -465,10 +442,8 @@ fn a_state_field_may_share_a_name_with_a_subject_field() {
 /// the pass type `It` is decided by *which `iter` fills it* — and then the
 /// `?Yield<It, T>` beside it resolves against what that taught.
 ///
-/// The reason this had to work: with an `iter fn` the pass type is **unnameable**,
-/// so writing the type arguments is not an available workaround. Before the
-/// learning sweep ran after the arguments were typed, `next` was reported as
-/// ambiguous with `It` still `?`.
+/// Before the learning sweep ran after the arguments were typed, `next` was
+/// reported as ambiguous with `It` still `?`.
 const CONTAINER_COMBINATOR: &str = r#"
 fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) -> Int =>[iter] c => c {
     let sum = 0
@@ -480,8 +455,7 @@ fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) ->
 }
 "#;
 
-/// The case that was impossible: the pass is the one an `iter fn` generated, so
-/// no type argument could name it.
+/// The pass is the one an `iter fn` generated.
 #[test]
 fn a_generic_fn_infers_the_pass_type_of_an_iter_fn_subject() {
     let errs = errors(&format!(
@@ -525,15 +499,15 @@ fn an_undetermined_container_reports_the_ambiguity() {
 }
 
 /// [iter-fn] The integration guard: a driver that parses with
-/// `parse_module_deferred` owes the module a program-level
-/// `expand_iter_fns_with` before resolution. A surviving `iter fn` must
+/// `parse_module_deferred` owes the module the program-level expansion
+/// (`salvo_core::expand`) before resolution. A surviving `iter fn` must
 /// never be checked as an ordinary fn (silently different behavior), so
 /// resolve reports it loudly instead.
 #[test]
 fn an_unexpanded_iter_fn_is_a_loud_resolution_error() {
     let src = "struct Countdown {\n    from: Int\n}\n\
                iter fn iter(c: Countdown) -> Emitted Int | Finished {\n\
-               \x20   state {\n        at: Int = 0\n    }\n\
+               \x20   state CountdownIter {\n        at: Int = 0\n    }\n\
                \x20   if at >= c.from {\n        return finished()\n    }\n\
                \x20   at = at + 1\n\
                \x20   return emitted(at)\n\
@@ -576,13 +550,14 @@ fn an_unexpanded_iter_fn_is_a_loud_resolution_error() {
 
 // --- [iter-group] the `Iter` group -------------------------------------------
 
-/// `: Iter<self, T>` is satisfied by an `iter fn iter` over the type.
+/// `: Iter<self, It, T>` is satisfied by an `iter fn iter` over the type whose
+/// state is `It`.
 #[test]
 fn an_iter_obligation_is_satisfied_by_an_iter_fn() {
     let errs = errors(
-        "struct Bag : Iter<self, Int> { items: List<Int> }\n\
+        "struct Bag : Iter<self, BagIter, Int> { items: List<Int> }\n\
          iter fn iter(bag: Bag) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int = 0\n    }\n    \
+         state BagIter {\n        at: Int = 0\n    }\n    \
          let e = get(bag.items, at)\n    if e is None {\n        return finished()\n    }\n    \
          at = at + 1\n    return emitted(copy(e))\n}\n\
          fn go() -> Int {\n    let b = Bag { items: List(1, 2) }\n    let sum = 0\n    \
@@ -591,12 +566,11 @@ fn an_iter_obligation_is_satisfied_by_an_iter_fn() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// …or by a hand-written `iter` returning a named iterator struct (the
-/// "declared" reading: `iter T` denotes a type declaring `: Yield<self, T>`).
+/// …or by a hand-written `iter` returning the named iterator struct.
 #[test]
 fn an_iter_obligation_is_satisfied_by_a_minter_of_a_named_struct() {
     let errs = errors(
-        "struct Bag : Iter<self, Int> { items: List<Int> }\n\
+        "struct Bag : Iter<self, BagIter, Int> { items: List<Int> }\n\
          struct BagIter : Yield<self, Int> canbe Mut { items: proj List<Int>, at: Int }\n\
          fn iter(bag: Bag) -> Mut BagIter => bag {\n    \
          return Mut BagIter { items: bag.items, at: 0 }\n}\n\
@@ -607,13 +581,16 @@ fn an_iter_obligation_is_satisfied_by_a_minter_of_a_named_struct() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// An obligation with no minter behind it is an error at the struct, naming
-/// both ways to write one.
+/// An obligation with no minter behind it is an error at the struct.
 #[test]
 fn an_unsatisfied_iter_obligation_is_reported_at_the_struct() {
-    let errs = errors("struct Bag : Iter<self, Int> { items: List<Int> }\n");
+    let errs = errors(
+        "struct Bag : Iter<self, BagIter, Int> { items: List<Int> }\n\
+         struct BagIter : Yield<self, Int> canbe Mut { at: Int }\n\
+         fn next(p: Mut BagIter) -> Emitted Int | Finished => p: Mut {\n    return finished()\n}\n",
+    );
     assert!(
-        errs.iter().any(|e| e.contains("no visible `iter` matches") && e.contains("iter fn iter")),
+        errs.iter().any(|e| e.contains("no visible `iter` matches")),
         "{errs:?}"
     );
 }
@@ -623,8 +600,8 @@ fn an_unsatisfied_iter_obligation_is_reported_at_the_struct() {
 #[test]
 fn iter_and_yield_on_one_struct_is_refused() {
     let errs = errors(
-        "struct Both : Iter<self, Int>, Yield<self, Int> canbe Mut { at: Int }\n\
-         iter fn iter(b: Both) -> Emitted Int | Finished {\n    return finished()\n}\n\
+        "struct Both : Iter<self, BothIter, Int>, Yield<self, Int> canbe Mut { at: Int }\n\
+         iter fn iter(b: Both) -> Emitted Int | Finished {\n    state BothIter {}\n    return finished()\n}\n\
          fn next(b: Mut Both) -> Emitted Int | Finished => b: Mut {\n    return finished()\n}\n",
     );
     assert!(
@@ -633,22 +610,21 @@ fn iter_and_yield_on_one_struct_is_refused() {
     );
 }
 
-/// `?Iter<C, T>` spreads over a **hidden** iterator type: `for x in c` mints
-/// with the `iter` implicit and drives with the `next` beside it, and a call
-/// fills the pair from whatever `C` turns out to be — an `iter fn`'s minter, a
-/// named struct's, or std's own.
+/// `?Iter<C, It, T>`: `for x in c` mints with the `iter` implicit and drives
+/// with the `next` beside it, and a call fills the pair from whatever `C`
+/// turns out to be — an `iter fn`'s minter, a named struct's, or std's own.
 #[test]
-fn a_spread_over_a_generic_source_drives_through_its_hidden_iterator() {
+fn a_spread_over_a_generic_source_drives_through_its_iterator() {
     let errs = errors(&format!(
         "{COUNTDOWN}\n\
-         fn total<C>(c: C, ?Iter<C, Int>) -> Int => c {{\n    let sum = 0\n    \
+         fn total<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c {{\n    let sum = 0\n    \
          for n in c {{\n        sum = sum + n\n    }}\n    return sum\n}}\n\
          fn go() -> Int {{\n    let c = Countdown {{ from: 3 }}\n    return total(c)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// Inside the spreading fn, `iter(c)` yields the hidden iterator, which a
+/// Inside the spreading fn, `iter(c)` yields the `It`, which a
 /// `?Yield` combinator accepts with the paired `next` forwarded.
 #[test]
 fn a_spread_forwards_its_pair_to_a_yield_combinator() {
@@ -656,7 +632,7 @@ fn a_spread_forwards_its_pair_to_a_yield_combinator() {
         "{COUNTDOWN}\n\
          fn count_it<It>(it: Mut It, ?Yield<It, Int>) -> Int => it: Mut {{\n    let n = 0\n    \
          for x in it {{\n        n = n + 1\n    }}\n    return n\n}}\n\
-         fn count<C>(c: C, ?Iter<C, Int>) -> Int => c {{\n    let p = iter(c)\n    return count_it(p)\n}}\n\
+         fn count<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c {{\n    let p = iter(c)\n    return count_it(p)\n}}\n\
          fn go() -> Int {{\n    return count(Countdown {{ from: 3 }})\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
@@ -711,123 +687,61 @@ fn a_step_result_value_is_not_iterable() {
     );
 }
 
-// --- [iter-type] the placeholder ---------------------------------------------
+// --- [iter-fn] the named state struct, and every parameter held -----------
 
-/// `-> iter T` on a fn with a body is a pattern filled from the body's
-/// returns; callers see the concrete struct, so the result drives and holds.
+/// The struct is named by the `state` block, so a fn handing an iterator out
+/// writes its type (what `-> iter T` used to fill from the body).
 #[test]
-fn a_return_pattern_is_filled_from_the_body() {
+fn the_state_struct_is_an_ordinary_type() {
     let errs = errors(&format!(
         "{COUNTDOWN}\n\
-         fn from(n: Int) -> iter Int {{\n    let c = Countdown {{ from: n }}\n    return iter(c)\n}}\n\
-         fn go() -> Int {{\n    let sum = 0\n    for x in from(3) {{\n        sum = sum + x\n    }}\n    \
-         let p = from(2)\n    let s = next(p)\n    return sum\n}}\n"
+         fn from(c: Countdown) -> Mut CountdownIter => c {{\n    return iter(c)\n}}\n\
+         fn go() -> Int {{\n    let c = Countdown {{ from: 3 }}\n    let sum = 0\n    for x in from(c) {{\n        sum = sum + x\n    }}\n    \
+         let p: Mut CountdownIter = from(c)\n    let s = next(p)\n    return sum\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// Two anonymous iterator structs never unify: every return must mint the
-/// same one.
+/// The name is declared beside the fn, so it collides with a type of the same
+/// name there — and with another `iter fn`'s state.
 #[test]
-fn a_return_pattern_refuses_two_different_iterators() {
-    let errs = errors(&format!(
-        "{COUNTDOWN}\n\
-         iter fn ones(n: Int) -> Emitted Int | Finished {{\n    return finished()\n}}\n\
-         fn pick(flag: Bool) -> iter Int {{\n    if flag {{\n        return ones(1)\n    }}\n    \
-         return iter(Countdown {{ from: 2 }})\n}}\n"
-    ));
-    assert!(
-        errs.iter().any(|e| e.contains("must mint the same")),
-        "{errs:?}"
-    );
-}
-
-/// The element must match.
-#[test]
-fn a_return_pattern_checks_the_element_type() {
-    let errs = errors(&format!(
-        "{COUNTDOWN}\n\
-         fn from(n: Int) -> iter Str {{\n    return iter(Countdown {{ from: n }})\n}}\n"
-    ));
-    assert!(
-        errs.iter().any(|e| e.contains("is an iterator of `Int`, not of `Str`")),
-        "{errs:?}"
-    );
-}
-
-/// A `let` annotation is a pattern too; the variable keeps the concrete type.
-#[test]
-fn a_let_annotation_is_a_pattern() {
-    let errs = errors(&format!(
-        "{COUNTDOWN}\n\
-         fn go() -> Int {{\n    let p: iter Int = iter(Countdown {{ from: 3 }})\n    \
-         let s = next(p)\n    return 0\n}}\n"
-    ));
-    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+fn a_state_name_collides_with_a_type() {
     let errs = errors(
-        "fn go() -> None {\n    let p: iter Int = 3\n}\n",
+        "struct Range { a: Int }\n\
+         iter fn upto(n: Int) -> Emitted Int | Finished {\n    state Range {\n        at: Int = 0\n    }\n    return finished()\n}\n",
     );
     assert!(
-        errs.iter().any(|e| e.contains("is not an iterator struct")),
+        errs.iter().any(|e| e.contains("duplicate struct `Range`")),
+        "{errs:?}"
+    );
+    let errs = errors(
+        "iter fn upto(n: Int) -> Emitted Int | Finished {\n    state Upto {}\n    return finished()\n}\n\
+         iter fn downto(n: Int) -> Emitted Int | Finished {\n    state Upto {}\n    return finished()\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("duplicate struct `Upto`")),
         "{errs:?}"
     );
 }
 
-/// `iter T` already means `Mut`.
+/// Every `iter fn` names its struct: no `state` block is an error.
 #[test]
-fn mut_iter_is_refused_as_a_duplicate() {
-    let errs = errors(&format!(
-        "{COUNTDOWN}\n\
-         fn go() -> None {{\n    let p: Mut iter Int = iter(Countdown {{ from: 3 }})\n}}\n"
-    ));
+fn a_missing_state_block_is_refused() {
+    let errs = errors("iter fn ones(n: Int) -> Emitted Int | Finished {\n    return finished()\n}\n");
     assert!(
-        errs.iter().any(|e| e.contains("already mutable")),
+        errs.iter().any(|e| e.contains("names its iterator struct")),
+        "{errs:?}"
+    );
+    let errs = errors("iter fn ones(n: Int) -> Emitted Int | Finished {\n    state {}\n    return finished()\n}\n");
+    assert!(
+        errs.iter().any(|e| e.contains("names the iterator struct")),
         "{errs:?}"
     );
 }
 
-/// An effect member is implemented per handler, so no one iterator struct
-/// stands behind an `iter T` there.
+/// `iter T` is gone: what wrote it writes a generic with its spread.
 #[test]
-fn an_iter_type_in_an_effect_member_is_refused() {
-    let errs = errors("effect Source {\n    fn things() -> iter Int\n}\n");
-    assert!(
-        errs.iter().any(|e| e.contains("cannot appear in the signature of effect member")),
-        "{errs:?}"
-    );
-}
-
-/// In a parameter position the placeholder is a hidden generic — "any iterator
-/// struct emitting `T`" — fresh per occurrence.
-#[test]
-fn an_iter_parameter_is_a_hidden_generic() {
-    let errs = errors(&format!(
-        "{COUNTDOWN}\n\
-         iter fn ones(n: Int) -> Emitted Int | Finished {{\n    return finished()\n}}\n\
-         fn first_two(it: iter Int) -> Int => it: Mut {{\n    let sum = 0\n    \
-         for x in it {{\n        sum = sum + x\n    }}\n    return sum\n}}\n\
-         fn go() -> Int {{\n    let p = iter(Countdown {{ from: 3 }})\n    let q = ones(2)\n    \
-         return first_two(p) + first_two(q) + first_two(p)\n}}\n"
-    ));
-    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
-}
-
-/// A field holds one concrete type; `iter T` there would be an existential.
-#[test]
-fn an_iter_type_in_a_field_is_refused() {
-    let errs = errors("struct Cursor { rows: iter Int }\n");
-    assert!(
-        errs.iter().any(|e| e.contains("cannot be typed `iter T`")),
-        "{errs:?}"
-    );
-}
-
-/// A fn type's return is the value's own to choose.
-#[test]
-fn an_iter_type_in_a_fn_type_is_refused() {
-    let errs = errors("fn drive(f: (Int) -> iter Int) -> None => f {}\n");
-    assert!(
-        errs.iter().any(|e| e.contains("cannot appear in a function type")),
-        "{errs:?}"
-    );
+fn iter_t_is_not_a_type() {
+    let errs = errors("fn first(it: iter Int) -> Int => it: Mut {\n    return 0\n}\n");
+    assert!(!errs.is_empty(), "expected `iter Int` to be refused");
 }

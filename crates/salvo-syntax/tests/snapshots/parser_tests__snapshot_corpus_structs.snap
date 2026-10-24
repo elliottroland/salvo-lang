@@ -245,6 +245,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "build",
@@ -814,6 +815,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "mutate",
@@ -919,6 +921,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "interpolate",

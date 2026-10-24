@@ -337,7 +337,7 @@ special case, `foreach`.
   step. The iterator is minted first:
 
   ```
-  bind#4 let __pass~3: Mut __Iter_halving_Int = call main::halving(8)
+  bind#4 let __pass~3: Mut Halving = call main::halving(8)
   loop#3 {
     bind#5 let __step~4: Int | Finished = call main::next(read __pass~3)
     switch#6 read __step~4 {

@@ -152,16 +152,16 @@ data class MapEntry<K, V>(
     val value: V,
 )
 
-data class __Iter_entries_Map<K, V>(
+data class MapEntries<K, V>(
     var map: salvo.platform.core.map.Map<K, V>,
     var at: Int,
 )
 
-fun<K, V> entries(map: salvo.platform.core.map.Map<K, V>): __Iter_entries_Map<K, V> {
-    return __Iter_entries_Map<K, V>(map = map, at = 0)
+fun<K, V> entries(map: salvo.platform.core.map.Map<K, V>): MapEntries<K, V> {
+    return MapEntries<K, V>(map = map, at = 0)
 }
 
-fun<K, V> next__Iter_entries_Map(__p: __Iter_entries_Map<K, V>): Union2<MapEntry<K, V>, salvo.core.iterator.Finished> {
+fun<K, V> next__MapEntries(__p: MapEntries<K, V>): Union2<MapEntry<K, V>, salvo.core.iterator.Finished> {
     while (true) {
         if (!((__p.at < slotCountPlatform(__p.map)))) {
             break
@@ -178,16 +178,16 @@ fun<K, V> next__Iter_entries_Map(__p: __Iter_entries_Map<K, V>): Union2<MapEntry
     return Union2.U2<MapEntry<K, V>, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
 }
 
-data class __Iter_values_Map<K, V>(
+data class MapValues<K, V>(
     var map: salvo.platform.core.map.Map<K, V>,
     var at: Int,
 )
 
-fun<K, V> values(map: salvo.platform.core.map.Map<K, V>): __Iter_values_Map<K, V> {
-    return __Iter_values_Map<K, V>(map = map, at = 0)
+fun<K, V> values(map: salvo.platform.core.map.Map<K, V>): MapValues<K, V> {
+    return MapValues<K, V>(map = map, at = 0)
 }
 
-fun<K, V> next__Iter_values_Map(__p: __Iter_values_Map<K, V>): Union2<V, salvo.core.iterator.Finished> {
+fun<K, V> next__MapValues(__p: MapValues<K, V>): Union2<V, salvo.core.iterator.Finished> {
     while (true) {
         if (!((__p.at < slotCountPlatform(__p.map)))) {
             break

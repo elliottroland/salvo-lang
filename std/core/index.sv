@@ -53,7 +53,7 @@ export qualifier Idx<C canbe linear>(c: C) of Int {
 // and a `for` binds it to the *source* list's identity, so the claim reads
 // `Idx(xs)` in the loop body.
 export iter fn indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished {
-    state {
+    state Indices {
         // The index the next turn emits.
         at: Int = 0
     }
@@ -69,7 +69,7 @@ export iter fn indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished 
 // **the founding example of the refinement-types design**: the descending
 // loop whose body needs no `!`.
 export iter fn rev_indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished {
-    state {
+    state RevIndices {
         at: Int = size(list) - 1
     }
     if at < 0 {

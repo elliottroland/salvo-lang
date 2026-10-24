@@ -36,12 +36,12 @@ let letters = filter(iter("hello"), keep)   // a string's characters
 let capped = map(countdown(3), double)      // an `iter fn` of your own
 ```
 
-A type of your own joins in by declaring `: Iter<self, T>` and an `iter` —
-an `iter fn`, or a fn handing back a named iterator struct
-([Iterators](Iterators.md)):
+A type of your own joins in by declaring `: Iter<self, It, T>`, naming its
+iterator struct, and an `iter` — an `iter fn` whose `state` is that struct, or
+a fn handing one back ([Iterators](Iterators.md)):
 
 ```
-struct Bag : Iter<self, Int> {
+struct Bag : Iter<self, ListYield<Int>, Int> {
     items: List<Int>
 }
 
@@ -56,13 +56,13 @@ Inference runs *through* the group: `It` comes from the subject, and `T` — the
 element type — is read from `It`'s `: Yield<self, T>` clause. That is what lets
 the lambda be written bare (`n -> n * 2`) with no annotation anywhere.
 
-The other spread, `?Iter<C, T>`, is for a combinator over a **source** rather
-than an iterator: it brings in the `iter` that mints and the `next` that drives,
-over a hidden iterator type, so `total(xs)` and `total(bag)` both work and the
-body writes `for x in c`:
+The other spread, `?Iter<C, It, T>`, is for a combinator over a **source**
+rather than an iterator: it brings in the `iter` that mints an `It` and the
+`next` that drives it, so `total(xs)` and `total(bag)` both work and the body
+writes `for x in c`:
 
 ```
-fn total<C>(c: C, ?Iter<C, Int>) -> Int => c {
+fn total<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c {
     let sum = 0
     for n in c {
         sum = sum + n

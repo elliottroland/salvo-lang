@@ -227,16 +227,16 @@ pub struct MapEntry<'s, K, V> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_entries_Map<'s, K, V> {
+pub struct MapEntries<'s, K, V> {
     pub map: &'s crate::core_map::Map<K, V>,
     pub at: i32,
 }
 
-pub fn entries<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>) -> crate::core_map::__Iter_entries_Map<'_, K, V> {
-    return crate::core_map::__Iter_entries_Map { map: map, at: 0i32 };
+pub fn entries<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>) -> crate::core_map::MapEntries<'_, K, V> {
+    return crate::core_map::MapEntries { map: map, at: 0i32 };
 }
 
-pub fn next__Iter_entries_Map<'a, K: Clone, V: Clone>(__p: &mut crate::core_map::__Iter_entries_Map<'a, K, V>) -> crate::unions::Union2<crate::core_map::MapEntry<'a, K, V>, crate::core_iterator::Finished> {
+pub fn next__MapEntries<'a, K: Clone, V: Clone>(__p: &mut crate::core_map::MapEntries<'a, K, V>) -> crate::unions::Union2<crate::core_map::MapEntry<'a, K, V>, crate::core_iterator::Finished> {
     loop {
         if !((__p.at < crate::core_map::slot_count_platform::<K, V>(__p.map))) {
             break;
@@ -254,16 +254,16 @@ pub fn next__Iter_entries_Map<'a, K: Clone, V: Clone>(__p: &mut crate::core_map:
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_values_Map<'s, K, V> {
+pub struct MapValues<'s, K, V> {
     pub map: &'s crate::core_map::Map<K, V>,
     pub at: i32,
 }
 
-pub fn values<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>) -> crate::core_map::__Iter_values_Map<'_, K, V> {
-    return crate::core_map::__Iter_values_Map { map: map, at: 0i32 };
+pub fn values<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>) -> crate::core_map::MapValues<'_, K, V> {
+    return crate::core_map::MapValues { map: map, at: 0i32 };
 }
 
-pub fn next__Iter_values_Map<'a, K: Clone, V: Clone>(__p: &mut crate::core_map::__Iter_values_Map<'a, K, V>) -> crate::unions::Union2<&'a V, crate::core_iterator::Finished> {
+pub fn next__MapValues<'a, K: Clone, V: Clone>(__p: &mut crate::core_map::MapValues<'a, K, V>) -> crate::unions::Union2<&'a V, crate::core_iterator::Finished> {
     loop {
         if !((__p.at < crate::core_map::slot_count_platform::<K, V>(__p.map))) {
             break;

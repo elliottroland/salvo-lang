@@ -29,6 +29,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "next_random",
@@ -93,6 +94,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "println",
@@ -375,6 +377,7 @@ Module {
                         span: 301..311,
                     },
                 ],
+                state_name: None,
                 fns: [
                     FnDecl {
                         docs: [],
@@ -383,6 +386,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "next_random",
@@ -542,6 +546,7 @@ Module {
                 init: None,
                 mailbox: None,
                 state: [],
+                state_name: None,
                 fns: [
                     FnDecl {
                         docs: [],
@@ -550,6 +555,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "println",
@@ -636,6 +642,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "main",
@@ -770,6 +777,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "age_prediction",
@@ -1062,6 +1070,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "parse_length",
@@ -1278,6 +1287,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "describe_length",

@@ -232,11 +232,7 @@ pub fn lends_of(decl: &FnDecl, env: &mut LendsEnv<'_, '_>) -> Vec<usize> {
         env.memo.insert(key, Vec::new());
         return Vec::new();
     };
-    // [iter-type] A `-> iter T` pattern names no struct, so the written
-    // type cannot say whether the result borrows; whichever iterator struct
-    // the body mints may (a walking iterator holds its source), so the
-    // inference runs on the body.
-    if !holds_proj(ret, env.structs) && salvo_syntax::desugar::split_iter_qualifier(ret).is_none() {
+    if !holds_proj(ret, env.structs) {
         env.memo.insert(key, Vec::new());
         return Vec::new();
     }

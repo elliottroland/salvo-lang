@@ -67,8 +67,8 @@ Module {
                 annotations: [],
                 exported: false,
                 name: Ident {
-                    name: "__Iter_iter_Countdown",
-                    span: 41..42,
+                    name: "CountdownIter",
+                    span: 101..114,
                 },
                 generics: [],
                 generic_canbe: [],
@@ -145,19 +145,36 @@ Module {
                 ],
                 fields: [
                     FieldDecl {
-                        docs: [],
+                        docs: [
+                            "The `c` being iterated — borrowed, so the iterator is a view of it [proj-field]: nothing is copied at the mint, and the value cannot be moved or mutated while the iterator lives [iter-fn].",
+                        ],
                         annotations: [],
                         name: Ident {
-                            name: "at",
-                            span: 111..113,
+                            name: "c",
+                            span: 43..44,
                         },
                         ty: Some(
                             Named {
-                                qualifiers: [],
+                                qualifiers: [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "proj",
+                                            span: 43..44,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 43..44,
+                                    },
+                                ],
                                 base: TypeRef {
                                     name: Ident {
-                                        name: "Int",
-                                        span: 115..118,
+                                        name: "Countdown",
+                                        span: 52..61,
                                     },
                                     args: [],
                                     value_args: [],
@@ -166,13 +183,43 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 115..118,
+                                    span: 52..61,
                                 },
                             },
                         ),
                         canbe_mut: false,
                         default: None,
-                        span: 111..127,
+                        span: 43..44,
+                    },
+                    FieldDecl {
+                        docs: [],
+                        annotations: [],
+                        name: Ident {
+                            name: "at",
+                            span: 125..127,
+                        },
+                        ty: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Int",
+                                        span: 129..132,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 129..132,
+                                },
+                            },
+                        ),
+                        canbe_mut: false,
+                        default: None,
+                        span: 125..141,
                     },
                 ],
                 fns: [],
@@ -187,13 +234,19 @@ Module {
             FnDecl {
                 docs: [
                     "",
-                    "Mints a fresh iterator (`iter Int`) — generated from `iter fn iter` [iter-fn].",
+                    "Mints a fresh `CountdownIter` — generated from `iter fn iter` [iter-fn].",
                 ],
                 exported: false,
                 intrinsic: false,
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: Some(
+                    Ident {
+                        name: "CountdownIter",
+                        span: 101..114,
+                    },
+                ),
                 is_send: false,
                 name: Ident {
                     name: "iter",
@@ -275,8 +328,8 @@ Module {
                         ],
                         base: TypeRef {
                             name: Ident {
-                                name: "__Iter_iter_Countdown",
-                                span: 41..42,
+                                name: "CountdownIter",
+                                span: 101..114,
                             },
                             args: [],
                             value_args: [],
@@ -318,8 +371,8 @@ Module {
                                                     ],
                                                     base: TypeRef {
                                                         name: Ident {
-                                                            name: "__Iter_iter_Countdown",
-                                                            span: 41..42,
+                                                            name: "CountdownIter",
+                                                            span: 101..114,
                                                         },
                                                         args: [],
                                                         value_args: [],
@@ -336,24 +389,39 @@ Module {
                                                 StructLitField {
                                                     kind: Named {
                                                         name: Ident {
+                                                            name: "c",
+                                                            span: 43..44,
+                                                        },
+                                                        value: Ident(
+                                                            Ident {
+                                                                name: "c",
+                                                                span: 46..47,
+                                                            },
+                                                        ),
+                                                    },
+                                                    span: 43..44,
+                                                },
+                                                StructLitField {
+                                                    kind: Named {
+                                                        name: Ident {
                                                             name: "at",
-                                                            span: 111..113,
+                                                            span: 125..127,
                                                         },
                                                         value: Field {
                                                             base: Ident(
                                                                 Ident {
                                                                     name: "c",
-                                                                    span: 121..122,
+                                                                    span: 135..136,
                                                                 },
                                                             ),
                                                             field: Ident {
                                                                 name: "from",
-                                                                span: 123..127,
+                                                                span: 137..141,
                                                             },
-                                                            span: 121..127,
+                                                            span: 135..141,
                                                         },
                                                     },
-                                                    span: 111..127,
+                                                    span: 125..141,
                                                 },
                                             ],
                                             span: 44..45,
@@ -379,6 +447,12 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: Some(
+                    Ident {
+                        name: "CountdownIter",
+                        span: 101..114,
+                    },
+                ),
                 is_send: false,
                 name: Ident {
                     name: "next",
@@ -417,8 +491,8 @@ Module {
                             ],
                             base: TypeRef {
                                 name: Ident {
-                                    name: "__Iter_iter_Countdown",
-                                    span: 41..42,
+                                    name: "CountdownIter",
+                                    span: 101..114,
                                 },
                                 args: [],
                                 value_args: [],
@@ -542,21 +616,21 @@ Module {
                                                     base: Ident(
                                                         Ident {
                                                             name: "__p",
-                                                            span: 46..47,
+                                                            span: 47..48,
                                                         },
                                                     ),
                                                     field: Ident {
                                                         name: "at",
-                                                        span: 141..143,
+                                                        span: 155..157,
                                                     },
-                                                    span: 141..143,
+                                                    span: 155..157,
                                                 },
                                                 rhs: Int {
                                                     value: 0,
                                                     long: false,
-                                                    span: 147..148,
+                                                    span: 161..162,
                                                 },
-                                                span: 141..148,
+                                                span: 155..162,
                                             },
                                             Block {
                                                 stmts: [
@@ -567,25 +641,25 @@ Module {
                                                                     callee: Ident(
                                                                         Ident {
                                                                             name: "finished",
-                                                                            span: 166..174,
+                                                                            span: 180..188,
                                                                         },
                                                                     ),
                                                                     type_args: [],
                                                                     args: [],
                                                                     named: [],
-                                                                    span: 166..176,
+                                                                    span: 180..190,
                                                                 },
                                                             ),
-                                                            span: 159..176,
+                                                            span: 173..190,
                                                         },
                                                     ),
                                                 ],
-                                                span: 149..182,
+                                                span: 163..196,
                                             },
                                         ),
                                     ],
                                     else_block: None,
-                                    span: 138..182,
+                                    span: 152..196,
                                 },
                             ),
                             Assign {
@@ -593,14 +667,14 @@ Module {
                                     base: Ident(
                                         Ident {
                                             name: "__p",
-                                            span: 47..48,
+                                            span: 48..49,
                                         },
                                     ),
                                     field: Ident {
                                         name: "at",
-                                        span: 187..189,
+                                        span: 201..203,
                                     },
-                                    span: 187..189,
+                                    span: 201..203,
                                 },
                                 value: Binary {
                                     op: Sub,
@@ -608,23 +682,23 @@ Module {
                                         base: Ident(
                                             Ident {
                                                 name: "__p",
-                                                span: 48..49,
+                                                span: 49..50,
                                             },
                                         ),
                                         field: Ident {
                                             name: "at",
-                                            span: 192..194,
+                                            span: 206..208,
                                         },
-                                        span: 192..194,
+                                        span: 206..208,
                                     },
                                     rhs: Int {
                                         value: 1,
                                         long: false,
-                                        span: 197..198,
+                                        span: 211..212,
                                     },
-                                    span: 192..198,
+                                    span: 206..212,
                                 },
-                                span: 187..198,
+                                span: 201..212,
                             },
                             Expr(
                                 Return {
@@ -633,7 +707,7 @@ Module {
                                             callee: Ident(
                                                 Ident {
                                                     name: "emitted",
-                                                    span: 210..217,
+                                                    span: 224..231,
                                                 },
                                             ),
                                             type_args: [],
@@ -644,35 +718,35 @@ Module {
                                                         base: Ident(
                                                             Ident {
                                                                 name: "__p",
-                                                                span: 49..50,
+                                                                span: 50..51,
                                                             },
                                                         ),
                                                         field: Ident {
                                                             name: "at",
-                                                            span: 218..220,
+                                                            span: 232..234,
                                                         },
-                                                        span: 218..220,
+                                                        span: 232..234,
                                                     },
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
-                                                        span: 223..224,
+                                                        span: 237..238,
                                                     },
-                                                    span: 218..224,
+                                                    span: 232..238,
                                                 },
                                             ],
                                             named: [],
-                                            span: 210..225,
+                                            span: 224..239,
                                         },
                                     ),
-                                    span: 203..225,
+                                    span: 217..239,
                                 },
                             ),
                         ],
-                        span: 89..227,
+                        span: 89..241,
                     },
                 ),
-                span: 41..227,
+                span: 41..241,
             },
         ),
     ],

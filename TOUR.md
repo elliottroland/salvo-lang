@@ -44,7 +44,7 @@ fn consume(items: List<Int>) -> Int => !items {
 }
 
 iter fn countdown(from: Int) -> Emitted Int | Finished {
-    state {
+    state Countdown {
         at: Int = from
     }
     if at <= 0 { return finished() }
@@ -425,11 +425,11 @@ three ordinary items before the checker sees anything:
 
 ```rust
 // Rust output
-pub struct __Iter_countdown_Int { pub from: i32, pub at: i32 }
-pub fn countdown(from: i32) -> __Iter_countdown_Int {
-    return __Iter_countdown_Int { from: from, at: from };     // the "minter"
+pub struct Countdown { pub from: i32, pub at: i32 }
+pub fn countdown(from: i32) -> Countdown {
+    return Countdown { from: from, at: from };     // the "minter"
 }
-pub fn next(__p: &mut __Iter_countdown_Int) -> Union2<i32, Finished> {   // your body
+pub fn next(__p: &mut Countdown) -> Union2<i32, Finished> {   // your body
     if __p.at <= 0 { return Union2::<i32, Finished>::U2(finished()); }
     __p.at = i32::wrapping_sub(__p.at, 1);
     return Union2::<i32, Finished>::U1(emitted(i32::wrapping_add(__p.at, 1)));

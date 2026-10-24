@@ -11,9 +11,9 @@ fun<T> eq__List_List(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {
     if ((salvo.core.list.sizePlatform(a) != salvo.core.list.sizePlatform(b))) {
         return false
     }
-    val __pass_1: salvo.core.list.__Iter_enumerate_List<T> = salvo.core.list.enumerate(a)
+    val __pass_1: salvo.core.list.ListEnumerate<T> = salvo.core.list.enumerate(a)
     while (true) {
-        val __step_2: Union2<salvo.core.list.Enumerated<T>, salvo.core.iterator.Finished> = salvo.core.list.next__Iter_enumerate_List(__pass_1)
+        val __step_2: Union2<salvo.core.list.Enumerated<T>, salvo.core.iterator.Finished> = salvo.core.list.next__ListEnumerate(__pass_1)
         when {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: salvo.core.list.Enumerated<T> = ((__step_2 as Union2.U1<*, *>).value as salvo.core.list.Enumerated<T>)
@@ -35,9 +35,9 @@ fun<T> eq__List_List(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> cmp__List_List(a: List<T>, b: List<T>, cmp: (T, T) -> Int): Int {
-    val __pass_1: salvo.core.list.__Iter_enumerate_List<T> = salvo.core.list.enumerate(a)
+    val __pass_1: salvo.core.list.ListEnumerate<T> = salvo.core.list.enumerate(a)
     while (true) {
-        val __step_2: Union2<salvo.core.list.Enumerated<T>, salvo.core.iterator.Finished> = salvo.core.list.next__Iter_enumerate_List(__pass_1)
+        val __step_2: Union2<salvo.core.list.Enumerated<T>, salvo.core.iterator.Finished> = salvo.core.list.next__ListEnumerate(__pass_1)
         when {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: salvo.core.list.Enumerated<T> = ((__step_2 as Union2.U1<*, *>).value as salvo.core.list.Enumerated<T>)

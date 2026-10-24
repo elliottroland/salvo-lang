@@ -3078,7 +3078,7 @@ fn iter_fns_hover_as_written_and_chained_fields_resolve() {
     std::fs::create_dir_all(&root).unwrap();
     let source = "\
 iter fn upto(n: Int) -> Emitted Int | Finished {
-    state {
+    state Upto {
         at: Int = 0
     }
     if at >= n {
@@ -3346,10 +3346,10 @@ fn hovering_a_type_named_constructor_shows_the_readable_name() {
 }
 
 
-/// [lsp-hover-overloads] [iter-fn] Hovering a `next` must not list a
-/// compiler-generated iterator-struct `next` (`next(__p: Mut __Iter_…)`) in
-/// the "Also visible under this name" section — that struct is unspellable
-/// backend detail. Regression for the generated overload leaking into hover.
+/// [lsp-hover-overloads] [iter-fn] Hovering a `next` must not list the `next`
+/// an `iter fn` became (`next(__p: Mut Counts)`) in the "Also visible under
+/// this name" section — it is the desugaring's, not a fn anyone wrote.
+/// Regression for the generated overload leaking into hover.
 #[test]
 fn hover_next_hides_generated_iterator_overloads() {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_next_overloads");
@@ -3358,13 +3358,13 @@ fn hover_next_hides_generated_iterator_overloads() {
     std::fs::write(root.join("main.sv"), "fn main() [] {\n}\n").unwrap();
     let mut lsp = start(&root);
     let uri = format!("file://{}/main.sv", root.display());
-    // An `iter fn` generates a `__Iter_counts_…` struct and its `next`; a
+    // An `iter fn` generates a `Counts` struct and its `next`; a
     // user struct with its own `next` gives a second, real overload. Hovering
     // the user `next` must show only real overloads.
     let buf = concat!(
         "struct Pair<T> : Yield<self, T> canbe Mut {\n    items: List<T>,\n    at: Int\n}\n\n",
         "fn next<T>(p: Mut Pair<T>) [] -> Emitted T | Finished => p: Mut {\n    return finished()\n}\n\n",
-        "iter fn counts(n: Int) -> Emitted Int | Finished {\n    state { at: Int = 0 }\n    if at >= n { return finished() }\n    at = at + 1\n    return emitted(at)\n}\n\n",
+        "iter fn counts(n: Int) -> Emitted Int | Finished {\n    state Counts { at: Int = 0 }\n    if at >= n { return finished() }\n    at = at + 1\n    return emitted(at)\n}\n\n",
         "fn main() [] {\n}\n",
     );
     send(&mut lsp.stdin, json!({
@@ -3381,7 +3381,7 @@ fn hover_next_hides_generated_iterator_overloads() {
     let r = expect_response(&lsp.rx, 2);
     let hover = r["result"]["contents"]["value"].as_str().unwrap_or("");
     assert!(
-        !hover.contains("__Iter_"),
+        !hover.contains("__p"),
         "hover must not leak the generated iterator struct: {hover}"
     );
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));

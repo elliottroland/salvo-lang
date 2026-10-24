@@ -207,16 +207,16 @@ pub fn next__DequeYield<'a, T: Clone>(p: &mut crate::core_deque::DequeYield<'a, 
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_reversed_Deque<'s, T> {
+pub struct DequeReversed<'s, T> {
     pub d: &'s std::collections::VecDeque<T>,
     pub at: i32,
 }
 
-pub fn reversed<T: Clone>(d: &std::collections::VecDeque<T>) -> crate::core_deque::__Iter_reversed_Deque<'_, T> {
-    return crate::core_deque::__Iter_reversed_Deque { d: d, at: i32::wrapping_sub(crate::core_deque::size_platform::<T>(d), 1i32) };
+pub fn reversed<T: Clone>(d: &std::collections::VecDeque<T>) -> crate::core_deque::DequeReversed<'_, T> {
+    return crate::core_deque::DequeReversed { d: d, at: i32::wrapping_sub(crate::core_deque::size_platform::<T>(d), 1i32) };
 }
 
-pub fn next__Iter_reversed_Deque<'a, T: Clone>(__p: &mut crate::core_deque::__Iter_reversed_Deque<'a, T>) -> crate::unions::Union2<&'a T, crate::core_iterator::Finished> {
+pub fn next__DequeReversed<'a, T: Clone>(__p: &mut crate::core_deque::DequeReversed<'a, T>) -> crate::unions::Union2<&'a T, crate::core_iterator::Finished> {
     let mut elem: Option<&T> = crate::core_deque::get_platform::<T>(__p.d, __p.at);
     if elem.is_none() {
         return crate::unions::Union2::U2(crate::core_iterator::finished());

@@ -76,24 +76,24 @@ fun take(console: salvo.core.console.Console, p: Countdown, count: Int) {
     }
 }
 
-data class __Iter_halving_Int(
+data class Halving(
     var start: Int,
     var at: Int,
 )
 
-object __Codec___Iter_halving_Int : salvo.WireCodec<__Iter_halving_Int> {
-    override fun enc(v: __Iter_halving_Int, out: salvo.WireOut) {
+object __Codec_Halving : salvo.WireCodec<Halving> {
+    override fun enc(v: Halving, out: salvo.WireOut) {
         salvo.IntCodec.enc(v.start, out)
         salvo.IntCodec.enc(v.at, out)
     }
-    override fun dec(inp: salvo.WireIn): __Iter_halving_Int = __Iter_halving_Int(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): Halving = Halving(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun halving(start: Int): __Iter_halving_Int {
-    return __Iter_halving_Int(start = start, at = start)
+fun halving(start: Int): Halving {
+    return Halving(start = start, at = start)
 }
 
-fun next__Iter_halving_Int(__p: __Iter_halving_Int): Union2<Int, salvo.core.iterator.Finished> {
+fun next__Halving(__p: Halving): Union2<Int, salvo.core.iterator.Finished> {
     if ((__p.at <= 0)) {
         return Union2.U2<Int, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
     }
@@ -102,7 +102,7 @@ fun next__Iter_halving_Int(__p: __Iter_halving_Int): Union2<Int, salvo.core.iter
     return Union2.U1<Int, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(now))
 }
 
-fun halvingFromTen(): __Iter_halving_Int {
+fun halvingFromTen(): Halving {
     return halving(10)
 }
 
@@ -117,17 +117,17 @@ object __Codec_Bag : salvo.WireCodec<Bag> {
     override fun dec(inp: salvo.WireIn): Bag = Bag(salvo.ListCodec(salvo.IntCodec).dec(inp))
 }
 
-data class __Iter_iter_Bag(
-    var items: List<Int>,
+data class BagIter(
+    var bag: Bag,
     var at: Int,
 )
 
-fun iter(bag: Bag): __Iter_iter_Bag {
-    return __Iter_iter_Bag(items = bag.items, at = 0)
+fun iter(bag: Bag): BagIter {
+    return BagIter(bag = bag, at = 0)
 }
 
-fun next__Iter_iter_Bag(__p: __Iter_iter_Bag): Union2<Int, salvo.core.iterator.Finished> {
-    val e: Int? = salvo.core.list.getPlatform(__p.items, __p.at)
+fun next__BagIter(__p: BagIter): Union2<Int, salvo.core.iterator.Finished> {
+    val e: Int? = salvo.core.list.getPlatform(__p.bag.items, __p.at)
     if ((e == null)) {
         return Union2.U2<Int, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
     }
@@ -136,28 +136,28 @@ fun next__Iter_iter_Bag(__p: __Iter_iter_Bag): Union2<Int, salvo.core.iterator.F
     return Union2.U1<Int, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(e_1))
 }
 
-data class __Iter_fibs_Int(
+data class Fibs(
     var count: Int,
     var a: Int,
     var b: Int,
     var made: Int,
 )
 
-object __Codec___Iter_fibs_Int : salvo.WireCodec<__Iter_fibs_Int> {
-    override fun enc(v: __Iter_fibs_Int, out: salvo.WireOut) {
+object __Codec_Fibs : salvo.WireCodec<Fibs> {
+    override fun enc(v: Fibs, out: salvo.WireOut) {
         salvo.IntCodec.enc(v.count, out)
         salvo.IntCodec.enc(v.a, out)
         salvo.IntCodec.enc(v.b, out)
         salvo.IntCodec.enc(v.made, out)
     }
-    override fun dec(inp: salvo.WireIn): __Iter_fibs_Int = __Iter_fibs_Int(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): Fibs = Fibs(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun fibs(count: Int): __Iter_fibs_Int {
-    return __Iter_fibs_Int(count = count, a = 0, b = 1, made = 0)
+fun fibs(count: Int): Fibs {
+    return Fibs(count = count, a = 0, b = 1, made = 0)
 }
 
-fun next__Iter_fibs_Int(console: salvo.core.console.Console, __p: __Iter_fibs_Int): Union2<Int, salvo.core.iterator.Finished> {
+fun next__Fibs(console: salvo.core.console.Console, __p: Fibs): Union2<Int, salvo.core.iterator.Finished> {
     if ((__p.made >= __p.count)) {
         salvo.core.console.println(console, "3. finished")
         return Union2.U2<Int, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
@@ -170,24 +170,24 @@ fun next__Iter_fibs_Int(console: salvo.core.console.Console, __p: __Iter_fibs_In
     return Union2.U1<Int, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(now))
 }
 
-data class __Iter_naturals_Int(
+data class Naturals(
     var from: Int,
     var at: Int,
 )
 
-object __Codec___Iter_naturals_Int : salvo.WireCodec<__Iter_naturals_Int> {
-    override fun enc(v: __Iter_naturals_Int, out: salvo.WireOut) {
+object __Codec_Naturals : salvo.WireCodec<Naturals> {
+    override fun enc(v: Naturals, out: salvo.WireOut) {
         salvo.IntCodec.enc(v.from, out)
         salvo.IntCodec.enc(v.at, out)
     }
-    override fun dec(inp: salvo.WireIn): __Iter_naturals_Int = __Iter_naturals_Int(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): Naturals = Naturals(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun naturals(from: Int): __Iter_naturals_Int {
-    return __Iter_naturals_Int(from = from, at = from)
+fun naturals(from: Int): Naturals {
+    return Naturals(from = from, at = from)
 }
 
-fun next__Iter_naturals_Int(__p: __Iter_naturals_Int): Union2<Int, salvo.core.iterator.Finished> {
+fun next__Naturals(__p: Naturals): Union2<Int, salvo.core.iterator.Finished> {
     val now: Int = __p.at
     __p.at = (__p.at + 1)
     return Union2.U1<Int, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(now))
@@ -213,9 +213,9 @@ fun<It> sumOf(it: It, next: (It) -> Union2<Int, salvo.core.iterator.Finished>): 
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<C, __It0> total(c: C, iter: (C) -> __It0, next: (__It0) -> Union2<Int, salvo.core.iterator.Finished>): Int {
+fun<C, It> total(c: C, iter: (C) -> It, next: (It) -> Union2<Int, salvo.core.iterator.Finished>): Int {
     var total: Int = 0
-    val __pass_1: __It0 = iter(c)
+    val __pass_1: It = iter(c)
     while (true) {
         val __step_2: Union2<Int, salvo.core.iterator.Finished> = next(__pass_1)
         when {
@@ -233,7 +233,7 @@ fun<C, __It0> total(c: C, iter: (C) -> __It0, next: (__It0) -> Union2<Int, salvo
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<__It0> first(it: __It0, next: (__It0) -> Union2<Int, salvo.core.iterator.Finished>): Int {
+fun<It> first(it: It, next: (It) -> Union2<Int, salvo.core.iterator.Finished>): Int {
     while (true) {
         val __step_2: Union2<Int, salvo.core.iterator.Finished> = next(it)
         when {
@@ -273,9 +273,9 @@ fun main() {
             }
         }
     }
-    val __pass_6: __Iter_halving_Int = halving(20)
+    val __pass_6: Halving = halving(20)
     while (true) {
-        val __step_7: Union2<Int, salvo.core.iterator.Finished> = next__Iter_halving_Int(__pass_6)
+        val __step_7: Union2<Int, salvo.core.iterator.Finished> = next__Halving(__pass_6)
         when {
             (__step_7 is Union2.U1<*, *>) -> {
                 val __emitted_8: Int = ((__step_7 as Union2.U1<*, *>).value as Int)
@@ -287,13 +287,13 @@ fun main() {
             }
         }
     }
-    val hp: __Iter_halving_Int = halving(20)
-    salvo.core.console.println(__handle_2, "2b. summed from a held iterator: ${sumOf(hp, ::next__Iter_halving_Int)}")
-    salvo.core.console.println(__handle_2, "2b. first from a pattern-typed fn: ${first(halvingFromTen(), ::next__Iter_halving_Int)}")
+    val hp: Halving = halving(20)
+    salvo.core.console.println(__handle_2, "2b. summed from a held iterator: ${sumOf(hp, ::next__Halving)}")
+    salvo.core.console.println(__handle_2, "2b. first from a fn returning one: ${first(halvingFromTen(), ::next__Halving)}")
     val bag: Bag = Bag(items = listOf<Int>(7, 8))
-    val __pass_9: __Iter_iter_Bag = iter(bag)
+    val __pass_9: BagIter = iter(bag)
     while (true) {
-        val __step_10: Union2<Int, salvo.core.iterator.Finished> = next__Iter_iter_Bag(__pass_9)
+        val __step_10: Union2<Int, salvo.core.iterator.Finished> = next__BagIter(__pass_9)
         when {
             (__step_10 is Union2.U1<*, *>) -> {
                 val __emitted_11: Int = ((__step_10 as Union2.U1<*, *>).value as Int)
@@ -305,10 +305,10 @@ fun main() {
             }
         }
     }
-    salvo.core.console.println(__handle_2, "2c. total of a bag ${total(bag, ::iter, ::next__Iter_iter_Bag)}, of a list ${total(xs, { __a0 -> salvo.core.list.iter(__a0) }, { __a0 -> salvo.core.list.next__ListYield(__a0) })}")
-    val __pass_12: __Iter_fibs_Int = fibs(6)
+    salvo.core.console.println(__handle_2, "2c. total of a bag ${total(bag, ::iter, ::next__BagIter)}, of a list ${total(xs, { __a0 -> salvo.core.list.iter(__a0) }, { __a0 -> salvo.core.list.next__ListYield(__a0) })}")
+    val __pass_12: Fibs = fibs(6)
     while (true) {
-        val __step_13: Union2<Int, salvo.core.iterator.Finished> = next__Iter_fibs_Int(__handle_2, __pass_12)
+        val __step_13: Union2<Int, salvo.core.iterator.Finished> = next__Fibs(__handle_2, __pass_12)
         when {
             (__step_13 is Union2.U1<*, *>) -> {
                 val __emitted_14: Int = ((__step_13 as Union2.U1<*, *>).value as Int)
@@ -320,9 +320,9 @@ fun main() {
             }
         }
     }
-    val __pass_15: __Iter_naturals_Int = naturals(10)
+    val __pass_15: Naturals = naturals(10)
     while (true) {
-        val __step_16: Union2<Int, salvo.core.iterator.Finished> = next__Iter_naturals_Int(__pass_15)
+        val __step_16: Union2<Int, salvo.core.iterator.Finished> = next__Naturals(__pass_15)
         when {
             (__step_16 is Union2.U1<*, *>) -> {
                 val __emitted_17: Int = ((__step_16 as Union2.U1<*, *>).value as Int)
@@ -361,13 +361,13 @@ fun main() {
     salvo.core.console.println(__handle_2, "5. vowels: ${salvo.core.list.sizePlatform(vowels)}")
     salvo.core.console.println(__handle_2, "5. halving total ${salvo.core.seq.reduce__It_A_Fn(halving(20), 0, fun(acc: Int, n: Int): Int {
         return (acc + n)
-    }, ::next__Iter_halving_Int)}")
+    }, ::next__Halving)}")
     val collected: salvo.platform.core.list.MutList<Int> = salvo.core.seq.mapTo(mutableListOf<Int>(), countdown(3), fun(n: Int): Int {
         return (n * 10)
     }, { __a0, __a1 -> salvo.core.list.addPlatform(__a0, __a1) }, ::next__Countdown)
     salvo.core.console.println(__handle_2, "6. collected ${salvo.core.list.sizePlatform(collected)}")
     val evens: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>())
-    val __pass_18: salvo.core.range.__Iter_range_Int_Int_Int = salvo.core.range.range__Int_Int_Int(0, 10, 2)
+    val __pass_18: salvo.core.range.Range = salvo.core.range.range__Int_Int_Int(0, 10, 2)
     while (true) {
         val __step_19: Union2<Int, salvo.core.iterator.Finished> = salvo.core.range.next(__pass_18)
         when {

@@ -13,7 +13,7 @@
 // kind `MutList`. The constructors stay intrinsic, since their spread
 // lowering is a template over rendered arguments (`vec![…]`, `listOf<T>(…)`)
 // a Salvo body cannot express for a `canbe linear` element type.
-export iterable platform type List<T canbe linear> canbe Mut : Iter<self, T>
+export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListYield<T>, T>
 
 // Constructors, in two shapes [col-of-nonempty] (user decision 2026-09-23).
 // Writing a *first* element establishes `NonEmpty` **by construction**, so no
@@ -533,13 +533,12 @@ export fn next<T>(p: Mut ListYield<T>) [] -> Emitted (proj(p) T) | Finished => p
 // projections like [iter] does, so `for x in reversed(xs)` costs nothing per
 // element. A caller wanting the reversed *list* writes `to_list(reversed(xs))`.
 //
-// [iter-fn] An `iter fn`: the declaration is the minter, the `state` block is
-// the iterator's own field, and the body is its `next` — the compiler writes
-// the struct, whose type is spelled `iter (proj T)` [iter-type]. `list` is
-// borrowed by the iterator [proj-field], which is what lets it emit
-// projections of it.
+// [iter-fn] An `iter fn`: the declaration is the minter, the `state` block
+// names the iterator struct and declares its own field, and the body is its
+// `next` — the compiler writes the struct. `list` is borrowed by the iterator
+// [proj-field], which is what lets it emit projections of it.
 export iter fn reversed<T>(list: List<T>) -> Emitted (proj(list) T) | Finished {
-    state {
+    state ListReversed {
         // The index of the next element to emit, counting down; `-1` is the
         // end, which [get] reports as `None` like any out-of-range index.
         at: Int = size(list) - 1
@@ -572,7 +571,7 @@ export struct Enumerated<T> {
 // borrowed, the index is the pair's own — `holds proj(list)` says the emitted
 // view borrows the list.
 export iter fn enumerate<T>(list: List<T>) -> Emitted Enumerated<T> | Finished holds proj(list) {
-    state {
+    state ListEnumerate {
         // The index of the next element to emit.
         at: Int = 0
     }
@@ -591,7 +590,7 @@ export iter fn enumerate<T>(list: List<T>) -> Emitted Enumerated<T> | Finished h
 // `size-1/last` down to `0/first` — the descending index loop with the
 // element already in hand.
 export iter fn enumerate_rev<T>(list: List<T>) -> Emitted Enumerated<T> | Finished holds proj(list) {
-    state {
+    state ListEnumerateRev {
         at: Int = size(list) - 1
     }
     let elem = get(list, at)

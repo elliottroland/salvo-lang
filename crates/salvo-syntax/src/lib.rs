@@ -46,10 +46,9 @@ pub fn parse_module(source: &str) -> (ast::Module, Vec<Diagnostic>) {
     (module, diagnostics)
 }
 
-/// `parse_module` without the `iter fn` expansion: for a *program*, where the
-/// expansion should see every file's struct declarations rather than this
-/// file's alone (the per-field snapshot tier [iter-fn]). The caller **must**
-/// run `desugar::expand_iter_fns_with` on the module before resolution —
+/// `parse_module` without the `iter fn` expansion: for a *program*, whose
+/// driver runs it with the test expansion (`salvo_core::expand`). The caller
+/// **must** run `desugar::expand_iter_fns` on the module before resolution —
 /// an unexpanded `iter fn` is a shape no later stage supports, and resolve
 /// reports one loudly rather than checking it as an ordinary fn.
 pub fn parse_module_deferred(source: &str) -> (ast::Module, Vec<Diagnostic>) {

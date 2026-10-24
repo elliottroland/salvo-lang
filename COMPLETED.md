@@ -21,8 +21,8 @@ flow, algebraic effects with handler dependencies, non-resumption
 (`throw`/`try`), implicit parameters and obligation groups, linear types with a
 designated `close`, mutable element handles (`ref(c)`, minted by `at`,
 aliasing by a shared named container), and pull iteration reduced to a `next` that `for` drives —
-with `iter fn` writing the iterator struct under any name, `Iter` for sources,
-and `iter T` naming an anonymous iterator by position.
+with `iter fn` writing the iterator struct its `state Name { … }` block names
+under any name, and `Iter<C, It, T>` for sources.
 Effect handlers also bind *asynchronously* — an actor is one, with a mailbox, a
 linear one-shot reply, `waitfor` as the bridge and a scheduler that is a library
 in each backend's runtime rather than a runtime in your code — and on that sit a
@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2023 tests, complete: the toolchain tests are
+cargo test                  # 2016 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,64 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Iterator structs are named, and `iter T` is gone
+
+PIPELINE.md §7 step 4, the user's decisions R3–R5 (PIPELINE.md §3). **Every
+`iter fn` names its struct** in a `state Name { … }` block, declared in the
+scope the fn is declared in, so it is an ordinary struct there: `fn range(end:
+Int) -> Mut Range` names what `-> iter Int` used to fill from the body, and a
+same-named type is the ordinary duplicate-struct error [iter-fn]. The block is
+required and may be empty. **The struct holds every parameter** — a Copy scalar
+owned, the rest borrowed whole — so its shape is a function of the header; the
+three-tier scan (nothing / per-field snapshot / whole), its cross-file struct
+table and `expand_iter_fns_with` went with it. **`iter T` is removed from every
+position**: the marker type, `hoist_iter_types` and its hidden `__ItN`
+generics, the return and `let` patterns, the iter-return pre-pass and its
+fixpoint, `Checked.iter_returns`, the lends special case and the reachability
+skip. `params Iter<C, It, T>` writes the iterator, and so do obligations
+(`struct Bag : Iter<self, BagIter, Int>`) and spreads (`fn total<C, It>(c: C,
+?Iter<C, It, Int>)`) [iter-group]; std's ten containers and twelve `iter fn`s
+were renamed (`ListReversed`, `Indices`, `MapEntries`, `IntBufferIter`, …).
+
+**Handlers** (R4): the state is named by the handler, and must be named
+(`state Tally { … }`) when the handler shares its name with a type
+[state-name]; the name is recorded for the general `state` effect (ROADMAP §2d
+item 9e) and read by nothing else yet. **One namespace of bare names** per
+declaration [bare-names]: constructor parameters and state fields differ, and
+a member's parameters reuse neither (`check_handler_names`; locals were
+already [var-no-shadow]'s). That closes ROADMAP §2d item 9d's two clash
+defects, and the third — a state initializer reading a constructor parameter
+failed in the IR builder — by lowering initializers with the constructor
+parameters bound. Item 9c: an implicit written at a call now teaches the
+callee's generics through the fn written there (`iter = mint_b` binds `It`
+from `mint_b`), so overriding both members of a `with` pair with another
+struct works [implicit-infer].
+
+What fell out of building it:
+- **`Iter`'s `next` is not over `self`**, so the [yield-proj] borrowness check
+  now runs only on members whose parameters mention the generic bound to
+  `self`, with the obligation's `proj` read per member (an argument the
+  member's *return* mentions); and `Iter`'s `next` is matched modulo `proj`,
+  since a walking iterator emits `Emitted (proj(p) T)` and its own `: Yield`
+  states that. Before, the marker made that member "satisfied by
+  construction".
+- **The opaque-return lend** [proj-infer-fn-type] is now "the return is a group
+  parameter no member parameter mentions", which is exactly `iter(collection:
+  C) -> Mut It`; without it the Rust `FnMut(&C) -> It` lost its lifetime.
+- **The `iterable platform type` element is `Iter`'s last argument now**, read
+  in two places (the IR's `iter_elem`, the Kotlin stub generator).
+- **Holding every parameter has a visible cost**: a fn returning an iterator
+  over a *local* it built is now refused (the struct borrows the local), where
+  the per-field tier had copied the one scalar field it read. The test that did
+  it now takes the subject as a parameter.
+- The language server tells the generated minter and `next` by the state name
+  they carry (`FnDecl.iter_state_name`) instead of the `__Iter_` prefix.
+
+The program still walks twice on every measured program (`demo/`: 179ms +
+164ms): the second walk is for move-mode candidates, which step 5's per-body
+re-walk removes. 2016 tests (−7: the `iter T` tests and the per-field snapshot
+test went, four for the named state came).
 
 ### 2026-10-20 — The first checking walk is a real one, and no interface is read off a body
 
@@ -28019,7 +28077,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2023 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2016 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

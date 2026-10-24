@@ -684,19 +684,19 @@ fun fire(n: Int): String = hook!!(n, "fired")
 /// [platform-iterable] A customer's `iterable platform type`: `salvo platform
 /// generate` writes the `each` stub beside the type, a `for` over a value
 /// loops over the host's `each`, and a generic fn walking it through
-/// `Iter<self, Int>` gets the Salvo pass — the two agreeing on the elements.
+/// `Iter<self, BagIter, Int>` gets the Salvo pass — the two agreeing on the elements.
 #[test]
 fn an_iterable_platform_type_loops_over_its_hosts_each() {
     let Some(__stamp) = e2e_stamp("an_iterable_platform_type_loops_over_its_hosts_each", &["kotlinc", "rustc"]) else {
         return;
     };
-    const HOST_SV: &str = r#"export iterable platform type Bag : Iter<self, Int>
+    const HOST_SV: &str = r#"export iterable platform type Bag : Iter<self, BagIter, Int>
 export platform fn bag_of(a: Int, b: Int) [] -> Bag
 export platform fn bag_size(b: Bag) [] -> Int => b
 export platform fn bag_at(b: Bag, i: Int) [] -> Int => b
 
 export iter fn iter(b: Bag) -> Emitted Int | Finished {
-    state {
+    state BagIter {
         at: Int = 0
     }
     if at >= bag_size(b) {

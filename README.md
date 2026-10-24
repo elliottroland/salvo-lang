@@ -191,10 +191,10 @@ fn main() [use] {
   (`list.size()` ≡ `size(list)`), variadics, lambdas and generics.
   Iteration is ordinary Salvo: an **iterator struct** is a struct with a
   `next`, `for` is sugar for calling it until `Finished`, an `iter fn` — any
-  name, any parameters — writes the struct for you and its type is spelled
-  `iter T`, a type becomes a **source** by declaring `: Iter<self, T>`, and
+  name, any parameters — writes the struct its `state Name { … }` block names,
+  a type becomes a **source** by declaring `: Iter<self, It, T>`, and
   `map`/`filter`/`reduce` take an iterator — `params Yield<It, T>` and
-  `params Iter<C, T>` are bundles of implicit parameters, not traits, so a type
+  `params Iter<C, It, T>` are bundles of implicit parameters, not traits, so a type
   of your own joins in by declaring one function.
 - **Algebraic effects**: effects declare capabilities, handlers implement
   them, `use` registers handlers in scope — dependencies are always visible

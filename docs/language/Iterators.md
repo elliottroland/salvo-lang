@@ -104,14 +104,13 @@ union, not a loop.
 
 ## Letting the compiler write the struct: `iter fn`
 
-Writing the struct out is the right thing when it needs a *name* — to store it,
-to hand it to a function, to zip two of them. Most iterators need none of that:
-they are only ever driven by a `for`. An **`iter fn`** is the same hand-written
+Writing the struct out is the right thing when its fields are not simply the
+minter's parameters and a position. An **`iter fn`** is the same hand-written
 `next` with the boilerplate removed:
 
 ```
 iter fn countdown(from: Int) -> Emitted Int | Finished {
-    state {
+    state Countdown {
         at: Int = from
     }
     if at <= 0 {
@@ -122,16 +121,21 @@ iter fn countdown(from: Int) -> Emitted Int | Finished {
 }
 
 for n in countdown(3) { ... }   // 3, 2, 1
-let p = countdown(3)            // or hold the iterator and drive it yourself
+let p = countdown(3)            // a `Mut Countdown`: hold it and drive it yourself
 ```
 
 The declaration is the **minter**: its name and parameters are the function a
 caller writes, and its body is the step. What the compiler writes from it is
-the iterator struct — the parameters it needs plus the `state` fields — and
-the `next` over it; both are ordinary declarations, which is why everything
-that works on a hand-written iterator works here.
+the iterator struct — every parameter plus the `state` fields — and the `next`
+over it; both are ordinary declarations, which is why everything that works on
+a hand-written iterator works here.
 
-- **The `state { ... }` block is the iterator's own data**, declared exactly as
+- **The `state Countdown { ... }` block names the struct**, and the name is
+  declared beside the fn, in its module or namespace: it is an ordinary struct
+  there, so `Countdown` is a type a program writes (`fn countdown_from_ten() ->
+  Mut Countdown`), and it collides with another type of the same name, as two
+  structs would. Every `iter fn` has the block; it may be empty.
+- **The block's fields are the iterator's own data**, declared exactly as
   a handler's state is: each field writes its type (`at: Int = 0`) or lets it be
   inferred from the initializer (`at = 0`), and each initializer is evaluated
   **once, when the
@@ -144,11 +148,12 @@ that works on a hand-written iterator works here.
   [Deductions](Deductions-and-Ownership.md)), so nothing is copied at the mint,
   a parameter cannot be moved or mutated while an iterator over it lives, and
   writing through one is the same error as writing through any immutable
-  value. An iterator that wants a snapshot writes one:
-  `state { rows: List<Int> = copy(c.rows) }`. A Copy scalar is simply stored.
-- **The struct has no name.** Its type is spelled `iter T` — "an iterator of
-  `T`" — wherever a spelling is needed (below). An iterator you must *name* is
-  the written-out form above.
+  value. Every parameter is held, whether the body reads it or not, so the
+  struct's shape follows from the declaration's first line. An iterator that
+  wants a snapshot writes one: `state Rows { rows: List<Int> = copy(c.rows) }`.
+  A Copy scalar is simply stored.
+- **Names do not repeat**: a `state` field may not be named like a parameter,
+  and the body may not bind a name either already has — it would shadow it.
 - **Nothing suspends.** The body *is* the `next`: it returns on every turn, so
   there is no state machine, and effects are ordinary effects on an ordinary
   function.
@@ -166,29 +171,48 @@ A type becomes a **source** — something `for` mints an iterator from — by
 declaring the `Iter` group as an obligation:
 
 ```
-params Iter<C, T> => iter with next {
-    fn iter(collection: C) -> iter T
-    fn next(iterator: iter T) -> Emitted T | Finished => iterator: Mut
+params Iter<C, It, T> => iter with next {
+    fn iter(collection: C) -> Mut It
+    fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut
 }
 
-struct Bag : Iter<self, Int> {
+struct Bag : Iter<self, BagIter, Int> {
     items: List<Int>
 }
 
-iter fn iter(bag: Bag) -> Emitted Int | Finished { ... }
+iter fn iter(bag: Bag) -> Emitted Int | Finished {
+    state BagIter { at: Int = 0 }
+    ...
+}
 
 for n in bag { ... }            // mints with `iter(bag)`, drives with its `next`
 ```
 
-`iter T` in the group is the placeholder for the iterator struct the
-implementation mints: one type across both members, so the second member is
-`Yield`'s `next` over it — the two groups are one protocol stated from two
-sides. The obligation is satisfied by an `iter fn iter` over the type (the
-compiler writes the struct and both members) or by a fn `iter` of your own
-returning a named iterator struct. `iter with next` says the pair is filled
-together: a caller may override the minter, never the step alone.
+`It` is the iterator struct the implementation mints: one type across both
+members, so the second member is `Yield`'s `next` over it — the two groups are
+one protocol stated from two sides. The obligation names it: `BagIter` here is
+the struct the `iter fn`'s `state` block declares, and a fn `iter` of your own
+returning a struct you wrote satisfies it the same way. `iter with next` says
+the pair is filled together: a caller may override the minter, never the step
+alone.
 
-A type declares `: Iter<self, T>` **or** `: Yield<self, T>`, never both: it is
+A combinator over any source spreads the group, writing the iterator type as
+a generic of its own:
+
+```
+fn total<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c {
+    let sum = 0
+    for n in c { sum = sum + n }    // mints with `iter`, drives with `next`
+    return sum
+}
+```
+
+`total(bag)` learns `It` from the `iter` that fills the pair — `BagIter` — and
+`total(bag, iter = other, next = other_next)` from the one written there.
+Over an iterator rather than a source, the spread is `?Yield<It, T>` with the
+iterator as a parameter: `fn first<It>(it: Mut It, ?Yield<It, Int>)`.
+
+A type declares `: Iter<self, It, T>` **or** `: Yield<self, T>`, never both: it is
 a source or an iterator struct, and `for x in s` would otherwise have two
 answers.
 
@@ -198,44 +222,9 @@ answers a named struct with an ordinary `next`, so nothing about container
 iteration is special-cased. The backends keep their native loop as a fast path
 for a `for` straight over a list, an array or a string.
 
-## `iter T`: the name of an anonymous iterator
-
-An `iter fn`'s struct has no name a program can write, so the language gives it
-one spelling: **`iter T`**, "a mutable type declaring `: Yield<self, T>`". It
-means one thing everywhere, read in whichever way the position allows — a
-*placeholder* in a group, a *hidden generic* in a signature, a *pattern* where
-there is a value to fill it from, and the *concrete anonymous struct* an `iter
-fn` mints. `Mut` is implied (an iterator is only ever advanced in place), so
-`Mut iter T` is refused.
-
-Every use lowers to something you could write explicitly. The table is the
-specification; the sugar is a shorter spelling of the right-hand column.
-
-| `iter T` written as | what it stands for |
-|---|---|
-| **Group member** — `params Iter<C, T> { fn iter(c: C) -> iter T; fn next(it: iter T) -> … }` | the iterator struct as a group parameter: `params Iter<C, It, T> { fn iter(c: C) -> Mut It; fn next(it: Mut It) -> … }`. One `iter T` per group: both members name the same struct. |
-| **Obligation** — `struct Bag : Iter<self, Int>` | `struct Bag : Iter<self, BagIter, Int>` plus `struct BagIter : Yield<self, Int> canbe Mut`, its `next`, and `fn iter(bag: Bag) -> Mut BagIter` — or one `iter fn iter(bag: Bag)`. |
-| **Spread** — `fn total<C>(c: C, ?Iter<C, Int>)` | `fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>)`: a hidden generic for the struct, and the pair as implicits. Inside, `for x in c` mints with `iter` and drives with `next`, and `iter(c)` is a `Mut It` a `?Yield` combinator accepts. |
-| **Parameter** — `fn first(it: iter Int)` | `fn first<It>(it: Mut It, ?Yield<It, Int>)`: "any iterator struct emitting `Int`", a fresh hidden generic **per occurrence** — `chain(a: iter T, b: iter T)` takes two different structs. Two parameters that must be the *same* struct write `<It>` themselves. |
-| **Type of an `iter fn` call** — `let p = countdown(3)` | `p` holds the concrete anonymous struct, which prints as `iter Int`; it has the obligation and the `next`, so `for x in p`, `next(p)` and `map(p, f)` all work. |
-| **`let` annotation** — `let p: iter Int = countdown(3)` | a pattern: asserts "an iterator of `Int`", and `p` keeps the value's own concrete type. A named iterator struct fits it too; nothing is widened. |
-| **`state` field** — `state { inner: iter Int = countdown(3) }` | a pattern, filled from the initializer — a concrete source names its struct (`inner: Mut ListYield<Int>`), a generic one uses the spread's `<It>`. |
-| **Return type of a fn with a body** — `fn evens(bag: Bag) -> iter Int { return iter(bag) }` | a pattern filled from the body's `return`s: the fn returns whichever concrete struct its body mints, and callers see that type. Every path must mint the *same* struct — two anonymous ones are two types — so `if c { range(3) } else { evens(bag) }` is an error naming both; fold the case into one `iter fn`, or name the struct. |
-| **Linear** | no sugar. A struct owning a resource is written out — `linear struct Lines : Yield<self, Str> canbe Mut { s: InStream, … }` with its `next`, minter and `close` — and generic code that may receive one takes the discharger as a callback (`drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>)`). Linear *elements* are fine: `iter T` with `T canbe linear` needs no discharger, since each element leaves on its turn. |
-
-Refused, with the replacement named:
-
-| position | why | write instead |
-|---|---|---|
-| return type of a bodiless fn (`intrinsic`) | no body to fill the pattern from | the struct's name |
-| an effect member's parameter or return | implemented per handler, one interface type needed | the struct's name |
-| a function *type* (a lambda, a fn-typed parameter) | the value's iterator struct is its own to choose | `<It>` on the enclosing declaration |
-| a struct or handler field | storing "some iterator struct" is boxing | the struct's name, or `<It>` on the struct |
-| `Mut iter T` | `Mut` is implied | `iter T` |
-
-std's `range` is the pattern in one file: an `iter fn range(start, end, step)`
-and two overloads, `fn range(start: Int, end: Int) -> iter Int` and `fn
-range(end: Int) -> iter Int`, each delegating to it.
+std's `range` is an `iter fn range(start, end, step)` whose state is `Range`,
+and two overloads, `fn range(start: Int, end: Int) -> Mut Range` and `fn
+range(end: Int) -> Mut Range`, each delegating to it.
 
 ## Iterators over iterators: `mapping`, `taking`, …
 
@@ -243,7 +232,7 @@ A function whose name is a present participle answers an iterator over another o
 
 ```
 iter fn naturals(n: Int) -> Emitted Int | Finished {
-    state {
+    state Naturals {
         at: Int = n
     }
     let v = at.copy()
@@ -261,9 +250,8 @@ for x in taking(odd_squares, 3) {   // 1, 9, 25
 
 ## There is no iterator *type*
 
-Every iterator struct is its own type, so two producers have unrelated types,
-and `iter Int` from `range` and from `countdown` are two types that print
-alike. A position that has to hold either of two different producers is
+Every iterator struct is its own type, so two producers have unrelated types:
+`Range` and `Countdown` both emit `Int` and are still two types. A position that has to hold either of two different producers is
 therefore a union — `when` reads it like any other — or a re-wrap: drive the
 one you have from an `iter fn` of your own and emit its elements. Nothing is
 boxed behind your back, and nothing is dynamically dispatched: an element

@@ -339,7 +339,7 @@ pub struct PassDriver {
     /// [iter-mint] The `iter` that **mints** the iterator, when the subject is
     /// a source rather than an iterator itself (`for x in bag`, where
     /// `iter(bag)` answers one): a declared overload, or — for a generic source
-    /// under a `?Iter<C, T>` spread [iter-group] — the `iter` implicit
+    /// under a `?Iter<C, It, T>` spread [iter-group] — the `iter` implicit
     /// parameter of this body. The emitters call it once, before the driving
     /// loop, and drive its result. `None` when the subject *is* the iterator —
     /// and also for the intrinsic containers (a list, an array, a `Str`), which
@@ -1000,12 +1000,6 @@ pub struct Checked {
     /// roots were consumed [fate-move-mode]: the Rust backend may render
     /// the place directly (a partial move) instead of cloning.
     pub moved_projections: HashSet<Key>,
-    /// [iter-type] The **concrete iterator struct** a `-> iter T` return
-    /// pattern resolved to, per fn with a body: filled by the return-pattern
-    /// pre-pass from the body's `return`s, read by `fn_return_ty` so callers
-    /// see the concrete type. A fn absent here either has no such return or
-    /// could not be resolved (an error at its return).
-    pub iter_returns: HashMap<FnKey, Ty>,
     /// [platform-check] What crosses from host to Salvo and needs checking
     /// (ABI D7): keyed by a platform fn's name span (its result), an
     /// effect member's name span (its result, for a platform-handled effect),
@@ -1953,66 +1947,6 @@ fn check_once<'p>(
     }
     out.errors.truncate(mark);
     drop(t);
-    let t = crate::timing::phase("  check_once: iter pre-pass");
-    // [iter-type] The **return-pattern pre-pass**: a fn declared `-> iter T`
-    // with a body returns whichever concrete iterator struct its body mints,
-    // and callers must see that type — so those bodies are checked first, into
-    // a scratch `Checked` (their diagnostics and side tables are re-derived by
-    // the real pass; only the resolved returns are kept), and repeated until
-    // the table stops growing, since a delegating minter may call another
-    // pattern fn. The cross-round facts are cloned for the same reason: a body
-    // checked before its callee resolved must not leave facts behind.
-    let has_patterns = program.modules.iter().enumerate().any(|(file_idx, m)| {
-        // [std-cache] std's patterns are already resolved in the cache.
-        !cache.is_some_and(|c| file_idx < c.std_files)
-            && m.items.iter().any(|i| {
-                matches!(i, Item::Fn(f) if f.body.is_some()
-                    && f.return_type.as_ref().is_some_and(|t| split_iter_qualifier(t).is_some()))
-            })
-    });
-    if has_patterns {
-        let mut scratch = Checked::default();
-        scratch.refinements = refinements.clone();
-        scratch.implicit_params = out.implicit_params.clone();
-        scratch.implicit_members = out.implicit_members.clone();
-        // [std-cache] Carry std's resolved iter-returns in, so a project
-        // pattern fn delegating to a std one sees it, and so the wholesale
-        // `take` below does not drop them.
-        scratch.iter_returns = out.iter_returns.clone();
-        let mut mc = move_candidates.clone();
-        let mut pm = param_mutations.clone();
-        let mut ph = parking_handlers.clone();
-        for _ in 0..8 {
-            let before = scratch.iter_returns.len();
-            for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
-                // [std-cache] Skip std's bodies: their iter-returns are seeded.
-                if cache.is_some_and(|c| file_idx < c.std_files) {
-                    continue;
-                }
-                let mut checker = Checker::new(
-                    file_idx,
-                    file.content.len(),
-                    file.is_std,
-                    &program.files,
-                    &resolution.scopes[file_idx],
-                    resolution,
-                    symbols,
-                    inferred,
-                    refinements,
-                    &mut scratch,
-                    &mut mc,
-                    &mut pm,
-                    &mut ph,
-                );
-                checker.prepass_iter_returns(ast);
-            }
-            if scratch.iter_returns.len() == before {
-                break;
-            }
-        }
-        out.iter_returns = std::mem::take(&mut scratch.iter_returns);
-    }
-    drop(t);
     let t = crate::timing::phase("  check_once: bodies");
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         // [std-cache] Skip std's bodies: their facts came from the cache.
@@ -2454,9 +2388,6 @@ struct Checker<'p, 'r> {
     generics: HashSet<String>,
     /// Return type of the function being checked.
     ret_ty: Ty,
-    /// [iter-type] The span of the fn's written `-> iter T`, when its return
-    /// is a pattern: where the resolved type is recorded for the emitters.
-    own_iter_ret: Option<Span>,
     /// Names of qualifiers declared in the file currently being checked
     /// (constructive-qualifier constructors must live in this file).
     own_qualifiers: HashSet<String>,
@@ -2950,7 +2881,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             locals: Vec::new(),
             generics: HashSet::new(),
             ret_ty: Ty::none(),
-            own_iter_ret: None,
             own_qualifiers: HashSet::new(),
             effect_env: Vec::new(),
             call_fixed_params: HashSet::new(),
@@ -3188,8 +3118,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// One fn item of a module: the per-declaration context (its key, its
     /// effective contract, whether it discharges a linear type, what its sends
     /// are attributed to), then the body. Called by `check_module` for every
-    /// fn, and by the return-pattern pre-pass for the fns returning `iter T`
-    /// [iter-type].
+    /// fn.
     fn check_fn_item(&mut self, item_idx: usize, f: &'p FnDecl) {
         // The declaration's own name is a fn reference
         // [fn-ref-table].
@@ -3290,41 +3219,77 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.own_contract = None;
     }
 
-    /// [iter-type] The return-pattern pre-pass: checks every fn of this module
-    /// whose return type is `iter T` and which has a body, so that
-    /// `iter_returns` holds the concrete iterator struct each one mints before
-    /// any caller is checked. Run into a scratch `Checked` by `check_once`, and
-    /// repeated until the table stops growing — a delegating minter's own
-    /// callee may be another pattern fn.
-    fn prepass_iter_returns(&mut self, module: &'p Module) {
-        for decl in self.scope.renames.clone() {
-            self.declare_rename(decl);
+    /// [state-name] [bare-names] A handler's names (user decision
+    /// 2026-10-20, R4). Its constructor parameters and state fields are one
+    /// namespace, and a member's parameters reuse neither: a member body
+    /// reads all three by bare name, so a clash would be a shadow, which the
+    /// language refuses ([var-no-shadow] covers the members' locals). And its
+    /// state is named by the handler unless written `state Name { … }`, which
+    /// it must be when the handler shares its name with a type.
+    fn check_handler_names(&mut self, h: &'p ast::HandlerDecl) {
+        for field in &h.state {
+            if let Some(p) = h.params.iter().find(|p| p.name.name == field.name.name) {
+                self.error(
+                    field.name.span,
+                    format!(
+                        "state field `{}` of handler `{}` has the name of its constructor \
+                         parameter `{}`: a member reads both by bare name, so one must be \
+                         renamed [bare-names]",
+                        field.name.name, h.name.name, p.name.name
+                    ),
+                );
+            }
         }
-        self.own_qualifiers = module
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                Item::Qualifier(q) => Some(q.name.name.clone()),
-                _ => None,
-            })
-            .collect();
-        for (item_idx, item) in module.items.iter().enumerate() {
-            let Item::Fn(f) = item else { continue };
-            if f.body.is_none() {
-                continue;
+        for f in h.fns.iter().chain(h.init.iter()) {
+            for p in f.params.iter().filter(|p| !p.implicit) {
+                let clash = if h.params.iter().any(|c| c.name.name == p.name.name) {
+                    Some("constructor parameter")
+                } else if h.state.iter().any(|s| s.name.name == p.name.name) {
+                    Some("state field")
+                } else {
+                    None
+                };
+                if let Some(what) = clash {
+                    self.error(
+                        p.name.span,
+                        format!(
+                            "parameter `{}` of `{}` has the name of handler `{}`'s {what} \
+                             `{}`, which the body reads by bare name: rename the parameter \
+                             [bare-names]",
+                            p.name.name, f.name.name, h.name.name, p.name.name
+                        ),
+                    );
+                }
             }
-            let Some(rt) = &f.return_type else { continue };
-            if split_iter_qualifier(rt).is_none() {
-                continue;
-            }
-            let key = FnKey {
-                file: self.file_idx,
-                item: item_idx,
-            };
-            if self.out.iter_returns.contains_key(&key) {
-                continue;
-            }
-            self.check_fn_item(item_idx, f);
+        }
+        if h.state.is_empty() && h.state_name.is_none() {
+            return;
+        }
+        let is_type = |name: &str| {
+            self.scope.structs.contains_key(name)
+                || self.scope.effects.contains_key(name)
+                || self.scope.type_aliases.contains_key(name)
+                || self.scope.opaque_types.contains_key(name)
+                || self.scope.qualifiers.contains_key(name)
+        };
+        match &h.state_name {
+            None if is_type(&h.name.name) => self.error(
+                h.name.span,
+                format!(
+                    "handler `{0}`'s state is named `{0}` by default, which is also a type's \
+                     name here: name it explicitly, `state {0}State {{ … }}` [state-name]",
+                    h.name.name
+                ),
+            ),
+            Some(n) if is_type(&n.name) || self.scope.handlers.get(n.name.as_str()).is_some_and(|o| !std::ptr::eq(*o, h)) => self.error(
+                n.span,
+                format!(
+                    "handler `{}`'s state `{}` has the name of a declaration already in \
+                     scope: rename the state [state-name]",
+                    h.name.name, n.name
+                ),
+            ),
+            _ => {}
         }
     }
 
@@ -4037,6 +4002,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // state fields: it is the one part of a handler that is
                     // computed *before* any state exists.
                     self.check_mailbox_slot(h, &of_tys);
+                    self.check_handler_names(h);
                     for field in &h.state {
                         if let Some(t) = &field.ty {
                             self.validate_type(t);
@@ -4049,7 +4015,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     .to_string(),
                             );
                         }
-                        self.reject_iter_field(&h.name.name, field);
                         self.check_proj_field(&h.name.name, field);
                         self.check_linear_field(&h.name.name, field);
                         // A state field's initializer is checked against its
@@ -4320,7 +4285,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let Some(written) = &field.ty else { continue };
                         self.validate_type(written);
                         self.check_canbe_mut_field(s, field);
-                        self.reject_iter_field(&s.name.name, field);
                         // [proj-field] Any struct may hold a borrow through a
                         // `proj` field; it is then a *view*, tied to whatever
                         // its literal stored there [proj-infer].
@@ -4605,10 +4569,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .zip(args)
                 .collect();
             let bound: HashSet<String> = group.generics.iter().map(|p| p.name.clone()).collect();
-            // [iter-group] `: Iter<self, T>` beside `: Yield<self, T>` gives
+            // [iter-group] `: Iter<self, It, T>` beside `: Yield<self, T>` gives
             // `for x in s` two answers — drive `s`, or mint from it — so the
             // pair is refused; a type is a source or an iterator struct.
-            if group_mentions_iter(group)
+            if group.name.name == "Iter"
                 && obligations.iter().any(|p| p.group.name.name == "Yield")
             {
                 self.error(
@@ -4628,55 +4592,30 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let member_ty = self.member_fn_ty(member);
                 self.generics = outer;
                 let expected = substitute_vars(&member_ty, &subst, &bound);
-                // [iter-group] A member over the `iter T` placeholder. The one
-                // *taking* an iterator (`next(iterator: iter T)`) is satisfied
-                // by construction: `iter T` denotes a type declaring
-                // `: Yield<self, T>`, whose own obligation supplies it. The
-                // one *returning* one (`iter(collection: C) -> iter T`) is the
-                // minter, and what fills it is any fn of that name over `self`
-                // whose result is such a type — an `iter fn`'s generated
-                // minter, or a hand-written one (user decision 2026-09-26,
-                // the "declared" reading).
-                if expected.mentions_iter_marker() {
-                    if let Ty::Fn { params, ret, .. } = &expected {
-                        if params.iter().any(|p| p.mentions_iter_marker()) {
-                            continue;
-                        }
-                        if let Some(elem) = ret.as_iter_marker().cloned() {
-                            let params = params.clone();
-                            if !self.iter_minter_satisfies(&member.name.name, &params, &elem) {
-                                let shown: Vec<String> =
-                                    params.iter().map(|p| p.to_string()).collect();
-                                self.error(
-                                    ob.span,
-                                    format!(
-                                        "`{}` declares `: {}` but no visible `{}` matches \
-                                         `fn {}({}) -> iter {}`: declare an `iter fn {}({}: {}) \
-                                         -> Emitted {} | Finished`, or a fn of that name \
-                                         returning an iterator struct (a type declaring \
-                                         `: Yield<self, {}>`)",
-                                        name.name,
-                                        ob.name.name,
-                                        member.name.name,
-                                        member.name.name,
-                                        shown.join(", "),
-                                        elem,
-                                        member.name.name,
-                                        member
-                                            .params
-                                            .first()
-                                            .map(|p| p.name.name.as_str())
-                                            .unwrap_or("source"),
-                                        shown.first().map(|s| s.as_str()).unwrap_or("?"),
-                                        elem,
-                                        elem
-                                    ),
-                                );
-                            }
-                            continue;
-                        }
-                    }
-                }
+                // [yield-proj] Which borrowness this member's filler must
+                // deliver: a `proj` on an argument the member's return
+                // mentions (`Yield<self, proj T>`'s `next`). Checked only on a
+                // member over `self` — `Iter`'s `next` is over the iterator
+                // struct, whose own `: Yield` obligation answers it.
+                let self_generic = group
+                    .generics
+                    .iter()
+                    .zip(&ob.args)
+                    .find(|(_, a)| matches!(a, ast::Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == "self"))
+                    .map(|(g, _)| g.name.clone());
+                let (over_self, ob_proj) = match &member_ty {
+                    Ty::Fn { params, ret, .. } => (
+                        self_generic
+                            .as_ref()
+                            .is_some_and(|g| params.iter().any(|p| ty_mentions_var(p, g))),
+                        group
+                            .generics
+                            .iter()
+                            .zip(&ob.args)
+                            .any(|(g, a)| first_proj_span(a).is_some() && ty_mentions_var(ret, &g.name)),
+                    ),
+                    _ => (false, false),
+                };
                 let mut found = false;
                 if let Some(entries) = scope.fns.get(member.name.name.as_str()) {
                     for e in entries {
@@ -4685,7 +4624,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.generics = inner;
                         let mut fwd = HashMap::new();
                         let mut rev = HashMap::new();
-                        if tys_match_renamed(&expected, &candidate, &mut fwd, &mut rev) {
+                        // [yield-proj] A member not over `self` (`Iter`'s
+                        // `next`) reads its element's borrowness off the
+                        // iterator struct's own `: Yield`, so a walking
+                        // iterator's `Emitted (proj(p) T)` fills `Emitted T`.
+                        let (expected_m, candidate) = if over_self {
+                            (expected.clone(), candidate)
+                        } else {
+                            (strip_ret_arm_proj(&expected), strip_ret_arm_proj(&candidate))
+                        };
+                        if tys_match_renamed(&expected_m, &candidate, &mut fwd, &mut rev) {
                             // [yield-proj] `proj` strips from types, so the
                             // shapes match either way; the *borrowness* has to
                             // agree separately. An obligation at `proj T`
@@ -4694,13 +4642,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // a `next` emitting `proj` under a plain
                             // `Yield<self, T>` would hand a borrow to callers
                             // expecting to own it.
-                            let ob_proj = ob.args.iter().any(|a| first_proj_span(a).is_some());
                             let member_proj = e
                                 .decl
                                 .return_type
                                 .as_ref()
                                 .is_some_and(|t| !proj_arm_indices(t).is_empty());
-                            if ob_proj != member_proj {
+                            if over_self && ob_proj != member_proj {
                                 self.error(
                                     ob.span,
                                     if ob_proj {
@@ -4747,51 +4694,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-    }
-
-    /// [iter-group] Whether a visible fn `name` over exactly `params` answers an
-    /// iterator struct emitting `elem` — a type declaring `: Yield<self, T>`
-    /// with `T` matching `elem` up to a renaming of type variables (a walking
-    /// iterator's `proj T` counts as `T`, as it does for a reading spread).
-    fn iter_minter_satisfies(&mut self, name: &str, params: &[Ty], elem: &Ty) -> bool {
-        let Some(entries) = self.scope.fns.get(name).cloned() else {
-            return false;
-        };
-        for e in entries {
-            let decl = e.decl;
-            let fixed: Vec<&'p ast::Param> =
-                decl.params.iter().filter(|p| !p.implicit && !p.variadic).collect();
-            if fixed.len() != params.len() {
-                continue;
-            }
-            let saved = self.enter_generics(&decl.generics);
-            let candidate_params: Vec<Ty> = fixed.iter().map(|p| self.lower_type(&p.ty)).collect();
-            let ret = self.fn_return_ty(decl);
-            self.generics = saved;
-            let mut fwd = HashMap::new();
-            let mut rev = HashMap::new();
-            if !tys_match_renamed(
-                &Ty::Tuple(params.to_vec()),
-                &Ty::Tuple(candidate_params),
-                &mut fwd,
-                &mut rev,
-            ) {
-                continue;
-            }
-            let Some(declared) = self.pass_declared_elem_ty(ret.strip_quals()) else {
-                continue;
-            };
-            let declared = declared.strip_top_proj();
-            let want = elem.strip_top_proj();
-            // The candidate's generics were renamed onto the expected ones by
-            // the parameter match; the element must follow the same renaming.
-            let mut fwd2 = fwd.clone();
-            let mut rev2 = rev.clone();
-            if tys_match_renamed(&want, &declared, &mut fwd2, &mut rev2) {
-                return true;
-            }
-        }
-        false
     }
 
     /// [canbe-optin] A `canbe` clause names one of the compiler's
@@ -4896,28 +4798,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut seen: Vec<(&str, Vec<Ty>)> = Vec::new();
         for f in &e.fns {
             self.check_send_member(f);
-            // [iter-type] A member is implemented per handler and dispatched
-            // through one interface, so no single concrete iterator struct
-            // could stand behind `iter T` there — in a parameter or a return.
-            for written in f
-                .params
-                .iter()
-                .map(|p| &p.ty)
-                .chain(f.return_type.iter())
-            {
-                if salvo_syntax::desugar::type_mentions_iter(written) {
-                    self.error(
-                        written.span(),
-                        format!(
-                            "`iter T` cannot appear in the signature of effect member `{}`: a \
-                             member is implemented by every handler of `{}` and called through \
-                             one interface, so no one iterator struct stands behind it — name \
-                             the iterator struct",
-                            f.name.name, e.name.name
-                        ),
-                    );
-                }
-            }
             let inner = self.enter_generics(&f.generics);
             let params: Vec<Ty> = f
                 .params
@@ -5348,7 +5228,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !t.fn_slots.is_empty() && t.linear {
             self.error(t.name.span, format!("`linear platform type {name}` declares no slots [platform-slots]"));
         }
-        // [platform-iterable] `: Iter<self, T>` is the one obligation a
+        // [platform-iterable] `: Iter<self, It, T>` is the one obligation a
         // platform type may take (checked as any type's is): it names the
         // Salvo pass, which `iterable` then promises the host's loop agrees
         // with. Anything else has no fields to stamp over, and comparisons
@@ -5362,7 +5242,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 o.group.span,
                 format!(
                     "`platform type {name}` cannot take this obligation clause: it has no fields \
-                     to stamp over, and its comparisons are `platform fn`s; `: Iter<self, T>`, \
+                     to stamp over, and its comparisons are `platform fn`s; `: Iter<self, It, T>`, \
                      without `by`, is the one it may declare [platform-type]"
                 ),
             );
@@ -5371,7 +5251,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 t.name.span,
                 format!(
-                    "`iterable platform type {name}` must also declare `: Iter<self, T>`: the \
+                    "`iterable platform type {name}` must also declare `: Iter<self, It, T>`: the \
                      host's loop and Salvo's pass are two ways through one sequence, and the \
                      clause is what makes them agree on the element type [platform-iterable]"
                 ),
@@ -5725,17 +5605,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             for a in &g.args {
                 self.validate_type(a);
             }
-            let mut args: Vec<Ty> = g.args.iter().map(|a| self.lower_type(a)).collect();
-            // [iter-group] A group whose members take an iterator (`iter T`)
-            // spreads with one extra, **hidden** type argument: the type
-            // parameter the desugaring added to this fn for the iterator
-            // struct (`?Iter<C, T>` → `?Iter<C, T, __It0>` on a fn
-            // `<C, __It0>`). It is what `iter T` stands for in every member.
-            let hidden = if group_mentions_iter(group) && args.len() == group.generics.len() + 1 {
-                args.pop()
-            } else {
-                None
-            };
+            let args: Vec<Ty> = g.args.iter().map(|a| self.lower_type(a)).collect();
             if args.len() != group.generics.len() {
                 self.error(
                     g.span,
@@ -5761,10 +5631,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let ty = self.member_fn_ty(member);
                 self.generics = saved;
                 let ty = substitute_vars(&ty, &subst, &group_generics);
-                let ty = match &hidden {
-                    Some(it) => ty.replace_iter_marker(it),
-                    None => ty,
-                };
                 // [yield-proj] `?Yield<It, proj T>`: a `proj` on a spread
                 // argument marks the arms of the member's return that mention
                 // that generic as borrows — the caller requires a pass that
@@ -6054,8 +5920,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [fn-value] A declared function's own type as a value, every parameter
     /// included (written implicits and a spread group's members too), its
     /// return as a call sees it — the claim a constructor gains (`-> +Valid
-    /// Range`) and the concrete pass an `iter T` stands for, through
-    /// [`Self::fn_return_ty`] — its contract and its effects. What a position
+    /// Range`), through [`Self::fn_return_ty`] — its contract and its effects. What a position
     /// makes of it is [`Self::fn_value_at`].
     fn fn_value_ty(&mut self, key: FnKey, decl: &'p FnDecl) -> Ty {
         let saved = self.enter_generics(&decl.generics);
@@ -6210,13 +6075,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             .deductions
             .as_ref()
             .map(|list| crate::deduce::from_written(member, list, &HashSet::new(), |_, _| {}));
-        // [proj-infer-fn-type] [iter-type] A member whose return is **opaque**
-        // — the `iter T` placeholder, which stands for whichever iterator
-        // struct the filler mints and may hold a borrow of the source — lends
-        // every kept parameter, as a written fn type with an opaque return
-        // does. Without it `?Iter<C, T>`'s `iter` rendered a `FnMut(&C) -> It`
-        // with no lifetime tying the two, and rustc refused the fill.
-        let opaque_ret = ret.as_iter_marker().is_some();
+        // [proj-infer-fn-type] [iter-group] A member whose return is
+        // **opaque** — a type parameter of the group that no parameter
+        // mentions, like `Iter`'s `iter(collection: C) -> Mut It`, which
+        // stands for whichever iterator struct the filler mints and may hold
+        // a borrow of the source — lends every kept parameter, as a written fn
+        // type with an opaque return does. Without it `?Iter<C, It, T>`'s
+        // `iter` rendered a `FnMut(&C) -> It` with no lifetime tying the two,
+        // and rustc refused the fill.
+        let opaque_ret = match ret.strip_quals() {
+            Ty::Var(g) => self.generics.contains(g) && !params.iter().any(|p| ty_mentions_var(p, g)),
+            _ => false,
+        };
         let contract = if facts.is_some() || opaque_ret {
             let facts = facts.unwrap_or_default();
             Some(
@@ -6233,10 +6103,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             effect: entry
                                 .map(|d| d.effect.clone())
                                 .unwrap_or(QualEffect::KeepAll),
-                            // [iter-type] `iter T` is a `Mut` position: an
-                            // iterator is only ever advanced in place.
-                            mutable: pty.quals().iter().any(|q| q.name == "Mut")
-                                || pty.as_iter_marker().is_some(),
+                            mutable: pty.quals().iter().any(|q| q.name == "Mut"),
                             lent: entry.is_some_and(|d| d.lent) || (opaque_ret && kept),
                         }
                     })
@@ -6536,7 +6403,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // What the implicits themselves determine first, as the call does
         // [implicit-infer]: `T` from `next`'s answer.
         let mut subst = subst.clone();
-        self.extend_subst_from_implicits(Some(key), &callee_generics, &mut subst);
+        self.extend_subst_from_implicits(Some(key), &callee_generics, &mut subst, named);
         let subst = &subst;
         for imp in &implicits {
             if imp.binder || named.iter().any(|a| a.name.name == imp.name) {
@@ -8355,6 +8222,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         key: Option<FnKey>,
         callee_generics: &HashSet<String>,
         progressive: &mut HashMap<String, Ty>,
+        named: &[ast::NamedArg],
     ) {
         let Some(key) = key else { return };
         let implicits = match self.out.implicit_params.get(&key) {
@@ -8369,7 +8237,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // implicits — each round has to bind at least one variable to continue.
         for _ in 0..=implicits.len() {
             let before = progressive.len();
-            self.learn_from_implicits_once(&implicits, callee_generics, progressive);
+            self.learn_from_implicits_once(&implicits, callee_generics, progressive, named);
             if progressive.len() == before {
                 break;
             }
@@ -8384,6 +8252,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         implicits: &[ImplicitParam],
         callee_generics: &HashSet<String>,
         progressive: &mut HashMap<String, Ty>,
+        named: &[ast::NamedArg],
     ) {
         for imp in implicits {
             // The implicit's type as far as this call knows it, with the
@@ -8402,9 +8271,20 @@ impl<'p, 'r> Checker<'p, 'r> {
             else {
                 continue;
             };
+            // [implicit-infer] An implicit written at the call site teaches
+            // through what was written (`iter = mint_b` binds `It` from
+            // `mint_b`, not from the `iter` in scope, ROADMAP §2d item 9c); a
+            // written value that is not a fn name teaches nothing here.
+            let lookup = match named.iter().find(|a| a.name.name == imp.name) {
+                Some(a) => match &a.value {
+                    Expr::Ident(id) => id.name.clone(),
+                    _ => continue,
+                },
+                None => imp.name.clone(),
+            };
             // [fn-rename] A renamed overload no longer answers to this name,
             // so it cannot fill an implicit parameter of it either.
-            let entries: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(&imp.name);
+            let entries: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(&lookup);
             if entries.is_empty() {
                 continue;
             }
@@ -9030,21 +8910,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             .as_ref()
             .map(|t| self.lower_type(t))
             .unwrap_or_else(Ty::none);
-        // [iter-type] A return pattern: a bodiless declaration has no returns
-        // to fill it from, so the placeholder is refused there.
-        self.own_iter_ret = None;
-        if self.ret_ty.as_iter_marker().is_some() {
-            if f.body.is_some() {
-                self.own_iter_ret = f.return_type.as_ref().map(|t| t.span());
-            } else if let Some(rt) = &f.return_type {
-                self.error(
-                    rt.span(),
-                    "`iter T` cannot be the return type of a bodiless declaration: the \
-                     placeholder is filled from a body's returns, and there is none — \
-                     name the iterator struct",
-                );
-            }
-        }
         // [deduce-reapply] `+Q` inside the return type marks a claim this
         // fn **establishes**: callers see it (`fn_return_ty` lowers the
         // written type as-is), the body's returns are checked *without* it
@@ -9278,25 +9143,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     f.name.name, self.ret_ty
                 ),
             );
-        }
-        // [iter-type] A return pattern nothing filled: every `return` was of
-        // a value the checker could not type — most likely a cycle of
-        // `-> iter T` fns delegating to one another, which the pre-pass cannot
-        // resolve. Reported once the real pass has had every other fn resolved.
-        if let Some(span) = self.own_iter_ret {
-            let resolved = self.own_fn.is_some_and(|k| self.out.iter_returns.contains_key(&k));
-            if !resolved && self.inferred.is_some() {
-                self.error(
-                    span,
-                    format!(
-                        "could not determine the iterator struct `{}` returns: a fn \
-                         declared `-> iter T` must return a call that mints one (an \
-                         `iter fn`, or a fn returning a named iterator struct), and a \
-                         cycle of such fns cannot be resolved — name the struct",
-                        f.name.name
-                    ),
-                );
-            }
         }
         self.effect_env = saved_env;
         self.can_use = saved_can_use;
@@ -17815,17 +17661,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // [iter-type] `iter T`: the placeholder for "an iterator struct
-        // emitting `T`" [iter-type]. Qualifiers written *after* `iter` belong
-        // to the element (`iter proj T`); anything written before it applies
-        // to the placeholder and is refused by validation (`Mut iter T` —
-        // `Mut` is implied). Lowered to a marker every admitting position
-        // substitutes or fills.
-        if let Some((before, inner)) = split_iter_qualifier(ty) {
-            let elem = self.lower_type_subst(&inner, subst, depth);
-            let quals = self.lower_quals(&before, subst, depth);
-            return Ty::iter_marker(elem).qualify(quals);
-        }
         match ty {
             ast::Type::Literal { value, .. } => Ty::Lit(value.clone()),
             ast::Type::Named { qualifiers, base } => {
@@ -20030,33 +19865,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // composite: refused at each composite node, one level deep, so a
         // nested one reports at its own node.
         self.check_linear_components(ty);
-        // [iter-type] `iter T`: the element is an ordinary type; the
-        // placeholder itself names no declaration. `Mut` in front of it is
-        // refused as the duplicate it is — an iterator is always advanced in
-        // place, so `iter T` already means `Mut` [qual-no-dup].
-        if let Some((before, inner)) = split_iter_qualifier(ty) {
-            for q in &before {
-                if q.name.name == "Mut" {
-                    self.error(
-                        q.span,
-                        "`iter T` is already mutable — an iterator is only ever advanced \
-                         in place — so `Mut iter T` applies `Mut` twice: write `iter T`",
-                    );
-                } else {
-                    self.error(
-                        q.span,
-                        format!(
-                            "`{}` cannot qualify `iter T`: the placeholder stands for \
-                             whichever iterator struct fills it, and a claim about the \
-                             iterator belongs on that struct",
-                            q.name.name
-                        ),
-                    );
-                }
-            }
-            self.validate_type(&inner);
-            return;
-        }
         match ty {
             ast::Type::Literal { .. } => {}
             ast::Type::Named { qualifiers, base } => {
@@ -20228,23 +20036,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
             ast::Type::Fn { params, ret, .. } => {
-                // [iter-type] A fn *type* is a value someone else wrote: its
-                // return is that value's to choose, so `iter T` there would be
-                // an existential nothing can render — and a parameter position
-                // has no declaration to hoist a hidden generic onto.
-                for written in params.iter().chain(std::iter::once(ret.as_ref())) {
-                    if salvo_syntax::desugar::type_mentions_iter(written) {
-                        self.error(
-                            written.span(),
-                            "`iter T` cannot appear in a function type: the value's \
-                             iterator struct is its own to choose, so no one type stands \
-                             behind the placeholder here — name the iterator struct, or \
-                             make the enclosing declaration generic over it (`<It>` with \
-                             `?Yield<It, T>`)",
-                        );
-                    }
-                }
-                for p in params {
+                        for p in params {
                     self.validate_type(p);
                 }
                 self.validate_type(ret);
@@ -21726,19 +21518,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             .as_ref()
             .map(|t| self.lower_type(t))
             .unwrap_or_else(Ty::none);
-        // [iter-type] `-> iter T` on a fn with a body is a **pattern** filled
-        // from the body's returns: callers see the concrete iterator struct
-        // the pre-pass recorded. Until it is recorded (inside the pre-pass
-        // itself, or for a fn that could not be resolved) the placeholder
-        // stands, which no position accepts as a value — so nothing is typed
-        // against a guess.
-        if ret.as_iter_marker().is_some() && decl.body.is_some() {
-            if let Some(key) = self.key_of_decl(decl) {
-                if let Some(concrete) = self.out.iter_returns.get(&key) {
-                    return concrete.clone();
-                }
-            }
-        }
         match &decl.constructs {
             Some(cref) => {
                 // [cmp-carry] Through `lower_quals`, so the claim a constructor
@@ -21752,8 +21531,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 }
-
-use salvo_syntax::desugar::{group_mentions_iter, split_iter_qualifier};
 
 /// [deduce-reapply] Every `+Q` written in a type, with its span: the claims
 /// a return type says the fn establishes, wherever they sit (a union arm,
@@ -22972,24 +22749,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.validate_type(t);
                     self.let_pattern = saved;
                 }
-                let mut annotated = ty.as_ref().map(|t| self.lower_type(t));
-                // [iter-type] `let p: iter Int = …` is a **pattern**: it asserts
-                // "an iterator of `Int`" and the variable keeps the value's own
-                // concrete type — a named iterator struct fits it too, and
-                // nothing is widened.
-                let iter_pattern = annotated
-                    .as_ref()
-                    .and_then(|a| a.as_iter_marker().cloned());
-                let value_ty = if iter_pattern.is_some() {
-                    let vty = self.check_expr(value, None);
-                    if let Err(why) = self.fills_iter_pattern(&vty, iter_pattern.as_ref().unwrap()) {
-                        self.error(value.span(), why);
-                    }
-                    annotated = None;
-                    vty
-                } else {
-                    self.check_expr(value, annotated.as_ref())
-                };
+                let annotated = ty.as_ref().map(|t| self.lower_type(t));
+                let value_ty = self.check_expr(value, annotated.as_ref());
                 if let Some(ann) = &annotated {
                     // [type-literal] A value outside a literal union's list
                     // is reported once, by the coercion, naming the values.
@@ -24525,23 +24286,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 }
                             }
                         }
-                        // [iter-type] `-> iter T` is a **pattern** filled from
-                        // the body's returns: the value must be an iterator
-                        // of `T`, every return must produce the *same*
-                        // iterator struct (two anonymous ones are two types),
-                        // and the resolved type is recorded for callers and
-                        // the emitters.
-                        let iter_pattern = expected.as_iter_marker().cloned();
-                        let vty = if let Some(elem) = &iter_pattern {
-                            let vty = self.check_expr(v, None);
-                            match self.fills_iter_pattern(&vty, elem) {
-                                Err(why) => self.error(v.span(), why),
-                                Ok(()) => self.record_iter_return(&vty, v.span()),
-                            }
-                            vty
-                        } else {
-                            self.check_expr(v, Some(&expected))
-                        };
+                        let vty = self.check_expr(v, Some(&expected));
                         self.lending_ctor = saved_lending;
                         // [ref-handle] The mint: a function declared to
                         // return a `ref` handle, whose body returns a
@@ -24552,8 +24297,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // unaffected; only a `ref` *return type* promotes.
                         // The handle is usually optional (`ref(c) Mut T?`),
                         // so the promotion distributes over union arms.
-                        let ref_mint = iter_pattern.is_none()
-                            && has_ref_arm(&expected)
+                        let ref_mint = has_ref_arm(&expected)
                             && !has_ref_arm(&vty)
                             && is_subtype(&promote_proj_to_ref(vty.clone()), &expected);
                         // [ref-handle] `proj → ref` does not exist: a
@@ -24590,8 +24334,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 }
                             }
                         }
-                        if iter_pattern.is_none()
-                            && !ref_mint
+                        if !ref_mint
                             && !is_subtype(&vty, &expected)
                             // [arm-infer] A bare value that is the payload of
                             // exactly one provenance-tagged arm is accepted:
@@ -25860,8 +25603,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             break;
         }
         // [iter-group] No `next` over the subject itself: a generic **source**
-        // under a `?Iter<C, T>` spread has an `iter` implicit over it answering
-        // the hidden iterator type, and a `next` over *that*. The loop mints
+        // under a `?Iter<C, It, T>` spread has an `iter` implicit over it answering
+        // the iterator type `It`, and a `next` over *that*. The loop mints
         // with the one and drives with the other — the pair the spread brought
         // in together [implicit-with].
         let mut mint: Option<PassMember> = None;
@@ -25952,121 +25695,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             },
         );
         Some(elem)
-    }
-
-    /// The key of a fn declaration, by identity — a scan of every file's
-    /// scope, so only for the rare paths that hold a decl and no key (the
-    /// return-pattern lookup [iter-type]).
-    fn key_of_decl(&self, decl: &'p FnDecl) -> Option<FnKey> {
-        self.resolution
-            .scopes
-            .iter()
-            .flat_map(|s| s.fns.values().flatten())
-            .find(|e| std::ptr::eq(e.decl, decl))
-            .map(|e| e.key)
-    }
-
-    /// [iter-type] A field cannot be typed `iter T`: storing "some iterator
-    /// struct" would be an existential — boxing, or a hidden generic on the
-    /// struct that leaks into every mention of it. The remedies are the
-    /// struct's name, or a generic on the declaration (`Cursor<It>` with a
-    /// `?Yield<It, T>` where it is driven). A generated `iter fn` struct's
-    /// `state` field is the same position, so the refusal covers it too.
-    fn reject_iter_field(&mut self, owner: &str, field: &ast::FieldDecl) {
-        // [state-infer] No written type → it cannot be `iter T` (that is a
-        // written qualifier), so nothing to reject.
-        let Some(field_ty) = &field.ty else { return };
-        if !salvo_syntax::desugar::type_mentions_iter(field_ty) {
-            return;
-        }
-        self.error(
-            field_ty.span(),
-            format!(
-                "field `{}` of `{owner}` cannot be typed `iter T`: a field holds one \
-                 concrete type, and \"some iterator struct\" here would have to be boxed \
-                 or leak a hidden type parameter — name the iterator struct, or make the \
-                 field's type a generic of `{owner}`",
-                field.name.name,
-                owner = owner.trim_start_matches("__Iter_")
-            ),
-        );
-    }
-
-    /// [iter-type] Records what a `-> iter T` fn returns. The first concrete
-    /// return decides; a later one of another type is an error naming both —
-    /// two anonymous iterator structs never unify, so the remedy is to fold the
-    /// case into one `iter fn` or name the struct.
-    fn record_iter_return(&mut self, vty: &Ty, at: Span) {
-        let stripped = vty.strip_quals();
-        if stripped.is_unknown() || stripped.as_iter_marker().is_some() || *stripped == Ty::Never {
-            return;
-        }
-        let Some(key) = self.own_fn else { return };
-        match self.out.iter_returns.get(&key).cloned() {
-            None => {
-                self.out.iter_returns.insert(key, vty.clone());
-            }
-            Some(prior) if prior.strip_quals() == stripped => {
-                // Pre-resolved by the pre-pass: the emitters' record is this
-                // pass's to write.
-            }
-            Some(prior) => self.error(
-                at,
-                format!(
-                    "this `return` produces `{vty}`, but an earlier one produces `{prior}`: \
-                     every path out of a fn returning `iter T` must mint the same \
-                     iterator struct (two anonymous ones are two types) — fold the \
-                     case into one `iter fn`, or name the struct"
-                ),
-            ),
-        }
-    }
-
-    /// [iter-type] Whether a value of type `ty` fills the pattern `iter elem`:
-    /// an iterator struct declaring `: Yield<self, T>` with `T` matching `elem`
-    /// (a walking iterator's `proj T` counts as `T`), a hidden iterator generic
-    /// this body has a `next` implicit over, or — leniently — a value the
-    /// checker could not type yet (the placeholder itself, an unknown).
-    fn fills_iter_pattern(&mut self, ty: &Ty, elem: &Ty) -> Result<(), String> {
-        let stripped = ty.strip_quals().clone();
-        if stripped.is_unknown() || stripped.as_iter_marker().is_some() || stripped == Ty::Never {
-            return Ok(());
-        }
-        if let Ty::Var(_) = &stripped {
-            let has_next = self.own_implicits.iter().any(|imp| {
-                imp.name == "next"
-                    && matches!(imp.ty.strip_quals(), Ty::Fn { params, ret, .. }
-                        if params.len() == 1
-                            && *params[0].strip_quals() == stripped
-                            && emitted_arm_ty(ret).is_some())
-            });
-            return if has_next {
-                Ok(())
-            } else {
-                Err(format!(
-                    "`{ty}` is a type parameter with no `next` over it in scope: an \
-                     iterator of `{elem}` here needs a `?Yield<{stripped}, {elem}>` spread"
-                ))
-            };
-        }
-        let Some(declared) = self.pass_declared_elem_ty(&stripped) else {
-            return Err(format!(
-                "`{ty}` is not an iterator struct: `iter {elem}` stands for a type \
-                 declaring `: Yield<self, {elem}>` — what an `iter fn` mints, or a \
-                 struct with that clause"
-            ));
-        };
-        let want = elem.strip_top_proj();
-        let got = declared.strip_top_proj();
-        let mut fwd = HashMap::new();
-        let mut rev = HashMap::new();
-        if tys_match_renamed(&want, &got, &mut fwd, &mut rev) || is_subtype(&got, &want) {
-            Ok(())
-        } else {
-            Err(format!(
-                "`{ty}` is an iterator of `{declared}`, not of `{elem}`"
-            ))
-        }
     }
 
     /// The declaration behind a `FnKey`, through its own file's scope (which
@@ -26264,7 +25892,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         format!(
                             "`{other}` is not iterable: `for` takes an array, an \
                              iterator struct (a type declaring `: Yield<self, T>`), a \
-                             source (a type declaring `: Iter<self, T>`, or a value some \
+                             source (a type declaring `: Iter<self, It, T>`, or a value some \
                              `iter` function accepts), or a step call (`next(p)`){hint}"
                         ),
                     );
@@ -30742,7 +30370,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let key = Some(candidates[pool[pi].index].key);
                     let mut subst = std::mem::take(&mut pool[pi].subst);
                     let generics = pool[pi].generics.clone();
-                    self.extend_subst_from_implicits(key, &generics, &mut subst);
+                    self.extend_subst_from_implicits(key, &generics, &mut subst, named);
                     pool[pi].subst = subst;
                     pool[pi]
                         .rank
@@ -31345,7 +30973,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        self.extend_subst_from_implicits(best_key, &callee_generics, &mut subst);
+        self.extend_subst_from_implicits(best_key, &callee_generics, &mut subst, named);
         // [proj-type] The pass the spread is filled from decides whether the
         // element is borrowed — before the `next` is looked for at that type.
         self.learn_yield_elems(decl, &callee_generics, &mut subst);
@@ -33519,6 +33147,21 @@ fn namespace_path_of(expr: &Expr) -> Option<String> {
 /// [is-narrowing] A union under `proj` alone — a borrowed element of a
 /// `List<P?>` — tests like the union itself: the qualifier says where the
 /// value lives, and the runtime shape is the union's.
+fn strip_ret_arm_proj(ty: &Ty) -> Ty {
+    match ty {
+        Ty::Fn { params, ret, contract, effects } => Ty::Fn {
+            params: params.clone(),
+            ret: Box::new(match ret.as_ref() {
+                Ty::Union(arms) => Ty::Union(arms.iter().map(|a| a.strip_top_proj()).collect()),
+                other => other.strip_top_proj(),
+            }),
+            contract: contract.clone(),
+            effects: effects.clone(),
+        },
+        other => other.clone(),
+    }
+}
+
 fn strip_proj_union(ty: &Ty) -> &Ty {
     match ty {
         Ty::Qualified { quals, base } if matches!(base.as_ref(), Ty::Union(_)) && quals.iter().all(|q| crate::types::is_proj_name(&q.name)) => base,

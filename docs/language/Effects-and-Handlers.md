@@ -18,7 +18,12 @@ Effects have _handlers_, which define their concrete implementations:
 // Handlers have their own state, declared in a `state { … }` block. Here
 // `values` is a constructor parameter and `i` is a state field, initialised at
 // construction. A field may write its type (`i: Int = 0`) or let it be inferred
-// from the initialiser (`i = 0`) — the same choice a `let` binding has.
+// from the initialiser (`i = 0`) — the same choice a `let` binding has — and
+// an initialiser may read the constructor parameters. The state is named by
+// the handler (`CyclicRandom`); a handler that shares its name with a type
+// names it itself, `state Tally { … }`. The constructor parameters, the state
+// fields and every member's parameters and locals are one set of names: a
+// member reads all of them bare, so none may repeat another.
 handler CyclicRandom<T>(values: T[]) of Random<T> {
     state {
         i = 0

@@ -22,7 +22,7 @@
 //
 // Own module so a program that never uses a map emits nothing for it
 // [mod-used-only].
-export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<self, K>
+export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<self, MapKeyYield<K>, K>
 
 // Constructor, from entries written as pairs: `Map(("a", 1), ("b", 2))`.
 // The keys and values are stored in the new map, so they are moved: a
@@ -282,7 +282,7 @@ export struct MapEntry<K, V> {
 // [col-map-entries] The entries, in insertion order, each a borrowed
 // key/value view: `for e in entries(m) { println("${e.key}: ${e.value}") }`.
 export iter fn entries<K, V>(map: Map<K, V>) -> Emitted MapEntry<K, V> | Finished holds proj(map) {
-    state {
+    state MapEntries {
         // The next slot to look at.
         at: Int = 0
     }
@@ -300,7 +300,7 @@ export iter fn entries<K, V>(map: Map<K, V>) -> Emitted MapEntry<K, V> | Finishe
 
 // [col-map-entries] The values, in insertion order, borrowed.
 export iter fn values<K, V>(map: Map<K, V>) -> Emitted (proj(map) V) | Finished holds proj(map) {
-    state {
+    state MapValues {
         at: Int = 0
     }
     while at < slot_count(map) {

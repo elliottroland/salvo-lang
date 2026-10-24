@@ -3,7 +3,7 @@
 // Every natural number from [n] up: an endless source, which only a lazy
 // adaptor can stop.
 iter fn naturals(n: Int) -> Emitted Int | Finished {
-    state {
+    state Naturals {
         at: Int = n
     }
     let v = at.copy()

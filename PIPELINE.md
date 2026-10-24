@@ -600,3 +600,14 @@ log current so the work can resume after a context reset). Newest last.
   lists; field-path inference removed (`mut_fields` and `MutFieldFacts`
   gone). Still two walks on every program measured: std itself has move-mode
   candidates, so the second walk is for those (step 5's per-body re-walk).
+- **Step 4 (done, committed "Name iterator state structs, and remove iter
+  T").** `state Name { … }` required in an `iter fn` (`FnDecl.iter_state_name`,
+  also on the generated minter and `next`, which the LSP keys on); every
+  parameter held (`Hold::Owned`/`Whole`); `iter T`, `hoist_iter_types`, the
+  iter-return pre-pass and `Checked.iter_returns` gone; `Iter<C, It, T>`
+  through std, examples, tests and docs. Handlers: `HandlerDecl.state_name`,
+  `check_handler_names` ([bare-names], [state-name]); 9d's initializer fix in
+  `ir::build::decls::fields`; 9c in `learn_from_implicits_once` (a written
+  implicit teaches through the fn written). Still two walks per program
+  (move-mode candidates; step 5). Full nextest after the std change took
+  8 minutes (every stamp missed).

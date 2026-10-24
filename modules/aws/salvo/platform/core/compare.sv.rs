@@ -5,9 +5,10 @@
 use crate::core_list::Enumerated;
 use crate::core_iterator::Finished;
 use crate::core_index::Idx__Int_qualifies;
+use crate::core_list::ListEnumerate;
 use crate::core_list::enumerate;
 use crate::core_list::get;
-use crate::core_list::next__Iter_enumerate_List;
+use crate::core_list::next__ListEnumerate;
 use crate::core_list::size_platform;
 
 
@@ -15,9 +16,9 @@ pub fn eq__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, eq: &mut dyn FnMut(&T, &T
     if (crate::core_list::size_platform::<T>(a) != crate::core_list::size_platform::<T>(b)) {
         return false;
     };
-    let mut __pass_1: crate::core_list::__Iter_enumerate_List<'_, T> = crate::core_list::enumerate::<T>(a);
+    let mut __pass_1: crate::core_list::ListEnumerate<'_, T> = crate::core_list::enumerate::<T>(a);
     loop {
-        let mut __step_2: crate::unions::Union2<crate::core_list::Enumerated<'_, T>, crate::core_iterator::Finished> = crate::core_list::next__Iter_enumerate_List(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<crate::core_list::Enumerated<'_, T>, crate::core_iterator::Finished> = crate::core_list::next__ListEnumerate(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut p: crate::core_list::Enumerated<'_, T> = __emitted_3;
@@ -35,9 +36,9 @@ pub fn eq__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, eq: &mut dyn FnMut(&T, &T
 }
 
 pub fn cmp__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> i32 {
-    let mut __pass_1: crate::core_list::__Iter_enumerate_List<'_, T> = crate::core_list::enumerate::<T>(a);
+    let mut __pass_1: crate::core_list::ListEnumerate<'_, T> = crate::core_list::enumerate::<T>(a);
     loop {
-        let mut __step_2: crate::unions::Union2<crate::core_list::Enumerated<'_, T>, crate::core_iterator::Finished> = crate::core_list::next__Iter_enumerate_List(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<crate::core_list::Enumerated<'_, T>, crate::core_iterator::Finished> = crate::core_list::next__ListEnumerate(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut p: crate::core_list::Enumerated<'_, T> = __emitted_3;

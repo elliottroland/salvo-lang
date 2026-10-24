@@ -39,8 +39,8 @@ Everything the four sequences covered is built and running on **both backends
 with identical output**: shared fate and borrow emission, linearity with a
 designated `close`, effects through handler dependencies, `throw`/`try`, places
 and field narrowing, deductions with refinements, the iterator reduction to
-`next` (with any-name `iter fn`, `Iter` for sources and the `iter T`
-placeholder — the 2026-09-27 redesign), the collections, the filesystem, actors (spawn, send, park, watch,
+`next` (with any-name `iter fn` naming its state struct and `Iter` for
+sources), the collections, the filesystem, actors (spawn, send, park, watch,
 bridge), time, free concurrency, shareable-by-default handlers, refinement types,
 group borrowing (`ref(c)` handles), the testing framework, the comparison/hashing capabilities,
 actors across machines (`net`, the whole network sequence), one shape for
@@ -521,8 +521,8 @@ println("${twice(5)}")      // IR builder: no `to_str` for `?` in an interpolati
 ```
 
 No wrong code is emitted, but the error comes from the wrong layer. Fix:
-infer the return type from the body's `return`s (as a fn's is, through
-`iter_returns`-style joining), or require an annotation. Choosing between
+infer the return type from the body's `return`s, or require an
+annotation. Choosing between
 the two is a language decision (**DECISION**: infer, or reject an
 un-annotated braced lambda whose result is used).
 
@@ -928,35 +928,12 @@ reproduced in a scratch project; the repros are below.
    (`X <: proj X`), so the join should be `proj Str`, with the literal an
    owned value fitting it.
 
-9c. **Open defect: writing both members of a `with` pair with another struct
-   is refused.** Found 2026-10-20 (PIPELINE.md 4.1). With `struct Bag :
-   Iter<self, Int>` minting `Mut A` through `fn iter(bag: Bag) -> Mut A`, a
-   call `total(bag, iter = mint_b, next = next)` (where `mint_b(bag: Bag) ->
-   Mut B` and `next(b: Mut B)` exists) is refused: "`iter` does not fit here:
-   expects `(Bag) -> Mut A`, found `(Bag) -> Mut B`". [implicit-with]'s remedy
-   is exactly to write both, so the spread's hidden generic must be bound from
-   the written pair, not from the resolved minter. Repro: `tmp/itergrp`
-   (`fn total<C>(c: C, ?Iter<C, Int>) [] -> Int => c`).
+9c. ✅ **Writing both members of a `with` pair with another struct** — done
+    2026-10-20 with PIPELINE.md step 4 ([iter-group], COMPLETED.md).
 
-9d. **Open defects: a handler's state initializer cannot read a constructor
-   parameter, and the handler's names may clash unchecked.** Found 2026-10-20
-   (PIPELINE.md 4.1, probe `tmp/hstate`). Three shapes, all accepted by the
-   checker:
-   - `handler Counting(c: Int) of Counter { state { n: Int = c + 100 } … }`
-     fails in the IR builder on both backends ("unresolved identifier `c`"),
-     though [handler-state] lets an initializer read the constructor's
-     parameters: `ir::build::decls::fields` lowers state initializers with
-     `Lower::new(ctx, file_idx, None)`, so no constructor parameter is in
-     scope. Nothing in the tree does it yet.
-   - A state field named like a constructor parameter (`Counting(n: Int)`,
-     `state { n: Int = 7 }`): rustc E0124 (field declared twice), kotlinc
-     "conflicting declarations".
-   - A member parameter named like a state field (`state { n: Int = 7 }`, `fn
-     bump(n: Int) -> Int { return n }`): the checker binds `n` to the state
-     field (`check_fn` inserts state after the parameters into one frame),
-     both emitters to the parameter, so `bump(5)` prints 5 where the checker's
-     reading is 7: a checker/emitter disagreement.
-   No rule says which name wins; the fix is a rule (PIPELINE.md 4.1 R4).
+9d. ✅ **A handler's state initializer reads a constructor parameter, and its
+    names may not clash** — done 2026-10-20 with PIPELINE.md step 4
+    ([bare-names], [state-name], COMPLETED.md).
 
 9e. **A general `state` effect (DECISION, to design).** Found 2026-10-20 while
    designing named iterator state (PIPELINE.md 4.1, "The general form"): a
@@ -968,8 +945,9 @@ reproduced in a scratch project; the repros are below.
    `state<s>`, Haskell's `State s`). Open: two states of one type in scope
    (refused, as [use-no-dup]); a lambda reaching a state (its type carries
    `[state S]`); states and actors (not shareable); reading the final state
-   after the block. PIPELINE.md's named `iter fn` and handler states are
-   written so that this can extend them.
+   after the block. The named `iter fn` and handler states (built 2026-10-20,
+   [iter-fn] [state-name]; `HandlerDecl.state_name` is recorded and unread)
+   are written so that this can extend them.
 
 10. ✅ **A stamped body falls back to its template's names** — done
     2026-10-20 with option (b) ([comptime-hygiene], COMPLETED.md). Left
@@ -1612,7 +1590,7 @@ stage is an `iter fn`. Over a **concrete** source it works today —
 
 ```
 iter fn evens(xs: List<Int>) -> Emitted Int | Finished {
-    state { inner: Mut ListYield<Int> = iter(xs) }
+    state Evens { inner: Mut ListYield<Int> = iter(xs) }
     …
 }
 ```
@@ -1621,10 +1599,10 @@ iter fn evens(xs: List<Int>) -> Emitted Int | Finished {
 `for n in doubled(evens(xs))` chains. What is **not built** is the generic
 stage, in either of its two forms, both refused today at the `iter fn`:
 
-- **over a generic source**: `iter fn evens<C>(c: C, ?Iter<C, Int>)` with
-  `state { inner: iter Int = iter(c) }`;
-- **over an iterator**: `iter fn doubled(it: iter Int)`, the position
-  *consumed* into the hidden struct (today every `iter fn` parameter is
+- **over a generic source**: `iter fn evens<C, It>(c: C, ?Iter<C, It, Int>)`
+  with `state Evens { inner: Mut It = iter(c) }`;
+- **over an iterator**: `iter fn doubled<It>(it: Mut It, ?Yield<It, Int>)`,
+  the position *consumed* into the struct (today every `iter fn` parameter is
   borrowed and read-only).
 
 Both need the same two things (ITER_REDUX.md, round 6): the generated `next`

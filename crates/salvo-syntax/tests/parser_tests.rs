@@ -1753,11 +1753,10 @@ fn a_rename_takes_no_effects_deductions_or_return_type() {
     }
 }
 
-/// [iter-fn] The `iter fn` expansion, as the rest of the compiler sees it: a
-/// hidden `__Iter_iter_Countdown` carrying what the body reads of the
-/// parameter and the `state` fields, a minter under the `iter fn`'s own name
-/// (borrowing the parameter), and the author's body as an ordinary `next` with
-/// every field written out.
+/// [iter-fn] The `iter fn` expansion, as the rest of the compiler sees it: the
+/// struct its `state` block names, carrying the parameter and the `state`
+/// fields, a minter under the `iter fn`'s own name (borrowing the parameter),
+/// and the author's body as an ordinary `next` with every field written out.
 ///
 /// Snapshotted rather than asserted piecemeal because the *whole* shape is the
 /// contract: this is the only place the generated declarations are visible.
@@ -1769,7 +1768,7 @@ struct Countdown {
 }
 
 iter fn iter(c: Countdown) -> Emitted Int | Finished {
-    state {
+    state CountdownIter {
         at: Int = c.from
     }
     if at <= 0 {
@@ -1783,71 +1782,6 @@ iter fn iter(c: Countdown) -> Emitted Int | Finished {
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     insta::assert_debug_snapshot!(module);
-}
-
-/// [iter-fn] The per-field snapshot across files: with the program-level
-/// expansion (`parse_module_deferred` + `expand_iter_fns_with`), a subject
-/// declared in *another* file still gets one snapshot field per field read,
-/// instead of falling back to holding the whole value — the roadmap's
-/// "mutable origins, option (e)" residue. The same source expanded with
-/// this file's declarations alone keeps the whole-subject fallback.
-#[test]
-fn a_foreign_subject_gets_the_per_field_snapshot() {
-    let subject_file = "\
-struct Countdown {
-    from: Int,
-    label: Str
-}
-";
-    let iter_file = "\
-iter fn iter(c: Countdown) -> Emitted Int | Finished {
-    state {
-        at: Int = 0
-    }
-    if at >= c.from {
-        return finished()
-    }
-    at = at + 1
-    return emitted(at)
-}
-";
-    let pass_fields = |module: &salvo_syntax::ast::Module| -> Vec<String> {
-        module
-            .items
-            .iter()
-            .find_map(|item| match item {
-                salvo_syntax::ast::Item::Struct(s) if s.name.name.starts_with("__Iter_") => {
-                    Some(s.fields.iter().map(|f| f.name.name.clone()).collect())
-                }
-                _ => None,
-            })
-            .expect("the generated pass struct")
-    };
-
-    // Program-level expansion: the foreign declaration is visible, so the
-    // pass holds only the one field the body reads (plus the state field).
-    let (subject_module, diags) = salvo_syntax::parse_module_deferred(subject_file);
-    assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
-    let (mut iter_module, diags) = salvo_syntax::parse_module_deferred(iter_file);
-    assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
-    let externs = salvo_syntax::desugar::struct_decls(&subject_module);
-    let diags = salvo_syntax::desugar::expand_iter_fns_with(&mut iter_module, &externs, &[]);
-    assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
-    assert_eq!(
-        pass_fields(&iter_module),
-        vec!["from".to_string(), "at".to_string()],
-        "expected the per-field snapshot for a foreign subject"
-    );
-
-    // Single-file expansion of the same source: the declaration is not
-    // visible, so the pass keeps the whole subject.
-    let (fallback_module, diags) = salvo_syntax::parse_module(iter_file);
-    assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
-    assert_eq!(
-        pass_fields(&fallback_module),
-        vec!["c".to_string(), "at".to_string()],
-        "a single-file parse cannot see the declaration, so the whole value rides"
-    );
 }
 
 /// [deduce-syntax] The `=>` clause: every entry form, a group scoped to a
@@ -3898,8 +3832,8 @@ handler H() of E {
 #[test]
 fn iter_fn_state_accepts_written_and_inferred() {
     for src in [
-        "iter fn upto(n: Int) -> Emitted Int | Finished {\n    state {\n        at: Int = 0\n    }\n    if at >= n { return finished() }\n    at = at + 1\n    return emitted(at)\n}\n",
-        "iter fn upto(n: Int) -> Emitted Int | Finished {\n    state {\n        at = 0\n    }\n    if at >= n { return finished() }\n    at = at + 1\n    return emitted(at)\n}\n",
+        "iter fn upto(n: Int) -> Emitted Int | Finished {\n    state Upto {\n        at: Int = 0\n    }\n    if at >= n { return finished() }\n    at = at + 1\n    return emitted(at)\n}\n",
+        "iter fn upto(n: Int) -> Emitted Int | Finished {\n    state Upto2 {\n        at = 0\n    }\n    if at >= n { return finished() }\n    at = at + 1\n    return emitted(at)\n}\n",
     ] {
         let (_m, diags) = salvo_syntax::parse_module(src);
         assert!(

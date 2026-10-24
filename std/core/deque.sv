@@ -14,7 +14,7 @@
 // [platform-value-type] A value platform type (ROADMAP 0.7): the host
 // implements it in `std/platform/core/deque.{rs,kt}` and names the mutable
 // kind `MutDeque`.
-export iterable platform type Deque<T canbe linear> canbe Mut : Iter<self, T>
+export iterable platform type Deque<T canbe linear> canbe Mut : Iter<self, DequeYield<T>, T>
 
 // The host's primitives, from which the constructors below are built.
 platform fn empty_deque<T canbe linear>() [] -> Mut Deque<T>
@@ -190,7 +190,7 @@ export fn next<T>(p: Mut DequeYield<T>) [] -> Emitted (proj(p) T) | Finished => 
 
 // [col-reversed] Walks the deque back to front, borrowing it.
 export iter fn reversed<T>(d: Deque<T>) -> Emitted (proj(d) T) | Finished {
-    state {
+    state DequeReversed {
         at: Int = size(d) - 1
     }
     let elem = get(d, at)

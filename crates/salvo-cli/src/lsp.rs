@@ -1569,24 +1569,12 @@ impl Server<'_> {
                 Item::Fn(f) if f.name.span == site.span => Some(f),
                 _ => None,
             });
-            // [lsp-hover-overloads] [iter-fn] A generated iterator-struct
-            // `next` is not a user-visible overload: its struct
-            // (`__Iter_<fn>_…`) is compiler-written and unspellable, so listing
-            // its `next(__p: Mut __Iter_…)` beside the real ones only leaks the
-            // backend. Skip any overload whose first parameter's base type is a
-            // compiler-generated name (leading `_`).
-            if let Some(f) = fn_decl {
-                let generated_recv = f
-                    .params
-                    .first()
-                    .and_then(|p| match &p.ty {
-                        salvo_syntax::ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
-                        _ => None,
-                    })
-                    .is_some_and(|n| n.starts_with('_'));
-                if generated_recv {
-                    continue;
-                }
+            // [lsp-hover-overloads] [iter-fn] The `next` an `iter fn` became
+            // is not a user-visible overload: its body is the `iter fn`'s,
+            // and listing `next(__p: Mut Range)` beside the real ones only
+            // leaks the desugaring.
+            if fn_decl.is_some_and(is_generated_next) {
+                continue;
             }
             // The note is kept out of the code span: an owner renders with
             // backticks of its own (`effect `Store``), and nesting them makes
@@ -3601,56 +3589,41 @@ fn fn_signature(program: &Program, checked: &Checked, key: FnKey) -> Option<Stri
     Some(fn_decl_signature(decl, checked.deductions.get(&key).map(|d| d.as_slice())))
 }
 
+/// [lsp-hover-iter-fn] Whether `f` is the `next` an `iter fn` became: it
+/// carries the state's name, and its one parameter is the generated `__p`.
+fn is_generated_next(f: &FnDecl) -> bool {
+    f.iter_state_name.is_some() && f.name.name == "next" && f.params.len() == 1 && f.params[0].name.name == "__p"
+}
+
+/// [lsp-hover-iter-fn] The minter and the `next` an `iter fn` became, found
+/// from either half by the state name both carry.
+fn iter_fn_halves<'a>(module: &'a salvo_syntax::ast::Module, decl: &FnDecl) -> Option<(&'a FnDecl, &'a FnDecl)> {
+    let state = decl.iter_state_name.as_ref()?;
+    let mut minter = None;
+    let mut next = None;
+    for item in &module.items {
+        let Item::Fn(f) = item else { continue };
+        if f.iter_state_name.as_ref().is_none_or(|n| n.name != state.name) {
+            continue;
+        }
+        if is_generated_next(f) {
+            next = Some(f);
+        } else {
+            minter = Some(f);
+        }
+    }
+    Some((minter?, next?))
+}
+
 /// [lsp-hover-iter-fn] The minter an `iter fn` became, from either half.
-fn iter_fn_minter<'a>(module: &'a salvo_syntax::ast::Module, decl: &'a FnDecl) -> Option<&'a FnDecl> {
-    use salvo_syntax::ast::Type;
-    let prefix = salvo_syntax::desugar::ITER_STRUCT_PREFIX;
-    let base_of = |t: &Type| match t {
-        Type::Named { base, .. } => Some(base.name.name.clone()),
-        _ => None,
-    };
-    let generated = decl
-        .params
-        .first()
-        .and_then(|p| base_of(&p.ty))
-        .filter(|n| n.starts_with(prefix) && decl.name.name == "next")
-        .or_else(|| decl.return_type.as_ref().and_then(base_of).filter(|n| n.starts_with(prefix)))?;
-    module.items.iter().find_map(|i| match i {
-        Item::Fn(f) if f.return_type.as_ref().and_then(base_of).as_deref() == Some(generated.as_str()) => Some(f),
-        _ => None,
-    })
+fn iter_fn_minter<'a>(module: &'a salvo_syntax::ast::Module, decl: &FnDecl) -> Option<&'a FnDecl> {
+    iter_fn_halves(module, decl).map(|(minter, _)| minter)
 }
 
 /// [lsp-hover-iter-fn] `iter fn name(params) [effects] -> Emitted T | Finished`
 /// for the minter or the `next` an `iter fn` became, from the two of them.
 fn iter_fn_signature(module: &salvo_syntax::ast::Module, decl: &FnDecl) -> Option<String> {
-    use salvo_syntax::ast::Type;
-    let prefix = salvo_syntax::desugar::ITER_STRUCT_PREFIX;
-    let base_of = |t: &Type| match t {
-        Type::Named { base, .. } => Some(base.name.name.clone()),
-        _ => None,
-    };
-    let generated = decl
-        .params
-        .first()
-        .and_then(|p| base_of(&p.ty))
-        .filter(|n| n.starts_with(prefix) && decl.name.name == "next")
-        .or_else(|| decl.return_type.as_ref().and_then(base_of).filter(|n| n.starts_with(prefix)))?;
-    let fns = module.items.iter().filter_map(|i| match i {
-        Item::Fn(f) => Some(f),
-        _ => None,
-    });
-    let mut minter = None;
-    let mut next = None;
-    for f in fns {
-        if f.return_type.as_ref().and_then(base_of).as_deref() == Some(generated.as_str()) {
-            minter = Some(f);
-        }
-        if f.name.name == "next" && f.params.first().and_then(|p| base_of(&p.ty)).as_deref() == Some(generated.as_str()) {
-            next = Some(f);
-        }
-    }
-    let (minter, next) = (minter?, next?);
+    let (minter, next) = iter_fn_halves(module, decl)?;
     let mut sig = fn_decl_signature(minter, None);
     // Swap the generated return type for the declared element shape.
     let ret = next.return_type.as_ref()?.to_string();

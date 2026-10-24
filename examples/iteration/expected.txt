@@ -13,7 +13,7 @@
 2b. halving 2
 2b. halving 1
 2b. summed from a held iterator: 38
-2b. first from a pattern-typed fn: 10
+2b. first from a fn returning one: 10
 2c. bag 7
 2c. bag 8
 2c. total of a bag 15, of a list 10

@@ -252,7 +252,7 @@ fn missing_return_is_an_error() {
         "fn sign(x: Int) -> Int {\n    if x < 0 {\n        return -1\n    } else {\n        return 1\n    }\n}\n\
          struct Nums {\n    limit: Int\n}\n\
          iter fn iter(n: Nums) -> Emitted Int | Finished {\n    \
-         state {\n        at: Int = 0\n    }\n    if at >= n.limit {\n        \
+         state NumsIter {\n        at: Int = 0\n    }\n    if at >= n.limit {\n        \
          return finished()\n    }\n    at = at + 1\n    return emitted(copy(at))\n}\n\
          fn nothing(x: Int) {\n    let y = x\n}\n",
     )
@@ -2147,7 +2147,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
          fn keep(w: proj Str) -> proj(w) Str => w {\n    return w\n}\n\n\
          struct Chars {\n    n: Int\n}\n\n\
          iter fn iter(c: Chars) -> Emitted Str | Finished {\n    \
-         state {\n        at: Int = 0\n    }\n    \
+         state CharsIter {\n        at: Int = 0\n    }\n    \
          if at >= c.n {\n        return finished()\n    }\n    \
          at = at + 1\n    return emitted(\"x\")\n}\n\n\
          fn keep_all<It, T>(it: Mut It, ?Yield<It, T>) -> Mut List<T> => it: Mut {\n    \

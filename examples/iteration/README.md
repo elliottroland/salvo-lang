@@ -28,23 +28,24 @@ cargo run -- run --backend kotlin --src examples/iteration/salvo
    turn. Write a struct out like this when it needs a **name**: to store it in
    a field, to hand it to a function, to zip two of them.
 2b. **The same thing with the struct generated: `iter fn`.** `halving(start)`
-   is the minter — any name, any parameters — the `state { … }` block is the
-   iterator's own fields, evaluated once when it is minted, and the body is its
-   `next`. The compiler writes the struct; its type is spelled `iter Int`, and
-   `halving_from_ten() -> iter Int` shows the spelling as a return pattern
-   filled from the body. Nothing suspends, so there is no state machine in the
-   output.
-2c. **A source: `Iter`.** `Bag` declares `: Iter<self, Int>` and an `iter fn
-   iter`, so `for n in bag` mints with `iter(bag)` and drives what it answers.
+   is the minter — any name, any parameters — the `state Halving { … }` block
+   names the iterator struct and declares its own fields, evaluated once when
+   it is minted, and the body is its `next`. The compiler writes the struct,
+   which holds the parameters beside the state, and `halving_from_ten() -> Mut
+   Halving` hands one out by name. Nothing suspends, so there is no state
+   machine in the output.
+2c. **A source: `Iter`.** `Bag` declares `: Iter<self, BagIter, Int>`, naming
+   its iterator struct, and an `iter fn iter` whose `state BagIter` is that
+   struct, so `for n in bag` mints with `iter(bag)` and drives what it answers.
 3. **An effectful iterator, and an unbounded one.** A `next` is an ordinary
    function, so effects are ordinary effects: `fibs` declares `[Console]` and
    the `for` that drives it supplies the handler once per turn. `naturals` is
    unbounded — nothing runs until a consumer pulls — so the `break` is what ends
    it.
 4. **Combinators of your own.** `sum_of<It>(it: Mut It, ?Yield<It, Int>)` takes
-   an iterator; `total<C>(c: C, ?Iter<C, Int>)` takes a *source* — a `Bag`, a
-   `List`, anything with an `iter` — over a hidden iterator type; `first(it:
-   iter Int)` takes "any iterator of `Int`" as a hidden generic. Each spread is
+   an iterator; `total<C, It>(c: C, ?Iter<C, It, Int>)` takes a *source* — a
+   `Bag`, a `List`, anything with an `iter` — and its iterator type; `first`
+   takes any iterator of `Int` the same way `sum_of` does. Each spread is
    a bundle of implicit parameters, not a bound and not a trait, and each is
    also the declaration `for` reads inside the body.
 5. **The sequence functions.** `map`/`filter`/`reduce` are eager and take an
@@ -57,7 +58,7 @@ cargo run -- run --backend kotlin --src examples/iteration/salvo
    the lazy pair was removed 2026-09-10 and laziness is reconsidered after
    concurrency (see ROADMAP.md).
 7. **Ranges.** std's `range` is an `iter fn` with three parameters and two
-   overloads returning `iter Int` that delegate to it.
+   overloads returning its `Range` that delegate to it.
 
 ## What to look for in the generated code
 
@@ -71,21 +72,20 @@ cargo run -- run --backend kotlin --src examples/iteration/salvo
   `for n in skip(q)` is `while let Union2::U1(mut n) = skip(&mut q)`: the call
   as written, re-invoked.
 - **An `iter fn` generates exactly what you would have written by hand.**
-  `pub struct __Iter_halving_Int { pub start: i32, pub at: i32 }`, a
-  `halving(start)` minting one, and the author's body as an ordinary `next`.
-  The struct's name is not writable in Salvo, which is what keeps "an iterator
-  struct you must name is written by hand" true; `iter Int` is how it prints.
-- **A pattern-typed fn returns the concrete struct.** `halving_from_ten()`
-  is `-> __Iter_halving_Int` in both outputs — the `iter Int` was filled from
-  the body.
+  `pub struct Halving { pub start: i32, pub at: i32 }` — the name its `state`
+  block gives it — a `halving(start)` minting one, and the author's body as an
+  ordinary `next`.
+- **A fn handing one out names it.** `halving_from_ten()` is `-> Mut Halving`
+  in Salvo and `-> crate::Halving` in Rust.
 - **Effects are parameters, not capture.** `next__…(&mut console, …)` on the
   effectful iterator and `next__…(…)` on the pure one; the effect list is on
   the `iter fn`, and driving is what performs it.
 - **A generic combinator receives its `next` as a function value.**
-  `sum_of::<__Iter_halving_Int>(&mut hp, &mut |__i0| next__…(__i0))` — the
-  implicit resolved at the call site. `total::<Bag, __Iter_iter_Bag>(&bag,
-  &mut |__i0| iter__…(__i0), &mut |__i0| next__…(__i0))` shows the `?Iter`
-  pair with its hidden generic filled.
+  `sum_of::<crate::Halving>(&mut hp, &mut |__a0| crate::next__Halving(&mut
+  *__a0))` — the implicit resolved at the call site. `total::<crate::Bag,
+  crate::BagIter<'_>>(&bag, &mut |__a0| crate::iter(__a0), &mut |__a0|
+  crate::next__BagIter(&mut *__a0))` shows the `?Iter` pair with its `It`
+  filled.
 - **Nothing of the iterator machinery survives that is not used.** No factory
   type, no `Iterable` representation, no per-effect-set trait.
 

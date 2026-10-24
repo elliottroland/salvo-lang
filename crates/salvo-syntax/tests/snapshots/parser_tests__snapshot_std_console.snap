@@ -28,6 +28,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "print",
@@ -120,6 +121,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "printerr",
@@ -214,6 +216,7 @@ Module {
                         platform: false,
                         is_iter: false,
                         iter_state: [],
+                        iter_state_name: None,
                         is_send: false,
                         name: Ident {
                             name: "readln",
@@ -303,6 +306,7 @@ Module {
                 init: None,
                 mailbox: None,
                 state: [],
+                state_name: None,
                 fns: [],
                 span: 641..672,
             },
@@ -315,6 +319,7 @@ Module {
                 platform: false,
                 is_iter: false,
                 iter_state: [],
+                iter_state_name: None,
                 is_send: false,
                 name: Ident {
                     name: "println",

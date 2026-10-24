@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! iter fn range(start: Int, end: Int, step: Int) -> Emitted Int | Finished {
-//!     state {
+//!     state Range {
 //!         i: Int = start
 //!     }
 //!     if step <= 0 || i >= end { return finished() }
@@ -18,17 +18,16 @@
 //! becomes, before anything else in the compiler sees it:
 //!
 //! ```text
-//! struct __Iter_range_Int_Int_Int : Yield<self, Int> canbe Mut {
+//! struct Range : Yield<self, Int> canbe Mut {
 //!     start: Int, end: Int, step: Int,
 //!     i: Int
 //! }
 //!
-//! fn range(start: Int, end: Int, step: Int) [] -> Mut __Iter_range_Int_Int_Int
-//! => start, end, step {
-//!     return Mut __Iter_range_Int_Int_Int { start: start, end: end, step: step, i: start }
+//! fn range(start: Int, end: Int, step: Int) [] -> Mut Range {
+//!     return Mut Range { start: start, end: end, step: step, i: start }
 //! }
 //!
-//! fn next(__p: Mut __Iter_range_Int_Int_Int) [] -> Emitted Int | Finished => __p: Mut {
+//! fn next(__p: Mut Range) [] -> Emitted Int | Finished => __p: Mut {
 //!     if __p.step <= 0 || __p.i >= __p.end { return finished() }
 //!     __p.i += __p.step
 //!     return emitted(__p.i - __p.step)
@@ -37,10 +36,13 @@
 //!
 //! The `iter fn` keeps its own **name and parameters** (user decision
 //! 2026-09-26): the declaration is the *minter*, and its body is the step. A
-//! call `range(0, 10)` mints an iterator — its type is the hidden struct, spelled
-//! `iter Int` [iter-type] — and `for i in range(0, 10)` drives it. The one named
-//! `iter` with one parameter is the canonical minter an `: Iter<self, T>`
-//! obligation asks for [iter-group].
+//! call `range(0, 10)` mints an iterator of the struct its `state` block names
+//! (user decision 2026-10-20), and `for i in range(0, 10)` drives it. The one
+//! named `iter` with one parameter is the canonical minter an `: Iter<self,
+//! It, T>` obligation asks for [iter-group].
+//!
+//! The struct holds every parameter — a Copy scalar owned, anything else
+//! borrowed whole — so its shape is a function of the declaration's header.
 //!
 //! Three consequences are the reason it is done *here*, in the syntax crate,
 //! rather than as a checker feature:
@@ -55,11 +57,6 @@
 //! * **"No effects in an initializer" needs no check**: the initializers become
 //!   the body of a minter declared `[]`, so an effectful call there is an
 //!   ordinary effect error at that call.
-//!
-//! The generated struct is named `__Iter_<fn>_<param types>` — unnameable,
-//! since a type reference beginning with `_` is refused [iter-fn] — which is
-//! what keeps the first boundary the design rests on: an iterator struct you
-//! must *name* is still written by hand.
 
 use std::collections::BTreeMap;
 
@@ -71,55 +68,16 @@ use crate::span::Span;
 /// Diagnostics are returned rather than thrown: an `iter fn` that cannot be
 /// expanded is dropped, so the rest of the module still parses and checks.
 pub fn expand_iter_fns(module: &mut Module) -> Vec<Diagnostic> {
-    let groups = params_decls(module);
-    expand_iter_fns_with(module, &[], &groups)
-}
-
-/// The struct declarations of a module, cloned — what a program-level
-/// expansion passes to `expand_iter_fns_with` as the *other* files'
-/// declarations.
-pub fn struct_decls(module: &Module) -> Vec<StructDecl> {
-    module
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            Item::Struct(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
-/// `expand_iter_fns`, with the struct declarations of the *rest of the
-/// program* available for the per-field snapshot [iter-fn]. The module's own
-/// declarations are looked up first, so a local name always wins; with the
-/// extra table a subject declared in another file gets the per-field
-/// snapshot instead of falling back to holding the whole value (the roadmap
-/// "mutable origins, option (e)" residue). Generic subjects still hold the
-/// whole value — their field types would need substituting.
-pub fn expand_iter_fns_with(
-    module: &mut Module,
-    extern_structs: &[StructDecl],
-    groups: &[ParamsDecl],
-) -> Vec<Diagnostic> {
     // [fn-attached] The struct-body hoist, run here because this is the one
     // entry point every consumer of a parsed module already calls — so no path
     // can forget it.
     hoist_struct_fns(module);
-    // [iter-type] The placeholder's hidden-generic readings, on every fn —
-    // after the struct-body fns are hoisted, so they are covered too.
-    hoist_iter_types(module, groups);
     let mut diags = Vec::new();
-    // The subject's own declaration: that is what makes a *per-field*
-    // snapshot possible, since a generated field needs the field's written
-    // type and the desugaring has no type information of its own. Local
-    // declarations first — `.find` takes the first hit.
-    let mut structs: Vec<StructDecl> = struct_decls(module);
-    structs.extend(extern_structs.iter().cloned());
     let mut expanded: Vec<Item> = Vec::with_capacity(module.items.len());
     for item in std::mem::take(&mut module.items) {
         match item {
             Item::Fn(f) if f.is_iter => {
-                if let Some(items) = expand(&f, &structs, &mut diags) {
+                if let Some(items) = expand(&f, &mut diags) {
                     expanded.extend(items);
                 }
             }
@@ -172,30 +130,16 @@ impl Spans {
 /// The generated `next`'s parameter name.
 const PASS: &str = "__p";
 
-/// The prefix of a generated iterator struct's name. Underscore-leading, so no
-/// program can write it [iter-fn].
-pub const ITER_STRUCT_PREFIX: &str = "__Iter_";
-
-/// How the generated iterator struct holds one parameter of the `iter fn`.
+/// How the iterator struct holds one parameter of the `iter fn`: every
+/// parameter is held (user decision 2026-10-20, R5).
 enum Hold {
-    /// Not at all: the body never reads it (a `state` initializer may — that
-    /// runs in the minter, where the parameter is in scope).
-    Nothing,
     /// Owned, as written: a Copy scalar, whose copy is free [copy-scalar-free].
     Owned,
     /// Borrowed whole: `proj T` [proj-field].
     Whole,
-    /// One `proj` field per field the body reads, by (field, hidden name,
-    /// field type, docs) — the subject's declaration was visible and the body
-    /// only ever reads plain fields of it.
-    Fields(Vec<(String, String, Type, Vec<String>)>),
 }
 
-fn expand(
-    f: &FnDecl,
-    structs: &[StructDecl],
-    diags: &mut Vec<Diagnostic>,
-) -> Option<Vec<Item>> {
+fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
     let span = f.name.span;
     let mut error = |message: String, span: Span| diags.push(Diagnostic::error(message, span));
 
@@ -222,8 +166,7 @@ fn expand(
         return None;
     }
     // Every parameter is held by the iterator struct, so each has to be a
-    // named type the struct can be named after and can hold [iter-fn].
-    let mut bases: Vec<String> = Vec::new();
+    // named type the struct can hold [iter-fn].
     for p in &f.params {
         if p.variadic {
             error(
@@ -236,12 +179,12 @@ fn expand(
             );
             return None;
         }
-        let Type::Named { qualifiers, base } = &p.ty else {
+        let Type::Named { qualifiers, .. } = &p.ty else {
             error(
                 format!(
                     "an `iter fn`'s parameter `{}` must be a named type — the \
-                     generated iterator struct holds it as a field and is named after \
-                     it; wrap an array, tuple or union in a struct of your own",
+                     iterator struct holds it as a field; wrap an array, tuple or \
+                     union in a struct of your own",
                     p.name.name
                 ),
                 p.span,
@@ -249,20 +192,6 @@ fn expand(
             return None;
         };
         if let Some(q) = qualifiers.first() {
-            if q.name.name == "iter" {
-                error(
-                    format!(
-                        "an `iter fn` cannot take an iterator (`{}: {}`) yet: the \
-                         generated `next` would have to drive a generic iterator — \
-                         write the iterator struct by hand, or take a concrete \
-                         iterator struct",
-                        p.name.name,
-                        type_display(&p.ty)
-                    ),
-                    p.span,
-                );
-                return None;
-            }
             // The parameters are ordinary data the caller keeps: a fresh
             // iterator is minted per call, so advancing never writes through
             // them. `Mut` would promise the opposite.
@@ -277,7 +206,6 @@ fn expand(
             );
             return None;
         }
-        bases.push(base.name.name.replace('.', ""));
     }
 
     // The element type comes from the declared result, which must be the
@@ -327,8 +255,9 @@ fn expand(
     if let Some((name, at)) = shadowed.first() {
         error(
             format!(
-                "`{name}` is a field of the generated iterator struct, so a binding \
-                 of that name would shadow it: rename the binding"
+                "`{name}` is already a name of `iter fn {}` (a parameter or a \
+                 `state` field), and a binding may not reuse it: rename the binding",
+                f.name.name
             ),
             *at,
         );
@@ -348,18 +277,11 @@ fn expand(
     let field_span = spans.take();
     let lit_span = spans.take();
     let ret_span = spans.take();
-    // Keyed by the fn's name *and* its parameter types, since an `iter fn`
-    // overloads like any fn (`iter fn iter(list: List<T>)` beside `iter fn
-    // iter(set: Set<T>)`).
-    let mut struct_name = format!("{ITER_STRUCT_PREFIX}{}", f.name.name);
-    for b in &bases {
-        struct_name.push('_');
-        struct_name.push_str(b);
-    }
-    let pass_name = Ident {
-        name: struct_name,
-        span: struct_span,
-    };
+    // [iter-fn] The struct is named by the `state Name { … }` block (user
+    // decision 2026-10-20, R3/R4) and declared beside the fn, so it collides
+    // with a same-named type, or another `iter fn`'s state, in that scope.
+    // The parser has reported a missing name.
+    let pass_name = f.iter_state_name.clone()?;
     let pass_ty = |mutable: bool| Type::Named {
         qualifiers: if mutable {
             vec![type_ref("Mut", span)]
@@ -396,230 +318,73 @@ fn expand(
         },
     };
 
-    // [iter-fn] How much of each parameter the iterator struct has to hold. It
-    // exists to carry the position, and a parameter rides along only because
-    // the body may read it on any turn — so the cheapest correct answer is
-    // looked for first, in three tiers:
-    //
-    //   1. the body never reads it (a plain counter): hold *nothing*;
-    //   2. it only ever reads plain fields of it, and their types are visible:
-    //      hold one snapshot field per field read;
-    //   3. anything else — the value passed on, an assignment through it, a
-    //      generic type (whose field types would need substituting), a
-    //      declaration the expansion cannot see: hold it whole. (A single-file
-    //      parse sees this file only; the program-level expansion the CLI
-    //      drives sees every file's declarations.)
-    //
-    // All three are observationally identical, because the struct *borrows*: it
-    // is a view of the value [proj-field], so the value cannot be written while
-    // the iterator lives [proj-infer], and a per-field borrow at the mint says
-    // exactly what a whole borrow says. A Copy scalar is simply owned.
+    // [iter-fn] The struct holds **every** parameter (user decision
+    // 2026-10-20, R5): a Copy scalar owned, anything else borrowed whole
+    // (`proj T`), so the struct's shape is a function of the header and not of
+    // what the step happens to read. The borrow makes the iterator a view of
+    // the value [proj-field], so the value cannot be written while the
+    // iterator lives [proj-infer].
     let state_names: Vec<String> = f
         .iter_state
         .iter()
         .map(|field| field.name.name.clone())
         .collect();
-    let param_names: Vec<String> = f.params.iter().map(|p| p.name.name.clone()).collect();
-    let mut scan = Rewrite {
-        params: param_names.iter().map(|n| (n.clone(), n.clone())).collect(),
-        state: state_names.clone(),
-        // Scan mode synthesizes nothing, so this allocator is never drawn on;
-        // the rewrite below gets the live one.
-        spans: Spans::new(f.span),
-        snapshots: BTreeMap::new(),
-        scan: true,
-        used_fields: BTreeMap::new(),
-        used_whole: Vec::new(),
-        assigns_through: Vec::new(),
-    };
-    let mut scanned = body.clone();
-    scan.block(&mut scanned);
-    // [qual-depend] A dependent claim in the element names a parameter
-    // (`Emitted (+Idx(list) Int)`); the struct must *hold* that parameter for
-    // the claim to have a place to name, whether or not the body reads it.
-    if let Some(rt) = &f.return_type {
-        let mut roots = Vec::new();
-        value_arg_roots(rt, &mut roots);
-        for root in roots {
-            if param_names.contains(&root) && !scan.used_whole.contains(&root) {
-                scan.used_whole.push(root);
-            }
-        }
-    }
-    let mut holds: Vec<Hold> = Vec::new();
-    for p in &f.params {
-        let name = &p.name.name;
-        if is_copy_scalar(&p.ty) {
-            holds.push(Hold::Owned);
-            continue;
-        }
-        let used_fields = scan.used_fields.get(name).cloned().unwrap_or_default();
-        let whole = scan.used_whole.contains(name) || scan.assigns_through.contains(name);
-        if !whole && used_fields.is_empty() {
-            holds.push(Hold::Nothing);
-            continue;
-        }
-        let Type::Named { base, .. } = &p.ty else { unreachable!() };
-        let decl = if base.args.is_empty() {
-            structs.iter().find(|s| s.name.name == base.name.name)
-        } else {
-            None
-        };
-        let mut fields: Vec<(String, String, Type, Vec<String>)> = Vec::new();
-        let mut ok = !whole && decl.is_some();
-        if ok {
-            let decl = decl.unwrap();
-            for used in &used_fields {
-                let Some(field) = decl.fields.iter().find(|f| f.name.name == *used) else {
-                    // Not a field of the parameter: keep it whole, so the
-                    // checker reports the real mistake against the real type.
-                    ok = false;
-                    break;
-                };
-                // The snapshot keeps the field's own name where that is free,
-                // since the generated code is read by people; a clash with a
-                // state field or a parameter pushes it into the compiler's
-                // namespace instead.
-                let hidden = if state_names.iter().any(|s| s == used)
-                    || param_names.iter().any(|s| s == used)
-                {
-                    format!("__s_{used}")
-                } else {
-                    used.clone()
-                };
-                // A struct field always has a written type; if somehow not,
-                // keep the parameter whole rather than snapshot a typeless
-                // field.
-                let Some(fty) = field.ty.clone() else {
-                    ok = false;
-                    break;
-                };
-                fields.push((used.clone(), hidden, fty, field.docs.clone()));
-            }
-        }
-        holds.push(if ok { Hold::Fields(fields) } else { Hold::Whole });
-    }
-    // Two parameters snapshotting a field of the same name would collide;
-    // hold the second whole rather than invent a third namespace.
-    {
-        let mut seen: Vec<String> = Vec::new();
-        for h in holds.iter_mut() {
-            if let Hold::Fields(fields) = h {
-                if fields.iter().any(|(_, hidden, _, _)| seen.contains(hidden)) {
-                    *h = Hold::Whole;
-                    continue;
-                }
-                seen.extend(fields.iter().map(|(_, hidden, _, _)| hidden.clone()));
-            }
-        }
-    }
+    let holds: Vec<Hold> = f
+        .params
+        .iter()
+        .map(|p| if is_copy_scalar(&p.ty) { Hold::Owned } else { Hold::Whole })
+        .collect();
 
     // 1. the iterator struct: what it holds of each parameter, then the state
     //    fields.
     let mut fields = Vec::new();
     let mut lit_fields: Vec<StructLitField> = Vec::new();
-    // Parameter name -> (subject field -> hidden field), for the rewrite.
-    let mut snapshots: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     // Parameter name -> the hidden field holding it whole (or owned).
     let mut held: BTreeMap<String, String> = BTreeMap::new();
     for (p, hold) in f.params.iter().zip(&holds) {
-        match hold {
-            Hold::Nothing => {}
-            Hold::Owned | Hold::Whole => {
-                let ty = if matches!(hold, Hold::Owned) {
-                    p.ty.clone()
+        let ty = if matches!(hold, Hold::Owned) {
+            p.ty.clone()
+        } else {
+            // [proj-field] `proj T`: the iterator projects the value.
+            proj_of(&p.ty, field_span)
+        };
+        fields.push(FieldDecl {
+            annotations: Vec::new(),
+            docs: vec![format!(
+                "The `{}` being iterated — {} [iter-fn].",
+                p.name.name,
+                if matches!(hold, Hold::Owned) {
+                    "a scalar, owned"
                 } else {
-                    // [proj-field] `proj T`: the iterator projects the value.
-                    proj_of(&p.ty, field_span)
-                };
-                fields.push(FieldDecl {
-                    annotations: Vec::new(),
-                    docs: vec![format!(
-                        "The `{}` being iterated — {} [iter-fn].",
-                        p.name.name,
-                        if matches!(hold, Hold::Owned) {
-                            "a scalar, owned"
-                        } else {
-                            "borrowed, so the iterator is a view of it [proj-field]: \
-                             nothing is copied at the mint, and the value cannot be \
-                             moved or mutated while the iterator lives"
-                        }
-                    )],
-                    name: Ident {
-                        name: p.name.name.clone(),
-                        span: field_span,
-                    },
-                    ty: Some(ty),
-                    canbe_mut: false,
-                    default: None,
-                    span: field_span,
-                });
-                let read_span = spans.take();
-                lit_fields.push(StructLitField {
-                    kind: StructLitFieldKind::Named {
-                        name: Ident {
-                            name: p.name.name.clone(),
-                            span: field_span,
-                        },
-                        value: Expr::Ident(Ident {
-                            name: p.name.name.clone(),
-                            span: read_span,
-                        }),
-                    },
-                    span: field_span,
-                });
-                held.insert(p.name.name.clone(), p.name.name.clone());
-            }
-            Hold::Fields(list) => {
-                let mut map = BTreeMap::new();
-                for (used, hidden, ty, docs) in list {
-                    fields.push(FieldDecl {
-                        annotations: Vec::new(),
-                        docs: docs.clone(),
-                        name: Ident {
-                            name: hidden.clone(),
-                            span: field_span,
-                        },
-                        // A per-field snapshot borrows the field too — except a
-                        // Copy scalar, whose copy is free and whose borrow would
-                        // only cost a deref [copy-scalar-free].
-                        ty: Some(if is_copy_scalar(ty) { ty.clone() } else { proj_of(ty, field_span) }),
-                        canbe_mut: false,
-                        default: None,
-                        span: field_span,
-                    });
-                    // A snapshot reads the field once, here at the mint, into a
-                    // `proj` field: a borrow of the value's field, costing
-                    // nothing. Distinct spans again: two nodes per snapshot
-                    // field, and they must not share keys with each other or
-                    // with the nodes above.
-                    let base_span = spans.take();
-                    let read_span = spans.take();
-                    lit_fields.push(StructLitField {
-                        kind: StructLitFieldKind::Named {
-                            name: Ident {
-                                name: hidden.clone(),
-                                span: read_span,
-                            },
-                            value: Expr::Field {
-                                base: Box::new(Expr::Ident(Ident {
-                                    name: p.name.name.clone(),
-                                    span: base_span,
-                                })),
-                                field: Ident {
-                                    name: used.clone(),
-                                    span: read_span,
-                                },
-                                span: read_span,
-                            },
-                        },
-                        span: read_span,
-                    });
-                    map.insert(used.clone(), hidden.clone());
+                    "borrowed, so the iterator is a view of it [proj-field]: \
+                     nothing is copied at the mint, and the value cannot be \
+                     moved or mutated while the iterator lives"
                 }
-                snapshots.insert(p.name.name.clone(), map);
-            }
-        }
+            )],
+            name: Ident {
+                name: p.name.name.clone(),
+                span: field_span,
+            },
+            ty: Some(ty),
+            canbe_mut: false,
+            default: None,
+            span: field_span,
+        });
+        let read_span = spans.take();
+        lit_fields.push(StructLitField {
+            kind: StructLitFieldKind::Named {
+                name: Ident {
+                    name: p.name.name.clone(),
+                    span: field_span,
+                },
+                value: Expr::Ident(Ident {
+                    name: p.name.name.clone(),
+                    span: read_span,
+                }),
+            },
+            span: field_span,
+        });
+        held.insert(p.name.name.clone(), p.name.name.clone());
     }
     for field in &f.iter_state {
         // [state-infer] An `iter fn`'s state field keeps its written type, or
@@ -731,8 +496,8 @@ fn expand(
             let mut docs = f.docs.clone();
             docs.push(String::new());
             docs.push(format!(
-                "Mints a fresh iterator (`iter {}`) — generated from `iter fn {}` [iter-fn].",
-                type_display(&elem),
+                "Mints a fresh `{}` — generated from `iter fn {}` [iter-fn].",
+                pass_name.name,
                 f.name.name
             ));
             docs
@@ -744,6 +509,7 @@ fn expand(
         is_iter: false,
         is_send: false,
         iter_state: vec![],
+        iter_state_name: Some(pass_name.clone()),
         name: Ident {
             name: f.name.name.clone(),
             span: mint_span,
@@ -797,11 +563,6 @@ fn expand(
         params: held.clone(),
         state: state_names,
         spans,
-        snapshots,
-        scan: false,
-        used_fields: BTreeMap::new(),
-        used_whole: Vec::new(),
-        assigns_through: Vec::new(),
     };
     rewrite.block(&mut next_body);
     // [yield-proj] An `iter fn` emitting borrowed elements names the
@@ -870,6 +631,7 @@ fn expand(
         is_iter: false,
         is_send: false,
         iter_state: vec![],
+        iter_state_name: Some(pass_name.clone()),
         name: Ident {
             name: "next".to_string(),
             span: next_span,
@@ -912,10 +674,6 @@ fn expand(
     ])
 }
 
-/// A short rendering of a type for generated documentation.
-fn type_display(ty: &Type) -> String {
-    format!("{ty}")
-}
 fn type_ref(name: &str, span: Span) -> TypeRef {
     TypeRef {
         alias: None,
@@ -930,208 +688,6 @@ fn type_ref(name: &str, span: Span) -> TypeRef {
         args: vec![],
         from: Vec::new(),
         span,
-    }
-}
-
-// ===== [iter-type] the `iter T` placeholder =====
-
-/// [iter-type] Splits `iter T` off a written type: the qualifiers written
-/// *before* `iter` (refused by the checker — `Mut iter T` applies `Mut`
-/// twice), and the element type — the base with the qualifiers written after
-/// `iter`. `None` when the type is not an `iter` placeholder at its top level.
-pub fn split_iter_qualifier(ty: &Type) -> Option<(Vec<TypeRef>, Type)> {
-    match ty {
-        Type::Named { qualifiers, base } => {
-            let at = qualifiers.iter().position(|q| q.name.name == "iter")?;
-            let before = qualifiers[..at].to_vec();
-            let inner = Type::Named {
-                qualifiers: qualifiers[at + 1..].to_vec(),
-                base: base.clone(),
-            };
-            Some((before, inner))
-        }
-        Type::QualifiedGroup {
-            qualifiers,
-            base,
-            span,
-        } => {
-            let at = qualifiers.iter().position(|q| q.name.name == "iter")?;
-            let before = qualifiers[..at].to_vec();
-            let after = qualifiers[at + 1..].to_vec();
-            let inner = if after.is_empty() {
-                (**base).clone()
-            } else {
-                Type::QualifiedGroup {
-                    qualifiers: after,
-                    base: base.clone(),
-                    span: *span,
-                }
-            };
-            Some((before, inner))
-        }
-        _ => None,
-    }
-}
-
-/// [iter-type] Whether a written type mentions the `iter T` placeholder
-/// anywhere.
-pub fn type_mentions_iter(ty: &Type) -> bool {
-    fn in_ref(r: &TypeRef) -> bool {
-        r.name.name == "iter" || r.args.iter().any(type_mentions_iter)
-    }
-    match ty {
-        Type::Named { qualifiers, base } => qualifiers.iter().any(in_ref) || in_ref(base),
-        Type::QualifiedGroup {
-            qualifiers, base, ..
-        } => qualifiers.iter().any(in_ref) || type_mentions_iter(base),
-        Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
-            arms.iter().any(type_mentions_iter)
-        }
-        Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } | Type::Spread { inner: elem, .. } => type_mentions_iter(elem),
-        Type::Fn { params, ret, .. } => {
-            params.iter().any(type_mentions_iter) || type_mentions_iter(ret)
-        }
-        Type::Literal { .. } => false,
-    }
-}
-
-/// [iter-group] Whether a `params` group's members mention the `iter T`
-/// placeholder — the group then spreads with one **hidden type argument**
-/// standing for the iterator struct.
-pub fn group_mentions_iter(group: &ParamsDecl) -> bool {
-    group.fns.iter().any(|m| {
-        m.params.iter().any(|p| type_mentions_iter(&p.ty))
-            || m.return_type.as_ref().is_some_and(type_mentions_iter)
-    })
-}
-
-/// The `params` group declarations of a module, cloned — what a program-level
-/// expansion passes to `expand_iter_fns_with` as the *other* files'.
-pub fn params_decls(module: &Module) -> Vec<ParamsDecl> {
-    module
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            Item::Params(g) => Some(g.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
-/// The name of the `n`th hidden iterator generic of a fn.
-fn hidden_iter_generic(n: usize, span: Span) -> Ident {
-    Ident {
-        name: format!("__It{n}"),
-        span,
-    }
-}
-
-/// [iter-type] [iter-group] Hoists the `iter T` placeholder out of every
-/// top-level fn signature into a **hidden generic** — the reading the
-/// language gives it in a parameter position (user decisions 2026-09-26/27),
-/// done here so that everything downstream sees an ordinary generic fn:
-///
-/// * a spread of a group whose members mention `iter T` (`?Iter<C, T>`) gets a
-///   fresh type parameter `__ItN` appended to the fn's generics and to the
-///   spread's argument list (`?Iter<C, T, __It0>`); the checker substitutes it
-///   for the placeholder in every member, so the spread brings in
-///   `iter: (C) -> Mut __It0` and `next: (Mut __It0) -> Emitted T | Finished`;
-/// * a parameter `it: iter T` becomes `it: Mut __ItN` plus a `?Yield<__ItN, T>`
-///   spread — "any iterator struct emitting `T`" — fresh **per occurrence**, so
-///   `chain(a: iter T, b: iter T)` takes two different structs.
-///
-/// Every other position (a return type, a `let` annotation) keeps the
-/// placeholder for the checker to fill as a pattern, and the positions that
-/// admit neither reading are refused there.
-fn hoist_iter_types(module: &mut Module, groups: &[ParamsDecl]) {
-    for item in &mut module.items {
-        let Item::Fn(f) = item else { continue };
-        if f.is_iter {
-            // Refused by `expand` for now; hoisting would hide the refusal.
-            continue;
-        }
-        let mut n = 0;
-        for g in &mut f.implicit_groups {
-            let Some(group) = groups.iter().find(|gr| gr.name.name == g.name.name) else {
-                continue;
-            };
-            if !group_mentions_iter(group) {
-                continue;
-            }
-            let hidden = hidden_iter_generic(n, g.span);
-            n += 1;
-            f.generics.push(hidden.clone());
-            g.args.push(Type::Named {
-                qualifiers: Vec::new(),
-                base: TypeRef {
-                    name: hidden,
-                    args: Vec::new(),
-                    value_args: Vec::new(),
-                    from: Vec::new(),
-                    at: None,
-                    binder: false,
-                    established: false,
-                    alias: None,
-                    span: g.span,
-                },
-            });
-        }
-        let mut spreads: Vec<TypeRef> = Vec::new();
-        for p in f.params.iter_mut().filter(|p| !p.implicit) {
-            let Some((before, inner)) = split_iter_qualifier(&p.ty) else {
-                continue;
-            };
-            if !before.is_empty() {
-                // `Mut iter T`: the checker's duplicate refusal names it.
-                continue;
-            }
-            let hidden = hidden_iter_generic(n, p.span);
-            n += 1;
-            f.generics.push(hidden.clone());
-            let hidden_ty = Type::Named {
-                qualifiers: Vec::new(),
-                base: TypeRef {
-                    name: hidden.clone(),
-                    args: Vec::new(),
-                    value_args: Vec::new(),
-                    from: Vec::new(),
-                    at: None,
-                    binder: false,
-                    established: false,
-                    alias: None,
-                    span: p.span,
-                },
-            };
-            p.ty = Type::Named {
-                qualifiers: vec![type_ref("Mut", p.span)],
-                base: TypeRef {
-                    name: hidden,
-                    args: Vec::new(),
-                    value_args: Vec::new(),
-                    from: Vec::new(),
-                    at: None,
-                    binder: false,
-                    established: false,
-                    alias: None,
-                    span: p.span,
-                },
-            };
-            spreads.push(TypeRef {
-                name: Ident {
-                    name: "Yield".to_string(),
-                    span: p.span,
-                },
-                args: vec![hidden_ty, inner],
-                value_args: Vec::new(),
-                from: Vec::new(),
-                at: None,
-                binder: false,
-                established: false,
-                alias: None,
-                span: p.span,
-            });
-        }
-        f.implicit_groups.extend(spreads);
     }
 }
 
@@ -1234,6 +790,7 @@ fn test_fn(test: TestDecl, fn_name: String) -> FnDecl {
         platform: false,
         is_iter: false,
         iter_state: Vec::new(),
+        iter_state_name: None,
         is_send: false,
         name: Ident {
             name: fn_name,
@@ -1305,38 +862,18 @@ fn element_type(ty: Option<&Type>) -> Option<Type> {
 // ===================== the body rewrite =====================
 
 /// Rewrites the parameters and the `state` fields into field reads of the
-/// iterator parameter — and, in `scan` mode, *classifies* how the body uses
-/// each parameter so the struct can hold as little of it as possible.
+/// iterator parameter.
 ///
-/// One traversal serves both, deliberately: every `Expr` and `Stmt` variant is
-/// matched **exhaustively**, so a new variant is a compile error here rather
-/// than an unrewritten name that resolves to nothing — and a second walk would
-/// have to be kept in step with this one by hand.
+/// Every `Expr` and `Stmt` variant is matched **exhaustively**, so a new
+/// variant is a compile error here rather than an unrewritten name that
+/// resolves to nothing.
 struct Rewrite {
-    /// Parameter name -> the hidden field holding it whole (or owned). A
-    /// parameter held per-field or not at all is absent here. In `scan` mode
-    /// every parameter is present, since the scan classifies them all.
+    /// Parameter name -> the field holding it.
     params: BTreeMap<String, String>,
     state: Vec<String>,
     /// Distinct spans for the `__p` bases this rewrite synthesizes, continuing
-    /// the declaration's allocation so no two synthesized nodes collide. Unused
-    /// in `scan` mode, which rewrites nothing.
+    /// the declaration's allocation so no two synthesized nodes collide.
     spans: Spans,
-    /// Parameter name -> (its field -> the hidden field standing in for it)
-    /// [iter-fn]. Only for parameters held per-field.
-    snapshots: BTreeMap<String, BTreeMap<String, String>>,
-    /// Scanning rather than rewriting: record, change nothing.
-    scan: bool,
-    /// What the scan found: per parameter, its fields read in the body, in
-    /// first-use order.
-    used_fields: BTreeMap<String, Vec<String>>,
-    /// Parameters the body uses as a *value* — passes on, reads as a whole — so
-    /// no per-field snapshot can stand in for them.
-    used_whole: Vec<String>,
-    /// Parameters the body assigns through. Kept whole so the standing
-    /// [struct-mut] refusal fires with its own message, rather than the write
-    /// silently landing on a snapshot field of the (mutable) iterator.
-    assigns_through: Vec<String>,
 }
 
 impl Rewrite {
@@ -1364,13 +901,6 @@ impl Rewrite {
         match stmt {
             Stmt::Let { value, .. } => self.expr(value),
             Stmt::Assign { target, value, .. } => {
-                if self.scan {
-                    if let Some(root) = assign_root(target) {
-                        if self.params.contains_key(root) && !self.assigns_through.iter().any(|p| p == root) {
-                            self.assigns_through.push(root.to_string());
-                        }
-                    }
-                }
                 self.expr(target);
                 self.expr(value);
             }
@@ -1384,39 +914,8 @@ impl Rewrite {
     }
 
     fn expr(&mut self, expr: &mut Expr) {
-        // [iter-fn] `c.field` on the subject is the shape a snapshot can stand
-        // in for, and it has to be caught *before* the base is visited — after
-        // that the base is no longer the subject.
-        if let Expr::Field { base, field, span } = expr {
-            if let Expr::Ident(id) = &**base {
-                let param = id.name.clone();
-                if self.scan {
-                    if self.params.contains_key(&param) {
-                        let used = self.used_fields.entry(param).or_default();
-                        if !used.contains(&field.name) {
-                            used.push(field.name.clone());
-                        }
-                        return;
-                    }
-                } else if let Some(hidden) =
-                    self.snapshots.get(&param).and_then(|m| m.get(&field.name)).cloned()
-                {
-                    let base_span = self.spans.take();
-                    *expr = pass_field(&hidden, *span, base_span);
-                    return;
-                }
-            }
-        }
         match expr {
             Expr::Ident(ident) => {
-                if self.scan {
-                    if self.params.contains_key(&ident.name)
-                        && !self.used_whole.contains(&ident.name)
-                    {
-                        self.used_whole.push(ident.name.clone());
-                    }
-                    return;
-                }
                 if let Some(replacement) = self.field_of(ident) {
                     *expr = replacement;
                 }
@@ -1653,17 +1152,6 @@ fn pass_field(name: &str, span: Span, base_span: Span) -> Expr {
             span,
         },
         span,
-    }
-}
-
-/// The root name of an assignment target — `s` in `s`, `s.f`, `s.f[i]`, `s.0`.
-fn assign_root(target: &Expr) -> Option<&str> {
-    match target {
-        Expr::Ident(id) => Some(id.name.as_str()),
-        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } | Expr::Index { base, .. } => {
-            assign_root(base)
-        }
-        _ => None,
     }
 }
 
@@ -1977,49 +1465,6 @@ fn rename_proj_source(ty: &mut Type, old: &str, new: &str) {
             rename_proj_source(elem, old, new)
         }
         Type::Spread { inner, .. } => rename_proj_source(inner, old, new),
-        Type::Fn { .. } => {}
-    }
-}
-
-/// [qual-depend] The root names of every **place** value argument in `ty`
-/// (`list` in `Idx(list)` and `Idx(list.items)`).
-fn value_arg_roots(ty: &Type, out: &mut Vec<String>) {
-    fn in_ref(r: &TypeRef, out: &mut Vec<String>) {
-        for v in &r.value_args {
-            if let Type::Named { base, .. } = v {
-                if base.args.is_empty() && base.at.is_none() && !base.binder {
-                    let root = base.name.name.split('.').next().unwrap_or("").to_string();
-                    if root.starts_with(|c: char| c.is_lowercase()) && !out.contains(&root) {
-                        out.push(root);
-                    }
-                }
-            }
-        }
-        for a in &r.args {
-            value_arg_roots(a, out);
-        }
-    }
-    match ty {
-        Type::Named { qualifiers, base } => {
-            for q in qualifiers {
-                in_ref(q, out);
-            }
-            in_ref(base, out);
-        }
-        Type::QualifiedGroup { qualifiers, base, .. } => {
-            for q in qualifiers {
-                in_ref(q, out);
-            }
-            value_arg_roots(base, out);
-        }
-        Type::Literal { .. } => {}
-        Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
-            for a in arms {
-                value_arg_roots(a, out);
-            }
-        }
-        Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => value_arg_roots(elem, out),
-        Type::Spread { inner, .. } => value_arg_roots(inner, out),
         Type::Fn { .. } => {}
     }
 }

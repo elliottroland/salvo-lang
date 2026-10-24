@@ -161,16 +161,16 @@ fun<T> next__DequeYield(p: DequeYield<T>): Union2<T, salvo.core.iterator.Finishe
     return Union2.U1<T, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(elem_1))
 }
 
-data class __Iter_reversed_Deque<T>(
+data class DequeReversed<T>(
     var d: kotlin.collections.ArrayDeque<T>,
     var at: Int,
 )
 
-fun<T> reversed(d: kotlin.collections.ArrayDeque<T>): __Iter_reversed_Deque<T> {
-    return __Iter_reversed_Deque<T>(d = d, at = (sizePlatform(d) - 1))
+fun<T> reversed(d: kotlin.collections.ArrayDeque<T>): DequeReversed<T> {
+    return DequeReversed<T>(d = d, at = (sizePlatform(d) - 1))
 }
 
-fun<T> next__Iter_reversed_Deque(__p: __Iter_reversed_Deque<T>): Union2<T, salvo.core.iterator.Finished> {
+fun<T> next__DequeReversed(__p: DequeReversed<T>): Union2<T, salvo.core.iterator.Finished> {
     val elem: T? = getPlatform(__p.d, __p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.core.iterator.Finished>(salvo.core.iterator.finished())

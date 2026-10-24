@@ -78,6 +78,7 @@ export intrinsic fn size(data: Bytes) [] -> Int => data
 intrinsic fn touch(data: Mut Bytes) [] -> None => data: Mut
 
 iter fn iter(c: Countdown) [] -> Emitted Int | Finished {
+    state CountdownIter {}
     return finished()
 }
 

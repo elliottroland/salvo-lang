@@ -3141,7 +3141,7 @@ Conventions:
   `Checker::fn_value_at` makes a declaration a value at an expected fn type,
   for both:
   * its return as a call sees it (`fn_return_ty`): the claim a constructor
-    gains (`-> +Valid Range`) and the concrete pass an `iter T` stands for;
+    gains (`-> +Valid Range`);
   * its explicit parameters, its own implicits filled in turn
     [implicit-recursive] — or, failing that, every parameter, for a position
     that passes them itself;
@@ -3260,7 +3260,7 @@ Conventions:
   [iter-step-call], an **iterator struct** — a type declaring `: Yield<self, T>`
   [iter-protocol] [group-obligation] — or a **source**: a value some declared
   `iter` overload accepts (the implicit `iter(subject)` call), a type declaring
-  `: Iter<self, T>` [iter-group], or a generic under a `?Iter<C, T>` spread;
+  `: Iter<self, It, T>` [iter-group], or a generic under a `?Iter<C, It, T>` spread;
   anything else is an error. When the subject has a protocol-shaped `next` but
   no declaration, the error names the `: Yield<self, T>` remedy.
   * Resolution order: a step call, arrays natively, then the declared iterator
@@ -3284,7 +3284,7 @@ Conventions:
   — it says "this call supplies a `next` for `It`" — so the loop calls that
   implicit parameter and takes the element type from its result. This is what
   lets std's own combinators be written with `for`, and any combinator of one's
-  own with them. A type parameter that is a **source** under a `?Iter<C, T>`
+  own with them. A type parameter that is a **source** under a `?Iter<C, It, T>`
   spread is minted with the `iter` implicit first and driven with the `next`
   beside it [iter-group].
   * **By name, not by shape**: the implicit must be called `next`, which is what
@@ -3330,7 +3330,7 @@ Conventions:
   the whole of container iteration: std declares an iterator struct plus a
   `next` per intrinsic container, so the language has no container protocol of
   its own (user decision 2026-09-08, roadmap R5). A type of one's own declares
-  the same through `: Iter<self, T>` [iter-group].
+  the same through `: Iter<self, It, T>` [iter-group].
   * The container is **borrowed by** the iterator (a `proj` field
     [proj-field]; user decision 2026-09-11 — until then it was moved in):
     `iter(xs)` keeps `xs` usable and links the iterator to it, so walking the
@@ -3343,7 +3343,7 @@ Conventions:
     target compiler rejected (found while building [iter-fn], whose generated
     `iter` walks the same path).
   * **`for` over a *generic* source** mints through the `iter` implicit a
-    `?Iter<C, T>` spread brought in, recorded as `PassMember::Implicit("iter")`
+    `?Iter<C, It, T>` spread brought in, recorded as `PassMember::Implicit("iter")`
     [iter-group].
 * [iter-for-native] A `for` over an **array** or an **`iterable platform
   type`** [platform-iterable] (`List`, `Str`, `Bytes`, `Deque`, `Set`, `Map`,
@@ -3438,7 +3438,7 @@ Conventions:
   what keeps the inference ordinary: `It` is bound by an argument, so nothing
   depends on feeding one implicit's resolution into another (user decision
   2026-09-09, replacing `?Iterable`). There is no iterator *type*; the source
-  side of the protocol is `params Iter<C, T>` [iter-group], which a program's
+  side of the protocol is `params Iter<C, It, T>` [iter-group], which a program's
   own container-shaped combinator spreads.
   * **std relies on the iterator and never on an `iter`** (user decision
     2026-09-10), and the reason is stronger than the inference one: a source is
@@ -3829,11 +3829,9 @@ Conventions:
     `C` is only known after the arguments, so the sweeps between them cannot
     learn `It`, and one implicit determining another needs the sweep repeated.
     Declaration order is therefore not a constraint on the author.
-    * The motivating case is a [iter-fn] subject, whose generated struct is
-      **unnameable** — so a written type-argument list is not an available
-      workaround and inferring it is the only way the shape can exist. The
-      `?Iter<C, T>` spread [iter-group] is this shape with the iterator
-      generic hidden.
+    * The motivating case was an [iter-fn] subject, whose generated struct
+      was unnameable until 2026-10-20; inferring `It` still saves writing it.
+      The `?Iter<C, It, T>` spread [iter-group] is this shape.
     * **Ambiguity is accepted as the price** (user decision 2026-09-10): with
       the container type itself undetermined, several `iter`s match and the
       choice would be a guess. The remedies are the ordinary ones — a `rename`
@@ -3941,16 +3939,16 @@ Conventions:
     `return` inside expression-position lambdas is a codegen error
     (deliberate cut).
 * [iter-fn] An **`iter fn`** is a hand-written `next` whose **iterator struct
-  is generated** (user decisions 2026-09-09, redesigned 2026-09-26/27): the
-  declaration is the **minter** — any name, any parameters — the `state { … }`
-  block declares the struct's own fields, the body is its `next`, and the
-  compiler writes the struct. Its type has no name a program can write; it is
-  spelled `iter T` [iter-type]. The one named `iter` with one parameter is the
-  canonical minter an `: Iter<self, T>` obligation asks for [iter-group].
+  is generated** (user decisions 2026-09-09, redesigned 2026-09-26/27, the
+  struct named 2026-10-20): the declaration is the **minter** — any name, any
+  parameters — the `state Name { … }` block **names the struct** and declares
+  its own fields, the body is its `next`, and the compiler writes the struct.
+  The one named `iter` with one parameter is the canonical minter an `:
+  Iter<self, It, T>` obligation asks for [iter-group].
 
   ```
   iter fn countdown(from: Int) -> Emitted Int | Finished {
-      state {
+      state Countdown {
           at: Int = from
       }
       if at <= 0 { return finished() }
@@ -3959,158 +3957,124 @@ Conventions:
   }
 
   for n in countdown(3) { … }      // 3, 2, 1
-  let p = countdown(3)             // p : iter Int — hold it, drive it yourself
+  let p = countdown(3)             // p : Mut Countdown — hold it, drive it yourself
+  fn countdown_from_ten() -> Mut Countdown { return countdown(10) }
   ```
 
-  * **It is a desugaring, done in the syntax crate** (`desugar::expand_iter_fns`,
-    inside `parse_module`), into a hidden `struct __Iter_<fn>_<param types> :
-    Yield<self, T> canbe Mut { <held parameters>, <state fields> }`, a minter
-    under the `iter fn`'s own name and parameters returning `Mut __Iter_…` whose
-    body is the struct literal (it lends every kept non-Copy parameter
-    [proj-infer]), and the
-    author's body as `fn next(__p: Mut __Iter_…) -> Emitted T | Finished => __p:
-    Mut` with the parameters and the state fields written out as field reads (a
-    `proj(xs)` in the written return is redirected to `__p` [yield-proj]; a
-    dependent claim `Idx(xs)` becomes `Idx(__p.xs)` in the `next` and
-    `Idx(self.xs)` in the obligation [qual-depend]). Nothing downstream knows
-    the form exists, which is why `for`, the combinators, `let p = countdown(3)`,
-    deductions, narrowing and both emitters need no new machinery. The struct's
-    name is keyed by the fn *and* its parameter types, since an `iter fn`
-    overloads like any fn.
-  * **The `state` block is declarations only**, each with an annotation and an
-    initializer, evaluated **once per iterator, at the mint**. The initializers
-    become the body of the generated minter, which is declared `[]` — so "no
-    effects in an initializer" is not a rule of its own but an ordinary effect
-    error at the offending call. (The annotations are required for the same
-    reason a struct field's are; a `state` field may be annotated `iter T`,
-    filled from its initializer [iter-type].)
-  * **The struct holds as little of each parameter as the body needs**, decided
-    by a scan of the body in three tiers — all observationally identical,
-    because the struct **borrows** what it holds [proj-field] and a parameter
-    cannot be written while an iterator over it lives [proj-infer] (user
-    decision 2026-09-11; until then the mint *copied*):
-    1. the body never reads it (a plain counter): the struct holds **nothing**
-       of it — unless a dependent claim in the return names it, which needs a
-       place to name;
-    2. it only ever reads *plain fields* of it, their types are visible (the
-       struct is declared somewhere in the **program** — the expansion runs
-       program-wide, local declarations winning a name) and the type is
-       non-generic: one **`proj` field per field read** (a Copy scalar stays
-       owned [copy-scalar-free]), initialized at the mint, keeping the field's
-       own name unless a `state` field or a parameter already has it;
-    3. otherwise — the value handed on, an assignment through it, a generic
-       type, a declaration the program cannot see: the **whole parameter** is
-       borrowed under its own name (`xs: proj List<T>`). A Copy scalar
-       parameter is simply stored by value and needs no clause entry.
-  * **Borrowing rather than copying** is what keeps the backends in step
-    without a copy: a write during a drive is *refused* rather than differently
-    visible. An `iter fn` that wants a snapshot writes one (`state { rows:
-    List<Int> = copy(c.rows) }`). A *generic* parameter therefore needs no
-    `copy` of a `T`.
+  * **It is a desugaring, done in the syntax crate** (`desugar::expand_iter_fns`),
+    into `struct Name : Yield<self, T> canbe Mut { <parameters>, <state fields>
+    }` (generic over the fn's generics), a minter under the `iter fn`'s own
+    name and parameters returning `Mut Name` whose body is the struct literal
+    (it lends every kept non-Copy parameter [proj-infer]), and the author's body
+    as `fn next(__p: Mut Name) -> Emitted T | Finished => __p: Mut` with the
+    parameters and the state fields written out as field reads (a `proj(xs)`
+    in the written return is redirected to `__p` [yield-proj]; a dependent
+    claim `Idx(xs)` becomes `Idx(__p.xs)` in the `next` and `Idx(self.xs)` in
+    the obligation [qual-depend]). Both generated fns carry the state's name
+    (`FnDecl.iter_state_name`), which is how the language server presents them
+    as the `iter fn` written. Nothing downstream knows the form exists, which
+    is why `for`, the combinators, `let p = countdown(3)`, deductions,
+    narrowing and both emitters need no new machinery.
+  * **The name is declared in the scope the fn is declared in** (its module or
+    namespace, user decision 2026-10-20, R4): it is an ordinary struct there,
+    so it collides with a type of the same name, or with another `iter fn`'s
+    state, as two `struct`s would. The block is required; it may be empty
+    (`state Ones {}`), and the struct then holds the parameters only.
+  * **The `state` block is declarations only**, each with an initializer,
+    evaluated **once per iterator, at the mint**; the type may be written or
+    inferred [state-infer]. The initializers become the body of the generated
+    minter, which is declared `[]` — so "no effects in an initializer" is not a
+    rule of its own but an ordinary effect error at the offending call.
+  * **The struct holds every parameter** (user decision 2026-10-20, R5): a Copy
+    scalar owned [copy-scalar-free], anything else **borrowed whole** under its
+    own name (`xs: proj List<T>`) [proj-field], so the struct's shape is a
+    function of the declaration's header and never of what the step reads.
+    Borrowing rather than copying (user decision 2026-09-11) is what keeps the
+    backends in step without a copy: a parameter cannot be written while an
+    iterator over it lives [proj-infer], so a write during a drive is
+    *refused* rather than differently visible. The price is an iterator
+    borrowing a parameter it never reads for as long as it lives; an `iter fn`
+    that wants a snapshot writes one (`state Rows { rows: List<Int> =
+    copy(c.rows) }`). (Until 2026-10-20 the struct held only what the body
+    read, down to one `proj` field per field read; that per-field tier needed
+    the other files' struct declarations and made the shape body-derived.)
   * **The parameters are read-only in the body**: each is a field of the struct
     typed as written, so writing through one is the standing [struct-mut]
     refusal.
-  * **The generated struct is not nameable.** `__Iter_…` is the compiler's
-    namespace and a *written* type reference beginning with `_` is a parse
-    error, so an iterator struct a program must name is written out by hand —
-    the boundary the form rests on — and `iter T` is its spelling where a
-    pattern or a hidden generic is admitted [iter-type].
-  * **Refused, each at the declaration**: a variadic or implicit parameter (no
-    field to hold it; a stage over a *generic* source — an `iter fn` taking
-    `?Iter<C, T>` or an `iter T` parameter — is recorded in ROADMAP.md), a
-    `Mut` parameter (advancing never writes through it), a structural
-    parameter type (array, tuple, union — the struct is named after its
-    parameters), a result other than `Emitted T | Finished` (the element type
-    is read out of it), a `state` field without an initializer or an empty
-    `state` block, a `state` field named like a parameter, and a binding in the
-    body that would **shadow** a parameter or a `state` field (it would silently
-    mean something else). A `state` field of linear type is [linear-composite]'s
-    ordinary refusal at the struct: **no discharger is generated** (user
-    decision 2026-09-27 — it would have to be a member of the group to stay
-    consistent, and it is not one), so an iterator that owns a resource is
-    written by hand.
+  * **Refused, each at the declaration**: a missing `state Name { … }` block, a
+    variadic or implicit parameter (no field to hold it; a stage over a
+    *generic* source is recorded in ROADMAP.md), a `Mut` parameter (advancing
+    never writes through it), a structural parameter type (array, tuple,
+    union), a result other than `Emitted T | Finished` (the element type is
+    read out of it), a `state` field without an initializer, and the bare-name
+    clashes [bare-names]. A `state` field of linear type is
+    [linear-composite]'s ordinary refusal at the struct: **no discharger is
+    generated** (user decision 2026-09-27), so an iterator that owns a
+    resource is written by hand.
   * **Effects are ordinary effects**: each `next` is a separate call, so
     `[Console]` on an `iter fn` needs no threading of handlers across a
     suspension — a `for` passes them per turn [fn-effects].
-* [iter-type] **`iter T` is the name of an anonymous iterator**: "a `Mut` type
-  declaring `: Yield<self, T>`" (user decisions 2026-09-26/27). It means one
-  thing everywhere, read in whichever way the position allows, and **every use
-  lowers to something the program could write explicitly** — the table in
-  `docs/language/Iterators.md` is the specification, one row per position.
-  Lowered to a marker type (`Ty::iter_marker`, `Ty::Named { name: "iter" }`,
-  displayed `iter T`) that every admitting position substitutes or fills, so
-  none reaches a backend; `Mut` is implied and `Mut iter T` is refused as the
-  duplicate it is [qual-no-dup].
-  * **Group member** — the associated placeholder, one type across the group's
-    members (`params Iter<C, T> { fn iter(c: C) -> iter T; fn next(it: iter T)
-    -> … }`) [iter-group]. A member taking `iter T` is a `Mut` position, and a
-    member returning it lends every kept parameter, as a fn type with an
-    opaque return does [proj-infer-fn-type].
-  * **Spread and parameter** — a **hidden generic**, hoisted by the desugaring
-    (`desugar::hoist_iter_types`, before resolution): `?Iter<C, T>` on a fn
-    appends a fresh `__ItN` to its generics and to the spread's arguments
-    (`?Iter<C, T, __It0>`), which the checker substitutes for the placeholder
-    in every member; a parameter `it: iter T` becomes `it: Mut __ItN` plus a
-    `?Yield<__ItN, T>` spread — fresh **per occurrence**, so `chain(a: iter T,
-    b: iter T)` takes two different structs (two parameters that must be the
-    same struct write `<It>`). Hidden generics render like any other in both
-    targets; an explicit type-argument list at a call names the visible ones.
-  * **`let` annotation, `state` field, return of a fn with a body** — a
-    **pattern** filled from the value: the annotation asserts "an iterator of
-    `T`" (an iterator struct declaring `: Yield<self, T>`, a walking one's `proj
-    T` counting as `T`; a hidden generic with a `next` over it in scope) and the
-    binding keeps the concrete type; nothing is widened. A `-> iter T` fn
-    returns whichever concrete struct its body mints — callers see that type
-    through `fn_return_ty`, a **pre-pass** in `check_once` checking those
-    bodies first into a scratch `Checked` and repeating until the
-    `iter_returns` table stops growing (a delegating minter may call another
-    pattern fn) — and every path must mint the *same* struct: two anonymous
-    ones are two types, and a second differing `return` is an error naming both
-    with the remedy "fold the case into one `iter fn`, or name the struct". A
-    cycle the pre-pass cannot resolve is an error at the signature. The
-    resolved type is recorded per written span (`iter_types`) for the emitters
-    and hover.
-  * **Type of an `iter fn` call** — the concrete anonymous struct, which prints
-    as `iter T`; two from different minters never unify.
-  * **Refused, with the replacement named**: the return of a bodiless fn (no
-    body to fill it from), an effect member's parameter or return (implemented
-    per handler, one interface type needed), a fn *type* (the value's struct is
-    its own to choose), a struct or handler field (storing "some iterator
-    struct" is boxing). The remedy is the struct's name, or a generic on the
-    enclosing declaration.
-  * **Linear**: no sugar for a linear *iterator* — the struct is written out
-    with its discharger, and generic code that may receive one takes the
-    discharger as a callback [linear-generics]. Linear *elements* are fine:
-    `iter T` with `T canbe linear` needs no discharger.
-  * **Reachability** [mod-used-only]: the placeholder names no declaration, and
-    `iter` is every container's minter, so `reach.rs` skips the name — before
-    that every mention of the placeholder pulled every container module in.
-* [iter-group] **`params Iter<C, T>` is what a source is** (user decision
-  2026-09-26): `fn iter(collection: C) -> iter T` and `fn next(iterator: iter
-  T) -> Emitted T | Finished => iterator: Mut`, tied `iter with next`
-  [implicit-with] — a caller may override the minter, never the step alone,
-  since the step belongs to whatever the minter answers. `Yield` and `Iter`
-  are one protocol stated from two sides: the second member of `Iter` is
-  `Yield`'s `next` over the placeholder.
-  * **The obligation** `struct Bag : Iter<self, T>` is satisfied by an `iter fn
-    iter` over the type (the compiler writes the struct and both members) or by
-    a fn `iter` of that arity over `self` whose result is a type declaring
-    `: Yield<self, T>` (`iter_minter_satisfies`, matching the element up to a
-    renaming and modulo `proj`) — the "declared" reading, so a `P` without the
-    clause never satisfies it. The `next` member is satisfied by construction.
-    A struct declaring both `: Iter<self, T>` and `: Yield<self, T>` is refused:
-    `for x in s` would have two answers (drive `s`, or mint from it).
-  * **The spread** `?Iter<C, T>` brings in `iter: (C) -> Mut __It` and `next:
-    (Mut __It) -> Emitted T | Finished` over the hidden generic [iter-type] —
-    exactly the 2026-09-10 container-shaped combinator (`total<C, It>(c: C,
-    ?iter: (c: C) -> Mut It, ?Yield<It, Int>)`) with `It` hidden, so both
-    backends already lowered it. Inside the body, `for x in c` over the generic
-    source mints with the `iter` implicit and drives with the `next` beside it
-    (`PassDriver.mint = Some(PassMember::Implicit("iter"))`,
-    `generic_pass_elem_ty`); `iter(c)` is a `Mut __It` a `?Yield` combinator
-    accepts with the paired `next` forwarded [implicit-forward]. The pair is
-    filled at the call from whatever `C` is: an `iter fn`'s minter, a named
-    struct's, or std's own for an intrinsic container.
+  * **`iter T` is gone** (user decision 2026-10-20, R3): the anonymous-iterator
+    type, its hidden generics, its return patterns filled from a body and the
+    pre-pass that resolved them were removed with the named state. What it
+    spelled is written out: a return names the struct (`-> Mut Range`), a
+    parameter is a generic with its spread (`fn first<It>(it: Mut It,
+    ?Yield<It, Int>)`), and `Iter`'s iterator is a group parameter
+    [iter-group].
+* [bare-names] **One namespace of bare names per declaration** (user decision
+  2026-10-20, R4): a handler's constructor parameters and state fields, and an
+  `iter fn`'s parameters and state fields, all differ, and a member's (or the
+  step's) parameters and locals reuse none of them. A member body reads all of
+  them by bare name, so a clash would be a shadow, which the language refuses
+  [var-no-shadow]; the error names both, and the remedy is a rename. Checked
+  by the desugaring for an `iter fn` (`collect_shadowing`) and by
+  `check_handler_names` for a handler — members' locals fall to the ordinary
+  [var-no-shadow], since the constructor parameters and state are in scope.
+  (Before this a member parameter named like a state field bound the field in
+  the checker and the parameter in both emitters, and a constructor parameter
+  named like a state field was a target-compiler error: ROADMAP §2d item 9d.)
+* [state-name] **A handler's state is named by the handler** (`state { … }`
+  in `handler Counting` is the state `Counting`), and **must be named
+  explicitly** — `state Tally { … }` — when the handler shares its name with a
+  type in scope (user decision 2026-10-20, R4). An explicit name may not be one
+  a declaration in scope already has. The name is recorded
+  (`HandlerDecl.state_name`) for the general `state` effect (ROADMAP §2d item
+  9e), which is what will let a helper declare `[state Counting]`; nothing
+  else reads it yet. A state initializer may read the **constructor
+  parameters** (`state { n: Int = c + 1 }`), lowered with them in scope
+  (`ir::build::decls::fields`).
+* [iter-group] **`params Iter<C, It, T>` is what a source is** (user decisions
+  2026-09-26, `It` written 2026-10-20): `fn iter(collection: C) -> Mut It` and
+  `fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut`, tied
+  `iter with next` [implicit-with] — a caller may override the minter, never
+  the step alone, since the step belongs to whatever the minter answers.
+  `Yield` and `Iter` are one protocol stated from two sides: the second member
+  of `Iter` is `Yield`'s `next` over `It`.
+  * **The obligation writes the iterator struct**: `struct Bag : Iter<self,
+    BagIter, Int>`, satisfied by an `iter fn iter(bag: Bag)` whose `state
+    BagIter { … }` is that struct (the compiler writes both members) or by a fn
+    `iter` over `self` returning `Mut BagIter` beside a `next` over it — the
+    ordinary member match. `Iter`'s `next` is over the iterator, not `self`, so
+    its element is matched modulo `proj` (a walking iterator's `Emitted (proj(p)
+    T)` fills `Emitted T`) and its borrowness is the iterator's own `: Yield`'s
+    to state [yield-proj]. `It` is not inferred from the `iter` that fulfils it
+    (user decision 2026-10-20, R3). A struct declaring both `: Iter` and `:
+    Yield` is refused: `for x in s` would have two answers (drive `s`, or mint
+    from it).
+  * **The spread writes it too**: `fn total<C, It>(c: C, ?Iter<C, It, Int>)`
+    brings in `iter: (C) -> Mut It` and `next: (Mut It) -> Emitted T |
+    Finished` — the 2026-09-10 container-shaped combinator. `iter`'s return is
+    a group parameter no member parameter mentions, so it lends every kept
+    parameter, as a fn type with an opaque return does [proj-infer-fn-type].
+    Inside the body, `for x in c` over the generic source mints with the `iter`
+    implicit and drives with the `next` beside it (`PassDriver.mint =
+    Some(PassMember::Implicit("iter"))`, `generic_pass_elem_ty`); `iter(c)` is a
+    `Mut It` a `?Yield` combinator accepts with the paired `next` forwarded
+    [implicit-forward]. At a call, `It` is learned from the `iter` that fills
+    the pair [implicit-infer] — the one *written* there when the call overrides
+    it (`total(bag, iter = mint_b, next = next_b)`; until 2026-10-20 it was
+    learned from the `iter` in scope even then, so an override with another
+    struct was refused, ROADMAP §2d item 9c).
   * **Lowering the lend** [rs-proj-lends]: the `iter` position's parameter is
     named after the *group member's* (`collection`), not the spreading fn's, so
     the Rust backend ties a lent position with a foreign name to the one
@@ -4185,9 +4149,9 @@ Conventions:
     side table keyed by the field-name span and read back at IR lowering, the
     way `waitfor`'s inferred token type is [waitfor-infer] — the AST's
     `FieldDecl.ty` is `None` for an inferred field. A struct field and a
-    qualifier override always write their type. An `iter fn`'s `state { … }`
-    block takes the same two forms, including the inferred one: although an
-    `iter fn`'s state is lowered to a hidden struct before the checker runs,
+    qualifier override always write their type. An `iter fn`'s `state Name {
+    … }` block takes the same two forms, including the inferred one: although
+    an `iter fn`'s state is lowered to a struct before the checker runs,
     the field's initializer moves to the minter's returned struct literal, so
     the checker infers an untyped field's type *there* and records it at the
     field-name span — the generated struct field, the `next` body's
@@ -10557,9 +10521,9 @@ replaced the working document TESTING.md).
     (`crate::core_string::size_platform`), since two modules' wrappers of
     one name are ambiguous through glob imports.
   * [platform-iterable] **`iterable platform type List<T> canbe Mut :
-    Iter<self, T>`: a `for` over one is the host's own loop** (user decision
+    Iter<self, It, T>`: a `for` over one is the host's own loop** (user decision
     2026-10-05). The modifier is contextual and only `platform type` may
-    follow it; the declaration must also take `: Iter<self, T>`, the one
+    follow it; the declaration must also take `: Iter<self, It, T>`, the one
     obligation a platform type may take (without `by`, and allowed without
     `iterable` too), so Salvo's iterator and the host's loop agree on the
     element type and a generic fn over `Iter` still finds a pass. The host
@@ -10608,7 +10572,7 @@ replaced the working document TESTING.md).
       A set or map at the boundary keyed by anything else — a written
       identity, a hand-written `hash`, a `by auto` stamp, whose `hash` folds
       fields its own way — is refused [platform-check].
-  * **Refused**: an obligation clause other than `: Iter<self, T>`
+  * **Refused**: an obligation clause other than `: Iter<self, It, T>`
     (`by auto` has no fields; comparisons are platform fns), an alias.
   * [platform-generic] **Type parameters are opaque to the host** (2026-10-02,
     runtime E1): `platform type Cell<T canbe linear>` and `platform fn

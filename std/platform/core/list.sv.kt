@@ -199,9 +199,9 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> findFirst(list: List<T>, pick: (T) -> Boolean): Int? {
-    val __pass_1: salvo.core.index.__Iter_indices_List<T> = salvo.core.index.indices(list)
+    val __pass_1: salvo.core.index.Indices<T> = salvo.core.index.indices(list)
     while (true) {
-        val __step_2: Union2<Int, salvo.core.iterator.Finished> = salvo.core.index.next__Iter_indices_List(__pass_1)
+        val __step_2: Union2<Int, salvo.core.iterator.Finished> = salvo.core.index.next__Indices(__pass_1)
         when {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
@@ -220,9 +220,9 @@ fun<T> findFirst(list: List<T>, pick: (T) -> Boolean): Int? {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> findLast(list: List<T>, pick: (T) -> Boolean): Int? {
-    val __pass_1: salvo.core.index.__Iter_rev_indices_List<T> = salvo.core.index.revIndices(list)
+    val __pass_1: salvo.core.index.RevIndices<T> = salvo.core.index.revIndices(list)
     while (true) {
-        val __step_2: Union2<Int, salvo.core.iterator.Finished> = salvo.core.index.next__Iter_rev_indices_List(__pass_1)
+        val __step_2: Union2<Int, salvo.core.iterator.Finished> = salvo.core.index.next__RevIndices(__pass_1)
         when {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
@@ -241,9 +241,9 @@ fun<T> findLast(list: List<T>, pick: (T) -> Boolean): Int? {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> indexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
-    val __pass_1: salvo.core.index.__Iter_indices_List<T> = salvo.core.index.indices(list)
+    val __pass_1: salvo.core.index.Indices<T> = salvo.core.index.indices(list)
     while (true) {
-        val __step_2: Union2<Int, salvo.core.iterator.Finished> = salvo.core.index.next__Iter_indices_List(__pass_1)
+        val __step_2: Union2<Int, salvo.core.iterator.Finished> = salvo.core.index.next__Indices(__pass_1)
         when {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
@@ -262,9 +262,9 @@ fun<T> indexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> lastIndexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
-    val __pass_1: salvo.core.index.__Iter_rev_indices_List<T> = salvo.core.index.revIndices(list)
+    val __pass_1: salvo.core.index.RevIndices<T> = salvo.core.index.revIndices(list)
     while (true) {
-        val __step_2: Union2<Int, salvo.core.iterator.Finished> = salvo.core.index.next__Iter_rev_indices_List(__pass_1)
+        val __step_2: Union2<Int, salvo.core.iterator.Finished> = salvo.core.index.next__RevIndices(__pass_1)
         when {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
@@ -411,16 +411,16 @@ fun<T> next__ListYield(p: ListYield<T>): Union2<T, salvo.core.iterator.Finished>
     return Union2.U1<T, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(elem_1))
 }
 
-data class __Iter_reversed_List<T>(
+data class ListReversed<T>(
     var list: List<T>,
     var at: Int,
 )
 
-fun<T> reversed(list: List<T>): __Iter_reversed_List<T> {
-    return __Iter_reversed_List<T>(list = list, at = (sizePlatform(list) - 1))
+fun<T> reversed(list: List<T>): ListReversed<T> {
+    return ListReversed<T>(list = list, at = (sizePlatform(list) - 1))
 }
 
-fun<T> next__Iter_reversed_List(__p: __Iter_reversed_List<T>): Union2<T, salvo.core.iterator.Finished> {
+fun<T> next__ListReversed(__p: ListReversed<T>): Union2<T, salvo.core.iterator.Finished> {
     val elem: T? = getPlatform(__p.list, __p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
@@ -435,16 +435,16 @@ data class Enumerated<T>(
     val elem: T,
 )
 
-data class __Iter_enumerate_List<T>(
+data class ListEnumerate<T>(
     var list: List<T>,
     var at: Int,
 )
 
-fun<T> enumerate(list: List<T>): __Iter_enumerate_List<T> {
-    return __Iter_enumerate_List<T>(list = list, at = 0)
+fun<T> enumerate(list: List<T>): ListEnumerate<T> {
+    return ListEnumerate<T>(list = list, at = 0)
 }
 
-fun<T> next__Iter_enumerate_List(__p: __Iter_enumerate_List<T>): Union2<Enumerated<T>, salvo.core.iterator.Finished> {
+fun<T> next__ListEnumerate(__p: ListEnumerate<T>): Union2<Enumerated<T>, salvo.core.iterator.Finished> {
     val elem: T? = getPlatform(__p.list, __p.at)
     if ((elem == null)) {
         return Union2.U2<Enumerated<T>, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
@@ -455,16 +455,16 @@ fun<T> next__Iter_enumerate_List(__p: __Iter_enumerate_List<T>): Union2<Enumerat
     return Union2.U1<Enumerated<T>, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(Enumerated<T>(index = index, elem = elem_1)))
 }
 
-data class __Iter_enumerate_rev_List<T>(
+data class ListEnumerateRev<T>(
     var list: List<T>,
     var at: Int,
 )
 
-fun<T> enumerateRev(list: List<T>): __Iter_enumerate_rev_List<T> {
-    return __Iter_enumerate_rev_List<T>(list = list, at = (sizePlatform(list) - 1))
+fun<T> enumerateRev(list: List<T>): ListEnumerateRev<T> {
+    return ListEnumerateRev<T>(list = list, at = (sizePlatform(list) - 1))
 }
 
-fun<T> next__Iter_enumerate_rev_List(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, salvo.core.iterator.Finished> {
+fun<T> next__ListEnumerateRev(__p: ListEnumerateRev<T>): Union2<Enumerated<T>, salvo.core.iterator.Finished> {
     val elem: T? = getPlatform(__p.list, __p.at)
     if ((elem == null)) {
         return Union2.U2<Enumerated<T>, salvo.core.iterator.Finished>(salvo.core.iterator.finished())

@@ -111,7 +111,8 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                             .obligations
                             .iter()
                             .find(|o| o.group.name.name == "Iter")
-                            .and_then(|o| o.group.args.get(1))
+                            // `Iter<self, It, T>`: the element is the last argument.
+                            .and_then(|o| o.group.args.get(2))
                             .map(|a| ctx.written_ty(file_idx, a)),
                         span: t.span,
                     }));
@@ -164,8 +165,17 @@ fn type_params(generics: &[ast::Ident], canbe: &[(ast::Ident, ast::TypeRef)]) ->
 /// `state` says the fields are a handler's state, whose initializers are
 /// applied when the handler is constructed, so a predicate-qualified one is
 /// tested there [default-predicate]. A struct's own field defaults are applied
-/// by each literal instead (`struct_lit`), which tests them.
-fn fields(ctx: &Ctx<'_>, file_idx: usize, decls: &[ast::FieldDecl], state: bool, errors: &mut Vec<String>) -> Vec<Field> {
+/// by each literal instead (`struct_lit`), which tests them. `scope` is what
+/// an initializer may read: a handler's constructor parameters (ROADMAP §2d
+/// item 9d; nothing for a struct).
+fn fields(
+    ctx: &Ctx<'_>,
+    file_idx: usize,
+    decls: &[ast::FieldDecl],
+    state: bool,
+    scope: &[(String, Ty)],
+    errors: &mut Vec<String>,
+) -> Vec<Field> {
     decls
         .iter()
         .map(|f| {
@@ -182,6 +192,9 @@ fn fields(ctx: &Ctx<'_>, file_idx: usize, decls: &[ast::FieldDecl], state: bool,
                 canbe_mut: f.canbe_mut,
                 default: f.default.as_ref().map(|d| {
                     let mut lower = Lower::new(ctx, file_idx, None);
+                    for (n, t) in scope {
+                        lower.bind(n, t.clone());
+                    }
                     let e = if state {
                         let what = format!("state `{}`", f.name.name);
                         let slot = f.ty.as_ref().and_then(|t| ctx.written_ty_unerased(t));
@@ -204,7 +217,7 @@ fn struct_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, s: &ast::StructDecl, 
         name: s.name.name.clone(),
         exported: s.exported,
         type_params: type_params(&s.generics, &s.generic_canbe),
-        fields: fields(ctx, file_idx, &s.fields, false, errors),
+        fields: fields(ctx, file_idx, &s.fields, false, &[], errors),
         linear: s.linear,
         opaque: s.opaque,
         canbe_mut: s.auto_qualifiers.iter().any(|q| q.name.name == "Mut"),
@@ -321,7 +334,8 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
             span: p.span,
         })
         .collect();
-    let state = fields(ctx, file_idx, &h.state, true, errors);
+    let ctor_scope: Vec<(String, Ty)> = ctor_params.iter().map(|p| (p.local.0.clone(), p.ty.clone())).collect();
+    let state = fields(ctx, file_idx, &h.state, true, &ctor_scope, errors);
     // The handler's fields are in scope inside its members.
     let self_fields: Vec<(String, Ty)> = ctor_params
         .iter()
@@ -511,13 +525,7 @@ fn fn_decl(
             implicit_params += 1;
         }
     }
-    let mut ret = f.return_type.as_ref().map(|t| ctx.written_ty(file_idx, t)).unwrap_or_else(Ty::none);
-    // [iter-type] a written `iter T` is the iterator struct the checker resolved.
-    if ret.mentions_iter_marker() {
-        if let Some(r) = table_key.and_then(|k| ctx.checked.iter_returns.get(&k)) {
-            ret = erase(r);
-        }
-    }
+    let ret = f.return_type.as_ref().map(|t| ctx.written_ty(file_idx, t)).unwrap_or_else(Ty::none);
     let mut borrows: Vec<usize> = table_key
         .and_then(|k| ctx.checked.fn_lends.get(&k))
         .map(|ls| ls.iter().map(|i| i + effect_params).collect())

@@ -18,7 +18,7 @@
 //
 // Own module rather than part of `core.list` so a program that never uses a
 // set emits no code for it [mod-used-only].
-export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut : Iter<self, T>
+export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut : Iter<self, SetYield<T>, T>
 
 // Constructor. The elements are stored in the new set, so they are moved: a
 // variadic tail is owned, and needs no entry in the clause [deduce-syntax].

@@ -312,7 +312,7 @@ Conventions:
   rule uses), which is why a name the emitter writes in several places agrees
   with itself. Not mapped: type names (already capitalized), names the
   emitter synthesizes (`random_int` for a `Random<Int>` effect parameter,
-  `__p`, `__Iter_…`), overload suffixes after `__` (`readTo__InStream`), and the
+  `__p`), overload suffixes after `__` (`readTo__InStream`), and the
   `TODO("implement E.member")` messages, which quote Salvo. Rust keeps snake
   case. Hand-written host code follows: std's `platform/*.kt` override
   `rawReadLine`, not `raw_read_line`.

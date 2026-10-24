@@ -2,29 +2,29 @@ package salvo.core.range
 
 import salvo.*
 
-data class __Iter_range_Int_Int_Int(
+data class Range(
     var start: Int,
     var end: Int,
     var step: Int,
     var i: Int,
 )
 
-object __Codec___Iter_range_Int_Int_Int : salvo.WireCodec<__Iter_range_Int_Int_Int> {
-    override fun enc(v: __Iter_range_Int_Int_Int, out: salvo.WireOut) {
+object __Codec_Range : salvo.WireCodec<Range> {
+    override fun enc(v: Range, out: salvo.WireOut) {
         salvo.IntCodec.enc(v.start, out)
         salvo.IntCodec.enc(v.end, out)
         salvo.IntCodec.enc(v.step, out)
         salvo.IntCodec.enc(v.i, out)
     }
-    override fun dec(inp: salvo.WireIn): __Iter_range_Int_Int_Int = __Iter_range_Int_Int_Int(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): Range = Range(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun range__Int_Int_Int(start: Int, end: Int, step: Int): __Iter_range_Int_Int_Int {
-    return __Iter_range_Int_Int_Int(start = start, end = end, step = step, i = start)
+fun range__Int_Int_Int(start: Int, end: Int, step: Int): Range {
+    return Range(start = start, end = end, step = step, i = start)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun next(__p: __Iter_range_Int_Int_Int): Union2<Int, salvo.core.iterator.Finished> {
+fun next(__p: Range): Union2<Int, salvo.core.iterator.Finished> {
     val next: Int = __p.i
     return (if ((__p.step == 0)) {
         Union2.U1<salvo.core.iterator.Finished, Int>(salvo.core.iterator.finished())
@@ -38,7 +38,7 @@ fun next(__p: __Iter_range_Int_Int_Int): Union2<Int, salvo.core.iterator.Finishe
     }).let { when (it) { is Union2.U1<*, *> -> Union2.U2<Int, salvo.core.iterator.Finished>(it.value as salvo.core.iterator.Finished); is Union2.U2<*, *> -> Union2.U1<Int, salvo.core.iterator.Finished>(it.value as Int); else -> throw IllegalStateException("salvo: unreachable union arm") } }
 }
 
-fun range__Int_Int(start: Int, end: Int): __Iter_range_Int_Int_Int {
+fun range__Int_Int(start: Int, end: Int): Range {
     val step: Int = (if ((start < end)) {
         1
     } else if ((start > end)) {
@@ -49,7 +49,7 @@ fun range__Int_Int(start: Int, end: Int): __Iter_range_Int_Int_Int {
     return range__Int_Int_Int(start, end, step)
 }
 
-fun range__Int(end: Int): __Iter_range_Int_Int_Int {
+fun range__Int(end: Int): Range {
     return range__Int_Int(0, end)
 }
 

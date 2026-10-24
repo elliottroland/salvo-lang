@@ -497,6 +497,7 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
     };
     let pick = EffectRef::Effect(type_ref("RouteSelector", vec![named(e, Vec::new(), spans)], spans));
     let handler = HandlerDecl {
+        state_name: None,
         docs: Vec::new(),
         exported: false,
         intrinsic: false,

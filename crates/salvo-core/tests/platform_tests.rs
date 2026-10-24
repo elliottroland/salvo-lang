@@ -383,9 +383,9 @@ fn platform_types_are_opaque_handles_in_three_kinds() {
         ("platform type Client : Hashed<self> by auto\n", "cannot take this obligation clause"),
         // [platform-iterable] `Iter` is the one clause it may take, and not
         // stamped.
-        ("platform type Client : Iter<self, Int> by auto\n", "cannot take this obligation clause"),
+        ("platform type Client : Iter<self, ClientIter, Int> by auto\n", "cannot take this obligation clause"),
         // [platform-iterable] The host's loop needs the Salvo pass beside it.
-        ("iterable platform type Bag canbe Mut\n", "must also declare `: Iter<self, T>`"),
+        ("iterable platform type Bag canbe Mut\n", "must also declare `: Iter<self, It, T>`"),
     ];
     for (src, want) in refused {
         let errs = errors(src);

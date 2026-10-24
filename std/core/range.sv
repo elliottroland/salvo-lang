@@ -1,14 +1,13 @@
 // A range of `Int`s from [start] (inclusive) to [end] (exclusive), stepping
 // by [step], in either direction. Written as an `iter fn` [iter-fn]: the
 // declaration is the minter and its body is the step, so `range(0, 10)` mints
-// an iterator (`iter Int` [iter-type]) and `for i in range(0, 10)` drives it.
-// There is no `Range` struct — the three parameters *are* the state, and the
-// iterator struct the compiler writes is unnameable, as every `iter fn`'s is.
+// a `Range` (the struct its `state` block names) and `for i in range(0, 10)`
+// drives it. The struct holds the three parameters and the position.
 //
 // [end] is **exclusive** in both directions, and a zero step is the empty
 // range.
 export iter fn range(start: Int, end: Int, step: Int) -> Emitted Int | Finished {
-    state {
+    state Range {
         i: Int = start
     }
     let next = i.copy()
@@ -33,11 +32,7 @@ export iter fn range(start: Int, end: Int, step: Int) -> Emitted Int | Finished 
 // (exclusive), and steps each iteration by 1 (if start < end) or -1 (if end <
 // start). In the case where [start] == [end], the step is set to 0 and the
 // iteration is empty.
-//
-// [iter-type] `-> iter Int` on a fn with a body is a **pattern**: the fn
-// returns whichever concrete iterator struct its body mints — here the one
-// `range(start, end, step)` does — and callers see that type.
-export fn range(start: Int, end: Int) -> iter Int {
+export fn range(start: Int, end: Int) -> Mut Range {
     let step = when {
         start < end { 1 }
         start > end { -1 }
@@ -49,7 +44,7 @@ export fn range(start: Int, end: Int) -> iter Int {
 // Returns a range which starts a 0 (inclusive), ends before [end] (exclusive),
 // and steps each iteration by 1 (if end > 0) or -1 (if end < 0). In the case
 // where [end] == 0, the step is set to 0 and the iteration is empty.
-export fn range(end: Int) -> iter Int {
+export fn range(end: Int) -> Mut Range {
     return range(0, end)
 }
 

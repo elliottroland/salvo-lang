@@ -159,7 +159,7 @@ fn upto(start: Int, end: Int) -> Upto {
 }
 
 iter fn iter(r: Upto) -> Emitted Int | Finished {
-    state {
+    state UptoIter {
         at: Int = r.start
     }
     if at >= r.end {
@@ -629,7 +629,7 @@ fn upto(start: Int, end: Int) -> Upto {
 }
 
 iter fn iter(r: Upto) -> Emitted Int | Finished {
-    state {
+    state UptoIter2 {
         at: Int = r.start
     }
     if at >= r.end {
@@ -4961,7 +4961,7 @@ fn naturals() -> Naturals {
 }
 
 iter fn iter(n: Naturals) -> Emitted Int | Finished {
-    state {
+    state NaturalsIter {
         at = n.from
     }
     let v = copy(at)
@@ -5170,7 +5170,7 @@ fn rolls(count: Int) -> Rolls {
 }
 
 iter fn iter(r: Rolls) [Random<Int>] -> Emitted Int | Finished {
-    state {
+    state RollsIter {
         made: Int = 0
     }
     if made >= r.count {
@@ -6625,7 +6625,7 @@ fn show(step: Emitted Int | Finished) [Console] {
 }
 
 iter fn iter(f: Flat) -> Emitted Int | Finished {
-    state { at: Int = 0, inner: Mut ListYield<Int>? = None }
+    state FlatIter { at: Int = 0, inner: Mut ListYield<Int>? = None }
     while true {
         if inner is Mut ListYield<Int> {
             let step = next(inner)
@@ -8020,7 +8020,7 @@ fn naturals(from: Int) -> Naturals {
 }
 
 iter fn iter(n: Naturals) -> Emitted Int | Finished {
-    state {
+    state NaturalsIter2 {
         at = n.from
     }
     if at >= n.from + 4 {
@@ -8102,7 +8102,7 @@ fn sequence_functions_lower_to_helpers() {
     // [iter-fn] A pass subject reaches the generic overload through its `iter`,
     // and the `next` the checker resolved arrives as the implicit argument.
     assert!(
-        main.contains("__Iter_iter_Naturals"),
+        main.contains("NaturalsIter2"),
         "expected the pass to be minted through its generated `iter` in:\n{main}"
     );
     let _ = &files;
@@ -8293,7 +8293,7 @@ struct Countdown {
 }
 
 iter fn iter(c: Countdown) -> Emitted Int | Finished {
-    state {
+    state CountdownIter {
         at: Int = c.from
     }
     if at <= 0 {
@@ -8308,7 +8308,7 @@ struct Fibs {
 }
 
 iter fn iter(f: Fibs) -> Emitted Int | Finished {
-    state {
+    state FibsIter {
         a: Int = 0,
         b: Int = 1,
         made: Int = 0
@@ -8329,7 +8329,7 @@ struct Noisy {
 }
 
 iter fn iter(n: Noisy) [Console] -> Emitted Int | Finished {
-    state {
+    state NoisyIter {
         at: Int = 0
     }
     if at >= n.limit {
@@ -8351,7 +8351,7 @@ fn describe(r: Row) -> Str => r {
 }
 
 iter fn iter(r: Row) -> Emitted Str | Finished {
-    state {
+    state RowIter {
         left: Int = r.times
     }
     if left <= 0 {
@@ -8406,8 +8406,8 @@ fn rustc_compiles_and_runs_the_iter_fn_form() {
 }
 
 /// [iter-fn] What the expansion emits, and what it does *not*: a plain struct
-/// carrying the subject and the `state` fields, a plain `iter` that copies the
-/// subject in, and a plain `next` — no state machine, no `__advance`, no state
+/// borrowing the parameters beside the `state` fields, a plain minter, and a
+/// plain `next` — no state machine, no `__advance`, no state
 /// number, and no per-`defer` flag.
 #[test]
 fn an_iter_fn_emits_a_plain_struct_and_next() {
@@ -8417,29 +8417,22 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted")
         .content;
-    // [iter-fn] Tier 1 — the body never reads the subject, so the pass holds
-    // *nothing* of it: no field, and no clone at the mint.
+    // [iter-fn] The struct its `state` block names holds every parameter —
+    // **borrowed** whole, as a `proj` field [proj-field], so it carries a
+    // lifetime and the mint clones nothing [copy-opt-in] — then the state.
     assert!(
-        main.contains("pub struct __Iter_iter_Countdown {\n    pub at: i32,\n}")
-            && main.contains("__Iter_iter_Countdown { at: c.from }"),
-        "expected a subject-free pass:\n{main}"
+        main.contains("pub struct CountdownIter<'s> {\n    pub c: &'s crate::Countdown,\n    pub at: i32,\n}")
+            && main.contains("crate::CountdownIter { c: c, at: c.from }"),
+        "expected the parameter borrowed beside the state:\n{main}"
     );
-    // Tier 2 — the body reads `f.count` on every turn, so that one field is
-    // snapshotted at the mint. The subject itself is still not held, and the
-    // snapshot keeps the field's own name.
     assert!(
-        main.contains("pub struct __Iter_iter_Fibs {\n    pub count: i32,")
-            && main.contains("__Iter_iter_Fibs { count: f.count, a: 0i32, b: 1i32, made: 0i32 }")
-            && !main.contains("pub f: crate::Fibs"),
-        "expected a per-field snapshot:\n{main}"
+        main.contains("pub struct FibsIter<'s> {\n    pub f: &'s crate::Fibs,")
+            && main.contains("crate::FibsIter { f: f, a: 0i32, b: 1i32, made: 0i32 }"),
+        "expected the parameter held whatever the body reads of it:\n{main}"
     );
-    // Tier 3 — the body hands the *whole* subject to `describe`, so no snapshot
-    // can stand in for it and the pass holds the subject — **borrowed**, as a
-    // `proj` field [proj-field]: the struct carries a lifetime and the mint
-    // clones nothing [copy-opt-in].
     assert!(
-        main.contains("pub struct __Iter_iter_Row<'s> {\n    pub r: &'s crate::Row,")
-            && main.contains("__Iter_iter_Row { r: r, left: r.times }"),
+        main.contains("pub struct RowIter<'s> {\n    pub r: &'s crate::Row,")
+            && main.contains("crate::RowIter { r: r, left: r.times }"),
         "expected the whole subject to be borrowed:\n{main}"
     );
     assert!(
@@ -8449,7 +8442,7 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
     // [fn-effects] An effectful `next` takes its handlers as leading arguments,
     // threaded into every turn of the loop.
     assert!(
-        main.contains("crate::next__Iter_iter_Noisy(&__handle_2, &mut __pass_14);"),
+        main.contains("crate::next__NoisyIter(&__handle_2, &mut __pass_14);"),
         "expected the handler threaded into the drive:\n{main}"
     );
 }
@@ -8468,7 +8461,7 @@ struct Countdown {
 }
 
 iter fn iter(c: Countdown) -> Emitted Int | Finished {
-    state {
+    state CountdownIter2 {
         at: Int = c.from
     }
     if at <= 0 {
@@ -8741,7 +8734,7 @@ struct Box<T> {
 }
 
 iter fn iter<T>(b: Box<T>) -> Emitted (proj(b) T) | Finished {
-    state {
+    state BoxIter {
         at: Int = 0
     }
     let e = get(b.items, at)
@@ -15842,7 +15835,7 @@ fn range(start: Int, end: Int) -> Range {
 }
 
 iter fn iter(r: Range) -> Emitted Int | Finished {
-    state {
+    state RangeIter {
         i: Int = r.start
     }
     if i >= r.end {
