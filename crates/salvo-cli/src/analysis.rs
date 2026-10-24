@@ -386,6 +386,7 @@ fn analyze_project(
     let mut ir_reliant: std::collections::HashSet<(usize, salvo_syntax::Span)> = std::collections::HashSet::new();
     let mut modules = Vec::with_capacity(sources.files.len());
     let mut live: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let t = salvo_core::timing::phase("parse");
     for file in &sources.files {
         let (module, diags) = match cache.as_deref_mut() {
             Some(cache) => {
@@ -406,7 +407,10 @@ fn analyze_project(
     if let Some(cache) = cache {
         cache.retain_live(&live);
     }
+    drop(t);
+    let t = salvo_core::timing::phase("expand");
     let expansion = salvo_core::expand(&sources.files, &mut modules);
+    drop(t);
     diagnostics.extend(expansion.diagnostics);
     let comptime_hovers = expansion.comptime_hovers;
     let comptime_when_arms = expansion.comptime_when_arms;
@@ -430,18 +434,22 @@ fn analyze_project(
     // diagnostics are dropped: recovered ASTs cascade nonsense, and the
     // parse errors are the actionable signal there.
     let (checked, overloads, completions, type_completions) = {
+        let t = salvo_core::timing::phase("resolve");
         let symbols = Symbols::collect(&program);
         let resolution = salvo_core::resolve(&program);
         let overloads = overload_index(&resolution);
         let completions = completion_index(&resolution);
         let type_completions = type_completion_index(&resolution);
+        drop(t);
         // `check_program` folds resolution errors into its own.
+        let t = salvo_core::timing::phase("check");
         let mut checked = match std_cache {
             Some(cache) if std_cache_applies(&program, cache) => {
                 salvo_core::check_project(&program, &resolution, &symbols, cache)
             }
             _ => salvo_core::check_program(&program, &resolution, &symbols),
         };
+        drop(t);
         checked.errors.retain(|d| !parse_broken.contains(&d.file));
         // [ir-analyze] Run the IR-level analyses only on a clean program: the
         // IR builder reads the checker's tables (`linear_moves`, coercions, …),
@@ -452,6 +460,7 @@ fn analyze_project(
         // surface once those are fixed.
         let clean = parse_broken.is_empty() && !diagnostics.iter().any(|d| d.is_error()) && !checked.errors.iter().any(|d| d.is_error());
         if clean {
+            let _t = salvo_core::timing::phase("ir analyze");
             let ir_diags = salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked);
             for d in &ir_diags {
                 ir_reliant.insert((d.file, d.span));

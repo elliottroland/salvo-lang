@@ -11304,6 +11304,10 @@ replaced the working document TESTING.md).
     `{file, line, col, start, end, severity, message}` objects to
     stdout (line/col 1-based, start/end byte offsets); text mode
     renders to stderr with a summary line.
+  * [phase-timings] With `SALVO_TIMINGS` set, each pipeline phase prints its
+    wall-clock time to stderr (`timing: resolve  16.0ms`): parse, expand,
+    resolve, each checking round with its sub-steps and deduction pass, and
+    the IR analysis (`salvo_core::timing`; 2026-10-20, PIPELINE.md step 1).
 * [cli-run] `salvo run [--backend NAME|*] [--src DIR] [--main FILE]
   [--target DIR] [--clean-target before|both]` (backend, src and main from the
   manifest when omitted [manifest]) compiles and then runs the
@@ -11568,6 +11572,13 @@ replaced the working document TESTING.md).
   only updates the overlay, and diagnostics are published once no message is
   waiting, so a completion asked for after several keystrokes is answered
   after one analysis rather than one per keystroke.
+* [lsp-analysis-reuse] **Requests between edits share one analysis**
+  (2026-10-20, PIPELINE.md step 1): the server keeps the analyses it made
+  since the last document event, keyed by project root and the open buffers
+  analysed, so hover, completion, go-to-definition and signature help after
+  one edit run the pipeline once (completion's patched probe buffer is its own
+  entry). Every document notification drops them. The standalone std analysis
+  is built once per server.
 * [lsp-hover-iter-fn] An `iter fn`'s minter and generated `next` both hover as
   the `iter fn` written (`iter fn upto(n: Int) -> Emitted Int | Finished`),
   with its docs and without the `next` overload set.

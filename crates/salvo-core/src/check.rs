@@ -1771,9 +1771,12 @@ fn check_program_rounds<'p>(
     // reads their table, so the two sides of a refinement — what it means
     // at a call site and what it means for an inferred contract — cannot
     // come from different data.
+    let t = crate::timing::phase("check: refinements");
     let refinements = crate::refine::collect(program, resolution);
+    drop(t);
 
     // Round one: no inferred facts yet (strict S1 behavior).
+    let t = crate::timing::phase("check: round 1");
     let mut out = check_once(
         program,
         resolution,
@@ -1787,7 +1790,10 @@ fn check_program_rounds<'p>(
         &mut parking,
         cache,
     );
+    drop(t);
+    let t = crate::timing::phase("check: deduce 1");
     crate::deduce::infer(program, &mut out, &claims, &mutations, cache.map(|c| c.std_files));
+    drop(t);
     let mut inferred = std::mem::take(&mut out.deductions);
     let mut prev_candidates = candidates.clone();
     let mut prev_claims = claims.clone();
@@ -1807,6 +1813,7 @@ fn check_program_rounds<'p>(
     let mut round = 1;
     loop {
         round += 1;
+        let t = crate::timing::phase(format!("check: round {round}"));
         out = check_once(
             program,
             resolution,
@@ -1820,10 +1827,13 @@ fn check_program_rounds<'p>(
             &mut parking,
             cache,
         );
+        drop(t);
         // Deductions are a whole-program fact (strictest over the call
         // graph), re-inferred against this round's final call
         // resolutions [deduce-infer].
+        let t = crate::timing::phase(format!("check: deduce {round}"));
         crate::deduce::infer(program, &mut out, &claims, &mutations, cache.map(|c| c.std_files));
+        drop(t);
         let stable = out.deductions == inferred
             && candidates == prev_candidates
             && claims == prev_claims
@@ -1941,6 +1951,7 @@ fn check_once<'p>(
     // dropped: the signature check re-derives them in the file they belong to,
     // where a reader is.
     let mark = out.errors.len();
+    let t = crate::timing::phase("  check_once: signatures");
     out.platform_closure_all = crate::abi::platform_closure_all(program, symbols);
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         // [std-cache] std's implicit signatures came from the cache.
@@ -1967,6 +1978,8 @@ fn check_once<'p>(
         checker.collect_implicit_signatures(ast);
     }
     out.errors.truncate(mark);
+    drop(t);
+    let t = crate::timing::phase("  check_once: iter pre-pass");
     // [iter-type] The **return-pattern pre-pass**: a fn declared `-> iter T`
     // with a body returns whichever concrete iterator struct its body mints,
     // and callers must see that type — so those bodies are checked first, into
@@ -2029,6 +2042,8 @@ fn check_once<'p>(
         }
         out.iter_returns = std::mem::take(&mut scratch.iter_returns);
     }
+    drop(t);
+    let t = crate::timing::phase("  check_once: bodies");
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         // [std-cache] Skip std's bodies: their facts came from the cache.
         if cache.is_some_and(|c| file_idx < c.std_files) {
@@ -2059,6 +2074,8 @@ fn check_once<'p>(
         checker.check_module(ast);
         checker.check_platform_boundary(ast);
     }
+    drop(t);
+    let _t = crate::timing::phase("  check_once: program checks");
     check_intrinsic_is_std_only(program, &mut out);
     check_module_uses(program, &mut out);
     check_runtime_layers(program, &mut out);

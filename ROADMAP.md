@@ -928,6 +928,49 @@ reproduced in a scratch project; the repros are below.
    (`X <: proj X`), so the join should be `proj Str`, with the literal an
    owned value fitting it.
 
+9c. **Open defect: writing both members of a `with` pair with another struct
+   is refused.** Found 2026-10-20 (PIPELINE.md 4.1). With `struct Bag :
+   Iter<self, Int>` minting `Mut A` through `fn iter(bag: Bag) -> Mut A`, a
+   call `total(bag, iter = mint_b, next = next)` (where `mint_b(bag: Bag) ->
+   Mut B` and `next(b: Mut B)` exists) is refused: "`iter` does not fit here:
+   expects `(Bag) -> Mut A`, found `(Bag) -> Mut B`". [implicit-with]'s remedy
+   is exactly to write both, so the spread's hidden generic must be bound from
+   the written pair, not from the resolved minter. Repro: `tmp/itergrp`
+   (`fn total<C>(c: C, ?Iter<C, Int>) [] -> Int => c`).
+
+9d. **Open defects: a handler's state initializer cannot read a constructor
+   parameter, and the handler's names may clash unchecked.** Found 2026-10-20
+   (PIPELINE.md 4.1, probe `tmp/hstate`). Three shapes, all accepted by the
+   checker:
+   - `handler Counting(c: Int) of Counter { state { n: Int = c + 100 } … }`
+     fails in the IR builder on both backends ("unresolved identifier `c`"),
+     though [handler-state] lets an initializer read the constructor's
+     parameters: `ir::build::decls::fields` lowers state initializers with
+     `Lower::new(ctx, file_idx, None)`, so no constructor parameter is in
+     scope. Nothing in the tree does it yet.
+   - A state field named like a constructor parameter (`Counting(n: Int)`,
+     `state { n: Int = 7 }`): rustc E0124 (field declared twice), kotlinc
+     "conflicting declarations".
+   - A member parameter named like a state field (`state { n: Int = 7 }`, `fn
+     bump(n: Int) -> Int { return n }`): the checker binds `n` to the state
+     field (`check_fn` inserts state after the parameters into one frame),
+     both emitters to the parameter, so `bump(5)` prints 5 where the checker's
+     reading is 7: a checker/emitter disagreement.
+   No rule says which name wins; the fix is a rule (PIPELINE.md 4.1 R4).
+
+9e. **A general `state` effect (DECISION, to design).** Found 2026-10-20 while
+   designing named iterator state (PIPELINE.md 4.1, "The general form"): a
+   `state` statement that brings a struct into scope for the rest of a block,
+   like `use` (`state Cursor { src: text, at: 0 }`), and `[state S]` on a fn
+   that needs a caller's state, read bare as a step body reads its own.
+   Uses: helpers of an `iter fn`'s step, helpers of a handler's members, and
+   threading a cursor or machine (a parser), the classic state effect (Koka's
+   `state<s>`, Haskell's `State s`). Open: two states of one type in scope
+   (refused, as [use-no-dup]); a lambda reaching a state (its type carries
+   `[state S]`); states and actors (not shareable); reading the final state
+   after the block. PIPELINE.md's named `iter fn` and handler states are
+   written so that this can extend them.
+
 10. ✅ **A stamped body falls back to its template's names** — done
     2026-10-20 with option (b) ([comptime-hygiene], COMPLETED.md). Left
     over: the same-file and same-module rules a stamped body may meet inside
@@ -1661,6 +1704,11 @@ backends**.
   deep copy.
 
 ### 5 — LSP responsiveness: debounce, per-file parse cache, and a cached std front-half (user decisions 2026-10-10; phases 1–3 built, 4 recorded, 5 open)
+
+**Superseding design in progress:** PIPELINE.md (2026-10-20) reorganizes the
+compiler into phases with per-file and per-declaration caching and early
+cutoff, which would replace phase 4's std-only summary with the general
+mechanism. Decided (rounds R1–R5); its §7 is the plan of work.
 
 The language server re-runs the whole `analyze` pipeline on every document
 event with no incremental state (`crates/salvo-cli/src/lsp.rs`,

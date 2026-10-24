@@ -3129,6 +3129,45 @@ fn show(o: Outer) [Console] {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
+/// [lsp-analysis-reuse] Requests between two edits answer from one analysis,
+/// and an edit drops it: a hover after a change sees the changed buffer, not
+/// the analysis the previous hover was answered from.
+#[test]
+fn an_edit_drops_the_reused_analysis() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_reuse");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let first = "fn main() [] {\n    let x = 42\n    let _ = x\n}\n";
+    std::fs::write(root.join("main.sv"), first).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": first}}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    // Twice from one analysis: the same answer.
+    assert!(hover(&mut lsp, 2, &uri, 1, 8).contains("Int"));
+    assert!(hover(&mut lsp, 3, &uri, 1, 8).contains("Int"));
+    let second = "fn main() [] {\n    let x = \"s\"\n    let _ = x\n}\n";
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {"textDocument": {"uri": uri, "version": 2}, "contentChanges": [{"text": second}]}
+        }),
+    );
+    let after = hover(&mut lsp, 4, &uri, 1, 8);
+    assert!(after.contains("Str"), "the hover after an edit read a stale analysis: {after}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
 /// [lsp-debounce] A burst of edits collapses into one analysis of the final
 /// buffer. The server waits out a short quiet period before analysing and
 /// absorbs messages that arrive inside it, so intermediate (here broken)

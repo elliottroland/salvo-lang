@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2021 tests, complete: the toolchain tests are
+cargo test                  # 2022 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,28 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Phase timings, and one analysis per edit in the language server
+
+PIPELINE.md §7 step 1, the first of the pipeline plan (PIPELINE.md records
+the design and its decision rounds R1–R5). [phase-timings]: `SALVO_TIMINGS`
+prints each phase's wall time (`salvo_core::timing::phase`, a drop guard).
+The first numbers, `salvo analyze` on `demo/` and on `examples/actors`
+(debug build): parse ~22ms, expand ~10ms, resolve ~17ms, the check ~500ms, of
+which each **round** is ~160ms and there are **three** (both programs: a
+third round runs although nothing a user wrote changes the facts; claims are
+the suspect, PIPELINE.md 4.4), each round's body walk ~145ms, the signature
+pre-pass ~5ms and each deduction pass ~5ms. So the rounds are about two
+thirds of the whole analysis, which is what steps 2–4 remove.
+
+[lsp-analysis-reuse]: the language server keeps the analyses made since the
+last document event, keyed by project root and a hash of the open buffers,
+and answers hover, definition, completion, signature help and rename from
+them; every notification drops them. The std analysis for navigating inside
+std is built once. Before this every request ran the whole pipeline.
+
+Tests: `lsp_tests::an_edit_drops_the_reused_analysis` (two hovers from one
+analysis; a hover after an edit sees the edit).
 
 ### 2026-10-20 — The postfix `!` is removed
 
@@ -27955,7 +27977,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2021 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2022 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

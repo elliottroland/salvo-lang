@@ -52,6 +52,7 @@ use salvo_syntax::diag::Severity;
 use salvo_syntax::Span;
 
 use crate::analysis::{analyze_for_document_cached, Analysis};
+use std::rc::Rc;
 use crate::docs;
 
 /// [lsp-debounce] How long the loop waits for the edit stream to go quiet
@@ -271,6 +272,8 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
         dirty: false,
         parse_cache: std::cell::RefCell::new(crate::analysis::ParseCache::new()),
         std_cache: std::cell::RefCell::new(None),
+        analyses: std::cell::RefCell::new(Vec::new()),
+        std_analysis: std::cell::RefCell::new(None),
         snippets,
     };
     server.main_loop()?;
@@ -386,6 +389,17 @@ fn pid_is_dead(_pid: i32) -> bool {
     false
 }
 
+/// [lsp-analysis-reuse] A hash of the open buffers an analysis saw, so a
+/// patched buffer (completion's probe) is a different analysis.
+fn overlay_hash(overlay: &HashMap<PathBuf, String>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut entries: Vec<(&PathBuf, &String)> = overlay.iter().collect();
+    entries.sort();
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    entries.hash(&mut h);
+    h.finish()
+}
+
 struct Server<'c> {
     root: PathBuf,
     /// Open-editor buffers: canonical absolute path -> contents [cli-lsp].
@@ -411,6 +425,16 @@ struct Server<'c> {
     /// analysis and reused by every later one whose program starts with that
     /// std unshadowed. A `RefCell` for the same reason as `parse_cache`.
     std_cache: std::cell::RefCell<Option<salvo_core::StdCache>>,
+    /// [lsp-analysis-reuse] The analyses made since the last document event,
+    /// by (project root, hash of the overlay analysed): a hover, a completion
+    /// and a go-to-definition between two edits answer from one analysis
+    /// instead of re-running the pipeline each (PIPELINE.md §7 step 1).
+    /// Cleared on every document notification, which is also what re-reads
+    /// the disk. A few entries, since completion analyses a patched buffer.
+    analyses: std::cell::RefCell<Vec<(PathBuf, u64, std::rc::Rc<Analysis>)>>,
+    /// [lsp-std-source] The standalone std analysis, built once: std does not
+    /// change within a server run.
+    std_analysis: std::cell::RefCell<Option<std::rc::Rc<Analysis>>>,
     /// [lsp-completion] The client renders snippets (`$0` placeholders) in
     /// completion items; otherwise an inserted arm is plain text.
     snippets: bool,
@@ -560,6 +584,14 @@ impl Server<'_> {
         &mut self,
         note: Notification,
     ) -> Result<(), Box<dyn Error + Sync + Send>> {
+        // [lsp-analysis-reuse] Any document event may change what an analysis
+        // sees (a buffer, or the disk behind a save or a close).
+        if matches!(
+            note.method.as_str(),
+            DidOpenTextDocument::METHOD | DidChangeTextDocument::METHOD | DidCloseTextDocument::METHOD | DidSaveTextDocument::METHOD
+        ) {
+            self.analyses.borrow_mut().clear();
+        }
         match note.method.as_str() {
             DidOpenTextDocument::METHOD => {
                 let params: DidOpenTextDocumentParams = serde_json::from_value(note.params)?;
@@ -614,15 +646,42 @@ impl Server<'_> {
     /// [manifest-discovery] The analysis a document belongs to: its
     /// project's source root, or the workspace root when no manifest is
     /// above it.
-    fn analyze_for(&self, path: &Path) -> Option<Analysis> {
+    fn analyze_for(&self, path: &Path) -> Option<Rc<Analysis>> {
         // [lsp-std-source] A copy of the embedded std the user navigated into:
         // analyse std as its own program so hover and go-to-definition work
         // *inside* std (its references resolve to other std files, which
         // `site_location` routes back to their read-only copies). Built on
-        // demand — navigating within std is rare, and the check is sub-second.
+        // demand, once — navigating within std is rare, and std does not change.
         if is_embedded_std_copy(path) {
-            return Some(crate::analysis::analyze_std());
+            let mut std = self.std_analysis.borrow_mut();
+            return Some(std.get_or_insert_with(|| Rc::new(crate::analysis::analyze_std())).clone());
         }
+        self.analysis_with(path, &self.overlay)
+    }
+
+    /// [lsp-analysis-reuse] The analysis of `path`'s project with `overlay`
+    /// as the open buffers: the one made since the last document event when
+    /// there is one, else a fresh one, remembered.
+    fn analysis_with(&self, path: &Path, overlay: &HashMap<PathBuf, String>) -> Option<Rc<Analysis>> {
+        let root = match salvo_core::Project::find(path) {
+            Ok(Some(project)) => project.src(),
+            _ => self.root.clone(),
+        };
+        let key = overlay_hash(overlay);
+        if let Some((_, _, hit)) = self.analyses.borrow().iter().find(|(r, k, _)| *r == root && *k == key) {
+            lsp_trace!("analysis reused for {}", path.display());
+            return Some(hit.clone());
+        }
+        let analysis = Rc::new(self.fresh_analysis(path, overlay)?);
+        let mut analyses = self.analyses.borrow_mut();
+        if analyses.len() >= 4 {
+            analyses.remove(0);
+        }
+        analyses.push((root, key, analysis.clone()));
+        Some(analysis)
+    }
+
+    fn fresh_analysis(&self, path: &Path, overlay: &HashMap<PathBuf, String>) -> Option<Analysis> {
         let std_cache = self.std_cache();
         // [lsp-slow-dump] Time the pass so a runaway (the 100%-CPU report) can
         // be caught in the act: an analysis slower than the threshold dumps the
@@ -634,7 +693,7 @@ impl Server<'_> {
         let result = analyze_for_document_cached(
             path,
             &self.root,
-            &self.overlay,
+            overlay,
             &mut self.parse_cache.borrow_mut(),
             &std_cache,
         );
@@ -1824,14 +1883,7 @@ impl Server<'_> {
             if !in_ref {
                 return Some(CompletionResponse::Array(Vec::new()));
             }
-            let analysis = analyze_for_document_cached(
-                &path,
-                &self.root,
-                &self.overlay,
-                &mut self.parse_cache.borrow_mut(),
-                &self.std_cache(),
-            )
-            .ok()?;
+            let analysis = self.analysis_with(&path, &self.overlay)?;
             let view = doc_view(&analysis, &path)?;
             return Some(CompletionResponse::Array(doc_ref_completions(&analysis, view.file, cursor as u32)));
         }
@@ -1840,14 +1892,7 @@ impl Server<'_> {
             .or_else(|| trimmed.strip_prefix("import "));
         if let Some(written) = import_path {
             if written.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.') {
-                let analysis = analyze_for_document_cached(
-                    &path,
-                    &self.root,
-                    &self.overlay,
-                    &mut self.parse_cache.borrow_mut(),
-                    &self.std_cache(),
-                )
-                .ok()?;
+                let analysis = self.analysis_with(&path, &self.overlay)?;
                 return Some(CompletionResponse::Array(import_completions(&analysis, written)));
             }
         }
@@ -1888,14 +1933,7 @@ impl Server<'_> {
         };
         let mut overlay = self.overlay.clone();
         overlay.insert(path.clone(), patched);
-        let analysis = analyze_for_document_cached(
-            &path,
-            &self.root,
-            &overlay,
-            &mut self.parse_cache.borrow_mut(),
-            &self.std_cache(),
-        )
-        .ok()?;
+        let analysis = self.analysis_with(&path, &overlay)?;
         let checked = analysis.checked.as_ref()?;
         let view = doc_view(&analysis, &path)?;
         // [lsp-completion] [when-exhaustive] Inside a `when`'s braces, between
@@ -2145,14 +2183,7 @@ impl Server<'_> {
             return None;
         }
         let name = &text[start..name_end];
-        let analysis = analyze_for_document_cached(
-            &path,
-            &self.root,
-            &self.overlay,
-            &mut self.parse_cache.borrow_mut(),
-            &self.std_cache(),
-        )
-        .ok()?;
+        let analysis = self.analysis_with(&path, &self.overlay)?;
         let checked = analysis.checked.as_ref()?;
         let view = doc_view(&analysis, &path)?;
         let fns = analysis.completions.get(view.file)?;
