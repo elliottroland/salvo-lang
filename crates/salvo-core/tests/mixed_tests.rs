@@ -327,11 +327,12 @@ handler Twice() of Peek {
     );
 }
 
-/// [mixed-handler] The façade sees no handler dependencies (they would live
-/// in the servant), and — the first-slice cut — a mixed handler cannot
-/// declare any yet; the spawn names the remedy.
+/// [mixed-handler] [effect-handler-deps] A mixed handler's dependencies are
+/// the **servant's** (the cut lifted 2026-10-20, user decision R6): a send
+/// member calls them, and the spawn resolves them like any actor spawn's —
+/// from the spawning scope here [spawn-inherit].
 #[test]
-fn a_mixed_handler_with_dependencies_is_refused_for_now() {
+fn a_mixed_handlers_dependencies_belong_to_the_servant() {
     let errs = errors(
         "\
 effect Peek {
@@ -350,21 +351,144 @@ handler Noisy() [Console] of Peek {
     }
 
     fn peek() -> Int {
+        poke()
         return 0
     }
 }
 
-fn main() [use, spawn] {
+fn main() [Console, use, spawn] {
     let p = spawn Noisy() on pool(1)
 }
 ",
     );
-    assert!(
-        errs.iter().any(|m| m.contains("declares dependencies")
-            && m.contains("does not support yet")
-            && m.contains("constructor parameter")),
-        "expected the dependency cut: {errs:?}"
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
+/// [mixed-handler] The confinement half: a sync member runs on the caller's
+/// thread over the façade value, which carries no dependency, so it cannot
+/// call one.
+#[test]
+fn a_facade_member_cannot_reach_a_dependency() {
+    let errs = errors(
+        "\
+effect Peek {
+    fn peek() -> Int
+}
+
+handler Noisy() [Console] of Peek {
+    mailbox { capacity: 2 }
+
+    send fn poke() {
+        println(\"poked\")
+    }
+
+    fn peek() -> Int {
+        println(\"peeked\")
+        return 0
+    }
+}
+",
     );
+    assert!(
+        errs.iter().any(|m| m.contains("`println` is a member of `Console`, a dependency")
+            && m.contains("`send fn` member")),
+        "{errs:?}"
+    );
+}
+
+/// [mixed-handler] [effect-at] The ambiguity arm, live now that a send
+/// member sees dependencies: a bare name that is both a sibling `send fn`
+/// and a dependency's member must say which it means, and each `@` form
+/// resolves.
+#[test]
+fn a_servant_send_named_like_a_dependency_member_must_say_which() {
+    let program = |call: &str| {
+        format!(
+            "\
+effect Tick {{
+    fn poke() -> None
+}}
+
+effect Peek {{
+    fn peek() -> Int
+}}
+
+handler Noisy() [Tick] of Peek {{
+    mailbox {{ capacity: 2 }}
+
+    send fn poke() {{
+    }}
+
+    send fn relay() {{
+        {call}
+    }}
+
+    fn peek() -> Int {{
+        return 0
+    }}
+}}
+"
+        )
+    };
+    let errs = errors(&program("poke()"));
+    assert!(
+        errs.iter().any(|m| m.contains("is both a `send fn` of this handler")
+            && m.contains("`Tick`")
+            && m.contains("poke@self")),
+        "{errs:?}"
+    );
+    assert!(errors(&program("poke@self()")).is_empty());
+    assert!(errors(&program("poke@Tick()")).is_empty());
+}
+
+/// [actor-deadlock-cycle] [mixed-handler] A servant's dependency is an edge
+/// out of the servant's node: the occupancy cycle of
+/// `an_occupancy_cycle_is_an_error_even_through_back_pressure`, with the
+/// servant reaching `Drawer` through its dependency list instead of a held
+/// handle.
+#[test]
+fn a_servant_dependency_closes_an_occupancy_cycle() {
+    let diags = diagnostics(
+        "\
+actor effect Drawer {
+    send fn draw(out: Reply<Int>) => !out
+}
+
+handler Feedback() [Drawer] of Random {
+    mailbox { capacity: 4 }
+    state {
+        tally: Int = 0
+    }
+
+    send fn advance(out: Reply<Int>) => !out {
+        tally = tally + 1
+        draw(out)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+
+handler Drawing() [Random] of Drawer {
+    mailbox { capacity: 4 }
+
+    send fn draw(out: Reply<Int>) {
+        send(out, next())
+    }
+}
+",
+    );
+    let errs: Vec<&String> = diags.iter().filter(|(e, _)| *e).map(|(_, m)| m).collect();
+    assert!(
+        errs.iter().any(|m| m.contains("wait for each other through a shared handler")
+            && m.contains("Feedback's servant")
+            && m.contains("Drawer")),
+        "expected the occupancy-cycle error: {diags:?}"
+    );
+    assert_eq!(errs.len(), 1, "the cycle is the only error: {errs:?}");
 }
 
 /// [mixed-handler] One face for now: the façade value behind several effect

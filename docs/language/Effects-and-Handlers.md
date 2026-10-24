@@ -487,6 +487,8 @@ State is **confined**: only send members touch it, so every access is a serializ
 
 Send members reach their siblings the same way: a bare call naming another of the handler's `send fn` members enqueues on the servant's own mailbox — "finish this activation, then that one" — so a request can travel member to member without leaving the actor. `k@self(…)` is the explicit spelling of the same send, available in either member kind, and it is how the call says what it means where a bare name would be ambiguous with an effect member in scope.
 
+A mixed handler may declare dependencies like any handler (`handler Counted(seed: Int) [Console, Label] of Random`), and they belong to the servant: its send members call them, the spawn supplies them as an actor spawn does — a `with` item, or the spawning scope's own instance — and the façade carries none, so a sync member that calls one is refused with the remedy (send to a member that does). A send member whose sibling shares a name with a dependency's member says which it means: `k@self(…)` or `k@Label(…)`.
+
 A mixed handler is spawn-only (`use` would leave its sends nowhere to arrive). By default its servant answers every request within the activation that received it, which is what makes a façade's wait end after one straight-line activation rather than after an event that may never come. A send member that declares `defer` on a reply parameter opts out of that default: the answer may outlive the activation — forwarded to another actor whose discharge ends the caller's wait, or parked in a continuation on one of the servant's own members with `replyto`, exactly as an actor parks — and the deadlock graph prices the deferral.
 
 ## Two effects, one member name

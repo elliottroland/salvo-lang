@@ -302,8 +302,12 @@ fn build(
             // actor's: a gate makes its sends waits, a wait makes them
             // blocks, and otherwise they are back-pressure. Task sends count
             // against it the same way they count against an actor
-            // [task-mint]. (Dependencies stay refused on a servant, so it
-            // still occupies nothing.)
+            // [task-mint]. Its dependencies are the servant's (the façade
+            // never sees them), so they leave from this node too: an actor
+            // dependency is a target like a held addr, and a plain one with
+            // mixed or wait-capable shareable handlers is an occupancy edge,
+            // exactly as from an actor handler. Its own face is skipped:
+            // interception binds outward, so it closes no cycle.
             let mixed = h.fns.iter().any(|f| f.is_send)
                 && !h.of.is_empty()
                 && h.of
@@ -325,6 +329,34 @@ fn build(
                     .map(|(_, key)| *key);
                 let blocks = waits_of.get(h.name.name.as_str()).copied();
                 let mut targets: Vec<(String, usize, Span)> = Vec::new();
+                let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
+                let own_faces: Vec<&str> = h.of.iter().filter_map(base_name).collect();
+                for (key, dep_span) in deps_of(out, symbols, h) {
+                    let name = crate::typekey::plain(&key);
+                    if own_faces.contains(&name) {
+                        continue;
+                    }
+                    if is_actor(&key) {
+                        targets.push((name.to_string(), file_idx, dep_span));
+                        continue;
+                    }
+                    for mh in mixed_of.get(name).into_iter().flatten() {
+                        occupancies.push((servant_node(mh), file_idx, dep_span));
+                    }
+                    for mh in monitor_of.get(name).into_iter().flatten() {
+                        occupancies.push((monitor_node(mh), file_idx, dep_span));
+                    }
+                }
+                for (target, file, span) in occupancies {
+                    let edge = Edge { kind: EdgeKind::Occupancy, handler: h.name.name.clone(), file, span };
+                    let slot = graph.entry(from.clone()).or_default();
+                    match slot.get(&target) {
+                        Some(existing) if existing.kind <= edge.kind => {}
+                        _ => {
+                            slot.insert(target, edge);
+                        }
+                    }
+                }
                 for (handler, target, (file, span)) in &out.actor_sends {
                     if *handler == h.name.name && is_actor(target) {
                         targets.push((target.clone(), *file, *span));

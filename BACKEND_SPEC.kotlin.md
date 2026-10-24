@@ -1331,6 +1331,10 @@ nothing but the monitor.
     without it the JVM would share what Rust clones apart.)
   * **The mixed spawn** hoists ctor args into `val __cN`, shared by handler
     and façade, spawns the servant and answers `__Fac_H(__a, __c0, …)`.
+  * **Dependencies** (2026-10-20) are the servant class's trailing
+    `private val __depN` parameters, as on any dependent handler; the spawn
+    hoists their values with the ctor args and passes them to the servant
+    only (`Counted(__c0, __c1, __c2)`, then `__Fac_Counted(__a, __c0)`).
 
 * [kt-monitor] **The monitor lowering** [monitor-handler] (SH-3, built
   2026-09-19). A plain effect `E` gets a per-effect lock wrapper emitted

@@ -5689,6 +5689,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_an_actor,
     kotlinc_compiles_and_runs_a_monitor,
     kotlinc_compiles_and_runs_a_mixed_handler,
+    kotlinc_compiles_and_runs_a_mixed_handler_with_dependencies,
     kotlinc_compiles_and_runs_a_deferring_mixed_handler,
     kotlinc_compiles_and_runs_a_parking_mixed_handler,
     kotlinc_compiles_and_runs_a_servant_sibling_chain,
@@ -15152,6 +15153,73 @@ fn kotlinc_compiles_and_runs_a_servant_sibling_chain() -> KotlinCase {
 
 fn generate_mixed_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
     generate_files(&[("main.sv", MIXED)])
+}
+
+/// [mixed-handler] [effect-handler-deps] [spawn-inherit] [with-clause] A
+/// mixed handler **with dependencies** (the cut lifted 2026-10-20): the
+/// servant's send member calls `Console`, synthesized from the spawning
+/// scope, and `Label`, built by the `with` clause; the façade carries
+/// neither. Same program, same output on both backends.
+const MIXED_DEPS: &str = r##"
+effect Random {
+    fn next() -> Int
+}
+
+effect Label {
+    fn label(n: Int) -> Str
+}
+
+handler Hash() of Label {
+    fn label(n: Int) -> Str {
+        return "#${n}"
+    }
+}
+
+handler Counted(seed: Int) [Console, Label] of Random {
+    mailbox { capacity: 8 }
+    state {
+        cursor: Int = 0
+    }
+
+    send fn advance(out: Reply<Int>) => !out {
+        cursor = cursor + seed
+        println("servant at ${label(cursor)}")
+        send(out, cursor)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+
+fn main() [use, spawn] -> None {
+    use StdConsole()
+    let rng = spawn Counted(7) with Hash()
+    use rng
+    println("main drew ${next()}")
+    println("main drew ${next()}")
+}
+"##;
+
+fn kotlinc_compiles_and_runs_a_mixed_handler_with_dependencies() -> KotlinCase {
+    let files = generate_files(&[("main.sv", MIXED_DEPS)]);
+    let main = files.iter().find(|f| f.rel_path.to_string_lossy() == "main.kt").expect("main.kt");
+    // [kt-mixed] The servant class takes the dependencies; the façade
+    // carries only the addr and the constructor parameters.
+    assert!(
+        main.content.contains("class Counted(private val seed: Int, private val __dep0: ")
+            && main.content.contains("class __Fac_Counted(private val __addr: Int, private val seed: Int) : Random")
+            && main.content.contains("__Fac_Counted(__a, __c0)"),
+        "the servant does not take the dependencies:\n{}",
+        main.content
+    );
+    kotlin_case(
+        files,
+        "mixed-deps",
+        "servant at #7\nmain drew 7\nservant at #14\nmain drew 14\n",
+    )
 }
 
 fn kotlinc_compiles_and_runs_a_mixed_handler() -> KotlinCase {

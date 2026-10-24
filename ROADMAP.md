@@ -1998,8 +1998,8 @@ several are "revisit only if a customer appears".
 - **Multi-effect and mixed-handler leftovers**: a same-named member across two
   faces still needs `@Effect` at the call even where the parameters distinguish it
   ([effect-at] keys on the name); a dependent multi-face handler is untested;
-  mixed handlers with dependencies, overloaded servant members and several faces
-  were first-slice cuts; one lock behind several faces has no backend
+  overloaded servant members and several faces on a mixed handler are
+  first-slice cuts (dependencies were lifted 2026-10-20); one lock behind several faces has no backend
   representation; generic-instance dependencies stay fusion-pinned (the
   representation now exists, so lifting the `handler_handle_deps` exclusion is
   engineering); a `with` item may not have dependencies of its own, and `main`'s

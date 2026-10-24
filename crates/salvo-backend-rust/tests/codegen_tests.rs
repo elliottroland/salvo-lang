@@ -11659,6 +11659,78 @@ fn a_mixed_handler_lowers_to_a_servant_and_a_facade() {
     );
 }
 
+/// [mixed-handler] [effect-handler-deps] [spawn-inherit] [with-clause] A
+/// mixed handler **with dependencies** (the cut lifted 2026-10-20): the
+/// servant's send member calls `Console`, synthesized from the spawning
+/// scope, and `Label`, built by the `with` clause; the façade carries
+/// neither. Same program, same output on both backends.
+const MIXED_DEPS: &str = r##"
+effect Random {
+    fn next() -> Int
+}
+
+effect Label {
+    fn label(n: Int) -> Str
+}
+
+handler Hash() of Label {
+    fn label(n: Int) -> Str {
+        return "#${n}"
+    }
+}
+
+handler Counted(seed: Int) [Console, Label] of Random {
+    mailbox { capacity: 8 }
+    state {
+        cursor: Int = 0
+    }
+
+    send fn advance(out: Reply<Int>) => !out {
+        cursor = cursor + seed
+        println("servant at ${label(cursor)}")
+        send(out, cursor)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+
+fn main() [use, spawn] -> None {
+    use StdConsole()
+    let rng = spawn Counted(7) with Hash()
+    use rng
+    println("main drew ${next()}")
+    println("main drew ${next()}")
+}
+"##;
+
+#[test]
+fn rustc_compiles_and_runs_a_mixed_handler_with_dependencies() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", MIXED_DEPS)]);
+    let main = files.iter().find(|f| f.rel_path.to_string_lossy() == "main.rs").expect("main.rs");
+    // [rs-mixed] The servant is built with the dependencies; the façade
+    // carries only the addr and the constructor parameters.
+    assert!(
+        main.content.contains("let __h = crate::Counted::new(__c0.clone(), ")
+            && main.content.contains("crate::Label::shared(crate::Hash::new())")
+            && main.content.contains("crate::__Fac_Counted { __addr: __a, seed: __c0 }"),
+        "the servant does not take the dependencies:\n{}",
+        main.content
+    );
+    run_rust_files(
+        &files,
+        "mixed-deps",
+        "servant at #7\nmain drew 7\nservant at #14\nmain drew 14\n",
+    );
+}
+
 /// [actor-spawn-expr] [effect-handler-deps] **A dependent spawn**: the child
 /// declares `[Log, Tally]` and the spawn's `with` clause supplies one of each
 /// kind — `Recording()` as a **construction**, built on the child, and `tally`

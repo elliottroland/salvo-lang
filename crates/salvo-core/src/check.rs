@@ -15977,8 +15977,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// ordinary resolution proceeds.
     ///
     /// **Ambiguity is refused, not resolved** (the same decision): a name
-    /// that is *also* a member of an effect available in this body — a
-    /// declared dependency, once mixed handlers may have them — must say
+    /// that is *also* a member of an effect available in this body — one of
+    /// the handler's dependencies, which a send member sees — must say
     /// which it means: `k@self(…)` for the servant, `k@Effect(…)` for the
     /// effect [effect-at].
     fn check_servant_send(&mut self, id: &Ident, args: &'p [Expr], span: Span) -> Option<Ty> {
@@ -15993,9 +15993,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .iter()
             .find(|f| f.is_send && f.name.name == id.name)?;
         let claimed: Vec<String> = self
-            .scope
-            .effect_members
-            .get(id.name.as_str())
+            .effect_members_here(id.name.as_str())
             .map(|ms| {
                 ms.iter()
                     .filter(|(e, _)| {
@@ -16124,21 +16122,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                      give it a single face",
                     id.name,
                     faces.join(", ")
-                ),
-            );
-        }
-        // First-slice cut: the servant's dependencies want the dependent-
-        // member machinery rerouted through the handler-local dispatch,
-        // which is its own piece of work. Refused rather than half-built.
-        if !self.handler_dep_list(decl).is_empty() {
-            self.error(
-                span,
-                format!(
-                    "`{}` declares dependencies, which a mixed handler does not \
-                     support yet: the servant's members would carry them, and that \
-                     wiring is not built — take an `eff[…]` constructor parameter \
-                     and send to it instead",
-                    id.name
                 ),
             );
         }
@@ -32988,6 +32971,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                         ),
                     )
                 }
+                // [mixed-handler] A façade member reaching for one of the
+                // handler's dependencies: they are the servant's, so the
+                // remedy is a send, not a declaration.
+                None if self.facade_handler.is_some_and(|h| {
+                    let ekey = self.symbols.key_or(effect, &effect.name.name);
+                    self.out.handler_deps.get(self.symbols.key_or(h, &h.name.name)).is_some_and(|deps| {
+                        deps.iter().any(|(t, _)| matches!(t.strip_quals(), Ty::Named { name, .. } if *name == ekey))
+                    })
+                }) => self.error(
+                    span,
+                    format!(
+                        "`{}` is a member of `{}`, a dependency of this handler, and a \
+                         mixed handler's dependencies are its servant's: a sync member \
+                         runs on the caller's thread and cannot reach them. Call it \
+                         from a `send fn` member and send to that",
+                        member.name.name, effect.name.name
+                    ),
+                ),
                 None => self.error(
                     span,
                     format!(

@@ -2162,6 +2162,11 @@ effects" keeps the history).
     bound off the instance, spawns `__Actor_H`, and answers the façade
     behind the effect's handle, stateless so lock-free [rs-handle]:
     `({ let __c0 = 12345i32; let __h = crate::CyclicRandom::new(__c0.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_current_pool(), __cap as usize, std::boxed::Box::new(crate::__Actor_CyclicRandom::new(__h)), None); crate::Random::shared(crate::__Fac_CyclicRandom { __addr: __a, seed: __c0 }) })`.
+  * **Dependencies** (2026-10-20) are the servant's `__depN` fields and
+    trailing `new()` parameters, exactly as on any handler [rs-handle]; the
+    spawn passes each dependency's value after the cloned ctor args
+    (`crate::Counted::new(__c0.clone(), __handle_2.clone(), crate::Label::shared(crate::Hash::new()))`)
+    and the façade struct has no field for them.
 
 * [rs-actor] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.rs`

@@ -659,6 +659,14 @@ log current so the work can resume after a context reset). Newest last.
 - **Step 6, piece 1 (done, committed "Cache a file's own expansions with
   its parse").** `expand::expand_file` / `expand_program`; the language
   server's `ParseCache` keyed by (text, module, annex).
+- **Step 6, piece 3 (mixed handlers with dependencies, R6): done,
+  committed "Let a mixed handler declare dependencies".** The refusal was
+  the only real gate: the spawn already fell through to the actor path's
+  dep matching, the IR built `__depN`, both emitters routed them to the
+  servant only, and façade members already had them hidden. Added: a named
+  façade diagnostic, the servant node's dependency edges in the deadlock
+  graph, the ambiguity arm over available effects; e2e `MIXED_DEPS` on both
+  backends.
 - **Step 6, piece 2 (effect aliases and prerequisites in scope): done,
   committed "Resolve effect aliases and prerequisites where effect lists are
   lowered".** Built as plan (b) below collapsed into one step: aliases are

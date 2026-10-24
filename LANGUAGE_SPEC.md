@@ -6001,8 +6001,10 @@ docs/language/ remains the source of truth for everything that does.
     parameters (immutable after construction, so freely copied into the
     façade), and sends to its own servant; touching a state field is refused
     by name ("`cursor` is the servant's state…"), and the handler's
-    dependency list is invisible to sync members. Even an immutable read is
-    refused: it would race an activation that assigns.
+    dependency list is invisible to sync members — a call to a dependency's
+    member from one is refused by name, with the remedy (call it from a
+    `send fn` member and send to that). Even an immutable read is refused:
+    it would race an activation that assigns.
   * **The servant send**: inside *either* member kind, a bare call naming
     one of the handler's own `send fn` members resolves as a send to the
     servant — after locals, before the general ladder; every argument is
@@ -6017,10 +6019,20 @@ docs/language/ remains the source of truth for everything that does.
     * **Ambiguity is refused, not resolved**: a name that is *also* a
       member of an effect available in the body (a declared dependency,
       once mixed handlers may have them) must say which it means —
-      `k@self(…)` for the servant, `k@E(…)` for the effect [effect-at]. The
-      arm is dormant until the dependency cut lifts: today a mixed handler
-      declares no effects and its members may declare none, so nothing can
-      collide.
+      `k@self(…)` for the servant, `k@E(…)` for the effect [effect-at]. Live
+      in a send member, which sees the dependencies; a sync member does not,
+      so a bare name there is the servant send.
+  * **Dependencies are the servant's** (the first-slice cut lifted
+    2026-10-20, user decision R6 of PIPELINE.md: one experience for every
+    handler). `handler H [Clock] of E` with send members declares what its
+    `send fn` members may call, written or implied by a face's
+    prerequisite [effect-prereq]; the spawn resolves them exactly as an
+    actor spawn does — a `with` item [with-clause] or synthesized from the
+    spawning scope [spawn-inherit] — and the servant is constructed with
+    them. The façade value carries none. In the deadlock graph they leave
+    from the servant's node: an actor dependency is a target like a held
+    addr, a plain one with mixed or wait-capable shareable handlers an
+    occupancy edge [actor-deadlock-cycle].
   * **No `[waitfor]` anywhere** (the user's stated intent, SH-5(d)'s down
     payment): a sync member may `waitfor` with no capability declared — on
     the plain effect's member, on the handler, or at the callers. Occupancy
@@ -6047,9 +6059,7 @@ docs/language/ remains the source of truth for everything that does.
     sends Wait-kind in the deadlock graph, mirroring the actor rule. A mixed
     handler is **direct-answer (rung 3) unless a member declares `defer`** —
     SH-9's default, carried by the declared opt-in.
-  * **First-slice cuts, each a diagnostic naming its remedy**: no
-    dependencies (take an `Addr` constructor parameter and send to it), one
-    face only.
+  * **First-slice cut, a diagnostic naming its remedy**: one face only.
   * Lowering: [rs-mixed] and [kt-mixed] — a handler-keyed message enum/class
     (`__Msg_H`) and continuation enum/class (`__Cont_H`, one variant per
     parked-on send member) and actor body for the servant, a `__Fac_H` value

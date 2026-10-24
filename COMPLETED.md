@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2020 tests, complete: the toolchain tests are
+cargo test                  # 2024 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,35 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A mixed handler may declare dependencies
+
+User decision R6 (PIPELINE.md §3): "drop the refusal, and make a more uniform
+experience". The first-slice cut [mixed-handler] is gone; a mixed handler's
+dependencies — written, or implied by a face's prerequisite — are its
+**servant's**. Nearly everything was already in place: the mixed spawn fell
+through to the actor path's `with` matching and synthesis after the refusal,
+the IR's `construct_handler` builds `__depN` fields, both emitters' mixed
+spawns already routed them to the servant constructor only, and façade
+members already had the deps taken out of their environment. What it took:
+
+- the refusal deleted from `check_mixed_spawn`;
+- a named diagnostic for a façade member calling a dependency's member
+  (was "no handler for effect `Console` in scope");
+- the deadlock graph's servant node now gets its dependencies' edges
+  (actor deps as targets, plain deps with mixed or monitor-like handlers as
+  occupancies, its own face skipped); before, the branch `continue`d past
+  them, which was right only while they were refused;
+- the servant-send ambiguity arm (`k@self` vs `k@E`), dormant until now,
+  reads `effect_members_here` so a dependency reached through a prerequisite
+  counts.
+
+Tests: `a_mixed_handlers_dependencies_belong_to_the_servant`,
+`a_facade_member_cannot_reach_a_dependency`,
+`a_servant_send_named_like_a_dependency_member_must_say_which`,
+`a_servant_dependency_closes_an_occupancy_cycle` (core), and
+`MIXED_DEPS` on both backends (a synthesized `Console` plus a `with`-built
+`Label`; the old refusal test is gone).
 
 ### 2026-10-20 — Effect aliases and prerequisites resolve where effect lists are lowered
 
@@ -28176,7 +28205,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2020 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2024 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
