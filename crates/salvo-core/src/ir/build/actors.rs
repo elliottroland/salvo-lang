@@ -52,7 +52,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     }
     let find = |face: &Ty| -> Option<usize> {
         let Ty::Named { name, .. } = face.strip_quals() else { return None };
-        ifaces.iter().position(|i| i.key == *name).or_else(|| ifaces.iter().position(|i| i.name == crate::typekey::plain(name)))
+        ifaces.iter().position(|i| i.key == *name)
     };
 
     let mut made: Vec<(usize, EnumDecl)> = Vec::new();

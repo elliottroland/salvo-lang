@@ -445,19 +445,11 @@ impl<'p> Shared<'p> {
 
     pub fn interface(&self, key: &str) -> Option<&'p InterfaceDecl> {
         let all = || self.ir.modules.iter().flat_map(|m| &m.decls);
+        // [type-identity] By key only: a plain-name fallback could answer
+        // another module's interface of the same name.
         all().find_map(|d| match d {
             Decl::Interface(i) if self.key_of(&i.id, &i.name) == key => Some(i),
             _ => None,
-        })
-        .or_else(|| {
-            if self.symbols.effects.contains_key(key) || !self.symbols.key_modules.contains_key(key) {
-                all().find_map(|d| match d {
-                    Decl::Interface(i) if i.name == salvo_core::typekey::plain(key) => Some(i),
-                    _ => None,
-                })
-            } else {
-                None
-            }
         })
     }
 
@@ -485,12 +477,6 @@ impl<'p> Shared<'p> {
         all().find_map(|d| match d {
             Decl::Impl(h) if self.key_of(&h.id, &h.name) == key => Some(h),
             _ => None,
-        })
-        .or_else(|| {
-            all().find_map(|d| match d {
-                Decl::Impl(h) if h.name == salvo_core::typekey::plain(key) => Some(h),
-                _ => None,
-            })
         })
     }
 

@@ -110,8 +110,9 @@ pub(crate) fn contracts(
 
 /// Validates the deduction list of every top-level `fn` against its body and
 /// stores the contracts in `checked.deductions` [deduce-default].
-pub(crate) fn infer(
-    program: &Program,
+pub(crate) fn infer<'p>(
+    program: &'p Program,
+    symbols: &crate::Symbols<'p>,
     checked: &mut Checked,
     skip_below: Option<usize>,
 ) {
@@ -175,36 +176,25 @@ pub(crate) fn infer(
     // dispatches through. Together those give the callee contract, so a
     // member that takes ownership is seen as moving its argument here too
     // (it already does at the call site, in `check_effect_call`).
-    // Effect names are program-wide keys, like the qualifier names this
-    // pass already uses: [mod-collision] rejects one name declared by two
-    // visible modules.
-    let effects: HashMap<String, &EffectDecl> = program
-        .modules
-        .iter()
-        .flat_map(|ast| ast.items.iter())
-        .filter_map(|item| match item {
-            Item::Effect(e) => Some((e.name.name.clone(), e)),
-            _ => None,
-        })
-        .collect();
+    // [type-identity] By symbol key, which is what `effect_calls` records:
+    // two modules may each declare an effect of one name.
+    let effects: HashMap<String, &EffectDecl> =
+        symbols.effects.iter().map(|(k, e)| (k.to_string(), *e)).collect();
     let effect_calls = checked.effect_calls.clone();
     // [proj-field] Which struct fields are borrows: storing into one
-    // lends the value, so the parameter it came from stays kept.
-    let proj_fields: HashMap<String, HashSet<String>> = program
-        .modules
+    // lends the value, so the parameter it came from stays kept. By symbol
+    // key [type-identity], which is what the literal's checked type names.
+    let proj_fields: HashMap<String, HashSet<String>> = symbols
+        .structs
         .iter()
-        .flat_map(|ast| ast.items.iter())
-        .filter_map(|item| match item {
-            Item::Struct(sd) => {
-                let names: HashSet<String> = sd
-                    .fields
-                    .iter()
-                    .filter(|f| f.ty.as_ref().is_some_and(type_has_proj))
-                    .map(|f| f.name.name.clone())
-                    .collect();
-                (!names.is_empty()).then(|| (sd.name.name.clone(), names))
-            }
-            _ => None,
+        .filter_map(|(k, sd)| {
+            let names: HashSet<String> = sd
+                .fields
+                .iter()
+                .filter(|f| f.ty.as_ref().is_some_and(type_has_proj))
+                .map(|f| f.name.name.clone())
+                .collect();
+            (!names.is_empty()).then(|| (k.to_string(), names))
         })
         .collect();
     let expr_ty = checked.expr_ty.clone();
@@ -1116,16 +1106,19 @@ impl<'p> Walk<'_, 'p> {
             Expr::StructLit { ty, fields, span } => {
                 // [proj-field] A `proj` field lends: the value is read,
                 // not stored, so its parameter stays kept.
-                let struct_name: Option<String> = match ty {
-                    Some(Type::Named { base, .. }) => Some(base.name.name.clone()),
-                    _ => self
-                        .expr_ty
-                        .get(&(self.file, *span))
-                        .and_then(|t| match t.strip_quals() {
-                            Ty::Named { name, .. } => Some(name.clone()),
-                            _ => None,
-                        }),
-                };
+                // [type-identity] The literal's checked type names the
+                // struct by key; the written name is only a fallback.
+                let struct_name: Option<String> = self
+                    .expr_ty
+                    .get(&(self.file, *span))
+                    .and_then(|t| match t.strip_quals() {
+                        Ty::Named { name, .. } => Some(name.clone()),
+                        _ => None,
+                    })
+                    .or_else(|| match ty {
+                        Some(Type::Named { base, .. }) => Some(base.name.name.clone()),
+                        _ => None,
+                    });
                 let lent = struct_name
                     .as_deref()
                     .and_then(|n| self.proj_fields.get(n));

@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2016 tests, complete: the toolchain tests are
+cargo test                  # 2017 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,38 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A re-walk covers only the files that need it, and lookups go by key
+
+PIPELINE.md §7 step 5, its first two pieces. **The second walk is per file**
+[deduce-fixpoint]: a move-mode candidate is a bind span of the file whose
+walk found it, and no other file's walk reads it, so after a walk only the
+files with new candidates are walked again. `check_once` became phases
+(`walk_signatures`, `walk_bodies`, `program_checks`) over a `WalkCtx`, the
+body diagnostics are kept per file (`ErrorMarks`), and
+`Checked::drop_files` removes a file's rows from every table before its
+re-walk — written as one exhaustive destructuring, so a new table does not
+compile until it says whether a walk writes it per file. `demo/`: 175ms +
+95ms (10 std files re-walked) where it was 179ms + 164ms; with the std cache
+(the language server) std is never walked. The re-walk is per file rather
+than per declaration because a file's rows are the ones a walk is known to
+own (synthesized spans of stamps and route stubs lie past the end of the
+file, outside any declaration); per-declaration storage comes with the
+caching of step 8.
+
+**Lookups by key, not by plain name** [type-identity]: `deduce`'s effect and
+`proj`-field tables were keyed by the declared name and looked up with
+symbol keys, so a keyed effect (`Log§lib.b`) was never found; the runtime
+features' actor test stripped the key before looking it up; the platform
+checks matched a handler's `of` by written name; both emitters' interface
+and impl lookups fell back to the plain name, which could answer another
+module's effect of the same name. Each now goes by key (Kotlin's
+`interface_by_name` became `interface_by_key`). A run test,
+`two_effects_of_one_name_stay_apart_on_both_backends`, puts a plain and an
+actor `Log` and two `View`s in two modules. Qualifiers stay program-wide by
+name: their overloads are chosen by subject, and the file's scope is not the
+overload set (scoping the IR's `qual_fn_ref` picked `main::NonEmpty` for a
+`List`, caught by the IR golden).
 
 ### 2026-10-20 — Iterator structs are named, and `iter T` is gone
 
@@ -28077,7 +28109,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2016 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2017 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

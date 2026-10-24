@@ -3265,6 +3265,97 @@ fn main() [use, spawn] {
     __stamp.verified();
 }
 
+/// [type-identity] Two effects named `Log` — a plain one declared first,
+/// keeping the plain key, and an actor one keyed by its module — and two
+/// structs named `View`, one borrowing. Every lookup goes by key or through
+/// the file's scope (PIPELINE.md step 5): the deduction tables, the runtime
+/// features' actor test, both emitters' interface lookups, which until then
+/// fell back to the plain name and could answer the other module's `Log`.
+#[test]
+fn two_effects_of_one_name_stay_apart_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("effect_names_clash", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("effect_clash");
+    fs::create_dir_all(dir.join("lib")).unwrap();
+    fs::write(dir.join("lib/a.sv"), r#"// A plain `Log`, declared first, so it keeps the plain key.
+export effect Log {
+    fn note(s: Str) -> None => !s
+}
+
+export handler Lines() [Console] of Log {
+    state {
+        all: Str = ""
+    }
+    fn note(s: Str) -> None => !s {
+        all = "${all}${s};"
+        println(all)
+    }
+}
+
+export struct View { label: Str }
+"#).unwrap();
+    fs::write(dir.join("lib/b.sv"), r#"// An actor `Log` of the same name, keyed by its module.
+export actor effect Log {
+    send fn add(n: Int)
+    send fn total(out: Reply<Int>) => !out
+}
+
+export handler Summing() of Log {
+    mailbox { capacity: 4 }
+    state {
+        sum: Int = 0
+    }
+    send fn add(n: Int) { sum = sum + n }
+    send fn total(out: Reply<Int>) => !out { out.send(copy(sum)) }
+}
+
+// A `View` that borrows.
+export struct View { items: proj List<Int>, at: Int }
+
+export fn view(xs: List<Int>) [] -> View => xs {
+    return View { items: xs, at: 0 }
+}
+
+export fn first(v: View) [] -> Int => v {
+    return get(v.items, v.at) ?: -1
+}
+"#).unwrap();
+    fs::write(dir.join("main.sv"), r#"import lib.a.Lines
+import lib.a.Log
+import lib.b.Summing
+import lib.b.view
+import lib.b.first
+
+fn main() [use, spawn] {
+    use StdConsole()
+    use Lines()
+    note("one")
+    note("two")
+    let xs = List(7, 8)
+    println("first ${first(view(xs))}")
+    let c = spawn Summing() on pool(1)
+    c.add(2)
+    c.add(3)
+    let s = waitfor out: Reply<Int> { c.total(out) }
+    println("total ${s}")
+}
+"#).unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "one;\none;two;\nfirst 7\ntotal 5\n",
+            "{backend}"
+        );
+    }
+    __stamp.verified();
+}
+
 /// The emitter gaps of ROADMAP 0c, closed 2026-10-04: one program per item,
 /// run on both backends, printing the same lines. Each line is numbered after
 /// its item: (1) a second `let` of a name after a loop that declared it, (2) a

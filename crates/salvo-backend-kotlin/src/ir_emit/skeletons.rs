@@ -139,7 +139,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             let Some(Ty::Named { name: face_key, .. }) = h.faces.first().map(|f| f.strip_quals().clone()) else { continue };
             let plain = salvo_core::typekey::plain(&face_key).to_string();
-            let Some(iface) = self.interface_by_name(&plain) else {
+            let Some(iface) = self.interface_by_key(&face_key) else {
                 self.error(format!("platform handler `{}` implements `{plain}`, which is not a declared effect", h.name));
                 continue;
             };

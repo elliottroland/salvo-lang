@@ -611,3 +611,14 @@ log current so the work can resume after a context reset). Newest last.
   implicit teaches through the fn written). Still two walks per program
   (move-mode candidates; step 5). Full nextest after the std change took
   8 minutes (every stamp missed).
+- **Step 5, pieces 1–2 (done, committed "Re-walk only the files with new
+  candidates, and look types up by key").** Per-file re-walk
+  (`rewalk_files`, `Checked::drop_files`, `ErrorMarks`); keyed lookups in
+  deduce, features, platform checks, IR actors, both emitters. **Decided
+  while building:** per-*file* re-walk now, per-declaration storage and
+  relative spans with step 8's caching (stamps and route stubs synthesize
+  spans past the end of the file, so a declaration does not own its rows by
+  containment; the writer will have to name it). Qualifier lookups stay
+  program-wide by name (overloads chosen by subject). Next: the pre-IR
+  dumper (`salvo facts`, `crates/salvo-core/src/facts.rs`, written, not yet
+  built), then stable ids, then module-qualified type keys.

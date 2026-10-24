@@ -1300,6 +1300,128 @@ pub struct LambdaCapture {
 }
 
 impl Checked {
+    /// [fate-move-mode] Removes every row a walk of [files] wrote, before
+    /// they are walked again (`rewalk_files`). Exhaustive by construction —
+    /// a new table is a compile error here until it says whether it is
+    /// per file.
+    fn drop_files(&mut self, files: &HashSet<usize>) {
+        let Checked { expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_stubs, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, binding_modes, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, virtual_place_binds, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors } = self;
+        expr_ty.retain(|k, _| !files.contains(&k.0));
+        comparisons.retain(|k, _| !files.contains(&k.0));
+        arm_compares.retain(|k, _| !files.contains(&k.0));
+        promotions.retain(|k, _| !files.contains(&k.0));
+        repr_ty.retain(|k, _| !files.contains(&k.0));
+        coerce.retain(|k, _| !files.contains(&k.0));
+        is_tests.retain(|k, _| !files.contains(&k.0));
+        safe_navs.retain(|k, _| !files.contains(&k.0));
+        when_exhaustive.retain(|k| !files.contains(&k.0));
+        when_arms.retain(|k, _| !files.contains(&k.0));
+        predicate_tests.retain(|k, _| !files.contains(&k.0));
+        qual_member_calls.retain(|k, _| !files.contains(&k.0));
+        field_casts.retain(|k, _| !files.contains(&k.0));
+        call_fn.retain(|k, _| !files.contains(&k.0));
+        for_drivers.retain(|k, _| !files.contains(&k.0));
+        // `refinements`: not written per file by a walk (or, `errors`, handled by the caller).
+        let _ = refinements;
+        use_effects.retain(|k, _| !files.contains(&k.0));
+        route_stubs.retain(|k, _| !files.contains(&k.0));
+        // `parking_handlers`: not written per file by a walk (or, `errors`, handled by the caller).
+        let _ = parking_handlers;
+        // `protocol_hashes`: not written per file by a walk (or, `errors`, handled by the caller).
+        let _ = protocol_hashes;
+        use_deps.retain(|k, _| !files.contains(&k.0));
+        use_with_items.retain(|k, _| !files.contains(&k.0));
+        spawn_effects.retain(|k, _| !files.contains(&k.0));
+        spawn_deps.retain(|k, _| !files.contains(&k.0));
+        spawn_dep_items.retain(|k, _| !files.contains(&k.0));
+        replyto_members.retain(|k, _| !files.contains(&k.0));
+        facade_sends.retain(|k, _| !files.contains(&k.0));
+        waitfor_sites.retain(|(_, k)| !files.contains(&k.0));
+        handler_constructs.retain(|(_, _, k)| !files.contains(&k.0));
+        replyto_tasks.retain(|k, _| !files.contains(&k.0));
+        task_mint_effects.retain(|k, _| !files.contains(&k.0));
+        use_addrs.retain(|k, _| !files.contains(&k.0));
+        use_addr_tuples.retain(|k, _| !files.contains(&k.0));
+        project_effects.retain(|k, _| !files.contains(&k.0));
+        merge_effects.retain(|k, _| !files.contains(&k.0));
+        addr_calls.retain(|k, _| !files.contains(&k.0));
+        self_sends.retain(|k, _| !files.contains(&k.0));
+        linear_moves.retain(|k| !files.contains(&k.0));
+        state_takes.retain(|k| !files.contains(&k.0));
+        actor_gates.retain(|(_, k)| !files.contains(&k.0));
+        actor_sends.retain(|(_, _, k)| !files.contains(&k.0));
+        task_sends.retain(|(_, _, k)| !files.contains(&k.0));
+        // `task_mints`: not written per file by a walk (or, `errors`, handled by the caller).
+        let _ = task_mints;
+        effect_calls.retain(|k, _| !files.contains(&k.0));
+        effect_member_calls.retain(|k, _| !files.contains(&k.0));
+        member_calls.retain(|k, _| !files.contains(&k.0));
+        dot_calls.retain(|k| !files.contains(&k.0));
+        // `written_types`: not written per file by a walk (or, `errors`, handled by the caller).
+        let _ = written_types;
+        local_calls.retain(|k| !files.contains(&k.0));
+        local_call_names.retain(|k, _| !files.contains(&k.0));
+        call_effects.retain(|k, _| !files.contains(&k.0));
+        fn_effects.retain(|k, _| !files.contains(&k.file));
+        fn_body_effects.retain(|(f, _, _)| !files.contains(f));
+        call_type_args.retain(|k, _| !files.contains(&k.0));
+        lambda_effects.retain(|k, _| !files.contains(&k.0));
+        fn_value_implicits.retain(|k, _| !files.contains(&k.0));
+        widen_targets.retain(|k, _| !files.contains(&k.0));
+        pick_left.retain(|k, _| !files.contains(&k.0));
+        elvis_picks.retain(|k, _| !files.contains(&k.0));
+        elvis_tests.retain(|k, _| !files.contains(&k.0));
+        elvis_widen.retain(|k, _| !files.contains(&k.0));
+        may_throw.retain(|k, _| !files.contains(&k.0));
+        deductions.retain(|k, _| !files.contains(&k.file));
+        fn_refs.retain(|k, _| !files.contains(&k.0));
+        def_refs.retain(|k, _| !files.contains(&k.0));
+        local_decls.retain(|f, _| !files.contains(f));
+        // `type_ref_keys`: not written per file by a walk (or, `errors`, handled by the caller).
+        let _ = type_ref_keys;
+        // `type_ref_span_keys`: not written per file by a walk (or, `errors`, handled by the caller).
+        let _ = type_ref_span_keys;
+        // `visible_keys`: not written per file by a walk (or, `errors`, handled by the caller).
+        let _ = visible_keys;
+        // `visible_handler_keys`: not written per file by a walk (or, `errors`, handled by the caller).
+        let _ = visible_handler_keys;
+        field_refs.retain(|k, _| !files.contains(&k.0));
+        module_refs.retain(|k, _| !files.contains(&k.0));
+        fate_reads.retain(|k, _| !files.contains(&k.0));
+        interp_to_str.retain(|k, _| !files.contains(&k.0));
+        interp_union.retain(|k, _| !files.contains(&k.0));
+        interp_implicit.retain(|k, _| !files.contains(&k.0));
+        temp_views.retain(|k| !files.contains(&k.0));
+        lending_calls.retain(|k, _| !files.contains(&k.0));
+        fn_lends.retain(|k, _| !files.contains(&k.file));
+        binding_modes.retain(|k| !files.contains(&k.0));
+        handle_muts.retain(|k| !files.contains(&k.0));
+        param_mutations.retain(|k, _| !files.contains(&k.file));
+        moved_projections.retain(|k| !files.contains(&k.0));
+        boundary_checks.retain(|k, _| !files.contains(&k.0));
+        factories.retain(|k, _| !files.contains(&k.0));
+        // `platform_closure_all`: not written per file by a walk (or, `errors`, handled by the caller).
+        let _ = platform_closure_all;
+        lambda_captures.retain(|k, _| !files.contains(&k.0));
+        derived_calls.retain(|k, _| !files.contains(&k.0));
+        distinct_pairs.retain(|k, _| !files.contains(&k.0));
+        virtual_place_binds.retain(|k, _| !files.contains(&k.0));
+        mut_lend_calls.retain(|k| !files.contains(&k.0));
+        fn_value_calls.retain(|k, _| !files.contains(&k.0));
+        lambda_contracts.retain(|k, _| !files.contains(&k.0));
+        implicit_params.retain(|k, _| !files.contains(&k.file));
+        established_quals.retain(|(k, _), _| !files.contains(&k.file));
+        // `carried_identities`: not written per file by a walk (or, `errors`, handled by the caller).
+        let _ = carried_identities;
+        implicit_args.retain(|k, _| !files.contains(&k.0));
+        use_handler_args.retain(|k, _| !files.contains(&k.0));
+        implicit_members.retain(|k, _| !files.contains(&k.0));
+        // `errors`: not written per file by a walk (or, `errors`, handled by the caller).
+        let _ = errors;
+    }
+}
+
+impl Checked {
     /// [type-identity] The key a written type reference resolves to: its
     /// declaration's, or the written name.
     /// [type-identity] The key a name written in file [file] stands for.
@@ -1770,38 +1892,43 @@ fn check_program_rounds<'p>(
     // (PIPELINE.md step 2): the first walk is a real one.
     let contracts = crate::deduce::contracts(program, cache);
 
-    // [deduce-fixpoint] Walk, then walk again while the walk-derived facts
-    // change (move-mode candidates), capped at
-    // MAX_ROUNDS walks. A program whose walk finds nothing new — most — is
-    // walked once.
+    // [deduce-fixpoint] Walk, then walk again the files whose walk found new
+    // move-mode candidates (PIPELINE.md 4.4), capped at MAX_ROUNDS walks. A
+    // program whose walk finds nothing new — most — is walked once, and a
+    // re-walk covers only the files that need it.
     const MAX_ROUNDS: usize = 4;
-    let mut round = 0;
+    let ctx = WalkCtx {
+        program,
+        resolution,
+        symbols,
+        inferred: Some(&contracts),
+        refinements: &refinements,
+        cache,
+    };
+    let t = crate::timing::phase("check: round 1");
+    let (mut out, mut marks) = check_once(&ctx, &mut candidates, &mut mutations, &mut parking);
+    drop(t);
+    let mut round = 1;
     loop {
-        round += 1;
-        let before_candidates = candidates.clone();
-        let t = crate::timing::phase(format!("check: round {round}"));
-        let mut out = check_once(
-            program,
-            resolution,
-            symbols,
-            Some(&contracts),
-            &refinements,
-            &mut candidates,
-            &mut mutations,
-            &mut parking,
-            cache,
-        );
-        drop(t);
         // [deduce-default] Each fn's contract against its body, and the
         // contracts themselves into the table every consumer reads.
         let t = crate::timing::phase(format!("check: deduce {round}"));
-        crate::deduce::infer(program, &mut out, cache.map(|c| c.std_files));
+        crate::deduce::infer(program, symbols, &mut out, cache.map(|c| c.std_files));
         drop(t);
-        let stable = candidates == before_candidates;
-        if stable || round >= MAX_ROUNDS {
+        let fresh: HashSet<usize> = candidates
+            .iter()
+            .filter(|k| !marks.seen.contains(k))
+            .map(|k| k.0)
+            .collect();
+        if fresh.is_empty() || round >= MAX_ROUNDS {
             out.param_mutations = mutations;
             return out;
         }
+        round += 1;
+        marks.seen = candidates.clone();
+        let t = crate::timing::phase(format!("check: round {round} ({} files)", fresh.len()));
+        rewalk_files(&ctx, &fresh, &mut out, &mut marks, &mut candidates, &mut mutations, &mut parking);
+        drop(t);
     }
 }
 
@@ -1852,19 +1979,38 @@ fn syntactic_parking_handlers(program: &Program) -> HashSet<String> {
 }
 
 
-/// One checking round; `inferred` carries the previous round's deduction
-/// facts for fns without a written list [deduce-consume].
-fn check_once<'p>(
+/// The program inputs every walk shares; `inferred` carries the contracts
+/// every walk reads [deduce-default].
+struct WalkCtx<'a, 'p> {
     program: &'p Program,
-    resolution: &Resolution<'p>,
-    symbols: &Symbols<'p>,
-    inferred: Option<&HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
-    refinements: &crate::refine::Refinements,
+    resolution: &'a Resolution<'p>,
+    symbols: &'a Symbols<'p>,
+    inferred: Option<&'a HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
+    refinements: &'a crate::refine::Refinements,
+    cache: Option<&'a StdCache>,
+}
+
+/// [fate-move-mode] Where each walked file's body diagnostics sit in
+/// `Checked::errors`, so a re-walk of some files replaces exactly theirs.
+/// `errors[..prefix_end]` are the walk-independent ones (resolution,
+/// refinements), `errors[bodies_end..]` the program checks' and the
+/// deductions', recomputed after every walk.
+struct ErrorMarks {
+    prefix_end: usize,
+    bodies: Vec<(usize, Vec<FileDiagnostic>)>,
+    /// The move-mode candidates the walks so far were run with.
+    seen: HashSet<Key>,
+}
+
+/// One walk over every non-std file (std's facts come from the cache when
+/// there is one).
+fn check_once<'p>(
+    ctx: &WalkCtx<'_, 'p>,
     move_candidates: &mut HashSet<Key>,
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
-    cache: Option<&StdCache>,
-) -> Checked {
+) -> (Checked, ErrorMarks) {
+    let WalkCtx { program, resolution, symbols, refinements, cache, .. } = *ctx;
     // [std-cache] Start from std's rows when caching (so project call sites
     // and whole-program passes read std facts without std being re-checked);
     // the std files themselves are skipped below. The whole-program tables
@@ -1911,84 +2057,151 @@ fn check_once<'p>(
     // diagnostics are replayed here so they land with everything else.
     out.errors.extend(refinements.errors.iter().cloned());
     out.refinements = refinements.clone();
-    // [implicit-param] Every fn's implicit parameters are recorded **before**
-    // any body is checked. A call reads the callee's list from that table, so
-    // a callee this walk had not reached yet silently lost its implicit
-    // arguments: the checker accepted the call and the target compiler then
-    // rejected the emitted one ([backend-never-wrong]), for nothing but
-    // declaration order — within a file or across files (found while making
-    // `demo/heap.sv` run, fixed 2026-09-22). The pre-pass's diagnostics are
-    // dropped: the signature check re-derives them in the file they belong to,
-    // where a reader is.
-    let mark = out.errors.len();
-    let t = crate::timing::phase("  check_once: signatures");
     out.platform_closure_all = crate::abi::platform_closure_all(program, symbols);
-    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
-        // [std-cache] std's implicit signatures came from the cache.
-        if cache.is_some_and(|c| file_idx < c.std_files) {
-            continue;
-        }
+    let prefix_end = out.errors.len();
+    let files: Vec<usize> = (0..program.files.len())
+        .filter(|f| !cache.is_some_and(|c| *f < c.std_files))
+        .collect();
+    walk_signatures(ctx, &files, &mut out, move_candidates, param_mutations, parking_handlers);
+    let bodies = walk_bodies(ctx, &files, &mut out, move_candidates, param_mutations, parking_handlers);
+    for (_, errs) in &bodies {
+        out.errors.extend(errs.iter().cloned());
+    }
+    program_checks(program, symbols, &mut out, parking_handlers);
+    (out, ErrorMarks { prefix_end, bodies, seen: HashSet::new() })
+}
+
+/// [implicit-param] Every fn's implicit parameters are recorded **before**
+/// any body is checked. A call reads the callee's list from that table, so
+/// a callee this walk had not reached yet silently lost its implicit
+/// arguments: the checker accepted the call and the target compiler then
+/// rejected the emitted one ([backend-never-wrong]), for nothing but
+/// declaration order — within a file or across files (found while making
+/// `demo/heap.sv` run, fixed 2026-09-22). The pre-pass's diagnostics are
+/// dropped: the signature check re-derives them in the file they belong to,
+/// where a reader is.
+fn walk_signatures<'p>(
+    ctx: &WalkCtx<'_, 'p>,
+    files: &[usize],
+    out: &mut Checked,
+    move_candidates: &mut HashSet<Key>,
+    param_mutations: &mut HashMap<FnKey, HashSet<String>>,
+    parking_handlers: &mut HashSet<String>,
+) {
+    let _t = crate::timing::phase("  check_once: signatures");
+    let mark = out.errors.len();
+    for &file_idx in files {
+        let file = &ctx.program.files[file_idx];
         let mut checker = Checker::new(
             file_idx,
             file.content.len(),
             file.is_std,
-            &program.files,
-            &resolution.scopes[file_idx],
-            resolution,
-            symbols,
-            inferred,
-            refinements,
-            &mut out,
+            &ctx.program.files,
+            &ctx.resolution.scopes[file_idx],
+            ctx.resolution,
+            ctx.symbols,
+            ctx.inferred,
+            ctx.refinements,
+            out,
             move_candidates,
             param_mutations,
             parking_handlers,
         );
-        checker.collect_implicit_signatures(ast);
+        checker.collect_implicit_signatures(&ctx.program.modules[file_idx]);
     }
     out.errors.truncate(mark);
-    drop(t);
-    let t = crate::timing::phase("  check_once: bodies");
-    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
-        // [std-cache] Skip std's bodies: their facts came from the cache.
-        if cache.is_some_and(|c| file_idx < c.std_files) {
-            continue;
-        }
+}
+
+/// The bodies of [files], each file's diagnostics returned apart from the
+/// others' (see `ErrorMarks`).
+fn walk_bodies<'p>(
+    ctx: &WalkCtx<'_, 'p>,
+    files: &[usize],
+    out: &mut Checked,
+    move_candidates: &mut HashSet<Key>,
+    param_mutations: &mut HashMap<FnKey, HashSet<String>>,
+    parking_handlers: &mut HashSet<String>,
+) -> Vec<(usize, Vec<FileDiagnostic>)> {
+    let _t = crate::timing::phase("  check_once: bodies");
+    let mut bodies = Vec::new();
+    for &file_idx in files {
+        let file = &ctx.program.files[file_idx];
+        let ast = &ctx.program.modules[file_idx];
+        let mark = out.errors.len();
         let mut checker = Checker::new(
             file_idx,
             file.content.len(),
             file.is_std,
-            &program.files,
-            &resolution.scopes[file_idx],
-            resolution,
-            symbols,
-            inferred,
-            refinements,
-            &mut out,
+            &ctx.program.files,
+            &ctx.resolution.scopes[file_idx],
+            ctx.resolution,
+            ctx.symbols,
+            ctx.inferred,
+            ctx.refinements,
+            out,
             move_candidates,
             param_mutations,
             parking_handlers,
         );
-        checker.runtime_files = program
+        checker.runtime_files = ctx
+            .program
             .files
             .iter()
             .map(|f| f.is_std && f.module.0.first().is_some_and(|m| m == crate::resolve::STD_INTERNAL))
             .collect();
         checker.check_module(ast);
         checker.check_platform_boundary(ast);
+        bodies.push((file_idx, out.errors.split_off(mark)));
     }
-    drop(t);
+    bodies
+}
+
+/// The whole-program checks, after every body: they read what the walk
+/// recorded.
+fn program_checks(program: &Program, symbols: &Symbols<'_>, out: &mut Checked, parking_handlers: &HashSet<String>) {
     let _t = crate::timing::phase("  check_once: program checks");
-    check_intrinsic_is_std_only(program, &mut out);
-    check_module_uses(program, &mut out);
-    check_runtime_layers(program, &mut out);
+    check_intrinsic_is_std_only(program, out);
+    check_module_uses(program, out);
+    check_runtime_layers(program, out);
     // [actor-deadlock-cycle] The static deadlock baseline, over the whole
     // program: a cycle of waiting actors is an error, a cycle of blocking
-    // sends a warning. Last, because it reads what this round's checking
-    // recorded (`actor_gates`, `actor_sends`) — and inside the round, so its
-    // diagnostics land with the round whose diagnostics are kept.
+    // sends a warning. Last, because it reads what this walk recorded
+    // (`actor_gates`, `actor_sends`).
     out.parking_handlers = parking_handlers.clone();
-    crate::deadlock::check(program, symbols, &mut out);
-    out
+    crate::deadlock::check(program, symbols, out);
+}
+
+/// [fate-move-mode] Walks [files] again, replacing their rows, after a walk
+/// found move-mode candidates in them (PIPELINE.md 4.4): a candidate is a
+/// bind span of the file that found it, read only by that file's walk, so
+/// no other file's facts depend on it. The program checks and the
+/// deductions, which read every file, run again after.
+fn rewalk_files<'p>(
+    ctx: &WalkCtx<'_, 'p>,
+    files: &HashSet<usize>,
+    out: &mut Checked,
+    marks: &mut ErrorMarks,
+    move_candidates: &mut HashSet<Key>,
+    param_mutations: &mut HashMap<FnKey, HashSet<String>>,
+    parking_handlers: &mut HashSet<String>,
+) {
+    out.errors.truncate(marks.prefix_end);
+    marks.bodies.retain(|(f, _)| !files.contains(f));
+    out.drop_files(files);
+    let mut order: Vec<usize> = files.iter().copied().collect();
+    order.sort_unstable();
+    walk_signatures(ctx, &order, out, move_candidates, param_mutations, parking_handlers);
+    let mark = out.errors.len();
+    let fresh = walk_bodies(ctx, &order, out, move_candidates, param_mutations, parking_handlers);
+    debug_assert_eq!(out.errors.len(), mark);
+    marks.bodies.extend(fresh);
+    marks.bodies.sort_by_key(|(f, _)| *f);
+    for (_, errs) in &marks.bodies {
+        out.errors.extend(errs.iter().cloned());
+    }
+    out.task_mints.sort();
+    out.task_mints.dedup();
+    program_checks(ctx.program, ctx.symbols, out, parking_handlers);
 }
 
 /// [intrinsic-std-only] `intrinsic` marks a declaration the *compiler*
@@ -3299,10 +3512,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// each `Reply<T>` parameter's `T`. Refuses what cannot be checked or
     /// trusted, and warns where a check walks a collection (D10 C3).
     fn check_platform_boundary(&mut self, module: &'p Module) {
-        let platform_handled = |name: &str, symbols: &Symbols<'p>| {
+        // [type-identity] By key: a handler's `of` names the effect as its own
+        // file resolves it, and two modules may declare an effect of one name.
+        let platform_handled = |key: &str, symbols: &Symbols<'p>, out: &Checked| {
             symbols.handlers.values().any(|h| {
                 h.platform
-                    && matches!(h.of.first(), Some(ast::Type::Named { base, .. }) if base.name.name == name)
+                    && matches!(h.of.first(), Some(ast::Type::Named { base, .. }) if out.written_key(base) == key)
             })
         };
         for item in &module.items {
@@ -3340,7 +3555,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.plan_factories(&ty, t.name.span);
                     }
                 }
-                Item::Effect(e) if platform_handled(&e.name.name, self.symbols) => {
+                Item::Effect(e) if platform_handled(self.symbols.key_or(e, &e.name.name), self.symbols, self.out) => {
                     for f in &e.fns {
                         if let Some(rt) = &f.return_type {
                             let saved = self.enter_generics(&e.generics);
@@ -5332,7 +5547,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // which host code has no way to answer (user decision 2026-10-10).
         // The handler may restate its members or leave them to the effect.
         let effect = match h.of.first() {
-            Some(ast::Type::Named { base, .. }) => self.symbols.effects.get(base.name.name.as_str()).copied(),
+            Some(ast::Type::Named { base, .. }) => self.symbols.effects.get(self.out.written_key(base)).copied(),
             _ => None,
         };
         for f in effect.map(|e| e.fns.as_slice()).unwrap_or_default() {
@@ -10309,7 +10524,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         _ => None,
                     };
                     let implied_by = want_name.as_deref().and_then(|w| {
-                        let h = self.symbols.handlers.get(id.name.as_str())?;
+                        let h = self.symbols.handlers.get(self.out.visible_handler_key(self.file_idx, &id.name))?;
                         let implied = h.effects.iter().flatten().any(|e| {
                             matches!(e, EffectRef::Effect(r)
                                 if r.name.name == w && r.span.start == 0 && r.span.end == 0)

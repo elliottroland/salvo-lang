@@ -8190,11 +8190,15 @@ between endpoints and delivers what arrives into the scheduler.
   change** (decision L3a, 2026-09-02; reshaped 2026-10-20, PIPELINE.md step
   2). Every contract is known before the first walk [deduce-default]
   (`deduce::contracts`), so the first walk is a real one; another follows
-  only when it recorded new move-mode candidates [fate-move-mode] or new
-  inferred field paths [deduce-field], capped at four walks. Each walk's
-  diagnostics replace the previous one's. Parameter mutations and parking
-  facts no longer drive it (mutations are only read after checking, parking
-  is read off the handlers' text [actor-replyto]).
+  only when it recorded new move-mode candidates [fate-move-mode], capped at
+  four walks, and it walks **only the files whose walk found them**
+  (`rewalk_files`, PIPELINE.md step 5): a candidate is a bind span of the
+  file that found it, read by no other file's walk. The re-walk drops those
+  files' rows (`Checked::drop_files`, exhaustive over the tables) and their
+  diagnostics, walks their signatures and bodies again, and reruns the
+  program checks and the deductions, which read every file. Parameter
+  mutations and parking facts do not drive it (mutations are only read
+  after checking, parking is read off the handlers' text [actor-replyto]).
 * [deduce-same-call] Arguments are evaluated left to right; within one
   call, an argument may not *mention* (read, project, interpolate, or
   capture) a value that an earlier argument of the same call consumed —

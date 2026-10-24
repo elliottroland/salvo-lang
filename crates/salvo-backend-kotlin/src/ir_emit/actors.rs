@@ -224,16 +224,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         h.faces
             .iter()
             .filter_map(|f| match f.strip_quals() {
-                Ty::Named { name, .. } => self.interface_by_name(&salvo_core::typekey::plain(name)),
+                Ty::Named { name, .. } => self.interface_by_key(name),
                 _ => None,
             })
             .filter(|i| i.actor)
             .collect()
     }
 
-    pub(super) fn interface_by_name(&self, plain: &str) -> Option<&'p InterfaceDecl> {
+    /// [type-identity] The interface a type key names: the declaration of
+    /// that name in the key's module, so two modules' effects of one name
+    /// stay apart.
+    pub(super) fn interface_by_key(&self, key: &str) -> Option<&'p InterfaceDecl> {
+        let module = self.s.symbols.key_modules.get(key)?;
+        let plain = salvo_core::typekey::plain(key);
         self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
-            Decl::Interface(i) if i.name == plain => Some(i),
+            Decl::Interface(i) if i.name == plain && i.id.module == **module => Some(i),
             _ => None,
         })
     }
@@ -516,7 +521,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         };
         let joined = match join {
             Some(g) => {
-                let Some(group) = self.interface_by_name("ActorGroup") else {
+                let Some(group) = self.interface_by_key("ActorGroup") else {
                     self.error("`spawn … in group` needs std `net`");
                     return "kotlin.TODO()".to_string();
                 };

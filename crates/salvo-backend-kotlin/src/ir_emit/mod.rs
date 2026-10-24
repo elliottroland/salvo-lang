@@ -450,8 +450,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         // [monitor-handler] [kt-monitor] a plain effect's addr
                         // is the effect's handle, not a scheduler index.
                         if let Ty::Named { name: eff, .. } = args[0].strip_quals() {
-                            let plain = salvo_core::typekey::plain(eff).to_string();
-                            if self.interface_by_name(&plain).is_some_and(|i| !i.actor) {
+                            if self.interface_by_key(eff).is_some_and(|i| !i.actor) {
                                 return self.ty(&args[0]);
                             }
                         }
@@ -915,7 +914,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // constructs, so the implementation is only reached through it.
             let Some(Ty::Named { name: face, .. }) = h.faces.first().map(|f| f.strip_quals().clone()) else { return };
             let plain = salvo_core::typekey::plain(&face).to_string();
-            let Some(iface) = self.interface_by_name(&plain) else {
+            let Some(iface) = self.interface_by_key(&face) else {
                 self.error(format!("platform handler `{}` implements `{plain}`, whose declaration could not be located", h.name));
                 return;
             };
@@ -1660,7 +1659,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     return a;
                 };
                 let plain = salvo_core::typekey::plain(name).to_string();
-                match self.interface_by_name(&plain) {
+                match self.interface_by_key(name) {
                     Some(iface) if iface.actor => format!("{}__Stub_{plain}({a})", self.pkg_prefix(&iface.id.module)),
                     // [monitor-handler] a plain effect's addr is its handle already.
                     Some(_) => a,
@@ -1780,7 +1779,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let declared: Option<Vec<&Ty>> = decl.map(|m| m.params.iter().skip(m.effect_params).take(m.params.len() - m.effect_params - m.implicit_params).map(|p| &p.ty).collect());
         for f in &h.faces {
             if let Ty::Named { name, .. } = f.strip_quals() {
-                if let Some(i) = self.interface_by_name(&salvo_core::typekey::plain(name)) {
+                if let Some(i) = self.interface_by_key(name) {
                     let same: Vec<&salvo_core::ir::Member> = i.members.iter().filter(|m| m.name == member).collect();
                     // [effect-member-overload] several members of the name:
                     // the one whose parameters match.
@@ -1990,7 +1989,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // position's type, both of which the call's type carries.
             let effect = match e.ty.strip_quals() {
                 Ty::Named { name, args } if name == "Protocol" && args.len() == 1 => match args[0].strip_quals() {
-                    Ty::Named { name, .. } => Some(salvo_core::typekey::plain(name).to_string()),
+                    Ty::Named { name, .. } => Some(name.to_string()),
                     _ => None,
                 },
                 _ => None,
@@ -1999,13 +1998,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 self.error("`protocol` needs an effect as its type argument");
                 return "kotlin.TODO()".to_string();
             };
-            let Some(iface) = self.interface_by_name(&effect).filter(|i| i.protocol_hash.is_some()) else {
+            let Some(iface) = self.interface_by_key(&effect).filter(|i| i.protocol_hash.is_some()) else {
+                let effect = salvo_core::typekey::plain(&effect);
                 self.error(format!("`protocol<{effect}>`: `{effect}` has no wire form, so it cannot be a group's protocol"));
                 return "kotlin.TODO()".to_string();
             };
             let st = self.ty(&e.ty);
             let st = st.split('<').next().unwrap_or(&st).to_string();
-            return format!("{st}(\"{effect}\", {})", self.proto_const(iface));
+            return format!("{st}(\"{}\", {})", salvo_core::typekey::plain(&effect), self.proto_const(iface));
         }
         if name == "key_hash" && args.len() == 1 {
             let codec = self.codec(&args[0].ty);

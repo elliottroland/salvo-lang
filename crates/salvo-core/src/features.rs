@@ -145,7 +145,7 @@ fn ty_has_actor_addr(t: &crate::types::Ty, symbols: &crate::Symbols) -> bool {
             if crate::typekey::plain(name) == "Addr" {
                 if let Some(arg) = args.first() {
                     if let Ty::Named { name: e, .. } = arg.strip_quals() {
-                        if symbols.effects.get(crate::typekey::plain(e)).is_some_and(|d| d.is_actor) {
+                        if symbols.effects.get(e.as_str()).is_some_and(|d| d.is_actor) {
                             return true;
                         }
                     }
