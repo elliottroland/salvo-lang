@@ -2523,3 +2523,25 @@ fn route_refusals_name_the_fix() {
         "{stderr}"
     );
 }
+
+/// [type-identity] [obligation-by] A clause stamps the declaration it is
+/// written on. With another module's `struct Token` in scope through a
+/// whole-module import, `beta`'s own union `Token` was stamped as that struct
+/// — the comptime expansion looked the name up program-wide, struct first —
+/// and reported "`Str | Int` is not a `Union`". It now reads each file's
+/// names through the resolver's scope (PIPELINE.md step 6).
+#[test]
+fn a_clause_stamps_its_own_declaration_beside_a_same_named_struct() {
+    let dir = src_dir("comptime_token_clash");
+    fs::write(dir.join("alpha.sv"), "export struct Token {\n    a: Int\n}\n").unwrap();
+    fs::write(
+        dir.join("beta.sv"),
+        "import alpha\n\nexport type Token = Str | Int : ToStr<self> by auto\n\n\
+         export fn show(t: Token) -> Str {\n    return to_str(t)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains(": 0 errors") || stderr.contains("no errors"), "{stderr}");
+}
+

@@ -1825,3 +1825,23 @@ fn probe() [] -> Int {
     let errs = errors_in(files);
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
+
+/// [type-identity] [obligation-by] The group a clause names is the one its
+/// file sees: two modules each declare `params Shown<T>` with different
+/// members, and the clause stamps the imported one's. Before, the comptime
+/// expansion stamped the first group of the name collected anywhere (here
+/// `a`'s `cmp`); it now reads each file's names through the resolver's scope
+/// (PIPELINE.md step 6).
+#[test]
+fn a_clause_stamps_the_group_its_file_sees() {
+    let errs = errors_in(&[
+        ("a.sv", "export params Shown<T> {\n    fn cmp(x: T, y: T) -> Int\n}\n"),
+        ("b.sv", "export params Shown<T> {\n    fn eq(x: T, y: T) -> Bool\n}\n"),
+        (
+            "main.sv",
+            "import b.Shown\n\nstruct P : Shown<self> by auto {\n    a: Int\n}\n\n\
+             fn same(p: P, q: P) [] -> Bool => p, q {\n    return eq(p, q)\n}\n",
+        ),
+    ]);
+    assert!(errs.is_empty(), "{errs:?}");
+}

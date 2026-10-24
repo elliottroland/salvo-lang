@@ -285,7 +285,7 @@ fn stamp_scope<'p>(site: &ModuleScope<'p>, template: &ModuleScope<'p>) -> Module
 /// modules differ (a template of the stamping module sees nothing more).
 #[allow(clippy::type_complexity)]
 fn stamp_scopes<'p>(
-    program: &'p Program,
+    program: Sources<'p>,
     scopes: &[ModuleScope<'p>],
 ) -> (Vec<ModuleScope<'p>>, HashMap<usize, usize>, HashMap<usize, usize>) {
     use salvo_syntax::visit::{self as v, Visitor};
@@ -591,11 +591,26 @@ pub const TEST_MODULE: &str = "test";
 pub const THROW_MODULE: &str = "throw";
 
 pub fn resolve(program: &Program) -> Resolution<'_> {
+    resolve_sources(&program.files, &program.modules)
+}
+
+/// The files and their ASTs, aligned: what resolution reads of a program.
+#[derive(Clone, Copy)]
+struct Sources<'p> {
+    files: &'p [crate::source::SourceFile],
+    modules: &'p [salvo_syntax::ast::Module],
+}
+
+/// [comptime-instantiate] [type-identity] Resolution over files and ASTs not
+/// (yet) a `Program`: the comptime expansion resolves the unstamped program
+/// to look its names up through each file's scope.
+pub fn resolve_sources<'p>(files: &'p [crate::source::SourceFile], modules: &'p [salvo_syntax::ast::Module]) -> Resolution<'p> {
+    let program = Sources { files, modules };
     // Pass 1: collect each module's own declarations (all files of the
     // module contribute).
     let mut by_module: HashMap<&ModulePath, ModuleItems<'_>> = HashMap::new();
     let mut unexpanded_iter_fns: Vec<FileDiagnostic> = Vec::new();
-    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+    for (file_idx, (file, ast)) in program.files.iter().zip(program.modules).enumerate() {
         let items = by_module.entry(&file.module).or_default();
         for ns in &ast.namespaces {
             if !items.namespaces.contains(&ns.as_str()) {
@@ -978,7 +993,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
 
     // Pass 2: build one scope per file.
     let mut scopes = Vec::with_capacity(program.files.len());
-    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+    for (file_idx, (file, ast)) in program.files.iter().zip(program.modules).enumerate() {
         let mut scope = ModuleScope::default();
         // Provenance of every non-fn scope entry [mod-collision]:
         // (level, module) per (kind, visible name), driving the
@@ -1126,7 +1141,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     Resolution {
         scopes,
         handler_files,
-        type_ref_files: type_ref_files(program),
+        type_ref_files: type_ref_files_in(program.modules),
         decl_files,
         declared_in,
         private_in,
@@ -2136,8 +2151,12 @@ fn mentions_type(ty: &salvo_syntax::ast::Type, name: &str) -> bool {
 /// wrote it, wherever it is lowered (a callee's signature is lowered at
 /// every call).
 pub fn type_ref_files(program: &Program) -> HashMap<usize, usize> {
+    type_ref_files_in(&program.modules)
+}
+
+fn type_ref_files_in(modules: &[salvo_syntax::ast::Module]) -> HashMap<usize, usize> {
     let mut out = HashMap::new();
-    for_each_type_ref(program, &mut |file, t| {
+    for_each_type_ref(modules, &mut |file, t| {
         out.insert(t as *const salvo_syntax::ast::TypeRef as usize, file);
     });
     out
@@ -2167,7 +2186,7 @@ pub fn written_keys<'p>(
     symbols: &crate::program::Symbols<'p>,
 ) -> HashMap<usize, String> {
     let mut out = HashMap::new();
-    for_each_type_ref(program, &mut |file, t| {
+    for_each_type_ref(&program.modules, &mut |file, t| {
         let name = t.name.name.as_str();
         if let Some(key) = key_in(symbols, resolution.scope_for_ref(file, t), name) {
             if key != name {
@@ -2188,7 +2207,7 @@ pub fn written_keys_by_span<'p>(
     symbols: &crate::program::Symbols<'p>,
 ) -> HashMap<(u32, u32, String), String> {
     let mut out: HashMap<(u32, u32, String), Option<String>> = HashMap::new();
-    for_each_type_ref(program, &mut |file, t| {
+    for_each_type_ref(&program.modules, &mut |file, t| {
         let name = t.name.name.as_str();
         let key = key_in(symbols, resolution.scope_for_ref(file, t), name).unwrap_or(name).to_string();
         let at = (t.name.span.start, t.name.span.end, name.to_string());
@@ -2207,7 +2226,7 @@ pub fn written_keys_by_span<'p>(
         .collect()
 }
 
-fn for_each_type_ref(program: &Program, f: &mut dyn FnMut(usize, &salvo_syntax::ast::TypeRef)) {
+fn for_each_type_ref(modules: &[salvo_syntax::ast::Module], f: &mut dyn FnMut(usize, &salvo_syntax::ast::TypeRef)) {
     use salvo_syntax::visit::{self as v, Visitor};
     struct Collect<'m> {
         file: usize,
@@ -2219,7 +2238,7 @@ fn for_each_type_ref(program: &Program, f: &mut dyn FnMut(usize, &salvo_syntax::
         }
     }
     let out = f;
-    for (file, ast) in program.modules.iter().enumerate() {
+    for (file, ast) in modules.iter().enumerate() {
         let mut c = Collect { file, f: &mut *out };
         for u in &ast.uses {
             v::walk_expr(&mut c, &u.handler);

@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2024 tests, complete: the toolchain tests are
+cargo test                  # 2026 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,30 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — The comptime expansion looks names up through each file's scope
+
+PIPELINE.md §7 step 6, the engineering half of "comptime after interfaces"
+(step A of two). The expansion still runs before the program's resolution,
+but it now resolves the unstamped program first (`resolve::resolve_sources`,
+the resolver over files and ASTs that are not yet a `Program`) and keeps per
+file which module's struct, `type`, group and qualifier each name means
+(`comptime::FileNames`). Two latent bugs under [type-identity] fixed:
+
+- **A clause stamped whatever its name found program-wide**, struct first:
+  `beta`'s `type Token = Str | Int : ToStr<self> by auto` beside `alpha`'s
+  `struct Token` (whole-module import) was stamped as the struct and refused
+  as "not a `Union`". The clause now stamps the declaration in hand, and a
+  `type` the file sees outranks a struct, as in the checker. Test:
+  `a_clause_stamps_its_own_declaration_beside_a_same_named_struct`.
+- **The first `params` group of a name collected anywhere won.** Test:
+  `a_clause_stamps_the_group_its_file_sees`.
+
+What it cost: a second resolve per analysis, read-only (the main one runs on
+the stamped program); it goes when stamping moves after resolution. Rejected:
+re-implementing the import ladder inside comptime (the shape rejected for
+effect aliases, R6). Left, with the signature/body split and its
+**DECISION**, in ROADMAP §2c.
 
 ### 2026-10-20 — A mixed handler may declare dependencies
 
@@ -28205,7 +28229,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2024 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2026 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

@@ -659,6 +659,34 @@ log current so the work can resume after a context reset). Newest last.
 - **Step 6, piece 1 (done, committed "Cache a file's own expansions with
   its parse").** `expand::expand_file` / `expand_program`; the language
   server's `ParseCache` keyed by (text, module, annex).
+- **Step 6, piece 5 (route stubs derived per effect in the IR): surveyed,
+  not started; waiting on the user (R7 questions).** Today `route.rs`
+  writes a `__Route_X` AST handler into every *routing* module before
+  resolution (plain-name effect table, first declarer wins; synthetic
+  imports; spans past EOF), and `use route_any(g)` is checked as a
+  construction of it found by plain name (`check.rs` ~10195, the `Ping§main`
+  failure of piece 4 of step 5). The plan: the checker records
+  `route_uses[site] = X` (key) and checks the use against a virtual signature
+  `(group: eff[ActorGroup<X>], config: RouteConfig) [RouteSelector<X>] of any
+  X`; `actors::generate` derives one `__Route_X` impl per routed effect in
+  `X`'s module (body: `route_pick`/`key_hash`/`copy` by key, the `Key` index
+  recorded at interface lowering since `is_route_key` erases it); the
+  deadlock router node is synthesized per routed `X`; `route.rs`'s generator
+  deleted. Questions: (1) drop the "no route stub for `X` in this module"
+  refusal (only syntactic generation needed it); (2) the "marks N parameters
+  `Key`" error moves to the effect declaration, so it fires for an effect
+  nobody routes; (3) one stub per protocol in `X`'s module instead of one
+  per routing module (visible in emitted paths and `examples/cluster`);
+  (4) `spawn route_any(…)` stays unsupported.
+- **Step 6, piece 4 (comptime lookups through scopes): done, committed
+  "Look comptime names up through each file's scope".** Step A of the
+  comptime row: `resolve_sources` over the unstamped program, `FileNames`
+  per file, clause targets from the item in hand, groups and qualifiers
+  scoped, a `type` outranking a struct. **Not done, and why:** step B (the
+  `by` clause declaring member signatures at interfaces, bodies stamped
+  after resolution) needs step 8's stable ids and relative spans (stamped
+  fns are found by address and their spans sit past EOF), and a DECISION
+  recorded in ROADMAP §2c (template's signature vs the group member's).
 - **Step 6, piece 3 (mixed handlers with dependencies, R6): done,
   committed "Let a mixed handler declare dependencies".** The refusal was
   the only real gate: the spawn already fell through to the actor path's

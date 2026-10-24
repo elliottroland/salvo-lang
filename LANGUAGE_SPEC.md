@@ -4993,8 +4993,10 @@ Conventions:
   resolution and looks names up program-wide, so it records each root of an
   expanded-in-place fn on the fn (`Stamp::roots`) and the checker requires it;
   the same record is what go-to-definition follows. Of two same-named
-  declarations the expansion reads the file's own, then an imported one, then
-  `core`'s. Before the rule an unimported struct was walked silently.
+  declarations the expansion reads the one the file's scope resolves the
+  name to (since 2026-10-20 [comptime-instantiate]), and only for a name the
+  file does not see the old ladder: the file's own, then an imported one,
+  then `core`'s. Before the rule an unimported struct was walked silently.
 * [comptime-fields] **What a comptime fn may know about a type is a declared
   model, `core.comptime`** (user decision 2026-09-29, round 8): compile-time
   structs, readable and hoverable, never values —
@@ -5389,6 +5391,15 @@ Conventions:
   module beside the type on both backends. The expansion runs over the whole
   source set before resolution (`salvo_core::comptime`), so a `by auto` in any
   file reads `core.auto` and the target's declaration.
+  * **Names are looked up through each file's scope** (2026-10-20, PIPELINE.md
+    step 6): the expansion resolves the unstamped program first
+    (`resolve::resolve_sources`) and keeps, per file, which module's struct,
+    `type`, group and qualifier each name means — a `type` outranking a
+    struct of the same name, as in the checker [type-identity]. A clause
+    stamps the declaration it is written on and the group its own file sees.
+    A name the file does not see falls back to the old program-wide ladder
+    (own module, an imported one, `core`, the first), which a template's own
+    names still need [comptime-hygiene].
   * **Spans**: every node of a stamped body is given a synthetic span **past
     the end of the file**, one fresh region per unrolled copy, so the checker's
     span-keyed side tables never see two copies as one node. The `Stamp` on

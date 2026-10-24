@@ -841,6 +841,32 @@ narrowed to `Manual`) make `${value}` ambiguous at the interpolation while
 `to_str(value)` rather than interpolating an arm. Pre-existing
 [implicit-resolve] locality, not a comptime defect.
 
+**Left by PIPELINE.md step 6's scoped lookups (2026-10-20).** The expansion
+now resolves the unstamped program and reads each file's names through its
+scope (groups, structs, `type`s, qualifiers), but still falls back to the old
+program-wide ladder for a name the file does not see, and these stay open:
+
+- **A renamed root** (`import geo.Pt as GPt`, then `[for f in GPt.fields]`)
+  is still refused: the world's tables are keyed by declared name, and the
+  root test is `contains_key`. Wants the alias → declaration mapping kept in
+  the per-file names.
+- **Spliced field types resolve in the site's stamp scope**, not the file
+  that wrote them [type-identity]; differs only for `fn … by X` at an
+  imported target. Unreproduced.
+- **The fn reading of `by f` ignores visibility**: a private comptime fn of
+  an unimported module is found.
+- **`generic_needs` and `group_for` hard-code** member → group
+  (`cmp` → `Ordered`, …).
+- **Defect, found writing the tests**: `type T = Str | Int : ToStr<self> by
+  auto` warns "this code is unreachable" in the stamped `to_str` — `core.auto`'s
+  union template ends in `return ""` after an exhaustive `[when value]`.
+- **The signature/body split** (PIPELINE.md §5: `by` declares the member
+  signatures in 02-resolve-03, bodies stamped in 02-resolve-04) waits on step
+  8's stable ids and declaration-relative spans, and on a **DECISION**: whose
+  signature a stamped member has — the template's (today) or the group
+  member's with `self` substituted (the plan's wording), which would make the
+  template's parameter names, effects and deductions stop counting.
+
 ### 2d — Fix alongside the `std/args` work: defects found 2026-10-20
 
 Found while designing and building `std/args` (COMPLETED.md, "Design record:

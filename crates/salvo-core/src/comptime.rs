@@ -86,7 +86,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
     let mut compfns: Vec<CompFnDecl> = Vec::new();
     let mut structs: HashMap<String, Vec<(ModulePath, StructDecl)>> = HashMap::new();
     let mut types: HashMap<String, Vec<(ModulePath, TypeDecl)>> = HashMap::new();
-    let mut groups: HashMap<String, ParamsDecl> = HashMap::new();
+    let mut groups: HashMap<String, Vec<(ModulePath, ParamsDecl)>> = HashMap::new();
     let mut comptime_quals: HashMap<String, Vec<(ModulePath, QualifierDecl)>> = HashMap::new();
     // [std-shadow] The repository root opened as a workspace loads `std/` a
     // second time as user files (`std.core.auto` beside the embedded
@@ -136,7 +136,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                     types.entry(t.name.name.clone()).or_default().push((file.module.clone(), t.clone()));
                 }
                 Item::Params(g) => {
-                    groups.entry(g.name.name.clone()).or_insert_with(|| g.clone());
+                    groups.entry(g.name.name.clone()).or_default().push((file.module.clone(), g.clone()));
                 }
                 // [comptime-qualifier] Comptime qualifiers, which a head tests
                 // for (`[if field is Short]`).
@@ -147,7 +147,10 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
             }
         }
     }
+    let scoped = scoped_names(files, modules);
     let world = World {
+        scoped,
+        here: std::cell::Cell::new(0),
         comptime_quals,
         compfns,
         structs,
@@ -165,6 +168,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
 
     for (file_idx, (file, module)) in files.iter().zip(modules.iter_mut()).enumerate() {
         *world.own.borrow_mut() = file.module.clone();
+        world.here.set(file_idx);
         *world.imports.borrow_mut() = module
             .items
             .iter()
@@ -216,11 +220,14 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
             };
             for ob in obligations {
                 let Some(by) = &ob.by else { continue };
-                let Some(group) = world.groups.get(ob.group.name.name.as_str()) else {
+                // [type-identity] The group the clause's file means.
+                let Some(group) = world.group_named(ob.group.name.name.as_str()) else {
                     // The checker reports the unknown group at the clause.
                     continue;
                 };
-                let Some(target) = world.target(&name.name) else { continue };
+                // [type-identity] The target is the declaration the clause is
+                // written on, not whatever its name finds program-wide.
+                let Some(target) = World::target_of_item(item) else { continue };
                 if !ob
                     .group
                     .args
@@ -1169,7 +1176,65 @@ struct Target {
     canbe: Vec<String>,
 }
 
+/// [type-identity] What one file's names mean, as the resolver's scope for
+/// that file says: the module declaring each visible struct, `type`, group
+/// and qualifier. Owned, so the resolution that produced it can be dropped
+/// before the modules are stamped into.
+#[derive(Default)]
+struct FileNames {
+    structs: HashMap<String, ModulePath>,
+    types: HashMap<String, ModulePath>,
+    groups: HashMap<String, ModulePath>,
+    quals: HashMap<String, ModulePath>,
+}
+
+/// [comptime-instantiate] [type-identity] Resolves the unstamped program, and
+/// keeps of it what the expansion looks names up by: per file, which module's
+/// declaration each name means. The expansion still runs before the
+/// program's own resolution (PIPELINE.md step 6), so this is a second,
+/// read-only one, over what the files declare before stamping.
+fn scoped_names(files: &[SourceFile], modules: &[Module]) -> Vec<FileNames> {
+    let mut module_of: HashMap<usize, ModulePath> = HashMap::new();
+    for (file, module) in files.iter().zip(modules) {
+        for item in &module.items {
+            let addr = match item {
+                Item::Struct(s) => s as *const StructDecl as usize,
+                Item::Type(t) => t as *const TypeDecl as usize,
+                Item::Params(g) => g as *const ParamsDecl as usize,
+                Item::Qualifier(q) => q as *const QualifierDecl as usize,
+                _ => continue,
+            };
+            module_of.insert(addr, file.module.clone());
+        }
+    }
+    let resolution = crate::resolve::resolve_sources(files, modules);
+    let of = |addr: usize| module_of.get(&addr).cloned();
+    resolution
+        .scopes
+        .iter()
+        .map(|s| FileNames {
+            structs: s.structs.iter().filter_map(|(n, d)| Some((n.to_string(), of(*d as *const StructDecl as usize)?))).collect(),
+            types: s
+                .type_aliases
+                .iter()
+                .chain(s.opaque_types.iter())
+                .filter_map(|(n, d)| Some((n.to_string(), of(*d as *const TypeDecl as usize)?)))
+                .collect(),
+            groups: s.param_groups.iter().filter_map(|(n, d)| Some((n.to_string(), of(*d as *const ParamsDecl as usize)?))).collect(),
+            quals: s
+                .qualifiers
+                .iter()
+                .filter_map(|(n, ds)| Some((n.to_string(), of(*ds.first()? as *const QualifierDecl as usize)?)))
+                .collect(),
+        })
+        .collect()
+}
+
 struct World {
+    /// [type-identity] Per file, what its names mean; `here` is the file
+    /// being expanded.
+    scoped: Vec<FileNames>,
+    here: std::cell::Cell<usize>,
     compfns: Vec<CompFnDecl>,
     structs: HashMap<String, Vec<(ModulePath, StructDecl)>>,
     types: HashMap<String, Vec<(ModulePath, TypeDecl)>>,
@@ -1181,7 +1246,7 @@ struct World {
     /// is the one it can mean (the checker then requires the name to be
     /// visible at all).
     imports: std::cell::RefCell<Vec<Vec<String>>>,
-    groups: HashMap<String, ParamsDecl>,
+    groups: HashMap<String, Vec<(ModulePath, ParamsDecl)>>,
     /// [comptime-qualifier] Every qualifier, by name: a head tests for the
     /// comptime ones, and an arm's constructor reads an ordinary one's
     /// generics [comptime-arm].
@@ -1220,7 +1285,10 @@ impl World {
     fn opaque_here(&self, name: &str) -> bool {
         let Some(all) = self.structs.get(name) else { return false };
         let own = self.own.borrow().clone();
-        let Some((module, decl)) = self.pick_decl(name, all) else {
+        let here = self.names_here();
+        let other = here.is_some_and(|h| h.types.contains_key(name));
+        let visible = here.and_then(|h| h.structs.get(name)).filter(|_| !other);
+        let Some((module, decl)) = self.scoped_decl(name, all, visible, other) else {
             return false;
         };
         if !decl.opaque || *module == own {
@@ -1232,14 +1300,54 @@ impl World {
         !annex
     }
 
+    /// [type-identity] The names of the file being expanded.
+    fn names_here(&self) -> Option<&FileNames> {
+        self.scoped.get(self.here.get())
+    }
+
+    /// A name's declaration as the file being expanded resolves it — through
+    /// its scope (imports, renames, rungs) — and only when the scope does not
+    /// see the name at all, the old ladder (a template's own names, which the
+    /// stamping site may not see [comptime-hygiene]).
+    fn scoped_decl<'a, D>(
+        &self,
+        name: &str,
+        all: &'a [(ModulePath, D)],
+        visible: Option<&ModulePath>,
+        other_kind: bool,
+    ) -> Option<&'a (ModulePath, D)> {
+        match visible {
+            Some(m) => all.iter().find(|(dm, _)| dm == m),
+            // The name is visible here as the other kind of type: this
+            // kind's declaration elsewhere is not what it means.
+            None if other_kind => None,
+            None => self.pick_decl(name, all),
+        }
+    }
+
+    /// A `type` the file sees outranks a struct of the same name, as in the
+    /// checker, which expands an alias before it reads a nominal.
     fn struct_named(&self, name: &str) -> Option<&StructDecl> {
         let all = self.structs.get(name)?;
-        self.pick_decl(name, all).map(|(_, d)| d)
+        let here = self.names_here();
+        let other = here.is_some_and(|h| h.types.contains_key(name));
+        let visible = here.and_then(|h| h.structs.get(name)).filter(|_| !other);
+        self.scoped_decl(name, all, visible, other).map(|(_, d)| d)
     }
 
     fn type_named(&self, name: &str) -> Option<&TypeDecl> {
         let all = self.types.get(name)?;
-        self.pick_decl(name, all).map(|(_, d)| d)
+        let here = self.names_here();
+        let visible = here.and_then(|h| h.types.get(name));
+        let other = visible.is_none() && here.is_some_and(|h| h.structs.contains_key(name));
+        self.scoped_decl(name, all, visible, other).map(|(_, d)| d)
+    }
+
+    /// [type-identity] The `params` group a clause names, in its file.
+    fn group_named(&self, name: &str) -> Option<&ParamsDecl> {
+        let all = self.groups.get(name)?;
+        let visible = self.names_here().and_then(|h| h.groups.get(name));
+        self.scoped_decl(name, all, visible, false).map(|(_, d)| d)
     }
 
     /// [comptime-qualifier] The comptime qualifier `name` means here.
@@ -1250,7 +1358,8 @@ impl World {
     /// The qualifier `name` means here, comptime or not.
     fn qual_named(&self, name: &str) -> Option<&QualifierDecl> {
         let all = self.comptime_quals.get(name)?;
-        self.pick_decl(name, all).map(|(_, d)| d)
+        let visible = self.names_here().and_then(|h| h.quals.get(name));
+        self.scoped_decl(name, all, visible, false).map(|(_, d)| d)
     }
 
     /// [comptime-docs] The doc comment of the declaration a type names — a
@@ -1281,6 +1390,31 @@ impl World {
                 alias: None,
                 span,
             },
+        }
+    }
+
+    /// [obligation-by] The target a clause is written on: the declaration in
+    /// hand (its own module's, so never opaque to it).
+    fn target_of_item(item: &Item) -> Option<Target> {
+        match item {
+            Item::Struct(s) => Some(Target {
+                name: s.name.name.clone(),
+                kind: CompKind::Struct,
+                ty: Self::simple_named(&s.name.name, s.name.span),
+                generics: s.generics.iter().map(|g| g.name.clone()).collect(),
+                canbe: s.auto_qualifiers.iter().map(|q| q.name.name.clone()).collect(),
+            }),
+            Item::Type(t) => {
+                let is_union = t.alias.as_ref().is_some_and(|a| matches!(a, Type::Union { .. } | Type::Nullable { .. }));
+                is_union.then(|| Target {
+                    name: t.name.name.clone(),
+                    kind: CompKind::Union,
+                    ty: Self::simple_named(&t.name.name, t.name.span),
+                    generics: t.generics.iter().map(|g| g.name.clone()).collect(),
+                    canbe: t.auto_qualifiers.iter().map(|q| q.name.name.clone()).collect(),
+                })
+            }
+            _ => None,
         }
     }
 
@@ -1529,7 +1663,7 @@ impl World {
                 if generics.iter().any(|g| g == name) {
                     return TypeKindWord::Generic;
                 }
-                if self.structs.contains_key(name) {
+                if self.struct_named(name).is_some() {
                     // [struct-opaque] Outside its module an opaque struct is
                     // kind `opaque`: a comptime body there calls the type's
                     // own functions instead of walking fields it may not see.
