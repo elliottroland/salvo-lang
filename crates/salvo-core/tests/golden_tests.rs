@@ -45,6 +45,22 @@ fn example_ir_is_stable() {
     }
 }
 
+/// [facts-dump] The checker's facts about one example's bodies — every
+/// expression's type, the declaration each call resolved to, coercions and
+/// moves — as the pre-IR dump (`salvo facts`, PIPELINE.md D1) prints them.
+#[test]
+fn example_facts_are_stable() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/iteration");
+    let program = example_program(&dir);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let checked = salvo_core::check_program(&program, &resolution, &symbols);
+    assert!(!checked.errors.iter().any(|d| d.is_error()));
+    let text = salvo_core::facts::dump(&program, &checked, &|f| !program.files[f].is_std);
+    assert!(text.contains("-> core.list::size"), "{text}");
+    insta::assert_snapshot!("facts_iteration", text);
+}
+
 /// [ir-linear-check] D4b: `salvo ir` dumps even a program the IR linear check
 /// rejects, with each leak inlined as `!!! module:line:col: …` and the IR
 /// still produced (exit 0). The dump is a debugging view; `salvo build` is what

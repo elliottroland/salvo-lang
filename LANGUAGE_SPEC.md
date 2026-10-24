@@ -11700,3 +11700,10 @@ replaced the working document TESTING.md).
   [ir-dump] of every user module, of one module, or (`--all`) of every
   module the program reaches, std included. It builds the IR exactly as the
   backends do, so it is the point to bisect when they disagree.
+* [facts-dump] `salvo facts [--src DIR] [--module PATH]` prints the
+  checker's facts about every body before the IR is built (PIPELINE.md D1,
+  the pre-IR): per declaration, one line per expression in source order —
+  its position and text, its type, the declaration a call resolved to, and
+  the marks `coerced`, `dot`, `moved`, `linear-move`, `narrowed`. A
+  desugaring's synthesized node prints as `…`. `facts::dump` is the
+  library form; `example_facts_are_stable` snapshots one example.

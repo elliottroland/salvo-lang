@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2017 tests, complete: the toolchain tests are
+cargo test                  # 2018 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,17 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — `salvo facts`, the pre-IR dump
+
+PIPELINE.md §7 step 5, piece 3 (D1): the checker's facts about each body,
+printed before anything lowers them [facts-dump] — per declaration, one line
+per expression with its type, the call's resolved declaration, and the
+coercion, dot-call, move and narrowing marks. It reads `Checked` as it is
+(absolute spans), so it stays correct through the storage changes still to
+come, and `example_facts_are_stable` gives the checker a regression test that
+does not go through the IR. A desugaring's synthesized nodes, which borrow
+one byte of their declaration, print as `…`.
 
 ### 2026-10-20 — A re-walk covers only the files that need it, and lookups go by key
 
@@ -28109,7 +28120,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2017 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2018 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

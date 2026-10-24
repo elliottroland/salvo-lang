@@ -210,6 +210,16 @@ enum Command {
         #[arg(long)]
         module: Option<String>,
     },
+    /// Print the checker's facts about each body [facts-dump]: every
+    /// expression's type and the declaration each call resolved to, before
+    /// the IR is built. Every user module, or only `--module`.
+    Facts {
+        #[arg(long)]
+        src: Option<PathBuf>,
+        /// Dump only this module (dotted path).
+        #[arg(long)]
+        module: Option<String>,
+    },
     /// Start a language server speaking LSP over stdio [cli-lsp]. The
     /// workspace root comes from the client's `initialize` request.
     Lsp,
@@ -291,6 +301,7 @@ fn main() -> ExitCode {
         } => build_command(backend, src, main_file, out, skip_tests),
         Command::Analyze { src, format } => analyze(src, format),
         Command::Ir { src, all, module } => ir_command(src, all, module),
+        Command::Facts { src, module } => facts_command(src, module),
         Command::Test {
             backend,
             src,
@@ -521,6 +532,38 @@ fn analyze(src: Option<PathBuf>, format: Format) -> ExitCode {
 }
 
 /// [cli-ir] Builds the IR of the checked program and prints each module's dump.
+fn facts_command(src: Option<PathBuf>, module: Option<String>) -> ExitCode {
+    let inputs = match resolve_inputs(src, None, None, "rust", false) {
+        Ok(i) => i,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let program = match analysis::analyze_sources(&inputs.layout.src, inputs.project.clone(), "", &Default::default()) {
+        Ok(a) => a.program,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let checked = salvo_core::check_program(&program, &resolution, &symbols);
+    let wanted = |f: usize| {
+        let file = &program.files[f];
+        match &module {
+            Some(m) => file.module.0.join(".") == *m,
+            None => !file.is_std && !file.is_test,
+        }
+    };
+    print!("{}", salvo_core::facts::dump(&program, &checked, &wanted));
+    for d in checked.errors.iter().filter(|d| d.is_error() && wanted(d.file)) {
+        eprintln!("{}", d.render(&program.files));
+    }
+    ExitCode::SUCCESS
+}
+
 fn ir_command(src: Option<PathBuf>, all: bool, module: Option<String>) -> ExitCode {
     let inputs = match resolve_inputs(src, None, None, "rust", false) {
         Ok(i) => i,

@@ -619,6 +619,8 @@ log current so the work can resume after a context reset). Newest last.
   relative spans with step 8's caching (stamps and route stubs synthesize
   spans past the end of the file, so a declaration does not own its rows by
   containment; the writer will have to name it). Qualifier lookups stay
-  program-wide by name (overloads chosen by subject). Next: the pre-IR
-  dumper (`salvo facts`, `crates/salvo-core/src/facts.rs`, written, not yet
-  built), then stable ids, then module-qualified type keys.
+  program-wide by name (overloads chosen by subject).
+- **Step 5, piece 3 (done, committed "Add salvo facts, the pre-IR dump").**
+  `crates/salvo-core/src/facts.rs`, `salvo facts`, snapshot
+  `golden_tests__facts_iteration`. Next: stable ids, then module-qualified
+  type keys.

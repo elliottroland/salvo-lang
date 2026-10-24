@@ -18,6 +18,7 @@ pub mod diag;
 pub mod effects;
 pub mod erase;
 pub mod expand;
+pub mod facts;
 pub mod ir;
 pub mod lends;
 pub mod linear;

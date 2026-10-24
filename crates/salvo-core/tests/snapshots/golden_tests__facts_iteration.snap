@@ -1,0 +1,415 @@
+---
+source: crates/salvo-core/tests/golden_tests.rs
+expression: text
+---
+module main (main.sv)
+fn describe_container(xs: List<Int>) -> None
+  15:15   `0`                            Int
+  16:5    `for n in xs {…`               None
+  16:14   `xs`                           List<Int>
+  17:15   `sum + n`                      Int
+  17:15   `sum`                          Int
+  17:21   `n`                            Int
+  19:5    `println("1. list of ${size…`  None  -> core.console::println
+  19:13   `"1. list of ${size(xs)} su…`  Str
+  19:27   `size(xs)`                     Int  -> core.list::size
+  19:32   `xs`                           List<Int>
+  19:47   `sum`                          Int
+  21:19   `Mut Str()`                    Mut Str  -> core.string::Mut_Str
+  22:5    `for c in "salvo" {…`          None
+  22:14   `"salvo"`                      Str
+  23:9    `append(letters, "${c}.")`     None  -> core.string::append
+  23:16   `letters`                      Mut Str
+  23:25   `"${c}."`                      Str
+  23:28   `c`                            Char
+  25:5    `println("1. string: ${lett…`  None  -> core.console::println
+  25:13   `"1. string: ${letters}"`      Str
+  25:27   `letters`                      Mut Str  [coerced]
+  27:15   `array_of(10, 20, 30)`         Int[]  -> core.array::array_of
+  27:24   `10`                           Int
+  27:28   `20`                           Int
+  27:32   `30`                           Int
+  28:22   `0`                            Int
+  29:5    `for n in arr {…`              None
+  29:14   `arr`                          Int[]
+  30:22   `from_array + n`               Int
+  30:22   `from_array`                   Int
+  30:35   `n`                            Int
+  32:5    `println("1. array sums to …`  None  -> core.console::println
+  32:13   `"1. array sums to ${from_a…`  Str
+  32:33   `from_array`                   Int
+fn countdown(from: Int) -> Mut Countdown
+  49:5    `return Mut Countdown { at:…`  Never
+  49:12   `Mut Countdown { at: from }`   Mut Countdown
+  49:32   `from`                         Int
+fn next(p: Mut Countdown) -> Emitted Int | Finished
+  55:5    `if p.at <= 0 {…`              None
+  55:8    `p.at <= 0`                    Bool
+  55:8    `p.at`                         Int
+  55:8    `p`                            Mut Countdown
+  55:16   `0`                            Int
+  56:9    `return finished()`            Never
+  56:16   `finished()`                   Finished  -> core.iterator::finished  [coerced]
+  58:15   `copy(p.at)`                   Int  -> core.basic::copy
+  58:20   `p.at`                         Int
+  58:20   `p`                            Mut Countdown
+  59:5    `p.at`                         Int
+  59:5    `p`                            Mut Countdown
+  59:12   `p.at - 1`                     Int
+  59:12   `p.at`                         Int
+  59:12   `p`                            Mut Countdown
+  59:19   `1`                            Int
+  60:5    `return emitted(now)`          Never
+  60:12   `emitted(now)`                 Emitted Int  -> core.iterator::emitted  [coerced]
+  60:20   `now`                          Int
+fn skip(p: Mut Countdown) -> Emitted Int | Finished
+  67:5    `if p.at <= 1 {…`              None
+  67:8    `p.at <= 1`                    Bool
+  67:8    `p.at`                         Int
+  67:8    `p`                            Mut Countdown
+  67:16   `1`                            Int
+  68:9    `return finished()`            Never
+  68:16   `finished()`                   Finished  -> core.iterator::finished  [coerced]
+  70:15   `copy(p.at)`                   Int  -> core.basic::copy
+  70:20   `p.at`                         Int
+  70:20   `p`                            Mut Countdown
+  71:5    `p.at`                         Int
+  71:5    `p`                            Mut Countdown
+  71:12   `p.at - 2`                     Int
+  71:12   `p.at`                         Int
+  71:12   `p`                            Mut Countdown
+  71:19   `2`                            Int
+  72:5    `return emitted(now)`          Never
+  72:12   `emitted(now)`                 Emitted Int  -> core.iterator::emitted  [coerced]
+  72:20   `now`                          Int
+fn take(p: Mut Countdown, count: Int) -> None
+  78:16   `0`                            Int
+  79:5    `for n in p {…`                None
+  79:14   `p`                            Mut Countdown
+  80:9    `println("2. got ${n}")`       None  -> core.console::println
+  80:17   `"2. got ${n}"`                Str
+  80:27   `n`                            Int
+  81:16   `seen + 1`                     Int
+  81:16   `seen`                         Int
+  81:23   `1`                            Int
+  82:9    `if seen == count {…`          None
+  82:12   `seen == count`                Bool
+  82:12   `seen`                         Int
+  82:20   `count`                        Int
+  83:13   `break`                        Never
+fn halving(start: Int) -> Mut Halving
+  97:9    `…`                            Mut Halving
+  97:10   `…`                            Never
+  97:11   `…`                            Int
+  101:19  `start`                        Int
+fn next(__p: Mut Halving) -> Emitted Int | Finished
+  97:12   `…`                            Mut Halving
+  97:13   `…`                            Mut Halving
+  97:14   `…`                            Mut Halving
+  97:15   `…`                            Mut Halving
+  103:5   `if at <= 0 {…`                None
+  103:8   `at <= 0`                      Bool
+  103:8   `at`                           Int
+  103:14  `0`                            Int
+  104:9   `return finished()`            Never
+  104:16  `finished()`                   Finished  -> core.iterator::finished  [coerced]
+  106:15  `copy(at)`                     Int  -> core.basic::copy
+  106:20  `at`                           Int
+  107:5   `at`                           Int
+  107:10  `at / 2`                       Int
+  107:10  `at`                           Int
+  107:15  `2`                            Int
+  108:5   `return emitted(now)`          Never
+  108:12  `emitted(now)`                 Emitted Int  -> core.iterator::emitted  [coerced]
+  108:20  `now`                          Int
+fn halving_from_ten() -> Mut Halving
+  113:5   `return halving(10)`           Never
+  113:12  `halving(10)`                  Mut Halving  -> main::halving
+  113:20  `10`                           Int
+fn iter(bag: Bag) -> Mut BagIter
+  126:9   `…`                            Mut BagIter
+  126:10  `…`                            Never
+  126:11  `…`                            Bag
+  128:19  `0`                            Int
+fn next(__p: Mut BagIter) -> Emitted Int | Finished
+  126:12  `…`                            Mut BagIter
+  126:13  `…`                            Mut BagIter
+  126:14  `…`                            Mut BagIter
+  126:15  `…`                            Mut BagIter
+  130:13  `get(bag.items, at)`           Int?  -> core.list::get(List<T>, Int)
+  130:17  `bag.items`                    List<Int>
+  130:17  `bag`                          proj Bag
+  130:28  `at`                           Int
+  131:5   `if e is None {…`              None
+  131:8   `e is None`                    Bool
+  131:8   `e`                            Int?
+  132:9   `return finished()`            Never
+  132:16  `finished()`                   Finished  -> core.iterator::finished  [coerced]
+  134:5   `at`                           Int
+  134:10  `at + 1`                       Int
+  134:10  `at`                           Int
+  134:15  `1`                            Int
+  135:5   `return emitted(copy(e))`      Never
+  135:12  `emitted(copy(e))`             Emitted Int  -> core.iterator::emitted  [coerced]
+  135:20  `copy(e)`                      Int  -> core.basic::copy
+  135:25  `e`                            Int  [narrowed]
+fn fibs(count: Int) -> Mut Fibs
+  142:9   `…`                            Mut Fibs
+  142:10  `…`                            Never
+  142:11  `…`                            Int
+  144:18  `0`                            Int
+  145:18  `1`                            Int
+  146:21  `0`                            Int
+fn next(__p: Mut Fibs) -> Emitted Int | Finished
+  142:12  `…`                            Mut Fibs
+  142:13  `…`                            Mut Fibs
+  142:14  `…`                            Mut Fibs
+  142:15  `…`                            Mut Fibs
+  142:16  `…`                            Mut Fibs
+  142:17  `…`                            Mut Fibs
+  142:18  `…`                            Mut Fibs
+  142:19  `…`                            Mut Fibs
+  142:20  `…`                            Mut Fibs
+  142:21  `…`                            Mut Fibs
+  148:5   `if made >= count {…`          None
+  148:8   `made >= count`                Bool
+  148:8   `made`                         Int
+  148:16  `count`                        Int
+  149:9   `println("3. finished")`       None  -> core.console::println
+  149:17  `"3. finished"`                Str
+  150:9   `return finished()`            Never
+  150:16  `finished()`                   Finished  -> core.iterator::finished  [coerced]
+  152:15  `copy(a)`                      Int  -> core.basic::copy
+  152:20  `a`                            Int
+  153:15  `a + b`                        Int
+  153:15  `a`                            Int
+  153:19  `b`                            Int
+  154:5   `a`                            Int
+  154:9   `copy(b)`                      Int  -> core.basic::copy
+  154:14  `b`                            Int
+  155:5   `b`                            Int
+  155:9   `copy(sum)`                    Int  -> core.basic::copy
+  155:14  `sum`                          Int
+  156:5   `made`                         Int
+  156:12  `made + 1`                     Int
+  156:12  `made`                         Int
+  156:19  `1`                            Int
+  157:5   `return emitted(now)`          Never
+  157:12  `emitted(now)`                 Emitted Int  -> core.iterator::emitted  [coerced]
+  157:20  `now`                          Int
+fn naturals(from: Int) -> Mut Naturals
+  162:9   `…`                            Mut Naturals
+  162:10  `…`                            Never
+  162:11  `…`                            Int
+  164:19  `from`                         Int
+fn next(__p: Mut Naturals) -> Emitted Int | Finished
+  162:12  `…`                            Mut Naturals
+  162:13  `…`                            Mut Naturals
+  162:14  `…`                            Mut Naturals
+  166:15  `copy(at)`                     Int  -> core.basic::copy
+  166:20  `at`                           Int
+  167:5   `at`                           Int
+  167:10  `at + 1`                       Int
+  167:10  `at`                           Int
+  167:15  `1`                            Int
+  168:5   `return emitted(now)`          Never
+  168:12  `emitted(now)`                 Emitted Int  -> core.iterator::emitted  [coerced]
+  168:20  `now`                          Int
+fn sum_of(it: Mut It) -> Int
+  178:17  `0`                            Int
+  179:5   `for n in it {…`               None
+  179:14  `it`                           Mut It
+  180:17  `total + n`                    Int
+  180:17  `total`                        Int
+  180:25  `n`                            Int
+  182:5   `return total`                 Never
+  182:12  `total`                        Int
+fn total(c: C) -> Int
+  189:17  `0`                            Int
+  190:5   `for n in c {…`                None
+  190:14  `c`                            C
+  191:17  `total + n`                    Int
+  191:17  `total`                        Int
+  191:25  `n`                            Int
+  193:5   `return total`                 Never
+  193:12  `total`                        Int
+fn first(it: Mut It) -> Int
+  199:5   `for n in it {…`               None
+  199:14  `it`                           Mut It
+  200:9   `return n`                     Never
+  200:16  `n`                            Int
+  202:5   `return -1`                    Never
+  202:12  `-1`                           Int
+  202:13  `1`                            Int
+fn main()
+  208:14  `List(1, 2, 3, 4)`             NonEmpty List<Int>  -> core.list::List(T, T[])
+  208:19  `1`                            Int
+  208:22  `2`                            Int
+  208:25  `3`                            Int
+  208:28  `4`                            Int
+  209:5   `describe_container(xs)`       None  -> main::describe_container
+  209:24  `xs`                           NonEmpty List<Int>
+  213:13  `countdown(5)`                 Mut Countdown  -> main::countdown
+  213:23  `5`                            Int
+  214:5   `take(p, 2)`                   None  -> main::take
+  214:10  `p`                            Mut Countdown
+  214:13  `2`                            Int
+  215:5   `println("2. rest sums to $…`  None  -> core.console::println
+  215:13  `"2. rest sums to ${sum_of(…`  Str
+  215:32  `sum_of(p)`                    Int  -> main::sum_of
+  215:39  `p`                            Mut Countdown
+  216:13  `countdown(6)`                 Mut Countdown  -> main::countdown
+  216:23  `6`                            Int
+  217:5   `for n in skip(q) {…`          None
+  217:14  `skip(q)`                      Emitted Int | Finished  -> main::skip
+  217:19  `q`                            Mut Countdown
+  218:9   `println("2. skip ${n}")`      None  -> core.console::println
+  218:17  `"2. skip ${n}"`               Str
+  218:28  `n`                            Int
+  223:5   `for n in halving(20) {…`      None
+  223:14  `halving(20)`                  Mut Halving  -> main::halving
+  223:22  `20`                           Int
+  224:9   `println("2b. halving ${n}"…`  None  -> core.console::println
+  224:17  `"2b. halving ${n}"`           Str
+  224:32  `n`                            Int
+  226:14  `halving(20)`                  Mut Halving  -> main::halving
+  226:22  `20`                           Int
+  227:5   `println("2b. summed from a…`  None  -> core.console::println
+  227:13  `"2b. summed from a held it…`  Str
+  227:49  `sum_of(hp)`                   Int  -> main::sum_of
+  227:56  `hp`                           Mut Halving
+  228:5   `println("2b. first from a …`  None  -> core.console::println
+  228:13  `"2b. first from a fn retur…`  Str
+  228:51  `first(halving_from_ten())`    Int  -> main::first
+  228:57  `halving_from_ten()`           Mut Halving  -> main::halving_from_ten
+  232:15  `Bag { items: List(7, 8) }`    Bag
+  232:28  `List(7, 8)`                   NonEmpty List<Int>  -> core.list::List(T, T[])
+  232:33  `7`                            Int
+  232:36  `8`                            Int
+  233:5   `for n in bag {…`              None
+  233:14  `bag`                          Bag
+  234:9   `println("2c. bag ${n}")`      None  -> core.console::println
+  234:17  `"2c. bag ${n}"`               Str
+  234:28  `n`                            Int
+  236:5   `println("2c. total of a ba…`  None  -> core.console::println
+  236:13  `"2c. total of a bag ${tota…`  Str
+  236:35  `total(bag)`                   Int  -> main::total
+  236:41  `bag`                          Bag
+  236:60  `total(xs)`                    Int  -> main::total
+  236:66  `xs`                           NonEmpty List<Int>
+  241:5   `for n in fibs(6) {…`          None
+  241:14  `fibs(6)`                      Mut Fibs  -> main::fibs
+  241:19  `6`                            Int
+  242:9   `println("3. fib ${n}")`       None  -> core.console::println
+  242:17  `"3. fib ${n}"`                Str
+  242:27  `n`                            Int
+  246:5   `for n in naturals(10) {…`     None
+  246:14  `naturals(10)`                 Mut Naturals  -> main::naturals
+  246:23  `10`                           Int
+  247:9   `if n > 12 {…`                 None
+  247:12  `n > 12`                       Bool
+  247:12  `n`                            Int
+  247:16  `12`                           Int
+  248:13  `break`                        Never
+  250:9   `println("3. natural ${n}")`   None  -> core.console::println
+  250:17  `"3. natural ${n}"`            Str
+  250:31  `n`                            Int
+  258:19  `map(xs, n -> n * 2)`          Mut List<Int>  -> core.seq::map(List<T>, (T) -> U)
+  258:23  `xs`                           NonEmpty List<Int>
+  258:27  `n -> n * 2`                   (Int) -> Int
+  258:32  `n * 2`                        Int
+  258:32  `n`                            Int
+  258:36  `2`                            Int
+  259:15  `filter(xs, n -> n % 2 == 1…`  Mut List<Int>  -> core.seq::filter(List<T>, (T) -> Bool)
+  259:22  `xs`                           NonEmpty List<Int>
+  259:26  `n -> n % 2 == 1`              (Int) -> Bool
+  259:31  `n % 2 == 1`                   Bool
+  259:31  `n % 2`                        Int
+  259:31  `n`                            Int
+  259:35  `2`                            Int
+  259:40  `1`                            Int
+  260:17  `reduce(xs, 0, (acc, n) -> …`  Int  -> core.seq::reduce(List<T>, A, (A, T) -> A)
+  260:24  `xs`                           NonEmpty List<Int>
+  260:28  `0`                            Int
+  260:31  `(acc, n) -> acc + n`          (Int, Int) -> Int
+  260:43  `acc + n`                      Int
+  260:43  `acc`                          Int
+  260:49  `n`                            Int
+  261:5   `println("5. list: ${size(d…`  None  -> core.console::println
+  261:13  `"5. list: ${size(doubled)}…`  Str
+  261:25  `size(doubled)`                Int  -> core.list::size
+  261:30  `doubled`                      Mut List<Int>  [coerced]
+  261:51  `size(odd)`                    Int  -> core.list::size
+  261:56  `odd`                          Mut List<Int>  [coerced]
+  261:75  `total`                        Int
+  263:17  `List("ann", "bo", "carol")`   NonEmpty List<Str>  -> core.list::List(T, T[])
+  263:22  `"ann"`                        Str
+  263:29  `"bo"`                         Str
+  263:35  `"carol"`                      Str
+  264:19  `map(iter(words), w -> size…`  Mut List<Int>  -> core.seq::map(Mut It, (T) -> U)
+  264:23  `iter(words)`                  Mut ListYield<Str>  -> core.list::iter
+  264:28  `words`                        NonEmpty List<Str>
+  264:36  `w -> size(w)`                 (proj Str) -> Int
+  264:41  `size(w)`                      Int  -> core.string::size
+  264:46  `w`                            proj Str  [coerced]
+  265:5   `println("5. lengths: ${red…`  None  -> core.console::println
+  265:13  `"5. lengths: ${reduce(iter…`  Str
+  265:28  `reduce(iter(lengths), 0, (…`  Int  -> core.seq::reduce(Mut It, A, (A, T) -> A)
+  265:35  `iter(lengths)`                Mut ListYield<Int>  -> core.list::iter
+  265:40  `lengths`                      Mut List<Int>  [coerced]
+  265:50  `0`                            Int
+  265:53  `(acc, n) -> acc + n`          (Int, Int) -> Int
+  265:65  `acc + n`                      Int
+  265:65  `acc`                          Int
+  265:71  `n`                            Int
+  269:16  `"iteration"`                  Str
+  270:18  `filter(iter(word), c -> c …`  Mut List<Char>  -> core.seq::filter(Mut It, (T) -> Bool)
+  270:25  `iter(word)`                   Mut StrYield  -> core.string::iter
+  270:30  `word`                         Str
+  270:37  `c -> c == 'i' || c == 'o'`    (Char) -> Bool
+  270:42  `c == 'i' || c == 'o'`         Bool
+  270:42  `c == 'i'`                     Bool
+  270:42  `c`                            Char
+  270:47  `'i'`                          Char
+  270:54  `c == 'o'`                     Bool
+  270:54  `c`                            Char
+  270:59  `'o'`                          Char
+  271:5   `println("5. vowels: ${size…`  None  -> core.console::println
+  271:13  `"5. vowels: ${size(vowels)…`  Str
+  271:27  `size(vowels)`                 Int  -> core.list::size
+  271:32  `vowels`                       Mut List<Char>  [coerced]
+  274:5   `println("5. halving total …`  None  -> core.console::println
+  274:13  `"5. halving total ${reduce…`  Str
+  274:33  `reduce(halving(20), 0, (ac…`  Int  -> core.seq::reduce(Mut It, A, (A, T) -> A)
+  274:40  `halving(20)`                  Mut Halving  -> main::halving
+  274:48  `20`                           Int
+  274:53  `0`                            Int
+  274:56  `(acc, n) -> acc + n`          (Int, Int) -> Int
+  274:68  `acc + n`                      Int
+  274:68  `acc`                          Int
+  274:74  `n`                            Int
+  281:21  `map_to(Mut List<Int>(), co…`  Mut List<Int>  -> core.seq::map_to
+  281:28  `Mut List<Int>()`              Mut List<Int>  -> core.list::Mut_List()
+  281:45  `countdown(3)`                 Mut Countdown  -> main::countdown
+  281:55  `3`                            Int
+  281:59  `(n: Int) -> n * 10`           (Int) -> Int
+  281:71  `n * 10`                       Int
+  281:71  `n`                            Int
+  281:75  `10`                           Int
+  282:5   `println("6. collected ${si…`  None  -> core.console::println
+  282:13  `"6. collected ${size(colle…`  Str
+  282:29  `size(collected)`              Int  -> core.list::size
+  282:34  `collected`                    Mut List<Int>  [coerced]
+  288:17  `Mut Str()`                    Mut Str  -> core.string::Mut_Str
+  289:5   `for i in range(0, 10, 2) {…`  None
+  289:14  `range(0, 10, 2)`              Mut Range  -> core.range::range(Int, Int, Int)
+  289:20  `0`                            Int
+  289:23  `10`                           Int
+  289:27  `2`                            Int
+  290:9   `append(evens, "${i} ")`       None  -> core.string::append
+  290:16  `evens`                        Mut Str
+  290:23  `"${i} "`                      Str
+  290:26  `i`                            Int
+  292:5   `println("7. evens ${evens}…`  None  -> core.console::println
+  292:13  `"7. evens ${evens}"`          Str
+  292:25  `evens`                        Mut Str  [coerced]
