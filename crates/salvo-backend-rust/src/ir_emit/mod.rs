@@ -453,6 +453,16 @@ impl<'p> Shared<'p> {
         })
     }
 
+    /// [route-stub] A handler the IR generated (a route), by its key, which
+    /// names its module like a generated enum's.
+    pub fn generated_impl(&self, key: &str) -> Option<(&'p ImplDecl, ModulePath)> {
+        let module = salvo_core::typekey::module_of(key)?;
+        self.ir.modules.iter().filter(|m| m.path.0.join(".") == module).flat_map(|m| &m.decls).find_map(|d| match d {
+            Decl::Impl(h) if salvo_core::ir::enum_key(&h.name, &h.id.module) == key => Some((h, h.id.module.clone())),
+            _ => None,
+        })
+    }
+
     /// [actor-msg] The generated enum a type key names, and its module.
     pub fn generated_enum(&self, key: &str) -> Option<(&'p salvo_core::ir::EnumDecl, ModulePath)> {
         let module = salvo_core::typekey::module_of(key)?;
@@ -471,7 +481,7 @@ impl<'p> Shared<'p> {
 
     pub fn impl_decl(&self, key: &str) -> Option<&'p ImplDecl> {
         if !self.symbols.handlers.contains_key(key) {
-            return None;
+            return self.generated_impl(key).map(|(h, _)| h);
         }
         let all = || self.ir.modules.iter().flat_map(|m| &m.decls);
         all().find_map(|d| match d {
@@ -909,8 +919,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         match self.s.symbols.key_modules.get(key) {
             Some(m) => format!("{}{}", self.s.prefix(m), rs_ident(plain)),
             // [actor-msg] A generated enum is keyed by its module.
-            None => match self.s.generated_enum(key) {
-                Some((_, m)) => format!("{}{}", self.s.prefix(&m), rs_ident(plain)),
+            None => match self.s.generated_enum(key).map(|(_, m)| m).or_else(|| self.s.generated_impl(key).map(|(_, m)| m)) {
+                Some(m) => format!("{}{}", self.s.prefix(&m), rs_ident(plain)),
                 None => rs_ident(plain),
             },
         }

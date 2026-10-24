@@ -302,17 +302,17 @@ fn main::find(lent lookup: Lookup; moved key: Str) -> Str {
 }
 
 fn main::two_ids(lent leader: Leader, lent console: Console; moved seq: eff[ActorGroup<Sequencer>]) -> None {
-  bind#1 let __use~1: Elected<Sequencer> = construct Elected<Sequencer> { __dep0: read leader }
+  bind#1 let __use~1: Elected<Sequencer> = construct Elected<Sequencer> { config: call net::default_route_config(), __dep0: read leader }
   bind#2 let __handle~2: RouteSelector<Sequencer> = handle[RouteSelector<Sequencer>](read __use~1)
-  bind#3 let __use~3: __Route_Sequencer = construct __Route_Sequencer { group: read seq, config: call net::default_route_config(), __dep0: read __handle~2 }
+  bind#3 let __use~3: __Route_Sequencer = construct __Route_Sequencer { group: read seq, __dep0: read __handle~2 }
   bind#4 let __handle~4: Sequencer = handle[Sequencer](read __use~3)
   call core.console::println(read console, concat("  ", call main::fresh_id(read __handle~4), " ", call main::fresh_id(read __handle~4)))
 }
 
 fn main::shop(lent console: Console; moved stock: eff[ActorGroup<Inventory>]) -> None {
-  bind#1 let __use~1: Sharded<Inventory> = construct Sharded<Inventory> { }
+  bind#1 let __use~1: Sharded<Inventory> = construct Sharded<Inventory> { config: call net::default_route_config() }
   bind#2 let __handle~2: RouteSelector<Inventory> = handle[RouteSelector<Inventory>](read __use~1)
-  bind#3 let __use~3: __Route_Inventory = construct __Route_Inventory { group: read stock, config: call net::default_route_config(), __dep0: read __handle~2 }
+  bind#3 let __use~3: __Route_Inventory = construct __Route_Inventory { group: read stock, __dep0: read __handle~2 }
   bind#4 let __handle~4: Inventory = handle[Inventory](read __use~3)
   call main::checkout(read __handle~4, read console, call core.list::List(T, T[])<Str>("apple", array[Str[]]("pear", "apple", "fig", "pear")))
 }
@@ -423,45 +423,25 @@ fn main::main() -> None {
   call main::two_ids(read __handle~6, read __handle~2, !read seq)
 }
 
-impl __Route_Inventory(lent group: eff[ActorGroup<Inventory>], lent config: RouteConfig) of any Inventory deps [RouteSelector<Inventory>] stateful {
+export impl __Route_Inventory(lent group: eff[ActorGroup<Inventory>]) of any Inventory deps [RouteSelector<Inventory>] stateful {
   mailbox construct Mailbox { capacity: 1 }
   state seen: Long = -1L
-  fn reserve(lent sku: Str, lent qty: Int, lent out: Reply<Str>) -> None {
-    bind#1 let __pick: RoutePick<Inventory> = call net::route_pick(eff[ActorGroup<E>], RouteConfig, Long, Long)<Inventory>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen), call net::key_hash<Str>(read sku))
-    assign seen = call core.basic::copy<Long>(read __pick.version)
+  fn reserve(moved sku: Str, lent qty: Int, moved out: Reply<Str>) -> None {
+    obligation gain-params [out]
+    bind#1 let __pick: RoutePick<Inventory> = call net::route_pick(eff[ActorGroup<E>], Long, Long)<Inventory>(read __dep0, read group, read seen, call net::key_hash<Str>(read sku))
+    assign seen = read __pick.version
     obligation release [out]
-    send main::Inventory#0(read __pick.to, read sku, read qty, !read out)
+    send main::Inventory#0(read __pick.to, !read sku, !read qty, !read out)
   }
 }
 
-impl __Route_Lookup(lent group: eff[ActorGroup<Lookup>], lent config: RouteConfig) of any Lookup deps [RouteSelector<Lookup>] stateful {
+export impl __Route_Sequencer(lent group: eff[ActorGroup<Sequencer>]) of any Sequencer deps [RouteSelector<Sequencer>] stateful {
   mailbox construct Mailbox { capacity: 1 }
   state seen: Long = -1L
-  fn lookup(lent key: Str, lent out: Reply<Str>) -> None {
-    bind#1 let __pick: RoutePick<Lookup> = call net::route_pick(eff[ActorGroup<E>], RouteConfig, Long)<Lookup>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen))
-    assign seen = call core.basic::copy<Long>(read __pick.version)
-    obligation release [out]
-    send main::Lookup#0(read __pick.to, read key, !read out)
-  }
-}
-
-impl __Route_Search(lent group: eff[ActorGroup<Search>], lent config: RouteConfig) of any Search deps [RouteSelector<Search>] stateful {
-  mailbox construct Mailbox { capacity: 1 }
-  state seen: Long = -1L
-  fn query(lent word: Str, lent out: Reply<Int>) -> None {
-    bind#1 let __pick: RoutePick<Search> = call net::route_pick(eff[ActorGroup<E>], RouteConfig, Long)<Search>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen))
-    assign seen = call core.basic::copy<Long>(read __pick.version)
-    obligation release [out]
-    send main::Search#0(read __pick.to, read word, !read out)
-  }
-}
-
-impl __Route_Sequencer(lent group: eff[ActorGroup<Sequencer>], lent config: RouteConfig) of any Sequencer deps [RouteSelector<Sequencer>] stateful {
-  mailbox construct Mailbox { capacity: 1 }
-  state seen: Long = -1L
-  fn next(lent out: Reply<Str>) -> None {
-    bind#1 let __pick: RoutePick<Sequencer> = call net::route_pick(eff[ActorGroup<E>], RouteConfig, Long)<Sequencer>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen))
-    assign seen = call core.basic::copy<Long>(read __pick.version)
+  fn next(moved out: Reply<Str>) -> None {
+    obligation gain-params [out]
+    bind#1 let __pick: RoutePick<Sequencer> = call net::route_pick(eff[ActorGroup<E>], Long)<Sequencer>(read __dep0, read group, read seen)
+    assign seen = read __pick.version
     obligation release [out]
     send main::Sequencer#0(read __pick.to, !read out)
   }
@@ -554,14 +534,6 @@ enum __Cont_Booting {
 
 enum __Cont___Route_Inventory {
   Reserve(sku: Str, qty: Int)
-}
-
-enum __Cont___Route_Lookup {
-  Lookup(key: Str)
-}
-
-enum __Cont___Route_Search {
-  Query(word: Str)
 }
 
 enum __Cont___Route_Sequencer {
@@ -781,28 +753,6 @@ fn __dispatch___Route_Inventory_Inventory(lent_mut __handler: __Route_Inventory,
       obligation gain [out]
       obligation release [out]
       handler_call main::Inventory#0(read __handler, !read sku, !read qty, !read out)
-    }
-  }
-}
-
-fn __dispatch___Route_Lookup_Lookup(lent_mut __handler: __Route_Lookup, moved __msg: __Msg_Lookup) -> None {
-  switch#1 read __msg {
-    arm#0 (arm 0) {
-      unpack#2 (key: Str, out: Reply<Str>) = __msg as variant 0
-      obligation gain [out]
-      obligation release [out]
-      handler_call main::Lookup#0(read __handler, !read key, !read out)
-    }
-  }
-}
-
-fn __dispatch___Route_Search_Search(lent_mut __handler: __Route_Search, moved __msg: __Msg_Search) -> None {
-  switch#1 read __msg {
-    arm#0 (arm 0) {
-      unpack#2 (word: Str, out: Reply<Int>) = __msg as variant 0
-      obligation gain [out]
-      obligation release [out]
-      handler_call main::Search#0(read __handler, !read word, !read out)
     }
   }
 }

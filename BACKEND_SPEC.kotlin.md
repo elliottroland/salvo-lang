@@ -967,7 +967,10 @@ nothing but the monitor.
   to Rust's). Intrinsics as in Rust; `key_hash` encodes with the
   argument's codec and hashes `toByteArray()`. An erased struct's codec is
   monomorphic (`__Codec_RouteMember`, no argument codecs), and an erased
-  handler is constructed without type arguments (`Sharded()`).
+  handler is constructed without type arguments (`Sharded()`). The route
+  the IR derives for a protocol lives in the protocol's package and is
+  qualified by its module-keyed name where `use any` constructs it
+  (`generated_impl_module`).
 * [kt-actor] [handler-init] `init` is one more private member: a plain `fun
   init()` on the class (a soft keyword in Kotlin, legal as a method name),
   `__Priv_H.Init`, dispatched by `__dispatch_priv_H`. A spawn sends it right after

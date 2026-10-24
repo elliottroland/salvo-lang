@@ -1159,6 +1159,7 @@ object __Codec_RouteConfig : salvo.WireCodec<RouteConfig> {
 interface RouteSelector {
     fun changed(view: RouteView)
     fun select(view: RouteView, key: Long?): Int?
+    fun config(): RouteConfig
 }
 
 class __Mon_RouteSelector(
@@ -1175,6 +1176,11 @@ class __Mon_RouteSelector(
         lock.lock()
         try { return inner.select(view, key) } finally { lock.unlock() }
     }
+    override fun config(): RouteConfig {
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.config() } finally { lock.unlock() }
+    }
 }
 
 data class RoutePick(
@@ -1190,17 +1196,18 @@ object __Codec_RoutePick : salvo.WireCodec<RoutePick> {
     override fun dec(inp: salvo.WireIn): RoutePick = RoutePick(salvo.AddrCodec.dec(inp), salvo.LongCodec.dec(inp))
 }
 
-fun routePick__Addr_RouteConfig_Long(routeSelector: RouteSelector, group: Int, config: RouteConfig, seen: Long): RoutePick {
-    return routeKeyed(routeSelector, group, config, seen, null)
+fun routePick__Addr_Long(routeSelector: RouteSelector, group: Int, seen: Long): RoutePick {
+    return routeKeyed(routeSelector, group, seen, null)
 }
 
-fun routePick__Addr_RouteConfig_Long_Long(routeSelector: RouteSelector, group: Int, config: RouteConfig, seen: Long, key: Long): RoutePick {
-    return routeKeyed(routeSelector, group, config, seen, key)
+fun routePick__Addr_Long_Long(routeSelector: RouteSelector, group: Int, seen: Long, key: Long): RoutePick {
+    return routeKeyed(routeSelector, group, seen, key)
 }
 
-fun routeKeyed(routeSelector: RouteSelector, group: Int, config: RouteConfig, seen: Long, key: Long?): RoutePick {
-    var wait: Long = config.firstWait.nanos
-    val cap: Long = config.maxWait.nanos
+fun routeKeyed(routeSelector: RouteSelector, group: Int, seen: Long, key: Long?): RoutePick {
+    val waits: RouteConfig = routeSelector.config()
+    var wait: Long = waits.firstWait.nanos
+    val cap: Long = waits.maxWait.nanos
     var last: Long = seen
     while (true) {
         val version: Long = viewVersion(group)
@@ -1220,8 +1227,8 @@ fun routeKeyed(routeSelector: RouteSelector, group: Int, config: RouteConfig, se
             wait = cap
         }
     }
-    throw AssertionError("salvo: unreachable at net:1080:5")
-    return routeKeyed(routeSelector, group, config, seen, key)
+    throw AssertionError("salvo: unreachable at net:1087:5")
+    return routeKeyed(routeSelector, group, seen, key)
 }
 
 fun routeView(group: Int): RouteView {
@@ -1232,7 +1239,10 @@ fun routeView(group: Int): RouteView {
     return RouteView(members = members.toMutableList())
 }
 
-class LeastLoaded(private val preferLocal: Boolean) : RouteSelector {
+class LeastLoaded(private val preferLocal: Boolean, private val config: RouteConfig) : RouteSelector {
+    override fun config(): RouteConfig {
+        return config
+    }
     override fun changed(view: RouteView) {
     }
     override fun select(view: RouteView, key: Long?): Int? {
@@ -1274,7 +1284,10 @@ class LeastLoaded(private val preferLocal: Boolean) : RouteSelector {
     }
 }
 
-class Sharded : RouteSelector {
+class Sharded(private val config: RouteConfig) : RouteSelector {
+    override fun config(): RouteConfig {
+        return config
+    }
     override fun changed(view: RouteView) {
     }
     override fun select(view: RouteView, key: Long?): Int? {
@@ -1333,8 +1346,11 @@ class StaticLeader(private val node: NodeId) : Leader {
     }
 }
 
-class Elected(private val __dep0: Leader) : RouteSelector {
+class Elected(private val config: RouteConfig, private val __dep0: Leader) : RouteSelector {
     var chosen: Int? = null
+    override fun config(): RouteConfig {
+        return config
+    }
     override fun changed(view: RouteView) {
         chosen = null
         val l: NodeId = kotlin.run {

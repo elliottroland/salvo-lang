@@ -14476,7 +14476,7 @@ fn main() [use, spawn] {
     spawn Stocking("s2") on p in stock
 
     use Sharded<Inventory>()
-    use route_any(stock)
+    use any stock
     checkout(List("apple", "pear", "apple", "fig", "pear"))
 }
 "#;
@@ -14556,13 +14556,13 @@ fn main() [use, spawn] {
 
     // Least loaded, local first: every id comes from a's member.
     use LeastLoaded<Sequencer>(true)
-    use route_any(copy(seq))
+    use any copy(seq)
     println("${fresh_id()} ${fresh_id()}")
 
     // Elected: the leader is b's node, so ids come from b's member.
     use StaticLeader(node_of(remote))
     use Elected<Sequencer>()
-    use route_any(seq)
+    use any seq
     println("${fresh_id()} ${fresh_id()}")
 }
 "#;

@@ -4980,12 +4980,13 @@ impl<'s> Parser<'s> {
                 let start = self.bump().span;
                 // [eff-handle] Share one parser with the expression form; the
                 // statement is the discarded-value case.
-                let Expr::Use { handler, with_items, span } = self.parse_use_expr(start)? else {
+                let Expr::Use { handler, with_items, any, span } = self.parse_use_expr(start)? else {
                     return None;
                 };
                 Some(Stmt::Use {
                     handler: *handler,
                     with_items,
+                    any,
                     span,
                 })
             }
@@ -7927,6 +7928,19 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_use_expr(&mut self, start: Span) -> Option<Expr> {
+        // [route-stub] `use any group`: bind a group handle as `any E`, one
+        // member per send (user decision R7). `any` is a contextual word —
+        // std has an `any(list, pick)` fn — so the route form is `any`
+        // followed by an operand that does not open a call or a member.
+        if self.at_word("any")
+            && !self.peek_at(1).newline_before
+            && !matches!(self.peek_at(1).kind, TokenKind::LParen | TokenKind::Dot | TokenKind::Lt)
+        {
+            self.bump();
+            let group = self.parse_expr()?;
+            let span = start.to(group.span());
+            return Some(Expr::Use { handler: Box::new(group), with_items: Vec::new(), any: true, span });
+        }
         let handler = self.parse_expr()?;
         let with_items = self.parse_with_clause()?;
         // [actor-use-addr] `use H(args) on POOL` — the sugar: lower to a
@@ -7948,6 +7962,7 @@ impl<'s> Parser<'s> {
             return Some(Expr::Use {
                 handler: Box::new(handler),
                 with_items: Vec::new(),
+                any: false,
                 span,
             });
         }
@@ -7955,6 +7970,7 @@ impl<'s> Parser<'s> {
         Some(Expr::Use {
             handler: Box::new(handler),
             with_items,
+            any: false,
             span: start.to(end),
         })
     }

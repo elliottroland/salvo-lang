@@ -283,7 +283,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 unsupported(self.ty_of(span), span, "self-scoped value")
             }
             AExpr::SelfAddr { .. } => Expr { ty: self.ty_of(span), span, kind: ExprKind::SelfAddr },
-            AExpr::Use { handler, with_items, span } => self.use_expr(handler, with_items, *span),
+            AExpr::Use { handler, with_items, span, .. } => self.use_expr(handler, with_items, *span),
             AExpr::Project { base, span, .. } => self.project_expr(base, *span),
             AExpr::Merge { items, all, span } => self.merge_expr(items, *all, *span),
             AExpr::Spawn { handler, with_items, pool, join, .. } => {
@@ -2904,7 +2904,17 @@ impl<'a, 'p> Lower<'a, 'p> {
         // `use H(args)`: a construct, then one instance per face.
         let deps: Vec<Ty> = info.use_deps.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
         let items: Vec<Option<usize>> = info.use_with_items.cloned().unwrap_or_else(|| vec![None; deps.len()]);
-        let Some(construct) = self.construct_handler(handler, &deps, &items, with_items, span) else {
+        // [route-stub] `use any group`: the route derived for the protocol
+        // (`actors::generate`), over the group and the selector in scope.
+        let route = self.ctx.checked.route_uses.get(&key).cloned().map(|effect| {
+            let module = self.ctx.symbols.key_modules.get(effect.as_str()).map(|m| (*m).clone()).unwrap_or(crate::ModulePath(Vec::new()));
+            let group = self.expr(handler);
+            let selector = deps.first().map(|d| self.effect_instance(d, span));
+            let mut fields = vec![("group".to_string(), group)];
+            fields.extend(selector.map(|s| ("__dep0".to_string(), s)));
+            Expr { ty: Ty::Named { name: crate::ir::build::actors::route_key(&effect, &module), args: Vec::new() }, span, kind: ExprKind::Construct { fields } }
+        });
+        let Some(construct) = route.or_else(|| self.construct_handler(handler, &deps, &items, with_items, span)) else {
             self.error(span, "`use` of something that is not a handler construction");
             return (vec![Stmt::Expr(unsupported(Ty::Unknown, span, "use"))], Vec::new());
         };
@@ -2971,8 +2981,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             _ => return None,
         };
         let key = self.key(span);
-        let hname = self.ctx.checked.route_stubs.get(&key).cloned().unwrap_or(name);
-        let hkey = self.ctx.checked.visible_handler_key(self.file_idx, &hname).to_string();
+        let hkey = self.ctx.checked.visible_handler_key(self.file_idx, &name).to_string();
         let decl = self.ctx.symbols.handlers.get(hkey.as_str()).copied()?;
         let call_span = handler.span();
         let handler_ty = Ty::Named {

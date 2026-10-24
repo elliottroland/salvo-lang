@@ -225,9 +225,9 @@ handler RoundRobin(members: List<eff[Resizer]>) of any Resizer { … }   // forw
 
 Bare `[E]` keeps the strong meaning, so binding a group where `[Resizer]` is required is an error at the call, and a program written before groups existed cannot be broken by binding one under it. `[any E]` accepts every binding — a single instance is a group of one — and is viral downward. The full rule is in [Effects and handlers](Effects-and-Handlers.md#many-instances-any-e-and-of-any-e).
 
-### Routing: `use route_any(group)` and `RouteSelector<E>`
+### Routing: `use any group` and `RouteSelector<E>`
 
-A program that wants *a* member rather than the set binds the group as the effect itself. `use route_any(stock)` binds `any Inventory` — each send goes to whichever member a **selector** chooses — and the selector is an ordinary handler bound just before it:
+A program that wants *a* member rather than the set binds the group as the effect itself. `use any stock` binds `any Inventory` — each send goes to whichever member a **selector** chooses — and the selector is an ordinary handler bound just before it:
 
 ```
 actor effect Inventory {
@@ -239,11 +239,11 @@ fn checkout(skus: List<Str>) [any Inventory, Console] -> None { … }   // `any`
 let stock = actor_group<Inventory>(nodes)
 spawn Stocking("s1") on p in stock
 use Sharded<Inventory>()          // the selector: the member that owns the key…
-use route_any(stock)              // …and the route, binding `any Inventory`
+use any stock                     // …and the route, binding `any Inventory`
 checkout(["apple", "pear", "apple"])   // "apple" lands on the same shard both times
 ```
 
-The route is a handler the compiler writes for you: one `of any Inventory` whose every member asks `RouteSelector<Inventory>` which member takes this send and forwards to it. A selector works in two phases over a **view** of the group — every member the local replica knows, with `local` beside each, in the same order on every node:
+The route is a handler the compiler derives for you, once per protocol: one `of any Inventory` whose every member asks `RouteSelector<Inventory>` which member takes this send and forwards to it. A selector works in two phases over a **view** of the group — every member the local replica knows, with `local` beside each, in the same order on every node:
 
 ```
 effect RouteSelector<E> {
@@ -252,7 +252,7 @@ effect RouteSelector<E> {
 }
 ```
 
-`changed` runs when the view has moved since the selector last saw it — a member joined or left, or the group was **refreshed** — and the selector keeps what it derives in its own state: a probability per member, a leader, a ring. `select` runs per send, with the same view and the hash of the send's `Key` argument when the protocol marks one; a selector that wants load reads it then, with `pending(addr)`, since load changes with every send. `None` makes the send wait, so an empty group and a group without a leader wait rather than fail: it waits 1 ms, doubling up to 5 s, and wakes at once whenever the view moves. `use route_any(group, RouteConfig { first_wait: …, max_wait: … })` sets the two. The view is a mirror the replica keeps in the runtime, read on the sender's thread: no hop to the replica, and the replica is never in the send path.
+`changed` runs when the view has moved since the selector last saw it — a member joined or left, or the group was **refreshed** — and the selector keeps what it derives in its own state: a probability per member, a leader, a ring. `select` runs per send, with the same view and the hash of the send's `Key` argument when the protocol marks one; a selector that wants load reads it then, with `pending(addr)`, since load changes with every send. `None` makes the send wait, so an empty group and a group without a leader wait rather than fail: it waits 1 ms, doubling up to 5 s, and wakes at once whenever the view moves. The waits are the selector's: std's selectors take an optional `config` (`use Sharded<Inventory>(config = RouteConfig { first_wait: …, max_wait: … })`), and a selector of your own answers `config()`. The view is a mirror the replica keeps in the runtime, read on the sender's thread: no hop to the replica, and the replica is never in the send path.
 
 Something a selector reads outside the view — an election's answer — reaches it the same way: whoever decides calls `refresh()` on the group when the answer changes, the view's version moves, and every route over it runs `changed` again. So a membership change and a leader change are one signal.
 

@@ -307,6 +307,7 @@ pub fn walk_stmt<V: Visitor>(v: &mut V, s: &Stmt) {
             handler,
             with_items,
             span,
+            ..
         } => {
             v.visit_span(span);
             walk_expr(v, handler);
@@ -836,6 +837,7 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
             handler,
             with_items,
             span,
+            ..
         } => {
             v.visit_span(span);
             walk_expr(v, handler);

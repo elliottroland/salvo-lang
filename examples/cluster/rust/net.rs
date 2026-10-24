@@ -1674,11 +1674,13 @@ impl crate::wire::__Wire for RouteConfig {
 pub trait __Stateless_RouteSelector: Send + Sync {
     fn changed(&self, view: &crate::net::RouteView);
     fn select(&self, view: &crate::net::RouteView, key: &Option<i64>) -> Option<usize>;
+    fn config(&self) -> crate::net::RouteConfig;
 }
 
 pub trait __Stateful_RouteSelector: Send {
     fn changed(&mut self, view: &crate::net::RouteView);
     fn select(&mut self, view: &crate::net::RouteView, key: &Option<i64>) -> Option<usize>;
+    fn config(&mut self) -> crate::net::RouteConfig;
 }
 
 pub struct RouteSelector {
@@ -1724,6 +1726,12 @@ impl RouteSelector {
             __Inner_RouteSelector::Locked(h) => h.lock().unwrap().select(view, key),
         }
     }
+    pub fn config(&self) -> crate::net::RouteConfig {
+        match &self.inner {
+            __Inner_RouteSelector::Shared(h) => h.config(),
+            __Inner_RouteSelector::Locked(h) => h.lock().unwrap().config(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1745,17 +1753,18 @@ impl crate::wire::__Wire for RoutePick {
     }
 }
 
-pub fn route_pick__Addr_RouteConfig_Long(route_selector: &crate::net::RouteSelector, mut group: usize, config: &crate::net::RouteConfig, mut seen: i64) -> crate::net::RoutePick {
-    return crate::net::route_keyed(route_selector, group, config, seen, None);
+pub fn route_pick__Addr_Long(route_selector: &crate::net::RouteSelector, mut group: usize, mut seen: i64) -> crate::net::RoutePick {
+    return crate::net::route_keyed(route_selector, group, seen, None);
 }
 
-pub fn route_pick__Addr_RouteConfig_Long_Long(route_selector: &crate::net::RouteSelector, mut group: usize, config: &crate::net::RouteConfig, mut seen: i64, mut key: i64) -> crate::net::RoutePick {
-    return crate::net::route_keyed(route_selector, group, config, seen, Some(key));
+pub fn route_pick__Addr_Long_Long(route_selector: &crate::net::RouteSelector, mut group: usize, mut seen: i64, mut key: i64) -> crate::net::RoutePick {
+    return crate::net::route_keyed(route_selector, group, seen, Some(key));
 }
 
-pub fn route_keyed(route_selector: &crate::net::RouteSelector, mut group: usize, config: &crate::net::RouteConfig, mut seen: i64, mut key: Option<i64>) -> crate::net::RoutePick {
-    let mut wait: i64 = config.first_wait.nanos;
-    let mut cap: i64 = config.max_wait.nanos;
+pub fn route_keyed(route_selector: &crate::net::RouteSelector, mut group: usize, mut seen: i64, mut key: Option<i64>) -> crate::net::RoutePick {
+    let mut waits: crate::net::RouteConfig = route_selector.config();
+    let mut wait: i64 = waits.first_wait.nanos;
+    let mut cap: i64 = waits.max_wait.nanos;
     let mut last: i64 = seen;
     loop {
         let mut version: i64 = crate::net::view_version(group);
@@ -1775,8 +1784,8 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, mut group: usize,
             wait = cap;
         };
     }
-    panic!("salvo: unreachable at net:1080:5");
-    return crate::net::route_keyed(route_selector, group, config, seen, key);
+    panic!("salvo: unreachable at net:1087:5");
+    return crate::net::route_keyed(route_selector, group, seen, key);
 }
 
 pub fn route_view(mut group: usize) -> crate::net::RouteView {
@@ -1790,12 +1799,14 @@ pub fn route_view(mut group: usize) -> crate::net::RouteView {
 #[derive(Clone)]
 pub struct LeastLoaded {
     prefer_local: bool,
+    config: crate::net::RouteConfig,
 }
 
 impl LeastLoaded {
-    pub fn new(prefer_local: bool) -> Self {
+    pub fn new(prefer_local: bool, config: crate::net::RouteConfig) -> Self {
         Self {
-            prefer_local
+            prefer_local,
+            config
         }
     }
 }
@@ -1840,16 +1851,20 @@ impl crate::net::__Stateless_RouteSelector for LeastLoaded {
         };
         return Some(chosen.addr);
     }
+    fn config(&self) -> crate::net::RouteConfig {
+        return (self.config).clone();
+    }
 }
 
 #[derive(Clone)]
 pub struct Sharded {
+    config: crate::net::RouteConfig,
 }
 
 impl Sharded {
-    pub fn new() -> Self {
+    pub fn new(config: crate::net::RouteConfig) -> Self {
         Self {
-            
+            config
         }
     }
 }
@@ -1889,6 +1904,9 @@ impl crate::net::__Stateless_RouteSelector for Sharded {
             }
         };
         return Some(picked.addr);
+    }
+    fn config(&self) -> crate::net::RouteConfig {
+        return (self.config).clone();
     }
 }
 
@@ -1959,13 +1977,15 @@ impl crate::net::__Stateless_Leader for StaticLeader {
 }
 
 pub struct Elected {
+    config: crate::net::RouteConfig,
     __dep0: crate::net::Leader,
     chosen: Option<usize>,
 }
 
 impl Elected {
-    pub fn new(__dep0: crate::net::Leader) -> Self {
+    pub fn new(config: crate::net::RouteConfig, __dep0: crate::net::Leader) -> Self {
         Self {
+            config: config.clone(),
             __dep0,
             chosen: None
         }
@@ -1995,6 +2015,9 @@ impl crate::net::__Stateful_RouteSelector for Elected {
     }
     fn select(&mut self, view: &crate::net::RouteView, key: &Option<i64>) -> Option<usize> {
         return (self.chosen).clone();
+    }
+    fn config(&mut self) -> crate::net::RouteConfig {
+        return (self.config).clone();
     }
 }
 

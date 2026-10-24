@@ -138,6 +138,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — `use any group`, and routes derived per protocol in the IR
+
+User decisions R7 (PIPELINE.md §3), PIPELINE §7 step 6's last sweep. `use
+route_any(group)` is respelled **`use any group`** (the statement reads like
+the `any E` it binds; `use any` on anything but an `eff[ActorGroup<E>]` is an
+error), and the route behind it is no longer an AST handler `route.rs` wrote
+into every routing module before resolution. Instead:
+
+- the checker types the operand, requires a `RouteSelector<E>` in scope,
+  and records the protocol (`route_uses`); a send member's `Key` parameter
+  is recorded at the effect (`route_keys`), and two `Key`s are refused there,
+  routed or not;
+- `ir::build::actors` derives one `__Route_E` per routed protocol, in the
+  protocol's module, before the dispatch phase gives it its enums — each
+  member `route_pick(group, seen[, key_hash(k)])`, `seen` updated, a send;
+- both emitters find it by its module-keyed name (`generated_impl`), as they
+  find generated enums.
+
+**Dropped**: the "no route stub for `X` in this module" refusal (the
+generator could only see what a module spelled) and the stubs nobody routed
+(`examples/cluster` lost `__Route_Lookup` and `__Route_Search`). **The waits
+moved to the policy** (option A): `RouteSelector<E>` gained `fn config() ->
+RouteConfig`, std's three policies take `config: RouteConfig =
+default_route_config()` (built for this as the previous piece, handler
+constructor defaults), and `route_pick` lost its `config` parameter.
+Deleted: `route.rs` (generator, respan helpers, synthetic imports,
+`default_route_config` rewriting) and `desugar::walk_module`, its only
+user. Left: the deadlock graph's router node existed only for the AST stub;
+a derived route has none, so a route's forwards count as its callers' sends
+(recorded in ROADMAP beside the multi-effect leftovers).
+
 ### 2026-10-20 — A handler's constructor parameters may have defaults
 
 User-approved, PIPELINE.md §3 R7: the prerequisite of R7's route config on

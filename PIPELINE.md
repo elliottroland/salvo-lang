@@ -686,34 +686,14 @@ log current so the work can resume after a context reset). Newest last.
   ("Let a handler's constructor parameters have defaults") — [fn-param-default]
   for `use`, `spawn` and `with` constructions, the prerequisite of R7's
   option A.
-- **Step 6, piece 5 (route stubs derived per effect in the IR): decided
-  (R7), next after 5a.** Build: `Stmt::Use.any` parsed from `use any e`;
-  the checker types `e` as `eff[ActorGroup<X>]` (else an error), requires a
-  `RouteSelector<X>` in scope, records `route_uses[site] = X` and the dep,
-  binds `any X`; the two-`Key` error and a `route_keys` table at the effect
-  declaration; `actors::generate` derives `__Route_X` per routed `X` in X's
-  module before Phase 2 (body: `route_pick(group, seen[, key_hash(k)])`
-  with the config read from the selector, `seen` assigned, the send);
-  `construct_handler` builds it from `route_uses`; deadlock router node per
-  routed `X`; `route.rs`'s generator and `default_route_config` rewrite
-  deleted. Survey, as written before R7: Today `route.rs`
-  writes a `__Route_X` AST handler into every *routing* module before
-  resolution (plain-name effect table, first declarer wins; synthetic
-  imports; spans past EOF), and `use route_any(g)` is checked as a
-  construction of it found by plain name (`check.rs` ~10195, the `Ping§main`
-  failure of piece 4 of step 5). The plan: the checker records
-  `route_uses[site] = X` (key) and checks the use against a virtual signature
-  `(group: eff[ActorGroup<X>], config: RouteConfig) [RouteSelector<X>] of any
-  X`; `actors::generate` derives one `__Route_X` impl per routed effect in
-  `X`'s module (body: `route_pick`/`key_hash`/`copy` by key, the `Key` index
-  recorded at interface lowering since `is_route_key` erases it); the
-  deadlock router node is synthesized per routed `X`; `route.rs`'s generator
-  deleted. Questions: (1) drop the "no route stub for `X` in this module"
-  refusal (only syntactic generation needed it); (2) the "marks N parameters
-  `Key`" error moves to the effect declaration, so it fires for an effect
-  nobody routes; (3) one stub per protocol in `X`'s module instead of one
-  per routing module (visible in emitted paths and `examples/cluster`);
-  (4) `spawn route_any(…)` stays unsupported.
+- **Step 6, piece 5 (route stubs derived per effect in the IR): done,
+  committed "Spell routes as use any, and derive them in the IR".** As
+  planned under R7: `Stmt::Use.any`, `check_use_any`, `route_uses` and
+  `route_keys`, Phase 1b in `actors::generate`, `generated_impl` in both
+  emitters, `RouteSelector.config()` with std's policies taking `config`;
+  `route.rs` and `desugar::walk_module` deleted. One loss recorded in
+  ROADMAP: the deadlock router node (the derived route is not an AST
+  handler). **Step 6 is complete.**
 - **Step 6, piece 4 (comptime lookups through scopes): done, committed
   "Look comptime names up through each file's scope".** Step A of the
   comptime row: `resolve_sources` over the unstamped program, `FileNames`

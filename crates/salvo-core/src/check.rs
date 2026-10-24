@@ -550,6 +550,9 @@ pub struct PredicateArg {
     pub copy: bool,
 }
 
+/// [route-stub] The std qualifier marking a protocol member's key parameter.
+const ROUTE_KEY_QUALIFIER: &str = "Key";
+
 /// The checker's output.
 #[derive(Clone, Default)]
 pub struct Checked {
@@ -643,10 +646,14 @@ pub struct Checked {
     /// [effect-handler-multi] Several entries when the handler wears several
     /// faces: a `use` binds every effect it implements, in declaration order.
     pub use_effects: HashMap<Key, Vec<Ty>>,
-    /// [route-stub] `use route_any(group)` sites, mapped to the generated handler
-    /// they construct (`__Route_E`): the emitters build that handler where the
-    /// program wrote `route`.
-    pub route_stubs: HashMap<Key, String>,
+    /// [route-stub] `use any group` sites, mapped to the protocol they route
+    /// (its type key): the IR derives one `__Route_X` per routed protocol and
+    /// constructs it where the program wrote the `use`.
+    pub route_uses: HashMap<Key, String>,
+    /// [route-stub] Per actor effect (by key), each send member's
+    /// `Key`-marked parameter, by member name: what the derived route
+    /// hashes. Recorded at the effect, since lowering erases `Key`.
+    pub route_keys: HashMap<String, HashMap<String, String>>,
     /// [actor-replyto] [effect-handle] The handlers whose members **mint** a
     /// continuation (`replyto`), by name: they write their parked-continuation
     /// table, which makes them stateful for the handle's purposes
@@ -1342,7 +1349,7 @@ impl Checked {
     /// a new table is a compile error here until it says whether it is
     /// per file.
     fn drop_files(&mut self, files: &HashSet<usize>) {
-        let Checked { expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_stubs, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, binding_modes, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, virtual_place_binds, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors, decl_effects, handler_deps, effect_prereqs } = self;
+        let Checked { expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_uses, route_keys, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, binding_modes, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, virtual_place_binds, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors, decl_effects, handler_deps, effect_prereqs } = self;
         expr_ty.retain(|k, _| !files.contains(&k.0));
         comparisons.retain(|k, _| !files.contains(&k.0));
         arm_compares.retain(|k, _| !files.contains(&k.0));
@@ -1361,7 +1368,8 @@ impl Checked {
         // `refinements`: not written per file by a walk (or, `errors`, handled by the caller).
         let _ = refinements;
         use_effects.retain(|k, _| !files.contains(&k.0));
-        route_stubs.retain(|k, _| !files.contains(&k.0));
+        route_uses.retain(|k, _| !files.contains(&k.0));
+        let _ = route_keys; // by effect key, rewritten when its declaration is checked
         // `parking_handlers`: not written per file by a walk (or, `errors`, handled by the caller).
         let _ = parking_handlers;
         // `protocol_hashes`: not written per file by a walk (or, `errors`, handled by the caller).
@@ -1527,7 +1535,7 @@ impl Checked {
 
     /// [unify-checker] The `use`-statement facts at one span, in one lookup
     /// (COMPLETED.md's unify-checker entry, the use cluster): the faces to bind, whether it is a
-    /// `use addr`, and the dependency wiring. (`route_stubs`/`use_handler_args`
+    /// `use addr`, and the dependency wiring. (`route_uses`/`use_handler_args`
     /// are read in the handler-construction helper at a different span, so they
     /// stay direct.)
     pub fn use_info(&self, key: Key) -> UseInfo<'_> {
@@ -3997,7 +4005,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let saved_can_spawn = std::mem::replace(&mut self.can_spawn, true);
             self.locals.push(HashMap::new());
             for u in &module.uses {
-                self.check_use(&u.handler, &[], u.span);
+                self.check_use(&u.handler, &[], false, u.span);
             }
             self.locals.pop();
             self.can_use = saved_can_use;
@@ -4484,6 +4492,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::EffectAlias(a) => self.check_effect_alias(a),
                 Item::Effect(e) => {
                     self.check_effect_prereqs(e);
+                    self.check_route_keys(e);
                     self.check_effect_member_signatures(e);
                     // [actor-effect-kind] The kind's own rules: what an
                     // `actor effect` may declare, and that `send fn` needs one.
@@ -10143,6 +10152,106 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [route-stub] A send member's `Key`-marked parameter is what a route
+    /// over the protocol hashes, so a member marks at most one — refused at
+    /// the effect's declaration whether or not anything routes it (user
+    /// decision R7). The marks are recorded by member, since lowering erases
+    /// the qualifier [qual-erasure].
+    fn check_route_keys(&mut self, e: &'p ast::EffectDecl) {
+        let mut keys: HashMap<String, String> = HashMap::new();
+        for f in e.fns.iter().filter(|f| f.is_send) {
+            let marked: Vec<&Param> = f
+                .params
+                .iter()
+                .filter(|p| matches!(&p.ty, ast::Type::Named { qualifiers, .. } if qualifiers.iter().any(|q| self.is_route_key(q))))
+                .collect();
+            if marked.len() > 1 {
+                self.error(
+                    f.name.span,
+                    format!(
+                        "`{}.{}` marks {} parameters `Key`; a member routes on at most one \
+                         [route-stub]",
+                        e.name.name,
+                        f.name.name,
+                        marked.len()
+                    ),
+                );
+            }
+            if let Some(p) = marked.first() {
+                keys.insert(f.name.name.clone(), p.name.name.clone());
+            }
+        }
+        if !keys.is_empty() {
+            self.out.route_keys.insert(self.symbols.key_or(e, &e.name.name).to_string(), keys);
+        }
+    }
+
+    /// [route-stub] `use any group` (user decision R7, replacing `use
+    /// route_any(group)`): `group` is a group handle, `eff[ActorGroup<X>]`
+    /// for a non-generic actor effect `X`, and the statement binds `any X` —
+    /// each send to whichever member the `RouteSelector<X>` in scope picks.
+    /// The route itself is derived per routed protocol in the IR
+    /// (`ir::build::actors`), so all the checker records is the protocol
+    /// (`route_uses`), the selector it depends on (`use_deps`) and the face.
+    fn check_use_any(&mut self, group: &'p Expr, span: Span) {
+        let ty = self.check_expr(group, None);
+        let effect = match addr_effect(&ty) {
+            Some(Ty::Named { name, args }) if crate::typekey::plain(&name) == "ActorGroup" && args.len() == 1 => {
+                match &args[0] {
+                    Ty::Named { name, args }
+                        if args.is_empty()
+                            && self.symbols.effects.get(name.as_str()).is_some_and(|e| e.is_actor && e.fns.iter().any(|f| f.is_send)) =>
+                    {
+                        Some(args_free(name))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        fn args_free(name: &str) -> Ty {
+            Ty::Named { name: name.to_string(), args: Vec::new() }
+        }
+        let Some(effect) = effect else {
+            if !ty.is_unknown() {
+                self.error(
+                    group.span(),
+                    format!(
+                        "`use any` binds a group handle — an `eff[ActorGroup<E>]` for a \
+                         non-generic actor effect `E` — and this is `{ty}` [route-stub]"
+                    ),
+                );
+            }
+            return;
+        };
+        // The route keeps the handle: it reads the group's view on every send.
+        self.fate_move(group, "store", "a `use any` route", group.span());
+        let Ty::Named { name: effect_key, .. } = &effect else { unreachable!() };
+        let shown = crate::typekey::plain(effect_key).to_string();
+        // Its one dependency: the policy that picks the member.
+        let selector = self.visible_avail().into_iter().find(|a| {
+            matches!(a.ty.strip_quals(), Ty::Named { name, args }
+                if crate::typekey::plain(name) == "RouteSelector" && args.len() == 1 && args[0] == effect)
+        });
+        let Some(selector) = selector else {
+            self.error(
+                span,
+                format!(
+                    "`use any` routes each send through a `RouteSelector<{shown}>` policy, and \
+                     none is in scope: bind one first — `use Sharded<{shown}>()`, \
+                     `use LeastLoaded<{shown}>(true)`, `use Elected<{shown}>()`, or a handler \
+                     of your own [route-stub]"
+                ),
+            );
+            return;
+        };
+        self.out.route_uses.insert(self.key(span), effect_key.clone());
+        self.out.use_deps.insert(self.key(span), vec![selector.ty]);
+        self.out.use_effects.insert(self.key(span), vec![effect.clone()]);
+        // [effect-any] A route promises no order: it binds the weak face.
+        self.effect_env.push(EffectAvail { ty: effect, declared: false, any: true });
+    }
+
     /// Checks a `use Handler(...)` statement [effect-use]: resolves the
     /// handler, types its constructor arguments (inferring the handler's
     /// generics from them), and registers the concrete effect instance in
@@ -10153,8 +10262,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         handler: &'p Expr,
         with_items: &'p [Expr],
+        any: bool,
         span: Span,
     ) {
+        if any {
+            self.check_use_any(handler, span);
+            return;
+        }
         // [actor-use-addr] `use H(args) on POOL` — the sugar (SH-7, user
         // decision 2026-09-19): the parser wrapped the construction in a
         // spawn expression, so checking the expression *is* the spawn, and
@@ -10210,57 +10324,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return;
             }
         }
-        // [route-stub] `use route_any(group)`: the generated `__Route_E` stub,
-        // for the `E` the group's type names. The expansion appended the
-        // stub to this module for every protocol it spelled; a `use` whose
-        // protocol it never spelled is refused, naming the fix.
-        let construction = if crate::route::is_route_call(handler) {
-            let Expr::Call { args, .. } = handler else { unreachable!() };
-            let group = &args[0];
-            let ty = match self.peek_place_ty(group) {
-                Some(ty) => ty,
-                None => self.check_expr(group, None),
-            };
-            let effect = match addr_effect(&ty) {
-                Some(Ty::Named { name, args }) if name == "ActorGroup" && args.len() == 1 => {
-                    match &args[0] {
-                        Ty::Named { name, args } if args.is_empty() => Some(name.clone()),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            };
-            let Some(effect) = effect else {
-                if !ty.is_unknown() {
-                    self.error(
-                        group.span(),
-                        format!(
-                            "`route_any` takes a group handle — an `eff[ActorGroup<E>]` for a \
-                             non-generic actor effect `E` — and this is `{ty}` [route-stub]"
-                        ),
-                    );
-                }
-                return;
-            };
-            let stub = crate::route::stub_name(&effect);
-            let Some(decl) = self.scope.handlers.get(stub.as_str()).copied() else {
-                self.error(
-                    span,
-                    format!(
-                        "no route stub for `{effect}` in this module: the stub is generated \
-                         where the module names the protocol as a group's — write \
-                         `actor_group<{effect}>(…)` or the type `Addr<ActorGroup<{effect}>>` in \
-                         this module, or route from the module that opened the group \
-                         [route-stub]"
-                    ),
-                );
-                return;
-            };
-            self.out.route_stubs.insert(self.key(span), stub);
-            Some((&decl.name, args.as_slice(), &[][..], &[][..]))
-        } else {
-            self.handler_construction(handler, "use")
-        };
+        let construction = self.handler_construction(handler, "use");
         let Some((id, args, written_type_args, named)) = construction else {
             return;
         };
@@ -19424,12 +19488,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [route-stub] Whether `q` is std `net`'s `Key` — the routing marker on a
-    /// protocol parameter. It is read **syntactically** by the stub generator
-    /// and **erased here**, so the parameter's type is the plain one and a
+    /// protocol parameter. It is recorded at the effect (`route_keys`, for the
+    /// route the IR derives) and **erased here**, so the parameter's type is the plain one and a
     /// caller passes a plain value: `Key` claims nothing about the value, it
     /// says which argument decides the member.
     fn is_route_key(&self, q: &TypeRef) -> bool {
-        q.name.name == crate::route::KEY_QUALIFIER
+        q.name.name == ROUTE_KEY_QUALIFIER
             && self
                 .scope
                 .name_origins
@@ -23739,6 +23803,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Stmt::Use {
                 handler,
                 with_items,
+                any,
                 span,
             } => {
                 // [use-requires-use] only `[use]` fns may register handlers.
@@ -23748,7 +23813,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         "`use` requires the `use` effect in the function's effect list",
                     );
                 }
-                self.check_use(handler, with_items, *span);
+                self.check_use(handler, with_items, *any, *span);
                 Ty::none()
             }
             Stmt::Expr(e) => {
@@ -25219,8 +25284,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             // face is `eff[E]`; several is a *tuple* of single handles
             // `(eff[A], eff[B])` — the IR already binds one handle per face,
             // so the value is a tuple of them, mirroring a multi-face `spawn`.
-            Expr::Use { handler, with_items, span } => {
-                self.check_use(handler, with_items, *span);
+            Expr::Use { handler, with_items, any, span } => {
+                self.check_use(handler, with_items, *any, *span);
                 let faces = self
                     .out
                     .use_effects

@@ -1,7 +1,6 @@
 //! Compiler middle-end: source-set assembly, name resolution, type
 //! checking, and (later) IR lowering.
 
-pub mod route;
 pub mod features;
 pub mod copyplan;
 pub mod param_mode;

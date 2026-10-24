@@ -260,7 +260,7 @@ fn main() [use] {
   node to the wire), opens an `actor_group<E>` per protocol, and `spawn H()
   on p in group` joins a member.
   `[any E]` is the honest claim for a fleet — each send may go to a different
-  member — and `use route_any(group)` binds it to whichever member a
+  member — and `use any group` binds it to whichever member a
   `RouteSelector<E>` chooses: `LeastLoaded`, `Sharded` by a `Key`-marked argument, or
   `Elected` behind a `Leader` any election can serve. The platform owns the
   transport only (`HostTcpTransport`, `threadsafe`), and `MemTransport` runs

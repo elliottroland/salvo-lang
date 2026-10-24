@@ -7646,7 +7646,7 @@ between endpoints and delivers what arrives into the scheduler.
     `NodeId`/`this_node`/`new_node`/`pool_at`/`node_of`, `connect`/
     `connected`, the readers `credits`/`pending`/`peer_protocol`, the groups
     and their fns, the route kit — plus `route_pick`, `RouteConfig` and
-    `key_hash`, exported because the generated `route_any` stubs call them
+    `key_hash`, exported because the derived routes call them
     from the program's module.
     The runtime's own bindings (`add_route`, `route_frames`, `deliver_frame`),
     the control channel the group protocols travel on (`watch_control`,
@@ -7850,24 +7850,27 @@ between endpoints and delivers what arrives into the scheduler.
     `NodeGroup`/`Node`/`NodeGroupWatcher`/`NodeEndpoint` for the machines,
     `ActorGroup<E>`/`ActorGroupWatcher<E>` (and `RouteView<E>`/`RouteMember<E>`
     for routes) for the actors; `eff[E]` keeps its name.
-* [route-stub] **`use route_any(group)` binds `any E` to whichever member a
+* [route-stub] **`use any group` binds `any E` to whichever member a
   selector chooses, per send** (names user decision 2026-10-03: the route,
-  `route_any`, `RouteSelector`). `group` is an `eff[ActorGroup<E>]` for a
-  non-generic actor effect `E`; the binding is a handler `of any E` the
-  compiler writes — `__Route_E(group, config: RouteConfig)
-  [RouteSelector<E>] of any E`, one per protocol a module routes, with the
-  view version its selector last saw as state; each member is
-  `route_pick(group, config, seen[, key_hash(k)])`, then a forward to the
-  answer — appended to the module before resolution (`salvo_core::route`)
-  and constructed where the program wrote `route_any`. `use
-  route_any(group)` is expanded to `use route_any(group,
-  default_route_config())`.
-  It is generated **syntactically**: a module containing `use route_any(…)`
-  gets a stub for every actor effect it names in an `actor_group<X>(…)` or
-  `protocol<X>()` call or an `ActorGroup<X>` type; a `use route_any(g)`
-  whose protocol the module never spelled is refused, naming that fix. The
-  stub imports what it needs — the kit from `net`, the protocol's own types
-  from their modules.
+  `RouteSelector`; respelled 2026-10-20, user decision R7 of PIPELINE.md,
+  from `use route_any(group)`, so the statement reads like the availability
+  it binds). `group` is an `eff[ActorGroup<E>]` for a non-generic actor
+  effect `E`; `use any` on anything else is an error. `any` is contextual
+  (std has an `any(list, pick)` fn): the route form is `use any` followed by
+  an operand that does not open a call or a member.
+  * **The route is derived, not written** (R7): one per routed protocol, in
+    the protocol's own module, by the IR (`ir::build::actors`, beside the
+    `__Stub_E` it derives) — `__Route_E(group) [RouteSelector<E>] of any E`,
+    with the view version its selector last saw as state, each member
+    `route_pick(group, seen[, key_hash(k)])`, then `seen` updated, then a
+    forward to the answer. The checker types the operand, requires a
+    `RouteSelector<E>` in scope ("bind one first", naming std's three),
+    records the protocol (`route_uses`) and binds `any E`. Any module may
+    route any protocol it can name the group of: the old refusal of a module
+    that never spelled the protocol is gone, with the syntactic generator
+    (`route.rs`) and its synthetic imports.
+  * **`spawn` of a route is not a thing** (R7): the addr would bind a strong
+    `E` under `use addr` (ROADMAP ⑥).
   * **`RouteSelector<E>`** is the policy, in two phases (user decision
     2026-10-03, option B): `changed(view: RouteView<E>)` runs when the view
     has moved since the selector last saw it, and the selector keeps what it
@@ -7881,7 +7884,12 @@ between endpoints and delivers what arrives into the scheduler.
     `RouteConfig.first_wait` (1 ms) doubling up to `max_wait` (5 s), waking
     at once whenever the view's version moves; it waits as long as it
     takes, with no give-up. An empty group and a group without a leader
-    wait rather than fail.
+    wait rather than fail. **The waits are the policy's** (R7, option A):
+    `RouteSelector<E>` has `fn config() -> RouteConfig`, and std's policies
+    take `config: RouteConfig = default_route_config()` as a constructor
+    parameter [fn-param-default] — `use Sharded<Inventory>(config =
+    RouteConfig { max_wait: … })`. A policy of your own answers `config()`
+    too.
   * **The view is the runtime's mirror of the local replica**, kept by the
     routing service with a **version**: the `ActorGrouping<E>` replica
     writes its member set after every change (`view_set`), and
@@ -7893,10 +7901,11 @@ between endpoints and delivers what arrives into the scheduler.
     view, so its stub waits: route a group from the node that opened it.
   * **`Key`** (`export provenance qualifier Key<T> of T`, std `net`) marks
     the parameter whose value decides the member: `send fn reserve(sku: Key
-    Str, …)`. Read syntactically by the stub generator, **erased at
-    lowering**, so the parameter's type is the plain one and a caller iterators
-    a plain value; at most one per member, refused at the declaration
-    otherwise. The stub hashes the argument's wire encoding (FNV-1a, both
+    Str, …)`. Recorded at the effect (`route_keys`) and **erased at
+    lowering**, so the parameter's type is the plain one and a caller passes
+    a plain value; at most one per member, refused at the effect's
+    declaration otherwise — whether or not anything routes it (R7). The
+    route hashes the argument's wire encoding (FNV-1a, both
     backends) into the `key` `select` receives.
   * **std ships three selectors**: `LeastLoaded<E>(prefer_local)` — the
     lightest queue, local members first when asked; `Sharded<E>()` — `key

@@ -24,6 +24,33 @@ pub fn enum_key(name: &str, module: &crate::ModulePath) -> String {
     format!("{name}{}{}", crate::typekey::SEP, module.0.join("."))
 }
 
+/// [route-stub] The derived route over protocol `effect` (a type key): its
+/// name, and its key — keyed by the protocol's module, where it is placed.
+pub fn route_name(effect: &str) -> String {
+    format!("__Route_{}", effect.replace(crate::typekey::SEP, "_").replace('.', "_"))
+}
+
+pub fn route_key(effect: &str, module: &crate::ModulePath) -> String {
+    enum_key(&route_name(effect), module)
+}
+
+/// [route-stub] A std `net` fn by name and arity, for the derived routes.
+fn net_fn(ctx: &Ctx<'_>, name: &str, arity: usize) -> Option<DeclId> {
+    for (file_idx, (file, module)) in ctx.program.files.iter().zip(&ctx.program.modules).enumerate() {
+        if file.module.0 != ["net"] {
+            continue;
+        }
+        for (item, it) in module.items.iter().enumerate() {
+            if let salvo_syntax::ast::Item::Fn(f) = it {
+                if f.name.name == name && f.params.iter().filter(|p| !p.implicit).count() == arity {
+                    return Some(ctx.decl_id(crate::FnKey { file: file_idx, item }));
+                }
+            }
+        }
+    }
+    None
+}
+
 struct Iface {
     key: String,
     name: String,
@@ -35,6 +62,10 @@ struct Iface {
 pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     // The interface a face names, wherever it is declared.
     let key_of = |id: &DeclId, name: &str| -> String {
+        // [route-stub] A generated declaration is keyed by its module.
+        if id.item >= GENERATED_BASE {
+            return enum_key(name, &id.module);
+        }
         for (k, m) in &ctx.symbols.key_modules {
             if **m == id.module && crate::typekey::plain(k) == name {
                 return k.to_string();
@@ -141,6 +172,104 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                 },
             ));
         }
+    }
+    // [route-stub] Phase 1b: the route over every protocol a `use any`
+    // routes (user decision R7), one per protocol, in the protocol's module
+    // — an ordinary actor-faced impl from here on, so Phase 2 gives it its
+    // dispatch. Each member asks the selector for a member and forwards:
+    //   let __pick = route_pick(group, seen[, key_hash(k)])
+    //   seen = __pick.version
+    //   send X#m(__pick.to, params…)
+    let mut routed: Vec<&String> = ctx.checked.route_uses.values().collect();
+    routed.sort();
+    routed.dedup();
+    let pick_plain = net_fn(ctx, "route_pick", 2);
+    let pick_keyed = net_fn(ctx, "route_pick", 3);
+    let key_hash = net_fn(ctx, "key_hash", 1);
+    let mut routes: Vec<(usize, ImplDecl)> = Vec::new();
+    for effect in routed {
+        let Some(ii) = ifaces.iter().position(|i| i.key == *effect && i.actor) else { continue };
+        let Some(mi) = program.modules.iter().position(|m| m.path == ifaces[ii].id.module) else { continue };
+        let Some(Decl::Interface(iface)) = program.modules[mi].decls.iter().find(|d| matches!(d, Decl::Interface(x) if x.id == ifaces[ii].id)) else { continue };
+        let span = iface.span;
+        let face = Ty::Named { name: effect.clone(), args: Vec::new() };
+        let addr_of = |t: Ty| Ty::Named { name: "Addr".into(), args: vec![t] };
+        let group_ty = addr_of(Ty::Named { name: "ActorGroup".into(), args: vec![face.clone()] });
+        let selector = Ty::Named { name: "RouteSelector".into(), args: vec![face.clone()] };
+        let pick_ty = Ty::Named { name: "RoutePick".into(), args: vec![face.clone()] };
+        let long = Ty::named("Long");
+        let read = |l: &str, ty: &Ty, steps: Vec<Step>, consume: bool| Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: Local(l.into()), steps }, consume } };
+        let keys = ctx.checked.route_keys.get(effect.as_str());
+        let mut members: Vec<FnDecl> = Vec::new();
+        for (index, x) in iface.members.iter().enumerate().filter(|(_, x)| x.send) {
+            let key_param = keys.and_then(|k| k.get(&x.name)).and_then(|n| x.params.iter().find(|p| p.local.0 == *n));
+            let mut args = vec![read("__dep0", &selector, Vec::new(), false), read("group", &group_ty, Vec::new(), false), read("seen", &long, Vec::new(), false)];
+            let target = match key_param {
+                Some(p) => {
+                    args.push(Expr { ty: long.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(key_hash.clone().unwrap_or_else(|| ifaces[ii].id.clone())), type_args: vec![p.ty.clone()], args: vec![read(&p.local.0, &p.ty, Vec::new(), false)] } });
+                    pick_keyed.clone()
+                }
+                None => pick_plain.clone(),
+            };
+            let Some(target) = target else { continue };
+            let pick = Expr { ty: pick_ty.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: vec![face.clone()], args } };
+            let to = read("__pick", &addr_of(face.clone()), vec![Step::Field("to".into())], false);
+            let forward: Vec<Expr> = x.params.iter().map(|p| read(&p.local.0, &p.ty, Vec::new(), true)).collect();
+            let stmts = vec![
+                Stmt::Let { id: NodeId(1), local: Local("__pick".into()), ty: pick_ty.clone(), value: pick },
+                Stmt::Assign { place: Place { root: Local("seen".into()), steps: Vec::new() }, value: read("__pick", &long, vec![Step::Field("version".into())], false) },
+                Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Send { addr: Box::new(to), member: MemberRef { interface: iface.id.clone(), index }, args: forward } }),
+            ];
+            members.push(FnDecl {
+                id: DeclId { module: iface.id.module.clone(), item: GENERATED_BASE + 2_000_000 + index, sub: 0 },
+                name: x.name.clone(),
+                exported: false,
+                kind: FnKind::Member { faces: 0 },
+                send: true,
+                type_params: Vec::new(),
+                params: x.params.clone(),
+                effect_params: 0,
+                implicit_params: 0,
+                ret: Ty::none(),
+                borrows: Vec::new(),
+                holds: Vec::new(),
+                ref_anchors: Vec::new(),
+                throws: None,
+                result_check: None,
+                factories: None,
+                body: Some(Block { stmts, value: None, span }),
+                span,
+            });
+        }
+        let param = |name: &str, ty: Ty| Param { local: Local(name.into()), ty, mode: crate::param_mode::PassMode::Lent, variadic: false, check: None, span };
+        let mailbox = Expr { ty: Ty::named("Mailbox"), span, kind: ExprKind::Construct { fields: vec![("capacity".into(), Expr { ty: Ty::named("Int"), span, kind: ExprKind::Int(1) })] } };
+        routes.push((
+            mi,
+            ImplDecl {
+                id: next_id(&iface.id.module),
+                name: route_name(effect),
+                exported: true,
+                type_params: Vec::new(),
+                faces: vec![face],
+                face_any: vec![true],
+                ctor_params: vec![param("group", group_ty)],
+                deps: vec![selector],
+                state: vec![Field { name: "seen".into(), ty: long.clone(), canbe_mut: false, default: Some(Expr { ty: long, span, kind: ExprKind::Long(-1) }) }],
+                mailbox: Some(mailbox),
+                init: None,
+                members,
+                stateful: true,
+                platform: false,
+                threadsafe: false,
+                intrinsic: false,
+                dispatch: Vec::new(),
+                stub: false,
+                span,
+            },
+        ));
+    }
+    for (mi, r) in routes {
+        program.modules[mi].decls.push(Decl::Impl(r));
     }
     // Phase 2: an actor handler's own enums, and its dispatch functions.
     let mut dispatched: Vec<(usize, usize, Vec<Dispatch>)> = Vec::new();

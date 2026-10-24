@@ -2405,10 +2405,10 @@ fn a_spare_lend_on_an_opaque_slot_warns_once() {
     );
 }
 
-/// [route-stub] The generated `route_any(group)` stub: a `use route_any(g)` binds
-/// `any E` for the `E` the group handle names, and is checked as a
-/// construction of the generated `__Route_E` — so the policy it depends on
-/// (`RouteSelector<E>`) has to be in scope, and its faces are `any`.
+/// [route-stub] `use any g` (user decision R7): binds `any E` for the `E`
+/// the group handle names, through a route the IR derives — so the policy it
+/// depends on (`RouteSelector<E>`) has to be in scope, and the face is `any`.
+/// A policy's waits are its own `config` parameter.
 #[test]
 fn route_binds_any_and_needs_a_selector() {
     let dir = src_dir("route_ok");
@@ -2421,107 +2421,77 @@ fn route_binds_any_and_needs_a_selector() {
              fn main(g: eff[ActorGroup<Ping>]) [use]\n=> !g {{\n{tail}}}\n"
         )
     };
-    fs::write(
-        dir.join("main.sv"),
-        program("    use Sharded<Ping>()\n    use route_any(g)\n    let _a = one()\n"),
-    )
-    .unwrap();
-    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
+    let analyze = |tail: &str| {
+        fs::write(dir.join("main.sv"), program(tail)).unwrap();
+        let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    let stderr = analyze("    use Sharded<Ping>()\n    use any g\n    let _a = one()\n");
     assert!(stderr.contains("no errors"), "{stderr}");
 
-    // The stub binds `any Ping`: a bare `[Ping]` is refused [effect-any].
-    fs::write(
-        dir.join("main.sv"),
-        program("    use Sharded<Ping>()\n    use route_any(g)\n    let a = strong()\n"),
-    )
-    .unwrap();
-    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("`strong` declares `[Ping]`") && stderr.contains("many instances"),
-        "{stderr}"
-    );
+    // The policy's waits, overridden where it is bound.
+    let stderr = analyze("    use Sharded<Ping>(config = RouteConfig {})\n    use any g\n    let _a = one()\n");
+    assert!(stderr.contains("no errors"), "{stderr}");
 
-    // No policy in scope: the stub's dependency is missing.
-    fs::write(dir.join("main.sv"), program("    use route_any(g)\n    let _a = one()\n")).unwrap();
-    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
+    // The route binds `any Ping`: a bare `[Ping]` is refused [effect-any].
+    let stderr = analyze("    use Sharded<Ping>()\n    use any g\n    let a = strong()\n");
+    assert!(stderr.contains("`strong` declares `[Ping]`") && stderr.contains("many instances"), "{stderr}");
+
+    // No policy in scope: the route's dependency is missing.
+    let stderr = analyze("    use any g\n    let _a = one()\n");
     assert!(
-        stderr.contains("__Route_Ping") && stderr.contains("RouteSelector"),
-        "the stub depends on `RouteSelector<Ping>`: {stderr}"
+        stderr.contains("`RouteSelector<Ping>` policy") && stderr.contains("use Sharded<Ping>()"),
+        "the route depends on `RouteSelector<Ping>`: {stderr}"
     );
 }
 
-/// [route-stub] The refusals: `route` of something that is not a group
-/// handle; a protocol marking two `Key` parameters; a `use route_any(g)` in a
-/// module that never spelled the protocol (no stub was generated for it).
+/// [route-stub] The refusals, and what is no longer one (user decision R7):
+/// `use any` of something that is not a group handle; a protocol member
+/// marking two `Key` parameters, refused at the effect whether or not
+/// anything routes it; and a `use any h` in a module that never spells the
+/// protocol, which compiles now that the route is derived from `h`'s type.
 #[test]
 fn route_refusals_name_the_fix() {
     let dir = src_dir("route_bad");
     fs::write(
         dir.join("main.sv"),
-        "import net\n\nfn main() [use] {\n    let x = 3\n    use LeastLoaded<NodeGroup>(true)\n    use route_any(x)\n}\n",
+        "import net\n\nfn main() [use] {\n    let x = 3\n    use LeastLoaded<NodeGroup>(true)\n    use any x\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("`route_any` takes a group handle") && stderr.contains("this is `Int`"),
+        stderr.contains("`use any` binds a group handle") && stderr.contains("this is `Int`"),
         "{stderr}"
     );
 
+    // Two `Key`s, and nothing routes `Two`.
     fs::write(
         dir.join("main.sv"),
-        "import net\n\nactor effect Two {\n    send fn go(a: Key Str, b: Key Int) => !a, !b\n}\n\n\
-         fn main(g: eff[ActorGroup<Two>]) [use]\n=> !g {\n    use Sharded<Two>()\n    use route_any(g)\n}\n",
+        "import net\n\nactor effect Two {\n    send fn go(a: Key Str, b: Key Int) => !a, !b\n}\n\nfn main() {\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("`Two.go` marks 2 parameters `Key`"),
-        "{stderr}"
-    );
+    assert!(stderr.contains("`Two.go` marks 2 parameters `Key`"), "{stderr}");
 
-    // The group's type is spelled only in `lib`: `main` has no stub.
+    // The group's type is spelled only in `lib`: `main` routes it all the same.
+    fs::write(
+        dir.join("main.sv"),
+        "import net\nimport lib.Ping\nimport lib.some_group\n\n\
+         fn main() [use, spawn] {\n    use LeastLoaded<Ping>(true)\n    let h = some_group()\n    use any h\n}\n",
+    )
+    .unwrap();
     fs::write(
         dir.join("lib.sv"),
         "import net\n\nexport actor effect Ping {\n    send fn ping(out: Reply<Str>) => !out\n}\n\n\
-         export fn group_of(g: eff[ActorGroup<Ping>]) -> eff[ActorGroup<Ping>] => !g {\n    return g\n}\n",
+         export fn some_group() [spawn] -> eff[ActorGroup<Ping>] {\n    \
+         return actor_group<Ping>(spawn StaticNodeGroup(\"x\", List(NodeEndpoint { host: \"a\", port: 1 })) with MemTransport(NodeEndpoint { host: \"a\", port: 1 }, (spawn MemNetwork() on pool(1))) on pool(1))\n}\n",
     )
     .unwrap();
-    fs::write(
-        dir.join("main.sv"),
-        "import net\nimport lib.group_of\nimport lib.Ping\n\n\
-         fn main(g: eff[ActorGroup<Ping>]) [use]\n=> !g {\n    use LeastLoaded<Ping>(true)\n    let h = group_of(g)\n    use route_any(h)\n}\n",
-    )
-    .unwrap();
-    // …unless it spells it, which this file does in `main`'s signature — so
-    // it has one. Take the spelling away to see the refusal.
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("no errors"), "{stderr}");
-    fs::write(
-        dir.join("main.sv"),
-        "import net\nimport lib.group_of\nimport lib.Ping\nimport lib.some_group\n\n\
-         fn main() [use, spawn] {\n    use LeastLoaded<Ping>(true)\n    let h = some_group()\n    use route_any(h)\n}\n",
-    )
-    .unwrap();
-    fs::write(
-        dir.join("lib.sv"),
-        "import net\n\nexport actor effect Ping {\n    send fn ping(out: Reply<Str>) => !out\n}\n\n\
-         export fn group_of(g: eff[ActorGroup<Ping>]) -> eff[ActorGroup<Ping>] => !g {\n    return g\n}\n\n\
-         export fn some_group() [spawn] -> eff[ActorGroup<Ping>] {\n    \
-         return actor_group<Ping>(spawn StaticNodeGroup(\"x\", List(NodeEndpoint { host: \"a\", port: 1 })) with MemTransport(NodeEndpoint { host: \"a\", port: 1 }, spawn MemNetwork() on pool(1) on pool(1)))\n}\n",
-    )
-    .unwrap();
-    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("no route stub for `Ping` in this module") && stderr.contains("actor_group<Ping>(…)"),
-        "{stderr}"
-    );
 }
 
 /// [type-identity] [obligation-by] A clause stamps the declaration it is

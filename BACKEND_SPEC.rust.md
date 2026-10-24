@@ -1714,9 +1714,10 @@ effects" keeps the history).
   `view_version`, `view_refresh`, `view_wait`); `salvo_key_hash` (FNV-1a 64
   over the wire bytes) stays host-side. Intrinsics: `view_set`,
   `view_members`, `view_version`, `view_refresh`, `view_wait`, `key_hash`
-  (over `salvo_encode`). `use route_any(g, c)` emits the construction of
-  the checker's `route_stubs[site]` handler exactly as a written `use
-  __Route_E(g, c)` would. An erased effect's types render without arguments
+  (over `salvo_encode`). `use any g` emits the construction of the route
+  the IR derived for the protocol, `crate::<module>::__Route_E::new(g,
+  selector)`, found by its module-keyed name (`generated_impl`, beside
+  `generated_enum`). An erased effect's types render without arguments
   everywhere, dependencies and `use` bindings included — `RouteSelector`,
   `dyn __Stateful_RouteSelector`, `Sharded::new()`. A `while` is a `loop`
   that tests first (`loop { if !(cond) { break; }; … }`), `while true`

@@ -2049,6 +2049,13 @@ several are "revisit only if a customer appears".
   refinements (per-pool firing, naming who is parked, a many-shot form); FC-7 host
   bridging; and the `[waitfor]` spawn-placement diagnostic still states a hazard
   the pump rule removed.
+- **A derived route has no deadlock node** (2026-10-20, PIPELINE R7): the
+  AST route stub was a handler `of any E`, so it got a router servant node;
+  the IR-derived `__Route_E` is not in the AST the graph reads, so its
+  forwards (and its selector's calls, e.g. `Elected`'s `leader()`) count
+  only as its callers' declared effects. No test exercises a cycle through
+  a route; when the graph moves onto the IR (step 7/8's link stage) the
+  route gets its node back.
 - **Multi-effect and mixed-handler leftovers**: a same-named member across two
   faces still needs `@Effect` at the call even where the parameters distinguish it
   ([effect-at] keys on the name); a dependent multi-face handler is untested;

@@ -93,7 +93,6 @@ use crate::net::Node;
 use crate::net::NodeEndpoint;
 use crate::net::NodeId;
 use crate::net::Protocol;
-use crate::net::RouteConfig;
 use crate::net::RoutePick;
 use crate::net::RouteSelector;
 use crate::net::Sharded;
@@ -112,8 +111,8 @@ use crate::core_actor::pool;
 use crate::net::pool_at;
 use crate::core_console::println;
 use crate::core_deque::remove_first_platform;
-use crate::net::route_pick__Addr_RouteConfig_Long;
-use crate::net::route_pick__Addr_RouteConfig_Long_Long;
+use crate::net::route_pick__Addr_Long;
+use crate::net::route_pick__Addr_Long_Long;
 use crate::core_list::size_platform;
 use crate::core_string::split_platform;
 use crate::net::this_node;
@@ -1240,17 +1239,17 @@ pub fn find(lookup: &crate::Lookup, mut key: String) -> String {
 }
 
 pub fn two_ids(leader: &crate::net::Leader, console: &crate::core_console::Console, mut seq: usize) {
-    let mut __use_1: crate::net::Elected = crate::net::Elected::new(leader.clone());
+    let mut __use_1: crate::net::Elected = crate::net::Elected::new(crate::net::default_route_config(), leader.clone());
     let __handle_2 = crate::net::RouteSelector::locked(__use_1);
-    let mut __use_3: crate::__Route_Sequencer = crate::__Route_Sequencer::new(seq, crate::net::default_route_config(), __handle_2.clone());
+    let mut __use_3: crate::__Route_Sequencer = crate::__Route_Sequencer::new(seq, __handle_2.clone());
     let __handle_4 = crate::Sequencer::locked(__use_3);
     crate::core_console::println(console, &format!("  {} {}", crate::fresh_id(&__handle_4), crate::fresh_id(&__handle_4)));
 }
 
 pub fn shop(console: &crate::core_console::Console, mut stock: usize) {
-    let mut __use_1: crate::net::Sharded = crate::net::Sharded::new();
+    let mut __use_1: crate::net::Sharded = crate::net::Sharded::new(crate::net::default_route_config());
     let __handle_2 = crate::net::RouteSelector::shared(__use_1);
-    let mut __use_3: crate::__Route_Inventory = crate::__Route_Inventory::new(stock, crate::net::default_route_config(), __handle_2.clone());
+    let mut __use_3: crate::__Route_Inventory = crate::__Route_Inventory::new(stock, __handle_2.clone());
     let __handle_4 = crate::Inventory::locked(__use_3);
     crate::checkout(&__handle_4, console, &vec![String::from("apple"), String::from("pear"), String::from("apple"), String::from("fig"), String::from("pear")]);
 }
@@ -1490,7 +1489,6 @@ pub fn main() {
 
 pub struct __Route_Inventory {
     group: usize,
-    config: crate::net::RouteConfig,
     __dep0: crate::net::RouteSelector,
     seen: i64,
     pub __mailbox_capacity: i32,
@@ -1499,10 +1497,9 @@ pub struct __Route_Inventory {
 }
 
 impl __Route_Inventory {
-    pub fn new(group: usize, config: crate::net::RouteConfig, __dep0: crate::net::RouteSelector) -> Self {
+    pub fn new(group: usize, __dep0: crate::net::RouteSelector) -> Self {
         Self {
             group: group.clone(),
-            config: config.clone(),
             __dep0,
             seen: -1i64,
             __mailbox_capacity: 1i32,
@@ -1514,9 +1511,9 @@ impl __Route_Inventory {
 
 impl crate::__Stateful_Inventory for __Route_Inventory {
     fn reserve(&mut self, sku: String, qty: i32, out: crate::scheduler::SalvoReply) {
-        let mut __pick: crate::net::RoutePick = crate::net::route_pick__Addr_RouteConfig_Long_Long(&self.__dep0, self.group, &self.config, self.seen, crate::scheduler::salvo_key_hash(&crate::wire::salvo_encode(&sku)));
+        let mut __pick: crate::net::RoutePick = crate::net::route_pick__Addr_Long_Long(&self.__dep0, self.group, self.seen, crate::scheduler::salvo_key_hash(&crate::wire::salvo_encode(&sku)));
         self.seen = __pick.version;
-        crate::scheduler::salvo_send_wire(__pick.to, crate::__Msg_Inventory::Reserve(sku.clone(), qty, out), crate::__PROTO_Inventory);
+        crate::scheduler::salvo_send_wire(__pick.to, crate::__Msg_Inventory::Reserve(sku, qty, out), crate::__PROTO_Inventory);
     }
 }
 
@@ -1562,157 +1559,8 @@ fn __decode_msg___Route_Inventory(proto: &str, payload: &[u8]) -> Option<crate::
     None
 }
 
-pub struct __Route_Lookup {
-    group: usize,
-    config: crate::net::RouteConfig,
-    __dep0: crate::net::RouteSelector,
-    seen: i64,
-    pub __mailbox_capacity: i32,
-    __addr: Option<usize>,
-    __parked: std::collections::HashMap<u64, __Cont___Route_Lookup>,
-}
-
-impl __Route_Lookup {
-    pub fn new(group: usize, config: crate::net::RouteConfig, __dep0: crate::net::RouteSelector) -> Self {
-        Self {
-            group: group.clone(),
-            config: config.clone(),
-            __dep0,
-            seen: -1i64,
-            __mailbox_capacity: 1i32,
-            __addr: None,
-            __parked: std::collections::HashMap::new()
-        }
-    }
-}
-
-impl crate::__Stateful_Lookup for __Route_Lookup {
-    fn lookup(&mut self, key: String, out: crate::scheduler::SalvoReply) {
-        let mut __pick: crate::net::RoutePick = crate::net::route_pick__Addr_RouteConfig_Long(&self.__dep0, self.group, &self.config, self.seen);
-        self.seen = __pick.version;
-        crate::scheduler::salvo_send_wire(__pick.to, crate::__Msg_Lookup::Lookup(key.clone(), out), crate::__PROTO_Lookup);
-    }
-}
-
-pub struct __Actor___Route_Lookup {
-    handler: __Route_Lookup,
-}
-
-impl __Actor___Route_Lookup {
-    pub fn new(handler: __Route_Lookup) -> Self {
-        Self { handler }
-    }
-}
-
-impl crate::scheduler::SalvoActor for __Actor___Route_Lookup {
-    fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
-        self.handler.__addr = Some(_ctx.addr);
-        let msg = *msg.downcast::<crate::__Msg_Lookup>().expect("message of this protocol");
-        crate::__dispatch___Route_Lookup_Lookup(&mut self.handler, msg);
-    }
-
-    fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
-        self.handler.__addr = Some(_ctx.addr);
-        let Some(__cont) = self.handler.__parked.remove(&slot) else {
-            return; // a reply whose continuation is gone: nothing to run
-        };
-        match __cont {
-            __Cont___Route_Lookup::Lookup(key) => crate::__dispatch___Route_Lookup_Lookup(&mut self.handler, crate::__Msg_Lookup::Lookup(key, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-        }
-    }
-
-    fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        match self.handler.__parked.get(&slot)? {
-            __Cont___Route_Lookup::Lookup{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-        }
-    }
-}
-
-pub const __DECODE___Route_Lookup: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg___Route_Lookup);
-fn __decode_msg___Route_Lookup(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-    if proto == crate::__PROTO_Lookup {
-        return crate::wire::salvo_decode::<crate::__Msg_Lookup>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-    }
-    None
-}
-
-pub struct __Route_Search {
-    group: usize,
-    config: crate::net::RouteConfig,
-    __dep0: crate::net::RouteSelector,
-    seen: i64,
-    pub __mailbox_capacity: i32,
-    __addr: Option<usize>,
-    __parked: std::collections::HashMap<u64, __Cont___Route_Search>,
-}
-
-impl __Route_Search {
-    pub fn new(group: usize, config: crate::net::RouteConfig, __dep0: crate::net::RouteSelector) -> Self {
-        Self {
-            group: group.clone(),
-            config: config.clone(),
-            __dep0,
-            seen: -1i64,
-            __mailbox_capacity: 1i32,
-            __addr: None,
-            __parked: std::collections::HashMap::new()
-        }
-    }
-}
-
-impl crate::__Stateful_Search for __Route_Search {
-    fn query(&mut self, word: String, out: crate::scheduler::SalvoReply) {
-        let mut __pick: crate::net::RoutePick = crate::net::route_pick__Addr_RouteConfig_Long(&self.__dep0, self.group, &self.config, self.seen);
-        self.seen = __pick.version;
-        crate::scheduler::salvo_send_wire(__pick.to, crate::__Msg_Search::Query(word.clone(), out), crate::__PROTO_Search);
-    }
-}
-
-pub struct __Actor___Route_Search {
-    handler: __Route_Search,
-}
-
-impl __Actor___Route_Search {
-    pub fn new(handler: __Route_Search) -> Self {
-        Self { handler }
-    }
-}
-
-impl crate::scheduler::SalvoActor for __Actor___Route_Search {
-    fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
-        self.handler.__addr = Some(_ctx.addr);
-        let msg = *msg.downcast::<crate::__Msg_Search>().expect("message of this protocol");
-        crate::__dispatch___Route_Search_Search(&mut self.handler, msg);
-    }
-
-    fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
-        self.handler.__addr = Some(_ctx.addr);
-        let Some(__cont) = self.handler.__parked.remove(&slot) else {
-            return; // a reply whose continuation is gone: nothing to run
-        };
-        match __cont {
-            __Cont___Route_Search::Query(word) => crate::__dispatch___Route_Search_Search(&mut self.handler, crate::__Msg_Search::Query(word, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-        }
-    }
-
-    fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        match self.handler.__parked.get(&slot)? {
-            __Cont___Route_Search::Query{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-        }
-    }
-}
-
-pub const __DECODE___Route_Search: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg___Route_Search);
-fn __decode_msg___Route_Search(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-    if proto == crate::__PROTO_Search {
-        return crate::wire::salvo_decode::<crate::__Msg_Search>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-    }
-    None
-}
-
 pub struct __Route_Sequencer {
     group: usize,
-    config: crate::net::RouteConfig,
     __dep0: crate::net::RouteSelector,
     seen: i64,
     pub __mailbox_capacity: i32,
@@ -1721,10 +1569,9 @@ pub struct __Route_Sequencer {
 }
 
 impl __Route_Sequencer {
-    pub fn new(group: usize, config: crate::net::RouteConfig, __dep0: crate::net::RouteSelector) -> Self {
+    pub fn new(group: usize, __dep0: crate::net::RouteSelector) -> Self {
         Self {
             group: group.clone(),
-            config: config.clone(),
             __dep0,
             seen: -1i64,
             __mailbox_capacity: 1i32,
@@ -1736,7 +1583,7 @@ impl __Route_Sequencer {
 
 impl crate::__Stateful_Sequencer for __Route_Sequencer {
     fn next(&mut self, out: crate::scheduler::SalvoReply) {
-        let mut __pick: crate::net::RoutePick = crate::net::route_pick__Addr_RouteConfig_Long(&self.__dep0, self.group, &self.config, self.seen);
+        let mut __pick: crate::net::RoutePick = crate::net::route_pick__Addr_Long(&self.__dep0, self.group, self.seen);
         self.seen = __pick.version;
         crate::scheduler::salvo_send_wire(__pick.to, crate::__Msg_Sequencer::Next(out), crate::__PROTO_Sequencer);
     }
@@ -2026,14 +1873,6 @@ pub enum __Cont___Route_Inventory {
     Reserve(String, i32),
 }
 
-pub enum __Cont___Route_Lookup {
-    Lookup(String),
-}
-
-pub enum __Cont___Route_Search {
-    Query(String),
-}
-
 pub enum __Cont___Route_Sequencer {
     Next,
 }
@@ -2272,20 +2111,6 @@ pub fn __dispatch___Route_Inventory_Inventory(__handler: &mut crate::__Route_Inv
     if matches!(__msg, crate::__Msg_Inventory::Reserve(..)) {
         let crate::__Msg_Inventory::Reserve(sku, qty, out) = __msg else { unreachable!() };
         crate::__Stateful_Inventory::reserve(&mut *__handler, sku, qty, out);
-    };
-}
-
-pub fn __dispatch___Route_Lookup_Lookup(__handler: &mut crate::__Route_Lookup, mut __msg: crate::__Msg_Lookup) {
-    if matches!(__msg, crate::__Msg_Lookup::Lookup(..)) {
-        let crate::__Msg_Lookup::Lookup(key, out) = __msg else { unreachable!() };
-        crate::__Stateful_Lookup::lookup(&mut *__handler, key, out);
-    };
-}
-
-pub fn __dispatch___Route_Search_Search(__handler: &mut crate::__Route_Search, mut __msg: crate::__Msg_Search) {
-    if matches!(__msg, crate::__Msg_Search::Query(..)) {
-        let crate::__Msg_Search::Query(word, out) = __msg else { unreachable!() };
-        crate::__Stateful_Search::query(&mut *__handler, word, out);
     };
 }
 

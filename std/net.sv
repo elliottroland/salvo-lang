@@ -40,7 +40,7 @@
 //      node's replica and publishes it by name, `spawn H() on p in group`
 //      joins a member, `members`/`subscribe` read the set. `[any E]` is the
 //      claim a function makes when any member will do.
-//   6. **Routes** — `use route_any(group)` binds `any E` to whichever member a
+//   6. **Routes** — `use any group` binds `any E` to whichever member a
 //      `RouteSelector<E>` policy chooses per send: `LeastLoaded`, `Sharded` by a
 //      `Key`-marked argument, `Elected` behind a `Leader`.
 //
@@ -799,7 +799,7 @@ export fn join<E>(group: eff[ActorGroup<E>], member: eff[E]) [] -> None => group
 // where the replica first shares with that node's replica, and a node's
 // departure withdraws every member it hosted. [route-stub] After every change
 // it mirrors the member set into the runtime (`view_set`), which is what a
-// `route_any(group)` stub reads on the sender's thread — the replica is behind the
+// `use any` route reads on the sender's thread — the replica is behind the
 // view by one message, never in the send path.
 export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
     of ActorGroup<E>, NodeGroupWatcher {
@@ -966,7 +966,7 @@ export fn node_of<E>(a: eff[E]) [] -> NodeId => a {
 // behind the replica by one message, never in the send path.
 
 // [route-stub] (private) The mirror: written by the replica, read by a
-// `route_any(group)` stub per send. A group with no replica on this node has
+// `use any` route per send. A group with no replica on this node has
 // an empty view, so its stub waits. Every write moves the view's **version**,
 // and so does `refresh`; a waiting send wakes when it moves.
 fn view_set<E>(group: eff[ActorGroup<E>], members: List<eff[E]>) [] -> None
@@ -1009,14 +1009,14 @@ export struct RouteView<E> {
     members: List<RouteMember<E>>
 }
 
-// [route-stub] The default waits, as a fn: what `use route_any(group)`
-// passes. (A field default is inlined where the literal is written, which
-// would need `Duration` imported there.)
+// [route-stub] The default waits, as a fn: the default of every std
+// policy's `config` parameter. (A field default is inlined where the literal
+// is written, which would need `Duration` imported there.)
 export fn default_route_config() [] -> RouteConfig {
     return RouteConfig {}
 }
 
-// [route-stub] How a `route_any` stub waits while its selector answers
+// [route-stub] How a `use any` route waits while its selector answers
 // `None`: [first_wait], doubling up to [max_wait], waking at once whenever
 // the view changes. A send waits as long as it takes.
 export struct RouteConfig {
@@ -1024,7 +1024,7 @@ export struct RouteConfig {
     max_wait: Duration = Duration { nanos: 5000000000L }
 }
 
-// [route-stub] The policy behind a `route_any(group)` stub, in two phases.
+// [route-stub] The policy behind a `use any` route, in two phases.
 // [changed] runs when the view has changed since this selector last saw it
 // (a member joined or left, or the group was refreshed): a selector derives
 // whatever it chooses by — a probability per member, a leader, a ring — and
@@ -1034,9 +1034,15 @@ export struct RouteConfig {
 // empty group and a group with no leader wait rather than fail. std ships
 // [LeastLoaded], [Sharded] and [Elected]; a policy of your own is a handler
 // of this.
+//
+// [config] is how long a route waits between asks while [select] answers
+// `None` (user decision R7: the waits are the policy's, since the policy is
+// what says `None`). std's policies take it as a constructor parameter that
+// defaults to [default_route_config].
 export effect RouteSelector<E> {
     fn changed(view: RouteView<E>) -> None => view
     fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key
+    fn config() -> RouteConfig
 }
 
 // [route-stub] Marks the parameter of a `send fn` whose value decides the
@@ -1058,24 +1064,25 @@ export struct RoutePick<E> {
     version: Long
 }
 
-// [route-stub] The stub's whole send path: read the view, tell the selector
-// when it changed since [seen], ask it, and wait while it answers `None`.
-// Exported for the generated `route_any` stubs, which call it from the
-// program's own module.
-export fn route_pick<E>(group: eff[ActorGroup<E>], config: RouteConfig, seen: Long) [RouteSelector<E>] -> RoutePick<E>
-=> group, config, !seen {
-    return route_keyed(group, config, seen, None)
+// [route-stub] The route's whole send path: read the view, tell the selector
+// when it changed since [seen], ask it, and wait while it answers `None`, as
+// long as the selector's `config` says. Exported for the routes the compiler
+// derives, which call it from the protocol's own module.
+export fn route_pick<E>(group: eff[ActorGroup<E>], seen: Long) [RouteSelector<E>] -> RoutePick<E>
+=> group, !seen {
+    return route_keyed(group, seen, None)
 }
 
-export fn route_pick<E>(group: eff[ActorGroup<E>], config: RouteConfig, seen: Long, key: Long) [RouteSelector<E>] -> RoutePick<E>
-=> group, config, !seen, !key {
-    return route_keyed(group, config, seen, key)
+export fn route_pick<E>(group: eff[ActorGroup<E>], seen: Long, key: Long) [RouteSelector<E>] -> RoutePick<E>
+=> group, !seen, !key {
+    return route_keyed(group, seen, key)
 }
 
-fn route_keyed<E>(group: eff[ActorGroup<E>], config: RouteConfig, seen: Long, key: Long?) [RouteSelector<E>] -> RoutePick<E>
-=> group, config, !seen, !key {
-    let wait = copy(config.first_wait.nanos)
-    let cap = copy(config.max_wait.nanos)
+fn route_keyed<E>(group: eff[ActorGroup<E>], seen: Long, key: Long?) [RouteSelector<E>] -> RoutePick<E>
+=> group, !seen, !key {
+    let waits = config()
+    let wait = copy(waits.first_wait.nanos)
+    let cap = copy(waits.max_wait.nanos)
     let last = copy(seen)
     while true {
         let version = view_version(copy(group))
@@ -1095,7 +1102,7 @@ fn route_keyed<E>(group: eff[ActorGroup<E>], config: RouteConfig, seen: Long, ke
         }
     }
     // Unreachable: the loop returns or waits.
-    return route_keyed(group, config, seen, key)
+    return route_keyed(group, seen, key)
 }
 
 fn route_view<E>(group: eff[ActorGroup<E>]) [] -> RouteView<E> => group {
@@ -1110,7 +1117,11 @@ fn route_view<E>(group: eff[ActorGroup<E>]) [] -> RouteView<E> => group {
 // first when [prefer_local] — a hop within the node is cheaper than one
 // across the wire. Load is read per send ([pending]). `None` for an empty
 // view.
-export handler LeastLoaded<E>(prefer_local: Bool) of RouteSelector<E> {
+export handler LeastLoaded<E>(prefer_local: Bool, config: RouteConfig = default_route_config()) of RouteSelector<E> {
+    fn config() -> RouteConfig {
+        return copy(config)
+    }
+
     fn changed(view: RouteView<E>) -> None => view {}
 
     fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key {
@@ -1146,7 +1157,11 @@ export handler LeastLoaded<E>(prefer_local: Bool) of RouteSelector<E> {
 // a stable order on every node, so `key mod n` lands on the same member
 // everywhere. A member joining reshuffles keys (consistent hashing is a
 // recorded follow-up). A send with no key goes to the first member.
-export handler Sharded<E>() of RouteSelector<E> {
+export handler Sharded<E>(config: RouteConfig = default_route_config()) of RouteSelector<E> {
+    fn config() -> RouteConfig {
+        return copy(config)
+    }
+
     fn changed(view: RouteView<E>) -> None => view {}
 
     fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key {
@@ -1182,9 +1197,13 @@ export handler StaticLeader(node: NodeId) of Leader {
 // [route-stub] The member the current leader hosts: worked out when the view
 // changes, and kept. `None` — so the send waits — while there is no leader or
 // the leader hosts no member yet.
-export handler Elected<E>() [Leader] of RouteSelector<E> {
+export handler Elected<E>(config: RouteConfig = default_route_config()) [Leader] of RouteSelector<E> {
     state {
         chosen: eff[E]? = None
+    }
+
+    fn config() -> RouteConfig {
+        return copy(config)
     }
 
     fn changed(view: RouteView<E>) -> None => view {

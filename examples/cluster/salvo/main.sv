@@ -94,7 +94,7 @@ handler SlowLooking(who: Str, timer: eff[Timer]) of Lookup {
 
 // ------------------------------------------------ hand-written routers ----
 //
-// `route_any(group)` picks ONE member per send. A policy that must read the
+// `use any group` picks ONE member per send. A policy that must read the
 // message — fan it out, race two copies — is a handler `of any E` written for
 // that protocol: `any`, because it promises no order between two sends.
 
@@ -248,13 +248,13 @@ fn find(key: Str) [any Lookup] -> Str => !key {
 // `Leader` arrives through the signature; `Elected` captures it from there.
 fn two_ids(seq: eff[ActorGroup<Sequencer>]) [use, Leader, Console] -> None => !seq {
     use Elected<Sequencer>()
-    use route_any(seq)
+    use any seq
     println("  ${fresh_id()} ${fresh_id()}")
 }
 
 fn shop(stock: eff[ActorGroup<Inventory>]) [use, Console] -> None => !stock {
     use Sharded<Inventory>()
-    use route_any(stock)
+    use any stock
     checkout(List("apple", "pear", "apple", "fig", "pear"))
 }
 

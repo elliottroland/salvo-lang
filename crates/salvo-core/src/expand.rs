@@ -3,8 +3,9 @@
 //! Per file ([`expand_file`]): the struct-body hoist, the `iter fn`
 //! expansion [iter-fn] and the `test` expansion [test-decl], which needs to
 //! know whether a file is a test annex [test-file]. Per program
-//! ([`expand_program`]): comptime stamping and route stubs. Effect aliases
-//! and prerequisites are resolved, not expanded (PIPELINE.md R6). Every driver needs both, so [`expand`] is the one call
+//! ([`expand_program`]): comptime stamping. Effect aliases and
+//! prerequisites are resolved, not expanded (PIPELINE.md R6), and routes are
+//! derived in the IR (R7). Every driver needs both, so [`expand`] is the one call
 //! that does both, and a driver caching parses calls the halves.
 
 use salvo_syntax::ast::{Item, Module};
@@ -130,7 +131,7 @@ pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
 
 /// The expansions that read more than one file, over modules each already
 /// through [`expand_file`] (whose tests come in [per_file], aligned with
-/// `files`): comptime stamping and route stubs.
+/// `files`): comptime stamping.
 pub fn expand_program(files: &[SourceFile], modules: &mut [Module], per_file: Vec<Vec<FileTest>>) -> Expansion {
     let mut out = Expansion::default();
     for (file_idx, tests) in per_file.into_iter().enumerate() {
@@ -143,8 +144,8 @@ pub fn expand_program(files: &[SourceFile], modules: &mut [Module], per_file: Ve
         }));
     }
     // [comptime-instantiate] After the per-module expansions (the struct-body
-    // hoist has put every `by` declaration at module level) and before the
-    // route stubs: every `by` site stamps its compfn, and no compfn survives.
+    // hoist has put every `by` declaration at module level): every `by` site
+    // stamps its compfn, and no compfn survives.
     let comptime = crate::comptime::expand_comptime(files, modules);
     for (file_idx, d) in comptime.diagnostics {
         out.diagnostics.push(FileDiagnostic {
@@ -157,18 +158,8 @@ pub fn expand_program(files: &[SourceFile], modules: &mut [Module], per_file: Ve
     }
     out.comptime_hovers = comptime.hovers;
     out.comptime_when_arms = comptime.when_arms;
-    // [route-stub] After the per-module expansions: the stubs read the
-    // program's effect declarations, and a module's `use route_any(…)` may sit
-    // inside an expanded test body.
-    for (file_idx, d) in crate::route::expand_route_stubs(files, modules) {
-        out.diagnostics.push(FileDiagnostic {
-            file: file_idx,
-            severity: d.severity,
-            message: d.message,
-            span: d.span,
-            suggested_imports: Vec::new(),
-        });
-    }
+    // [route-stub] Routes are not an expansion: the IR derives one per
+    // routed protocol (PIPELINE.md R7).
     // [effect-alias] [effect-prereq] Aliases and prerequisites are not
     // expansions: aliases resolve in scope and both are expanded where an
     // effect list is lowered (PIPELINE.md R6).

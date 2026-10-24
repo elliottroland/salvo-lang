@@ -272,7 +272,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     }
                 }
             }
-            AStmt::Use { handler, with_items, span } => self.use_stmt(handler, with_items, *span),
+            AStmt::Use { handler, with_items, span, .. } => self.use_stmt(handler, with_items, *span),
             AStmt::Rename(_) | AStmt::Comp(_) => Vec::new(),
             AStmt::Expr(e) => self.expr_stmt(e),
         }

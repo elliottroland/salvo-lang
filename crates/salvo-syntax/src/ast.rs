@@ -1799,6 +1799,10 @@ pub enum Stmt {
     Use {
         handler: Expr,
         with_items: Vec<Expr>,
+        /// [route-stub] `use any group`: `handler` is a group handle
+        /// (`eff[ActorGroup<E>]`), bound as `any E` through a route the
+        /// compiler derives (user decision R7, PIPELINE.md).
+        any: bool,
         span: Span,
     },
     /// [fn-rename] `rename fn add2 = add(a: Int, b: Int)` inside a block:
@@ -2239,6 +2243,8 @@ pub enum Expr {
         handler: Box<Expr>,
         /// [with-clause] The `with` clause, as on a `spawn`.
         with_items: Vec<Expr>,
+        /// [route-stub] `use any group`, as on the statement.
+        any: bool,
         span: Span,
     },
     /// [actor-replyto] `replyto batch_arrived(id)` — allocate a parked

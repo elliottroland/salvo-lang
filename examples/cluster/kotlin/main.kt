@@ -695,20 +695,20 @@ fun find(lookup: Lookup, key: String): String {
 }
 
 fun twoIds(leader: salvo.net.Leader, console: salvo.core.console.Console, seq: Int) {
-    val __use_1: salvo.net.Elected = salvo.net.Elected(leader)
+    val __use_1: salvo.net.Elected = salvo.net.Elected(config = salvo.net.defaultRouteConfig(), leader)
     val __lock___use_1 = java.util.concurrent.locks.ReentrantLock()
     val __handle_2: salvo.net.RouteSelector = salvo.net.__Mon_RouteSelector(__use_1, __lock___use_1)
-    val __use_3: __Route_Sequencer = __Route_Sequencer(group = seq, config = salvo.net.defaultRouteConfig(), __handle_2)
+    val __use_3: __Route_Sequencer = __Route_Sequencer(group = seq, __handle_2)
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
     val __handle_4: Sequencer = __Mon_Sequencer(__use_3, __lock___use_3)
     salvo.core.console.println(console, "  ${freshId(__handle_4)} ${freshId(__handle_4)}")
 }
 
 fun shop(console: salvo.core.console.Console, stock: Int) {
-    val __use_1: salvo.net.Sharded = salvo.net.Sharded()
+    val __use_1: salvo.net.Sharded = salvo.net.Sharded(config = salvo.net.defaultRouteConfig())
     val __lock___use_1 = java.util.concurrent.locks.ReentrantLock()
     val __handle_2: salvo.net.RouteSelector = salvo.net.__Mon_RouteSelector(__use_1, __lock___use_1)
-    val __use_3: __Route_Inventory = __Route_Inventory(group = stock, config = salvo.net.defaultRouteConfig(), __handle_2)
+    val __use_3: __Route_Inventory = __Route_Inventory(group = stock, __handle_2)
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
     val __handle_4: Inventory = __Mon_Inventory(__use_3, __lock___use_3)
     checkout(__handle_4, console, listOf<String>("apple", "pear", "apple", "fig", "pear"))
@@ -888,13 +888,13 @@ fun main() {
     twoIds(__handle_6, __handle_2, seq)
 }
 
-class __Route_Inventory(private val group: Int, private val config: salvo.net.RouteConfig, private val __dep0: salvo.net.RouteSelector) : Inventory {
+class __Route_Inventory(private val group: Int, private val __dep0: salvo.net.RouteSelector) : Inventory {
     val __mailboxCapacity: Int = 1
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont___Route_Inventory> = kotlin.collections.mutableMapOf()
     var seen: Long = -1L
     override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
-        val __pick: salvo.net.RoutePick = salvo.net.routePick__Addr_RouteConfig_Long_Long(__dep0, group, config, seen, salvo.SalvoSched.keyHash(salvo.salvoEncode(sku, salvo.StrCodec).toByteArray()))
+        val __pick: salvo.net.RoutePick = salvo.net.routePick__Addr_Long_Long(__dep0, group, seen, salvo.SalvoSched.keyHash(salvo.salvoEncode(sku, salvo.StrCodec).toByteArray()))
         seen = __pick.version
         salvo.SalvoSched.sendWire(__pick.to, __Msg_Inventory.Reserve(sku, qty, out), __PROTO_Inventory, __Codec___Msg_Inventory)
     }
@@ -933,103 +933,13 @@ class __Actor___Route_Inventory(private val handler: __Route_Inventory) : salvo.
     }
 }
 
-class __Route_Lookup(private val group: Int, private val config: salvo.net.RouteConfig, private val __dep0: salvo.net.RouteSelector) : Lookup {
-    val __mailboxCapacity: Int = 1
-    var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont___Route_Lookup> = kotlin.collections.mutableMapOf()
-    var seen: Long = -1L
-    override fun lookup(key: String, out: salvo.SalvoReply) {
-        val __pick: salvo.net.RoutePick = salvo.net.routePick__Addr_RouteConfig_Long(__dep0, group, config, seen)
-        seen = __pick.version
-        salvo.SalvoSched.sendWire(__pick.to, __Msg_Lookup.Lookup(key, out), __PROTO_Lookup, __Codec___Msg_Lookup)
-    }
-}
-
-class __Actor___Route_Lookup(private val handler: __Route_Lookup) : salvo.SalvoActor {
-    override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
-        handler.__addr = ctx.addr
-        __dispatch___Route_Lookup_Lookup(handler, msg as __Msg_Lookup)
-    }
-
-    override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
-        handler.__addr = ctx.addr
-        val c = handler.__parked.remove(slot) ?: return
-        when (c) {
-            is __Cont___Route_Lookup.Lookup -> handler.lookup(c.key, value as salvo.SalvoReply)
-        }
-    }
-
-    @Suppress("REDUNDANT_ELSE_IN_WHEN")
-    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
-        val c = handler.__parked[slot] ?: return Pair(false, null)
-        return when (c) {
-            is __Cont___Route_Lookup.Lookup -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
-            else -> Pair(false, null)
-        }
-    }
-
-    companion object {
-        val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
-            when (proto) {
-                __PROTO_Lookup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Lookup)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
-                else -> Pair(false, null)
-            }
-        }
-    }
-}
-
-class __Route_Search(private val group: Int, private val config: salvo.net.RouteConfig, private val __dep0: salvo.net.RouteSelector) : Search {
-    val __mailboxCapacity: Int = 1
-    var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont___Route_Search> = kotlin.collections.mutableMapOf()
-    var seen: Long = -1L
-    override fun query(word: String, out: salvo.SalvoReply) {
-        val __pick: salvo.net.RoutePick = salvo.net.routePick__Addr_RouteConfig_Long(__dep0, group, config, seen)
-        seen = __pick.version
-        salvo.SalvoSched.sendWire(__pick.to, __Msg_Search.Query(word, out), __PROTO_Search, __Codec___Msg_Search)
-    }
-}
-
-class __Actor___Route_Search(private val handler: __Route_Search) : salvo.SalvoActor {
-    override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
-        handler.__addr = ctx.addr
-        __dispatch___Route_Search_Search(handler, msg as __Msg_Search)
-    }
-
-    override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
-        handler.__addr = ctx.addr
-        val c = handler.__parked.remove(slot) ?: return
-        when (c) {
-            is __Cont___Route_Search.Query -> handler.query(c.word, value as salvo.SalvoReply)
-        }
-    }
-
-    @Suppress("REDUNDANT_ELSE_IN_WHEN")
-    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
-        val c = handler.__parked[slot] ?: return Pair(false, null)
-        return when (c) {
-            is __Cont___Route_Search.Query -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
-            else -> Pair(false, null)
-        }
-    }
-
-    companion object {
-        val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
-            when (proto) {
-                __PROTO_Search -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Search)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
-                else -> Pair(false, null)
-            }
-        }
-    }
-}
-
-class __Route_Sequencer(private val group: Int, private val config: salvo.net.RouteConfig, private val __dep0: salvo.net.RouteSelector) : Sequencer {
+class __Route_Sequencer(private val group: Int, private val __dep0: salvo.net.RouteSelector) : Sequencer {
     val __mailboxCapacity: Int = 1
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont___Route_Sequencer> = kotlin.collections.mutableMapOf()
     var seen: Long = -1L
     override fun next(out: salvo.SalvoReply) {
-        val __pick: salvo.net.RoutePick = salvo.net.routePick__Addr_RouteConfig_Long(__dep0, group, config, seen)
+        val __pick: salvo.net.RoutePick = salvo.net.routePick__Addr_Long(__dep0, group, seen)
         seen = __pick.version
         salvo.SalvoSched.sendWire(__pick.to, __Msg_Sequencer.Next(out), __PROTO_Sequencer, __Codec___Msg_Sequencer)
     }
@@ -1279,16 +1189,6 @@ sealed class __Cont___Route_Inventory {
 }
 
 
-sealed class __Cont___Route_Lookup {
-    class Lookup(val key: String) : __Cont___Route_Lookup()
-}
-
-
-sealed class __Cont___Route_Search {
-    class Query(val word: String) : __Cont___Route_Search()
-}
-
-
 sealed class __Cont___Route_Sequencer {
     class Next() : __Cont___Route_Sequencer()
 }
@@ -1506,30 +1406,6 @@ fun __dispatch___Route_Inventory_Inventory(__handler: __Route_Inventory, __msg: 
             val qty = (__msg as __Msg_Inventory.Reserve).qty
             val out = (__msg as __Msg_Inventory.Reserve).out
             __handler.reserve(sku, qty, out)
-        }
-        else -> throw IllegalStateException("salvo: unreachable arm")
-    }
-}
-
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun __dispatch___Route_Lookup_Lookup(__handler: __Route_Lookup, __msg: __Msg_Lookup) {
-    when {
-        (__msg is __Msg_Lookup.Lookup) -> {
-            val key = (__msg as __Msg_Lookup.Lookup).key
-            val out = (__msg as __Msg_Lookup.Lookup).out
-            __handler.lookup(key, out)
-        }
-        else -> throw IllegalStateException("salvo: unreachable arm")
-    }
-}
-
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun __dispatch___Route_Search_Search(__handler: __Route_Search, __msg: __Msg_Search) {
-    when {
-        (__msg is __Msg_Search.Query) -> {
-            val word = (__msg as __Msg_Search.Query).word
-            val out = (__msg as __Msg_Search.Query).out
-            __handler.query(word, out)
         }
         else -> throw IllegalStateException("salvo: unreachable arm")
     }

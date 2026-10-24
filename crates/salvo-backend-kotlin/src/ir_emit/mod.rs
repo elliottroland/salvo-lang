@@ -416,11 +416,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Some(m) if **m != self.module.path => format!("{}.{plain}", kotlin_package(m)),
             Some(_) => plain.to_string(),
             // [actor-msg] A generated enum is keyed by its module.
-            None => match self.generated_enum(key) {
-                Some((_, m)) if m != self.module.path => format!("{}.{plain}", kotlin_package(&m)),
+            None => match self.generated_enum(key).map(|(_, m)| m).or_else(|| self.generated_impl_module(key)) {
+                Some(m) if m != self.module.path => format!("{}.{plain}", kotlin_package(&m)),
                 _ => plain.to_string(),
             },
         }
+    }
+
+    /// [route-stub] The module of a handler the IR generated (a route), by
+    /// its key, which names its module like a generated enum's.
+    fn generated_impl_module(&self, key: &str) -> Option<salvo_core::ModulePath> {
+        let module = salvo_core::typekey::module_of(key)?;
+        self.s.ir.modules.iter().filter(|m| m.path.0.join(".") == module).flat_map(|m| &m.decls).find_map(|d| match d {
+            Decl::Impl(h) if salvo_core::ir::enum_key(&h.name, &h.id.module) == key => Some(h.id.module.clone()),
+            _ => None,
+        })
     }
 
     /// [actor-msg] The generated enum a type key names, and its module.
