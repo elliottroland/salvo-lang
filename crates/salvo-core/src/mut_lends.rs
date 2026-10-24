@@ -124,7 +124,7 @@ pub fn mut_lend_uses(program: &Program, checked: &Checked) -> MutLendUses {
         let mut returned: Vec<&Expr> = Vec::new();
         collect_returned_exprs(body, &mut returned);
         for mut e in returned {
-            while let Expr::NonNull { operand, .. } = e {
+            while let Some(operand) = e.presence_unwrapped() {
                 e = operand;
             }
             let Expr::Call { span, .. } = e else { continue };
@@ -223,7 +223,6 @@ pub fn collect_returned_exprs<'a>(block: &'a Block, out: &mut Vec<&'a Expr>) {
                 expr(lhs, out);
                 expr(rhs, out);
             }
-            Expr::NonNull { operand, .. } => expr(operand, out),
             Expr::Try { body, .. } | Expr::WaitFor { body, .. } => {
                 collect_returned_exprs(body, out)
             }
@@ -382,8 +381,11 @@ pub fn ty_lends_mut(ret: &Ty) -> bool {
 pub fn mut_lend_call_of(expr: &Expr) -> Option<Span> {
     let mut e = expr;
     loop {
+        if let Some(operand) = e.presence_unwrapped() {
+            e = operand;
+            continue;
+        }
         match e {
-            Expr::NonNull { operand, .. } => e = operand,
             Expr::Field { base, .. } => e = base,
             Expr::TupleIndex { base, .. } => e = base,
             Expr::Index { base, .. } => e = base,

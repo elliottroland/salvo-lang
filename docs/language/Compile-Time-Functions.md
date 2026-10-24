@@ -219,7 +219,7 @@ narrowed to it:
 
 ```
 [if field.type is Int] {
-    let v = parse_int(text)!
+    let v = parse_int(text) ?: unreachable!()
     if v is [field.type] {
         return v                    // an `InRange(1, 65535) Int`
     }

@@ -381,7 +381,7 @@ handler RoundRobin(members: List<eff[Resizer]>) of any Resizer {   // forwards; 
     mailbox { capacity: 16 }
     next: Int = 0
     send fn resize(name: Str, w: Int, out: Reply<Str>) => !name, !out {
-        let target = copy(get(members, next % size(members))!)
+        let target = copy(get(members, next % size(members)) ?: unreachable!())
         next = next + 1
         target.resize(name, w, out)
     }

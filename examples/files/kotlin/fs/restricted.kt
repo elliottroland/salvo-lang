@@ -15,16 +15,13 @@ fun fsResolve(root: String, path: String): String? {
             break
         }
         val seg: String = kotlin.run {
-            val __nn_1: String? = salvo.core.list.getPlatform(segs, i)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at fs.restricted:36:19"))
-                }
-                else -> {
-                    val __some_2: String = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: String? = salvo.core.list.getPlatform(segs, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: String = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at fs.restricted:36:35")
+            })
         }
         if (((seg) == (".."))) {
             skip = (skip + 1)
@@ -50,16 +47,13 @@ fun fsResolve(root: String, path: String): String? {
             break
         }
         salvo.core.list.addPlatform(parts, kotlin.run {
-            val __nn_3: String? = salvo.core.list.getPlatform(kept, j)
-            when {
-                (__nn_3 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at fs.restricted:59:24"))
-                }
-                else -> {
-                    val __some_4: String = __nn_3!!
-                    __some_4
-                }
-            }
+            val __pick_4: String? = salvo.core.list.getPlatform(kept, j)
+            (if ((__pick_4 != null)) {
+                val __picked_5: String = __pick_4!!
+                __picked_5
+            } else {
+                throw AssertionError("salvo: unreachable at fs.restricted:59:40")
+            })
         })
         j = (j - 1)
     }

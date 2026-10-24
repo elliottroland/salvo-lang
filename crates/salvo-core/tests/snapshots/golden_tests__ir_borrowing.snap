@@ -47,16 +47,13 @@ fn main::wounded(lent_mut squad: List<Mut Fighter>) -> ref<List<Mut Fighter>> Mu
 }
 
 fn main::rally_at<L>(lent_mut squad: List<Mut Fighter>, lent l: L; ?lent at: (List<Mut Fighter>, L) -> ref<List<Mut Fighter>> Mut Fighter?) -> None {
-  call main::heal(borrow_as[ref<List<Mut Fighter>> Mut Fighter -> Mut Fighter](branch#4 cond#0 true {
-    bind#2 let __nn~1: ref<List<Mut Fighter>> Mut Fighter? = call local at(read squad, read l)
-    value switch#1 read __nn~1 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:102:10
-      }
-      arm#1 (else) {
-        narrow#3[switch#1.arm#1] __some~2: ref<List<Mut Fighter>> Mut Fighter = __nn~1
-        value !read __some~2
-      }
+  call main::heal(borrow_as[ref<List<Mut Fighter>> Mut Fighter -> Mut Fighter](branch#6 cond#0 true {
+    bind#1 let __pick~1: ref<List<Mut Fighter>> Mut Fighter? = call local at(read squad, read l)
+    value branch#2 cond#0 check#5 (read __pick~1 is arm 0) {
+      narrow#3[branch#2.cond#0] __picked~2: ref<List<Mut Fighter>> Mut Fighter = __pick~1
+      value !read __picked~2
+    } else {
+      value unreachable() at main:102:26
     }
   }))
   return none[None]
@@ -104,325 +101,262 @@ fn main::main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let roster: List<Fighter> = call core.list::List(T, T[])<Fighter>(construct Fighter { name: "Ada", hp: 30, energy: 4 }, array[Fighter[]](construct Fighter { name: "Bo", hp: 8, energy: 9 }))
-  bind#8 let ada: proj Fighter = branch#7 cond#0 true {
-    bind#5 let __nn~3: proj Fighter? = call main::named(read roster, "Ada")
-    value switch#4 read __nn~3 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:191:15
-      }
-      arm#1 (else) {
-        narrow#6[switch#4.arm#1] __some~4: proj Fighter = __nn~3
-        value !read __some~4
-      }
+  bind#10 let ada: proj Fighter = branch#9 cond#0 true {
+    bind#4 let __pick~3: proj Fighter? = call main::named(read roster, "Ada")
+    value branch#5 cond#0 check#8 (read __pick~3 is arm 0) {
+      narrow#6[branch#5.cond#0] __picked~4: proj Fighter = __pick~3
+      value !read __picked~4
+    } else {
+      value unreachable() at main:191:39
     }
   }
   call core.console::println(read __handle~2, concat("1. found ", read ada.name, ", hp ", call core.basic::to_str(Int)(read ada.hp)))
-  bind#9 let names: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#11 let names: Mut List<Str> = call core.list::Mut_List()<Str>()
   call core.list::add<Str>(read names, call core.basic::copy<Str>(read ada.name))
   call core.console::println(read __handle~2, concat("1. copied out ", call core.list::to_str<Str>(drop_mut(read names), fn core.basic::to_str(Str))))
-  bind#10 let w: Mut Window = call main::window(read roster)
+  bind#12 let w: Mut Window = call main::window(read roster)
   assign w.at = 1
-  call core.console::println(read __handle~2, concat("1. window at ", call core.basic::to_str(Int)(read w.at), ": ", branch#16 cond#0 true {
-    bind#15 let __proj~7: proj Fighter = branch#14 cond#0 true {
-      bind#12 let __nn~5: proj Fighter? = call main::peek(drop_mut(read w))
-      value switch#11 read __nn~5 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:205:38
-        }
-        arm#1 (else) {
-          narrow#13[switch#11.arm#1] __some~6: proj Fighter = __nn~5
-          value !read __some~6
-        }
+  call core.console::println(read __handle~2, concat("1. window at ", call core.basic::to_str(Int)(read w.at), ": ", branch#20 cond#0 true {
+    bind#19 let __proj~9: proj Fighter = branch#18 cond#0 true {
+      bind#13 let __pick~6: proj Fighter? = call main::peek(drop_mut(read w))
+      value branch#14 cond#0 check#17 (read __pick~6 is arm 0) {
+        narrow#15[branch#14.cond#0] __picked~7: proj Fighter = __pick~6
+        value !read __picked~7
+      } else {
+        value unreachable() at main:205:50
       }
     }
-    value !read __proj~7.name
+    value !read __proj~9.name
   }))
-  bind#17 let pass: Mut ListYield<Fighter> = call core.list::iter<Fighter>(read roster)
-  bind#18 let standing: Mut List<proj Fighter> = call core.seq::filter(Mut It, (T) -> Bool)<ListYield<Fighter>, proj Fighter>(read pass, lambda(lent f: Fighter) -> Bool {
+  bind#21 let pass: Mut ListYield<Fighter> = call core.list::iter<Fighter>(read roster)
+  bind#22 let standing: Mut List<proj Fighter> = call core.seq::filter(Mut It, (T) -> Bool)<ListYield<Fighter>, proj Fighter>(read pass, lambda(lent f: Fighter) -> Bool {
     return (read f.hp > 10)
   }, fn core.list::next(Mut ListYield<T>))
   call core.console::println(read __handle~2, concat("1. ", call core.basic::to_str(Int)(call core.list::size<proj Fighter>(drop_mut(read standing))), " of ", call core.basic::to_str(Int)(call core.list::size<Fighter>(read roster)), " still standing"))
-  bind#19 let bench: Mut List<Fighter> = call core.list::Mut_List(T, T[])<Fighter>(construct Fighter { name: "Cy", hp: 12, energy: 2 }, array[Fighter[]]())
+  bind#23 let bench: Mut List<Fighter> = call core.list::Mut_List(T, T[])<Fighter>(construct Fighter { name: "Cy", hp: 12, energy: 2 }, array[Fighter[]]())
   call core.list::add<Fighter>(read bench, construct Fighter { name: "Dee", hp: 6, energy: 7 })
-  call core.console::println(read __handle~2, concat("2. bench ", call core.basic::to_str(Int)(call core.list::size<Fighter>(drop_mut(read bench))), ", front ", branch#25 cond#0 true {
-    bind#24 let __proj~10: proj Fighter = branch#23 cond#0 true {
-      bind#21 let __nn~8: proj Fighter? = call core.list::get(List<T>, Int)<Fighter>(drop_mut(read bench), 0)
-      value switch#20 read __nn~8 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:220:47
-        }
-        arm#1 (else) {
-          narrow#22[switch#20.arm#1] __some~9: proj Fighter = __nn~8
-          value !read __some~9
-        }
+  call core.console::println(read __handle~2, concat("2. bench ", call core.basic::to_str(Int)(call core.list::size<Fighter>(drop_mut(read bench))), ", front ", branch#31 cond#0 true {
+    bind#30 let __proj~13: proj Fighter = branch#29 cond#0 true {
+      bind#24 let __pick~10: proj Fighter? = call core.list::get(List<T>, Int)<Fighter>(drop_mut(read bench), 0)
+      value branch#25 cond#0 check#28 (read __pick~10 is arm 0) {
+        narrow#26[branch#25.cond#0] __picked~11: proj Fighter = __pick~10
+        value !read __picked~11
+      } else {
+        value unreachable() at main:220:65
       }
     }
-    value !read __proj~10.name
+    value !read __proj~13.name
   }, " (a reading, not a handle)"))
-  bind#26 let squad: List<Mut Fighter> = call core.list::List(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Ada", hp: 30, energy: 4 }, array[Mut Fighter[]](construct Mut Fighter { name: "Bo", hp: 8, energy: 9 }))
-  bind#31 let boss: ref<List<Mut Fighter>> Mut Fighter = branch#30 cond#0 true {
-    bind#28 let __nn~11: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, 0)
-    value switch#27 read __nn~11 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:231:16
-      }
-      arm#1 (else) {
-        narrow#29[switch#27.arm#1] __some~12: ref<List<Mut Fighter>> Mut Fighter = __nn~11
-        value !read __some~12
-      }
+  bind#32 let squad: List<Mut Fighter> = call core.list::List(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Ada", hp: 30, energy: 4 }, array[Mut Fighter[]](construct Mut Fighter { name: "Bo", hp: 8, energy: 9 }))
+  bind#39 let boss: ref<List<Mut Fighter>> Mut Fighter = branch#38 cond#0 true {
+    bind#33 let __pick~14: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, 0)
+    value branch#34 cond#0 check#37 (read __pick~14 is arm 0) {
+      narrow#35[branch#34.cond#0] __picked~15: ref<List<Mut Fighter>> Mut Fighter = __pick~14
+      value !read __picked~15
+    } else {
+      value unreachable() at main:231:32
     }
   }
   assign boss.hp = (read boss.hp + 1)
-  bind#32 let n: Int = call core.list::size<Mut Fighter>(read squad)
+  bind#40 let n: Int = call core.list::size<Mut Fighter>(read squad)
   assign boss.hp = (read boss.hp + read n)
-  call core.console::println(read __handle~2, concat("2. ", branch#38 cond#0 true {
-    bind#37 let __proj~15: proj Mut Fighter = branch#36 cond#0 true {
-      bind#34 let __nn~13: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
-      value switch#33 read __nn~13 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:235:19
-        }
-        arm#1 (else) {
-          narrow#35[switch#33.arm#1] __some~14: proj Mut Fighter = __nn~13
-          value !read __some~14
-        }
+  call core.console::println(read __handle~2, concat("2. ", branch#48 cond#0 true {
+    bind#47 let __proj~20: proj Mut Fighter = branch#46 cond#0 true {
+      bind#41 let __pick~17: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
+      value branch#42 cond#0 check#45 (read __pick~17 is arm 0) {
+        narrow#43[branch#42.cond#0] __picked~18: proj Mut Fighter = __pick~17
+        value !read __picked~18
+      } else {
+        value unreachable() at main:235:37
       }
     }
-    value !read __proj~15.name
-  }, " at ", call core.basic::to_str(Int)(branch#44 cond#0 true {
-    bind#43 let __proj~18: proj Mut Fighter = branch#42 cond#0 true {
-      bind#40 let __nn~16: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
-      value switch#39 read __nn~16 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:235:45
-        }
-        arm#1 (else) {
-          narrow#41[switch#39.arm#1] __some~17: proj Mut Fighter = __nn~16
-          value !read __some~17
-        }
+    value !read __proj~20.name
+  }, " at ", call core.basic::to_str(Int)(branch#56 cond#0 true {
+    bind#55 let __proj~24: proj Mut Fighter = branch#54 cond#0 true {
+      bind#49 let __pick~21: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
+      value branch#50 cond#0 check#53 (read __pick~21 is arm 0) {
+        narrow#51[branch#50.cond#0] __picked~22: proj Mut Fighter = __pick~21
+        value !read __picked~22
+      } else {
+        value unreachable() at main:235:82
       }
     }
-    value !read __proj~18.hp
+    value !read __proj~24.hp
   }), " after a read in the middle"))
-  call main::heal(borrow_as[ref<List<Mut Fighter>> Mut Fighter -> Mut Fighter](branch#48 cond#0 true {
-    bind#46 let __nn~19: ref<List<Mut Fighter>> Mut Fighter? = call main::wounded(read squad)
-    value switch#45 read __nn~19 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:238:10
-      }
-      arm#1 (else) {
-        narrow#47[switch#45.arm#1] __some~20: ref<List<Mut Fighter>> Mut Fighter = __nn~19
-        value !read __some~20
-      }
+  call main::heal(borrow_as[ref<List<Mut Fighter>> Mut Fighter -> Mut Fighter](branch#62 cond#0 true {
+    bind#57 let __pick~25: ref<List<Mut Fighter>> Mut Fighter? = call main::wounded(read squad)
+    value branch#58 cond#0 check#61 (read __pick~25 is arm 0) {
+      narrow#59[branch#58.cond#0] __picked~26: ref<List<Mut Fighter>> Mut Fighter = __pick~25
+      value !read __picked~26
+    } else {
+      value unreachable() at main:238:28
     }
   }))
   call main::rally_at<Int>(read squad, 1, fn core.list::at(List<T>, Int))
-  call core.console::println(read __handle~2, concat("2. after the searches: ", call core.basic::to_str(Int)(branch#54 cond#0 true {
-    bind#53 let __proj~23: proj Mut Fighter = branch#52 cond#0 true {
-      bind#50 let __nn~21: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
-      value switch#49 read __nn~21 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:243:39
-        }
-        arm#1 (else) {
-          narrow#51[switch#49.arm#1] __some~22: proj Mut Fighter = __nn~21
-          value !read __some~22
-        }
+  call core.console::println(read __handle~2, concat("2. after the searches: ", call core.basic::to_str(Int)(branch#70 cond#0 true {
+    bind#69 let __proj~31: proj Mut Fighter = branch#68 cond#0 true {
+      bind#63 let __pick~28: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
+      value branch#64 cond#0 check#67 (read __pick~28 is arm 0) {
+        narrow#65[branch#64.cond#0] __picked~29: proj Mut Fighter = __pick~28
+        value !read __picked~29
+      } else {
+        value unreachable() at main:243:57
       }
     }
-    value !read __proj~23.hp
-  }), " ", call core.basic::to_str(Int)(branch#60 cond#0 true {
-    bind#59 let __proj~26: proj Mut Fighter = branch#58 cond#0 true {
-      bind#56 let __nn~24: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 1)
-      value switch#55 read __nn~24 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:243:60
-        }
-        arm#1 (else) {
-          narrow#57[switch#55.arm#1] __some~25: proj Mut Fighter = __nn~24
-          value !read __some~25
-        }
+    value !read __proj~31.hp
+  }), " ", call core.basic::to_str(Int)(branch#78 cond#0 true {
+    bind#77 let __proj~35: proj Mut Fighter = branch#76 cond#0 true {
+      bind#71 let __pick~32: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 1)
+      value branch#72 cond#0 check#75 (read __pick~32 is arm 0) {
+        narrow#73[branch#72.cond#0] __picked~33: proj Mut Fighter = __pick~32
+        value !read __picked~33
+      } else {
+        value unreachable() at main:243:97
       }
     }
-    value !read __proj~26.hp
+    value !read __proj~35.hp
   })))
-  bind#61 let i: Int = 0
-  bind#62 let j: Int = 1
-  bind#67 let a: ref<List<Mut Fighter>> Mut Fighter = branch#66 cond#0 true {
-    bind#64 let __nn~27: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
-    value switch#63 read __nn~27 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:259:13
-      }
-      arm#1 (else) {
-        narrow#65[switch#63.arm#1] __some~28: ref<List<Mut Fighter>> Mut Fighter = __nn~27
-        value !read __some~28
-      }
+  bind#79 let i: Int = 0
+  bind#80 let j: Int = 1
+  bind#87 let a: ref<List<Mut Fighter>> Mut Fighter = branch#86 cond#0 true {
+    bind#81 let __pick~36: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
+    value branch#82 cond#0 check#85 (read __pick~36 is arm 0) {
+      narrow#83[branch#82.cond#0] __picked~37: ref<List<Mut Fighter>> Mut Fighter = __pick~36
+      value !read __picked~37
+    } else {
+      value unreachable() at main:259:29
     }
   }
-  bind#72 let d: ref<List<Mut Fighter>> Mut Fighter = branch#71 cond#0 true {
-    bind#69 let __nn~29: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read j)
-    value switch#68 read __nn~29 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:260:13
-      }
-      arm#1 (else) {
-        narrow#70[switch#68.arm#1] __some~30: ref<List<Mut Fighter>> Mut Fighter = __nn~29
-        value !read __some~30
-      }
+  bind#94 let d: ref<List<Mut Fighter>> Mut Fighter = branch#93 cond#0 true {
+    bind#88 let __pick~39: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read j)
+    value branch#89 cond#0 check#92 (read __pick~39 is arm 0) {
+      narrow#90[branch#89.cond#0] __picked~40: ref<List<Mut Fighter>> Mut Fighter = __pick~39
+      value !read __picked~40
+    } else {
+      value unreachable() at main:260:29
     }
   }
-  branch#73 cond#0 call core.ref::NotSame.qualifies(read d, read a) {
+  branch#95 cond#0 call core.ref::NotSame.qualifies(read d, read a) {
     assign a.hp = (read a.hp + 1)
     assign d.hp = (read d.hp + 1)
     call main::duel(borrow_as[ref<List<Mut Fighter>> Mut Fighter -> Mut Fighter](read a), borrow_as[ref<List<Mut Fighter>> Mut Fighter -> Mut Fighter](read d))
     assign a.energy = (read a.energy + 100)
     assign d.energy = (read d.energy + 200)
   }
-  branch#74 cond#0 call core.index::Idx.qualifies(read i, read squad, fn core.list::size) {
-    branch#75 cond#0 call core.index::Idx.qualifies(read j, read squad, fn core.list::size) {
+  branch#96 cond#0 call core.index::Idx.qualifies(read i, read squad, fn core.list::size) {
+    branch#97 cond#0 call core.index::Idx.qualifies(read j, read squad, fn core.list::size) {
       call core.list::update<Fighter>(read squad, read i, lambda(lent f: Mut Fighter) -> None {
         assign f.energy = (read f.energy + 1)
       })
-      call core.console::println(read __handle~2, concat("3. ", call core.basic::to_str(Int)(branch#77 cond#0 true {
-        bind#76 let __proj~31: proj Mut Fighter = call core.list::get(List<T>, Idx(list) Int)<Mut Fighter>(read squad, read i)
-        value !read __proj~31.energy
-      }), " ", call core.basic::to_str(Int)(branch#79 cond#0 true {
-        bind#78 let __proj~32: proj Mut Fighter = call core.list::get(List<T>, Idx(list) Int)<Mut Fighter>(read squad, read j)
-        value !read __proj~32.energy
+      call core.console::println(read __handle~2, concat("3. ", call core.basic::to_str(Int)(branch#99 cond#0 true {
+        bind#98 let __proj~42: proj Mut Fighter = call core.list::get(List<T>, Idx(list) Int)<Mut Fighter>(read squad, read i)
+        value !read __proj~42.energy
+      }), " ", call core.basic::to_str(Int)(branch#101 cond#0 true {
+        bind#100 let __proj~43: proj Mut Fighter = call core.list::get(List<T>, Idx(list) Int)<Mut Fighter>(read squad, read j)
+        value !read __proj~43.energy
       }), " (total reads: `Idx` survived)"))
     }
   }
-  call main::strike(read squad, branch#83 cond#0 true {
-    bind#81 let __nn~33: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
-    value switch#80 read __nn~33 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:282:19
-      }
-      arm#1 (else) {
-        narrow#82[switch#80.arm#1] __some~34: ref<List<Mut Fighter>> Mut Fighter = __nn~33
-        value !read __some~34
-      }
+  call main::strike(read squad, branch#107 cond#0 true {
+    bind#102 let __pick~44: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
+    value branch#103 cond#0 check#106 (read __pick~44 is arm 0) {
+      narrow#104[branch#103.cond#0] __picked~45: ref<List<Mut Fighter>> Mut Fighter = __pick~44
+      value !read __picked~45
+    } else {
+      value unreachable() at main:282:35
     }
-  }, branch#87 cond#0 true {
-    bind#85 let __nn~35: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read j)
-    value switch#84 read __nn~35 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:282:34
-      }
-      arm#1 (else) {
-        narrow#86[switch#84.arm#1] __some~36: ref<List<Mut Fighter>> Mut Fighter = __nn~35
-        value !read __some~36
-      }
+  }, branch#113 cond#0 true {
+    bind#108 let __pick~47: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read j)
+    value branch#109 cond#0 check#112 (read __pick~47 is arm 0) {
+      narrow#110[branch#109.cond#0] __picked~48: ref<List<Mut Fighter>> Mut Fighter = __pick~47
+      value !read __picked~48
+    } else {
+      value unreachable() at main:282:67
     }
   })
-  call main::strike(read squad, branch#91 cond#0 true {
-    bind#89 let __nn~37: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
-    value switch#88 read __nn~37 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:285:19
-      }
-      arm#1 (else) {
-        narrow#90[switch#88.arm#1] __some~38: ref<List<Mut Fighter>> Mut Fighter = __nn~37
-        value !read __some~38
-      }
+  call main::strike(read squad, branch#119 cond#0 true {
+    bind#114 let __pick~50: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
+    value branch#115 cond#0 check#118 (read __pick~50 is arm 0) {
+      narrow#116[branch#115.cond#0] __picked~51: ref<List<Mut Fighter>> Mut Fighter = __pick~50
+      value !read __picked~51
+    } else {
+      value unreachable() at main:285:35
     }
-  }, branch#95 cond#0 true {
-    bind#93 let __nn~39: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
-    value switch#92 read __nn~39 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:285:34
-      }
-      arm#1 (else) {
-        narrow#94[switch#92.arm#1] __some~40: ref<List<Mut Fighter>> Mut Fighter = __nn~39
-        value !read __some~40
-      }
+  }, branch#125 cond#0 true {
+    bind#120 let __pick~53: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
+    value branch#121 cond#0 check#124 (read __pick~53 is arm 0) {
+      narrow#122[branch#121.cond#0] __picked~54: ref<List<Mut Fighter>> Mut Fighter = __pick~53
+      value !read __picked~54
+    } else {
+      value unreachable() at main:285:67
     }
   })
-  call core.console::println(read __handle~2, concat("4. ", call core.basic::to_str(Int)(branch#101 cond#0 true {
-    bind#100 let __proj~43: proj Mut Fighter = branch#99 cond#0 true {
-      bind#97 let __nn~41: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
-      value switch#96 read __nn~41 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:286:19
-        }
-        arm#1 (else) {
-          narrow#98[switch#96.arm#1] __some~42: proj Mut Fighter = __nn~41
-          value !read __some~42
-        }
+  call core.console::println(read __handle~2, concat("4. ", call core.basic::to_str(Int)(branch#133 cond#0 true {
+    bind#132 let __proj~59: proj Mut Fighter = branch#131 cond#0 true {
+      bind#126 let __pick~56: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
+      value branch#127 cond#0 check#130 (read __pick~56 is arm 0) {
+        narrow#128[branch#127.cond#0] __picked~57: proj Mut Fighter = __pick~56
+        value !read __picked~57
+      } else {
+        value unreachable() at main:286:37
       }
     }
-    value !read __proj~43.hp
-  }), " hp / ", call core.basic::to_str(Int)(branch#107 cond#0 true {
-    bind#106 let __proj~46: proj Mut Fighter = branch#105 cond#0 true {
-      bind#103 let __nn~44: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
-      value switch#102 read __nn~44 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:286:45
-        }
-        arm#1 (else) {
-          narrow#104[switch#102.arm#1] __some~45: proj Mut Fighter = __nn~44
-          value !read __some~45
-        }
+    value !read __proj~59.hp
+  }), " hp / ", call core.basic::to_str(Int)(branch#141 cond#0 true {
+    bind#140 let __proj~63: proj Mut Fighter = branch#139 cond#0 true {
+      bind#134 let __pick~60: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
+      value branch#135 cond#0 check#138 (read __pick~60 is arm 0) {
+        narrow#136[branch#135.cond#0] __picked~61: proj Mut Fighter = __pick~60
+        value !read __picked~61
+      } else {
+        value unreachable() at main:286:82
       }
     }
-    value !read __proj~46.energy
+    value !read __proj~63.energy
   }), " energy after striking itself"))
-  bind#108 let team: Mut Squad = construct Mut Squad { banner: "Red", members: call core.list::List(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Cy", hp: 12, energy: 2 }, array[Mut Fighter[]](construct Mut Fighter { name: "Dee", hp: 6, energy: 7 })) }
-  call main::rotate(read team.members, branch#112 cond#0 true {
-    bind#110 let __nn~47: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read team.members, read i)
-    value switch#109 read __nn~47 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:293:26
-      }
-      arm#1 (else) {
-        narrow#111[switch#109.arm#1] __some~48: ref<List<Mut Fighter>> Mut Fighter = __nn~47
-        value !read __some~48
-      }
+  bind#142 let team: Mut Squad = construct Mut Squad { banner: "Red", members: call core.list::List(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Cy", hp: 12, energy: 2 }, array[Mut Fighter[]](construct Mut Fighter { name: "Dee", hp: 6, energy: 7 })) }
+  call main::rotate(read team.members, branch#148 cond#0 true {
+    bind#143 let __pick~64: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read team.members, read i)
+    value branch#144 cond#0 check#147 (read __pick~64 is arm 0) {
+      narrow#145[branch#144.cond#0] __picked~65: ref<List<Mut Fighter>> Mut Fighter = __pick~64
+      value !read __picked~65
+    } else {
+      value unreachable() at main:293:49
     }
-  }, branch#116 cond#0 true {
-    bind#114 let __nn~49: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read team.members, read j)
-    value switch#113 read __nn~49 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:293:48
-      }
-      arm#1 (else) {
-        narrow#115[switch#113.arm#1] __some~50: ref<List<Mut Fighter>> Mut Fighter = __nn~49
-        value !read __some~50
-      }
+  }, branch#154 cond#0 true {
+    bind#149 let __pick~67: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read team.members, read j)
+    value branch#150 cond#0 check#153 (read __pick~67 is arm 0) {
+      narrow#151[branch#150.cond#0] __picked~68: ref<List<Mut Fighter>> Mut Fighter = __pick~67
+      value !read __picked~68
+    } else {
+      value unreachable() at main:293:88
     }
   })
-  call core.console::println(read __handle~2, concat("4. ", read team.banner, ": ", call core.basic::to_str(Int)(branch#122 cond#0 true {
-    bind#121 let __proj~53: proj Mut Fighter = branch#120 cond#0 true {
-      bind#118 let __nn~51: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read team.members, 0)
-      value switch#117 read __nn~51 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:294:35
-        }
-        arm#1 (else) {
-          narrow#119[switch#117.arm#1] __some~52: proj Mut Fighter = __nn~51
-          value !read __some~52
-        }
+  call core.console::println(read __handle~2, concat("4. ", read team.banner, ": ", call core.basic::to_str(Int)(branch#162 cond#0 true {
+    bind#161 let __proj~73: proj Mut Fighter = branch#160 cond#0 true {
+      bind#155 let __pick~70: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read team.members, 0)
+      value branch#156 cond#0 check#159 (read __pick~70 is arm 0) {
+        narrow#157[branch#156.cond#0] __picked~71: proj Mut Fighter = __pick~70
+        value !read __picked~71
+      } else {
+        value unreachable() at main:294:60
       }
     }
-    value !read __proj~53.energy
-  }), " ", call core.basic::to_str(Int)(branch#128 cond#0 true {
-    bind#127 let __proj~56: proj Mut Fighter = branch#126 cond#0 true {
-      bind#124 let __nn~54: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read team.members, 1)
-      value switch#123 read __nn~54 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:294:67
-        }
-        arm#1 (else) {
-          narrow#125[switch#123.arm#1] __some~55: proj Mut Fighter = __nn~54
-          value !read __some~55
-        }
+    value !read __proj~73.energy
+  }), " ", call core.basic::to_str(Int)(branch#170 cond#0 true {
+    bind#169 let __proj~77: proj Mut Fighter = branch#168 cond#0 true {
+      bind#163 let __pick~74: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read team.members, 1)
+      value branch#164 cond#0 check#167 (read __pick~74 is arm 0) {
+        narrow#165[branch#164.cond#0] __picked~75: proj Mut Fighter = __pick~74
+        value !read __picked~75
+      } else {
+        value unreachable() at main:294:111
       }
     }
-    value !read __proj~56.energy
+    value !read __proj~77.energy
   })))
-  bind#129 let camp: Mut Camp = construct Mut Camp { supplies: 10, banners: call core.list::Mut_List(T, T[])<Str>("red", array[Str[]]()) }
-  alias#130 banners: Mut List<Str> = camp.banners
+  bind#171 let camp: Mut Camp = construct Mut Camp { supplies: 10, banners: call core.list::Mut_List(T, T[])<Str>("red", array[Str[]]()) }
+  alias#172 banners: Mut List<Str> = camp.banners
   call main::spend(read camp, 3)
   call main::hoist(read camp, "blue")
   call core.console::println(read __handle~2, concat("5. supplies ", call core.basic::to_str(Int)(read camp.supplies), ", banners ", call core.list::to_str<Str>(drop_mut(read banners), fn core.basic::to_str(Str))))

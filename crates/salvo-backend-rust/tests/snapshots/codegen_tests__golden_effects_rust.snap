@@ -438,12 +438,12 @@ pub fn drain<T>(mut list: Vec<T>, each: &mut dyn FnMut(T)) {
             break;
         };
         { let __arg1 = {
-            let mut __nn_1: Option<T> = crate::core_list::remove_last_platform::<T>(&mut m);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:247:14");
+            let mut __pick_1: Option<T> = crate::core_list::remove_last_platform::<T>(&mut m);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.list:247:32")
             }
         }; each(__arg1) };
     }
@@ -472,12 +472,12 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 
 pub fn first<T>(list: &Vec<T>) -> &T {
     return {
-        let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, 0i32);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at core.list:304:12");
+        let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(list, 0i32);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at core.list:304:28")
         }
     };
 }
@@ -510,12 +510,12 @@ pub fn remove_front_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool
     let mut n: i32 = 0i32;
     loop {
         if !(((n < crate::core_list::size_platform::<T>(&*list)) && keep({
-            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(&*list, n);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:347:34");
+            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(&*list, n);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.list:347:50")
             }
         }))) {
             break;
@@ -529,12 +529,12 @@ pub fn remove_back_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool)
     let mut at: i32 = crate::core_list::size_platform::<T>(&*list);
     loop {
         if !(((at > 0i32) && keep({
-            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(&*list, i32::wrapping_sub(at, 1i32));
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:359:26");
+            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(&*list, i32::wrapping_sub(at, 1i32));
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.list:359:47")
             }
         }))) {
             break;
@@ -555,12 +555,12 @@ pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut 
             break;
         };
         crate::core_list::add_platform::<T>(&mut out, copy({
-            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:377:23");
+            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.list:377:39")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -643,12 +643,12 @@ pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) ->
             break;
         };
         if eq({
-            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:427:15");
+            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.list:427:31")
             }
         }, elem) {
             return true;
@@ -669,12 +669,12 @@ pub fn all<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> bool {
             break;
         };
         if !(pick({
-            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:444:18");
+            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.list:444:34")
             }
         })) {
             return false;
@@ -692,12 +692,12 @@ pub fn count<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> i32 {
             break;
         };
         if pick({
-            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:457:17");
+            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.list:457:33")
             }
         }) {
             n = i32::wrapping_add(n, 1i32);
@@ -716,12 +716,12 @@ pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy
             break;
         };
         let mut x: &T = {
-            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:474:17");
+            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.list:474:33")
             }
         };
         if pick(x) {
@@ -1029,12 +1029,12 @@ pub fn to_str<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, to_str: &mut
         crate::core_string::append_platform(&mut out, &to_str(&k));
         crate::core_string::append_platform(&mut out, &String::from(": "));
         crate::core_string::append_platform(&mut out, &to_str__1({
-            let mut __nn_1: Option<&V> = crate::core_map::get_platform::<K, V>(map, &k, &mut *hash, &mut *eq);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.map:186:28");
+            let mut __pick_1: Option<&V> = crate::core_map::get_platform::<K, V>(map, &k, &mut *hash, &mut *eq);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.map:186:43")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -1052,16 +1052,16 @@ pub fn eq<K: Clone, V: Clone>(a: &crate::core_map::Map<K, V>, b: &crate::core_ma
         if theirs.is_none() {
             return false;
         };
-        let mut theirs_3 = theirs.unwrap();
+        let mut theirs_4 = theirs.unwrap();
         if !(eq({
-            let mut __nn_1: Option<&V> = crate::core_map::get_platform::<K, V>(a, &k, &mut *hash, &mut *eq__1);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.map:208:16");
+            let mut __pick_1: Option<&V> = crate::core_map::get_platform::<K, V>(a, &k, &mut *hash, &mut *eq__1);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.map:208:29")
             }
-        }, theirs_3)) {
+        }, theirs_4)) {
             return false;
         };
     }
@@ -1464,12 +1464,12 @@ pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap
         crate::core_string::append_platform(&mut out, &to_str(&k));
         crate::core_string::append_platform(&mut out, &String::from(": "));
         crate::core_string::append_platform(&mut out, &to_str__1({
-            let mut __nn_1: Option<&V> = crate::core_sorted::get_platform::<K, V>(map, &k, &mut *cmp);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.sorted:158:28");
+            let mut __pick_1: Option<&V> = crate::core_sorted::get_platform::<K, V>(map, &k, &mut *cmp);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.sorted:158:43")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -1499,16 +1499,16 @@ pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &crate::core_sorted::Sorte
         if theirs.is_none() {
             return false;
         };
-        let mut theirs_3 = theirs.unwrap();
+        let mut theirs_4 = theirs.unwrap();
         if !(eq({
-            let mut __nn_1: Option<&V> = crate::core_sorted::get_platform::<K, V>(a, &k, &mut *cmp);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.sorted:191:16");
+            let mut __pick_1: Option<&V> = crate::core_sorted::get_platform::<K, V>(a, &k, &mut *cmp);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.sorted:191:29")
             }
-        }, theirs_3)) {
+        }, theirs_4)) {
             return false;
         };
     }
@@ -1529,48 +1529,48 @@ pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &crate::core_sorte
 
 pub fn min<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> T {
     return {
-        let mut __nn_1: Option<T> = crate::core_sorted::min_platform::<T>(set);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at core.sorted:246:12");
+        let mut __pick_1: Option<T> = crate::core_sorted::min_platform::<T>(set);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at core.sorted:246:28")
         }
     };
 }
 
 pub fn max<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> T {
     return {
-        let mut __nn_1: Option<T> = crate::core_sorted::max_platform::<T>(set);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at core.sorted:250:12");
+        let mut __pick_1: Option<T> = crate::core_sorted::max_platform::<T>(set);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at core.sorted:250:28")
         }
     };
 }
 
 pub fn first_key<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> K {
     return {
-        let mut __nn_1: Option<K> = crate::core_sorted::first_key_platform::<K, V>(map);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at core.sorted:254:12");
+        let mut __pick_1: Option<K> = crate::core_sorted::first_key_platform::<K, V>(map);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at core.sorted:254:34")
         }
     };
 }
 
 pub fn last_key<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> K {
     return {
-        let mut __nn_1: Option<K> = crate::core_sorted::last_key_platform::<K, V>(map);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at core.sorted:258:12");
+        let mut __pick_1: Option<K> = crate::core_sorted::last_key_platform::<K, V>(map);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at core.sorted:258:33")
         }
     };
 }
@@ -1717,12 +1717,12 @@ pub fn SpanOf__Span_qualifies(span: &crate::core_string::Span, str: &String) -> 
 
 pub fn substr(str: &String, at: &crate::core_string::Span) -> String {
     return {
-        let mut __nn_1: Option<String> = crate::core_string::substr_platform(str, at.start, at.end);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at core.string:150:12");
+        let mut __pick_1: Option<String> = crate::core_string::substr_platform(str, at.start, at.end);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at core.string:150:45")
         }
     };
 }
@@ -1991,12 +1991,12 @@ impl<T: Clone + Send + Sync + 'static> CyclicRandom<T> {
 impl<T: Clone + Send + Sync + 'static> crate::__Stateful_Random<T> for CyclicRandom<T> {
     fn next_random(&mut self) -> T {
         let mut value: &T = {
-            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(&self.values, i32::wrapping_rem(self.i, crate::core_list::size_platform::<T>(&self.values)));
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at main:12:21");
+            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(&self.values, i32::wrapping_rem(self.i, crate::core_list::size_platform::<T>(&self.values)));
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at main:12:55")
             }
         };
         self.i = i32::wrapping_add(self.i, 1i32);

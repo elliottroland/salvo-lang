@@ -35,12 +35,12 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
             break;
         };
         let mut seg: &String = {
-            let mut __nn_1: Option<&String> = crate::core_list::get_platform::<String>(&segs, i);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at fs.restricted:36:19");
+            let mut __pick_1: Option<&String> = crate::core_list::get_platform::<String>(&segs, i);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at fs.restricted:36:35")
             }
         };
         if (&seg[..] == &String::from("..")[..]) {
@@ -66,15 +66,15 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
         if !((j >= 0i32)) {
             break;
         };
-        crate::core_list::add_platform::<String>(&mut parts, ({
-            let mut __nn_3: Option<&String> = crate::core_list::get_platform::<String>(&kept, j);
-            if __nn_3.is_none() {
-                panic!("salvo: value is absent at fs.restricted:59:24");
+        crate::core_list::add_platform::<String>(&mut parts, {
+            let mut __pick_4: Option<&String> = crate::core_list::get_platform::<String>(&kept, j);
+            if __pick_4.is_some() {
+                let mut __picked_5 = __pick_4.unwrap();
+                (__picked_5).clone()
             } else {
-                let mut __some_4 = __nn_3.unwrap();
-                __some_4
+                panic!("salvo: unreachable at fs.restricted:59:40")
             }
-        }).clone());
+        });
         j = i32::wrapping_sub(j, 1i32);
     }
     let mut rel: String = crate::core_string::join_platform(&parts, &String::from("/"));

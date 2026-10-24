@@ -744,24 +744,24 @@ pub fn bump_in(versions: &mut crate::core_map::Map<i32, i64>, waiters: &mut Vec<
             break;
         };
         if ({
-            let mut __proj_3: &crate::runtime_routing::ViewWaiter = {
-                let mut __nn_1: Option<&crate::runtime_routing::ViewWaiter> = crate::core_list::get_platform::<crate::runtime_routing::ViewWaiter>(&*waiters, i);
-                if __nn_1.is_none() {
-                    panic!("salvo: value is absent at runtime.routing:171:12");
+            let mut __proj_4: &crate::runtime_routing::ViewWaiter = {
+                let mut __pick_1: Option<&crate::runtime_routing::ViewWaiter> = crate::core_list::get_platform::<crate::runtime_routing::ViewWaiter>(&*waiters, i);
+                if __pick_1.is_some() {
+                    let mut __picked_2 = __pick_1.unwrap();
+                    __picked_2
                 } else {
-                    let mut __some_2 = __nn_1.unwrap();
-                    __some_2
+                    panic!("salvo: unreachable at runtime.routing:171:32")
                 }
             };
-            __proj_3.group
+            __proj_4.group
         } == group) {
             let mut w: crate::runtime_routing::ViewWaiter = {
-                let mut __nn_4: Option<crate::runtime_routing::ViewWaiter> = crate::core_list::remove_at_platform::<crate::runtime_routing::ViewWaiter>(&mut *waiters, i);
-                if __nn_4.is_none() {
-                    panic!("salvo: value is absent at runtime.routing:172:21");
+                let mut __pick_5: Option<crate::runtime_routing::ViewWaiter> = crate::core_list::remove_at_platform::<crate::runtime_routing::ViewWaiter>(&mut *waiters, i);
+                if __pick_5.is_some() {
+                    let mut __picked_6 = __pick_5.unwrap();
+                    __picked_6
                 } else {
-                    let mut __some_5 = __nn_4.unwrap();
-                    __some_5
+                    panic!("salvo: unreachable at runtime.routing:172:52")
                 }
             };
             crate::runtime::unpark_platform(&(w.parker).clone());
@@ -955,12 +955,12 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
                 break;
             };
             { let __arg1 = {
-                let mut __nn_1: Option<crate::runtime_routing::Staged> = crate::core_list::remove_at_platform::<crate::runtime_routing::Staged>(&mut self.outbox, 0i32);
-                if __nn_1.is_none() {
-                    panic!("salvo: value is absent at runtime.routing:329:22");
+                let mut __pick_1: Option<crate::runtime_routing::Staged> = crate::core_list::remove_at_platform::<crate::runtime_routing::Staged>(&mut self.outbox, 0i32);
+                if __pick_1.is_some() {
+                    let mut __picked_2 = __pick_1.unwrap();
+                    __picked_2
                 } else {
-                    let mut __some_2 = __nn_1.unwrap();
-                    __some_2
+                    panic!("salvo: unreachable at runtime.routing:329:46")
                 }
             }; crate::core_list::add_platform::<crate::runtime_routing::Staged>(&mut out, __arg1) };
         }
@@ -1039,12 +1039,12 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
                 break;
             };
             if ({
-                let mut __nn_1: Option<i64> = crate::core_list::get_platform::<i64>(&self.task_keys, i).copied();
-                if __nn_1.is_none() {
-                    panic!("salvo: value is absent at runtime.routing:403:16");
+                let mut __pick_1: Option<i64> = crate::core_list::get_platform::<i64>(&self.task_keys, i).copied();
+                if __pick_1.is_some() {
+                    let mut __picked_2 = __pick_1.unwrap();
+                    __picked_2
                 } else {
-                    let mut __some_2 = __nn_1.unwrap();
-                    __some_2
+                    panic!("salvo: unreachable at runtime.routing:403:38")
                 }
             } == key) {
                 let mut _k: Option<i64> = crate::core_list::remove_at_platform::<i64>(&mut self.task_keys, i);
@@ -1146,16 +1146,16 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
                 break;
             };
             if ({
-                let mut __proj_3: &crate::runtime_routing::ViewWaiter = {
-                    let mut __nn_1: Option<&crate::runtime_routing::ViewWaiter> = crate::core_list::get_platform::<crate::runtime_routing::ViewWaiter>(&self.view_waiters, i);
-                    if __nn_1.is_none() {
-                        panic!("salvo: value is absent at runtime.routing:498:16");
+                let mut __proj_4: &crate::runtime_routing::ViewWaiter = {
+                    let mut __pick_1: Option<&crate::runtime_routing::ViewWaiter> = crate::core_list::get_platform::<crate::runtime_routing::ViewWaiter>(&self.view_waiters, i);
+                    if __pick_1.is_some() {
+                        let mut __picked_2 = __pick_1.unwrap();
+                        __picked_2
                     } else {
-                        let mut __some_2 = __nn_1.unwrap();
-                        __some_2
+                        panic!("salvo: unreachable at runtime.routing:498:41")
                     }
                 };
-                __proj_3.id
+                __proj_4.id
             } == id) {
                 let mut _w: Option<crate::runtime_routing::ViewWaiter> = crate::core_list::remove_at_platform::<crate::runtime_routing::ViewWaiter>(&mut self.view_waiters, i);
                 return;
@@ -1206,12 +1206,12 @@ pub fn wake_senders(waiters: &mut Vec<crate::runtime::Parker>) {
             break;
         };
         { let __arg1 = {
-            let mut __nn_1: Option<crate::runtime::Parker> = crate::core_list::remove_at_platform::<crate::runtime::Parker>(&mut *waiters, 0i32);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at runtime.routing:556:16");
+            let mut __pick_1: Option<crate::runtime::Parker> = crate::core_list::remove_at_platform::<crate::runtime::Parker>(&mut *waiters, 0i32);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at runtime.routing:556:41")
             }
         }; crate::runtime::unpark_platform(&__arg1) };
     }
@@ -1236,12 +1236,12 @@ pub fn restage(routes: &crate::core_map::Map<i64, crate::core_bytes::Bytes>, out
             break;
         };
         { let __arg1 = {
-            let mut __nn_1: Option<crate::runtime_routing::Parked> = crate::core_list::remove_at_platform::<crate::runtime_routing::Parked>(&mut *parked, 0i32);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at runtime.routing:579:22");
+            let mut __pick_1: Option<crate::runtime_routing::Parked> = crate::core_list::remove_at_platform::<crate::runtime_routing::Parked>(&mut *parked, 0i32);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at runtime.routing:579:46")
             }
         }; crate::core_list::add_platform::<crate::runtime_routing::Parked>(&mut waiting, __arg1) };
     }
@@ -1568,20 +1568,20 @@ pub fn view_members(mut group: i32) -> Vec<i32> {
                 break;
             };
             if crate::runtime_routing::before(&crate::runtime_routing::identity({
-                let mut __nn_1: Option<i32> = crate::core_list::get_platform::<i32>(&left, i).copied();
-                if __nn_1.is_none() {
-                    panic!("salvo: value is absent at runtime.routing:939:37");
+                let mut __pick_1: Option<i32> = crate::core_list::get_platform::<i32>(&left, i).copied();
+                if __pick_1.is_some() {
+                    let mut __picked_2 = __pick_1.unwrap();
+                    __picked_2
                 } else {
-                    let mut __some_2 = __nn_1.unwrap();
-                    __some_2
+                    panic!("salvo: unreachable at runtime.routing:939:53")
                 }
             }), &crate::runtime_routing::identity({
-                let mut __nn_3: Option<i32> = crate::core_list::get_platform::<i32>(&left, best).copied();
-                if __nn_3.is_none() {
-                    panic!("salvo: value is absent at runtime.routing:939:68");
+                let mut __pick_4: Option<i32> = crate::core_list::get_platform::<i32>(&left, best).copied();
+                if __pick_4.is_some() {
+                    let mut __picked_5 = __pick_4.unwrap();
+                    __picked_5
                 } else {
-                    let mut __some_4 = __nn_3.unwrap();
-                    __some_4
+                    panic!("salvo: unreachable at runtime.routing:939:104")
                 }
             })) {
                 best = i;
@@ -1589,12 +1589,12 @@ pub fn view_members(mut group: i32) -> Vec<i32> {
             i = i32::wrapping_add(i, 1i32);
         }
         { let __arg1 = {
-            let mut __nn_5: Option<i32> = crate::core_list::remove_at_platform::<i32>(&mut left, best);
-            if __nn_5.is_none() {
-                panic!("salvo: value is absent at runtime.routing:944:18");
+            let mut __pick_7: Option<i32> = crate::core_list::remove_at_platform::<i32>(&mut left, best);
+            if __pick_7.is_some() {
+                let mut __picked_8 = __pick_7.unwrap();
+                __picked_8
             } else {
-                let mut __some_6 = __nn_5.unwrap();
-                __some_6
+                panic!("salvo: unreachable at runtime.routing:944:43")
             }
         }; crate::core_list::add_platform::<i32>(&mut out, __arg1) };
     }

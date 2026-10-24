@@ -87,16 +87,13 @@ impl Breaking() of Fragile {
   mailbox construct Mailbox { capacity: 1 }
   fn crash() -> None {
     bind#1 let empty: List<Int> = call core.list::List()<Int>()
-    bind#6 let boom: Int = branch#5 cond#0 true {
-      bind#3 let __nn~1: Int? = call core.list::get(List<T>, Int)<Int>(read empty, 7)
-      value switch#2 read __nn~1 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:149:20
-        }
-        arm#1 (else) {
-          narrow#4[switch#2.arm#1] __some~2: Int = __nn~1
-          value !read __some~2
-        }
+    bind#8 let boom: Int = branch#7 cond#0 true {
+      bind#2 let __pick~1: Int? = call core.list::get(List<T>, Int)<Int>(read empty, 7)
+      value branch#3 cond#0 check#6 (read __pick~1 is arm 0) {
+        narrow#4[branch#3.cond#0] __picked~2: Int = __pick~1
+        value !read __picked~2
+      } else {
+        value unreachable() at main:149:37
       }
     }
     call core.basic::discard<Int>(!read boom)

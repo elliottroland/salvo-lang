@@ -183,7 +183,7 @@ export fn to_str<K, V>(map: Map<K, V>(?hash, ?eq), ?to_str: (k: K) -> Str, ?to_s
         }
         append(out, to_str(k))
         append(out, ": ")
-        append(out, to_str(get(map, k)!))
+        append(out, to_str(get(map, k) ?: unreachable!()))
         i = i + 1
     }
     append(out, "}")
@@ -205,7 +205,7 @@ export fn eq<K, V>(a: Map<K, V>(?hash, ?eq), b: Map<K, V>(?hash, ?eq), ?eq: (x: 
         if theirs is None {
             return false
         }
-        if !eq(get(a, k)!, theirs) {
+        if !eq(get(a, k) ?: unreachable!(), theirs) {
             return false
         }
     }

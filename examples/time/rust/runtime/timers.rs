@@ -170,18 +170,18 @@ impl crate::runtime_timers::__Stateful_DeadlineTable for Deadlines {
                 break;
             };
             if ({
-                let mut __nn_1: Option<i64> = crate::core_list::get_platform::<i64>(&self.ats, i).copied();
-                if __nn_1.is_none() {
-                    panic!("salvo: value is absent at runtime.timers:74:16");
+                let mut __pick_1: Option<i64> = crate::core_list::get_platform::<i64>(&self.ats, i).copied();
+                if __pick_1.is_some() {
+                    let mut __picked_2 = __pick_1.unwrap();
+                    __picked_2
                 } else {
-                    let mut __some_2 = __nn_1.unwrap();
-                    __some_2
+                    panic!("salvo: unreachable at runtime.timers:74:32")
                 }
             } <= now) {
                 let mut _at: Option<i64> = crate::core_list::remove_at_platform::<i64>(&mut self.ats, i);
-                let mut __subject_3: Option<crate::scheduler::SalvoReply> = crate::core_list::remove_at_platform::<crate::scheduler::SalvoReply>(&mut self.dones, i);
-                if __subject_3.is_some() {
-                    let mut r = __subject_3.unwrap();
+                let mut __subject_4: Option<crate::scheduler::SalvoReply> = crate::core_list::remove_at_platform::<crate::scheduler::SalvoReply>(&mut self.dones, i);
+                if __subject_4.is_some() {
+                    let mut r = __subject_4.unwrap();
                     crate::core_list::add_platform::<crate::scheduler::SalvoReply>(&mut due, r);
                 };
             } else {

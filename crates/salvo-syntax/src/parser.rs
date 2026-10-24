@@ -6807,16 +6807,20 @@ impl<'s> Parser<'s> {
                 // like (the assert makes the value present, then the test
                 // passes) — so the spelling the demo's author reached for
                 // silently inverted the guard. The comparison tier takes it.
+                // [assert-op] A postfix `!` is not Salvo (user decision
+                // 2026-10-20: asserting presence should not be easy). Refused
+                // where it is written rather than left to misparse: on the
+                // next line, a stray `!` would read as a prefix `!` of the
+                // next statement.
                 TokenKind::Bang
                     if self.same_line()
                         && !matches!(self.peek_at(1).kind, TokenKind::KwIs) =>
                 {
                     let end = self.bump().span;
-                    let span = expr.span().to(end);
-                    expr = Expr::NonNull {
-                        operand: Box::new(expr),
-                        span,
-                    };
+                    self.error(
+                        "a postfix `!` asserts nothing in Salvo: write `x ?: unreachable!(\"why\")` for the value, or `assert!(x !is None)` to narrow a variable [assert-op]",
+                        end,
+                    );
                 }
                 // [inc-dec] Postfix, same line so a leading `++`/`--` on the
                 // next line is not swallowed as this expression's suffix.

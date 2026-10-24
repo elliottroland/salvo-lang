@@ -284,7 +284,7 @@ test "replace with None takes an element out" {
     let j = 0
     if j is Idx(ys) {
         let taken = replace(ys, j, None)
-        expect_eq(taken!, "a")
+        expect_eq(taken ?: unreachable!(), "a")
     }
     expect_eq(size(ys), 2)
 }

@@ -1149,74 +1149,74 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Con
             *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
         };
         let mut parts: Vec<String> = crate::core_string::split_platform(&answer, &String::from(":"));
-        crate::core_list::add_platform::<String>(&mut shards, ({
-            let mut __nn_1: Option<&String> = crate::core_list::get_platform::<String>(&parts, 0i32);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at main:228:26");
+        crate::core_list::add_platform::<String>(&mut shards, {
+            let mut __pick_1: Option<&String> = crate::core_list::get_platform::<String>(&parts, 0i32);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                (__picked_2).clone()
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at main:228:43")
             }
-        }).clone());
+        });
         crate::core_console::println(console, &format!("  {}: {} reserved on its shard so far", sku, {
-            let mut __nn_3: Option<&String> = crate::core_list::get_platform::<String>(&parts, 1i32);
-            if __nn_3.is_none() {
-                panic!("salvo: value is absent at main:229:30");
+            let mut __pick_4: Option<&String> = crate::core_list::get_platform::<String>(&parts, 1i32);
+            if __pick_4.is_some() {
+                let mut __picked_5 = __pick_4.unwrap();
+                __picked_5
             } else {
-                let mut __some_4 = __nn_3.unwrap();
-                __some_4
+                panic!("salvo: unreachable at main:229:47")
             }
         }));
     }
     crate::core_console::println(console, &format!("  apple and apple on one shard: {}", (&{
-        let mut __nn_5: Option<&String> = crate::core_list::get_platform::<String>(&shards, 0i32);
-        if __nn_5.is_none() {
-            panic!("salvo: value is absent at main:231:51");
+        let mut __pick_7: Option<&String> = crate::core_list::get_platform::<String>(&shards, 0i32);
+        if __pick_7.is_some() {
+            let mut __picked_8 = __pick_7.unwrap();
+            __picked_8
         } else {
-            let mut __some_6 = __nn_5.unwrap();
-            __some_6
+            panic!("salvo: unreachable at main:231:69")
         }
     }[..] == &{
-        let mut __nn_7: Option<&String> = crate::core_list::get_platform::<String>(&shards, 2i32);
-        if __nn_7.is_none() {
-            panic!("salvo: value is absent at main:231:68");
+        let mut __pick_10: Option<&String> = crate::core_list::get_platform::<String>(&shards, 2i32);
+        if __pick_10.is_some() {
+            let mut __picked_11 = __pick_10.unwrap();
+            __picked_11
         } else {
-            let mut __some_8 = __nn_7.unwrap();
-            __some_8
+            panic!("salvo: unreachable at main:231:103")
         }
     }[..])));
     crate::core_console::println(console, &format!("  apple and fig on one shard: {}", (&{
-        let mut __nn_9: Option<&String> = crate::core_list::get_platform::<String>(&shards, 0i32);
-        if __nn_9.is_none() {
-            panic!("salvo: value is absent at main:232:49");
+        let mut __pick_13: Option<&String> = crate::core_list::get_platform::<String>(&shards, 0i32);
+        if __pick_13.is_some() {
+            let mut __picked_14 = __pick_13.unwrap();
+            __picked_14
         } else {
-            let mut __some_10 = __nn_9.unwrap();
-            __some_10
+            panic!("salvo: unreachable at main:232:67")
         }
     }[..] == &{
-        let mut __nn_11: Option<&String> = crate::core_list::get_platform::<String>(&shards, 3i32);
-        if __nn_11.is_none() {
-            panic!("salvo: value is absent at main:232:66");
+        let mut __pick_16: Option<&String> = crate::core_list::get_platform::<String>(&shards, 3i32);
+        if __pick_16.is_some() {
+            let mut __picked_17 = __pick_16.unwrap();
+            __picked_17
         } else {
-            let mut __some_12 = __nn_11.unwrap();
-            __some_12
+            panic!("salvo: unreachable at main:232:101")
         }
     }[..])));
     crate::core_console::println(console, &format!("  apple and pear on one shard: {}", (&{
-        let mut __nn_13: Option<&String> = crate::core_list::get_platform::<String>(&shards, 0i32);
-        if __nn_13.is_none() {
-            panic!("salvo: value is absent at main:233:50");
+        let mut __pick_19: Option<&String> = crate::core_list::get_platform::<String>(&shards, 0i32);
+        if __pick_19.is_some() {
+            let mut __picked_20 = __pick_19.unwrap();
+            __picked_20
         } else {
-            let mut __some_14 = __nn_13.unwrap();
-            __some_14
+            panic!("salvo: unreachable at main:233:68")
         }
     }[..] == &{
-        let mut __nn_15: Option<&String> = crate::core_list::get_platform::<String>(&shards, 1i32);
-        if __nn_15.is_none() {
-            panic!("salvo: value is absent at main:233:67");
+        let mut __pick_22: Option<&String> = crate::core_list::get_platform::<String>(&shards, 1i32);
+        if __pick_22.is_some() {
+            let mut __picked_23 = __pick_22.unwrap();
+            __picked_23
         } else {
-            let mut __some_16 = __nn_15.unwrap();
-            __some_16
+            panic!("salvo: unreachable at main:233:102")
         }
     }[..])));
 }

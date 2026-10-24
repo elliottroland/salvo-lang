@@ -1,8 +1,9 @@
 //! Assertions [assert-op] [assert-fn] [assert-narrow] (user decisions
 //! 2026-09-23, ASSERTIONS.md's A-1…A-7).
 //!
-//! Three forms, one idea: a place where the program states a fact it cannot
-//! prove, and fails if it is wrong. `expr!` asserts presence, `assert!(cond)`
+//! Two forms, one idea: a place where the program states a fact it cannot
+//! prove, and fails if it is wrong (the postfix `!` presence assertion was
+//! removed 2026-10-14; presence is `?: unreachable!(…)`). `assert!(cond)`
 //! asserts a condition — and **narrows** when the condition is an `is` test,
 //! which is what makes it more than a check — and `unreachable!()` asserts that
 //! a path is not taken.
@@ -187,47 +188,37 @@ fn a_nested_break_does_not_escape_the_outer_loop() {
     );
 }
 
-/// [assert-op] The operator asserts *presence*, so it needs something that can
-/// be absent. Before this rule the two backends disagreed about the leftover —
-/// rustc refused `.unwrap()` on an `i32` while kotlinc warned and ran.
+/// [assert-op] There is no postfix `!`: a presence assertion is spelled out,
+/// so it is not the easy thing to write (user decision 2026-10-14). The parse
+/// error names both replacements.
 #[test]
-fn a_bang_on_a_never_absent_value_is_refused() {
-    let src = "fn f() -> Int {\n    let n = 3\n    return n!\n}\n";
-    assert!(
-        errors(src)
-            .iter()
-            .any(|e| e.contains("it is never absent, so the `!` says nothing")),
-        "{:?}",
-        errors(src)
-    );
-}
-
-/// …and the diagnostic names the two things to do instead.
-#[test]
-fn the_refusal_names_the_alternatives() {
-    let src = "fn f() -> Int {\n    let n = 3\n    return n!\n}\n";
-    let shown = errors(src).join("\n");
-    assert!(shown.contains("`?:`") && shown.contains("is None"), "{shown}");
-}
-
-/// [assert-op] A union with no `None` arm is the same mistake: `!` removes
-/// `None` arms, so on `Int | Str` it says nothing.
-#[test]
-fn a_bang_on_a_none_less_union_is_refused() {
-    let src = "fn f(v: Int | Str) -> Int | Str => v {\n    return v!\n}\n";
-    assert!(
-        errors(src)
-            .iter()
-            .any(|e| e.contains("it is never absent")),
-        "{:?}",
-        errors(src)
-    );
-}
-
-/// The form it exists for still works: an optional operand.
-#[test]
-fn a_bang_on_an_optional_is_fine() {
+fn a_postfix_bang_is_a_parse_error_naming_the_alternatives() {
     let src = "fn f(v: Int?) -> Int => v {\n    return v!\n}\n";
+    let (_, diagnostics) = salvo_syntax::parse_module(src);
+    let shown: Vec<String> = diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
+    assert!(
+        shown.iter().any(|m| m.contains("postfix `!`") && m.contains("unreachable!") && m.contains("assert!(x !is None)")),
+        "{shown:?}"
+    );
+}
+
+/// [assert-op] The replacement for a value, `?: unreachable!(…)`, still needs
+/// something that can be absent: on a never-absent value the pick keeps its
+/// only arm, refused like any pointless `?:`.
+#[test]
+fn an_unreachable_pick_on_a_never_absent_value_is_refused() {
+    let src = "fn f() -> Int {\n    let n = 3\n    return n ?: unreachable!()\n}\n";
+    assert!(
+        errors(src).iter().any(|e| e.contains("keeps its only arm")),
+        "{:?}",
+        errors(src)
+    );
+}
+
+/// The form it exists for works: an optional operand.
+#[test]
+fn an_unreachable_pick_on_an_optional_is_fine() {
+    let src = "fn f(v: Int?) -> Int => v {\n    return v ?: unreachable!()\n}\n";
     assert!(errors(src).is_empty(), "{:?}", errors(src));
 }
 

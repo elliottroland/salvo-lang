@@ -41,8 +41,8 @@ cargo run -- run --backend kotlin --src examples/borrowing/salvo
 2. **A `ref` is a handle.** Element mutability belongs to the **element
    type**, not the container handle: `Mut List<T>` is a mutable *container*
    (`add`, `remove_at`, `swap`), `List<Mut T>` is a container of mutable
-   *elements*. `get` reads and `at` handles: `get(squad, 0)!` answers a
-   read-only `proj(squad) Mut Fighter`, while `at(squad, 0)!` answers
+   *elements*. `get` reads and `at` handles: `get(squad, 0) ?: unreachable!()` answers a
+   read-only `proj(squad) Mut Fighter`, while `at(squad, 0) ?: unreachable!()` answers
    `ref(squad) Mut Fighter` — the handle, whose `Mut` is the permission to
    write through it. The section mints one where it is used, binds one and
    holds it across a **read** of its own container, lends one out of a
@@ -60,7 +60,7 @@ cargo run -- run --backend kotlin --src examples/borrowing/salvo
 4. **Handles that share a container.** `strike(c: List<Mut Fighter>, a:
    ref(c) Mut Fighter, d: ref(c) Mut Fighter)` *means* to accept two handles
    that might be one element: both are positions in `c`. No caller needs a
-   proof, and the self-strike (`strike(squad, at(squad, i)!, at(squad, i)!)`)
+   proof, and the self-strike (`strike(squad, at(squad, i) ?: unreachable!(), at(squad, i) ?: unreachable!())`)
    is legal — one fighter spending its own energy on itself. The caller must
    hand in handles minted from the container it passes as `c`; a handle into
    another list is refused. Any number of parameters may name one container —
@@ -159,7 +159,7 @@ Rust refuses is *using* either result alongside the container, which is §2.
 
 ## What to look for in the generated code
 
-- **A mutable handle is a position, not a reference.** `let boss = at(squad, 0)!`
+- **A mutable handle is a position, not a reference.** `let boss = at(squad, 0) ?: unreachable!()`
   becomes `let __h2: usize = …at__List_Int(&squad, 0i32).expect(…);` (the bounds check `!` asked for), and
   every use re-indexes `squad[__h2]`. That is what makes the `size(squad)` in
   the middle legal.
@@ -178,7 +178,7 @@ Rust refuses is *using* either result alongside the container, which is §2.
   `split_at_mut`. At the call the positions are computed first, so the
   container's `&mut` is the only borrow: `rotate(&mut team.members, __c11,
   __c12)`.
-- **Reads are borrows.** `get(squad, 0)!.hp` renders as a plain `&Fighter`
+- **Reads are borrows.** `(get(squad, 0) ?: unreachable!()).hp` renders as a plain `&Fighter`
   from `get_platform`, not a position: only `at` mints a handle.
 - **A view carries a lifetime, and only a view does.** `Window<'s>` with
   `roster: &'s Vec<Fighter>`, `window(roster: &Vec<Fighter>) -> Window<'_>`,

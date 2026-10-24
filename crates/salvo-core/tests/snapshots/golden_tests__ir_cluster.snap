@@ -213,98 +213,74 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       member main::Inventory#0(read inventory, call core.basic::copy<Str>(read sku), 1, !read out)
     }
     bind#4 let parts: Mut List<Str> = call core.string::split(read answer, ":")
-    call core.list::add<Str>(read shards, call core.basic::copy<Str>(branch#8 cond#0 true {
-      bind#6 let __nn~1: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read parts), 0)
-      value switch#5 read __nn~1 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:228:26
-        }
-        arm#1 (else) {
-          narrow#7[switch#5.arm#1] __some~2: proj Str = __nn~1
-          value !read __some~2
-        }
+    call core.list::add<Str>(read shards, call core.basic::copy<Str>(branch#10 cond#0 true {
+      bind#5 let __pick~1: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read parts), 0)
+      value branch#6 cond#0 check#9 (read __pick~1 is arm 0) {
+        narrow#7[branch#6.cond#0] __picked~2: proj Str = __pick~1
+        value !read __picked~2
+      } else {
+        value unreachable() at main:228:43
       }
     }))
-    call core.console::println(read console, concat("  ", read sku, ": ", branch#12 cond#0 true {
-      bind#10 let __nn~3: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read parts), 1)
-      value switch#9 read __nn~3 {
-        arm#0 (none) {
-          unreachable("value is absent") at main:229:30
-        }
-        arm#1 (else) {
-          narrow#11[switch#9.arm#1] __some~4: proj Str = __nn~3
-          value !read __some~4
-        }
+    call core.console::println(read console, concat("  ", read sku, ": ", branch#16 cond#0 true {
+      bind#11 let __pick~4: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read parts), 1)
+      value branch#12 cond#0 check#15 (read __pick~4 is arm 0) {
+        narrow#13[branch#12.cond#0] __picked~5: proj Str = __pick~4
+        value !read __picked~5
+      } else {
+        value unreachable() at main:229:47
       }
     }, " reserved on its shard so far"))
   }
-  call core.console::println(read console, concat("  apple and apple on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#16 cond#0 true {
-    bind#14 let __nn~5: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
-    value switch#13 read __nn~5 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:231:51
-      }
-      arm#1 (else) {
-        narrow#15[switch#13.arm#1] __some~6: proj Str = __nn~5
-        value !read __some~6
-      }
-    }
-  }), borrow_as[proj Str -> Str](branch#20 cond#0 true {
-    bind#18 let __nn~7: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 2)
-    value switch#17 read __nn~7 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:231:68
-      }
-      arm#1 (else) {
-        narrow#19[switch#17.arm#1] __some~8: proj Str = __nn~7
-        value !read __some~8
-      }
-    }
-  })))))
-  call core.console::println(read console, concat("  apple and fig on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#24 cond#0 true {
-    bind#22 let __nn~9: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
-    value switch#21 read __nn~9 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:232:49
-      }
-      arm#1 (else) {
-        narrow#23[switch#21.arm#1] __some~10: proj Str = __nn~9
-        value !read __some~10
-      }
+  call core.console::println(read console, concat("  apple and apple on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#22 cond#0 true {
+    bind#17 let __pick~7: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
+    value branch#18 cond#0 check#21 (read __pick~7 is arm 0) {
+      narrow#19[branch#18.cond#0] __picked~8: proj Str = __pick~7
+      value !read __picked~8
+    } else {
+      value unreachable() at main:231:69
     }
   }), borrow_as[proj Str -> Str](branch#28 cond#0 true {
-    bind#26 let __nn~11: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 3)
-    value switch#25 read __nn~11 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:232:66
-      }
-      arm#1 (else) {
-        narrow#27[switch#25.arm#1] __some~12: proj Str = __nn~11
-        value !read __some~12
-      }
+    bind#23 let __pick~10: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 2)
+    value branch#24 cond#0 check#27 (read __pick~10 is arm 0) {
+      narrow#25[branch#24.cond#0] __picked~11: proj Str = __pick~10
+      value !read __picked~11
+    } else {
+      value unreachable() at main:231:103
     }
   })))))
-  call core.console::println(read console, concat("  apple and pear on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#32 cond#0 true {
-    bind#30 let __nn~13: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
-    value switch#29 read __nn~13 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:233:50
-      }
-      arm#1 (else) {
-        narrow#31[switch#29.arm#1] __some~14: proj Str = __nn~13
-        value !read __some~14
-      }
+  call core.console::println(read console, concat("  apple and fig on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#34 cond#0 true {
+    bind#29 let __pick~13: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
+    value branch#30 cond#0 check#33 (read __pick~13 is arm 0) {
+      narrow#31[branch#30.cond#0] __picked~14: proj Str = __pick~13
+      value !read __picked~14
+    } else {
+      value unreachable() at main:232:67
     }
-  }), borrow_as[proj Str -> Str](branch#36 cond#0 true {
-    bind#34 let __nn~15: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 1)
-    value switch#33 read __nn~15 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:233:67
-      }
-      arm#1 (else) {
-        narrow#35[switch#33.arm#1] __some~16: proj Str = __nn~15
-        value !read __some~16
-      }
+  }), borrow_as[proj Str -> Str](branch#40 cond#0 true {
+    bind#35 let __pick~16: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 3)
+    value branch#36 cond#0 check#39 (read __pick~16 is arm 0) {
+      narrow#37[branch#36.cond#0] __picked~17: proj Str = __pick~16
+      value !read __picked~17
+    } else {
+      value unreachable() at main:232:101
+    }
+  })))))
+  call core.console::println(read console, concat("  apple and pear on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#46 cond#0 true {
+    bind#41 let __pick~19: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
+    value branch#42 cond#0 check#45 (read __pick~19 is arm 0) {
+      narrow#43[branch#42.cond#0] __picked~20: proj Str = __pick~19
+      value !read __picked~20
+    } else {
+      value unreachable() at main:233:68
+    }
+  }), borrow_as[proj Str -> Str](branch#52 cond#0 true {
+    bind#47 let __pick~22: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 1)
+    value branch#48 cond#0 check#51 (read __pick~22 is arm 0) {
+      narrow#49[branch#48.cond#0] __picked~23: proj Str = __pick~22
+      value !read __picked~23
+    } else {
+      value unreachable() at main:233:102
     }
   })))))
 }

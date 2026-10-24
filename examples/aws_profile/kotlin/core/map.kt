@@ -69,16 +69,13 @@ fun<K, V> toStr(map: salvo.platform.core.map.Map<K, V>, toStr: (K) -> String, to
         salvo.core.string.appendPlatform(out, toStr(k))
         salvo.core.string.appendPlatform(out, ": ")
         salvo.core.string.appendPlatform(out, toStr__1(kotlin.run {
-            val __nn_1: V? = getPlatform(map, k, hash, eq)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:186:28"))
-                }
-                else -> {
-                    val __some_2: V = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: V? = getPlatform(map, k, hash, eq)
+            (if ((__pick_1 != null)) {
+                val __picked_2: V = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.map:186:43")
+            })
         }))
         i = (i + 1)
     }
@@ -95,19 +92,16 @@ fun<K, V> eq(a: salvo.platform.core.map.Map<K, V>, b: salvo.platform.core.map.Ma
         if ((theirs == null)) {
             return false
         }
-        val theirs_3: V = theirs!!
+        val theirs_4: V = theirs!!
         if (!(eq(kotlin.run {
-            val __nn_1: V? = getPlatform(a, k, hash, eq__1)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:208:16"))
-                }
-                else -> {
-                    val __some_2: V = __nn_1!!
-                    __some_2
-                }
-            }
-        }, theirs_3))) {
+            val __pick_1: V? = getPlatform(a, k, hash, eq__1)
+            (if ((__pick_1 != null)) {
+                val __picked_2: V = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.map:208:29")
+            })
+        }, theirs_4))) {
             return false
         }
     }

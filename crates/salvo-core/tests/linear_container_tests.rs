@@ -539,7 +539,7 @@ qualifier Idx<T canbe linear>(list: List<T>) of Int {
 fn replace<T canbe linear>(list: Mut List<T>, index: Idx(list) Int, value: T) [] -> T
 => list: Mut, index, !value {
     add(list, value)
-    return remove_first(list)!
+    return remove_first(list) ?: unreachable!()
 }
 
 fn go() [] -> None {

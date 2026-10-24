@@ -251,7 +251,7 @@ fn literals_adopt_the_expected_numeric_type() {
     assert_ok(&body(
         "    let a: Long = 1\n    let b: Double = 3\n    let c: Float = 0.5\n    \
          let d: Long = -5\n    let e: Long? = 1\n    let _f = a + 1 == a || b > 0.1 \
-         || c > 0.1f || d < e!",
+         || c > 0.1f || d < (e ?: unreachable!())",
     ));
     // Adopted types are recorded for the emitters.
     let out = checked(&body("    let a: Long = 1\n    let _b = a"));

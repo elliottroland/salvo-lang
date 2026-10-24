@@ -819,7 +819,7 @@ fn a_written_lend_narrows_which_arguments_the_result_holds() {
          let words: List<Str> = List(\"a\", \"bb\")\n    \
          let limits: Mut List<Int> = Mut List(1)\n    \
          let p = iter(words)\n    \
-         let long = filter(p, (s: Str) -> { return size(s) > first(limits)! })\n    \
+         let long = filter(p, (s: Str) -> { return size(s) > (first(limits) ?: unreachable!()) })\n    \
          add(limits, 2)\n    \
          println(\"${size(long)}\")\n}\n",
     );

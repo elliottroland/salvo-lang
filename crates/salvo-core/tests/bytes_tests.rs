@@ -138,8 +138,8 @@ fn the_optional_reads_must_be_narrowed() {
          \x20   if text is Str {\n\
          \x20       n = 1\n\
          \x20   }\n\
-         \x20   let part = slice(data, 0, 1)!\n\
-         \x20   let b = get(data, 0)!",
+         \x20   let part = slice(data, 0, 1) ?: unreachable!()\n\
+         \x20   let b = get(data, 0) ?: unreachable!()",
     ));
     // `Str?` is not a `Str`: the surface says so rather than coercing.
     let msgs = messages(&body(
@@ -154,7 +154,7 @@ fn the_optional_reads_must_be_narrowed() {
 fn bytes_hold_octets_not_numbers() {
     let msgs = messages(&body(
         "    let data = bytes_of(to_byte(1))\n\
-         \x20   let b = get(data, 0)!\n\
+         \x20   let b = get(data, 0) ?: unreachable!()\n\
          \x20   let sum = b + b",
     ));
     assert!(
@@ -163,7 +163,7 @@ fn bytes_hold_octets_not_numbers() {
     );
     assert_ok(&body(
         "    let data = bytes_of(to_byte(1))\n\
-         \x20   let b = get(data, 0)!\n\
+         \x20   let b = get(data, 0) ?: unreachable!()\n\
          \x20   let sum = to_int(b) + 1",
     ));
 }

@@ -16,12 +16,13 @@ fn always_traps(n: Int) -> Int {
 test "trap_of answers the message of a body that trapped" {
     let trap = trap_of(() -> { always_traps(7) })
     expect(trap is Str, "a trap message came back")
-    // Two `!`s on one optional local: a read, twice — which is what
-    // [rs-opt-borrow] makes possible on Rust (it used to move the value the
-    // first time and fail to compile the second).
-    expect(contains(trap!, "n should exceed 100, was 7"), "it is the trap's own text")
+    // The unwrap narrows `trap` for the rest of the test, and reads it rather
+    // than moving it — which is what [rs-opt-borrow] makes possible on Rust
+    // (it used to move the value the first time and fail to compile the
+    // second).
+    expect(contains(trap ?: unreachable!(), "n should exceed 100, was 7"), "it is the trap's own text")
     // [assert-trap] And it names where, in Salvo's terms.
-    expect(contains(trap!, "test.test:"), "the message names the Salvo location")
+    expect(contains(trap, "test.test:"), "the message names the Salvo location")
 }
 
 test "trap_of answers None for a body that completed" {

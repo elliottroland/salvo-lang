@@ -105,11 +105,11 @@ fn heapify_part<T>(list: NonEmpty Mut List<T>, n: Int, i: Int, ?Ordered<T>)
     let left_child = 2 * i + 1
     let right_child = 2 * i + 2
 
-    if left_child < n && list.get(left_child)! < list.get(smallest)! {
+    if left_child < n && (list.get(left_child) ?: unreachable!()) < (list.get(smallest) ?: unreachable!()) {
         smallest = left_child
     }
 
-    if right_child < n && list.get(right_child)! < list.get(smallest)! {
+    if right_child < n && (list.get(right_child) ?: unreachable!()) < (list.get(smallest) ?: unreachable!()) {
         smallest = right_child
     }
 
@@ -128,7 +128,7 @@ export fn peek<T>(heap: Heap List<T>) -> proj(heap) T? => heap {
 }
 
 export fn peek<T>(heap: NonEmpty Heap List<T>) -> proj(heap) T => heap {
-    return heap.get(0)!
+    return heap.get(0) ?: unreachable!()
 }
 
 // Pushes the [elem] into the [heap], preserving the heap property.
@@ -179,12 +179,12 @@ export fn pop<T>(heap: Heap<T>(?cmp) Mut List<T>) -> T? => heap: Mut Heap {
 export fn pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) -> T
 => heap: +Heap<T>(?cmp) Mut {
     if heap.size() == 1 {
-        return remove_first(heap)!
+        return remove_first(heap) ?: unreachable!()
     }
     // Swap them, so that we don't have to shift everything. Both indices are in
     // range (the one-element heap returned above), so the answer is `ignore`d.
     ignore(heap.swap(0, heap.size() - 1))
-    let elem = heap.remove_at(heap.size() - 1)!
+    let elem = heap.remove_at(heap.size() - 1) ?: unreachable!()
     // The root is a valid index (the early return above handled the
     // one-element heap, and `remove_at` left at least one element), so from
     // here every read in the sift is the total `get` [col-idx] — no `!`

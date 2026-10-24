@@ -140,12 +140,12 @@ pub fn drain<T>(mut d: std::collections::VecDeque<T>, each: &mut dyn FnMut(T)) {
             break;
         };
         { let __arg1 = {
-            let mut __nn_1: Option<T> = crate::core_deque::remove_first_platform::<T>(&mut m);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.deque:132:14");
+            let mut __pick_1: Option<T> = crate::core_deque::remove_first_platform::<T>(&mut m);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.deque:132:33")
             }
         }; each(__arg1) };
     }

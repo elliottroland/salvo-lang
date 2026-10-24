@@ -2788,22 +2788,22 @@ fn not_is_parses_as_a_negated_check() {
     }
 }
 
-/// The reason this needed a parser rule rather than a lexer token: `!` is also
-/// the **assert** postfix, so `s !is Str` used to parse as `(s!) is Str` — which
-/// type-checked, and meant the *opposite* of what it reads like. The assert is
-/// still there for everything that is not an `is`.
+/// [assert-op] The postfix `!` assertion is gone (2026-10-20): `first(xs)!`
+/// is a parse error that names the replacements, and `s !is Str` stays the
+/// negated test it reads as.
 #[test]
-fn the_assert_postfix_survives_beside_not_is() {
-    let expr = parse_expr_stmt("first(xs)! + 1");
+fn a_postfix_bang_is_refused_beside_not_is() {
+    let source = "fn f() -> None {\n    let x = first(xs)! + 1\n}\n";
+    let (_, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
     assert!(
-        matches!(expr, salvo_syntax::ast::Expr::Binary { .. }),
-        "expected the assert to still bind as a postfix, got {expr:?}"
+        errors.iter().any(|m| m.contains("a postfix `!` asserts nothing") && m.contains("[assert-op]")),
+        "expected the postfix-`!` refusal, got {errors:?}"
     );
-    // …and with parentheses the old reading is still writable.
-    let expr = parse_expr_stmt("(s!) is Str");
+    let expr = parse_expr_stmt("s !is Str");
     assert!(
-        matches!(expr, salvo_syntax::ast::Expr::Is { .. }),
-        "expected a positive `is` over an asserted value, got {expr:?}"
+        matches!(&expr, salvo_syntax::ast::Expr::Unary { operand, .. } if matches!(**operand, salvo_syntax::ast::Expr::Is { .. })),
+        "expected a negated `is`, got {expr:?}"
     );
 }
 

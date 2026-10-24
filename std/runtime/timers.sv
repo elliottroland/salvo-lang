@@ -71,7 +71,7 @@ handler Deadlines() of DeadlineTable {
         let due: Mut List<Reply<Fired>> = Mut List()
         let i = 0
         while i < size(ats) {
-            if get(ats, i)! <= now {
+            if (get(ats, i) ?: unreachable!()) <= now {
                 let _at = remove_at(ats, i)
                 if remove_at(dones, i) is Reply<Fired> r {
                     add(due, r)

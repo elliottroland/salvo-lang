@@ -24,7 +24,7 @@ let full_name = if person.surname is Str {
 }
 ```
 
-Conditions are boolean expressions -- `if`, `elif` and `while` accept `Bool` and nothing else. There is no truthiness: a number, a string or a possibly-absent `Bool?` is not a decision, so compare explicitly (`n != 0`, `name.size() > 0`, `flag!`). The `is` expressions we've been using for unions *are* booleans, although there is some special syntax to bind the casted value in the scope of the if block.
+Conditions are boolean expressions -- `if`, `elif` and `while` accept `Bool` and nothing else. There is no truthiness: a number, a string or a possibly-absent `Bool?` is not a decision, so compare explicitly (`n != 0`, `name.size() > 0`, `flag ?: unreachable!()`). The `is` expressions we've been using for unions *are* booleans, although there is some special syntax to bind the casted value in the scope of the if block.
 
 ## Terminal `...` scopes
 

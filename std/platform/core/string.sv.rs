@@ -143,12 +143,12 @@ pub fn SpanOf__Span_qualifies(span: &crate::core_string::Span, str: &String) -> 
 
 pub fn substr(str: &String, at: &crate::core_string::Span) -> String {
     return {
-        let mut __nn_1: Option<String> = crate::core_string::substr_platform(str, at.start, at.end);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at core.string:150:12");
+        let mut __pick_1: Option<String> = crate::core_string::substr_platform(str, at.start, at.end);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at core.string:150:45")
         }
     };
 }

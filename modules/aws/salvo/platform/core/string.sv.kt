@@ -92,16 +92,13 @@ fun SpanOf_qualifies(span: Span, str: String): Boolean {
 
 fun substr(str: String, at: Span): String {
     return kotlin.run {
-        val __nn_1: String? = substrPlatform(str, at.start, at.end)
-        when {
-            (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at core.string:150:12"))
-            }
-            else -> {
-                val __some_2: String = __nn_1!!
-                __some_2
-            }
-        }
+        val __pick_1: String? = substrPlatform(str, at.start, at.end)
+        (if ((__pick_1 != null)) {
+            val __picked_2: String = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at core.string:150:45")
+        })
     }
 }
 

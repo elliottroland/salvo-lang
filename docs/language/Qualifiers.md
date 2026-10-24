@@ -22,7 +22,7 @@ fn full_name(person: Person) -> Str => person {
 
 // Elsewhere we define that `Surname Person` means that the surname is non-null, so we know we can safely extract the non-null value here.
 fn full_name(person: Surname Person) -> Str => person {
-    return "${person.name} ${person.surname!}"
+    return "${person.name} ${person.surname ?: unreachable!()}"
 }
 ```
 

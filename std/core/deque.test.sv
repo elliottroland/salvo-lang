@@ -5,8 +5,8 @@ test "both ends add and remove in order" {
     add_first(d, 1)
     add_last(d, 4)
     expect_eq(to_str(d), "[1, 2, 3, 4]")
-    expect_eq(remove_first(d)!, 1)
-    expect_eq(remove_last(d)!, 4)
+    expect_eq(remove_first(d) ?: unreachable!(), 1)
+    expect_eq(remove_last(d) ?: unreachable!(), 4)
     expect_eq(to_str(d), "[2, 3]")
 }
 
@@ -22,10 +22,10 @@ test "an empty deque answers None at both ends" {
 test "get and remove_at count from the front and answer None out of range" {
     let d: Mut Deque<Str> = mut_deque_of("a", "b", "c")
     add_first(d, "z")
-    expect_eq(copy(get(d, 1)!), "a")
+    expect_eq(copy(get(d, 1) ?: unreachable!()), "a")
     expect(get(d, 4) is None, "past the end")
     expect(get(d, -1) is None, "negative")
-    expect_eq(remove_at(d, 2)!, "b")
+    expect_eq(remove_at(d, 2) ?: unreachable!(), "b")
     expect(remove_at(d, 9) is None, "remove past the end")
     expect_eq(to_str(d), "[z, a, c]")
 }

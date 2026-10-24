@@ -28,9 +28,9 @@ fn either(x: A | B) -> Int => x {
 fn main() [use] -> None {
     let xs: List<Mut A> = List(Mut A { n: 1 })
     let b = B { s: "b" }
-    let n = one(get(xs, 0)!)
-    bump(at(xs, 0)!)
-    let v = if n > 0 { get(xs, 0)! } else { b }
+    let n = one(get(xs, 0) ?: unreachable!())
+    bump(at(xs, 0) ?: unreachable!())
+    let v = if n > 0 { get(xs, 0) ?: unreachable!() } else { b }
     let m = either(v)
 }
 "#;

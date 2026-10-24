@@ -53,12 +53,12 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 pub fn head(list: &Vec<i32>) -> i32 {
     let mut first: Option<i32> = crate::core_list::get_platform::<i32>(list, 0i32).copied();
     return {
-        let mut __nn_1 = &first;
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at main:30:12");
+        let mut __pick_1 = &first;
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at main:30:21")
         }
     };
 }

@@ -168,8 +168,8 @@ fn bump_in(versions: Mut Map<Int, Long>, waiters: Mut List<ViewWaiter>, group: I
     put(versions, copy(group), version_in(versions, copy(group)) + 1)
     let i = 0
     while i < size(waiters) {
-        if get(waiters, i)!.group == group {
-            let w = remove_at(waiters, copy(i))!
+        if (get(waiters, i) ?: unreachable!()).group == group {
+            let w = remove_at(waiters, copy(i)) ?: unreachable!()
             unpark(copy(w.parker))
         } else {
             i = i + 1
@@ -326,7 +326,7 @@ handler Routes() of RouteTable {
     fn take_outbox() -> Mut List<Staged> {
         let out: Mut List<Staged> = Mut List()
         while size(outbox) > 0 {
-            add(out, remove_at(outbox, 0)!)
+            add(out, remove_at(outbox, 0) ?: unreachable!())
         }
         return out
     }
@@ -400,7 +400,7 @@ handler Routes() of RouteTable {
     fn take_task(key: Long) -> ExportedTask? => key {
         let i = 0
         while i < size(task_keys) {
-            if get(task_keys, i)! == key {
+            if (get(task_keys, i) ?: unreachable!()) == key {
                 let _k = remove_at(task_keys, copy(i))
                 return remove_at(tasks, i)
             }
@@ -495,7 +495,7 @@ handler Routes() of RouteTable {
     fn drop_view_waiter(id: Long) -> None => !id {
         let i = 0
         while i < size(view_waiters) {
-            if get(view_waiters, i)!.id == id {
+            if (get(view_waiters, i) ?: unreachable!()).id == id {
                 let _w = remove_at(view_waiters, copy(i))
                 return
             }
@@ -553,7 +553,7 @@ fn identity_in(remote: Map<Int, RemoteRef>, bits: Mut Map<Int, Long>, pool_node:
 // Senders waiting for credit look again: a grant arrived, or a node left.
 fn wake_senders(waiters: Mut List<Parker>) [] -> None => waiters: Mut {
     while size(waiters) > 0 {
-        unpark(remove_at(waiters, 0)!)
+        unpark(remove_at(waiters, 0) ?: unreachable!())
     }
 }
 
@@ -576,7 +576,7 @@ fn restage(routes: Map<Long, Bytes>, outbound: Set<Long>, outbox: Mut List<Stage
 => routes, outbound, outbox: Mut, parked: Mut {
     let waiting: Mut List<Parked> = Mut List()
     while size(parked) > 0 {
-        add(waiting, remove_at(parked, 0)!)
+        add(waiting, remove_at(parked, 0) ?: unreachable!())
     }
     for p in waiting {
         stage_in(routes, outbound, outbox, parked, copy(p.from), copy(p.to), copy(p.frame))
@@ -936,12 +936,12 @@ export fn view_members(group: Int) [] -> List<Int> => group {
         let best = 0
         let i = 1
         while i < size(left) {
-            if before(identity(copy(get(left, i)!)), identity(copy(get(left, best)!))) {
+            if before(identity(copy(get(left, i) ?: unreachable!())), identity(copy(get(left, best) ?: unreachable!()))) {
                 best = copy(i)
             }
             i = i + 1
         }
-        add(out, remove_at(left, best)!)
+        add(out, remove_at(left, best) ?: unreachable!())
     }
     return copy(out)
 }

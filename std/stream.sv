@@ -418,7 +418,7 @@ fn fixed_bytes(v: Long, width: Int) [] -> Bytes => v, width {
     let back = mut_bytes()
     let j = width - 1
     while j >= 0 {
-        add(back, get(out, j)!)
+        add(back, get(out, j) ?: unreachable!())
         j = j - 1
     }
     return back
@@ -437,14 +437,14 @@ fn read_fixed(s: InStream, width: Int) [Streams] -> Ok Long | End | Err Checked<
     if size(data) < width {
         return err(checked<StreamError>(StreamFailed { source: "read", message: "the stream ended inside a number" }))
     }
-    let first = to_long(to_int(get(data, 0)!))
+    let first = to_long(to_int(get(data, 0) ?: unreachable!()))
     if first >= 128L {
         first = first - 256L
     }
     let v = first
     let i = 1
     while i < width {
-        v = v * 256L + to_long(to_int(get(data, i)!))
+        v = v * 256L + to_long(to_int(get(data, i) ?: unreachable!()))
         i = i + 1
     }
     return ok(v)

@@ -56,16 +56,13 @@ fun wounded(squad: List<Fighter>): Fighter? {
 
 fun<L> rallyAt(squad: List<Fighter>, l: L, at: (List<Fighter>, L) -> Fighter?) {
     heal(kotlin.run {
-        val __nn_1: Fighter? = at(squad, l)
-        when {
-            (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:102:10"))
-            }
-            else -> {
-                val __some_2: Fighter = __nn_1!!
-                __some_2
-            }
-        }
+        val __pick_1: Fighter? = at(squad, l)
+        (if ((__pick_1 != null)) {
+            val __picked_2: Fighter = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at main:102:26")
+        })
     })
     null
     return
@@ -136,16 +133,13 @@ fun main() {
     val __handle_2: salvo.core.console.Console = __use_1
     val roster: List<Fighter> = listOf<Fighter>(Fighter(name = "Ada", hp = 30, energy = 4), Fighter(name = "Bo", hp = 8, energy = 9))
     val ada: Fighter = kotlin.run {
-        val __nn_3: Fighter? = named(roster, "Ada")
-        when {
-            (__nn_3 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:191:15"))
-            }
-            else -> {
-                val __some_4: Fighter = __nn_3!!
-                __some_4
-            }
-        }
+        val __pick_3: Fighter? = named(roster, "Ada")
+        (if ((__pick_3 != null)) {
+            val __picked_4: Fighter = __pick_3!!
+            __picked_4
+        } else {
+            throw AssertionError("salvo: unreachable at main:191:39")
+        })
     }
     salvo.core.console.println(__handle_2, "1. found ${ada.name}, hp ${ada.hp}")
     val names: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
@@ -154,19 +148,16 @@ fun main() {
     var w: Window = window(roster)
     w.at = 1
     salvo.core.console.println(__handle_2, "1. window at ${w.at}: ${kotlin.run {
-        val __proj_7: Fighter = kotlin.run {
-            val __nn_5: Fighter? = peek(w)
-            when {
-                (__nn_5 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:205:38"))
-                }
-                else -> {
-                    val __some_6: Fighter = __nn_5!!
-                    __some_6
-                }
-            }
+        val __proj_9: Fighter = kotlin.run {
+            val __pick_6: Fighter? = peek(w)
+            (if ((__pick_6 != null)) {
+                val __picked_7: Fighter = __pick_6!!
+                __picked_7
+            } else {
+                throw AssertionError("salvo: unreachable at main:205:50")
+            })
         }
-        __proj_7.name
+        __proj_9.name
     }}")
     val pass: salvo.core.list.ListYield<Fighter> = salvo.core.list.iter(roster)
     val standing: salvo.platform.core.list.MutList<Fighter> = salvo.core.seq.filter(pass, fun(f: Fighter): Boolean {
@@ -176,132 +167,105 @@ fun main() {
     val bench: salvo.platform.core.list.MutList<Fighter> = mutableListOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2))
     salvo.core.list.addPlatform(bench, Fighter(name = "Dee", hp = 6, energy = 7))
     salvo.core.console.println(__handle_2, "2. bench ${salvo.core.list.sizePlatform(bench)}, front ${kotlin.run {
-        val __proj_10: Fighter = kotlin.run {
-            val __nn_8: Fighter? = salvo.core.list.getPlatform(bench, 0)
-            when {
-                (__nn_8 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:220:47"))
-                }
-                else -> {
-                    val __some_9: Fighter = __nn_8!!
-                    __some_9
-                }
-            }
+        val __proj_13: Fighter = kotlin.run {
+            val __pick_10: Fighter? = salvo.core.list.getPlatform(bench, 0)
+            (if ((__pick_10 != null)) {
+                val __picked_11: Fighter = __pick_10!!
+                __picked_11
+            } else {
+                throw AssertionError("salvo: unreachable at main:220:65")
+            })
         }
-        __proj_10.name
+        __proj_13.name
     }} (a reading, not a handle)")
     val squad: List<Fighter> = listOf<Fighter>(Fighter(name = "Ada", hp = 30, energy = 4), Fighter(name = "Bo", hp = 8, energy = 9))
     var boss: Fighter = kotlin.run {
-        val __nn_11: Fighter? = salvo.core.list.atPlatform(squad, 0)
-        when {
-            (__nn_11 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:231:16"))
-            }
-            else -> {
-                val __some_12: Fighter = __nn_11!!
-                __some_12
-            }
-        }
+        val __pick_14: Fighter? = salvo.core.list.atPlatform(squad, 0)
+        (if ((__pick_14 != null)) {
+            val __picked_15: Fighter = __pick_14!!
+            __picked_15
+        } else {
+            throw AssertionError("salvo: unreachable at main:231:32")
+        })
     }
     boss.hp = (boss.hp + 1)
     val n: Int = salvo.core.list.sizePlatform(squad)
     boss.hp = (boss.hp + n)
     salvo.core.console.println(__handle_2, "2. ${kotlin.run {
-        val __proj_15: Fighter = kotlin.run {
-            val __nn_13: Fighter? = salvo.core.list.getPlatform(squad, 0)
-            when {
-                (__nn_13 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:235:19"))
-                }
-                else -> {
-                    val __some_14: Fighter = __nn_13!!
-                    __some_14
-                }
-            }
+        val __proj_20: Fighter = kotlin.run {
+            val __pick_17: Fighter? = salvo.core.list.getPlatform(squad, 0)
+            (if ((__pick_17 != null)) {
+                val __picked_18: Fighter = __pick_17!!
+                __picked_18
+            } else {
+                throw AssertionError("salvo: unreachable at main:235:37")
+            })
         }
-        __proj_15.name
+        __proj_20.name
     }} at ${kotlin.run {
-        val __proj_18: Fighter = kotlin.run {
-            val __nn_16: Fighter? = salvo.core.list.getPlatform(squad, 0)
-            when {
-                (__nn_16 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:235:45"))
-                }
-                else -> {
-                    val __some_17: Fighter = __nn_16!!
-                    __some_17
-                }
-            }
+        val __proj_24: Fighter = kotlin.run {
+            val __pick_21: Fighter? = salvo.core.list.getPlatform(squad, 0)
+            (if ((__pick_21 != null)) {
+                val __picked_22: Fighter = __pick_21!!
+                __picked_22
+            } else {
+                throw AssertionError("salvo: unreachable at main:235:82")
+            })
         }
-        __proj_18.hp
+        __proj_24.hp
     }} after a read in the middle")
     heal(kotlin.run {
-        val __nn_19: Fighter? = wounded(squad)
-        when {
-            (__nn_19 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:238:10"))
-            }
-            else -> {
-                val __some_20: Fighter = __nn_19!!
-                __some_20
-            }
-        }
+        val __pick_25: Fighter? = wounded(squad)
+        (if ((__pick_25 != null)) {
+            val __picked_26: Fighter = __pick_25!!
+            __picked_26
+        } else {
+            throw AssertionError("salvo: unreachable at main:238:28")
+        })
     })
     rallyAt(squad, 1, { __a0, __a1 -> salvo.core.list.atPlatform(__a0, __a1) })
     salvo.core.console.println(__handle_2, "2. after the searches: ${kotlin.run {
-        val __proj_23: Fighter = kotlin.run {
-            val __nn_21: Fighter? = salvo.core.list.getPlatform(squad, 0)
-            when {
-                (__nn_21 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:243:39"))
-                }
-                else -> {
-                    val __some_22: Fighter = __nn_21!!
-                    __some_22
-                }
-            }
+        val __proj_31: Fighter = kotlin.run {
+            val __pick_28: Fighter? = salvo.core.list.getPlatform(squad, 0)
+            (if ((__pick_28 != null)) {
+                val __picked_29: Fighter = __pick_28!!
+                __picked_29
+            } else {
+                throw AssertionError("salvo: unreachable at main:243:57")
+            })
         }
-        __proj_23.hp
+        __proj_31.hp
     }} ${kotlin.run {
-        val __proj_26: Fighter = kotlin.run {
-            val __nn_24: Fighter? = salvo.core.list.getPlatform(squad, 1)
-            when {
-                (__nn_24 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:243:60"))
-                }
-                else -> {
-                    val __some_25: Fighter = __nn_24!!
-                    __some_25
-                }
-            }
+        val __proj_35: Fighter = kotlin.run {
+            val __pick_32: Fighter? = salvo.core.list.getPlatform(squad, 1)
+            (if ((__pick_32 != null)) {
+                val __picked_33: Fighter = __pick_32!!
+                __picked_33
+            } else {
+                throw AssertionError("salvo: unreachable at main:243:97")
+            })
         }
-        __proj_26.hp
+        __proj_35.hp
     }}")
     val i: Int = 0
     val j: Int = 1
     var a: Fighter = kotlin.run {
-        val __nn_27: Fighter? = salvo.core.list.atPlatform(squad, i)
-        when {
-            (__nn_27 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:259:13"))
-            }
-            else -> {
-                val __some_28: Fighter = __nn_27!!
-                __some_28
-            }
-        }
+        val __pick_36: Fighter? = salvo.core.list.atPlatform(squad, i)
+        (if ((__pick_36 != null)) {
+            val __picked_37: Fighter = __pick_36!!
+            __picked_37
+        } else {
+            throw AssertionError("salvo: unreachable at main:259:29")
+        })
     }
     var d: Fighter = kotlin.run {
-        val __nn_29: Fighter? = salvo.core.list.atPlatform(squad, j)
-        when {
-            (__nn_29 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:260:13"))
-            }
-            else -> {
-                val __some_30: Fighter = __nn_29!!
-                __some_30
-            }
-        }
+        val __pick_39: Fighter? = salvo.core.list.atPlatform(squad, j)
+        (if ((__pick_39 != null)) {
+            val __picked_40: Fighter = __pick_39!!
+            __picked_40
+        } else {
+            throw AssertionError("salvo: unreachable at main:260:29")
+        })
     }
     if (salvo.core.ref.NotSame_qualifies(d, a)) {
         a.hp = (a.hp + 1)
@@ -316,141 +280,111 @@ fun main() {
                 f.energy = (f.energy + 1)
             })
             salvo.core.console.println(__handle_2, "3. ${kotlin.run {
-                val __proj_31: Fighter = salvo.core.list.get(squad, i)
-                __proj_31.energy
+                val __proj_42: Fighter = salvo.core.list.get(squad, i)
+                __proj_42.energy
             }} ${kotlin.run {
-                val __proj_32: Fighter = salvo.core.list.get(squad, j)
-                __proj_32.energy
+                val __proj_43: Fighter = salvo.core.list.get(squad, j)
+                __proj_43.energy
             }} (total reads: `Idx` survived)")
         }
     }
     strike(squad, kotlin.run {
-        val __nn_33: Fighter? = salvo.core.list.atPlatform(squad, i)
-        when {
-            (__nn_33 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:282:19"))
-            }
-            else -> {
-                val __some_34: Fighter = __nn_33!!
-                __some_34
-            }
-        }
+        val __pick_44: Fighter? = salvo.core.list.atPlatform(squad, i)
+        (if ((__pick_44 != null)) {
+            val __picked_45: Fighter = __pick_44!!
+            __picked_45
+        } else {
+            throw AssertionError("salvo: unreachable at main:282:35")
+        })
     }, kotlin.run {
-        val __nn_35: Fighter? = salvo.core.list.atPlatform(squad, j)
-        when {
-            (__nn_35 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:282:34"))
-            }
-            else -> {
-                val __some_36: Fighter = __nn_35!!
-                __some_36
-            }
-        }
+        val __pick_47: Fighter? = salvo.core.list.atPlatform(squad, j)
+        (if ((__pick_47 != null)) {
+            val __picked_48: Fighter = __pick_47!!
+            __picked_48
+        } else {
+            throw AssertionError("salvo: unreachable at main:282:67")
+        })
     })
     strike(squad, kotlin.run {
-        val __nn_37: Fighter? = salvo.core.list.atPlatform(squad, i)
-        when {
-            (__nn_37 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:285:19"))
-            }
-            else -> {
-                val __some_38: Fighter = __nn_37!!
-                __some_38
-            }
-        }
+        val __pick_50: Fighter? = salvo.core.list.atPlatform(squad, i)
+        (if ((__pick_50 != null)) {
+            val __picked_51: Fighter = __pick_50!!
+            __picked_51
+        } else {
+            throw AssertionError("salvo: unreachable at main:285:35")
+        })
     }, kotlin.run {
-        val __nn_39: Fighter? = salvo.core.list.atPlatform(squad, i)
-        when {
-            (__nn_39 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:285:34"))
-            }
-            else -> {
-                val __some_40: Fighter = __nn_39!!
-                __some_40
-            }
-        }
+        val __pick_53: Fighter? = salvo.core.list.atPlatform(squad, i)
+        (if ((__pick_53 != null)) {
+            val __picked_54: Fighter = __pick_53!!
+            __picked_54
+        } else {
+            throw AssertionError("salvo: unreachable at main:285:67")
+        })
     })
     salvo.core.console.println(__handle_2, "4. ${kotlin.run {
-        val __proj_43: Fighter = kotlin.run {
-            val __nn_41: Fighter? = salvo.core.list.getPlatform(squad, 0)
-            when {
-                (__nn_41 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:286:19"))
-                }
-                else -> {
-                    val __some_42: Fighter = __nn_41!!
-                    __some_42
-                }
-            }
+        val __proj_59: Fighter = kotlin.run {
+            val __pick_56: Fighter? = salvo.core.list.getPlatform(squad, 0)
+            (if ((__pick_56 != null)) {
+                val __picked_57: Fighter = __pick_56!!
+                __picked_57
+            } else {
+                throw AssertionError("salvo: unreachable at main:286:37")
+            })
         }
-        __proj_43.hp
+        __proj_59.hp
     }} hp / ${kotlin.run {
-        val __proj_46: Fighter = kotlin.run {
-            val __nn_44: Fighter? = salvo.core.list.getPlatform(squad, 0)
-            when {
-                (__nn_44 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:286:45"))
-                }
-                else -> {
-                    val __some_45: Fighter = __nn_44!!
-                    __some_45
-                }
-            }
+        val __proj_63: Fighter = kotlin.run {
+            val __pick_60: Fighter? = salvo.core.list.getPlatform(squad, 0)
+            (if ((__pick_60 != null)) {
+                val __picked_61: Fighter = __pick_60!!
+                __picked_61
+            } else {
+                throw AssertionError("salvo: unreachable at main:286:82")
+            })
         }
-        __proj_46.energy
+        __proj_63.energy
     }} energy after striking itself")
     val team: Squad = Squad(banner = "Red", members = listOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2), Fighter(name = "Dee", hp = 6, energy = 7)))
     rotate(team.members, kotlin.run {
-        val __nn_47: Fighter? = salvo.core.list.atPlatform(team.members, i)
-        when {
-            (__nn_47 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:293:26"))
-            }
-            else -> {
-                val __some_48: Fighter = __nn_47!!
-                __some_48
-            }
-        }
+        val __pick_64: Fighter? = salvo.core.list.atPlatform(team.members, i)
+        (if ((__pick_64 != null)) {
+            val __picked_65: Fighter = __pick_64!!
+            __picked_65
+        } else {
+            throw AssertionError("salvo: unreachable at main:293:49")
+        })
     }, kotlin.run {
-        val __nn_49: Fighter? = salvo.core.list.atPlatform(team.members, j)
-        when {
-            (__nn_49 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:293:48"))
-            }
-            else -> {
-                val __some_50: Fighter = __nn_49!!
-                __some_50
-            }
-        }
+        val __pick_67: Fighter? = salvo.core.list.atPlatform(team.members, j)
+        (if ((__pick_67 != null)) {
+            val __picked_68: Fighter = __pick_67!!
+            __picked_68
+        } else {
+            throw AssertionError("salvo: unreachable at main:293:88")
+        })
     })
     salvo.core.console.println(__handle_2, "4. ${team.banner}: ${kotlin.run {
-        val __proj_53: Fighter = kotlin.run {
-            val __nn_51: Fighter? = salvo.core.list.getPlatform(team.members, 0)
-            when {
-                (__nn_51 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:294:35"))
-                }
-                else -> {
-                    val __some_52: Fighter = __nn_51!!
-                    __some_52
-                }
-            }
+        val __proj_73: Fighter = kotlin.run {
+            val __pick_70: Fighter? = salvo.core.list.getPlatform(team.members, 0)
+            (if ((__pick_70 != null)) {
+                val __picked_71: Fighter = __pick_70!!
+                __picked_71
+            } else {
+                throw AssertionError("salvo: unreachable at main:294:60")
+            })
         }
-        __proj_53.energy
+        __proj_73.energy
     }} ${kotlin.run {
-        val __proj_56: Fighter = kotlin.run {
-            val __nn_54: Fighter? = salvo.core.list.getPlatform(team.members, 1)
-            when {
-                (__nn_54 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:294:67"))
-                }
-                else -> {
-                    val __some_55: Fighter = __nn_54!!
-                    __some_55
-                }
-            }
+        val __proj_77: Fighter = kotlin.run {
+            val __pick_74: Fighter? = salvo.core.list.getPlatform(team.members, 1)
+            (if ((__pick_74 != null)) {
+                val __picked_75: Fighter = __pick_74!!
+                __picked_75
+            } else {
+                throw AssertionError("salvo: unreachable at main:294:111")
+            })
         }
-        __proj_56.energy
+        __proj_77.energy
     }}")
     val camp: Camp = Camp(supplies = 10, banners = mutableListOf<String>("red"))
     val banners: salvo.platform.core.list.MutList<String> = camp.banners

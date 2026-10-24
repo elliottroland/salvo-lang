@@ -639,10 +639,6 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
                 v.visit_ident(b);
             }
         }
-        Expr::NonNull { operand, span } => {
-            v.visit_span(span);
-            walk_expr(v, operand);
-        }
         Expr::SafeNav { base, access, span } => {
             v.visit_span(span);
             walk_expr(v, base);

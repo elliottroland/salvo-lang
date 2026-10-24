@@ -603,98 +603,74 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
         }
         val parts: salvo.platform.core.list.MutList<String> = salvo.core.string.splitPlatform(answer, ":")
         salvo.core.list.addPlatform(shards, kotlin.run {
-            val __nn_1: String? = salvo.core.list.getPlatform(parts, 0)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:228:26"))
-                }
-                else -> {
-                    val __some_2: String = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: String? = salvo.core.list.getPlatform(parts, 0)
+            (if ((__pick_1 != null)) {
+                val __picked_2: String = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at main:228:43")
+            })
         })
         salvo.core.console.println(console, "  ${sku}: ${kotlin.run {
-            val __nn_3: String? = salvo.core.list.getPlatform(parts, 1)
-            when {
-                (__nn_3 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:229:30"))
-                }
-                else -> {
-                    val __some_4: String = __nn_3!!
-                    __some_4
-                }
-            }
+            val __pick_4: String? = salvo.core.list.getPlatform(parts, 1)
+            (if ((__pick_4 != null)) {
+                val __picked_5: String = __pick_4!!
+                __picked_5
+            } else {
+                throw AssertionError("salvo: unreachable at main:229:47")
+            })
         }} reserved on its shard so far")
     }
     salvo.core.console.println(console, "  apple and apple on one shard: ${((kotlin.run {
-        val __nn_5: String? = salvo.core.list.getPlatform(shards, 0)
-        when {
-            (__nn_5 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:231:51"))
-            }
-            else -> {
-                val __some_6: String = __nn_5!!
-                __some_6
-            }
-        }
+        val __pick_7: String? = salvo.core.list.getPlatform(shards, 0)
+        (if ((__pick_7 != null)) {
+            val __picked_8: String = __pick_7!!
+            __picked_8
+        } else {
+            throw AssertionError("salvo: unreachable at main:231:69")
+        })
     }) == (kotlin.run {
-        val __nn_7: String? = salvo.core.list.getPlatform(shards, 2)
-        when {
-            (__nn_7 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:231:68"))
-            }
-            else -> {
-                val __some_8: String = __nn_7!!
-                __some_8
-            }
-        }
+        val __pick_10: String? = salvo.core.list.getPlatform(shards, 2)
+        (if ((__pick_10 != null)) {
+            val __picked_11: String = __pick_10!!
+            __picked_11
+        } else {
+            throw AssertionError("salvo: unreachable at main:231:103")
+        })
     }))}")
     salvo.core.console.println(console, "  apple and fig on one shard: ${((kotlin.run {
-        val __nn_9: String? = salvo.core.list.getPlatform(shards, 0)
-        when {
-            (__nn_9 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:232:49"))
-            }
-            else -> {
-                val __some_10: String = __nn_9!!
-                __some_10
-            }
-        }
+        val __pick_13: String? = salvo.core.list.getPlatform(shards, 0)
+        (if ((__pick_13 != null)) {
+            val __picked_14: String = __pick_13!!
+            __picked_14
+        } else {
+            throw AssertionError("salvo: unreachable at main:232:67")
+        })
     }) == (kotlin.run {
-        val __nn_11: String? = salvo.core.list.getPlatform(shards, 3)
-        when {
-            (__nn_11 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:232:66"))
-            }
-            else -> {
-                val __some_12: String = __nn_11!!
-                __some_12
-            }
-        }
+        val __pick_16: String? = salvo.core.list.getPlatform(shards, 3)
+        (if ((__pick_16 != null)) {
+            val __picked_17: String = __pick_16!!
+            __picked_17
+        } else {
+            throw AssertionError("salvo: unreachable at main:232:101")
+        })
     }))}")
     salvo.core.console.println(console, "  apple and pear on one shard: ${((kotlin.run {
-        val __nn_13: String? = salvo.core.list.getPlatform(shards, 0)
-        when {
-            (__nn_13 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:233:50"))
-            }
-            else -> {
-                val __some_14: String = __nn_13!!
-                __some_14
-            }
-        }
+        val __pick_19: String? = salvo.core.list.getPlatform(shards, 0)
+        (if ((__pick_19 != null)) {
+            val __picked_20: String = __pick_19!!
+            __picked_20
+        } else {
+            throw AssertionError("salvo: unreachable at main:233:68")
+        })
     }) == (kotlin.run {
-        val __nn_15: String? = salvo.core.list.getPlatform(shards, 1)
-        when {
-            (__nn_15 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:233:67"))
-            }
-            else -> {
-                val __some_16: String = __nn_15!!
-                __some_16
-            }
-        }
+        val __pick_22: String? = salvo.core.list.getPlatform(shards, 1)
+        (if ((__pick_22 != null)) {
+            val __picked_23: String = __pick_22!!
+            __picked_23
+        } else {
+            throw AssertionError("salvo: unreachable at main:233:102")
+        })
     }))}")
 }
 

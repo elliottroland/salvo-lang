@@ -304,16 +304,13 @@ fun memFindNewline(data: salvo.platform.core.bytes.Bytes, from: Int): Int {
             break
         }
         if (((kotlin.run {
-            val __nn_1: UByte? = salvo.core.bytes.getPlatform(data, i)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at fs.mem:325:19"))
-                }
-                else -> {
-                    val __some_2: UByte = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: UByte? = salvo.core.bytes.getPlatform(data, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: UByte = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at fs.mem:325:35")
+            })
         }).toInt() == 10)) {
             return i
         }
@@ -362,16 +359,13 @@ fun memReadLine(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Lo
     }
     val stop: Int = memFindNewline(bytes, at)
     val line: salvo.platform.core.bytes.Bytes = kotlin.run {
-        val __nn_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(bytes, at, stop)
-        when {
-            (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at fs.mem:384:16"))
-            }
-            else -> {
-                val __some_2: salvo.platform.core.bytes.Bytes = __nn_1!!
-                __some_2
-            }
-        }
+        val __pick_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(bytes, at, stop)
+        (if ((__pick_1 != null)) {
+            val __picked_2: salvo.platform.core.bytes.Bytes = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at fs.mem:384:42")
+        })
     }
     var nextAt: Int = stop
     if ((stop < end)) {
@@ -383,8 +377,8 @@ fun memReadLine(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Lo
         return null
     }
     salvo.core.map.putPlatform(reads, handle, MemRead(source = open.source, data = bytes, at = nextAt, failed = false), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    val text_3: String = text!!
-    return salvo.core.string.trimSuffixPlatform(text_3, "\r")
+    val text_4: String = text!!
+    return salvo.core.string.trimSuffixPlatform(text_4, "\r")
 }
 
 fun memReadAll(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Long): Union2<String, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>> {
@@ -396,16 +390,13 @@ fun memReadAll(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Lon
     val bytes: salvo.platform.core.bytes.Bytes = open.data
     val end: Int = salvo.core.bytes.sizePlatform(bytes)
     val rest: salvo.platform.core.bytes.Bytes = kotlin.run {
-        val __nn_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(bytes, open.at, end)
-        when {
-            (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at fs.mem:408:16"))
-            }
-            else -> {
-                val __some_2: salvo.platform.core.bytes.Bytes = __nn_1!!
-                __some_2
-            }
-        }
+        val __pick_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(bytes, open.at, end)
+        (if ((__pick_1 != null)) {
+            val __picked_2: salvo.platform.core.bytes.Bytes = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at fs.mem:408:46")
+        })
     }
     val text: String? = salvo.core.bytes.strOfBytesPlatform(rest)
     if ((text == null)) {
@@ -413,8 +404,8 @@ fun memReadAll(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Lon
         return Union2.U2<String, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.err(salvo.core.checked.checked(Union2.U1<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>(salvo.stream.InvalidUtf8(source = source)))))
     }
     salvo.core.map.putPlatform(reads, handle, MemRead(source = source, data = bytes, at = end, failed = false), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    val text_3: String = text!!
-    return Union2.U1<String, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.ok(text_3))
+    val text_4: String = text!!
+    return Union2.U1<String, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.ok(text_4))
 }
 
 fun memReadBytes(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Long, max: Int): Union2<salvo.platform.core.bytes.Bytes, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>> {
@@ -433,16 +424,13 @@ fun memReadBytes(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: L
         stop = end
     }
     val taken: salvo.platform.core.bytes.Bytes = kotlin.run {
-        val __nn_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(bytes, open.at, stop)
-        when {
-            (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at fs.mem:434:17"))
-            }
-            else -> {
-                val __some_2: salvo.platform.core.bytes.Bytes = __nn_1!!
-                __some_2
-            }
-        }
+        val __pick_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(bytes, open.at, stop)
+        (if ((__pick_1 != null)) {
+            val __picked_2: salvo.platform.core.bytes.Bytes = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at fs.mem:434:48")
+        })
     }
     salvo.core.map.putPlatform(reads, handle, MemRead(source = source, data = bytes, at = stop, failed = false), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     return Union2.U1<salvo.platform.core.bytes.Bytes, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.ok(taken))

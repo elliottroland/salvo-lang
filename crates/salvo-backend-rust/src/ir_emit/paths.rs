@@ -779,25 +779,40 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let code = format!("{inst}.{}({})", rs_ident(&m.emitted_name), a.join(", "));
                 Some(Mint { pre, prefix, pt, code, opt: e.ty.strip_quals().has_none_arm() })
             }
-            // `x!`: the path, or the trap.
+            // `x ?: unreachable!()`: the path, or the trap. The pick binds its
+            // subject, tests the first arm and traps on the other side
+            // [assert-op] (until 2026-10-20 a postfix `!`, a switch on the
+            // bound subject with a trapping `None` arm).
             ExprKind::Branch { arms, otherwise: None, .. } if arms.len() == 1 && matches!(arms[0].0.kind, ExprKind::Bool(true)) => {
                 let b = &arms[0].1;
                 let [Stmt::Let { local, value, .. }] = b.stmts.as_slice() else { return None };
                 let v = b.value.as_ref()?;
-                let ExprKind::Switch { subject, arms: sarms, .. } = &v.kind else { return None };
-                if super::body::bare(subject) != Some(local) {
-                    return None;
-                }
-                let at = sarms.iter().find_map(|a| {
-                    let from_stmt = a.body.stmts.iter().find_map(|s| match s {
+                let trap_at = |blk: &salvo_core::ir::Block| -> Option<String> {
+                    let from_stmt = blk.stmts.iter().find_map(|s| match s {
                         Stmt::Expr(salvo_core::ir::Expr { kind: ExprKind::Unreachable { at, .. }, .. }) => Some(at.clone()),
                         _ => None,
                     });
-                    match a.body.value.as_deref().map(|x| &x.kind) {
+                    match blk.value.as_deref().map(|x| &x.kind) {
                         Some(ExprKind::Unreachable { at, .. }) => Some(at.clone()),
                         _ => from_stmt,
                     }
-                })?;
+                };
+                let at = match &v.kind {
+                    ExprKind::Branch { arms: picks, otherwise: Some(other), .. } if picks.len() == 1 => {
+                        let ExprKind::Test { subject, .. } = &picks[0].0.kind else { return None };
+                        if super::body::bare(subject) != Some(local) {
+                            return None;
+                        }
+                        trap_at(other)?
+                    }
+                    ExprKind::Switch { subject, arms: sarms, .. } => {
+                        if super::body::bare(subject) != Some(local) {
+                            return None;
+                        }
+                        sarms.iter().find_map(|a| trap_at(&a.body))?
+                    }
+                    _ => return None,
+                };
                 let mut m = self.mint(value, indent)?;
                 if m.opt {
                     m.code = format!("{}.expect(\"salvo: value is absent at {at}\")", m.code);

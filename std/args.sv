@@ -332,7 +332,7 @@ fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
     let n = size(tokens)
     let i = 0
     while i < n {
-        let t = copy(get(tokens, i)!)
+        let t = copy(get(tokens, i) ?: unreachable!())
         i = i + 1
         when t {
             is EndToken {}
@@ -343,7 +343,7 @@ fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
                     if has_command(spec, t.value) {
                         command = copy(t.value)
                         while i < n {
-                            add(rest, copy(get(args, i)!))
+                            add(rest, copy(get(args, i) ?: unreachable!()))
                             i = i + 1
                         }
                     } else {
@@ -393,7 +393,7 @@ fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
                 let k = 0
                 let len = size(letters)
                 while k < len {
-                    let c = char_at(letters, k)!
+                    let c = char_at(letters, k) ?: unreachable!()
                     k = k + 1
                     if c == 'h' {
                         help = true
@@ -409,7 +409,7 @@ fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
                             // The rest of the bundle is the value (`-p8080`),
                             // or the next word is (`-p 8080`).
                             k < len {
-                                add(hits, Hit { field: copy(o.field), value: substr(letters, k, len)! })
+                                add(hits, Hit { field: copy(o.field), value: substr(letters, k, len) ?: unreachable!() })
                                 k = len
                             }
                             else {
@@ -485,13 +485,13 @@ fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
                 add(errors, Missing { what: arg_name(a.field) })
             }
             while w < nw {
-                add(hits, Hit { field: copy(a.field), value: copy(get(words, w)!) })
+                add(hits, Hit { field: copy(a.field), value: copy(get(words, w) ?: unreachable!()) })
                 w = w + 1
             }
         } else {
             when {
                 w < nw {
-                    add(hits, Hit { field: copy(a.field), value: copy(get(words, w)!) })
+                    add(hits, Hit { field: copy(a.field), value: copy(get(words, w) ?: unreachable!()) })
                     w = w + 1
                 }
                 a.required {
@@ -502,7 +502,7 @@ fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
         }
     }
     while w < nw {
-        add(errors, Unexpected { value: copy(get(words, w)!) })
+        add(errors, Unexpected { value: copy(get(words, w) ?: unreachable!()) })
         w = w + 1
     }
     if !is_empty(spec.commands) && command is None && !failed_command && spec.command_required {
@@ -841,8 +841,8 @@ fn one_line(text: Str?) [] -> Str => text {
 // The rows `rows` of help's two columns, the left padded to `width`.
 fn help_rows(out: Mut Str, lefts: List<Str>, rights: List<Str>, rows: List<Int>, width: Int) [] -> None => out: Mut, lefts, rights, rows {
     for i in rows {
-        let l = get(lefts, i)!
-        let r = get(rights, i)!
+        let l = get(lefts, i) ?: unreachable!()
+        let r = get(rights, i) ?: unreachable!()
         if is_empty(r) {
             append(out, "  ${l}\n")
         } else {

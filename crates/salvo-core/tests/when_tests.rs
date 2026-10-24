@@ -312,7 +312,7 @@ fn an_optional_bool_is_not_a_condition() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
          fn f(b: Bool?) [] -> None => !b {{\n\
-         if b! {{\n\
+         if (b ?: unreachable!()) {{\n\
          note(\"x\")\n\
          }}\n\
          }}\n"

@@ -52,7 +52,7 @@ Conventions:
   and so stands wherever a value is expected. The message composition sits
   *inside* the panic, so a written message is built only when the assertion
   fails.
-  * `expr!` is a block that tests, panics and answers the payload:
+  * `expr ?: unreachable!()` is a block that tests, panics and answers the payload:
 
     ```rust
     {
@@ -71,7 +71,7 @@ Conventions:
     on the locator instead — same text, same timing.
   * The location is the **module path**, not the file name — a file's display
     name depends on the loader, and emitted output must not.
-* [rs-opt-borrow] `expr!` on an owned `Option` held by a **local** reads it
+* [rs-opt-borrow] `expr ?: unreachable!()` on an owned `Option` held by a **local** reads it
   *through a borrow*: the block binds `let mut __nn = &x;` and
   `let mut __some = __nn.as_ref().unwrap();`, and answers `__some` where the
   position borrows, `__some.clone()` only where it owns. Where the position
@@ -93,9 +93,9 @@ Conventions:
     declaration*, through the pass mode the IR gives that parameter, not from
     the position the call sits in: kept is a read, consumed (`=> !elem`) a
     value, and a `Mut` parameter is the place the lowering writes through.
-  * [rs-narrow-mut] `x!` in a **mutably lent** position reaches the payload
+  * [rs-narrow-mut] `x ?: unreachable!()` in a **mutably lent** position reaches the payload
     mutably (`&mut x` … `as_mut().unwrap()` … `&mut *__some`), so
-    `add(xs!, 3)` appends to `xs` itself. (A clone there would compile and
+    `add(xs ?: unreachable!(), 3)` appends to `xs` itself. (A clone there would compile and
     append to the clone, the [backend-never-wrong] failure this rule exists
     for.)
   * A **narrowed** read obeys the position the same way
@@ -301,7 +301,7 @@ Conventions:
 * [kt-none-unit]-equivalent: `None` as a return type is `()` (omitted);
   `None` as a union arm is `Option` [rs-option].
 * [rs-option] `T?` maps to `Option<T>`: `None`→`None`, `is None`→
-  `.is_none()`, `x!`→ the test-and-unwrap block [rs-assert-trap]. Optionals
+  `.is_none()`, `x ?: unreachable!()`→ the test-and-unwrap block [rs-assert-trap]. Optionals
   are *physical* in Rust, so the checker's `WrapOption` coercion emits
   `Some(code)` [type-nullable] (Kotlin ignores the same coercion).
 * [type-array] `T[]` maps to `Vec<T>`; `array_of` emits `vec![...]` and
@@ -636,9 +636,9 @@ the blanket rule:
     `s.as_ref().unwrap()`, a `&T`.
   * [proj-type] [lambda-view] An unwrap whose own checker type is a
     projection stays the reference — no clone, no deref: a lambda tail
-    `get(all, i)!` typed `proj Str` yields `&String` into the closure's
+    `get(all, i) ?: unreachable!()` typed `proj Str` yields `&String` into the closure's
     return (`&mut |mut i| -> &String { … }`, `Vec<&String>` at the call),
-    and an interpolated `first(names)!` displays through the reference. Any
+    and an interpolated `first(names) ?: unreachable!()` displays through the reference. Any
     position that truly needs ownership was checker-refused without `copy`
     before emission.
   * A Copy scalar read out of a reference binding (a lambda parameter
@@ -698,7 +698,7 @@ the blanket rule:
   a codegen error otherwise (a hidden clone this backend refuses).
 * [rs-elem-mut] [ref-handle] **Mutable element handles** (P-3 + P-9, user
   decisions 2026-09-24) are **positions**, never a bound `&mut`:
-  * A **statement-scoped** handle — `bump(at(es, 0)!)` in a `&mut`
+  * A **statement-scoped** handle — `bump(at(es, 0) ?: unreachable!())` in a `&mut`
     position — materializes the element for that one call: the mint's path
     is bound, then walked into a borrow,
     `{ let __h1: Option<usize> = crate::core_list::at_platform(&es, 0i32); … &mut es[__h2] }`
@@ -830,7 +830,7 @@ the blanket rule:
     The handle dispatches it through either arm, the lock's guard included:
     the result is owned data, never a borrow of handler state. Every call
     site goes through the mint: a handle bound from the member
-    (`let e = lease(es)!`) is the path `lender.lease(&*es)`, walked at each
+    (`let e = lease(es) ?: unreachable!()`) is the path `lender.lease(&*es)`, walked at each
     use, and a call in a value position walks it once. A handler body
     delegating to a mint (`return pick(t, i)`) answers that mint's path. A
     `platform handler` cannot implement a member returning a `ref` (a
@@ -866,7 +866,7 @@ the blanket rule:
     (`platform_core_map::slot_of`; `Map` implements `Index<usize>` /
     `IndexMut<usize>` over slots), so `at`'s position is
     `slot_of(map, key, hash, eq)` and every list rendering above applies
-    unchanged — a handle chains through a map (`at(at(m, k)!, i)!`).
+    unchanged — a handle chains through a map (`at(at(m, k) ?: unreachable!(), i) ?: unreachable!()`).
     Slots are stable until an entry is added or removed, which poisons the
     handles [fate-poison].
   * **What remains cut, loud**: a lend whose anchor is not a plain place
@@ -965,6 +965,13 @@ the blanket rule:
     position needs nothing — a moved value is not borrowed from anywhere —
     and a native container loop needs no hoist at all (the temporary lives
     to the end of the `for` statement there, which includes the body).
+  * **A `copy` of a block-valued expression** (an `?:` pick, an `if` value)
+    is applied to each non-diverging arm's value *inside* the block
+    (`copy_into_tails`, 2026-10-14): `copy(get(make().items, 0) ?: unreachable!(…))`
+    binds `make().items`' borrow in the pick's block, and a clone outside
+    would reach it after the block drops it (E0597). Not for a union-typed
+    block: an arm's value is wrapped into the union there, and a copy of the
+    wrap alone leaves rustc no way to name the other arms (E0282).
 * [rs-mut-arg-hoist] **A read before a mutation, in one expression** (built
   2026-09-25). Rust holds a read borrow for the whole expression it sits in,
   so a sibling that mutably borrows the same place collides with it —

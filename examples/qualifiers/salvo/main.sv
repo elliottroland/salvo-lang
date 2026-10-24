@@ -27,7 +27,7 @@ qualifier NonEmpty<T> of List<T> {
 // there is no `None` in the result and no check in the body.
 fn head(list: NonEmpty List<Int>) -> Int => list {
     let first = get(list, 0)
-    return first!
+    return first ?: unreachable!()
 }
 
 // ===== 2. where a claim comes from =====

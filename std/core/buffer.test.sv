@@ -1,7 +1,7 @@
 test "a buffer is made full and keeps its length" {
     let b = int_buffer(3, 7)
     expect(size(b) == 3, "three slots")
-    expect(get(b, 0)! == 7, "filled")
+    expect((get(b, 0) ?: unreachable!()) == 7, "filled")
     expect(get(b, 3) is None, "past the end")
     expect(get(b, -1) is None, "before the start")
     expect(size(int_buffer(-2, 0)) == 0, "a negative size is empty")

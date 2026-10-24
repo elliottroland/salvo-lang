@@ -478,7 +478,7 @@ export handler ManualTime() of Timer, TimerCtl {
     send fn advance(by: Duration) => !by {
         let target = now + by.nanos
         while earliest_due(deadlines, target) is Int at {
-            let deadline = copy(get(deadlines, at)!)
+            let deadline = copy(get(deadlines, at) ?: unreachable!())
             remove_at(deadlines, at)
             // Virtual time stands *at* the deadline while it fires, so a
             // continuation that sets another timer measures from there.
@@ -502,7 +502,7 @@ fn earliest_due(deadlines: List<Long>, target: Long) [] -> Int? => deadlines, ta
     let best_at = 0L
     let i = 0
     while i < size(deadlines) {
-        let at = copy(get(deadlines, i)!)
+        let at = copy(get(deadlines, i) ?: unreachable!())
         if at <= target && (best < 0 || at < best_at) {
             best = copy(i)
             best_at = copy(at)

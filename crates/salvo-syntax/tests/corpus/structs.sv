@@ -28,5 +28,5 @@ fn mutate(person: Mut Person) {
 }
 
 fn interpolate(person: Person) -> Str {
-    return "Surname is ${person.surname!}"
+    return "Surname is ${person.surname ?: unreachable!()}"
 }

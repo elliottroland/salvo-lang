@@ -225,12 +225,12 @@ fn checkout(skus: List<Str>) [any Inventory, Console] -> None {
     for sku in skus {
         let answer = waitfor out: Reply<Str> { reserve(copy(sku), 1, out) }
         let parts = split(answer, ":")
-        add(shards, copy(get(parts, 0)!))
-        println("  ${sku}: ${get(parts, 1)!} reserved on its shard so far")
+        add(shards, copy(get(parts, 0) ?: unreachable!()))
+        println("  ${sku}: ${get(parts, 1) ?: unreachable!()} reserved on its shard so far")
     }
-    println("  apple and apple on one shard: ${eq(get(shards, 0)!, get(shards, 2)!)}")
-    println("  apple and fig on one shard: ${eq(get(shards, 0)!, get(shards, 3)!)}")
-    println("  apple and pear on one shard: ${eq(get(shards, 0)!, get(shards, 1)!)}")
+    println("  apple and apple on one shard: ${eq(get(shards, 0) ?: unreachable!(), get(shards, 2) ?: unreachable!())}")
+    println("  apple and fig on one shard: ${eq(get(shards, 0) ?: unreachable!(), get(shards, 3) ?: unreachable!())}")
+    println("  apple and pear on one shard: ${eq(get(shards, 0) ?: unreachable!(), get(shards, 1) ?: unreachable!())}")
 }
 
 fn count(word: Str) [any Search] -> Int => !word {

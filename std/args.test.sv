@@ -84,7 +84,7 @@ test "the readers" {
 test "a word with nowhere to go" {
     let spec = Spec<Serve> { name: "x", opts: List<OptSpec>(), args: List(ArgSpec { field: "one" }) }
     let f = scan(spec, List("a", "b"))
-    expect_eq(message(copy(get(f.errors, 0)!)), "unexpected argument 'b'")
+    expect_eq(message(copy(get(f.errors, 0) ?: unreachable!())), "unexpected argument 'b'")
 }
 
 test "command names" {

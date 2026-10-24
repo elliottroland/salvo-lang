@@ -289,24 +289,25 @@ payload out of the union wrapper, and Rust unwraps the enum variant. The reason 
 | `loop#n value` | a loop assigned its value on every way out |
 | `claim` | a qualifier the value carries proves it |
 
-**`when x`, `?:` and `!`** become a `switch`. `name!` is a switch whose `none`
-arm traps:
+**`when x`** becomes a `switch`, and **`?:`** a test of the subject's first
+arm. `name ?: unreachable!()` binds the subject, narrows it on the test's
+side, and traps on the other:
 
 ```
-switch#1 read __nn~1 {
-  arm#0 (none) {
-    unreachable("value is absent") at main:14:12
-  }
-  arm#1 (else) {
-    narrow#3[switch#1.arm#1] __some~2: Str = __nn~1
-    value !read __some~2
+branch#6 cond#0 true {
+  bind#1 let __pick~1: Str? = read name
+  value branch#2 cond#0 check#5 (read __pick~1 is arm 0) {
+    narrow#3[branch#2.cond#0] __picked~2: Str = __pick~1
+    value !read __picked~2
+  } else {
+    value unreachable() at main:2:20
   }
 }
 ```
 
 **`branch … cond#0 true { … }`** is a block in value position: statements
 that set up a value, then the value. The IR has no separate block
-expression, so a `?:`, a `?.` or a `!` that needs a temporary is wrapped this
+expression, so a `?:` or a `?.` that needs a temporary is wrapped this
 way:
 
 ```

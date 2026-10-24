@@ -33,7 +33,7 @@ fn fs_resolve(root: Str, path: Str) [] -> Str? => root, path {
     let skip = 0
     let i = size(segs) - 1
     while i >= 0 {
-        let seg = get(segs, i)!
+        let seg = get(segs, i) ?: unreachable!()
         if seg == ".." {
             skip = skip + 1
         } else {
@@ -56,7 +56,7 @@ fn fs_resolve(root: Str, path: Str) [] -> Str? => root, path {
     let parts: Mut List<Str> = Mut List()
     let j = size(kept) - 1
     while j >= 0 {
-        parts.add(copy(get(kept, j)!))
+        parts.add(copy(get(kept, j) ?: unreachable!()))
         j = j - 1
     }
     let rel = join(parts, "/")

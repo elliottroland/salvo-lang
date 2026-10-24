@@ -1967,10 +1967,6 @@ pub enum Expr {
         binding: Option<Ident>,
         span: Span,
     },
-    /// `expr!` — non-null assertion [assert-op]. Legal only where the operand
-    /// *can* be absent: a `!` on a type with no `None` arm says something false
-    /// and is refused (user decision 2026-09-23).
-    NonNull { operand: Box<Expr>, span: Span },
     /// `base?.field` or `base?.method(args)` — safe navigation [safe-nav].
     /// The whole expression is `None` when `base` is `None`; otherwise it is
     /// the `access` performed on the non-`None` `base`, wrapped back into an
@@ -2405,6 +2401,25 @@ pub enum BinaryOp {
 }
 
 impl Expr {
+    /// [assert-op] [elvis] `subject ?: unreachable!(…)` — or another escape on
+    /// the right (`todo!()`, `return`, `break`, `continue`): the subject's
+    /// first arm, or nothing at all. What `subject!` was until the postfix `!`
+    /// was removed (user decision 2026-10-20), so an analysis that follows a
+    /// value's provenance reads through it to `subject`.
+    pub fn presence_unwrapped(&self) -> Option<&Expr> {
+        match self {
+            Expr::Elvis { subject, rhs, .. }
+                if matches!(
+                    rhs.as_ref(),
+                    Expr::Unreachable { .. } | Expr::Todo { .. } | Expr::Return { .. } | Expr::Break { .. } | Expr::Continue { .. }
+                ) =>
+            {
+                Some(subject)
+            }
+            _ => None,
+        }
+    }
+
     pub fn span(&self) -> Span {
         match self {
             Expr::Int { span, .. }
@@ -2424,7 +2439,6 @@ impl Expr {
             | Expr::Binary { span, .. }
             | Expr::Is { span, .. }
             | Expr::Widen { span, .. }
-            | Expr::NonNull { span, .. }
             | Expr::SafeNav { span, .. }
             | Expr::Assert { span, .. }
             | Expr::Unreachable { span, .. }

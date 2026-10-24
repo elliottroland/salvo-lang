@@ -513,7 +513,7 @@ fn return_type_overloads_run_on_both_backends() {
          fn want_int(n: Int?) [] -> Int => n { return n ?: 0 }\n\n\
          fn main() [use] -> None {\n    use StdConsole()\n    \
          let a: Int? = read_as(\"12\")\n    let b: Bool? = read_as(\"true\")\n    \
-         let c: Int = read_as(\"7\")!\n    let d: Int = read_as(\"x\") ?: 5\n    \
+         let c: Int = read_as(\"7\") ?: unreachable!()\n    let d: Int = read_as(\"x\") ?: 5\n    \
          let o = Opts { n: read_as(\"3\"), b: read_as(\"false\") }\n    \
          let e = want_int(read_as(\"9\"))\n    \
          let f: Bool? = if c > 3 { read_as(\"true\") } else { None }\n    \
@@ -1151,7 +1151,7 @@ fn a_stamped_decoder_runs_on_both_backends() {
         return;
     };
     let dir = work_dir("stamped_decoder");
-    fs::write(dir.join("decode.sv"), "export params FromStrs<T> {\n    fn from_strs(args: List<Str>) -> T\n}\n\nexport comptime fn from_strs<T is Struct>(args: List<Str>) [] -> T => args {\n    return T { [for f in T.fields] { [f]: from_str(get(args, f.index)!)! } }\n}\n").unwrap();
+    fs::write(dir.join("decode.sv"), "export params FromStrs<T> {\n    fn from_strs(args: List<Str>) -> T\n}\n\nexport comptime fn from_strs<T is Struct>(args: List<Str>) [] -> T => args {\n    return T { [for f in T.fields] { [f]: from_str(get(args, f.index) ?: unreachable!()) ?: unreachable!() } }\n}\n").unwrap();
     fs::write(dir.join("main.sv"), "import decode\n\nstruct Serve : FromStrs<self> by decode {\n    port: Int,\n    host: Str\n}\n\nstruct Stop : FromStrs<self> by decode {\n    force: Bool\n}\n\nfn main() [use] -> None {\n    use StdConsole()\n    let s: Serve = from_strs(List(\"80\", \"web\"))\n    let t: Stop = from_strs(List(\"true\"))\n    println(\"${s.port} ${s.host} ${t.force}\")\n}\n").unwrap();
     for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
         if !have(tool) {
@@ -1386,7 +1386,7 @@ fn eval<Q>(f: once () -> Q) [] -> Q => !f {
 }
 
 fn pick(found: Found, i: Int) [] -> Str => found {
-    return copy(get(found.values, i)!)
+    return copy(get(found.values, i) ?: unreachable!())
 }
 
 fn both(found: Found) [] -> Str => found {
@@ -3178,7 +3178,7 @@ export fn make_a() [] -> Token {
 }
 
 export fn show_a(t: Token) [Clock] -> Str {
-    let back = decode<Token>(encode(copy(t)))!
+    let back = decode<Token>(encode(copy(t))) ?: unreachable!()
     let s: Set<Token> = Set(copy(t), back)
     return "a.Token ${t.id}, set of ${size(s)}, at ${now()}"
 }
@@ -3399,7 +3399,7 @@ fn main() [use, spawn] {
     for a in xs {
         if !a.dead { a.dead = true }
     }
-    println("14: ${get(xs, 0)!.dead}")
+    println("14: ${(get(xs, 0) ?: unreachable!()).dead}")
     println("16: ${use_it(H<Int> { skip: (x: Int) -> x > 2 }, 3)} ${skip("s")}")
 }
 "#).unwrap();

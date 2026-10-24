@@ -484,31 +484,25 @@ fun bumpIn(versions: salvo.platform.core.map.MutMap<Int, Long>, waiters: salvo.p
             break
         }
         if ((kotlin.run {
-            val __proj_3: ViewWaiter = kotlin.run {
-                val __nn_1: ViewWaiter? = salvo.core.list.getPlatform(waiters, i)
-                when {
-                    (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:171:12"))
-                    }
-                    else -> {
-                        val __some_2: ViewWaiter = __nn_1!!
-                        __some_2
-                    }
-                }
+            val __proj_4: ViewWaiter = kotlin.run {
+                val __pick_1: ViewWaiter? = salvo.core.list.getPlatform(waiters, i)
+                (if ((__pick_1 != null)) {
+                    val __picked_2: ViewWaiter = __pick_1!!
+                    __picked_2
+                } else {
+                    throw AssertionError("salvo: unreachable at runtime.routing:171:32")
+                })
             }
-            __proj_3.group
+            __proj_4.group
         } == group)) {
             val w: ViewWaiter = kotlin.run {
-                val __nn_4: ViewWaiter? = salvo.core.list.removeAtPlatform(waiters, i)
-                when {
-                    (__nn_4 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:172:21"))
-                    }
-                    else -> {
-                        val __some_5: ViewWaiter = __nn_4!!
-                        __some_5
-                    }
-                }
+                val __pick_5: ViewWaiter? = salvo.core.list.removeAtPlatform(waiters, i)
+                (if ((__pick_5 != null)) {
+                    val __picked_6: ViewWaiter = __pick_5!!
+                    __picked_6
+                } else {
+                    throw AssertionError("salvo: unreachable at runtime.routing:172:52")
+                })
             }
             salvo.runtime.unparkPlatform(w.parker)
         } else {
@@ -655,16 +649,13 @@ class Routes : RouteTable {
                 break
             }
             salvo.core.list.addPlatform(out, kotlin.run {
-                val __nn_1: Staged? = salvo.core.list.removeAtPlatform(outbox, 0)
-                when {
-                    (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:329:22"))
-                    }
-                    else -> {
-                        val __some_2: Staged = __nn_1!!
-                        __some_2
-                    }
-                }
+                val __pick_1: Staged? = salvo.core.list.removeAtPlatform(outbox, 0)
+                (if ((__pick_1 != null)) {
+                    val __picked_2: Staged = __pick_1!!
+                    __picked_2
+                } else {
+                    throw AssertionError("salvo: unreachable at runtime.routing:329:46")
+                })
             })
         }
         return out
@@ -742,16 +733,13 @@ class Routes : RouteTable {
                 break
             }
             if ((kotlin.run {
-                val __nn_1: Long? = salvo.core.list.getPlatform(taskKeys, i)
-                when {
-                    (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:403:16"))
-                    }
-                    else -> {
-                        val __some_2: Long = __nn_1!!
-                        __some_2
-                    }
-                }
+                val __pick_1: Long? = salvo.core.list.getPlatform(taskKeys, i)
+                (if ((__pick_1 != null)) {
+                    val __picked_2: Long = __pick_1!!
+                    __picked_2
+                } else {
+                    throw AssertionError("salvo: unreachable at runtime.routing:403:38")
+                })
             } == key)) {
                 val _k: Long? = salvo.core.list.removeAtPlatform(taskKeys, i)
                 return salvo.core.list.removeAtPlatform(tasks, i)
@@ -844,19 +832,16 @@ class Routes : RouteTable {
                 break
             }
             if ((kotlin.run {
-                val __proj_3: ViewWaiter = kotlin.run {
-                    val __nn_1: ViewWaiter? = salvo.core.list.getPlatform(viewWaiters, i)
-                    when {
-                        (__nn_1 == null) -> {
-                            throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:498:16"))
-                        }
-                        else -> {
-                            val __some_2: ViewWaiter = __nn_1!!
-                            __some_2
-                        }
-                    }
+                val __proj_4: ViewWaiter = kotlin.run {
+                    val __pick_1: ViewWaiter? = salvo.core.list.getPlatform(viewWaiters, i)
+                    (if ((__pick_1 != null)) {
+                        val __picked_2: ViewWaiter = __pick_1!!
+                        __picked_2
+                    } else {
+                        throw AssertionError("salvo: unreachable at runtime.routing:498:41")
+                    })
                 }
-                __proj_3.id
+                __proj_4.id
             } == id)) {
                 val _w: ViewWaiter? = salvo.core.list.removeAtPlatform(viewWaiters, i)
                 return
@@ -915,16 +900,13 @@ fun wakeSenders(waiters: salvo.platform.core.list.MutList<salvo.platform.runtime
             break
         }
         salvo.runtime.unparkPlatform(kotlin.run {
-            val __nn_1: salvo.platform.runtime.Parker? = salvo.core.list.removeAtPlatform(waiters, 0)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:556:16"))
-                }
-                else -> {
-                    val __some_2: salvo.platform.runtime.Parker = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: salvo.platform.runtime.Parker? = salvo.core.list.removeAtPlatform(waiters, 0)
+            (if ((__pick_1 != null)) {
+                val __picked_2: salvo.platform.runtime.Parker = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at runtime.routing:556:41")
+            })
         })
     }
 }
@@ -948,16 +930,13 @@ fun restage(routes: salvo.platform.core.map.Map<Long, salvo.platform.core.bytes.
             break
         }
         salvo.core.list.addPlatform(waiting, kotlin.run {
-            val __nn_1: Parked? = salvo.core.list.removeAtPlatform(parked, 0)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:579:22"))
-                }
-                else -> {
-                    val __some_2: Parked = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: Parked? = salvo.core.list.removeAtPlatform(parked, 0)
+            (if ((__pick_1 != null)) {
+                val __picked_2: Parked = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at runtime.routing:579:46")
+            })
         })
     }
     for (p in salvo.platform.core.list.each(waiting)) {
@@ -1285,43 +1264,34 @@ fun viewMembers(group: Int): List<Int> {
                 break
             }
             if (before(identity(kotlin.run {
-                val __nn_1: Int? = salvo.core.list.getPlatform(left, i)
-                when {
-                    (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:939:37"))
-                    }
-                    else -> {
-                        val __some_2: Int = __nn_1!!
-                        __some_2
-                    }
-                }
+                val __pick_1: Int? = salvo.core.list.getPlatform(left, i)
+                (if ((__pick_1 != null)) {
+                    val __picked_2: Int = __pick_1!!
+                    __picked_2
+                } else {
+                    throw AssertionError("salvo: unreachable at runtime.routing:939:53")
+                })
             }), identity(kotlin.run {
-                val __nn_3: Int? = salvo.core.list.getPlatform(left, best)
-                when {
-                    (__nn_3 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:939:68"))
-                    }
-                    else -> {
-                        val __some_4: Int = __nn_3!!
-                        __some_4
-                    }
-                }
+                val __pick_4: Int? = salvo.core.list.getPlatform(left, best)
+                (if ((__pick_4 != null)) {
+                    val __picked_5: Int = __pick_4!!
+                    __picked_5
+                } else {
+                    throw AssertionError("salvo: unreachable at runtime.routing:939:104")
+                })
             }))) {
                 best = i
             }
             i = (i + 1)
         }
         salvo.core.list.addPlatform(out, kotlin.run {
-            val __nn_5: Int? = salvo.core.list.removeAtPlatform(left, best)
-            when {
-                (__nn_5 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:944:18"))
-                }
-                else -> {
-                    val __some_6: Int = __nn_5!!
-                    __some_6
-                }
-            }
+            val __pick_7: Int? = salvo.core.list.removeAtPlatform(left, best)
+            (if ((__pick_7 != null)) {
+                val __picked_8: Int = __pick_7!!
+                __picked_8
+            } else {
+                throw AssertionError("salvo: unreachable at runtime.routing:944:43")
+            })
         })
     }
     return out.toMutableList()

@@ -297,6 +297,9 @@ impl<'p> Walk<'_, '_, 'p> {
             // [assert-fn] An assertion lends nothing: it answers `None` (or
             // `Never`), and its parts are only read.
             Expr::Assert { .. } | Expr::Unreachable { .. } | Expr::Todo { .. } | Expr::WhyNot { .. } => None,
+            // [assert-op] `subject ?: unreachable!()` is the subject,
+            // unwrapped: what it lends.
+            e if e.presence_unwrapped().is_some() => self.lends_of_expr(e.presence_unwrapped().unwrap()),
             // [elvis] Neither side lends: the picked value is a sub-union of
             // the subject's own payload, handed out by value.
             Expr::Elvis { .. } | Expr::Placeholder { .. } => {
@@ -377,9 +380,7 @@ impl<'p> Walk<'_, '_, 'p> {
             // A field of a view holds what the view holds, at most.
             Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => self.roots_of_expr(base),
             Expr::Index { base, .. } => self.roots_of_expr(base),
-            Expr::NonNull { operand, .. } | Expr::Spread { operand, .. } => {
-                self.lends_of_expr(operand)
-            }
+            Expr::Spread { operand, .. } => self.lends_of_expr(operand),
             Expr::If {
                 branches,
                 else_block,
@@ -522,9 +523,8 @@ impl<'p> Walk<'_, '_, 'p> {
             Expr::Field { base, .. } | Expr::TupleIndex { base, .. } | Expr::Index { base, .. } => {
                 self.roots_of_expr(base)
             }
-            Expr::NonNull { operand, .. } | Expr::Spread { operand, .. } => {
-                self.roots_of_expr(operand)
-            }
+            e if e.presence_unwrapped().is_some() => self.roots_of_expr(e.presence_unwrapped().unwrap()),
+            Expr::Spread { operand, .. } => self.roots_of_expr(operand),
             Expr::Call { .. } => {
                 let (all_args, decls) = self.resolve_call(e)?;
                 let mut out = HashSet::new();

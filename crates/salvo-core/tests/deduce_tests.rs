@@ -1715,7 +1715,7 @@ fn field_errors(src: &str) -> Vec<String> {
                  }}\n\
              }}\n\
              export fn first<T>(list: NonEmpty List<T>) [] -> proj(list) T => list {{\n\
-                 return first_or_none(list)!\n\
+                 return first_or_none(list) ?: unreachable!()\n\
              }}\n"
         ),
         true,
@@ -1784,7 +1784,7 @@ fn a_contents_mutation_spares_the_container_but_not_its_elements() {
 
     let element = field_errors(
         "fn f(e: Mut Entity) [] -> Int => e.rings: Mut {\n    \
-         let ring = first(e.rings)!\n    \
+         let ring = first(e.rings) ?: unreachable!()\n    \
          shrink(e)\n    \
          return ring.power\n}\n",
     );

@@ -70,7 +70,7 @@ fn errors(src: &str) -> Vec<String> {
 #[test]
 fn an_elvis_picks_the_first_arm() {
     let errs = errors(
-        "fn nick(s: Str?) [] -> Str? {\n\
+        "fn nick(s: Str?) [] -> Str? => !s {\n\
          \x20   let n: Str = s ?: return None\n\
          \x20   return n\n\
          }\n\

@@ -498,7 +498,7 @@ Rust's `unwrap`):
 let person: Person = Person {name: "Roland", surname: "Elliott", age: 36}
 
 // Haven't done an explicit check, but we know `surname` is `Str` because we just constructed it
-println("Surname is ${person.surname!}")
+println("Surname is ${person.surname ?: unreachable!()}")
 ```
 
 An optional (or any union) may also be compared with `==`/`!=` against a value

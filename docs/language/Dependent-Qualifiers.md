@@ -79,7 +79,7 @@ ranked by the qualifier ([Qualifiers](Qualifiers.md)):
 
 ```
 let i = 0
-println("${get(xs, i)!}")       // no claim: the optional read, asserted
+println("${get(xs, i) ?: unreachable!()}")       // no claim: the optional read, asserted
 
 if i is Idx(xs) {
     println("${get(xs, i)}")    // the claim is in `i`'s type: the total read

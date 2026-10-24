@@ -77,7 +77,7 @@ test "replace answers what it displaced" {
     let m = Mut Map(("a", 1))
     let old = replace(m, "a", 5)
     let fresh = replace(m, "b", 6)
-    expect(old! == 1 && fresh is None, "the old value, then nothing")
+    expect((old ?: unreachable!()) == 1 && fresh is None, "the old value, then nothing")
     expect_eq("${m}", "{a: 5, b: 6}")
 }
 
@@ -92,7 +92,7 @@ test "removing many keeps the rest findable and in order" {
         }
     }
     expect_eq("${m}", "{0: 0, 10: 20, 20: 40, 30: 60, 40: 80}")
-    expect(get(m, 30)! == 60 && get(m, 31) is None, "survivors found, the removed not")
+    expect((get(m, 30) ?: unreachable!()) == 60 && get(m, 31) is None, "survivors found, the removed not")
 }
 
 test "a custom identity keys the map, through a generic call too" {
@@ -107,7 +107,7 @@ test "drain hands every value over, in insertion order" {
     put(m, 2, Mut List(20))
     put(m, 1, Mut List(10))
     let seen = into_values(m)
-    expect_eq("${size(seen)} ${get(get(seen, 0)!, 0)!} ${get(get(seen, 1)!, 0)!}", "2 20 10")
+    expect_eq("${size(seen)} ${get(get(seen, 0) ?: unreachable!(), 0) ?: unreachable!()} ${get(get(seen, 1) ?: unreachable!(), 0) ?: unreachable!()}", "2 20 10")
 }
 
 test "two maps are equal with the same entries in any order" {

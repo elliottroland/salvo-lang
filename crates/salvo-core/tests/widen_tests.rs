@@ -491,7 +491,7 @@ fn a_held_view_may_be_advanced_and_a_mut_element_handle_may_too() {
     let src = format!(
         "{VIEW_PRELUDE}\
          fn main() {{\n    let xs = List(1, 2)\n    let v = view(xs)\n    advance(v)\n    advance(v)\n}}\n\
-         fn List<T>(a: T, b: T) -> List<T> {{ return first(items)! }}\n"
+         fn List<T>(a: T, b: T) -> List<T> {{ return first(items) ?: unreachable!() }}\n"
     );
     let errs = errors(&src);
     // (the fake `list` body is nonsense but well-typed enough: only the
@@ -504,7 +504,7 @@ fn a_held_view_may_be_advanced_and_a_mut_element_handle_may_too() {
     // which the `Mut` position accepts.
     let src = format!(
         "{VIEW_PRELUDE}\
-         fn main(vs: List<Mut View<Int>>) {{\n    let v = first(vs)!\n    advance(v)\n}}\n"
+         fn main(vs: List<Mut View<Int>>) {{\n    let v = first(vs) ?: unreachable!()\n    advance(v)\n}}\n"
     );
     let errs = errors(&src);
     assert!(
@@ -514,7 +514,7 @@ fn a_held_view_may_be_advanced_and_a_mut_element_handle_may_too() {
     // A read-only projection still may not.
     let src = format!(
         "{VIEW_PRELUDE}\
-         fn main(vs: List<View<Int>>) {{\n    let v = first(vs)!\n    advance(v)\n}}\n"
+         fn main(vs: List<View<Int>>) {{\n    let v = first(vs) ?: unreachable!()\n    advance(v)\n}}\n"
     );
     let errs = errors(&src);
     assert!(
@@ -624,19 +624,19 @@ fn mutable_element_handles_poison_siblings_but_not_themselves() {
     // Two read handles, then reads: fine (P-9: mode is inferred, and
     // nothing here mutates).
     let src = format!(
-        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let a = get(xs, 0)!\n    let b = get(xs, 1)!\n    return a.n + b.n\n}}\n"
+        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let a = get(xs, 0) ?: unreachable!()\n    let b = get(xs, 1) ?: unreachable!()\n    return a.n + b.n\n}}\n"
     );
     let errs = errors(&src);
     assert!(errs.is_empty(), "two read handles must coexist: {errs:?}");
     // The handle survives its own mutation.
     let src = format!(
-        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let h = at(xs, 0)!\n    h.n = 5\n    return h.n\n}}\n"
+        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let h = at(xs, 0) ?: unreachable!()\n    h.n = 5\n    return h.n\n}}\n"
     );
     let errs = errors(&src);
     assert!(errs.is_empty(), "a handle survives its own mutation: {errs:?}");
     // A sibling derivation of the container dies at the mutation.
     let src = format!(
-        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let a = get(xs, 0)!\n    let h = at(xs, 0)!\n    h.n = 5\n    return a.n\n}}\n"
+        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let a = get(xs, 0) ?: unreachable!()\n    let h = at(xs, 0) ?: unreachable!()\n    h.n = 5\n    return a.n\n}}\n"
     );
     let errs = errors(&src);
     assert!(

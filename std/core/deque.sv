@@ -129,7 +129,7 @@ export fn drain<T canbe linear>(d: Deque<T>, each: (x: T) -> None) [] -> None
 =>[each] !x => !d, each {
     let m = into_mut(d)
     while size(m) > 0 {
-        each(remove_first(m)!)
+        each(remove_first(m) ?: unreachable!())
     }
     end_empty(m)
 }

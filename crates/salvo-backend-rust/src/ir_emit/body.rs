@@ -334,6 +334,43 @@ pub(crate) fn never_call(e: &Expr) -> bool {
     matches!(e.ty, Ty::Never) && matches!(e.kind, ExprKind::Call { .. } | ExprKind::MemberCall { .. } | ExprKind::HandlerCall { .. })
 }
 
+/// [rs-loop-temp] `e` (a block-valued `Branch` or `Switch`) with `wrap`
+/// applied to the value of every arm that has one and does not diverge,
+/// typed `ty`; `None` when an arm has no value to wrap.
+fn copy_into_tails(e: &Expr, wrap: &dyn Fn(Expr) -> Expr, ty: &Ty) -> Option<Expr> {
+    let block = |b: &Block| -> Option<Block> {
+        let v = b.value.as_deref()?;
+        let value = if diverges(v) || matches!(v.ty, Ty::Never) {
+            v.clone()
+        } else {
+            match copy_into_tails(v, wrap, ty) {
+                Some(inner) => inner,
+                None => wrap(v.clone()),
+            }
+        };
+        Some(Block { stmts: b.stmts.clone(), value: Some(Box::new(value)), span: b.span })
+    };
+    let kind = match &e.kind {
+        ExprKind::Branch { id, arms, otherwise } => {
+            let arms = arms.iter().map(|(c, b)| block(b).map(|b| (c.clone(), b))).collect::<Option<Vec<_>>>()?;
+            let otherwise = match otherwise {
+                Some(b) => Some(block(b)?),
+                None => None,
+            };
+            ExprKind::Branch { id: *id, arms, otherwise }
+        }
+        ExprKind::Switch { id, subject, arms } => {
+            let arms = arms
+                .iter()
+                .map(|a| block(&a.body).map(|body| salvo_core::ir::SwitchArm { test: a.test.clone(), body }))
+                .collect::<Option<Vec<_>>>()?;
+            ExprKind::Switch { id: *id, subject: subject.clone(), arms }
+        }
+        _ => return None,
+    };
+    Some(Expr { ty: ty.clone(), span: e.span, kind })
+}
+
 pub(crate) fn diverges(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::Throw { .. } | ExprKind::Unreachable { .. } => true,
@@ -3426,6 +3463,20 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let recv = af.params.first().and_then(|p| salvo_backend::emit_util::type_base_name(&p.ty));
         let _ = type_args;
         if name == "copy" {
+            // [rs-loop-temp] `copy` of a block-valued expression — an `?:`,
+            // an `if` value — is applied to each arm's value inside it: the
+            // value may borrow a temporary the block binds
+            // (`copy(get(make().items, 0) ?: …)` binds `make().items` there),
+            // which dies at the block's end, before a clone outside could
+            // reach it (E0597, ROADMAP §2d item 9). Not for a union: an arm's
+            // value is then wrapped into it, and a copy of the wrap alone
+            // leaves rustc nothing to name the union's other arms by.
+            if matches!(args[0].kind, ExprKind::Branch { .. } | ExprKind::Switch { .. }) && !matches!(args[0].ty, Ty::Union(_)) {
+                let wrap = |v: Expr| Expr { ty: e.ty.clone(), span: v.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: type_args.to_vec(), args: vec![v] } };
+                if let Some(pushed) = copy_into_tails(&args[0], &wrap, &e.ty) {
+                    return self.raw(&pushed, indent);
+                }
+            }
             let v = self.raw(&args[0], indent);
             if is_copy_ty(&args[0].ty) {
                 return v;

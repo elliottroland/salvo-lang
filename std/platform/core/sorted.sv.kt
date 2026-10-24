@@ -88,16 +88,13 @@ fun<K, V> toStr__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>, toSt
         salvo.core.string.appendPlatform(out, toStr(k))
         salvo.core.string.appendPlatform(out, ": ")
         salvo.core.string.appendPlatform(out, toStr__1(kotlin.run {
-            val __nn_1: V? = getPlatform(map, k, cmp)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:158:28"))
-                }
-                else -> {
-                    val __some_2: V = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: V? = getPlatform(map, k, cmp)
+            (if ((__pick_1 != null)) {
+                val __picked_2: V = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.sorted:158:43")
+            })
         }))
         i = (i + 1)
     }
@@ -126,19 +123,16 @@ fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.core.sorted.SortedMap<K, V>,
         if ((theirs == null)) {
             return false
         }
-        val theirs_3: V = theirs!!
+        val theirs_4: V = theirs!!
         if (!(eq(kotlin.run {
-            val __nn_1: V? = getPlatform(a, k, cmp)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:191:16"))
-                }
-                else -> {
-                    val __some_2: V = __nn_1!!
-                    __some_2
-                }
-            }
-        }, theirs_3))) {
+            val __pick_1: V? = getPlatform(a, k, cmp)
+            (if ((__pick_1 != null)) {
+                val __picked_2: V = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.sorted:191:29")
+            })
+        }, theirs_4))) {
             return false
         }
     }
@@ -159,61 +153,49 @@ fun<K, V> NonEmpty_qualifies(map: salvo.platform.core.sorted.SortedMap<K, V>): B
 
 fun<T> min(set: salvo.platform.core.sorted.SortedSet<T>): T {
     return kotlin.run {
-        val __nn_1: T? = minPlatform(set)
-        when {
-            (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:246:12"))
-            }
-            else -> {
-                val __some_2: T = __nn_1!!
-                __some_2
-            }
-        }
+        val __pick_1: T? = minPlatform(set)
+        (if ((__pick_1 != null)) {
+            val __picked_2: T = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at core.sorted:246:28")
+        })
     }
 }
 
 fun<T> max(set: salvo.platform.core.sorted.SortedSet<T>): T {
     return kotlin.run {
-        val __nn_1: T? = maxPlatform(set)
-        when {
-            (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:250:12"))
-            }
-            else -> {
-                val __some_2: T = __nn_1!!
-                __some_2
-            }
-        }
+        val __pick_1: T? = maxPlatform(set)
+        (if ((__pick_1 != null)) {
+            val __picked_2: T = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at core.sorted:250:28")
+        })
     }
 }
 
 fun<K, V> firstKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
     return kotlin.run {
-        val __nn_1: K? = firstKeyPlatform(map)
-        when {
-            (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:254:12"))
-            }
-            else -> {
-                val __some_2: K = __nn_1!!
-                __some_2
-            }
-        }
+        val __pick_1: K? = firstKeyPlatform(map)
+        (if ((__pick_1 != null)) {
+            val __picked_2: K = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at core.sorted:254:34")
+        })
     }
 }
 
 fun<K, V> lastKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
     return kotlin.run {
-        val __nn_1: K? = lastKeyPlatform(map)
-        when {
-            (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:258:12"))
-            }
-            else -> {
-                val __some_2: K = __nn_1!!
-                __some_2
-            }
-        }
+        val __pick_1: K? = lastKeyPlatform(map)
+        (if ((__pick_1 != null)) {
+            val __picked_2: K = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at core.sorted:258:33")
+        })
     }
 }
 

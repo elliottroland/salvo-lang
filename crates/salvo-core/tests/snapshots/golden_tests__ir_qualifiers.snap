@@ -10,16 +10,13 @@ qualifies fn main::NonEmpty.qualifies<T>(lent list: List<T>) -> Bool {
 
 fn main::head(lent list: List<Int>) -> Int {
   bind#1 let first: Int? = call core.list::get(List<T>, Int)<Int>(read list, 0)
-  return branch#5 cond#0 true {
-    bind#3 let __nn~1: Int? = read first
-    value switch#2 read __nn~1 {
-      arm#0 (none) {
-        unreachable("value is absent") at main:30:12
-      }
-      arm#1 (else) {
-        narrow#4[switch#2.arm#1] __some~2: Int = __nn~1
-        value !read __some~2
-      }
+  return branch#7 cond#0 true {
+    bind#2 let __pick~1: Int? = read first
+    value branch#3 cond#0 check#6 (read __pick~1 is arm 0) {
+      narrow#4[branch#3.cond#0] __picked~2: Int = __pick~1
+      value !read __picked~2
+    } else {
+      value unreachable() at main:30:21
     }
   }
 }

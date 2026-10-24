@@ -9,16 +9,13 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 fun head(list: List<Int>): Int {
     val first: Int? = salvo.core.list.getPlatform(list, 0)
     return kotlin.run {
-        val __nn_1: Int? = first
-        when {
-            (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:30:12"))
-            }
-            else -> {
-                val __some_2: Int = __nn_1!!
-                __some_2
-            }
-        }
+        val __pick_1: Int? = first
+        (if ((__pick_1 != null)) {
+            val __picked_2: Int = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at main:30:21")
+        })
     }
 }
 

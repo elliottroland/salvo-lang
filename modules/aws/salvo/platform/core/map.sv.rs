@@ -136,12 +136,12 @@ pub fn to_str<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, to_str: &mut
         crate::core_string::append_platform(&mut out, &to_str(&k));
         crate::core_string::append_platform(&mut out, &String::from(": "));
         crate::core_string::append_platform(&mut out, &to_str__1({
-            let mut __nn_1: Option<&V> = crate::core_map::get_platform::<K, V>(map, &k, &mut *hash, &mut *eq);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.map:186:28");
+            let mut __pick_1: Option<&V> = crate::core_map::get_platform::<K, V>(map, &k, &mut *hash, &mut *eq);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.map:186:43")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -159,16 +159,16 @@ pub fn eq<K: Clone, V: Clone>(a: &crate::core_map::Map<K, V>, b: &crate::core_ma
         if theirs.is_none() {
             return false;
         };
-        let mut theirs_3 = theirs.unwrap();
+        let mut theirs_4 = theirs.unwrap();
         if !(eq({
-            let mut __nn_1: Option<&V> = crate::core_map::get_platform::<K, V>(a, &k, &mut *hash, &mut *eq__1);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.map:208:16");
+            let mut __pick_1: Option<&V> = crate::core_map::get_platform::<K, V>(a, &k, &mut *hash, &mut *eq__1);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.map:208:29")
             }
-        }, theirs_3)) {
+        }, theirs_4)) {
             return false;
         };
     }

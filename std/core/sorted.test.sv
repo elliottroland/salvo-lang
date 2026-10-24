@@ -14,7 +14,7 @@ test "a sorted set keeps its members in order, each once" {
     let s = Mut SortedSet(5, 1, 3, 1)
     let _a = add(s, 2)
     let _b = remove(s, 3)
-    expect_eq("${s} ${size(s)} ${min_opt(s)!} ${max_opt(s)!}", "{1, 2, 5} 3 1 5")
+    expect_eq("${s} ${size(s)} ${min_opt(s) ?: unreachable!()} ${max_opt(s) ?: unreachable!()}", "{1, 2, 5} 3 1 5")
 }
 
 test "strings sort by code point" {
@@ -35,8 +35,8 @@ test "a sorted map keeps its keys in order; a repeated key takes the last value"
     let m = Mut SortedMap(("b", 2), ("a", 1), ("b", 20))
     put(m, "c", 3)
     let gone = remove(m, "a")
-    expect_eq("${m} ${gone!} ${first_key_opt(m)!} ${last_key_opt(m)!}", "{b: 20, c: 3} 1 b c")
-    expect(get(m, "c")! == 3 && get(m, "a") is None, "found and absent")
+    expect_eq("${m} ${gone ?: unreachable!()} ${first_key_opt(m) ?: unreachable!()} ${last_key_opt(m) ?: unreachable!()}", "{b: 20, c: 3} 1 b c")
+    expect((get(m, "c") ?: unreachable!()) == 3 && get(m, "a") is None, "found and absent")
 }
 
 test "two sorted sets and maps compare by their members" {

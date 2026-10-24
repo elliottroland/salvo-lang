@@ -367,12 +367,12 @@ pub fn mem_find_newline(data: &crate::core_bytes::Bytes, mut from: i32) -> i32 {
             break;
         };
         if ((({
-            let mut __nn_1: Option<u8> = crate::core_bytes::get_platform(data, i);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at fs.mem:325:19");
+            let mut __pick_1: Option<u8> = crate::core_bytes::get_platform(data, i);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at fs.mem:325:35")
             }
         }) as i32) == 10i32) {
             return i;
@@ -422,12 +422,12 @@ pub fn mem_read_line(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRea
     };
     let mut stop: i32 = crate::fs_mem::mem_find_newline(&bytes, at);
     let mut line: crate::core_bytes::Bytes = {
-        let mut __nn_1: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&bytes, at, stop);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at fs.mem:384:16");
+        let mut __pick_1: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&bytes, at, stop);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at fs.mem:384:42")
         }
     };
     let mut next_at: i32 = stop;
@@ -440,8 +440,8 @@ pub fn mem_read_line(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRea
         return None;
     };
     crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (open.source).clone(), data: bytes.clone(), at: next_at, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
-    let mut text_3 = text.as_ref().unwrap();
-    return Some(crate::core_string::trim_suffix_platform(text_3, &String::from("\r")));
+    let mut text_4 = text.as_ref().unwrap();
+    return Some(crate::core_string::trim_suffix_platform(text_4, &String::from("\r")));
 }
 
 pub fn mem_read_all(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRead>, mut handle: i64) -> crate::unions::Union2<String, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>> {
@@ -453,12 +453,12 @@ pub fn mem_read_all(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRead
     let mut bytes: crate::core_bytes::Bytes = (open.data).clone();
     let mut end: i32 = crate::core_bytes::size_platform(&bytes);
     let mut rest: crate::core_bytes::Bytes = {
-        let mut __nn_1: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&bytes, open.at, end);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at fs.mem:408:16");
+        let mut __pick_1: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&bytes, open.at, end);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at fs.mem:408:46")
         }
     };
     let mut text: Option<String> = crate::core_bytes::str_of_bytes_platform(&rest);
@@ -467,8 +467,8 @@ pub fn mem_read_all(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRead
         return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(crate::unions::Union2::U1(crate::stream::InvalidUtf8 { source: (source).clone() }))));
     };
     crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (source).clone(), data: bytes.clone(), at: end, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
-    let mut text_3 = text.unwrap();
-    return crate::unions::Union2::U1(crate::core_result::ok::<String>(text_3));
+    let mut text_4 = text.unwrap();
+    return crate::unions::Union2::U1(crate::core_result::ok::<String>(text_4));
 }
 
 pub fn mem_read_bytes(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRead>, mut handle: i64, mut max: i32) -> crate::unions::Union2<crate::core_bytes::Bytes, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>> {
@@ -487,12 +487,12 @@ pub fn mem_read_bytes(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRe
         stop = end;
     };
     let mut taken: crate::core_bytes::Bytes = {
-        let mut __nn_1: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&bytes, open.at, stop);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at fs.mem:434:17");
+        let mut __pick_1: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&bytes, open.at, stop);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at fs.mem:434:48")
         }
     };
     crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (source).clone(), data: bytes.clone(), at: stop, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));

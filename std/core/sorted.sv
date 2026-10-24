@@ -155,7 +155,7 @@ export fn to_str<K, V>(map: SortedMap<K, V>(?cmp), ?to_str: (k: K) -> Str, ?to_s
         }
         append(out, to_str(k))
         append(out, ": ")
-        append(out, to_str(get(map, k)!))
+        append(out, to_str(get(map, k) ?: unreachable!()))
         i = i + 1
     }
     append(out, "}")
@@ -188,7 +188,7 @@ export fn eq<K, V>(a: SortedMap<K, V>(?cmp), b: SortedMap<K, V>(?cmp), ?eq: (x: 
         if theirs is None {
             return false
         }
-        if !eq(get(a, k)!, theirs) {
+        if !eq(get(a, k) ?: unreachable!(), theirs) {
             return false
         }
     }
@@ -243,17 +243,17 @@ export qualifier NonEmpty<K, V> of SortedMap<K, V> {
 // [col-of-nonempty]. It is why these four used to live in a module of their
 // own.
 export fn min<T>(set: NonEmpty SortedSet<T>) [] -> T => set {
-    return min_opt(set)!
+    return min_opt(set) ?: unreachable!()
 }
 
 export fn max<T>(set: NonEmpty SortedSet<T>) [] -> T => set {
-    return max_opt(set)!
+    return max_opt(set) ?: unreachable!()
 }
 
 export fn first_key<K, V>(map: NonEmpty SortedMap<K, V>) [] -> K => map {
-    return first_key_opt(map)!
+    return first_key_opt(map) ?: unreachable!()
 }
 
 export fn last_key<K, V>(map: NonEmpty SortedMap<K, V>) [] -> K => map {
-    return last_key_opt(map)!
+    return last_key_opt(map) ?: unreachable!()
 }

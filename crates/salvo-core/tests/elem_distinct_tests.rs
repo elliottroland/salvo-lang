@@ -26,7 +26,7 @@ export qualifier Idx<T>(list: List<T>) of Int {\n\
 }\n\
 export fn get<T>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T\n\
 => list, index {\n\
-    return get(list, index + 0)!\n\
+    return get(list, index + 0) ?: unreachable!()\n\
 }\n\
 export intrinsic fn at<T>(list: List<Mut T>, index: Int) [] -> ref(list) Mut T? => list, index\n";
 
@@ -115,8 +115,8 @@ fn two_proven_distinct_handles_coexist_across_mutation() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None {{\n    \
-         let a = at(es, i)!\n    \
-         let d = at(es, j)!\n    \
+         let a = at(es, i) ?: unreachable!()\n    \
+         let d = at(es, j) ?: unreachable!()\n    \
          if d is NotSame(a) {{\n        \
          a.hp = a.hp + 1\n        \
          d.hp = d.hp + 1\n        \
@@ -136,8 +136,8 @@ fn without_a_claim_the_sibling_handle_poisons() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
-         let a = at(es, i)!\n    \
-         let d = at(es, j)!\n    \
+         let a = at(es, i) ?: unreachable!()\n    \
+         let d = at(es, j) ?: unreachable!()\n    \
          a.hp = a.hp + 1\n    \
          d.hp = d.hp + 1\n    \
          return None\n}}\n"
@@ -157,10 +157,10 @@ fn rebinding_a_handle_strips_the_claim() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
-         let a = at(es, i)!\n    \
-         let d = at(es, j)!\n    \
+         let a = at(es, i) ?: unreachable!()\n    \
+         let d = at(es, j) ?: unreachable!()\n    \
          if d is NotSame(a) {{\n        \
-         d = at(es, i)!\n        \
+         d = at(es, i) ?: unreachable!()\n        \
          a.hp = a.hp + 1\n        \
          d.hp = d.hp + 1\n    \
          }}\n    \
@@ -182,8 +182,8 @@ fn the_same_index_without_a_proof_still_poisons() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int) [] -> None => es, i {{\n    \
-         let a = at(es, i)!\n    \
-         let d = at(es, i)!\n    \
+         let a = at(es, i) ?: unreachable!()\n    \
+         let d = at(es, i) ?: unreachable!()\n    \
          a.hp = a.hp + 1\n    \
          d.hp = d.hp + 1\n    \
          return None\n}}\n"
@@ -204,10 +204,10 @@ fn statement_scoped_mints_cannot_carry_the_proof() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
-         let a = at(es, i)!\n    \
-         let d = at(es, j)!\n    \
+         let a = at(es, i) ?: unreachable!()\n    \
+         let d = at(es, j) ?: unreachable!()\n    \
          if d is NotSame(a) {{\n        \
-         attack(at(es, i)!, at(es, j)!)\n    \
+         attack(at(es, i) ?: unreachable!(), at(es, j) ?: unreachable!())\n    \
          }}\n    \
          return None\n}}\n"
     );
@@ -226,7 +226,7 @@ fn an_unproven_pair_in_one_call_is_refused() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
-         attack(at(es, i)!, at(es, j)!)\n    \
+         attack(at(es, i) ?: unreachable!(), at(es, j) ?: unreachable!())\n    \
          return None\n}}\n"
     );
     let errs = errors(&src);
@@ -245,8 +245,8 @@ fn a_proven_bound_pair_may_land_in_one_call() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None {{\n    \
-         let a = at(es, i)!\n    \
-         let d = at(es, j)!\n    \
+         let a = at(es, i) ?: unreachable!()\n    \
+         let d = at(es, j) ?: unreachable!()\n    \
          if d is NotSame(a) {{\n        \
          attack(a, d)\n        \
          a.hp = a.hp + 1\n        \
@@ -265,8 +265,8 @@ fn an_unproven_bound_pair_in_one_call_is_refused() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
-         let a = at(es, i)!\n    \
-         let d = at(es, j)!\n    \
+         let a = at(es, i) ?: unreachable!()\n    \
+         let d = at(es, j) ?: unreachable!()\n    \
          attack(a, d)\n    \
          return None\n}}\n"
     );
@@ -301,7 +301,7 @@ fn an_unproven_pair_through_a_fn_value_is_refused() {
         "{PRELUDE}\
          fn touch2(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int,\n\
                    f: (a: Mut Entity, b: Mut Entity) -> None) [] -> None {{\n    \
-         f(at(es, i)!, at(es, j)!)\n    \
+         f(at(es, i) ?: unreachable!(), at(es, j) ?: unreachable!())\n    \
          return None\n}}\n"
     );
     let errs = errors(&src);
@@ -319,8 +319,8 @@ fn a_notsame_proof_carries_a_fn_value_pair() {
         "{PRELUDE}\
          fn touch2(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int,\n\
                    f: (a: Mut Entity, b: Mut Entity) -> None) [] -> None {{\n    \
-         let a = at(es, i)!\n    \
-         let d = at(es, j)!\n    \
+         let a = at(es, i) ?: unreachable!()\n    \
+         let d = at(es, j) ?: unreachable!()\n    \
          if d is NotSame(a) {{\n        \
          f(a, d)\n    \
          }}\n    \
@@ -346,8 +346,8 @@ fn a_covered_pair_needs_no_proof() {
     let src = format!(
         "{PRELUDE}{DUEL}\
          fn f(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int) [] -> None {{\n    \
-         duel(es, at(es, i)!, at(es, j)!)\n    \
-         duel(es, at(es, i)!, at(es, i)!)\n    \
+         duel(es, at(es, i) ?: unreachable!(), at(es, j) ?: unreachable!())\n    \
+         duel(es, at(es, i) ?: unreachable!(), at(es, i) ?: unreachable!())\n    \
          return None\n}}\n"
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
@@ -364,7 +364,7 @@ fn an_uncovered_callee_still_refuses_the_pair() {
          d.hp = d.hp - 2\n    \
          return None\n}}\n\
          fn f(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int) [] -> None {{\n    \
-         duel(at(es, i)!, at(es, j)!)\n    \
+         duel(at(es, i) ?: unreachable!(), at(es, j) ?: unreachable!())\n    \
          return None\n}}\n"
     );
     let errs = errors(&src);
@@ -384,7 +384,7 @@ fn a_covered_pair_from_two_containers_is_refused() {
     let src = format!(
         "{PRELUDE}{DUEL}\
          fn f(es: List<Mut Entity>, fs: List<Mut Entity>, i: Idx(es) Int, j: Idx(fs) Int) [] -> None {{\n    \
-         duel(es, at(es, i)!, at(fs, j)!)\n    \
+         duel(es, at(es, i) ?: unreachable!(), at(fs, j) ?: unreachable!())\n    \
          return None\n}}\n"
     );
     let errs = errors(&src);
@@ -402,7 +402,7 @@ fn a_covered_pair_from_one_container_is_accepted() {
     let src = format!(
         "{PRELUDE}{DUEL}\
          fn f(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int) [] -> None {{\n    \
-         duel(es, at(es, i)!, at(es, j)!)\n    \
+         duel(es, at(es, i) ?: unreachable!(), at(es, j) ?: unreachable!())\n    \
          return None\n}}\n"
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
@@ -492,9 +492,9 @@ fn handles_into_an_element_container_chain_need_no_proof() {
     let src = format!(
         "{LIBRARY}\
          fn f(lib: Library) [] -> None => lib: None {{\n    \
-         let al = at(lib.albums, 0)!\n    \
-         swap_in(lib, al, at(al.tracks, 0)!, at(al.tracks, 0)!)\n    \
-         swap_in(lib, at(lib.albums, 1)!, at(at(lib.albums, 1)!.tracks, 0)!, at(at(lib.albums, 1)!.tracks, 1)!)\n    \
+         let al = at(lib.albums, 0) ?: unreachable!()\n    \
+         swap_in(lib, al, at(al.tracks, 0) ?: unreachable!(), at(al.tracks, 0) ?: unreachable!())\n    \
+         swap_in(lib, at(lib.albums, 1) ?: unreachable!(), at((at(lib.albums, 1) ?: unreachable!()).tracks, 0) ?: unreachable!(), at((at(lib.albums, 1) ?: unreachable!()).tracks, 1) ?: unreachable!())\n    \
          return None\n}}\n"
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
@@ -507,8 +507,8 @@ fn a_handle_outside_its_anchor_is_refused() {
     let src = format!(
         "{LIBRARY}\
          fn f(lib: Library, other: Album) [] -> None => lib, other {{\n    \
-         let al = at(lib.albums, 0)!\n    \
-         swap_in(lib, al, at(other.tracks, 0)!, at(al.tracks, 0)!)\n    \
+         let al = at(lib.albums, 0) ?: unreachable!()\n    \
+         swap_in(lib, al, at(other.tracks, 0) ?: unreachable!(), at(al.tracks, 0) ?: unreachable!())\n    \
          return None\n}}\n"
     );
     let errs = errors(&src);

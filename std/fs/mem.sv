@@ -322,7 +322,7 @@ fn mem_find_newline(data: Bytes, from: Int) [] -> Int => data {
     let end = size(data)
     let i = from
     while i < end {
-        if to_int(get(data, i)!) == 10 {
+        if to_int(get(data, i) ?: unreachable!()) == 10 {
             return i
         }
         i = i + 1
@@ -381,7 +381,7 @@ fn mem_read_line(reads: Mut Map<Long, MemRead>, handle: Long) [] -> Str | None =
     }
     // Up to and including the `\n`, which is consumed but not returned.
     let stop = mem_find_newline(bytes, at)
-    let line = slice(bytes, at, stop)!
+    let line = slice(bytes, at, stop) ?: unreachable!()
     let next_at = stop
     if stop < end {
         next_at = stop + 1
@@ -405,7 +405,7 @@ fn mem_read_all(reads: Mut Map<Long, MemRead>, handle: Long) [] -> Ok Str | Err 
     }
     let bytes: Bytes = copy(open.data)
     let end = size(bytes)
-    let rest = slice(bytes, open.at, end)!
+    let rest = slice(bytes, open.at, end) ?: unreachable!()
     let text = str_of_bytes(rest)
     if text is None {
         put(reads, copy(handle), MemRead { source: copy(source), data: bytes, at: end, failed: true })
@@ -431,7 +431,7 @@ fn mem_read_bytes(reads: Mut Map<Long, MemRead>, handle: Long, max: Int) [] -> O
     if stop > end {
         stop = end
     }
-    let taken = slice(bytes, open.at, stop)!
+    let taken = slice(bytes, open.at, stop) ?: unreachable!()
     put(reads, copy(handle), MemRead { source: copy(source), data: bytes, at: stop, failed: false })
     return ok(taken)
 }

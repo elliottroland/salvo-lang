@@ -97,7 +97,7 @@ An assertion that does not hold *throws*: assertions declare `[Throw<Failure>]`,
 fn expect_sorted(list: List<Int>) [Throw<Failure>] -> None => list {
     let i = 1
     while i < list.size() {
-        expect(list.get(i - 1)! <= list.get(i)!, "sorted at ${i}")
+        expect((list.get(i - 1) ?: unreachable!()) <= (list.get(i) ?: unreachable!()), "sorted at ${i}")
         i += 1
     }
 }
@@ -211,15 +211,17 @@ Three forms, each carrying a `!` because a bang in Salvo marks a place that can
 fail:
 
 ```
-let head = first(xs)!                    // asserts presence
+let head = first(xs) ?: unreachable!()                    // asserts presence
 assert!(n > 0, "n must be positive, was ${n}")
 unreachable!("an Int is negative, zero or positive")
 ```
 
-**`expr!` asserts presence** and answers the value without its `None` arms. It
-needs an operand that *can* be absent: `3!` is an error, because it states
-something false. Where a value can legitimately be missing, `?:` and `is None`
-are the answers — the diagnostic says so.
+**Asserting presence is spelled out.** There is no postfix `!`: a value you
+know is there is `e ?: unreachable!("why")` — the first arm, or a trap — and a
+variable is narrowed for good by `assert!(x !is None)`. Where a value can
+legitimately be missing, `?:` with a real fallback and `is None` are the
+answers. (On a union with several value arms, `?:` keeps only the first; the
+`assert!` keeps them all.)
 
 **`assert!(cond)` asserts a condition**, with an optional message, and it also
 **narrows**:

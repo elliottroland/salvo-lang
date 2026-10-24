@@ -494,7 +494,7 @@ fn main() [use] {
     println(call(() -> "${label} ran"))
     let why = run_guarded(() -> {
         let xs: List<Int> = List<Int>()
-        let _x = get(xs, 3)!
+        let _x = get(xs, 3) ?: unreachable!()
     })
     println("faulted: ${!(why is None)}")
     println("${run_guarded(() -> {}) is None}")
@@ -1964,7 +1964,7 @@ fn main() [use] {
     let ns = names()
     let ag = ages()
     let has = contains(ns, \"a\")
-    let y = get(ag, \"y\")!
+    let y = get(ag, \"y\") ?: unreachable!()
     println(\"${size(ns)} ${has} ${sorted()} ${y} ${size(bag().tags)}\")
 }
 ";

@@ -73,16 +73,13 @@ fun<T> drain(list: List<T>, each: (T) -> Unit) {
             break
         }
         each(kotlin.run {
-            val __nn_1: T? = removeLastPlatform(m)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:247:14"))
-                }
-                else -> {
-                    val __some_2: T = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: T? = removeLastPlatform(m)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.list:247:32")
+            })
         })
     }
     endEmptyPlatform(m)
@@ -102,16 +99,13 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 
 fun<T> first(list: List<T>): T {
     return kotlin.run {
-        val __nn_1: T? = getPlatform(list, 0)
-        when {
-            (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at core.list:304:12"))
-            }
-            else -> {
-                val __some_2: T = __nn_1!!
-                __some_2
-            }
-        }
+        val __pick_1: T? = getPlatform(list, 0)
+        (if ((__pick_1 != null)) {
+            val __picked_2: T = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at core.list:304:28")
+        })
     }
 }
 
@@ -141,16 +135,13 @@ fun<T> removeFrontWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> 
     var n: Int = 0
     while (true) {
         if (!(((n < sizePlatform(list)) && keep(kotlin.run {
-            val __nn_1: T? = getPlatform(list, n)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:347:34"))
-                }
-                else -> {
-                    val __some_2: T = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: T? = getPlatform(list, n)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.list:347:50")
+            })
         })))) {
             break
         }
@@ -163,16 +154,13 @@ fun<T> removeBackWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> B
     var at: Int = sizePlatform(list)
     while (true) {
         if (!(((at > 0) && keep(kotlin.run {
-            val __nn_1: T? = getPlatform(list, (at - 1))
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:359:26"))
-                }
-                else -> {
-                    val __some_2: T = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: T? = getPlatform(list, (at - 1))
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.list:359:47")
+            })
         })))) {
             break
         }
@@ -192,16 +180,13 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
             break
         }
         addPlatform(out, copy(kotlin.run {
-            val __nn_1: T? = getPlatform(list, i)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:377:23"))
-                }
-                else -> {
-                    val __some_2: T = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: T? = getPlatform(list, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.list:377:39")
+            })
         }))
         i = (i + 1)
     }
@@ -299,16 +284,13 @@ fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
             break
         }
         if (eq(kotlin.run {
-            val __nn_1: T? = getPlatform(list, i)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:427:15"))
-                }
-                else -> {
-                    val __some_2: T = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: T? = getPlatform(list, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.list:427:31")
+            })
         }, elem)) {
             return true
         }
@@ -328,16 +310,13 @@ fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
             break
         }
         if (!(pick(kotlin.run {
-            val __nn_1: T? = getPlatform(list, i)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:444:18"))
-                }
-                else -> {
-                    val __some_2: T = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: T? = getPlatform(list, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.list:444:34")
+            })
         }))) {
             return false
         }
@@ -354,16 +333,13 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
             break
         }
         if (pick(kotlin.run {
-            val __nn_1: T? = getPlatform(list, i)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:457:17"))
-                }
-                else -> {
-                    val __some_2: T = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: T? = getPlatform(list, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.list:457:33")
+            })
         })) {
             n = (n + 1)
         }
@@ -381,16 +357,13 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): kotlin.Pa
             break
         }
         val x: T = kotlin.run {
-            val __nn_1: T? = getPlatform(list, i)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:474:17"))
-                }
-                else -> {
-                    val __some_2: T = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: T? = getPlatform(list, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.list:474:33")
+            })
         }
         if (pick(x)) {
             addPlatform(yes, copy(x))

@@ -214,16 +214,13 @@ class Streams : StreamTable {
             val _k: Long? = salvo.core.list.removeAtPlatform(inKeys, at)
             salvo.core.list.addPlatform(busy, handle)
             return Union3.U1<InEntry, Busy, Unknown>(kotlin.run {
-                val __nn_1: InEntry? = salvo.core.list.removeAtPlatform(ins, at)
-                when {
-                    (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:161:20"))
-                    }
-                    else -> {
-                        val __some_2: InEntry = __nn_1!!
-                        __some_2
-                    }
-                }
+                val __pick_1: InEntry? = salvo.core.list.removeAtPlatform(ins, at)
+                (if ((__pick_1 != null)) {
+                    val __picked_2: InEntry = __pick_1!!
+                    __picked_2
+                } else {
+                    throw AssertionError("salvo: unreachable at runtime.streams:161:42")
+                })
             })
         }
         if ((indexIn(busy, handle) >= 0)) {
@@ -238,16 +235,13 @@ class Streams : StreamTable {
             val _k: Long? = salvo.core.list.removeAtPlatform(outKeys, at)
             salvo.core.list.addPlatform(busy, handle)
             return Union3.U1<OutEntry, Busy, Unknown>(kotlin.run {
-                val __nn_1: OutEntry? = salvo.core.list.removeAtPlatform(outs, at)
-                when {
-                    (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:175:20"))
-                    }
-                    else -> {
-                        val __some_2: OutEntry = __nn_1!!
-                        __some_2
-                    }
-                }
+                val __pick_1: OutEntry? = salvo.core.list.removeAtPlatform(outs, at)
+                (if ((__pick_1 != null)) {
+                    val __picked_2: OutEntry = __pick_1!!
+                    __picked_2
+                } else {
+                    throw AssertionError("salvo: unreachable at runtime.streams:175:43")
+                })
             })
         }
         if ((indexIn(busy, handle) >= 0)) {
@@ -269,19 +263,16 @@ class Streams : StreamTable {
                 break
             }
             if ((kotlin.run {
-                val __proj_3: Pending = kotlin.run {
-                    val __nn_1: Pending? = salvo.core.list.getPlatform(pending, i)
-                    when {
-                        (__nn_1 == null) -> {
-                            throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:195:16"))
-                        }
-                        else -> {
-                            val __some_2: Pending = __nn_1!!
-                            __some_2
-                        }
-                    }
+                val __proj_4: Pending = kotlin.run {
+                    val __pick_1: Pending? = salvo.core.list.getPlatform(pending, i)
+                    (if ((__pick_1 != null)) {
+                        val __picked_2: Pending = __pick_1!!
+                        __picked_2
+                    } else {
+                        throw AssertionError("salvo: unreachable at runtime.streams:195:36")
+                    })
                 }
-                __proj_3.handle
+                __proj_4.handle
             } == handle)) {
                 return salvo.core.list.removeAtPlatform(pending, i)
             }
@@ -298,16 +289,13 @@ fun indexIn(keys: List<Long>, handle: Long): Int {
             break
         }
         if ((kotlin.run {
-            val __nn_1: Long? = salvo.core.list.getPlatform(keys, i)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:209:12"))
-                }
-                else -> {
-                    val __some_2: Long = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: Long? = salvo.core.list.getPlatform(keys, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: Long = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at runtime.streams:209:29")
+            })
         } == handle)) {
             return i
         }
@@ -326,16 +314,13 @@ fun unbusy(busy: salvo.platform.core.list.MutList<Long>, waiting: salvo.platform
             break
         }
         salvo.runtime.unparkPlatform(kotlin.run {
-            val __nn_1: salvo.platform.runtime.Parker? = salvo.core.list.removeAtPlatform(waiting, 0)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:226:16"))
-                }
-                else -> {
-                    val __some_2: salvo.platform.runtime.Parker = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: salvo.platform.runtime.Parker? = salvo.core.list.removeAtPlatform(waiting, 0)
+            (if ((__pick_1 != null)) {
+                val __picked_2: salvo.platform.runtime.Parker = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at runtime.streams:226:41")
+            })
         })
     }
 }
@@ -501,24 +486,21 @@ fun readLine(e: InEntry): Read {
             val line: salvo.platform.core.bytes.Bytes = takeAhead(e, (i + 1))
             var n: Int = (salvo.core.bytes.sizePlatform(line) - 1)
             if (((n > 0) && ((kotlin.run {
-                val __nn_1: UByte? = salvo.core.bytes.getPlatform(line, (n - 1))
-                when {
-                    (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:364:32"))
-                    }
-                    else -> {
-                        val __some_2: UByte = __nn_1!!
-                        __some_2
-                    }
-                }
+                val __pick_1: UByte? = salvo.core.bytes.getPlatform(line, (n - 1))
+                (if ((__pick_1 != null)) {
+                    val __picked_2: UByte = __pick_1!!
+                    __picked_2
+                } else {
+                    throw AssertionError("salvo: unreachable at runtime.streams:364:52")
+                })
             }).toInt() == 13))) {
                 n = (n - 1)
             }
             return Read(data = kotlin.run {
-                val __pick_3: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(line, 0, n)
-                (if ((__pick_3 != null)) {
-                    val __picked_4: salvo.platform.core.bytes.Bytes = __pick_3!!
-                    __picked_4
+                val __pick_4: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(line, 0, n)
+                (if ((__pick_4 != null)) {
+                    val __picked_5: salvo.platform.core.bytes.Bytes = __pick_4!!
+                    __picked_5
                 } else {
                     salvo.core.bytes.bytesOf(arrayOf<UByte>())
                 })

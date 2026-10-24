@@ -43,13 +43,13 @@ fn main() [use] {
     use StdConsole()
     let counters: List<Mut Counter> = List(Mut Counter {n: 1}, Mut Counter {n: 2})
 
-    bump(at(counters, 0)!)             // a handle, used where it is minted
+    bump(at(counters, 0) ?: unreachable!())             // a handle, used where it is minted
 
-    let second = at(counters, 1)!      // …or bound and used across statements
+    let second = at(counters, 1) ?: unreachable!()      // …or bound and used across statements
     second.n = second.n + 10
     bump(second)
 
-    println("${get(counters, 0)!.n} ${get(counters, 1)!.n}")   // 2 13
+    println("${(get(counters, 0) ?: unreachable!()).n} ${(get(counters, 1) ?: unreachable!()).n}")   // 2 13
 }
 ```
 
@@ -81,7 +81,7 @@ chains through a map exactly as through a list:
 ```
 let m: Mut Map<Str, Mut List<Mut Item>> = Mut Map()
 put(m, "a", Mut List(Mut Item {tag: "x"}, Mut Item {tag: "y"}))
-let it = at(at(m, "a")!, 1)!           // the list at "a", then its element 1
+let it = at(at(m, "a") ?: unreachable!(), 1) ?: unreachable!()           // the list at "a", then its element 1
 it.tag = "z"
 ```
 
@@ -103,7 +103,7 @@ let mine = copy(get(counters, 1))  // `Counter?`, a value of your own
 ```
 
 The same goes for any union, arm by arm: a value that is a `get` in one
-branch and an owned value in another (`if c { get(xs, 0)! } else { b }`,
+branch and an owned value in another (`if c { get(xs, 0) ?: unreachable!() } else { b }`,
 typed `proj A | B`) passes to a parameter `x: A | B` that only reads it.
 A `Mut` parameter takes an optional *handle*, since it writes through it:
 
@@ -121,8 +121,8 @@ heal(get(counters, 0))             // error: `get` reads, `at` handles
 Handles that are only **read** impose nothing, so any number coexist:
 
 ```
-let a = at(counters, 0)!
-let b = at(counters, 1)!
+let a = at(counters, 0) ?: unreachable!()
+let b = at(counters, 1) ?: unreachable!()
 println("${a.n} ${b.n}")          // two live handles, both read: fine
 ```
 
@@ -157,8 +157,8 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 fn main() [use] {
     use StdConsole()
     let squad: List<Mut Entity> = List(Mut Entity {hp: 50}, Mut Entity {hp: 3})
-    heal(wounded(squad)!)                  // mutate through the lent handle
-    println("${get(squad, 0)!.hp} ${get(squad, 1)!.hp}")   // 50 13
+    heal(wounded(squad) ?: unreachable!())                  // mutate through the lent handle
+    println("${(get(squad, 0) ?: unreachable!()).hp} ${(get(squad, 1) ?: unreachable!()).hp}")   // 50 13
 }
 ```
 
@@ -195,7 +195,7 @@ params Ref<C, L, T> {
 
 // Generic over what a *position* is; the caller fills `at`.
 fn heal_at<L>(c: List<Mut Entity>, l: L, ?Ref<List<Mut Entity>, L, Entity>) -> None {
-    heal(at(c, l)!)
+    heal(at(c, l) ?: unreachable!())
 }
 
 heal_at(squad, 1)                  // `at` resolves to the list accessor
@@ -218,8 +218,8 @@ fn borrow_via<C, L>(c: C, l: L, ?Ref<C, L, Player>) [] -> ref(c) Mut Player? => 
     return at(c, l)
 }
 
-bump(squad, at(squad, 0)!)         // C is List<Mut Player>
-bump(squad, borrow_via(squad, 1)!)  // the caller's `at` fills `?Ref`
+bump(squad, at(squad, 0) ?: unreachable!())         // C is List<Mut Player>
+bump(squad, borrow_via(squad, 1) ?: unreachable!())  // the caller's `at` fills `?Ref`
 ```
 
 Effect members can lend the same way: a member declared `-> ref(c) Mut T`
@@ -235,8 +235,8 @@ once one of them writes. Two handles from computed indices may name the
 same element, so a write through one invalidates the other:
 
 ```
-let a = at(squad, i)!
-let b = at(squad, j)!
+let a = at(squad, i) ?: unreachable!()
+let b = at(squad, j) ?: unreachable!()
 a.hp = a.hp + 1
 b.hp = b.hp + 1                    // error: `squad` was mutated (through `a`) after `b` was bound
 ```
@@ -246,7 +246,7 @@ call is refused at the second argument, and the diagnostic names the two
 ways forward — prove them apart, or mutate through one at a time.
 
 ```
-duel(at(squad, i)!, at(squad, j)!)     // error at the second argument
+duel(at(squad, i) ?: unreachable!(), at(squad, j) ?: unreachable!())     // error at the second argument
 ```
 
 ## Proving two handles apart: `NotSame`
@@ -277,8 +277,8 @@ fn duel(a: Mut Entity, d: Mut Entity) -> None => a: Mut, d: Mut {
     d.hp = d.hp - 2
 }
 
-let a = at(squad, i)!
-let d = at(squad, j)!
+let a = at(squad, i) ?: unreachable!()
+let d = at(squad, j) ?: unreachable!()
 if d is NotSame(a) {
     a.hp = a.hp + 1
     d.hp = d.hp - 1                // `a` is untouched by this
@@ -292,7 +292,7 @@ handles' identity [elem-distinct]:
 * a write **through** either handle keeps it, since the element changed but
   is still the same element;
 * **rebinding** either handle strips it, like any dependent claim;
-* a handle minted inside a statement (`duel(at(squad, i)!, at(squad, j)!)`)
+* a handle minted inside a statement (`duel(at(squad, i) ?: unreachable!(), at(squad, j) ?: unreachable!())`)
   has no name to prove anything about, so **bind the handles first**.
 
 Because the claim is about handles, it holds whatever the container's `at`
@@ -338,8 +338,8 @@ fn strike(c: List<Mut Entity>, a: ref(c) Mut Entity, d: ref(c) Mut Entity) -> No
 and the caller needs no proof at all — self-strike included:
 
 ```
-strike(squad, at(squad, i)!, at(squad, j)!)     // i and j unknown: fine
-strike(squad, at(squad, i)!, at(squad, i)!)     // the same entity, twice: also fine
+strike(squad, at(squad, i) ?: unreachable!(), at(squad, j) ?: unreachable!())     // i and j unknown: fine
+strike(squad, at(squad, i) ?: unreachable!(), at(squad, i) ?: unreachable!())     // the same entity, twice: also fine
 ```
 
 The rules are few:
@@ -366,7 +366,7 @@ fn shuffle(tracks: List<Mut Track>, track: ref(tracks) Mut Track, other: ref(tra
     other.plays = other.plays - 1
 }
 
-shuffle(lib.tracks, at(lib.tracks, i)!, at(lib.tracks, j)!)
+shuffle(lib.tracks, at(lib.tracks, i) ?: unreachable!(), at(lib.tracks, j) ?: unreachable!())
 ```
 
 Whether two handles may alias is **written, never inferred**: it changes
@@ -385,7 +385,7 @@ fn swap_plays(lib: Library, a: ref(lib) Mut Track, b: ref(lib) Mut Track) -> Non
     b.plays = p
 }
 
-swap_plays(lib, at(at(lib.albums, 0)!.tracks, 1)!, at(at(lib.albums, 1)!.tracks, 0)!)
+swap_plays(lib, at((at(lib.albums, 0) ?: unreachable!()).tracks, 1) ?: unreachable!(), at((at(lib.albums, 1) ?: unreachable!()).tracks, 0) ?: unreachable!())
 ```
 
 And the container may itself be a handle parameter: `a: ref(al)` is a
@@ -400,8 +400,8 @@ fn swap_in(lib: Library, al: ref(lib) Mut Album, a: ref(al) Mut Track, b: ref(al
     al.name = "${al.name}*"
 }
 
-let al = at(lib.albums, 0)!
-swap_in(lib, al, at(al.tracks, 0)!, at(al.tracks, 1)!)
+let al = at(lib.albums, 0) ?: unreachable!()
+swap_in(lib, al, at(al.tracks, 0) ?: unreachable!(), at(al.tracks, 1) ?: unreachable!())
 ```
 
 ## Which field a call touches
@@ -470,7 +470,7 @@ it again.
 
 ```
 // Salvo                              // Rust
-let boss = at(squad, i)!              let __h1: usize = at_platform(&squad, i).expect(…);
+let boss = (at(squad, i) ?: unreachable!())              let __h1: usize = at_platform(&squad, i).expect(…);
 boss.hp = boss.hp + 5                 squad[__h1].hp = squad[__h1].hp + 5;
 let n = size(squad)                   let n = squad.len();          // legal: no live borrow
 boss.hp = boss.hp + n                 squad[__h1].hp = squad[__h1].hp + n;
@@ -492,7 +492,7 @@ fn at(a: A, index: Int) -> ref(a) Mut Str? {
     return a.b.c.get(index)           // answers `Option<usize>` on Rust
 }
 
-let s = at(a, 1)!                     // used as `a.b.c[__h1]`
+let s = at(a, 1) ?: unreachable!()                     // used as `a.b.c[__h1]`
 ```
 
 When there is one way from container to element, the path is just its
@@ -520,8 +520,8 @@ fn at(l: League, team: Str, n: Int) [] -> ref(l) Mut Player? => l, team, n {
     return at(t.roster, n)                  // .teams{slot}.roster[i]
 }
 
-let star = at(league, "red", 1)!
-let sub = at(league, "", -1)!
+let star = at(league, "red", 1) ?: unreachable!()
+let sub = at(league, "", -1) ?: unreachable!()
 if sub is NotSame(star) {
     score(star, sub)
 }

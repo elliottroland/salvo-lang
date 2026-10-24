@@ -151,12 +151,12 @@ pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap
         crate::core_string::append_platform(&mut out, &to_str(&k));
         crate::core_string::append_platform(&mut out, &String::from(": "));
         crate::core_string::append_platform(&mut out, &to_str__1({
-            let mut __nn_1: Option<&V> = crate::core_sorted::get_platform::<K, V>(map, &k, &mut *cmp);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.sorted:158:28");
+            let mut __pick_1: Option<&V> = crate::core_sorted::get_platform::<K, V>(map, &k, &mut *cmp);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.sorted:158:43")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -186,16 +186,16 @@ pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &crate::core_sorted::Sorte
         if theirs.is_none() {
             return false;
         };
-        let mut theirs_3 = theirs.unwrap();
+        let mut theirs_4 = theirs.unwrap();
         if !(eq({
-            let mut __nn_1: Option<&V> = crate::core_sorted::get_platform::<K, V>(a, &k, &mut *cmp);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.sorted:191:16");
+            let mut __pick_1: Option<&V> = crate::core_sorted::get_platform::<K, V>(a, &k, &mut *cmp);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at core.sorted:191:29")
             }
-        }, theirs_3)) {
+        }, theirs_4)) {
             return false;
         };
     }
@@ -216,48 +216,48 @@ pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &crate::core_sorte
 
 pub fn min<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> T {
     return {
-        let mut __nn_1: Option<T> = crate::core_sorted::min_platform::<T>(set);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at core.sorted:246:12");
+        let mut __pick_1: Option<T> = crate::core_sorted::min_platform::<T>(set);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at core.sorted:246:28")
         }
     };
 }
 
 pub fn max<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> T {
     return {
-        let mut __nn_1: Option<T> = crate::core_sorted::max_platform::<T>(set);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at core.sorted:250:12");
+        let mut __pick_1: Option<T> = crate::core_sorted::max_platform::<T>(set);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at core.sorted:250:28")
         }
     };
 }
 
 pub fn first_key<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> K {
     return {
-        let mut __nn_1: Option<K> = crate::core_sorted::first_key_platform::<K, V>(map);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at core.sorted:254:12");
+        let mut __pick_1: Option<K> = crate::core_sorted::first_key_platform::<K, V>(map);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at core.sorted:254:34")
         }
     };
 }
 
 pub fn last_key<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> K {
     return {
-        let mut __nn_1: Option<K> = crate::core_sorted::last_key_platform::<K, V>(map);
-        if __nn_1.is_none() {
-            panic!("salvo: value is absent at core.sorted:258:12");
+        let mut __pick_1: Option<K> = crate::core_sorted::last_key_platform::<K, V>(map);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            __some_2
+            panic!("salvo: unreachable at core.sorted:258:33")
         }
     };
 }

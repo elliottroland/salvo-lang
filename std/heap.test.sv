@@ -29,19 +29,19 @@ test "pops come out in order, whatever order they went in" {
     // after a push [deduce-gained] — and popping gives the claim up, so the
     // rest are optional again.
     expect_eq(pop(heap), 1)
-    expect_eq(pop(heap)!, 3)
-    expect_eq(pop(heap)!, 5)
-    expect_eq(pop(heap)!, 9)
+    expect_eq(pop(heap) ?: unreachable!(), 3)
+    expect_eq(pop(heap) ?: unreachable!(), 5)
+    expect_eq(pop(heap) ?: unreachable!(), 9)
     expect(pop(heap) is None, "the heap is empty again")
 }
 
 test "heapify arranges an arbitrary list" {
     let names: Mut List<Int> = Mut List(4, 2, 8, 1)
     heapify(names)
-    expect_eq(pop(names)!, 1)
-    expect_eq(pop(names)!, 2)
-    expect_eq(pop(names)!, 4)
-    expect_eq(pop(names)!, 8)
+    expect_eq(pop(names) ?: unreachable!(), 1)
+    expect_eq(pop(names) ?: unreachable!(), 2)
+    expect_eq(pop(names) ?: unreachable!(), 4)
+    expect_eq(pop(names) ?: unreachable!(), 8)
 }
 
 test "pushing keeps the heap property" {
@@ -52,8 +52,8 @@ test "pushing keeps the heap property" {
     push(heap, 1)
     push(heap, 3)
     expect_eq(pop(heap), 1)
-    expect_eq(pop(heap)!, 3)
-    expect_eq(pop(heap)!, 4)
+    expect_eq(pop(heap) ?: unreachable!(), 3)
+    expect_eq(pop(heap) ?: unreachable!(), 4)
 }
 
 test "peek always returns the smallest element, or None if the heap is empty" {
@@ -63,7 +63,7 @@ test "peek always returns the smallest element, or None if the heap is empty" {
     heap.push(1)
     expect_eq(heap.peek(), 1)
     heap.pop()
-    expect_eq(heap.peek()!, 4)
+    expect_eq(heap.peek() ?: unreachable!(), 4)
     heap.pop()
     expect(heap.peek() is None, "A heap which has been emptied should peek -> None")
 }
@@ -77,6 +77,6 @@ test "a heap built from elements is known non-empty" {
     let heap = heap_of(5, 1, 9)
     expect_eq(peek(heap), 1)
     expect_eq(pop(heap), 1)
-    expect_eq(pop(heap)!, 5)
-    expect_eq(pop(heap)!, 9)
+    expect_eq(pop(heap) ?: unreachable!(), 5)
+    expect_eq(pop(heap) ?: unreachable!(), 9)
 }

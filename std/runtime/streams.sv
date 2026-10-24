@@ -158,7 +158,7 @@ handler Streams() of StreamTable {
         if at >= 0 {
             let _k = remove_at(in_keys, copy(at))
             add(busy, copy(handle))
-            return remove_at(ins, at)!
+            return remove_at(ins, at) ?: unreachable!()
         }
         if index_in(busy, handle) >= 0 {
             add(waiting, me)
@@ -172,7 +172,7 @@ handler Streams() of StreamTable {
         if at >= 0 {
             let _k = remove_at(out_keys, copy(at))
             add(busy, copy(handle))
-            return remove_at(outs, at)!
+            return remove_at(outs, at) ?: unreachable!()
         }
         if index_in(busy, handle) >= 0 {
             add(waiting, me)
@@ -192,7 +192,7 @@ handler Streams() of StreamTable {
     fn take_pending(handle: Long) -> Pending? => handle {
         let i = 0
         while i < size(pending) {
-            if get(pending, i)!.handle == handle {
+            if (get(pending, i) ?: unreachable!()).handle == handle {
                 return remove_at(pending, i)
             }
             i = i + 1
@@ -206,7 +206,7 @@ use Streams()
 fn index_in(keys: List<Long>, handle: Long) [] -> Int => keys, handle {
     let i = 0
     while i < size(keys) {
-        if get(keys, i)! == handle {
+        if (get(keys, i) ?: unreachable!()) == handle {
             return i
         }
         i = i + 1
@@ -223,7 +223,7 @@ fn unbusy(busy: Mut List<Long>, waiting: Mut List<Parker>, handle: Long) [] -> N
         let _h = remove_at(busy, at)
     }
     while size(waiting) > 0 {
-        unpark(remove_at(waiting, 0)!)
+        unpark(remove_at(waiting, 0) ?: unreachable!())
     }
 }
 
@@ -361,7 +361,7 @@ export fn read_line(e: Mut InEntry) [] -> Read => e: Mut {
         if at is Int i {
             let line = take_ahead(e, i + 1)
             let n = size(line) - 1
-            if n > 0 && to_int(get(line, n - 1)!) == 13 {
+            if n > 0 && to_int(get(line, n - 1) ?: unreachable!()) == 13 {
                 n = n - 1
             }
             return Read { data: slice(line, 0, n) ?: bytes_of(), end: false, fault: None }

@@ -447,16 +447,13 @@ fun fixedBytes(v: Long, width: Int): salvo.platform.core.bytes.Bytes {
             break
         }
         salvo.core.bytes.addPlatform(back, kotlin.run {
-            val __nn_1: UByte? = salvo.core.bytes.getPlatform(out, j)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at stream:421:19"))
-                }
-                else -> {
-                    val __some_2: UByte = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: UByte? = salvo.core.bytes.getPlatform(out, j)
+            (if ((__pick_1 != null)) {
+                val __picked_2: UByte = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at stream:421:34")
+            })
         })
         j = (j - 1)
     }
@@ -479,16 +476,13 @@ fun readFixed(streams: Streams, s: InStream, width: Int): Union3<Long, End, salv
         return Union3.U3<Long, End, salvo.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>(salvo.core.result.err(salvo.core.checked.checked(Union2.U2<InvalidUtf8, StreamFailed>(StreamFailed(source = "read", message = "the stream ended inside a number")))))
     }
     var first: Long = ((kotlin.run {
-        val __nn_3: UByte? = salvo.core.bytes.getPlatform(data, 0)
-        when {
-            (__nn_3 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at stream:440:32"))
-            }
-            else -> {
-                val __some_4: UByte = __nn_3!!
-                __some_4
-            }
-        }
+        val __pick_3: UByte? = salvo.core.bytes.getPlatform(data, 0)
+        (if ((__pick_3 != null)) {
+            val __picked_4: UByte = __pick_3!!
+            __picked_4
+        } else {
+            throw AssertionError("salvo: unreachable at stream:440:48")
+        })
     }).toInt()).toLong()
     if ((first >= 128L)) {
         first = (first - 256L)
@@ -500,16 +494,13 @@ fun readFixed(streams: Streams, s: InStream, width: Int): Union3<Long, End, salv
             break
         }
         v = ((v * 256L) + ((kotlin.run {
-            val __nn_5: UByte? = salvo.core.bytes.getPlatform(data, i)
-            when {
-                (__nn_5 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at stream:447:39"))
-                }
-                else -> {
-                    val __some_6: UByte = __nn_5!!
-                    __some_6
-                }
-            }
+            val __pick_6: UByte? = salvo.core.bytes.getPlatform(data, i)
+            (if ((__pick_6 != null)) {
+                val __picked_7: UByte = __pick_6!!
+                __picked_7
+            } else {
+                throw AssertionError("salvo: unreachable at stream:447:55")
+            })
         }).toInt()).toLong())
         i = (i + 1)
     }

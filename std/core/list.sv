@@ -244,7 +244,7 @@ export fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
     let m = into_mut(list)
     reverse(m)
     while size(m) > 0 {
-        each(remove_last(m)!)
+        each(remove_last(m) ?: unreachable!())
     }
     end_empty(m)
 }
@@ -301,7 +301,7 @@ export qualifier NonEmpty<T> of List<T> {
 // *this* overload again — the scope selector names the module, and within it
 // a `NonEmpty` argument still ranks this one first — and recurse forever.
 export fn first<T canbe linear>(list: NonEmpty List<T>) [] -> proj(list) T => list {
-    return get(list, 0)!
+    return get(list, 0) ?: unreachable!()
 }
 
 // Returns the number of elements in the list
@@ -344,7 +344,7 @@ export fn remove_back<T canbe linear>(list: Mut List<T>, n: Int) [] -> Mut List<
 export fn remove_front_while<T canbe linear>(list: Mut List<T>, keep: (x: T) -> Bool) [] -> Mut List<T>
 => list: Mut, keep {
     let n = 0
-    while n < size(list) && keep(get(list, n)!) {
+    while n < size(list) && keep(get(list, n) ?: unreachable!()) {
         n = n + 1
     }
     return remove_range(list, 0, n)
@@ -356,7 +356,7 @@ export fn remove_front_while<T canbe linear>(list: Mut List<T>, keep: (x: T) -> 
 export fn remove_back_while<T canbe linear>(list: Mut List<T>, keep: (x: T) -> Bool) [] -> Mut List<T>
 => list: Mut, keep {
     let at = size(list)
-    while at > 0 && keep(get(list, at - 1)!) {
+    while at > 0 && keep(get(list, at - 1) ?: unreachable!()) {
         at = at - 1
     }
     return remove_range(list, at, size(list))
@@ -374,7 +374,7 @@ export fn sub_list<T>(list: List<T>, from: Int, to: Int, ?copy: (v: T) -> T) [] 
         i = 0
     }
     while i < to && i < size(list) {
-        add(out, copy(get(list, i)!))
+        add(out, copy(get(list, i) ?: unreachable!()))
         i = i + 1
     }
     return out
@@ -424,7 +424,7 @@ export fn last_index_of<T>(list: List<T>, elem: T, ?Eq<T>) [] -> (Idx(list) Int)
 export fn contains<T>(list: List<T>, elem: T, ?Eq<T>) [] -> Bool => list, elem {
     let i = 0
     while i < size(list) {
-        if eq(get(list, i)!, elem) {
+        if eq(get(list, i) ?: unreachable!(), elem) {
             return true
         }
         i = i + 1
@@ -441,7 +441,7 @@ export fn any<T>(list: List<T>, pick: (x: T) -> Bool) [] -> Bool => list, pick {
 export fn all<T>(list: List<T>, pick: (x: T) -> Bool) [] -> Bool => list, pick {
     let i = 0
     while i < size(list) {
-        if !pick(get(list, i)!) {
+        if !pick(get(list, i) ?: unreachable!()) {
             return false
         }
         i = i + 1
@@ -454,7 +454,7 @@ export fn count<T>(list: List<T>, pick: (x: T) -> Bool) [] -> Int => list, pick 
     let n = 0
     let i = 0
     while i < size(list) {
-        if pick(get(list, i)!) {
+        if pick(get(list, i) ?: unreachable!()) {
             n = n + 1
         }
         i = i + 1
@@ -471,7 +471,7 @@ export fn partition<T>(list: List<T>, pick: (x: T) -> Bool, ?copy: (v: T) -> T) 
     let no = Mut List<T>()
     let i = 0
     while i < size(list) {
-        let x = get(list, i)!
+        let x = get(list, i) ?: unreachable!()
         if pick(x) {
             add(yes, copy(x))
         } else {

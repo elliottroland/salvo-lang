@@ -1022,7 +1022,7 @@ impl<'p> Walk<'_, 'p> {
                 Expr::Field { base, .. } | Expr::TupleIndex { base, .. } | Expr::Index { base, .. } => {
                     root(base)
                 }
-                Expr::NonNull { operand, .. } => root(operand),
+                e if e.presence_unwrapped().is_some() => root(e.presence_unwrapped().unwrap()),
                 // A constructor around the borrow (`emitted(e)`): its argument.
                 Expr::Call { args, .. } if args.len() == 1 => root(&args[0]),
                 _ => None,
@@ -1142,7 +1142,6 @@ impl<'p> Walk<'_, 'p> {
                 self.expr(index);
             }
             Expr::Unary { operand, .. }
-            | Expr::NonNull { operand, .. }
             | Expr::IncDec { operand, .. }
             | Expr::Spread { operand, .. } => self.expr(operand),
             Expr::Binary { lhs, rhs, .. } => {

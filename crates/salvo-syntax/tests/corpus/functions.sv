@@ -76,7 +76,7 @@ fn arrays() {
 }
 
 fn remove_first<T>(list: Mut NonEmpty List<T>) -> T => list: Mut {
-    return list.get(0)!
+    return list.get(0) ?: unreachable!()
 }
 
 fn consume<T>(list: List<T>) -> None {

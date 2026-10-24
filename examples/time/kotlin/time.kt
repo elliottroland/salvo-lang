@@ -341,22 +341,19 @@ class ManualTime : Timer, TimerCtl {
             }
             val at: Int = __subject_1!!
             val deadline: Long = kotlin.run {
-                val __nn_2: Long? = salvo.core.list.getPlatform(deadlines, at)
-                when {
-                    (__nn_2 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at time:481:33"))
-                    }
-                    else -> {
-                        val __some_3: Long = __nn_2!!
-                        __some_3
-                    }
-                }
+                val __pick_2: Long? = salvo.core.list.getPlatform(deadlines, at)
+                (if ((__pick_2 != null)) {
+                    val __picked_3: Long = __pick_2!!
+                    __picked_3
+                } else {
+                    throw AssertionError("salvo: unreachable at time:481:55")
+                })
             }
             salvo.core.list.removeAtPlatform(deadlines, at)
             now = deadline
-            val __subject_4: salvo.SalvoReply? = salvo.core.list.removeAtPlatform(pending, at)
-            if ((__subject_4 != null)) {
-                val token: salvo.SalvoReply = __subject_4!!
+            val __subject_5: salvo.SalvoReply? = salvo.core.list.removeAtPlatform(pending, at)
+            if ((__subject_5 != null)) {
+                val token: salvo.SalvoReply = __subject_5!!
                 salvo.SalvoSched.replyWire(token, Fired(at = Tick(nanos = deadline)), __Codec_Fired)
             }
         }
@@ -413,16 +410,13 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
             break
         }
         val at: Long = kotlin.run {
-            val __nn_1: Long? = salvo.core.list.getPlatform(deadlines, i)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at time:505:23"))
-                }
-                else -> {
-                    val __some_2: Long = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: Long? = salvo.core.list.getPlatform(deadlines, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: Long = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at time:505:44")
+            })
         }
         if (((at <= target) && ((best < 0) || (at < bestAt)))) {
             best = i

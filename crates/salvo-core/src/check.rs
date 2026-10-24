@@ -10876,7 +10876,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Ident(id) => out.push(id),
             Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => Self::provenance(base, out),
             Expr::Index { base, .. } => Self::provenance(base, out),
-            Expr::NonNull { operand, .. } => Self::provenance(operand, out),
+            e if e.presence_unwrapped().is_some() => Self::provenance(e.presence_unwrapped().unwrap(), out),
             _ => {}
         }
     }
@@ -10953,19 +10953,19 @@ impl<'p, 'r> Checker<'p, 'r> {
             while let Expr::Field { base, .. } = b {
                 b = base.as_ref();
             }
-            let call = match b {
-                Expr::NonNull { operand, .. } => matches!(operand.as_ref(), Expr::Call { .. }),
-                Expr::Call { .. } => true,
-                _ => false,
+            let call = match b.presence_unwrapped() {
+                Some(operand) => matches!(operand, Expr::Call { .. }),
+                None => matches!(b, Expr::Call { .. }),
             };
             if call {
                 return self.links_for_value(b, bind_span);
             }
         }
-        // [readonly-return] `get(xs, i)!` is still the borrow `get` handed
-        // back: a `!` unwrap changes the type, not the provenance.
-        if let Expr::NonNull { operand, .. } = value {
-            if matches!(operand.as_ref(), Expr::Call { .. }) {
+        // [readonly-return] `get(xs, i) ?: unreachable!()` is still the
+        // borrow `get` handed back: the unwrap changes the type, not the
+        // provenance.
+        if let Some(operand) = value.presence_unwrapped() {
+            if matches!(operand, Expr::Call { .. }) {
                 return self.links_for_value(operand, bind_span);
             }
         }
@@ -12323,7 +12323,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut inner = arg;
         loop {
             inner = match inner {
-                Expr::NonNull { operand, .. } => operand.as_ref(),
+                e if e.presence_unwrapped().is_some() => e.presence_unwrapped().unwrap(),
                 Expr::Field { base, .. } if !matches!(base.as_ref(), Expr::Ident(_)) => base.as_ref(),
                 _ => break,
             };
@@ -12338,10 +12338,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// statement, and the view would outlive it. Sees through a `!` and
     /// through a call that *forwards* such a view.
     fn reject_temp_view(&mut self, value: &Expr, what: &str) {
-        let inner = match value {
-            Expr::NonNull { operand, .. } => operand.as_ref(),
-            other => other,
-        };
+        let inner = value.presence_unwrapped().unwrap_or(value);
         let Expr::Call { span, callee, .. } = inner else {
             return;
         };
@@ -16751,7 +16748,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Binary { .. }
             | Expr::Is { .. }
             | Expr::Widen { .. }
-            | Expr::NonNull { .. }
             | Expr::IncDec { .. }
             | Expr::Spread { .. }
             | Expr::Scoped { .. }
@@ -16852,7 +16848,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Binary { .. }
             | Expr::Is { .. }
             | Expr::Widen { .. }
-            | Expr::NonNull { .. }
             | Expr::IncDec { .. }
             | Expr::Spread { .. }
             | Expr::Scoped { .. }
@@ -17190,9 +17185,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut unwrap_span: Option<Span> = None;
         loop {
             match e {
-                Expr::NonNull { operand, span } => {
+                Expr::Elvis { span, .. } if e.presence_unwrapped().is_some() => {
                     unwrap_span = Some(*span);
-                    e = operand;
+                    e = e.presence_unwrapped().unwrap();
                 }
                 Expr::Field { base, .. } => e = base,
                 Expr::TupleIndex { base, .. } => e = base,
@@ -21957,7 +21952,6 @@ fn collect_binder_arg_sites<'p>(
             }
             Expr::Field { base, .. }
             | Expr::TupleIndex { base, .. }
-            | Expr::NonNull { operand: base, .. }
             | Expr::Unary { operand: base, .. }
             | Expr::IncDec { operand: base, .. }
             | Expr::Spread { operand: base, .. }
@@ -22270,7 +22264,6 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         Expr::Unary { operand, .. }
-        | Expr::NonNull { operand, .. }
         | Expr::Spread { operand, .. } => collect_assigned_expr(operand, out),
         Expr::Is { subject, .. } | Expr::Widen { subject, .. } => {
             collect_assigned_expr(subject, out)
@@ -22382,7 +22375,6 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
             StructLitFieldKind::InlineFor { .. } => false,
         }),
         Expr::Unary { operand, .. }
-        | Expr::NonNull { operand, .. }
         | Expr::IncDec { operand, .. }
         | Expr::Spread { operand, .. } => expr_mentions(operand, name),
         Expr::Binary { lhs, rhs, .. } => expr_mentions(lhs, name) || expr_mentions(rhs, name),
@@ -24351,36 +24343,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.widen_info(subject, quals, binding.as_ref(), *span);
                 Ty::named("Bool")
             }
-            Expr::NonNull { operand, span } => {
-                // [fn-overload-return] `f(s)!` where a `T` is expected asks
-                // `f` for a `T?`.
-                if let (Some(e), Expr::Call { .. }) = (expected, operand.as_ref()) {
-                    self.select_hint = Some(self.mk_union(vec![e.clone(), Ty::none()]));
-                }
-                let t = self.check_expr(operand, None);
-                self.select_hint = None;
-                // [assert-op] A `!` says "this can be absent, and here it is
-                // not". On a type with no `None` arm it says something false,
-                // and the two backends disagreed about the leftover — rustc
-                // refused `.unwrap()` while kotlinc warned and ran (user
-                // decision 2026-09-23, A-1). `Unknown` passes through, since a
-                // type the checker could not infer must not cascade
-                // [type-unknown-lenient].
-                if !t.has_none_arm() && !matches!(t, Ty::Unknown) {
-                    self.error(
-                        *span,
-                        format!(
-                            "`!` asserts that a value is present, but this one is \
-                             `{t}` — it is never absent, so the `!` says nothing \
-                             and one backend refuses it. Drop it; where a value \
-                             *can* be absent, `?:` picks a fallback and `is None` \
-                             tests for it"
-                        ),
-                    );
-                    return t;
-                }
-                t.without_none()
-            }
             Expr::SafeNav { base, access, span } => self.check_safe_nav(base, access, *span, expected),
             // [assert-fn] [assert-narrow] `assert!(cond)` / `assert!(cond, why)`
             // — a condition that must hold, checked in every build
@@ -24701,9 +24663,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 if let Some(t) = self.out.expr_ty.get(&self.key(e.span())).cloned() {
                                     self.out.expr_ty.insert(self.key(e.span()), promote_proj_to_ref(t));
                                 }
-                                match e {
-                                    Expr::NonNull { operand, .. } => e = operand.as_ref(),
-                                    _ => break,
+                                match e.presence_unwrapped() {
+                                    Some(operand) => e = operand,
+                                    None => break,
                                 }
                             }
                         }
@@ -33690,7 +33652,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// from one. Answers the reader's name, for the diagnostic.
     fn reader_call(&self, e: &Expr) -> Option<String> {
         match e {
-            Expr::NonNull { operand, .. } => self.reader_call(operand),
+            e if e.presence_unwrapped().is_some() => self.reader_call(e.presence_unwrapped().unwrap()),
             Expr::Ident(id) => self.reader_bound.get(&id.name).cloned(),
             Expr::Call { callee, span, .. } => {
                 let t = self.out.expr_ty.get(&self.key(*span))?;

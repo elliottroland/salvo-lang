@@ -99,7 +99,7 @@ fn wounded(squad: List<Mut Fighter>) -> (ref(squad) Mut Fighter)? {
 // crosses the boundary and the handle is materialized on the other side, so
 // nothing borrows across the call.
 fn rally_at<L>(squad: List<Mut Fighter>, l: L, ?Ref<List<Mut Fighter>, L, Fighter>) -> None {
-    heal(at(squad, l)!)
+    heal(at(squad, l) ?: unreachable!())
     return None
 }
 
@@ -188,7 +188,7 @@ fn main() [use] {
         Fighter { name: "Bo", hp: 8, energy: 9 })
 
     // A borrow of the element, read in place. Zero copies so far.
-    let ada = named(roster, "Ada")!
+    let ada = named(roster, "Ada") ?: unreachable!()
     println("1. found ${ada.name}, hp ${ada.hp}")
 
     // A projection may be read anywhere, but *moving* one needs `copy` —
@@ -202,7 +202,7 @@ fn main() [use] {
     // A view holds its borrow across statements, and lends on from there.
     let w = window(roster)
     w.at = 1
-    println("1. window at ${w.at}: ${peek(w)!.name}")
+    println("1. window at ${w.at}: ${(peek(w) ?: unreachable!()).name}")
 
     // `filter` answers `Mut List<proj Fighter>` — a list *of borrows*,
     // holding a borrow of the pass it walked. Nothing was copied to build it.
@@ -217,7 +217,7 @@ fn main() [use] {
     //   `List<Mut T>` — mutable *elements*, fixed shape
     let bench: Mut List<Fighter> = Mut List(Fighter { name: "Cy", hp: 12, energy: 2 })
     add(bench, Fighter { name: "Dee", hp: 6, energy: 7 })
-    println("2. bench ${size(bench)}, front ${get(bench, 0)!.name} (a reading, not a handle)")
+    println("2. bench ${size(bench)}, front ${(get(bench, 0) ?: unreachable!()).name} (a reading, not a handle)")
 
     let squad: List<Mut Fighter> = List(
         Mut Fighter { name: "Ada", hp: 30, energy: 4 },
@@ -228,19 +228,19 @@ fn main() [use] {
     //
     // Rust: E0502. A bound `&mut squad[0]` forbids the `size(squad)` between
     // the two writes; the position rendering is what lets rustc agree.
-    let boss = at(squad, 0)!
+    let boss = at(squad, 0) ?: unreachable!()
     boss.hp = boss.hp + 1
     let n = size(squad)
     boss.hp = boss.hp + n
-    println("2. ${get(squad, 0)!.name} at ${get(squad, 0)!.hp} after a read in the middle")
+    println("2. ${(get(squad, 0) ?: unreachable!()).name} at ${(get(squad, 0) ?: unreachable!()).hp} after a read in the middle")
 
     // A search that lends what it found, mutated through where it is minted.
-    heal(wounded(squad)!)
+    heal(wounded(squad) ?: unreachable!())
 
     // The same, through a caller-supplied accessor: `at` comes from the
     // `Ref` bundle, and `1` is what a position happens to be for a list.
     rally_at(squad, 1)
-    println("2. after the searches: ${get(squad, 0)!.hp} ${get(squad, 1)!.hp}")
+    println("2. after the searches: ${(get(squad, 0) ?: unreachable!()).hp} ${(get(squad, 1) ?: unreachable!()).hp}")
 
     // ----- 3. two handles at once -----
 
@@ -256,8 +256,8 @@ fn main() [use] {
     //
     // Rust: E0499, and the remedy rustc suggests is `split_at_mut` — which is
     // exactly what this lowers to.
-    let a = at(squad, i)!
-    let d = at(squad, j)!
+    let a = at(squad, i) ?: unreachable!()
+    let d = at(squad, j) ?: unreachable!()
     if d is NotSame(a) {
         a.hp = a.hp + 1
         d.hp = d.hp + 1
@@ -279,19 +279,19 @@ fn main() [use] {
     // ----- 4. handles that share a container -----
 
     // No proof anywhere, and none needed: `strike` names the container.
-    strike(squad, at(squad, i)!, at(squad, j)!)
+    strike(squad, at(squad, i) ?: unreachable!(), at(squad, j) ?: unreachable!())
     // …including the case `ref(c)` exists for: one fighter, both roles,
     // spending its own energy on itself.
-    strike(squad, at(squad, i)!, at(squad, i)!)
-    println("4. ${get(squad, 0)!.hp} hp / ${get(squad, 0)!.energy} energy after striking itself")
+    strike(squad, at(squad, i) ?: unreachable!(), at(squad, i) ?: unreachable!())
+    println("4. ${(get(squad, 0) ?: unreachable!()).hp} hp / ${(get(squad, 0) ?: unreachable!()).energy} energy after striking itself")
 
     // The container travels with its own elements: one `&mut` of the
     // members in the generated Rust, and a position each.
     let team = Mut Squad { banner: "Red", members: List(
         Mut Fighter { name: "Cy", hp: 12, energy: 2 },
         Mut Fighter { name: "Dee", hp: 6, energy: 7 }) }
-    rotate(team.members, at(team.members, i)!, at(team.members, j)!)
-    println("4. ${team.banner}: ${get(team.members, 0)!.energy} ${get(team.members, 1)!.energy}")
+    rotate(team.members, at(team.members, i) ?: unreachable!(), at(team.members, j) ?: unreachable!())
+    println("4. ${team.banner}: ${(get(team.members, 0) ?: unreachable!()).energy} ${(get(team.members, 1) ?: unreachable!()).energy}")
 
     // ----- 5. field granularity -----
 

@@ -14,7 +14,7 @@ Conventions:
 ## Assertions
 
 * [assert-trap] [kt-assert-trap] A failed assertion throws an
-  **`AssertionError`** whose message is Salvo's: `expr!` lowers to
+  **`AssertionError`** whose message is Salvo's: `expr ?: unreachable!()` lowers to
   `(x ?: throw AssertionError("salvo: value is absent at <module>:<line>:<col>"))`
   — not to `!!`, whose text is a bare `NullPointerException` — `assert!(c, m)` to
   `(if (!(c)) throw AssertionError("salvo: " + (m) + " at …") else Unit)`, and
@@ -234,7 +234,8 @@ Conventions:
 * [type-str] Interpolation emits native Kotlin templates, using the short
   `$name` form when the interpolated expression is a bare identifier.
 * [type-nullable] `T?` maps to Kotlin nullability: `is None` → `== null`,
-  `x!` → `!!`.
+  `x ?: unreachable!()` → a null test whose present side reads `x!!` and
+  whose other side throws the trap.
 * [type-tuple] [kt-tuple-class] Tuples of size 2/3 map to `Pair`/`Triple` —
   Kotlin's own, so a tuple keeps interoperating with the standard library — and
   every larger arity maps to a **generated data class**, `TupleN` (named

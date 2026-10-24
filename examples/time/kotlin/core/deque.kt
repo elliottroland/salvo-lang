@@ -96,16 +96,13 @@ fun<T> drain(d: kotlin.collections.ArrayDeque<T>, each: (T) -> Unit) {
             break
         }
         each(kotlin.run {
-            val __nn_1: T? = removeFirstPlatform(m)
-            when {
-                (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.deque:132:14"))
-                }
-                else -> {
-                    val __some_2: T = __nn_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: T? = removeFirstPlatform(m)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at core.deque:132:33")
+            })
         })
     }
     endEmptyPlatform(m)

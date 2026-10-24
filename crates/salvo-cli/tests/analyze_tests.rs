@@ -398,7 +398,7 @@ fn calls_remove_qualifiers_per_declared_deductions() {
     fs::write(
         dir.join("main.sv"),
         "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
-         fn take_head<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {\n    return list.get(0)!\n}\n\n\
+         fn take_head<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {\n    return list.get(0) ?: unreachable!()\n}\n\n\
          fn main() [use] {\n    use StdConsole\n    let strings = Mut List(\"a\", \"b\")\n    \
          if strings is NonEmpty {\n        let s = take_head(strings)\n        let t = take_head(strings)\n    }\n}\n",
     )
@@ -417,7 +417,7 @@ fn calls_remove_qualifiers_per_declared_deductions() {
         dir.join("main.sv"),
         "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
          fn weaken<T>(list: NonEmpty List<T>) -> None => list: None {\n}\n\n\
-         fn head<T>(list: NonEmpty List<T>) -> T {\n    return list.get(0)!\n}\n\n\
+         fn head<T>(list: NonEmpty List<T>) -> T {\n    return list.get(0) ?: unreachable!()\n}\n\n\
          fn main() [use] {\n    use StdConsole\n    let strings = List(\"a\", \"b\")\n    \
          if strings is NonEmpty {\n        weaken(strings)\n        let s = head(strings)\n    }\n}\n",
     )
@@ -601,7 +601,7 @@ fn partial_qualifier_removal_merges_conservatively() {
     fs::write(
         dir.join("main.sv"),
         "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
-         fn take_head<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {\n    return list.get(0)!\n}\n\n\
+         fn take_head<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {\n    return list.get(0) ?: unreachable!()\n}\n\n\
          fn partial(flag: Bool) {\n    let strings = Mut List(\"a\", \"b\")\n    \
          if strings is NonEmpty {\n        if flag {\n            let x = take_head(strings)\n        }\n        let y = take_head(strings)\n    }\n}\n",
     )
@@ -2163,7 +2163,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
          let free = keep_all(iter(Chars {n: 2}))\n    \
          println(\"${size(free)}\")\n    \
          let parts = Mut List(Mut Str(\"a\"))\n    \
-         let e = get(parts, 0)!\n    \
+         let e = get(parts, 0) ?: unreachable!()\n    \
          let n: Int = copy(e)\n}\n",
     )
     .unwrap();
@@ -2220,12 +2220,12 @@ fn a_capturing_lambda_is_a_view_of_its_captures() {
          // 2. a capture-rooted projection: legal, linked to the capture\n    \
          let all = List(\"a\", \"b\", \"c\", \"d\")\n    \
          let indices = List(1, 3)\n    \
-         let picked = map(iter(indices), i -> get(all, i)!)\n    \
+         let picked = map(iter(indices), i -> (get(all, i) ?: unreachable!()))\n    \
          println(\"${size(picked)}\")\n    \
          // 3. the named-lambda form is linked the same way: consuming\n    \
          // the capture poisons the result derived through the closure\n    \
          let all2 = List(\"a\", \"b\")\n    \
-         let f = i -> get(all2, i)!\n    \
+         let f = i -> (get(all2, i) ?: unreachable!())\n    \
          let picked2 = map(iter(indices), f)\n    \
          eat(all2)\n    \
          println(\"${size(picked2)}\")\n}\n",

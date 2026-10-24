@@ -325,7 +325,7 @@ fn narrowed_operands_are_accepted() {
         \x20       let a = m + 1\n\
         \x20       let b = m < 2\n\
         \x20   }\n\
-        \x20   let c = maybe! + 1\n\
+        \x20   let c = (maybe ?: unreachable!()) + 1\n\
          }\n",
     );
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
@@ -394,7 +394,7 @@ fn interpolating_a_narrowed_optional_is_accepted() {
         \x20   if p.surname is Str surname {\n\
         \x20       let a = \"${p.name} ${surname}\"\n\
         \x20   }\n\
-        \x20   let b = \"${p.surname!}\"\n\
+        \x20   let b = \"${p.surname ?: unreachable!()}\"\n\
          }\n",
     );
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");

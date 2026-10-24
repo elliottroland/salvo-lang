@@ -824,7 +824,7 @@ impl HoverRecorder<'_> {
                     self.expr(&n.value);
                 }
             }
-            Expr::Unary { operand, .. } | Expr::NonNull { operand, .. } | Expr::IncDec { operand, .. } | Expr::Spread { operand, .. } => self.expr(operand),
+            Expr::Unary { operand, .. } | Expr::IncDec { operand, .. } | Expr::Spread { operand, .. } => self.expr(operand),
             Expr::Binary { lhs, rhs, .. } => {
                 self.expr(lhs);
                 self.expr(rhs);

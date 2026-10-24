@@ -1436,7 +1436,6 @@ impl Rewrite {
             }
             Expr::Field { base, .. }
             | Expr::TupleIndex { base, .. }
-            | Expr::NonNull { operand: base, .. }
             | Expr::IncDec { operand: base, .. }
             | Expr::Spread { operand: base, .. }
             | Expr::Unary { operand: base, .. } => self.expr(base),
@@ -1847,7 +1846,6 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             }
             Expr::Field { base, .. }
             | Expr::TupleIndex { base, .. }
-            | Expr::NonNull { operand: base, .. }
             | Expr::IncDec { operand: base, .. }
             | Expr::Spread { operand: base, .. }
             | Expr::Unary { operand: base, .. }
@@ -2467,7 +2465,6 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
         }
         Expr::Field { base, .. }
         | Expr::TupleIndex { base, .. }
-        | Expr::NonNull { operand: base, .. }
         | Expr::IncDec { operand: base, .. }
         | Expr::Spread { operand: base, .. }
         | Expr::Unary { operand: base, .. }

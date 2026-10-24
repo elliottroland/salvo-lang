@@ -163,7 +163,6 @@ impl<'a, 'p> Lower<'a, 'p> {
                     None => Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) },
                 }
             }
-            AExpr::NonNull { operand, .. } => self.non_null(operand, span),
             AExpr::SafeNav { base, access, .. } => self.safe_nav(base, access, span),
             AExpr::Assert { cond, message, .. } => {
                 let c = self.expr(cond);
@@ -2126,33 +2125,6 @@ impl<'a, 'p> Lower<'a, 'p> {
             return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args, args: call_args } };
         }
         unsupported(ty, span, "safe-nav call")
-    }
-
-    fn non_null(&mut self, operand: &AExpr, span: Span) -> Expr {
-        // `x!`: switch on x; `None` traps; else the narrowed value.
-        let ty = self.ty_of(span);
-        let s = self.expr_subject(operand);
-        let id = self.id();
-        let subj_ty = s.ty.clone();
-        let tmp = self.fresh("__nn");
-        let lid = self.id();
-        let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: s };
-        let msg = "value is absent".to_string();
-        let trap = Block { stmts: vec![Stmt::Expr(Expr { ty: Ty::Never, span, kind: ExprKind::Unreachable { message: Some(Box::new(Expr { ty: Ty::named("Str"), span, kind: ExprKind::Str(msg) })), at: self.location(span) } })], value: None, span };
-        let nar = self.fresh("__some");
-        let nid = self.id();
-        let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: ty.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Arm { switch: id, arm: 1 } };
-        let value = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: true } };
-        let sw = Expr {
-            ty: ty.clone(),
-            span,
-            kind: ExprKind::Switch {
-                id,
-                subject: Box::new(Expr { ty: subj_ty, span, kind: ExprKind::Read { place: Place { root: tmp, steps: Vec::new() }, consume: false } }),
-                arms: vec![SwitchArm { test: ArmTest::None, body: trap }, SwitchArm { test: ArmTest::Else, body: Block { stmts: vec![narrow], value: Some(Box::new(value)), span } }],
-            },
-        };
-        self.block_expr(vec![bind], sw, span)
     }
 
     /// [expr-pipe] `lhs |> rhs`: bind the left side to a temporary, make it the

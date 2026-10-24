@@ -138,6 +138,49 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — The postfix `!` is removed
+
+ROADMAP §2d item 9, the user's call: "non-null assertions are dangerous and
+should therefore not be 'easy' to do… perhaps now is the time to remove
+`!`", with replacement (a). A presence assertion is now written out:
+`x ?: unreachable!("why")` for a value, `assert!(x !is None)` to narrow a
+variable [assert-op]. No new form (an `expect!` was considered and
+rejected). A postfix `!` is a plain parse error that names both
+replacements; `!=`, `!is`, the bang macros and `replyto!` are untouched.
+
+What it took: `Expr::NonNull`, its IR node and its checker arm are gone. The
+analyses that peeled a `!` to reach a place (provenance, the view links, the
+temp-view check, the projection-move peel, the ref-mint peel, `reader_call`,
+`mut_lends`, the deduction root, `lends`) now peel
+`ast::Expr::presence_unwrapped`: the subject of an `?:` whose right side
+diverges (`unreachable!`, `todo!`, `return`, `break`, `continue`). On Rust,
+paths.rs's mint recognizes the `?:` pick's IR shape beside the old switch,
+and the item's own defect is fixed: `copy` of a block-valued expression
+goes into each arm's value [rs-loop-temp], so `copy(get(make().items, 0) ?:
+unreachable!(…))` no longer clones a temporary the block has dropped (E0597;
+not for a union-typed block, whose wrapped arm values rustc cannot type
+alone). The default trap text is `salvo: unreachable at …`. 179 `!` sites in
+`.sv` sources, about 470 in Rust test strings and the docs' code were
+rewritten by script.
+
+Found on the way: the two forms differ on a union with several value arms.
+`!` dropped `None` and kept the rest; `?:` keeps the **first** value arm
+[elvis]. Three such sites in `std/runtime.sv` were rewritten by hand to
+`assert!(entry !is None)`; the hazard is recorded under ROADMAP §2d item 9.
+And `?: unreachable!()` narrows the local for the rest of the scope, so a
+second pick on it is refused ("keeps its only arm"): the rewritten tests read
+it plainly after the first. One consequence reaches `?:` as it was before:
+with a diverging right side the pick is now a *read of its subject* for the
+fate analyses, as `!` was, so `let n: Str = s ?: return None; return n` on a
+kept parameter is refused like `let n = s; return n` (it used to yield an
+independent value). `elvis_tests`' case declares `=> !s` now.
+
+Tests: assert_tests `a_postfix_bang_is_a_parse_error_naming_the_alternatives`,
+`an_unreachable_pick_on_a_never_absent_value_is_refused`,
+`an_unreachable_pick_on_an_optional_is_fine` (replacing the four `!` tests);
+`rustc_compiles_and_runs_a_copy_of_a_pick_over_a_temporary` and its kotlinc
+case; [rs-opt-borrow]'s re-read tests rewritten over `?:`.
+
 ### 2026-10-20 — A stamped body falls back to its template's names
 
 ROADMAP §2d item 10, option (b), the user's call ("(b) is good"). A `by args`

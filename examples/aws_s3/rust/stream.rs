@@ -513,12 +513,12 @@ pub fn fixed_bytes(mut v: i64, mut width: i32) -> crate::core_bytes::Bytes {
             break;
         };
         crate::core_bytes::add_platform(&mut back, {
-            let mut __nn_1: Option<u8> = crate::core_bytes::get_platform(&out, j);
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at stream:421:19");
+            let mut __pick_1: Option<u8> = crate::core_bytes::get_platform(&out, j);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at stream:421:34")
             }
         });
         j = i32::wrapping_sub(j, 1i32);
@@ -541,12 +541,12 @@ pub fn read_fixed(streams: &crate::stream::Streams, s: &crate::stream::InStream,
         return crate::unions::Union3::U3(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(crate::unions::Union2::U2(crate::stream::StreamFailed { source: String::from("read"), message: String::from("the stream ended inside a number") }))));
     };
     let mut first: i64 = (((({
-        let mut __nn_3: Option<u8> = crate::core_bytes::get_platform(data, 0i32);
-        if __nn_3.is_none() {
-            panic!("salvo: value is absent at stream:440:32");
+        let mut __pick_3: Option<u8> = crate::core_bytes::get_platform(data, 0i32);
+        if __pick_3.is_some() {
+            let mut __picked_4 = __pick_3.unwrap();
+            __picked_4
         } else {
-            let mut __some_4 = __nn_3.unwrap();
-            __some_4
+            panic!("salvo: unreachable at stream:440:48")
         }
     }) as i32)) as i64);
     if (first >= 128i64) {
@@ -559,12 +559,12 @@ pub fn read_fixed(streams: &crate::stream::Streams, s: &crate::stream::InStream,
             break;
         };
         v = i64::wrapping_add(i64::wrapping_mul(v, 256i64), (((({
-            let mut __nn_5: Option<u8> = crate::core_bytes::get_platform(data, i);
-            if __nn_5.is_none() {
-                panic!("salvo: value is absent at stream:447:39");
+            let mut __pick_6: Option<u8> = crate::core_bytes::get_platform(data, i);
+            if __pick_6.is_some() {
+                let mut __picked_7 = __pick_6.unwrap();
+                __picked_7
             } else {
-                let mut __some_6 = __nn_5.unwrap();
-                __some_6
+                panic!("salvo: unreachable at stream:447:55")
             }
         }) as i32)) as i64));
         i = i32::wrapping_add(i, 1i32);

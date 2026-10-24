@@ -600,7 +600,7 @@ fn the_expected_type_chooses_among_return_type_overloads() {
     let body = [
         "    let a: Int? = from_str(\"1\")",
         "    let b: Bool? = from_str(\"t\")",
-        "    let c: Int = from_str(\"1\")!",
+        "    let c: Int = from_str(\"1\") ?: unreachable!()",
         "    let d: Bool = from_str(\"t\") ?: false",
         "    let e = takes_int(from_str(\"1\"))",
         "    let h = Holder { b: from_str(\"t\") }",

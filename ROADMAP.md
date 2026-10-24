@@ -910,14 +910,23 @@ reproduced in a scratch project; the repros are below.
    `wire::approx_ty`'s key through `ctx.checked.written_key` and compile
    `examples/time`.
 
-9. **Rust: a value read through a temporary's field inside `!` dies too
-   soon.** Found 2026-10-20 (2.1). `copy(get(make().items, 0)!)` emits a
-   block that binds `make().items` to a local inside the `!` block and hands
-   out a reference to it, then clones outside: E0597 (a rustc error, so not
-   wrong code). Repro: `struct Box { items: List<Str> }`, `fn make() [] ->
-   Box`, `println(show(copy(get(make().items, 0)!)))`. Binding `make()` to a
-   local first compiles. Fix: hoist the temporary out of the `!` block, or
-   apply `copy` inside it.
+9. ✅ **The postfix `!` is gone; a `copy` of a pick over a temporary
+   compiles** — done 2026-10-20 ([assert-op], [rs-loop-temp], COMPLETED.md).
+   Left over: `?: unreachable!(…)` keeps the subject's **first** value arm,
+   where `!` kept every non-`None` arm, so on a union with several value arms
+   (`A | B | None`) it is not the old assertion; such sites narrow with
+   `assert!(x !is None)` instead. A single expression form that drops only
+   `None` does not exist, deliberately (user decision 2026-10-20).
+
+9b. **Open defect: `get(xs, i) ?: "default"` is refused.** Found 2026-10-20
+   (item 9). The pick's join is `proj Str | Str`, and the literal on the
+   right matches both arms: "a value of type `Str` matches multiple arms of
+   `proj Str | Str`; qualify the value to disambiguate", then "no matching
+   overload for `println(proj Str | Str)`". Present before item 9 (checked
+   against the previous commit's build). Repro: `let xs = List("a")`,
+   `println(get(xs, 1) ?: "none")`. A `proj T` and a `T` are one runtime arm
+   (`X <: proj X`), so the join should be `proj Str`, with the literal an
+   owned value fitting it.
 
 10. ✅ **A stamped body falls back to its template's names** — done
     2026-10-20 with option (b) ([comptime-hygiene], COMPLETED.md). Left

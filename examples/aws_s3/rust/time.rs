@@ -565,19 +565,19 @@ impl crate::time::__Stateful_TimerCtl for ManualTime {
             };
             let mut at = __subject_1.unwrap();
             let mut deadline: i64 = {
-                let mut __nn_2: Option<i64> = crate::core_list::get_platform::<i64>(&self.deadlines, at).copied();
-                if __nn_2.is_none() {
-                    panic!("salvo: value is absent at time:481:33");
+                let mut __pick_2: Option<i64> = crate::core_list::get_platform::<i64>(&self.deadlines, at).copied();
+                if __pick_2.is_some() {
+                    let mut __picked_3 = __pick_2.unwrap();
+                    __picked_3
                 } else {
-                    let mut __some_3 = __nn_2.unwrap();
-                    __some_3
+                    panic!("salvo: unreachable at time:481:55")
                 }
             };
             crate::core_list::remove_at_platform::<i64>(&mut self.deadlines, at);
             self.now = deadline;
-            let mut __subject_4: Option<crate::scheduler::SalvoReply> = crate::core_list::remove_at_platform::<crate::scheduler::SalvoReply>(&mut self.pending, at);
-            if __subject_4.is_some() {
-                let mut token = __subject_4.unwrap();
+            let mut __subject_5: Option<crate::scheduler::SalvoReply> = crate::core_list::remove_at_platform::<crate::scheduler::SalvoReply>(&mut self.pending, at);
+            if __subject_5.is_some() {
+                let mut token = __subject_5.unwrap();
                 crate::scheduler::salvo_reply_wire::<crate::time::Fired>(token, crate::time::Fired { at: crate::time::Tick { nanos: deadline } });
             };
         }
@@ -649,12 +649,12 @@ pub fn earliest_due(deadlines: &Vec<i64>, mut target: i64) -> Option<i32> {
             break;
         };
         let mut at: i64 = {
-            let mut __nn_1: Option<i64> = crate::core_list::get_platform::<i64>(deadlines, i).copied();
-            if __nn_1.is_none() {
-                panic!("salvo: value is absent at time:505:23");
+            let mut __pick_1: Option<i64> = crate::core_list::get_platform::<i64>(deadlines, i).copied();
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __nn_1.unwrap();
-                __some_2
+                panic!("salvo: unreachable at time:505:44")
             }
         };
         if ((at <= target) && ((best < 0i32) || (at < best_at))) {

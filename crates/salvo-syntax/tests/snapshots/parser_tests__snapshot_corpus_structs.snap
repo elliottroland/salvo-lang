@@ -997,8 +997,8 @@ Module {
                                                     "Surname is ",
                                                 ),
                                                 Interp(
-                                                    NonNull {
-                                                        operand: Field {
+                                                    Elvis {
+                                                        subject: Field {
                                                             base: Ident(
                                                                 Ident {
                                                                     name: "person",
@@ -1011,21 +1011,25 @@ Module {
                                                             },
                                                             span: 731..745,
                                                         },
-                                                        span: 731..746,
+                                                        rhs: Unreachable {
+                                                            message: None,
+                                                            span: 749..763,
+                                                        },
+                                                        span: 731..763,
                                                     },
                                                 ),
                                             ],
-                                            span: 717..748,
+                                            span: 717..765,
                                         },
                                     ),
-                                    span: 710..748,
+                                    span: 710..765,
                                 },
                             ),
                         ],
-                        span: 704..750,
+                        span: 704..767,
                     },
                 ),
-                span: 666..750,
+                span: 666..767,
             },
         ),
     ],

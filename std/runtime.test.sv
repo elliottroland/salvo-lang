@@ -41,7 +41,7 @@ test "a fault inside the boundary is answered, not raised" {
     expect(ok is None, "a body that returns answers None")
     let why = guarded(() -> {
         let xs: List<Int> = List<Int>()
-        let _x = get(xs, 3)!
+        let _x = get(xs, 3) ?: unreachable!()
     })
     expect(!(why is None), "a faulting body answers its fault")
 }
@@ -62,7 +62,7 @@ test "the scheduler runs an actor's messages in order on its pool" {
         } else {
             if n != next {
                 let xs: List<Int> = List<Int>()
-                let _out_of_order = get(xs, 0)!
+                let _out_of_order = get(xs, 0) ?: unreachable!()
             }
             next = next + 1
         }
@@ -87,7 +87,7 @@ test "an actor that faults dies and later sends are dropped" {
     let fragile = spawn_body(copy(pool), 2, body_of((kind, slot, msg) -> {
         let _n: Int = unerase(msg)
         let xs: List<Int> = List<Int>()
-        let _boom = get(xs, 0)!
+        let _boom = get(xs, 0) ?: unreachable!()
     }))
     let sturdy = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
         let _n: Int = unerase(msg)
@@ -103,7 +103,7 @@ test "an actor that faults dies and later sends are dropped" {
     send_dyn(sturdy, erase(4))
     park(me)
     let exit: Exit = unerase(await_answer(wid))
-    expect(exit.reason.contains("value is absent"), "the fault is the reason")
+    expect(exit.reason.contains("unreachable"), "the fault is the reason")
     expect(true, "the pool kept working after a death")
 }
 
@@ -223,7 +223,7 @@ test "a watch is answered when the actor dies" {
     let fragile = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
         let _n: Int = unerase(msg)
         let xs: List<Int> = List<Int>()
-        let _boom = get(xs, 0)!
+        let _boom = get(xs, 0) ?: unreachable!()
     }))
     let w = waiter()
     let {token, wid} = w
@@ -246,7 +246,7 @@ test "an unwatched death reaches the pool's sink" {
     let fragile = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
         let _n: Int = unerase(msg)
         let xs: List<Int> = List<Int>()
-        let _boom = get(xs, 0)!
+        let _boom = get(xs, 0) ?: unreachable!()
     }))
     send_dyn(fragile, erase(1))
     on_idle(main_pool(), token)
@@ -276,7 +276,7 @@ test "a dedicated pool retires when its actor dies" {
     let doomed = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
         let _n: Int = unerase(msg)
         let xs: List<Int> = List<Int>()
-        let _boom = get(xs, 0)!
+        let _boom = get(xs, 0) ?: unreachable!()
     }))
     let w = waiter()
     let {token, wid} = w

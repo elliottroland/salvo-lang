@@ -382,22 +382,25 @@ Conventions:
     backends emitted a two-arm union and constructed a third (ROADMAP §2d
     item 2, a [backend-never-wrong] hole).
 * [type-nullable] There is no null value: `T?` is shorthand for
-  `T | None`. `x!` asserts non-`None` (panics otherwise).
-* [assert-op] `expr!` asserts that a value is **present** and answers it
-  without its `None` arms. Its operand's type must *have* a `None` arm: on
-  anything else the `!` states something false, and it is an error naming the
-  alternatives (`?:` for a fallback, `is None` for a test). Before the rule
-  (user decision 2026-09-23, ASSERTIONS.md A-1) the two backends disagreed about
-  the leftover — rustc refused `.unwrap()` on an `i32` while kotlinc accepted
-  `!!` with a warning and ran, which is [backend-never-wrong] broken at the
-  checker's expense. `Ty::Unknown` iterators through [type-unknown-lenient].
-  * A union with no `None` arm is the same mistake, since `!` removes `None`
-    arms and there are none.
-  * The rule makes a `!` that *becomes* provable a build error rather than dead
-    code — which happens whenever the checker learns to prove more
-    ([col-of-nonempty] and [deduce-gained] each did it in one day). That cost is
-    accepted deliberately: a `!` whose operand cannot be absent is a statement
-    that is false, not merely unused.
+  `T | None`.
+* [assert-op] **There is no postfix `!`** (user decision 2026-10-20: "non-null
+  assertions are dangerous and should therefore not be 'easy' to do"). Until
+  then `expr!` asserted presence and answered the value without its `None`
+  arms. Its replacements are the forms that say so out loud:
+  * `e ?: unreachable!("why")` for a value — the first-arm pick [elvis] with
+    a trapping right side, which on a `T?` is exactly the old `e!`. On a
+    union with more than one value arm (`A | B | None`) it keeps only `A`, so
+    there the remedy is a test.
+  * `assert!(x !is None)` for a variable or field: it narrows `x` for the
+    rest of the scope [assert-narrow], every value arm kept.
+  * A postfix `!` is a parse error naming both, where it is written: left to
+    the grammar, a stray `!` before a line break would read as the prefix
+    `!` of the next statement.
+  * Analyses that followed a value through `!` (fate links, projections, lends,
+    a view's provenance) follow it through `e ?: <escape>` instead
+    (`ast::Expr::presence_unwrapped`), so the rewritten code keeps its
+    borrows. A copy of such an expression is applied inside it on Rust
+    ([rs-loop-temp]), since the value may borrow a temporary the block binds.
 * [assert-fn] Two compiler-owned forms, spelled with a `!` because a bang in
   Salvo marks a place that can fail (user decision 2026-09-23, A-3):
   `assert!(cond)` / `assert!(cond, "why")`, `unreachable!()` /
@@ -786,7 +789,7 @@ Conventions:
     simply *also* applies — both claims are established, since every
     state-qualifier pair composes [qual-no-with] and all matching refinements
     apply [qual-refn-match].
-  * The overload delegates to `get(list, 0)!`, **not** to `first@core.list`:
+  * The overload delegates to `get(list, 0) ?: unreachable!()`, **not** to `first@core.list`:
     the scope selector names the module, and within it a `NonEmpty` argument
     re-picks this same overload, which recurses forever.
   * The constructor is an `intrinsic` only because mixing a plain argument
@@ -1472,7 +1475,7 @@ Conventions:
   found …".
 * [default-predicate] **A default may lack a predicate qualifier with
   constant arguments**, which is then **tested where the default is
-  applied** and traps when it fails, as `x!` traps on `None` (user decision
+  applied** and traps when it fails, as `x ?: unreachable!()` traps on `None` (user decision
   2026-10-20, the CLI design record round 2 Q2): `port: InRange(1, 65535) Int = 8080`
   compiles, and an `Opts {}` whose default does not satisfy the claim stops
   there with "the default for field `port` is not `InRange(1, 65535) Int`".
@@ -2602,11 +2605,11 @@ Conventions:
   the two narrow sets, which is what makes `if x !is Q { return }` narrow the
   rest of the block.
   * **It had to be a parser rule, because the spelling was already legal and
-    meant something else.** `!` is the assert postfix [type-nullable], so
+    meant something else.** `!` was then the assert postfix [assert-op], so
     `s !is Str` parsed as `(s!) is Str` — asserting the value present and then
     testing it, which type-checks and reads as the *opposite* of the intent. So
-    the postfix tier now leaves a `!` alone when `is` follows it; `(s!) is Str`
-    is still writable with the parentheses.
+    the postfix tier left a `!` alone when `is` followed it. (The postfix is
+    gone since 2026-10-20; the parser still reads `x !is Q` first.)
   * **No binding and no `^`**: a negated test tells you nothing on the branch it
     guards, so there is no value to name (`!is Q name`) and none to widen
     (`!is ^Q` [qual-lift]). Both are errors naming the positive form.
@@ -8725,7 +8728,7 @@ between endpoints and delivers what arrives into the scheduler.
     exist**: a borrow has forgotten where its element is, and a position is
     never recovered. A fn declared `-> ref(c) …` returns a position: a
     place (a field path, a search loop's element, a bound handle), another
-    mint's result, `None`, or `x!` of those. Returning a reader's result
+    mint's result, `None`, or `x ?: unreachable!()` of those. Returning a reader's result
     (`return get(list, i)`), directly or through a local, is an error naming
     `-> ref(…)` on the reader as the remedy. std's `at` for `List`, `Deque`
     and `Map` are host primitives, not readers plus a conversion. A `ref`
@@ -8786,7 +8789,7 @@ between endpoints and delivers what arrives into the scheduler.
   its value arms fits the parameter's arm it lands on, by the single-value
   rule ([proj-type], [ref-handle]), and `None` is `None`. So
   `maybe_print(s: Str?)` takes `get(xs, 0)` and `at(a, i)` as written, and
-  `describe(x: A | B)` takes `if c { get(xs, 0)! } else { b }`.
+  `describe(x: A | B)` takes `if c { get(xs, 0) ?: unreachable!() } else { b }`.
   * **Where an arm lands**: on the target arm whose type, with `proj`/`ref`
     and `Mut` dropped, is its own — the arm identity of
     [union-arm-identity], wrapper tags (`Ok`, `Err`) kept.
@@ -8833,10 +8836,10 @@ between endpoints and delivers what arrives into the scheduler.
     …)`).
   * **Anywhere inside the container** (user decision 2026-10-10): the
     handle may be a position at any depth of `c` — `ref(lib) Mut Track`
-    takes `at(at(lib.albums, i)!.tracks, j)!`, `at(al.tracks, j)!` of a
-    bound `al = at(lib.albums, i)!`, or a mint answering `ref(lib)`. Its
+    takes `at((at(lib.albums, i) ?: unreachable!()).tracks, j) ?: unreachable!()`, `at(al.tracks, j) ?: unreachable!()` of a
+    bound `al = at(lib.albums, i) ?: unreachable!()`, or a mint answering `ref(lib)`. Its
     link to `c` need only extend `c`'s own path. (A field of a view a call
-    handed back is part of what it views, so `at(lib.albums, i)!.tracks`
+    handed back is part of what it views, so `(at(lib.albums, i) ?: unreachable!()).tracks`
     is not a temporary.)
   * **Anchored at another handle** (user decision 2026-10-10): `ref(c)`
     may name a parameter that is itself a handle — `fn swap_in(lib:
@@ -9015,18 +9018,18 @@ between endpoints and delivers what arrives into the scheduler.
   2026-09-12): the closure holds a borrow of every non-Copy capture its
   body only reads, exactly as a struct holds its `proj` fields
   [proj-field] — because a body can return projections rooted in a
-  capture (`i -> get(words, i)!` hands out elements of `words`), which no
+  capture (`i -> (get(words, i) ?: unreachable!())` hands out elements of `words`), which no
   fn type can name (`proj(…)` sources are parameters; captures are
   unnameable). So the *value* carries the link: binding the lambda links
   it to the captured roots (held, borrowed); a call result linked to a
   lambda argument reaches those roots transitively (which is what makes
-  `map(indices, i -> get(all, i)!)` both legal and correctly poisoned by
+  `map(indices, i -> (get(all, i) ?: unreachable!()))` both legal and correctly poisoned by
   a later move of `all`); a capture-free lambda holds nothing, so
   `map(p, w -> w)` binds with no ceremony (a lambda expression is never
   itself a "temporary" a view could dangle from). A capture the closure
   *consumes* is owned, not borrowed — the `once` rule [fate-lambda] —
   and a Copy scalar capture links nothing [copy-scalar-free]. Before
-  this rule, naming the lambda (`let f = i -> get(words, i)!`) evaded
+  this rule, naming the lambda (`let f = i -> (get(words, i) ?: unreachable!())`) evaded
   the discipline entirely: `eat(words)` was accepted with the view live.
   * Rust: a capture-rooted projection in a lambda tail stays the borrow
     (`|i| all.get((*i) as usize).unwrap()` returning `&String` into a

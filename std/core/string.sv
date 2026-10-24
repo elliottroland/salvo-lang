@@ -147,7 +147,7 @@ export qualifier SpanOf(str: Str) of Span {
 // substring itself — the optionality was paid once, where the span was
 // tested, instead of at every use.
 export fn substr(str: Str, at: SpanOf(str) Span) [] -> Str => str, at {
-    return substr(str, at.start, at.end)!
+    return substr(str, at.start, at.end) ?: unreachable!()
 }
 
 // [str] with every character in upper case

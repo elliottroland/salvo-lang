@@ -526,7 +526,7 @@ handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
     }
 
     fn next_random() -> T {
-        let value = get(values, i % values.size())!
+        let value = get(values, i % values.size()) ?: unreachable!()
         i = i + 1
         return copy(value)
     }
@@ -683,7 +683,7 @@ fn main() [use] -> None {
         }
         k
     }
-    println("capped: ${capped!}")
+    println("capped: ${capped ?: unreachable!()}")
 
     let n = 0
     let verdict: Ok Int | Err Str = while n < 3 {
@@ -1036,13 +1036,13 @@ fn main() [use] {
     use StdConsole()
     let xs: List<Mut Counter> = List(Mut Counter { n: 1 })
     let ys = copy(xs)
-    let e = at(xs, 0)!
+    let e = at(xs, 0) ?: unreachable!()
     e.n = 5
-    println("${get(xs, 0)!.n} ${get(ys, 0)!.n}")
+    println("${(get(xs, 0) ?: unreachable!()).n} ${(get(ys, 0) ?: unreachable!()).n}")
     let ls = Mut List(Mut List(1))
     let ms = copy(ls)
-    add(at(ls, 0)!, 2)
-    println("${size(get(ls, 0)!)} ${size(get(ms, 0)!)}")
+    add(at(ls, 0) ?: unreachable!(), 2)
+    println("${size(get(ls, 0) ?: unreachable!())} ${size(get(ms, 0) ?: unreachable!())}")
 }
 "#;
     let files = generate(&[("main.sv", src)]);
@@ -1170,7 +1170,7 @@ fn ranked<T>(?cmp: (T, T) -> Int) [] -> Mut Ranked<T>(?cmp) {
 fn push<T>(r: Mut Ranked<T>(?cmp), x: T) [] -> None => r: Mut, !x {
     let i = 0
     while i < size(r.items) {
-        let y = get(r.items, i)!
+        let y = get(r.items, i) ?: unreachable!()
         if x < y {
             break
         }
@@ -1197,7 +1197,7 @@ fn main() [use] -> None {
     push(down, 3)
     push(down, 1)
     push(down, 2)
-    println("${up.items} ${down.items} ${top(up)!} ${top(down)!}")
+    println("${up.items} ${down.items} ${top(up) ?: unreachable!()} ${top(down) ?: unreachable!()}")
 }
 "#;
     let files = generate(&[("main.sv", src)]);
@@ -3524,7 +3524,7 @@ handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
     }
 
     fn next_random() -> T {
-        let value = get(values, i % values.size())!
+        let value = get(values, i % values.size()) ?: unreachable!()
         i = i + 1
         return copy(value)
     }
@@ -3591,7 +3591,7 @@ fn main() [use] -> None {
     use StdConsole
     use CyclicRandom(array_of(1, 2, 3, 4))
     let nums: Int[] = array_of(3, 4, 5)
-    println("size ${nums.size()} get ${nums.get(2)!} first ${nums.first()!}")
+    println("size ${nums.size()} get ${nums.get(2) ?: unreachable!()} first ${nums.first() ?: unreachable!()}")
     for n in nums.iter() {
         println("iter ${n}")
     }
@@ -6066,7 +6066,7 @@ fn least_index<T>(r: Ranked<T>(?cmp) List<T>) -> Int => r {
     let best = 0
     let i = 1
     while i < size(r) {
-        if cmp(get(r, i)!, get(r, best)!) < 0 {
+        if cmp(get(r, i) ?: unreachable!(), get(r, best) ?: unreachable!()) < 0 {
             best = copy(i)
         }
         i = i + 1
@@ -6090,7 +6090,7 @@ fn main() [use] {
         ),
         Person {name: "Cyd", age: 31}
     )
-    let youngest = get(by_age, least_index(by_age))!
+    let youngest = get(by_age, least_index(by_age)) ?: unreachable!()
     println("by age: ${youngest.name} of ${ranked_size(by_age)}")
 
     // Built with another ordering: the same code, a different answer.
@@ -6101,7 +6101,7 @@ fn main() [use] {
         ),
         Person {name: "Ada", age: 36}
     )
-    let first = get(alpha, least_index(alpha))!
+    let first = get(alpha, least_index(alpha)) ?: unreachable!()
     println("by name: ${first.name} of ${ranked_size(alpha)}")
 }
 "#;
@@ -6146,8 +6146,8 @@ fn main() [use] {
         Person {name: "Bob", age: 24},
         cmp = by_age
     )
-    println("byname ${lowest(byname)!.name} of ${size(byname)}")
-    println("byage ${lowest(byage)!.name} of ${size(byage)}")
+    println("byname ${(lowest(byname) ?: unreachable!()).name} of ${size(byname)}")
+    println("byage ${(lowest(byage) ?: unreachable!()).name} of ${size(byage)}")
 
     // `cmp`-distinct membership: a second 24-year-old is the same member under
     // `by_age`, and its own member under the canonical ordering.
@@ -7823,13 +7823,13 @@ fn main() [use] {
     let lo = "lo"
     let at = index_of(hay, ll)
     let nowhere = index_of(hay, pa)
-    println("${at!} ${nowhere is None}")
+    println("${at ?: unreachable!()} ${nowhere is None}")
     let sub = substr(hay, 1, 3)
     let oob = substr(hay, 1, 9)
-    println("${sub!} ${oob is None}")
+    println("${sub ?: unreachable!()} ${oob is None}")
     let n = parse_int("42")
     let bad = parse_int(pa)
-    println("${n!} ${bad is None}")
+    println("${n ?: unreachable!()} ${bad is None}")
     println("${trim_prefix(hay, hay)}${trim_suffix(hay, lo)}|")
 
     let count = Mut List<Int>()
@@ -7845,7 +7845,7 @@ fn main() [use] {
     let round = str_of_bytes(bytes)
     let broken = mut_bytes()
     add(broken, to_byte(200))
-    println("bytes: ${bytes} ${to_hex(bytes)} ${round!} ${str_of_bytes(broken) is None}")
+    println("bytes: ${bytes} ${to_hex(bytes)} ${round ?: unreachable!()} ${str_of_bytes(broken) is None}")
 
     // Operators drop `Mut` too, so equality is by content on both targets.
     let x = Mut Str(pa)
@@ -8838,7 +8838,7 @@ fn main() [use] {
     show(next(p))
     show(next(p))
     show(next(p))
-    let e = get(words, 0)!
+    let e = get(words, 0) ?: unreachable!()
     println(e)
     let owned: Str = copy(e)
     println(owned)
@@ -8866,7 +8866,7 @@ fn main() [use] {
     use StdConsole()
     let all = List("a", "b", "c", "d")
     let indices = List(1, 3)
-    let picked = map(indices, i -> get(all, i)!)
+    let picked = map(indices, i -> (get(all, i) ?: unreachable!()))
     for w in picked {
         println(w)
     }
@@ -8893,8 +8893,8 @@ fn rustc_compiles_and_runs_a_capture_rooted_projection() {
     // literal index stays an *answer* rather than rustc's E0600 [col-bounds].
     assert!(
         main.contains("&mut |mut i| -> &String {")
-            && main.contains("let mut __nn_3: Option<&String> = crate::core_list::get_platform::<String>(&all, *i);")
-            && !main.contains("__some_4.clone()"),
+            && main.contains("let mut __pick_3: Option<&String> = crate::core_list::get_platform::<String>(&all, *i);")
+            && !main.contains("__picked_4.clone()"),
         "expected a clone-free, deref'd pick lambda:\n{main}"
     );
     run_rust_files(&files, "pick-list", PICK_LIST_OUTPUT);
@@ -9763,10 +9763,10 @@ export fn heapify<T>(list: Mut List<T>, ?Ordered<T>) [] -> None
                 break
             }
             let smaller = copy(child)
-            if child + 1 < size(list) && cmp(list.get(child + 1)!, list.get(child)!) < 0 {
+            if child + 1 < size(list) && cmp(list.get(child + 1) ?: unreachable!(), list.get(child) ?: unreachable!()) < 0 {
                 smaller += 1
             }
-            if cmp(list.get(at)!, list.get(smaller)!) <= 0 {
+            if cmp(list.get(at) ?: unreachable!(), list.get(smaller) ?: unreachable!()) <= 0 {
                 break
             }
             ignore(list.swap(at, smaller))
@@ -9783,7 +9783,7 @@ export fn heap_push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) [] -> None
     let i = size(heap) - 1
     while i > 0 {
         let parent = (i - 1) / 2
-        if cmp(heap.get(parent)!, heap.get(i)!) <= 0 {
+        if cmp(heap.get(parent) ?: unreachable!(), heap.get(i) ?: unreachable!()) <= 0 {
             break
         }
         ignore(heap.swap(i, parent))
@@ -9803,7 +9803,7 @@ export fn heap_pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) [] -> T
 => heap: +Heap<T>(?cmp) Mut {
     let last = size(heap) - 1
     ignore(heap.swap(0, last))
-    let least = heap.remove_at(last)!
+    let least = heap.remove_at(last) ?: unreachable!()
     let i = 0
     while i < size(heap) {
         let child = i * 2 + 1
@@ -9811,10 +9811,10 @@ export fn heap_pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) [] -> T
             break
         }
         let smaller = copy(child)
-        if child + 1 < size(heap) && cmp(heap.get(child + 1)!, heap.get(child)!) < 0 {
+        if child + 1 < size(heap) && cmp(heap.get(child + 1) ?: unreachable!(), heap.get(child) ?: unreachable!()) < 0 {
             smaller += 1
         }
-        if cmp(heap.get(i)!, heap.get(smaller)!) <= 0 {
+        if cmp(heap.get(i) ?: unreachable!(), heap.get(smaller) ?: unreachable!()) <= 0 {
             break
         }
         ignore(heap.swap(i, smaller))
@@ -9847,7 +9847,7 @@ fn main() [use] {
     heap_push(h, 9)
     heap_push(h, 1)
     heap_push(h, 7)
-    println("root ${first(h)!}")
+    println("root ${first(h) ?: unreachable!()}")
     drain_heap(h)
 
     // A list nobody claimed anything about, made a heap by a function that
@@ -10339,9 +10339,9 @@ fn main() [use] -> None {
     broken.add(to_byte(200))
     println("broken: ${str_of_bytes(broken) is None}")
     // Reading: element, slice, search — each optional where it can miss.
-    println("at 1: ${to_int(get(fixed, 1)!)} / oob: ${get(fixed, 9) is None}")
-    println("slice: ${slice(fixed, 1, 3)!} / bad: ${slice(fixed, 1, 9) is None}")
-    println("index: ${index_of(fixed, to_byte(200))!} / ${index_of(fixed, to_byte(7)) is None}")
+    println("at 1: ${to_int(get(fixed, 1) ?: unreachable!())} / oob: ${get(fixed, 9) is None}")
+    println("slice: ${slice(fixed, 1, 3) ?: unreachable!()} / bad: ${slice(fixed, 1, 9) is None}")
+    println("index: ${index_of(fixed, to_byte(200)) ?: unreachable!()} / ${index_of(fixed, to_byte(7)) is None}")
     // Writing in place, and the clear that makes a buffer reusable.
     let scratch = mut_bytes(fixed)
     scratch.set(0, to_byte(1))
@@ -12079,7 +12079,7 @@ handler Counting() of Counter {
     // Salvo-level throw cannot cross a member boundary.
     send fn crash() {
         let xs: List<Int> = List(1)
-        sum = sum + get(xs, 9)!
+        sum = sum + (get(xs, 9) ?: unreachable!())
     }
 }
 
@@ -14069,9 +14069,9 @@ const ELVIS_BORROW_DEMO: &str = r#"fn main() [use] {
     let a = get(xs, 0) ?: 10
     let b = get(m, "a") ?: 10
     let c = get(m, "zz") ?: 10
-    let d = copy(get(names, 0) ?: get(names, 0)!)
+    let d = copy(get(names, 0) ?: get(names, 0) ?: unreachable!())
     let e = if get(names, 9) is Str s { copy(s) } else { "nobody" }
-    let h = get(names, 9) ?: get(names, 0)!
+    let h = get(names, 9) ?: get(names, 0) ?: unreachable!()
     let first = get(xs, 0)
     let w = when first { is Int { first + 1 } is None { 0 } }
     let found = get(xs, 0)
@@ -14337,7 +14337,7 @@ handler RoundRobin(members: List<eff[Resizer]>) of any Resizer {
     send fn resize(name: Str, w: Int, out: Reply<Str>) => !out {
         let i = next % size(members)
         next = next + 1
-        let target = copy(get(members, i)!)
+        let target = copy(get(members, i) ?: unreachable!())
         target.resize(name, w, out)
     }
 }
@@ -14645,11 +14645,12 @@ fn a_deadline_lowers_to_the_runtime_modules_wheel() {
 
 // ===== [rs-opt-borrow] an owned optional local, read twice =====
 
-/// [rs-opt-borrow] Two `!`s on one optional **local** are two *reads*: the
-/// checker allows them (reading an optional is free), so the lowering must not
-/// move the value the first time. The form is the one a narrowed read already
-/// takes — borrow the `Option`, unwrap the borrow, clone the payload (found
-/// 2026-09-23 writing `std/test.test.sv`, which is the shape below).
+/// [rs-opt-borrow] Two `?:` picks on one optional **local** are two *reads*:
+/// the checker allows them (reading an optional is free), so the lowering must
+/// not move the value the first time. The form is the one a narrowed read
+/// already takes — borrow the `Option`, unwrap the borrow, clone the payload
+/// only where an owned value is wanted (found 2026-09-23 writing
+/// `std/test.test.sv` with the since-removed postfix `!`).
 const REREAD_OPTIONAL: &str = r#"
 fn len_of(s: Str) -> Int => s {
     return size(s)
@@ -14662,12 +14663,14 @@ fn shout(s: Str) -> Str => !s {
 fn main() [use] {
     use StdConsole()
     let maybe: Str? = "hello"
-    println("once ${size(maybe!)}")
-    println("twice ${size(maybe!)}")
-    println("kept ${len_of(maybe!)}")
-    println("owned ${shout(maybe!)}")
+    println("once ${size(maybe ?: "")}")
+    println("twice ${size(maybe ?: "")}")
+    let kept: Str? = "hello"
+    println("kept ${len_of(kept ?: unreachable!())}")
+    let owned: Str? = "hello"
+    println("owned ${shout(owned ?: unreachable!())}")
     let n: Int? = 3
-    println("copy ${n! + n!}")
+    println("copy ${(n ?: 0) + (n ?: 0)}")
 }
 "#;
 
@@ -14681,21 +14684,21 @@ fn an_owned_optional_local_is_read_through_a_borrow() {
         .content;
     // Non-Copy payload: borrowed, unwrapped, cloned — so the second read still
     // has something to read.
-    // Four reads of the same local, every one of them borrowing the `Option`.
-    assert_eq!(main.matches("= &maybe;").count(), 4, "expected every read to borrow:\n{main}");
+    // Two reads of the same local, both of them borrowing the `Option`.
+    assert_eq!(main.matches("= &maybe;").count(), 2, "expected every read to borrow:\n{main}");
     assert!(!main.contains("maybe.unwrap()"), "a read moved the local:\n{main}");
     // A Copy payload needs none of it: the `Option` is Copy, so `.unwrap`
     // moves nothing.
-    assert!(main.contains("let mut __some_12 = __nn_11.unwrap();"), "expected the Copy payload to stay direct:\n{main}");
+    assert!(main.contains("let mut __picked_16 = __pick_15.unwrap();"), "expected the Copy payload to stay direct:\n{main}");
     // [rs-read-mode] A **kept** parameter is a read: the unwrap answers the
     // `&String` straight into the position — no clone, and no second `&`.
     assert!(
-        main.contains("crate::len_of({") && main.contains("let mut __some_8 = __nn_7.as_ref().unwrap();\n            __some_8\n"),
+        main.contains("crate::len_of({") && main.contains("let mut __picked_10 = __pick_9.as_ref().unwrap();\n            __picked_10\n"),
         "a kept argument cloned:\n{main}"
     );
     // …and a *consuming* one still gets a value of its own.
     assert!(
-        main.contains("let mut __some_10 = __nn_9.as_ref().unwrap();\n            __some_10.clone()\n"),
+        main.contains("let mut __picked_13 = __pick_12.as_ref().unwrap();\n            __picked_13.clone()\n"),
         "a consumed argument did not get an owned value:\n{main}"
     );
     run_rust_files(
@@ -14707,7 +14710,7 @@ fn an_owned_optional_local_is_read_through_a_borrow() {
 
 /// [rs-read-mode] An **intrinsic** argument takes its mode from the
 /// intrinsic's own declaration, not from the position the call sits in:
-/// `contains(str, needle) => str, needle` keeps both, so a `!` read of a local
+/// `contains(str, needle) => str, needle` keeps both, so a `?:` pick on a local
 /// hands the lowering the reference it already has. `add(list: Mut List<T>,
 /// elem: T) => !elem` keeps the *list* and consumes the element — so the list
 /// is reached mutably and the element arrives owned.
@@ -14715,11 +14718,12 @@ const INTRINSIC_OPTIONAL_ARGS: &str = r#"
 fn main() [use] {
     use StdConsole()
     let maybe: Str? = "hello"
-    if contains(maybe!, "ell") { println("found") }
-    println("upper ${to_upper(maybe!)}")
+    if contains(maybe ?: unreachable!(), "ell") { println("found") }
+    let other: Str? = "hello"
+    println("upper ${to_upper(other ?: unreachable!())}")
     let xs: Mut List<Int>? = Mut List(1)
-    add(xs!, 3)
-    println("xs ${size(xs!)}")
+    add(xs ?: unreachable!(), 3)
+    println("xs ${size(xs)}")
 }
 "#;
 
@@ -14733,7 +14737,7 @@ fn an_intrinsic_argument_takes_the_intrinsics_own_mode() {
         .content;
     // A kept parameter: the unwrap's `&String` goes straight into the template.
     assert!(
-        main.contains("let mut __some_4 = __nn_3.as_ref().unwrap();\n            __some_4\n        }\n    }, &String::from(\"ell\"))"),
+        main.contains("let mut __picked_4 = __pick_3.as_ref().unwrap();\n            __picked_4\n        } else {\n            panic!(\"salvo: unreachable at main:5:26\")\n        }\n    }, &String::from(\"ell\"))"),
         "a kept intrinsic argument cloned:\n{main}"
     );
     assert!(
@@ -14749,8 +14753,8 @@ fn an_intrinsic_argument_takes_the_intrinsics_own_mode() {
     // `xs.as_ref().expect(…).clone().push(3)`, which appends to the clone and
     // prints `xs 1` where Kotlin prints `xs 2`.
     assert!(
-        main.contains("let mut __nn_7 = &mut xs;")
-            && main.contains("let mut __some_8 = __nn_7.as_mut().unwrap();\n            &mut *__some_8\n"),
+        main.contains("let mut __pick_9 = &mut xs;")
+            && main.contains("let mut __picked_10 = __pick_9.as_mut().unwrap();\n            &mut *__picked_10\n"),
         "a `Mut` intrinsic argument did not reach the storage:\n{main}"
     );
     assert!(!main.contains(".clone()"), "{main}");
@@ -14761,7 +14765,7 @@ fn an_intrinsic_argument_takes_the_intrinsics_own_mode() {
     );
 }
 
-/// [rs-read-mode] A **narrowed** read is the same question as `!`, one path
+/// [rs-read-mode] A **narrowed** read is the same question as a `?:` pick, one path
 /// over: `narrow_unwrap` renders through a borrow either way, and the
 /// `.clone()` is the position's to ask for.
 const NARROWED_READS: &str = r#"
@@ -14845,7 +14849,7 @@ fn bump(c: Mut Counter) -> None => c: Mut {
 }
 
 fn poke(xs: List<Mut Counter>) -> None {
-    let h = at(xs, 1)!
+    let h = at(xs, 1) ?: unreachable!()
     h.n = h.n + 10
     bump(h)
 }
@@ -14853,10 +14857,10 @@ fn poke(xs: List<Mut Counter>) -> None {
 fn main() [use] {
     use StdConsole()
     let xs: List<Mut Counter> = List(Mut Counter { n: 1 }, Mut Counter { n: 2 })
-    bump(at(xs, 0)!)
+    bump(at(xs, 0) ?: unreachable!())
     poke(xs)
-    let a = get(xs, 0)!
-    let b = get(xs, 1)!
+    let a = get(xs, 0) ?: unreachable!()
+    let b = get(xs, 1) ?: unreachable!()
     println("${a.n} ${b.n}")
 }
 "#;
@@ -14909,6 +14913,36 @@ fn rustc_compiles_and_runs_elem_mut_handles() {
     run_rust_files(&files, "elem_mut", "2 13\n");
 }
 
+/// [assert-op] [rs-loop-temp] `copy` of an `?: unreachable!(…)` pick whose
+/// subject borrows a temporary (`make().items`): the pick binds the temporary
+/// inside its block, so on Rust the copy goes into the arm's value — a clone
+/// outside the block would reach a temporary already dropped (E0597, found
+/// removing the postfix `!`, 2026-10-14).
+const COPY_OF_A_PICK_DEMO: &str = r#"
+struct Box {
+    items: List<Str>
+}
+
+fn make() [] -> Box {
+    return Box { items: List("a", "b") }
+}
+
+fn show(s: Str) [] -> Str => !s {
+    return s
+}
+
+fn main() [use] {
+    use StdConsole()
+    println(show(copy(get(make().items, 1) ?: unreachable!("empty"))))
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_a_copy_of_a_pick_over_a_temporary() {
+    let files = generate(&[("main.sv", COPY_OF_A_PICK_DEMO)]);
+    run_rust_files(&files, "copy-of-a-pick", "b\n");
+}
+
 /// [rs-loc] ④a slice 5 — a **search loop** whose element binding is
 /// returned: in the minting fn's path rendering the `for` over a list becomes
 /// an *indexed* loop and the binding a captured-index handle, so the found
@@ -14935,8 +14969,8 @@ fn wounded(es: List<Mut Entity>) -> (ref(es) Mut Entity)? {
 fn main() [use] {
     use StdConsole()
     let es: List<Mut Entity> = List(Mut Entity { hp: 50 }, Mut Entity { hp: 3 })
-    heal(wounded(es)!)
-    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+    heal(wounded(es) ?: unreachable!())
+    println("${(get(es, 0) ?: unreachable!()).hp} ${(get(es, 1) ?: unreachable!()).hp}")
 }
 "#;
 
@@ -15005,10 +15039,10 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 fn main() [use] {
     use StdConsole()
     let a = Mut A { b: Mut B { c: List(Mut Entity { hp: 1 }, Mut Entity { hp: 2 }) } }
-    heal(at(a, 1)!)
-    let h = at(a, 0)!
+    heal(at(a, 1) ?: unreachable!())
+    let h = at(a, 0) ?: unreachable!()
     h.hp = h.hp + 100
-    println("${get(a.b.c, 0)!.hp} ${get(a.b.c, 1)!.hp}")
+    println("${(get(a.b.c, 0) ?: unreachable!()).hp} ${(get(a.b.c, 1) ?: unreachable!()).hp}")
 }
 "#;
 
@@ -15190,11 +15224,11 @@ fn main() [use] {
         Mut Entity { hp: 20, energy: 8 })
     let i = 0
     let j = 1
-    attack(es, at(es, i)!, at(es, j)!)
+    attack(es, at(es, i) ?: unreachable!(), at(es, j) ?: unreachable!())
     // …and the aliasing case `ref(c)` exists for: one element, both
     // handles.
-    attack(es, at(es, i)!, at(es, i)!)
-    println("${get(es, 0)!.hp} ${get(es, 0)!.energy} ${get(es, 1)!.hp}")
+    attack(es, at(es, i) ?: unreachable!(), at(es, i) ?: unreachable!())
+    println("${(get(es, 0) ?: unreachable!()).hp} ${(get(es, 0) ?: unreachable!()).energy} ${(get(es, 1) ?: unreachable!()).hp}")
 }
 "#;
 
@@ -16002,10 +16036,10 @@ fn main() [use] {
         Mut Fighter { name: "Bo", hp: 8, energy: 9 }) }
     let i = 0
     let j = 1
-    trade(squad.members, at(squad.members, i)!, at(squad.members, j)!)
+    trade(squad.members, at(squad.members, i) ?: unreachable!(), at(squad.members, j) ?: unreachable!())
     // …and the aliasing case `ref(c)` exists for: one fighter, both roles.
-    trade(squad.members, at(squad.members, i)!, at(squad.members, i)!)
-    println("${get(squad.members, 0)!.energy} ${get(squad.members, 1)!.energy}")
+    trade(squad.members, at(squad.members, i) ?: unreachable!(), at(squad.members, i) ?: unreachable!())
+    println("${(get(squad.members, 0) ?: unreachable!()).energy} ${(get(squad.members, 1) ?: unreachable!()).energy}")
 }
 "#;
 
@@ -16176,15 +16210,15 @@ fn main() [use] {
         Mut Entity { hp: 20, energy: 8 })
     let i = 0
     let j = 1
-    let a = at(es, i)!
-    let d = at(es, j)!
+    let a = at(es, i) ?: unreachable!()
+    let d = at(es, j) ?: unreachable!()
     if d is NotSame(a) {
         attack(a, d)
         a.hp = a.hp + 1
         d.hp = d.hp + 1
         attack(a, d)
     }
-    println("${get(es, 0)!.hp} ${get(es, 0)!.energy} ${get(es, 1)!.hp} ${get(es, 1)!.energy}")
+    println("${(get(es, 0) ?: unreachable!()).hp} ${(get(es, 0) ?: unreachable!()).energy} ${(get(es, 1) ?: unreachable!()).hp} ${(get(es, 1) ?: unreachable!()).energy}")
 }
 "#;
 
@@ -16235,9 +16269,9 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 fn main() [use] {
     use StdConsole()
     let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
-    heal(front(es)!)
-    let hp = front(es)!.hp
-    println("${hp} ${get(es, 1)!.hp}")
+    heal(front(es) ?: unreachable!())
+    let hp = (front(es) ?: unreachable!()).hp
+    println("${hp} ${(get(es, 1) ?: unreachable!()).hp}")
 }
 "#;
 
@@ -16290,11 +16324,11 @@ fn front(es: List<Mut Entity>) -> (ref(es) Mut Entity)? {
 fn main() [use] {
     use StdConsole()
     let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
-    let boss = front(es)!
+    let boss = front(es) ?: unreachable!()
     boss.hp = boss.hp + 100
     let n = size(es)
     boss.hp = boss.hp + n
-    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+    println("${(get(es, 0) ?: unreachable!()).hp} ${(get(es, 1) ?: unreachable!()).hp}")
 }
 "#;
 
@@ -16385,7 +16419,7 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 
 fn bump_at(es: List<Mut Entity>, i: Int,
            at: (c: List<Mut Entity>, k: Int) -> ref(c) Mut Entity?) -> None {
-    heal(at(es, i)!)
+    heal(at(es, i) ?: unreachable!())
     return None
 }
 
@@ -16393,7 +16427,7 @@ fn main() [use] {
     use StdConsole()
     let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     bump_at(es, 1, (c: List<Mut Entity>, k: Int) -> at(c, k))
-    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+    println("${(get(es, 0) ?: unreachable!()).hp} ${(get(es, 1) ?: unreachable!()).hp}")
 }
 "#;
 
@@ -16441,7 +16475,7 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 }
 
 fn heal_at<L>(c: List<Mut Entity>, l: L, ?Ref<List<Mut Entity>, L, Entity>) -> None {
-    heal(at(c, l)!)
+    heal(at(c, l) ?: unreachable!())
     return None
 }
 
@@ -16449,7 +16483,7 @@ fn main() [use] {
     use StdConsole()
     let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     heal_at(es, 1)
-    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+    println("${(get(es, 0) ?: unreachable!()).hp} ${(get(es, 1) ?: unreachable!()).hp}")
 }
 "#;
 
@@ -16500,7 +16534,7 @@ handler FirstLender of Lender {
 }
 
 fn run(es: List<Mut Entity>) [Lender] -> None {
-    heal(lease(es)!)
+    heal(lease(es) ?: unreachable!())
     return None
 }
 
@@ -16509,7 +16543,7 @@ fn main() [use] {
     use FirstLender()
     let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     run(es)
-    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+    println("${(get(es, 0) ?: unreachable!()).hp} ${(get(es, 1) ?: unreachable!()).hp}")
 }
 "#;
 
@@ -16558,8 +16592,8 @@ fn main() [use] {
     let es: List<Mut Entity> = List(Mut Entity { hp: 1 }, Mut Entity { hp: 2 })
     let i = 0
     let j = 1
-    let a = at(es, i)!
-    let d = at(es, j)!
+    let a = at(es, i) ?: unreachable!()
+    let d = at(es, j) ?: unreachable!()
     if d is NotSame(a) {
         let x = poke(a, d)
         println("${x}")
@@ -16809,7 +16843,7 @@ handler FirstLender of Lender {
 }
 
 fn run(es: List<Mut Entity>) [Lender] -> None {
-    let e = lease(es)!
+    let e = lease(es) ?: unreachable!()
     let n = size(es)
     e.hp = e.hp + n
     return None
@@ -16820,7 +16854,7 @@ fn main() [use] {
     use FirstLender()
     let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     run(es)
-    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+    println("${(get(es, 0) ?: unreachable!()).hp} ${(get(es, 1) ?: unreachable!()).hp}")
 }
 "#;
 
@@ -16855,14 +16889,14 @@ fn heal(e: Mut Entity, by: Int) -> None => e: Mut {
 }
 
 fn run(t: Mut Team) [Roster] -> None => t: Mut {
-    let a = member(t, 0)!
-    let b = member(t, 1)!
+    let a = member(t, 0) ?: unreachable!()
+    let b = member(t, 1) ?: unreachable!()
     t.name = "renamed"
     if b is NotSame(a) {
         a.hp = a.hp + b.hp
         heal(b, 100)
     }
-    heal(member(t, 0)!, 1000)
+    heal(member(t, 0) ?: unreachable!(), 1000)
     return None
 }
 
@@ -16871,7 +16905,7 @@ fn main() [use] {
     use Plain()
     let t = Mut Team { name: "t", members: List(Mut Entity { hp: 1 }, Mut Entity { hp: 2 }) }
     run(t)
-    println("${t.name} ${get(t.members, 0)!.hp} ${get(t.members, 1)!.hp}")
+    println("${t.name} ${(get(t.members, 0) ?: unreachable!()).hp} ${(get(t.members, 1) ?: unreachable!()).hp}")
 }
 "#;
 
@@ -16905,11 +16939,11 @@ export fn main() [use] -> None {
     let m: Mut Map<Str, Mut List<Mut Item>> = Mut Map()
     let l: Mut List<Mut Item> = Mut List(Mut Item { tag: "x" }, Mut Item { tag: "y" })
     put(m, "a", l)
-    let it = at(at(m, "a")!, 1)!
+    let it = at(at(m, "a") ?: unreachable!(), 1) ?: unreachable!()
     it.tag = "z"
-    let v = at(m, "a")!
+    let v = at(m, "a") ?: unreachable!()
     add(v, Mut Item { tag: "w" })
-    println("${get(get(m, "a")!, 1)!.tag} ${size(get(m, "a")!)}")
+    println("${(get(get(m, "a") ?: unreachable!(), 1) ?: unreachable!()).tag} ${size(get(m, "a") ?: unreachable!())}")
 }
 "#;
 
@@ -16959,7 +16993,7 @@ fn borrow_via<C, L>(c: C, l: L, ?Ref<C, L, Player>) [] -> ref(c) Mut Player? => 
 }
 
 fn bump_at<C, L>(c: C, l: L, ?Ref<C, L, Player>) -> None {
-    let h = at(c, l)!
+    let h = at(c, l) ?: unreachable!()
     h.goals = h.goals + 10
     h.goals = h.goals + 1
 }
@@ -16983,18 +17017,18 @@ export fn main() [use] -> None {
     let league = Mut League { teams: teams, bench: List(Mut Player { name: "Flo", goals: 9 }) }
     let squad: List<Mut Player> = List(Mut Player { name: "Ed", goals: 2 }, Mut Player { name: "Di", goals: 3 })
 
-    bump(league, at(league, "red", 1)!)
-    bump(squad, at(squad, 0)!)
-    swap_goals(league, at(league, "red", 0)!, at(league, "", -1)!)
-    swap_goals(squad, at(squad, 0)!, at(squad, 1)!)
-    let h = borrow_via(squad, 1)!
+    bump(league, at(league, "red", 1) ?: unreachable!())
+    bump(squad, at(squad, 0) ?: unreachable!())
+    swap_goals(league, at(league, "red", 0) ?: unreachable!(), at(league, "", -1) ?: unreachable!())
+    swap_goals(squad, at(squad, 0) ?: unreachable!(), at(squad, 1) ?: unreachable!())
+    let h = borrow_via(squad, 1) ?: unreachable!()
     h.goals = h.goals + 100
     bump_at(squad, 0)
-    score_both(league, at(league, "red", 0)!, at(league, "", -1)!)
-    score_both(squad, at(squad, 0)!, at(squad, 0)!)
-    let red = get(league.teams, "red")!
-    println("${get(red.roster, 0)!.goals} ${get(red.roster, 1)!.goals} ${get(league.bench, 0)!.goals}")
-    println("${get(squad, 0)!.goals} ${get(squad, 1)!.goals}")
+    score_both(league, at(league, "red", 0) ?: unreachable!(), at(league, "", -1) ?: unreachable!())
+    score_both(squad, at(squad, 0) ?: unreachable!(), at(squad, 0) ?: unreachable!())
+    let red = get(league.teams, "red") ?: unreachable!()
+    println("${(get(red.roster, 0) ?: unreachable!()).goals} ${(get(red.roster, 1) ?: unreachable!()).goals} ${(get(league.bench, 0) ?: unreachable!()).goals}")
+    println("${(get(squad, 0) ?: unreachable!()).goals} ${(get(squad, 1) ?: unreachable!()).goals}")
 }
 "#;
 
@@ -17054,7 +17088,7 @@ export fn main() [use] -> None {
             }
         }
     }
-    println("${get(xs, i)!.hp} ${get(xs, j)!.hp}")
+    println("${(get(xs, i) ?: unreachable!()).hp} ${(get(xs, j) ?: unreachable!()).hp}")
 }
 "#;
 
@@ -17145,45 +17179,45 @@ fn bump(x: Mut Cell, y: Mut Cell) -> None => x: Mut, y: Mut {
 
 fn shared_container() [Console] -> None {
     let l = league()
-    let star = at(l, "red", 1)!
+    let star = at(l, "red", 1) ?: unreachable!()
     star.goals = star.goals + 1
     println("bench ${size(l.bench)}")
     star.goals = star.goals + 1
-    trade(l, at(l, "red", 0)!, at(l, "blue", 0)!)
+    trade(l, at(l, "red", 0) ?: unreachable!(), at(l, "blue", 0) ?: unreachable!())
     trade(l, star, star)
     println("${star.name} ${star.goals}")
     // The bench and a roster: the paths diverge at the first field.
-    let sub = at(l, "", -1)!
+    let sub = at(l, "", -1) ?: unreachable!()
     if sub is NotSame(star) {
         score(star, sub)
         star.goals = star.goals + 10
         sub.goals = sub.goals + 100
     }
     // Two handles to one element: the test answers false at run time.
-    let same_one = at(l, "red", 1)!
+    let same_one = at(l, "red", 1) ?: unreachable!()
     if same_one is NotSame(star) {
         println("wrongly distinct")
     } else {
         println("same element")
     }
-    println("${star.goals} ${get(l.bench, 0)!.goals}")
+    println("${star.goals} ${(get(l.bench, 0) ?: unreachable!()).goals}")
 }
 
 fn map_slots() [Console] -> None {
     let l = league()
     // Two map slots: the paths diverge at the slot.
-    let a = at(l, "red", 0)!
-    let b = at(l, "blue", 0)!
+    let a = at(l, "red", 0) ?: unreachable!()
+    let b = at(l, "blue", 0) ?: unreachable!()
     if b is NotSame(a) {
         score(a, b)
         println("${a.goals} ${b.goals}")
     }
     // One slot, two positions in its roster.
-    let c = at(l, "red", 1)!
+    let c = at(l, "red", 1) ?: unreachable!()
     if c is NotSame(a) {
         score(a, c)
     }
-    let d = at(l, "", -1)!
+    let d = at(l, "", -1) ?: unreachable!()
     if d is NotSame(c) {
         score(c, d)
     }
@@ -17192,20 +17226,20 @@ fn map_slots() [Console] -> None {
 
 fn nested() [Console] -> None {
     let a = Mut Outer { tag: "t", b: Inner { c: List(Mut Cell { v: 1 }, Mut Cell { v: 2 }) } }
-    let p = at(a, 0)!
-    let q = at(a, 1)!
+    let p = at(a, 0) ?: unreachable!()
+    let q = at(a, 1) ?: unreachable!()
     if q is NotSame(p) {
         bump(p, q)
         p.v = p.v + 100
         q.v = q.v + 200
     }
-    let r = at(a, 0)!
+    let r = at(a, 0) ?: unreachable!()
     if r is NotSame(p) {
         println("wrongly distinct")
     } else {
         println("same cell")
     }
-    println("${get(a.b.c, 0)!.v} ${get(a.b.c, 1)!.v}")
+    println("${(get(a.b.c, 0) ?: unreachable!()).v} ${(get(a.b.c, 1) ?: unreachable!()).v}")
 }
 
 fn main() [use] {
@@ -17278,13 +17312,13 @@ export fn main() [use] -> None {
     let x = at(a, -1)
     let y = at(a, 0)
     let z = at(a, 5)
-    print_one(y!)
+    print_one(y ?: unreachable!())
     maybe_print(x)
     maybe_print(z)
-    let owned = keep(copy(y!))
-    let w = y!
+    let owned = keep(copy(y))
+    let w = y
     w.text = "changed"
-    println("${owned.text} ${get(a.b.c, 0)!.text}")
+    println("${owned.text} ${(get(a.b.c, 0) ?: unreachable!()).text}")
 }
 "#;
 
@@ -17361,7 +17395,7 @@ fn main() [use] {
     let h = at(es, 0)
     println(named(h))
     let ce = copy(get(es, 0))
-    let hh = h!
+    let hh = h ?: unreachable!()
     hh.hp = 40
     println("${named(ce)} ${named(get(es, 0))}")
     println(inner(view(get(xs, 1))))
@@ -17398,15 +17432,15 @@ fn main() [use] {
     let d: Mut Deque<Mut Item> = mut_deque_of()
     add_first(d, Mut Item { n: 1 })
     add_last(d, Mut Item { n: 2 })
-    let h = at(d, 1)!
+    let h = at(d, 1) ?: unreachable!()
     h.n = h.n + 10
     println("${size(d)} ${h.n}")
-    bump(at(d, 0)!)
+    bump(at(d, 0) ?: unreachable!())
     let i = 0
     if i is Idx(d) {
         bump(at(d, i))
     }
-    println("${at(d, 7) is None} ${get(d, 0)!.n} ${get(d, 1)!.n}")
+    println("${at(d, 7) is None} ${(get(d, 0) ?: unreachable!()).n} ${(get(d, 1) ?: unreachable!()).n}")
     let m: Mut Map<Str, Mut Item> = Mut Map()
     put(m, "a", Mut Item { n: 5 })
     let k = "a"
@@ -17415,7 +17449,7 @@ fn main() [use] {
         v.n = v.n * 3
         bump(at(m, k))
     }
-    println("${get(m, "a")!.n}")
+    println("${(get(m, "a") ?: unreachable!()).n}")
 }
 "#;
 
@@ -17461,18 +17495,18 @@ fn bump(c: Mut Counter) -> None => c: Mut {
 fn main() [use] {
     use StdConsole()
     let cs: Mut List<Mut Counter> = Mut List(Mut Counter { n: 1 }, Mut Counter { n: 2 })
-    let h = head_of(cs)!
+    let h = head_of(cs) ?: unreachable!()
     h.n = h.n + 10
-    bump(pick_via(cs, 1)!)
-    bump(pick2(cs, 1)!)
-    println("${get(cs, 0)!.n} ${get(cs, 1)!.n}")
+    bump(pick_via(cs, 1) ?: unreachable!())
+    bump(pick2(cs, 1) ?: unreachable!())
+    println("${(get(cs, 0) ?: unreachable!()).n} ${(get(cs, 1) ?: unreachable!()).n}")
     let ss: List<Str> = List("a", "b")
-    println("${head_of(ss)!} ${pick_via(ss, 1)!} ${pick2(ss, 0)!}")
+    println("${head_of(ss) ?: unreachable!()} ${pick_via(ss, 1) ?: unreachable!()} ${pick2(ss, 0) ?: unreachable!()}")
     // a read-only handle held across a write through another handle
-    let r = head_of(ss)!
-    let w = head_of(cs)!
+    let r = head_of(ss) ?: unreachable!()
+    let w = head_of(cs) ?: unreachable!()
     w.n = w.n + 100
-    println("${r} ${get(cs, 0)!.n}")
+    println("${r} ${(get(cs, 0) ?: unreachable!()).n}")
 }
 "#;
 
@@ -17531,7 +17565,7 @@ fn bump(x: Mut A | Mut B) -> None => x: None {
 }
 
 fn pick(flag: Bool, xs: List<Mut A>, b: B) -> Str => xs, b {
-    let v = if flag { get(xs, 0)! } else { b }
+    let v = if flag { get(xs, 0) ?: unreachable!() } else { b }
     return relay(v)
 }
 
@@ -17545,11 +17579,11 @@ fn main() [use] {
     let m: Mut A | Mut B = Mut B { s: "q" }
     bump(m)
     bump(m)
-    let h = at(xs, 0)!
+    let h = at(xs, 0) ?: unreachable!()
     let w: Mut A | Mut B = Mut A { n: 0 }
     bump(w)
-    println("${describe(m)} ${describe(w)} ${get(xs, 0)!.n}")
-    let c = copy(if true { get(xs, 0)! } else { b })
+    println("${describe(m)} ${describe(w)} ${(get(xs, 0) ?: unreachable!()).n}")
+    let c = copy(if true { get(xs, 0) ?: unreachable!() } else { b })
     println(describe(c))
     let _ = h
 }
@@ -17596,7 +17630,7 @@ fn main() [use] {
     let ws: List<Mut Str> = List(Mut Str("hey"))
     shout(at(ws, 0))
     shout(at(ws, 0))
-    println("${get(es, 0)!.hp} ${get(es, 1)!.hp} ${own!.hp} ${get(ws, 0)!}")
+    println("${(get(es, 0) ?: unreachable!()).hp} ${(get(es, 1) ?: unreachable!()).hp} ${(own ?: unreachable!()).hp} ${get(ws, 0) ?: unreachable!()}")
 }
 "#;
 
@@ -17814,16 +17848,16 @@ fn main() [use] {
         Mut Album { name: "x", tracks: List(Mut Track { plays: 1 }, Mut Track { plays: 2 }) },
         Mut Album { name: "y", tracks: List(Mut Track { plays: 3 }) }) }
     // Through a mint, inline nested `at`s, and a bound handle.
-    swap_plays(lib, track(lib, 0, 1)!, track(lib, 1, 0)!)
-    swap_plays(lib, at(at(lib.albums, 0)!.tracks, 0)!, at(at(lib.albums, 1)!.tracks, 0)!)
-    let al = at(lib.albums, 0)!
-    swap_plays(lib, at(al.tracks, 0)!, track(lib, 1, 0)!)
+    swap_plays(lib, track(lib, 0, 1) ?: unreachable!(), track(lib, 1, 0) ?: unreachable!())
+    swap_plays(lib, at((at(lib.albums, 0) ?: unreachable!()).tracks, 0) ?: unreachable!(), at((at(lib.albums, 1) ?: unreachable!()).tracks, 0) ?: unreachable!())
+    let al = at(lib.albums, 0) ?: unreachable!()
+    swap_plays(lib, at(al.tracks, 0) ?: unreachable!(), track(lib, 1, 0) ?: unreachable!())
     // Self-strike is fine: one container, two positions that coincide.
-    swap_in(lib, al, at(al.tracks, 0)!, at(al.tracks, 1)!)
-    swap_in(lib, al, at(al.tracks, 1)!, at(al.tracks, 1)!)
-    let a0 = get(lib.albums, 0)!
-    let a1 = get(lib.albums, 1)!
-    println("${a0.name} ${get(a0.tracks, 0)!.plays} ${get(a0.tracks, 1)!.plays} ${a1.name} ${get(a1.tracks, 0)!.plays}")
+    swap_in(lib, al, at(al.tracks, 0) ?: unreachable!(), at(al.tracks, 1) ?: unreachable!())
+    swap_in(lib, al, at(al.tracks, 1) ?: unreachable!(), at(al.tracks, 1) ?: unreachable!())
+    let a0 = get(lib.albums, 0) ?: unreachable!()
+    let a1 = get(lib.albums, 1) ?: unreachable!()
+    println("${a0.name} ${(get(a0.tracks, 0) ?: unreachable!()).plays} ${(get(a0.tracks, 1) ?: unreachable!()).plays} ${a1.name} ${(get(a1.tracks, 0) ?: unreachable!()).plays}")
 }
 "#;
 
