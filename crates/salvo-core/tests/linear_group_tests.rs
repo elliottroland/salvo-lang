@@ -1136,3 +1136,17 @@ fn an_alias_cannot_be_declared_linear() {
         "expected the alias refusal: {diagnostics:?}"
     );
 }
+
+/// [linear-group] [type-identity] Two modules each declaring a linear
+/// `Handle`: the second is keyed by its module (`Handle§other`), and its own
+/// `close` is still its discharger — the discharge set is built of keys, not
+/// of the written name.
+#[test]
+fn a_linear_struct_named_like_another_modules_has_its_own_discharger() {
+    let decl = "export linear struct Handle {\n    fd: Int\n}\n\
+                export fn close(h: Handle) -> None => !h {\n    discard(h)\n}\n\
+                export fn open(fd: Int) -> Handle {\n    return Handle { fd: fd }\n}\n";
+    let other = format!("{decl}fn use_it() -> None {{\n    let h = open(1)\n    close(h)\n}}\n");
+    let errs = errors_in_files(decl, &other);
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}

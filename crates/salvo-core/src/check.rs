@@ -3398,7 +3398,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ast::Type::Named { base, .. } => &base.name.name,
                     _ => return None,
                 };
-                if !self.linear_capable(base) {
+                if !self.linear_capable(&self.type_key(base)) {
                     return None;
                 }
                 if self.scope.struct_files.get(base.as_str()).copied()
@@ -3412,7 +3412,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .is_some_and(|c| {
                         c.iter().any(|d| d.param == p.name.name && !d.kept)
                     });
-                consumed.then(|| base.clone())
+                // [type-identity] By key: `discard` compares the value's type.
+                consumed.then(|| self.type_key(base))
             })
             .collect();
         // [free-send-fn] The send kind's refusal list, at the
@@ -13961,7 +13962,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     },
                     _ => return None,
                 };
-                if !self.linear_capable(base) {
+                let scope = effect_file.map(|f| &self.resolution.scopes[f]).unwrap_or(self.scope);
+                let key = Self::key_in(self.symbols, scope, base);
+                if !self.linear_capable(&key) {
                     return None;
                 }
                 if self.scope.struct_files.get(base.as_str()).copied() != effect_file {
@@ -13971,7 +13974,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     d.param_name().is_some_and(|n| n.name == p.name.name)
                         && matches!(d.kind, ast::DeductionKind::Moved)
                 });
-                moved.then(|| base.clone())
+                // [type-identity] By key, resolved where the member is
+                // declared: `discard` compares the value's type.
+                moved.then_some(key)
             })
             .collect()
     }

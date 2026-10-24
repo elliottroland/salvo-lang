@@ -622,5 +622,27 @@ log current so the work can resume after a context reset). Newest last.
   program-wide by name (overloads chosen by subject).
 - **Step 5, piece 3 (done, committed "Add salvo facts, the pre-IR dump").**
   `crates/salvo-core/src/facts.rs`, `salvo facts`, snapshot
-  `golden_tests__facts_iteration`. Next: stable ids, then module-qualified
-  type keys.
+  `golden_tests__facts_iteration`.
+- **Step 5, piece 4: module-qualified keys tried, deferred to step 8.** The
+  rule tried: a std declaration keeps its plain key (std is fixed text, so
+  first-declarer among std is stable), every other declaration is
+  `Name§module`. 124 tests failed; keying the linear discharge sets fixed
+  66 (`check_fn_item`'s `own_discharges`, `member_discharges_in`: written
+  names passed to the keyed `linear_capable`, a latent bug for a clashing
+  linear struct; kept, committed "Key linear discharge sets by type key").
+  The 58 left, by cause: route stubs looked up by plain effect name
+  (`route.rs`, "no route stub for `Ping§main`"); the platform host-project
+  check ("`HostGreet` implements `Greet§lib`, which is not a declared
+  effect"); messages printing keys (`P§main`, `Counter§main`); the deadlock
+  graph's handler and effect names (cycles no longer found); the throw
+  tests' test-local `effect Throw` against `THROW_EFFECT`; the
+  `a_next_without_a_yield…`/`driving_a_hand_written_pass_twice` pass lookups;
+  a handler-dependency message; `protocol_hashes` read by plain name in a
+  test. Each is a site assuming key == written name for an unclashing user
+  type. Deferred because what the keys are for is step 8's cache: until
+  then first-declarer keys are a program-wide index (which modules declare
+  which type names), and the cache can treat a change to it as invalidating
+  every declaration that names one of the affected types. **Stable ids**
+  likewise move to step 8, where they are first read (cache keys, the std
+  cache's transfer): `FnKey`/`DeclId` stay (file, item) until then.
+

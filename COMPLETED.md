@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2018 tests, complete: the toolchain tests are
+cargo test                  # 2019 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,17 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Linear discharge sets are keyed by type key
+
+Found by trying always-qualified type keys (PIPELINE.md step 5, piece 4,
+deferred): a fn's or an effect member's discharge set was built from the
+*written* parameter type name and checked with `linear_capable`, which reads
+the keyed struct table, and `discard` compared it against the value's
+(keyed) type. A linear struct whose name another module also declares —
+keyed `Handle§m` — had no discharger anywhere. Both sets are now built of
+keys, the member's resolved in the effect's own file [linear-group]
+[type-identity]. Test: `a_linear_struct_named_like_another_modules_has_its_own_discharger`.
 
 ### 2026-10-20 — `salvo facts`, the pre-IR dump
 
@@ -28120,7 +28131,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2018 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2019 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
