@@ -228,17 +228,13 @@ fn struct_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, s: &ast::StructDecl, 
 
 fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDecl) -> InterfaceDecl {
     let modes = Modes { symbols: ctx.symbols, checked: ctx.checked, program: ctx.program };
-    let prereqs: Vec<Ty> = e
-        .prereqs
-        .iter()
-        .filter_map(|p| match p {
-            ast::EffectRef::Effect(r) | ast::EffectRef::AnyEffect(r) => Some(Ty::Named {
-                name: ctx.checked.written_key(r).to_string(),
-                args: r.args.iter().map(|a| ctx.written_ty(file_idx, a)).collect(),
-            }),
-            _ => None,
-        })
-        .collect();
+    // [effect-prereq] As the checker expanded them (aliases flattened).
+    let prereqs: Vec<Ty> = ctx
+        .checked
+        .effect_prereqs
+        .get(ctx.symbols.key_or(e, &e.name.name))
+        .map(|l| l.iter().map(erase).collect())
+        .unwrap_or_default();
     let members: Vec<Member> = e
         .fns
         .iter()
@@ -310,18 +306,14 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
 fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, statics: &[(Ty, Local)], errors: &mut Vec<String>) -> ImplDecl {
     let modes = Modes { symbols: ctx.symbols, checked: ctx.checked, program: ctx.program };
     let faces: Vec<Ty> = h.of.iter().map(|t| ctx.written_ty(file_idx, t)).collect();
-    let deps: Vec<Ty> = h
-        .effects
-        .iter()
-        .flatten()
-        .filter_map(|p| match p {
-            ast::EffectRef::Effect(r) | ast::EffectRef::AnyEffect(r) => Some(Ty::Named {
-                name: ctx.checked.written_key(r).to_string(),
-                args: r.args.iter().map(|a| ctx.written_ty(file_idx, a)).collect(),
-            }),
-            _ => None,
-        })
-        .collect();
+    // [effect-handler-deps] [effect-prereq] As the checker expanded them:
+    // aliases flattened, the faces' prerequisites added.
+    let deps: Vec<Ty> = ctx
+        .checked
+        .handler_deps
+        .get(ctx.symbols.key_or(h, &h.name.name))
+        .map(|l| l.iter().map(|(t, _)| erase(t)).collect())
+        .unwrap_or_default();
     let ctor_params: Vec<Param> = h
         .params
         .iter()
@@ -448,18 +440,9 @@ fn fn_decl(
     // The tables are keyed by the fn's key; a qualifier fn has one through
     // its name span, a member none.
     let table_key = key.or_else(|| ctx.checked.fn_refs.get(&(file_idx, f.name.span)).copied());
-    let declared_effects: Vec<Ty> = f
-        .effects
-        .iter()
-        .flatten()
-        .filter_map(|p| match p {
-            ast::EffectRef::Effect(r) | ast::EffectRef::AnyEffect(r) => Some(Ty::Named {
-                name: ctx.checked.written_key(r).to_string(),
-                args: r.args.iter().map(|a| ctx.written_ty(file_idx, a)).collect(),
-            }),
-            _ => None,
-        })
-        .collect();
+    // [effect-alias] [effect-prereq] A fn without a key (a qualifier's, a
+    // member) has its expanded list by name span.
+    let declared_effects: Vec<Ty> = ctx.checked.decl_effects.get(&(file_idx, f.name.span)).cloned().unwrap_or_default();
     let mut params: Vec<Param> = Vec::new();
     // [effect-fn-deps] Effects as values: leading parameters.
     let effects: Vec<Ty> = table_key

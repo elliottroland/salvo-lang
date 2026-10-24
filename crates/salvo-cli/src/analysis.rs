@@ -576,6 +576,21 @@ fn completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<Completi
             None => (None, false),
         }
     }
+    // [effect-member-completion] [effect-alias] [effect-prereq] Every
+    // effect member in the program, once: an effect reaches a body through
+    // an alias or as a prerequisite without being imported, and its members
+    // are callable there all the same. The handler's availability gate keeps
+    // the ones whose effect is not available out of the list.
+    let mut every_member: Vec<(&str, &salvo_syntax::ast::EffectDecl, &salvo_syntax::ast::FnDecl)> = Vec::new();
+    for scope in &resolution.scopes {
+        for (name, members) in &scope.effect_members {
+            for (owner, decl) in members {
+                if !every_member.iter().any(|(_, o, d)| std::ptr::eq(*o, *owner) && std::ptr::eq(*d, *decl)) {
+                    every_member.push((name, owner, decl));
+                }
+            }
+        }
+    }
     resolution
         .scopes
         .iter()
@@ -601,11 +616,20 @@ fn completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<Completi
             // to — offered only where the owning effect is available, which
             // the completion handler gates on. Their signature is rendered
             // here since a member has no `FnKey`.
-            for (name, members) in &scope.effect_members {
+            let in_scope = |o: &salvo_syntax::ast::EffectDecl, d: &salvo_syntax::ast::FnDecl| {
+                scope.effect_members.values().flatten().any(|(so, sd)| std::ptr::eq(*so, o) && std::ptr::eq(*sd, d))
+            };
+            let reached = every_member
+                .iter()
+                .filter(|(_, o, d)| !in_scope(o, d))
+                .map(|(n, o, d)| (*n, vec![(*o, *d)]))
+                .collect::<Vec<_>>();
+            let scoped = scope.effect_members.iter().map(|(n, m)| (*n, m.clone()));
+            for (name, members) in scoped.chain(reached) {
                 if name.starts_with("__") {
                     continue;
                 }
-                for (owner, decl) in members {
+                for (owner, decl) in &members {
                     let (receiver, generic_receiver) = receiver_of(decl);
                     out.push(CompletionFn {
                         name: name.to_string(),

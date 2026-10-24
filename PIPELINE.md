@@ -183,6 +183,16 @@ cutoff, §6).
   expectation); step 7 verifies it before moving ownership out of the body
   walk.
 
+### R6 (2026-10-20)
+
+- **Hover shows what the code is interpreted as**: an effect list (and
+  anything else the resolve phase expands) is shown expanded and resolved —
+  aliases flattened, prerequisites added — read from the resolved output,
+  not the text as written.
+- **The refusal of a mixed handler whose face has a prerequisite is
+  dropped**, for a uniform rule: an implied dependency is a dependency like
+  a written one, wherever it is allowed.
+
 ## 4. Body-derived interface facts (D2)
 
 Six facts a declaration's callers read today come from type-checking its
@@ -649,8 +659,20 @@ log current so the work can resume after a context reset). Newest last.
 - **Step 6, piece 1 (done, committed "Cache a file's own expansions with
   its parse").** `expand::expand_file` / `expand_program`; the language
   server's `ParseCache` keyed by (text, module, annex).
-- **Step 6, piece 2 (effect aliases and prerequisites in scope): surveyed,
-  not started.** Both passes rewrite AST effect lists before resolution
+- **Step 6, piece 2 (effect aliases and prerequisites in scope): done,
+  committed "Resolve effect aliases and prerequisites where effect lists are
+  lowered".** Built as plan (b) below collapsed into one step: aliases are
+  module items in `ModuleScope.effect_aliases`; `expand_effect_refs` (with a
+  quiet variant for call sites) expands each list with origins, resolving
+  every entry in its declaring file (`scope_of`); new tables `decl_effects`,
+  `handler_deps`, `effect_prereqs`; IR/deadlock/reach/hover read them;
+  `alias.rs` and `prereq.rs` deleted. The one gap found: an effect reached
+  only through an alias had no callable members, since `effect_members` is
+  the file's import scope — `effect_members_here` adds the members of every
+  effect available in the body (and LSP completion offers every program
+  member behind its availability gate). The prerequisite name clash became
+  a non-error. The mixed-handler refusal still fires, on written plus
+  implied deps; next piece lifts it (R6). Survey, as written before: both passes rewrite AST effect lists before resolution
   (zero-span implied entries, synthetic imports), and about 17 consumers
   read those lists off the AST: `check_effect_list`,
   `handler_dep_effects_here`, `lower_fn_effects`, the call-site wants

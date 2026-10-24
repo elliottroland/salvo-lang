@@ -354,6 +354,13 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
                 for f in &e.fns {
                     fn_names(f, &mut used);
                 }
+                // [effect-prereq] What a prerequisite names is the effect's
+                // module's to reach: every use of the effect brings it.
+                for p in &e.prereqs {
+                    if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = p {
+                        type_ref_names(r, &mut used);
+                    }
+                }
             }
             // [implicit-group] A group's members are signatures, like an
             // effect's: their types are what the group depends on.
@@ -417,9 +424,15 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
             // [namespace] Flattened away in `parse_module_deferred`; never
             // reaches here.
             Item::Namespace(_) => {}
-            // [effect-alias] Expanded away by `alias::expand_effect_aliases`
-            // before resolution; never reaches here.
-            Item::EffectAlias(_) => {}
+            // [effect-alias] An alias's members are its module's to reach,
+            // as a type alias's target is.
+            Item::EffectAlias(a) => {
+                for m in &a.effects {
+                    if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = m {
+                        type_ref_names(r, &mut used);
+                    }
+                }
+            }
         }
     }
     used

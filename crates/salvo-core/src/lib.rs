@@ -2,7 +2,6 @@
 //! checking, and (later) IR lowering.
 
 pub mod route;
-pub mod alias;
 pub mod features;
 pub mod copyplan;
 pub mod param_mode;
@@ -28,7 +27,6 @@ pub mod naming;
 pub mod manifest;
 pub mod place;
 pub mod platform;
-pub mod prereq;
 pub mod program;
 pub mod reach;
 pub mod refine;

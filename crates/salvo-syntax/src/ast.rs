@@ -240,10 +240,9 @@ pub struct ParamsDecl {
 
 /// [effect-alias] `effects IO = [Console, Fs, Streams]` — a named group of
 /// effects, shorthand for its member list anywhere an effect list appears. An
-/// alias may name other aliases; the expansion closes them transitively before
-/// resolution (`alias::expand_effect_aliases`), so nothing downstream sees the
-/// alias — only the effects it stands for, exactly as a prerequisite is
-/// expanded [effect-prereq]. `use`/`spawn`/`any` are refused (an alias is a set
+/// alias may name other aliases. It is resolved in scope like a type alias
+/// and flattened wherever an effect list is lowered (the checker's
+/// `expand_effect_refs`), as a prerequisite is added there [effect-prereq]. `use`/`spawn`/`any` are refused (an alias is a set
 /// of effects, not a per-fn capability).
 #[derive(Clone, Debug, PartialEq)]
 pub struct EffectAliasDecl {
@@ -972,7 +971,7 @@ pub struct EffectDecl {
     /// it, as a handler dependency does, and an effect list naming `Fs`
     /// implies `Streams` (user decision 2026-09-29, R2). Parsed as an effect
     /// list so its spelling is a handler's dependency list; only plain named
-    /// entries are legal, which `prereq::expand_prerequisites` checks.
+    /// entries are legal, which the checker's `check_effect_prereqs` checks.
     pub prereqs: Vec<EffectRef>,
     pub fns: Vec<FnDecl>,
     pub span: Span,

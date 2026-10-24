@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use salvo_syntax::ast::{
-    Obligation, ParamsDecl,
+    Obligation, ParamsDecl, EffectAliasDecl,
     EffectDecl, FnDecl, HandlerDecl, ImportDecl, Item, QualifierDecl, RefnDecl, RenameDecl,
     StructDecl, TypeDecl,
 };
@@ -131,6 +131,10 @@ pub struct ModuleScope<'p> {
     /// as a top-level `refn`).
     pub renames: Vec<&'p RenameDecl>,
     pub type_aliases: HashMap<&'p str, &'p TypeDecl>,
+    /// [effect-alias] `effects IO = […]` groups visible here, with the file
+    /// each is declared in: an alias's members resolve where it is written,
+    /// like a type alias's target.
+    pub effect_aliases: HashMap<&'p str, (&'p EffectAliasDecl, usize)>,
     /// `intrinsic type` declarations visible here.
     pub opaque_types: HashMap<&'p str, &'p TypeDecl>,
     /// The file index each visible opaque type was declared in — what the
@@ -176,6 +180,7 @@ impl<'p> ModuleScope<'p> {
             || self.param_groups.contains_key(name)
             || self.type_aliases.contains_key(name)
             || self.opaque_types.contains_key(name)
+            || self.effect_aliases.contains_key(name)
     }
 
 }
@@ -266,6 +271,7 @@ fn stamp_scope<'p>(site: &ModuleScope<'p>, template: &ModuleScope<'p>) -> Module
     fill(&mut out.handlers, &template.handlers);
     fill(&mut out.qualifiers, &template.qualifiers);
     fill(&mut out.type_aliases, &template.type_aliases);
+    fill(&mut out.effect_aliases, &template.effect_aliases);
     fill(&mut out.opaque_types, &template.opaque_types);
     fill(&mut out.opaque_type_files, &template.opaque_type_files);
     fill(&mut out.effect_members, &template.effect_members);
@@ -378,6 +384,8 @@ struct ModuleItems<'p> {
     renames: Vec<&'p RenameDecl>,
     type_aliases: Vec<(usize, &'p TypeDecl)>,
     opaque_types: Vec<(usize, &'p TypeDecl)>,
+    /// [effect-alias] `effects X = […]` declarations.
+    effect_aliases: Vec<(usize, &'p EffectAliasDecl)>,
     /// [namespace] The dotted namespace paths declared anywhere in this
     /// module's files (`AttributeValue`, `Outer`, `Outer.Inner`). A whole-
     /// namespace import (`import mod.X`) brings every member under one of
@@ -421,6 +429,10 @@ impl<'p> ModuleItems<'p> {
                 .opaque_types
                 .iter()
                 .any(|(_, t)| hit(&t.name.name, t.exported))
+            || self
+                .effect_aliases
+                .iter()
+                .any(|(_, a)| hit(&a.name.name, a.exported))
     }
 
     /// The declaration's own `&'p str` for `name`, so a synthesized
@@ -454,6 +466,11 @@ impl<'p> ModuleItems<'p> {
                 self.opaque_types
                     .iter()
                     .find_map(|(_, t)| hit(t.name.name.as_str()))
+            })
+            .or_else(|| {
+                self.effect_aliases
+                    .iter()
+                    .find_map(|(_, a)| hit(a.name.name.as_str()))
             })
     }
 
@@ -495,6 +512,11 @@ impl<'p> ModuleItems<'p> {
         }
         for (f, t) in &self.opaque_types {
             out.push((NameKind::OpaqueType, t.name.name.as_str(), None, *f, t.name.span));
+        }
+        // [effect-alias] One namespace with the effects: an effect list names
+        // either.
+        for (f, a) in &self.effect_aliases {
+            out.push((NameKind::Effect, a.name.name.as_str(), None, *f, a.name.span));
         }
         out
     }
@@ -636,6 +658,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                     items.opaque_types.push((file_idx, t))
                 }
                 Item::Type(t) => items.type_aliases.push((file_idx, t)),
+                Item::EffectAlias(a) => items.effect_aliases.push((file_idx, a)),
                 _ => {}
             }
         }
@@ -691,6 +714,9 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         }
         for (_, t) in &items.opaque_types {
             record(&t.name.name, &t.name.name, t.exported);
+        }
+        for (_, a) in &items.effect_aliases {
+            record(&a.name.name, &a.name.name, a.exported);
         }
     }
 
@@ -1622,6 +1648,21 @@ fn add_items<'p>(
             }
         }
     }
+    // [effect-alias] Resolved like a type alias (PIPELINE.md R6): visible
+    // by declaration, import and `core.*`, expanded where a list is lowered.
+    for (file, a) in &items.effect_aliases {
+        if want(&a.name.name) {
+            if !visible(a.exported) {
+                continue;
+            }
+            let name = visible_as(&a.name.name);
+            if ctx.admit(NameKind::Effect, name, module, level, import_span) {
+                scope.effect_aliases.insert(name, (a, *file));
+                origin(name, scope);
+                def_site(name, *file, a.name.span, scope);
+            }
+        }
+    }
 }
 
 fn resolve_import<'p>(
@@ -2248,6 +2289,12 @@ fn for_each_type_ref(program: &Program, f: &mut dyn FnMut(usize, &salvo_syntax::
                     }
                 }
                 Item::Test(t) => v::walk_block(&mut c, &t.body),
+                // [effect-alias] Its members resolve in its own file.
+                Item::EffectAlias(a) => {
+                    for r in &a.effects {
+                        v::walk_effect_ref(&mut c, r);
+                    }
+                }
                 _ => {}
             }
         }

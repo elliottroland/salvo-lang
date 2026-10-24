@@ -224,7 +224,7 @@ export effect Fs [Streams] {
 
 `Streams` is a **prerequisite** of `Fs`. Three things follow:
 
-* **Wherever `Fs` is, `Streams` is.** A function declaring `[Fs]` may call `Streams` members, and so may a function value of type `(Str) [Fs] -> Str`. Prerequisites are transitive, and the implied effect is in scope even in a module that never imports it.
+* **Wherever `Fs` is, `Streams` is.** A function declaring `[Fs]` may call `Streams` members, and so may a function value of type `(Str) [Fs] -> Str`. Prerequisites are transitive, and the implied effect is the one `Fs`'s own module named: it is available even in a module that never imports it, and a module declaring an unrelated `Streams` of its own does not change which one it is.
 * **Every handler of `Fs` reaches `Streams`** as though it had declared the dependency — `handler MemFs of Fs` may call `from_bytes` without writing `[Streams]`.
 * **Binding an `Fs` handler needs a `Streams` already bound**, exactly as a dependent handler does, and the error names the prerequisite: `use HostStreams()` first, then `use DefaultFs()`.
 
@@ -269,7 +269,7 @@ fn serve(request: Str) [IO, Throw<Str>] -> Str => request {
 
 An alias is a *set of effects*, so its members are plain named effects — or other aliases, which expand in turn (`effects All = [IO, Clock]`), with cycles refused. What an alias cannot contain is `use`, `spawn`, or `any`: those are a function's capability to register handlers and a qualifier on one instance of one effect, not effects a group stands for. For the same reason `any IO` is not a thing you can write at a call site — write `any` on the individual effect.
 
-An alias is exported like anything else (`export effects IO = [...]`) and imported by name (`import caps.IO`); using it pulls in whatever its members need, so a consumer writes `[IO]` without importing each effect separately.
+An alias is exported like anything else (`export effects IO = [...]`) and imported by name (`import caps.IO`); using it pulls in whatever its members need, so a consumer writes `[IO]` without importing each effect separately. The members are the effects the alias's own module named, whatever those names mean in the consumer's module.
 
 ## Starting up: `init` and `self@Face`
 

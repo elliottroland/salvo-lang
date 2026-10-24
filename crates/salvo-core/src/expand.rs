@@ -3,8 +3,8 @@
 //! Per file ([`expand_file`]): the struct-body hoist, the `iter fn`
 //! expansion [iter-fn] and the `test` expansion [test-decl], which needs to
 //! know whether a file is a test annex [test-file]. Per program
-//! ([`expand_program`]): comptime stamping, route stubs, effect aliases and
-//! prerequisites. Every driver needs both, so [`expand`] is the one call
+//! ([`expand_program`]): comptime stamping and route stubs. Effect aliases
+//! and prerequisites are resolved, not expanded (PIPELINE.md R6). Every driver needs both, so [`expand`] is the one call
 //! that does both, and a driver caching parses calls the halves.
 
 use salvo_syntax::ast::{Item, Module};
@@ -130,8 +130,7 @@ pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
 
 /// The expansions that read more than one file, over modules each already
 /// through [`expand_file`] (whose tests come in [per_file], aligned with
-/// `files`): comptime stamping, route stubs, effect aliases and
-/// prerequisites.
+/// `files`): comptime stamping and route stubs.
 pub fn expand_program(files: &[SourceFile], modules: &mut [Module], per_file: Vec<Vec<FileTest>>) -> Expansion {
     let mut out = Expansion::default();
     for (file_idx, tests) in per_file.into_iter().enumerate() {
@@ -170,31 +169,9 @@ pub fn expand_program(files: &[SourceFile], modules: &mut [Module], per_file: Ve
             suggested_imports: Vec::new(),
         });
     }
-    // [effect-alias] Before prerequisites: expand every `effects IO = […]`
-    // group into its members, in every effect list, so a prerequisite written
-    // with an alias is expanded first and the prereq pass then adds what the
-    // resulting effects imply.
-    for (file_idx, d) in crate::alias::expand_effect_aliases(files, modules) {
-        out.diagnostics.push(FileDiagnostic {
-            file: file_idx,
-            severity: d.severity,
-            message: d.message,
-            span: d.span,
-            suggested_imports: Vec::new(),
-        });
-    }
-    // [effect-prereq] Last: every fn, handler and fn type in the program —
-    // test bodies, stamped compfns and route stubs included — gets the
-    // effects its effects imply.
-    for (file_idx, d) in crate::prereq::expand_prerequisites(files, modules) {
-        out.diagnostics.push(FileDiagnostic {
-            file: file_idx,
-            severity: d.severity,
-            message: d.message,
-            span: d.span,
-            suggested_imports: Vec::new(),
-        });
-    }
+    // [effect-alias] [effect-prereq] Aliases and prerequisites are not
+    // expansions: aliases resolve in scope and both are expanded where an
+    // effect list is lowered (PIPELINE.md R6).
     out
 }
 

@@ -3586,7 +3586,11 @@ fn fn_signature(program: &Program, checked: &Checked, key: FnKey) -> Option<Stri
     if let Some(sig) = iter_fn_signature(module, decl) {
         return Some(sig);
     }
-    Some(fn_decl_signature(decl, checked.deductions.get(&key).map(|d| d.as_slice())))
+    // [effect-alias] [effect-prereq] The effects as the program means them
+    // (PIPELINE.md R6): aliases flattened, prerequisites and the effects of
+    // fn-typed parameters added.
+    let expanded = checked.fn_effects.get(&key).map(|v| v.as_slice());
+    Some(fn_decl_signature_with(decl, checked.deductions.get(&key).map(|d| d.as_slice()), expanded))
 }
 
 /// [lsp-hover-iter-fn] Whether `f` is the `next` an `iter fn` became: it
@@ -3673,6 +3677,13 @@ fn type_fn_name_head(ty: &salvo_syntax::ast::Type) -> String {
 /// list when there is one — effect and handler members have no `FnKey`, so
 /// they render their declared list only [doc-comment].
 pub(crate) fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> String {
+    fn_decl_signature_with(decl, inferred, None)
+}
+
+/// `fn_decl_signature` with the checker's expanded effect list, rendered in
+/// place of the written one: the capabilities (`use`, `spawn`) and the `any`
+/// entries as written, then every effect the list means.
+pub(crate) fn fn_decl_signature_with(decl: &FnDecl, inferred: Option<&[ParamDeduction]>, effects: Option<&[Ty]>) -> String {
     let mut sig = String::from("fn ");
     // [fn-type-named] A type-named constructor reads as its written type
     // (`Mut Map`), not its canonical key (`Mut_Map`, which is `decl.name.name`).
@@ -3700,9 +3711,36 @@ pub(crate) fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction
         .collect();
     sig.push_str(&format!("({})", params.join(", ")));
 
-    if let Some(effects) = &decl.effects {
-        let effects: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
-        sig.push_str(&format!(" [{}]", effects.join(", ")));
+    match effects {
+        Some(expanded) if decl.effects.is_some() || !expanded.is_empty() => {
+            use salvo_syntax::ast::EffectRef;
+            let mut shown: Vec<String> = Vec::new();
+            let mut weak: Vec<&str> = Vec::new();
+            for e in decl.effects.iter().flatten() {
+                match e {
+                    EffectRef::Effect(_) => {}
+                    EffectRef::AnyEffect(r) => {
+                        weak.push(r.name.name.as_str());
+                        shown.push(e.to_string());
+                    }
+                    _ => shown.push(e.to_string()),
+                }
+            }
+            for t in expanded {
+                let text = t.to_string();
+                let base = text.split('<').next().unwrap_or(&text);
+                if !weak.contains(&base) {
+                    shown.push(text);
+                }
+            }
+            sig.push_str(&format!(" [{}]", shown.join(", ")));
+        }
+        _ => {
+            if let Some(effects) = &decl.effects {
+                let effects: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
+                sig.push_str(&format!(" [{}]", effects.join(", ")));
+            }
+        }
     }
 
     // [proj-infer] The opaque lends render where they are written — after

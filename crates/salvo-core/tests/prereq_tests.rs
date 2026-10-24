@@ -235,11 +235,14 @@ fn g() [Log<Str>] {
     assert_eq!(errs.len(), 1, "only `g` is wrong: {errs:?}");
 }
 
-// [effect-prereq] The implied name must mean the prerequisite where it is
-// written: a module declaring its own `Streams` cannot name `Files` without
-// saying which it means.
+// [effect-prereq] A prerequisite resolves in the file that declares it, not
+// where the effect is used (2026-10-20): a module declaring its own
+// `Streams` can name `Files`, and the `Streams` that `Files` implies is still
+// `streams.Streams`, whose member is callable without an import. Before the
+// expansion moved into the checker it was an AST rewrite that injected the
+// name into the using file, and this program was a name clash.
 #[test]
-fn a_name_clash_with_the_prerequisite_is_reported() {
+fn a_prerequisite_resolves_where_it_is_declared() {
     let main = "\
 import files.Files
 
@@ -248,15 +251,12 @@ effect Streams {
 }
 
 fn f() [Files] -> Str {
-    return open(\"x\")
+    let n = next_id()
+    return open(\"x${n}\")
 }
 ";
     let errs = errors(&[("streams.sv", STREAMS), ("files.sv", FILES), ("main.sv", main)]);
-    assert!(
-        errs.iter().any(|e| e.contains("needs effect `streams.Streams` in scope")
-            && e.contains("`main.Streams`")),
-        "{errs:?}"
-    );
+    assert!(errs.is_empty(), "{errs:?}");
 }
 
 // [effect-handler-deps] A handler's dependency list resolves in the

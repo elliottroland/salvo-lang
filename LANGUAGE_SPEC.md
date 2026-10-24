@@ -4287,7 +4287,8 @@ Conventions:
     `eff[A]` is satisfied by any argument whose set contains `A`.
   * **Alias flattening in type position**: an alias inside an `eff[…]` type
     expands like it does in an effect list, so `eff[IO]` is
-    `eff[Console, Fs, Streams]` (built: `alias.rs`'s `expand_handle_args`).
+    `eff[Console, Fs, Streams]` (built: the checker flattens alias arguments
+    as it lowers the `eff[…]` type, each resolved in the alias's file).
   * **A multi-effect handle is a tuple of single handles.** `eff[A, B]` lowers
     to `(eff[A], eff[B])` in the type system and the IR alike — each element an
     ordinary single handle with a real backend representation, so there is no
@@ -4394,19 +4395,25 @@ Conventions:
     `Streams` as a dependency, unless it wears `Streams` as a face itself
     (`of Fs, Streams`). A `use` without a `Streams` bound reports the
     prerequisite by name (`handler \`MemFs\` implements \`Fs\`, which needs
-    \`Streams\` in scope`), recognised by the implied entry's synthetic span.
-  * **An expansion before resolution** (`prereq::expand_prerequisites`, the
-    last step of `expand`): the implied entries are written into the AST with
-    an empty span at offset 0, so the checker and both emitters see an
-    ordinary program and agree by construction. A module that must name an
-    implied effect it cannot see gets a synthetic `import` of it (same span).
-    Name resolution inside the pass is a reduced copy of the resolver's
-    ladder for effect names (own module, the tested module for an annex, a
-    named import by last segment or alias, a whole-module import, `core.*`).
+    \`Streams\` in scope`), recognised by the entry's `Prereq` origin.
+  * **Expanded where effect lists are lowered** (2026-10-20, PIPELINE.md
+    step 6, replacing an AST rewrite that ran before resolution). One checker
+    helper, `expand_effect_refs`, turns a written list into the effects it
+    means: aliases flattened [effect-alias], prerequisites added with generic
+    arguments substituted, and **each prerequisite resolved in the file that
+    declares it**. Nothing is written into the AST and no import is
+    synthesised; an implied effect's members are callable because the effect
+    is *available* in the body, not because its name is in scope. The
+    expanded lists are `Checked` tables — `fn_effects` (and `decl_effects`,
+    the written list expanded, before handler deps), `handler_deps`,
+    `effect_prereqs` — and the IR builder and both emitters read them, so
+    they agree by construction. LSP hover shows the expanded list (user
+    decision R6, 2026-10-20: hover says what the code is interpreted as).
   * **Refused at the declaration**: `use`/`spawn`/`any E` entries; an unknown
     name; an `actor effect` with prerequisites, or one as a prerequisite; an
     exported effect with a private prerequisite; a cycle (named as a chain).
-    At a site: a module whose own `Streams` would shadow the implied one.
+    A module with its own `Streams` is no clash: the implied `Streams` is the
+    one the declaring file named.
   * Found building it: a handler's dependency list was lowered in the
     *using* file's scope, so any dependent handler bound from a module that
     did not import its dependencies failed with "unknown effect" — fixed at
@@ -4431,21 +4438,17 @@ Conventions:
   * **Usable wherever a named effect is**, including as or within a
     prerequisite. `any Alias` at a *site* is refused for the same reason `any`
     is refused in the declaration: `any` is about one instance of one effect.
-  * **An expansion before resolution** (`alias::expand_effect_aliases`, run
-    *before* `prereq::expand_prerequisites` so a prerequisite written with an
-    alias is expanded first). Each alias entry in every effect list is replaced
-    in place by the effects it stands for, deduped by name and preserving the
-    order of non-alias entries; the `effects …` declarations are then dropped,
-    and any `import mod.Alias` with them. The checker and both emitters see an
-    ordinary program with no aliases and agree by construction
-    [backend-never-wrong]. Modelled on [effect-prereq]: name resolution inside
-    the pass is the reduced effect-name ladder (own module, the tested module
-    for an annex, a named import by last segment or alias, a whole-module
-    import, `core.*`), and an expanded member the consuming file cannot already
-    name gets a synthetic `import` of it (empty span at offset 0) — a `core.*`
-    effect needs none (implicit everywhere), a local effect of the alias's
-    module does. A member whose name resolves to a *different* effect in the
-    consuming file is reported (rename one).
+  * **A name, resolved like a type alias** (2026-10-20, PIPELINE.md step 6,
+    replacing an AST rewrite that ran before resolution). An alias is a module
+    item: exported, imported (`import caps.App`) and found by the resolver's
+    ordinary ladder. Where an effect list is lowered, the checker's
+    `expand_effect_refs` replaces an alias entry by its members — deduped,
+    order of non-alias entries kept — **each member resolved in the alias's
+    own file**, then adds prerequisites [effect-prereq]. The consuming file
+    needs no import of the members (none is synthesised): their members are
+    callable because the effects are available in the body. A local effect
+    sharing a member's name is no clash. The expanded list is what the
+    `Checked` tables, the IR and LSP hover carry [backend-never-wrong].
   dependencies. Calling a fn requires each of its effects to be available
   in the caller (declared or `use`d) — validated by the checker at every
   call site, recorded per-call (`call_effects`) in declaration order.

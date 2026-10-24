@@ -1592,15 +1592,9 @@ impl<'a, 'p> Lower<'a, 'p> {
             .iter()
             .position(|f| f.module == target.module)
             .and_then(|fi| match self.ctx.program.modules[fi].items.get(target.item) {
+                // [effect-alias] [effect-prereq] As the checker expanded it.
                 Some(ast::Item::Qualifier(q)) => q.fns.get((target.sub as usize).wrapping_sub(1)).map(|f| {
-                    f.effects
-                        .iter()
-                        .flatten()
-                        .filter_map(|e| match e {
-                            ast::EffectRef::Effect(r) | ast::EffectRef::AnyEffect(r) => Some(Ty::Named { name: self.ctx.checked.written_key(r).to_string(), args: r.args.iter().map(|a| self.ctx.written_ty(fi, a)).collect() }),
-                            _ => None,
-                        })
-                        .collect()
+                    self.ctx.checked.decl_effects.get(&(fi, f.name.span)).map(|l| l.iter().map(erase).collect()).unwrap_or_default()
                 }),
                 _ => None,
             })
@@ -2990,18 +2984,13 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
         // The dependencies: the checker's list, or the declaration's when the
         // construction is a `with` item (which records none of its own).
-        let declared: Vec<Ty> = decl
-            .effects
-            .iter()
-            .flatten()
-            .filter_map(|p| match p {
-                ast::EffectRef::Effect(r) | ast::EffectRef::AnyEffect(r) => Some(Ty::Named {
-                    name: self.ctx.checked.written_key(r).to_string(),
-                    args: r.args.iter().map(|a| self.ctx.written_ty(self.file_idx, a)).collect(),
-                }),
-                _ => None,
-            })
-            .collect();
+        let declared: Vec<Ty> = self
+            .ctx
+            .checked
+            .handler_deps
+            .get(self.ctx.symbols.key_or(decl, &decl.name.name))
+            .map(|l| l.iter().map(|(t, _)| erase(t)).collect())
+            .unwrap_or_default();
         let deps: Vec<Ty> = if deps.is_empty() { declared } else { deps.to_vec() };
         for (i, d) in deps.iter().enumerate() {
             let mut v = match items.get(i).copied().flatten().and_then(|w| with_items.get(w)) {

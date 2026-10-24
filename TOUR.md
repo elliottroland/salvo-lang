@@ -162,7 +162,9 @@ answer for itself.
 | `abi.rs`, `platform.rs` | what a host project must see; platform handlers/fns/types |
 
 **Project-level**: `manifest.rs` (`salvo.toml`), `lock.rs` (`salvo.lock`
-protocol hashes), `deadlock.rs` (actor cycle check), `route.rs`, `prereq.rs`.
+protocol hashes), `deadlock.rs` (actor cycle check), `route.rs`. Effect aliases and
+prerequisites are expanded by the checker where an effect list is lowered
+(`expand_effect_refs` in `check.rs`).
 
 ## 4. The `Checked` tables: the checker's output
 

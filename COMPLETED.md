@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2019 tests, complete: the toolchain tests are
+cargo test                  # 2020 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,39 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Effect aliases and prerequisites resolve where effect lists are lowered
+
+PIPELINE.md §7 step 6, piece 2, under the user's R6 answers (hover shows the
+expanded list; the mixed-handler refusal is to go). `alias.rs` and
+`prereq.rs`, two AST rewrites that ran before resolution, are deleted. An
+`effects` alias is a module item the resolver finds like a type alias
+[effect-alias]; one checker helper, `expand_effect_refs`, turns a written
+effect list into what it means — aliases flattened, prerequisites added with
+generic arguments substituted [effect-prereq] — each entry tagged with its
+origin (`Written`, `Alias`, `Prereq`) and **each resolved in the file that
+declares it**. Every consumer reads the result: the fn and handler lists
+(`fn_effects`, new `decl_effects`, `handler_deps`, `effect_prereqs`), call
+sites, task mints, `eff[…]` arguments and projections, the IR builder,
+deadlock and reach, and hover (`fn_decl_signature_with` renders the expanded
+list).
+
+- **No synthetic imports.** An effect reached through an alias or a
+  prerequisite has callable members because it is *available* in the body:
+  `effect_members_here` adds the members of every effect in `effect_env` to
+  the file's scope, and LSP completion offers every program effect's members
+  behind its availability gate. Test:
+  `an_imported_alias_reaches_completion_and_expands_in_hover`.
+- **A name clash is gone, not reported**: a module with its own `Streams`
+  naming `Files [Streams]` used to be refused (the rewrite would have written
+  the clashing name into it); the implied `Streams` is now the one `files.sv`
+  named. `a_name_clash_with_the_prerequisite_is_reported` became
+  `a_prerequisite_resolves_where_it_is_declared`.
+- **The mixed-handler refusal is kept for this piece**, checked against
+  written plus implied dependencies so behaviour is unchanged; lifting it is
+  the next piece.
+- Left: `iter_fn_signature` (hover on an `iter fn`) still renders the list as
+  written.
 
 ### 2026-10-20 — A file's own expansions are cached with its parse
 
@@ -28143,7 +28176,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2019 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2020 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

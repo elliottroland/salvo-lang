@@ -504,6 +504,29 @@ struct EffectAvail {
     any: bool,
 }
 
+/// [effect-alias] [effect-prereq] Where an entry of an expanded effect list
+/// came from: written, a member of an alias written there, or implied by an
+/// effect's prerequisites.
+#[derive(Clone, Debug, PartialEq)]
+enum EffectOrigin {
+    Written,
+    /// A member of the alias named (the outermost, as written).
+    Alias(String),
+    /// A prerequisite of the effect named.
+    Prereq(String),
+}
+
+/// [effect-alias] [effect-prereq] One effect of a list as the program means
+/// it: aliases flattened, prerequisites added (PIPELINE.md R6).
+#[derive(Clone, Debug)]
+struct ListedEffect {
+    ty: Ty,
+    any: bool,
+    /// The written entry it came from.
+    span: Span,
+    origin: EffectOrigin,
+}
+
 /// [qual-depend] One qualifier of a predicate `is` check, with the places
 /// filling its value slots: `k is KeyOf(m)` carries `name: "KeyOf"`,
 /// `args: [m]`. The emitters append the places to the `qualifies` call.
@@ -844,6 +867,20 @@ pub struct Checked {
     /// the primary source for the emitters' effect-parameter
     /// environments, keyed by checker types rather than type renderings.
     pub fn_effects: HashMap<FnKey, Vec<Ty>>,
+    /// [effect-alias] [effect-prereq] The same for **every** fn the checker
+    /// lowered — handler and qualifier members included, which have no
+    /// `FnKey` — keyed by the fn's name span, without a member's inherited
+    /// handler dependencies: the expanded list (aliases flattened,
+    /// prerequisites added) the IR and the language server read instead of
+    /// the written one (PIPELINE.md R6).
+    pub decl_effects: HashMap<Key, Vec<Ty>>,
+    /// [effect-handler-deps] [effect-prereq] Each handler's dependencies, by
+    /// handler key: written ones with aliases flattened, then the
+    /// prerequisites of its faces, each with the span it came from.
+    pub handler_deps: HashMap<String, Vec<(Ty, Span)>>,
+    /// [effect-prereq] Each effect's direct prerequisites, by effect key,
+    /// aliases flattened, its own generics unsubstituted.
+    pub effect_prereqs: HashMap<String, Vec<Ty>>,
     /// [lsp-completion] The effects available inside each fn/handler-member
     /// body — the fully expanded set (declared effects, their transitive
     /// prerequisites, and a handler member's inherited handler dependencies)
@@ -1305,7 +1342,7 @@ impl Checked {
     /// a new table is a compile error here until it says whether it is
     /// per file.
     fn drop_files(&mut self, files: &HashSet<usize>) {
-        let Checked { expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_stubs, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, binding_modes, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, virtual_place_binds, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors } = self;
+        let Checked { expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_stubs, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, binding_modes, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, virtual_place_binds, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors, decl_effects, handler_deps, effect_prereqs } = self;
         expr_ty.retain(|k, _| !files.contains(&k.0));
         comparisons.retain(|k, _| !files.contains(&k.0));
         arm_compares.retain(|k, _| !files.contains(&k.0));
@@ -1418,6 +1455,9 @@ impl Checked {
         implicit_members.retain(|k, _| !files.contains(&k.0));
         // `errors`: not written per file by a walk (or, `errors`, handled by the caller).
         let _ = errors;
+        decl_effects.retain(|k, _| !files.contains(&k.0));
+        // `handler_deps`, `effect_prereqs`: by name, rewritten alike by a re-walk.
+        let _ = (handler_deps, effect_prereqs);
     }
 }
 
@@ -4194,7 +4234,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // "legal when overloading distinguishes them, or when one
                     // method implements both" means when it is checked.
                     self.check_handler_conformance(h);
-                    let handler_deps = self.handler_dep_effects(h);
+                    let dep_list = self.handler_dep_list(h);
+                    self.out.handler_deps.insert(
+                        self.symbols.key_or(h, &h.name.name).to_string(),
+                        dep_list.iter().map(|e| (e.ty.clone(), e.span)).collect(),
+                    );
+                    let handler_deps: Vec<EffectAvail> = dep_list
+                        .into_iter()
+                        .map(|e| EffectAvail { ty: e.ty, declared: true, any: e.any })
+                        .collect();
                     let saved_deps =
                         std::mem::replace(&mut self.handler_deps, handler_deps);
                     // [actor-spawn-effect] [actor-replyto] The handler its
@@ -4414,7 +4462,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.handler_ofs = saved_of;
                     self.generics = saved;
                 }
+                // [effect-alias] Its own list: only named effects, and it closes.
+                Item::EffectAlias(a) => self.check_effect_alias(a),
                 Item::Effect(e) => {
+                    self.check_effect_prereqs(e);
                     self.check_effect_member_signatures(e);
                     // [actor-effect-kind] The kind's own rules: what an
                     // `actor effect` may declare, and that `send fn` needs one.
@@ -7542,6 +7593,27 @@ impl<'p, 'r> Checker<'p, 'r> {
         !self.overloads_of(name).is_empty()
     }
 
+    /// [effect-alias] [effect-prereq] The effect members answering to
+    /// `name` here: those this file's scope sees, plus the members of every
+    /// effect *available* in the current body. An effect reaches a body
+    /// through an alias or as a prerequisite without being imported, and
+    /// its members are callable all the same — the effect list, not the
+    /// import list, is what makes an instance available [effect-available].
+    fn effect_members_here(&self, name: &str) -> Option<Vec<(&'p ast::EffectDecl, &'p FnDecl)>> {
+        let mut out: Vec<(&'p ast::EffectDecl, &'p FnDecl)> =
+            self.scope.effect_members.get(name).cloned().unwrap_or_default();
+        for t in &self.effect_env {
+            let Ty::Named { name: key, .. } = &t.ty else { continue };
+            let Some(e) = self.symbols.effects.get(key.as_str()).copied() else { continue };
+            for f in e.fns.iter().filter(|f| f.name.name == name) {
+                if !out.iter().any(|(oe, of)| std::ptr::eq(*oe, e) && std::ptr::eq(*of, f)) {
+                    out.push((e, f));
+                }
+            }
+        }
+        (!out.is_empty()).then_some(out)
+    }
+
     /// [fn-overload-scope] [fn-overload-rank] [fn-overload-ambiguous] Picks
     /// the winner among the candidates that fit a call — the one rule the
     /// whole language routes through (user decisions 2026-09-07):
@@ -9081,6 +9153,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // had declared them — which it may not
         // ([effect-member-no-effects]): the dependency belongs to the
         // implementation, so it is declared once on the handler.
+        self.out
+            .decl_effects
+            .insert(self.key(f.name.span), fn_effects.iter().map(|a| a.ty.clone()).collect());
         for dep in &self.handler_deps {
             if !fn_effects.iter().any(|a| a.ty == dep.ty) {
                 fn_effects.push(dep.clone());
@@ -9569,7 +9644,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        let mut written: Vec<Ty> = Vec::new();
         for eff in f.effects.iter().flatten() {
             match eff {
                 EffectRef::Use(_) => can_use = true,
@@ -9578,31 +9652,34 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // nothing to thread; what it does is open the *gate* a
                 // `spawn` expression checks [actor-spawn-expr].
                 EffectRef::Spawn(_) => can_spawn = true,
-                // [effect-handle] A named effect: an availability every
-                // binding of which is a handle.
-                EffectRef::Effect(r) | EffectRef::AnyEffect(r) => {
-                    // [effect-any] `any E` declares the weak availability:
-                    // this body may call `E` and callees declaring
-                    // `[any E]`, never a callee that assumes one instance.
-                    let any = matches!(eff, EffectRef::AnyEffect(_));
-                    let Some(ty) = self.lower_effect_ref(r) else {
-                        continue;
-                    };
-                    if written.contains(&ty) {
-                        self.error(
-                            r.span,
-                            format!(
-                                "duplicate effect `{ty}` in the effect list (two effects \
-                                 of the same type must differ in their generic arguments)"
-                            ),
-                        );
-                    } else {
-                        written.push(ty.clone());
-                        if !env.iter().any(|a| a.ty == ty) {
-                            env.push(EffectAvail { ty, declared: true, any });
-                        }
-                    }
+                _ => {}
+            }
+        }
+        // [effect-handle] A named effect: an availability every binding of
+        // which is a handle. [effect-alias] [effect-prereq] Aliases and
+        // prerequisites are expanded here, the one place a fn's list is
+        // lowered (PIPELINE.md R6).
+        let mut written: Vec<Ty> = Vec::new();
+        for e in self.expand_effect_refs(f.effects.as_deref().unwrap_or(&[]), true) {
+            if e.origin == EffectOrigin::Written {
+                if written.contains(&e.ty) {
+                    self.error(
+                        e.span,
+                        format!(
+                            "duplicate effect `{}` in the effect list (two effects \
+                             of the same type must differ in their generic arguments)",
+                            e.ty
+                        ),
+                    );
+                    continue;
                 }
+                written.push(e.ty.clone());
+            }
+            // [effect-any] `any E` declares the weak availability: this body
+            // may call `E` and callees declaring `[any E]`, never a callee
+            // that assumes one instance.
+            if !env.iter().any(|a| a.ty == e.ty) {
+                env.push(EffectAvail { ty: e.ty, declared: true, any: e.any });
             }
         }
         (env, can_use, can_spawn)
@@ -9722,6 +9799,290 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             (None, false) => {}
         }
+    }
+
+    /// [effect-alias] An alias names effects (or aliases), and its expansion
+    /// must close: a cycle is reported here, at the declaration.
+    fn check_effect_alias(&mut self, a: &'p ast::EffectAliasDecl) {
+        for m in &a.effects {
+            match m {
+                EffectRef::Use(span) | EffectRef::Spawn(span) => self.error(
+                    *span,
+                    "an effect alias names effects: `use` and `spawn` are per-function \
+                     capabilities, not effects a group can stand for [effect-alias]",
+                ),
+                EffectRef::AnyEffect(r) => self.error(
+                    r.span,
+                    "`any` has no meaning in an effect alias: an alias is a set of \
+                     effects, and `any` is about one instance of one effect — write it \
+                     where the effect is required [effect-alias]",
+                ),
+                EffectRef::Effect(r) => {
+                    let mut stack = vec![a.name.name.clone()];
+                    let mut sink = Vec::new();
+                    self.expand_effect_entry(r, false, r.span, EffectOrigin::Alias(a.name.name.clone()), &mut stack, &mut sink);
+                }
+            }
+        }
+    }
+
+    /// [effect-prereq] An effect's prerequisites, checked where they are
+    /// written: named plain effects (or aliases of them), visible to whoever
+    /// may name the effect, closing without a cycle. Records the list for the
+    /// IR (`Checked::effect_prereqs`).
+    fn check_effect_prereqs(&mut self, e: &'p ast::EffectDecl) {
+        if e.prereqs.is_empty() {
+            return;
+        }
+        let name = e.name.name.as_str();
+        if e.is_actor {
+            self.error(
+                e.name.span,
+                format!(
+                    "`actor effect {name}` cannot have prerequisites: a mailbox protocol that \
+                     needs another effect in scope is not supported yet [effect-prereq]"
+                ),
+            );
+            return;
+        }
+        let saved = self.enter_generics(&e.generics);
+        let mut listed: Vec<Ty> = Vec::new();
+        for p in &e.prereqs {
+            let r = match p {
+                EffectRef::Use(span) | EffectRef::Spawn(span) => {
+                    self.error(
+                        *span,
+                        "a prerequisite names an effect: `use` and `spawn` are capabilities \
+                         of a function, not something an effect can require [effect-prereq]",
+                    );
+                    continue;
+                }
+                EffectRef::AnyEffect(r) => {
+                    self.error(
+                        r.span,
+                        "`any` has no meaning in a prerequisite: the prerequisite is the one \
+                         instance bound around every use of the effect [effect-prereq]",
+                    );
+                    continue;
+                }
+                EffectRef::Effect(r) => r,
+            };
+            let pname = r.name.name.as_str();
+            let scope = self.scope_of(r);
+            if !scope.effects.contains_key(pname) && !scope.effect_aliases.contains_key(pname) {
+                self.error(
+                    r.span,
+                    format!("unknown effect `{pname}` in the prerequisites of `{name}` [effect-prereq]"),
+                );
+                continue;
+            }
+            for m in self.expand_effect_refs(std::slice::from_ref(p), false) {
+                let target = match m.ty.strip_quals() {
+                    Ty::Named { name, .. } => self.symbols.effects.get(name.as_str()).copied(),
+                    _ => None,
+                };
+                if let Some(t) = target {
+                    if t.is_actor {
+                        self.error(
+                            r.span,
+                            format!(
+                                "`{}` is an actor effect, which cannot be a prerequisite yet \
+                                 [effect-prereq]",
+                                t.name.name
+                            ),
+                        );
+                    }
+                    if e.exported && !t.exported {
+                        self.error(
+                            r.span,
+                            format!(
+                                "`{name}` is exported but its prerequisite `{0}` is not: every \
+                                 module that names `{name}` needs `{0}` too — export it \
+                                 [effect-prereq]",
+                                t.name.name
+                            ),
+                        );
+                    }
+                }
+                if !listed.contains(&m.ty) {
+                    listed.push(m.ty);
+                }
+            }
+        }
+        self.generics = saved;
+        let key = self.symbols.key_or(e, name).to_string();
+        // A cycle: the effect implies itself.
+        let mut seen: Vec<String> = vec![key.clone()];
+        let mut chain: Vec<String> = vec![name.to_string()];
+        if self.prereq_cycle(&key, &mut seen, &mut chain) {
+            self.error(
+                e.name.span,
+                format!(
+                    "effect prerequisites form a cycle: {} [effect-prereq]",
+                    chain.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(" → ")
+                ),
+            );
+        }
+        self.out.effect_prereqs.insert(key, listed);
+    }
+
+    /// [effect-prereq] Whether following prerequisites from effect [key]
+    /// comes back to the first effect of [seen]; [chain] is the path, by name.
+    fn prereq_cycle(&mut self, key: &str, seen: &mut Vec<String>, chain: &mut Vec<String>) -> bool {
+        let ty = Ty::Named { name: key.to_string(), args: Vec::new() };
+        for (implied, _) in self.prerequisites_of(&ty) {
+            let Ty::Named { name, .. } = implied.strip_quals() else { continue };
+            let plain = crate::typekey::plain(name).to_string();
+            if *name == seen[0] {
+                chain.push(plain);
+                return true;
+            }
+            if seen.contains(name) {
+                continue;
+            }
+            seen.push(name.clone());
+            chain.push(plain);
+            if self.prereq_cycle(&name.clone(), seen, chain) {
+                return true;
+            }
+            chain.pop();
+        }
+        false
+    }
+
+    /// [effect-alias] [effect-prereq] An effect list as the program means it
+    /// (PIPELINE.md R6, replacing the AST rewrites that ran before
+    /// resolution): every alias replaced by its members, resolved in the
+    /// alias's own file, and — with [prereqs] — every effect's prerequisites
+    /// added, resolved in the effect's own file with its type arguments
+    /// substituted. Written entries are kept as written, duplicates included
+    /// (the caller reports those); an alias member or a prerequisite already
+    /// present is dropped. `use`/`spawn` entries are the caller's.
+    fn expand_effect_refs(&mut self, list: &[EffectRef], prereqs: bool) -> Vec<ListedEffect> {
+        let mut out = Vec::new();
+        for eff in list {
+            let (r, any) = match eff {
+                EffectRef::Effect(r) => (r, false),
+                EffectRef::AnyEffect(r) => (r, true),
+                _ => continue,
+            };
+            self.expand_effect_entry(r, any, r.span, EffectOrigin::Written, &mut Vec::new(), &mut out);
+        }
+        if prereqs {
+            self.add_prerequisites(&mut out);
+        }
+        out
+    }
+
+    /// [effect-alias] One entry: an effect, or an alias whose members are
+    /// expanded in turn (a cycle is reported at [site]).
+    fn expand_effect_entry(
+        &mut self,
+        r: &TypeRef,
+        any: bool,
+        site: Span,
+        origin: EffectOrigin,
+        stack: &mut Vec<String>,
+        out: &mut Vec<ListedEffect>,
+    ) {
+        let name = r.name.name.as_str();
+        if let Some(&(alias, _)) = self.scope_of(r).effect_aliases.get(name) {
+            if any {
+                self.error(
+                    r.span,
+                    format!(
+                        "`any {name}` is not allowed: `{name}` is an effect alias (several \
+                         effects), and `any` is about one instance of one effect — write \
+                         `any` on the individual effect [effect-alias]"
+                    ),
+                );
+                return;
+            }
+            if stack.iter().any(|s| s == name) {
+                let mut chain = stack.clone();
+                chain.push(name.to_string());
+                self.error(
+                    site,
+                    format!("the effect alias `{}` is cyclic: {} [effect-alias]", chain[0], chain.join(" -> ")),
+                );
+                return;
+            }
+            stack.push(name.to_string());
+            let outer = match &origin {
+                EffectOrigin::Alias(a) => a.clone(),
+                _ => name.to_string(),
+            };
+            for m in &alias.effects {
+                // `use`/`spawn`/`any` in an alias are refused at its declaration.
+                if let EffectRef::Effect(mr) = m {
+                    self.expand_effect_entry(mr, false, site, EffectOrigin::Alias(outer.clone()), stack, out);
+                }
+            }
+            stack.pop();
+            return;
+        }
+        let Some(ty) = self.lower_effect_ref(r) else { return };
+        if origin != EffectOrigin::Written && out.iter().any(|e| e.ty == ty) {
+            return;
+        }
+        out.push(ListedEffect { ty, any, span: site, origin });
+    }
+
+    /// [effect-prereq] Adds, transitively, what the listed effects imply.
+    fn add_prerequisites(&mut self, out: &mut Vec<ListedEffect>) {
+        let mut i = 0;
+        // A generic prerequisite can grow without end (`Log<T> [Log<List<T>>]`);
+        // the cap keeps that a finite list rather than a hang.
+        while i < out.len() && out.len() < 64 {
+            let (ty, span) = (out[i].ty.clone(), out[i].span);
+            i += 1;
+            for (implied, by) in self.prerequisites_of(&ty) {
+                if !out.iter().any(|e| e.ty == implied) {
+                    out.push(ListedEffect { ty: implied, any: false, span, origin: EffectOrigin::Prereq(by) });
+                }
+            }
+        }
+    }
+
+    /// [effect-prereq] The direct prerequisites of one effect instance,
+    /// resolved where the effect is declared, its generics substituted by the
+    /// instance's arguments (`Log<T> [Sink<T>]` at `Log<Str>` is `Sink<Str>`),
+    /// each with the effect's name. Diagnostics about the list are the
+    /// declaration's, so none are reported here.
+    fn prerequisites_of(&mut self, ty: &Ty) -> Vec<(Ty, String)> {
+        let Ty::Named { name, args } = ty.strip_quals() else { return Vec::new() };
+        let Some(decl) = self.symbols.effects.get(name.as_str()).copied() else { return Vec::new() };
+        if decl.prereqs.is_empty() {
+            return Vec::new();
+        }
+        let subst: HashMap<String, Ty> =
+            decl.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect();
+        let mark = self.out.errors.len();
+        let saved = self.enter_generics(&decl.generics);
+        let mut found: Vec<Ty> = Vec::new();
+        for p in &decl.prereqs {
+            let EffectRef::Effect(r) = p else { continue };
+            let scope = self.scope_of(r);
+            if scope.effect_aliases.contains_key(r.name.name.as_str()) {
+                let mut members = Vec::new();
+                self.expand_effect_entry(r, false, r.span, EffectOrigin::Written, &mut Vec::new(), &mut members);
+                found.extend(members.into_iter().map(|m| m.ty));
+            } else if scope.effects.contains_key(r.name.name.as_str()) {
+                found.push(self.lower_base_ref(r, &subst, 0));
+            }
+        }
+        self.generics = saved;
+        self.out.errors.truncate(mark);
+        found.into_iter().map(|t| (t, decl.name.name.clone())).collect()
+    }
+
+    /// [effect-alias] [effect-prereq] `expand_effect_refs` reporting nothing:
+    /// for a list another declaration wrote, whose diagnostics are its own.
+    fn expand_effect_refs_quiet(&mut self, list: &[EffectRef], prereqs: bool) -> Vec<ListedEffect> {
+        let mark = self.out.errors.len();
+        let out = self.expand_effect_refs(list, prereqs);
+        self.out.errors.truncate(mark);
+        out
     }
 
     /// Lowers one named entry of an effect list, validating that it refers
@@ -10520,33 +10881,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // [effect-prereq] A dependency the handler never wrote is a
                     // prerequisite of an effect it implements: say which, since
                     // the reader looking at the handler will not find it.
-                    let want_name = match want.strip_quals() {
-                        Ty::Named { name, .. } => Some(name.clone()),
-                        _ => None,
-                    };
-                    let implied_by = want_name.as_deref().and_then(|w| {
-                        let h = self.symbols.handlers.get(self.out.visible_handler_key(self.file_idx, &id.name))?;
-                        let implied = h.effects.iter().flatten().any(|e| {
-                            matches!(e, EffectRef::Effect(r)
-                                if r.name.name == w && r.span.start == 0 && r.span.end == 0)
+                    let implied_by = self
+                        .symbols
+                        .handlers
+                        .get(self.out.visible_handler_key(self.file_idx, &id.name))
+                        .copied()
+                        .and_then(|h| {
+                            self.handler_dep_list(h).into_iter().find_map(|e| match e.origin {
+                                EffectOrigin::Prereq(face) if e.ty == want => Some(face),
+                                _ => None,
+                            })
                         });
-                        if !implied {
-                            return None;
-                        }
-                        h.of.iter().find_map(|of| match of {
-                            Type::Named { base, .. } => self
-                                .symbols
-                                .effects
-                                .get(base.name.name.as_str())
-                                .filter(|e| {
-                                    e.prereqs.iter().any(|p| {
-                                        matches!(p, EffectRef::Effect(r) if r.name.name == w)
-                                    })
-                                })
-                                .map(|_| base.name.name.clone()),
-                            _ => None,
-                        })
-                    });
                     match implied_by {
                         Some(face) => self.error(
                             span,
@@ -14341,12 +14686,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
-                EffectRef::Effect(r) => {
-                    if let Some(ty) = self.lower_effect_ref(r) {
-                        if !out.contains(&ty) {
-                            out.push(ty);                        }
-                    }
-                }
+                EffectRef::Effect(_) => {}
+            }
+        }
+        // [effect-alias] [effect-prereq] A fn type's list means what a fn's
+        // does: aliases flattened, prerequisites added.
+        let plain: Vec<EffectRef> = effects
+            .into_iter()
+            .flatten()
+            .filter(|e| matches!(e, EffectRef::Effect(_)))
+            .cloned()
+            .collect();
+        for e in self.expand_effect_refs(&plain, true) {
+            if !out.contains(&e.ty) {
+                out.push(e.ty);
             }
         }
         out
@@ -15777,7 +16130,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // First-slice cut: the servant's dependencies want the dependent-
         // member machinery rerouted through the handler-local dispatch,
         // which is its own piece of work. Refused rather than half-built.
-        if decl.effects.iter().flatten().next().is_some() {
+        if !self.handler_dep_list(decl).is_empty() {
             self.error(
                 span,
                 format!(
@@ -15979,14 +16332,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Recorded in `task_mint_effects` in the target's declared order; the
     /// emitters clone the scope's handles into the closure.
     fn resolve_task_effects(&mut self, target: &'p FnDecl, span: Span) {
-        let declared: Vec<Ty> = target
-            .effects
-            .iter()
-            .flatten()
-            .filter_map(|eff| match eff {
-                EffectRef::Effect(r) => self.lower_effect_ref(r),
-                _ => None,
-            })
+        let declared: Vec<Ty> = self
+            .expand_effect_refs_quiet(target.effects.as_deref().unwrap_or(&[]), true)
+            .into_iter()
+            .filter(|e| !e.any)
+            .map(|e| e.ty)
             .collect();
         if declared.is_empty() {
             return;
@@ -19124,6 +19474,36 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !self.type_name_exists(name) && self.scope.param_groups.contains_key(name) {
             return Ty::Unknown;
         }
+        // [eff-handle] [effect-alias] An alias among an `eff[…]` handle's
+        // effects stands for its members, flattened and deduped in order:
+        // `eff[IO]` is `eff[Console, Fs, Streams]`.
+        let alias_arg = |c: &Self, a: &ast::Type| match a {
+            ast::Type::Named { qualifiers, base: b } => {
+                qualifiers.is_empty() && c.scope_of(b).effect_aliases.contains_key(b.name.name.as_str())
+            }
+            _ => false,
+        };
+        if name == ADDR_TYPE && base.args.iter().any(|a| alias_arg(self, a)) {
+            let mut listed: Vec<ListedEffect> = Vec::new();
+            for a in &base.args {
+                match a {
+                    ast::Type::Named { base: b, .. } if alias_arg(self, a) => {
+                        self.expand_effect_entry(b, false, b.span, EffectOrigin::Alias(b.name.name.clone()), &mut Vec::new(), &mut listed);
+                    }
+                    other => {
+                        let ty = self.lower_type_subst(other, subst, depth);
+                        if !listed.iter().any(|e| e.ty == ty) {
+                            listed.push(ListedEffect { ty, any: false, span: other.span(), origin: EffectOrigin::Written });
+                        }
+                    }
+                }
+            }
+            let args: Vec<Ty> = listed.into_iter().map(|e| e.ty).collect();
+            if args.len() > 1 {
+                return Ty::Tuple(args.into_iter().map(|a| Ty::Named { name: ADDR_TYPE.to_string(), args: vec![a] }).collect());
+            }
+            return Ty::Named { name: ADDR_TYPE.to_string(), args };
+        }
         let args: Vec<Ty> = {
             // [cmp-carry] A keyed container names the ordering (or hash) its
             // keys are kept by in a **fn slot** after its type parameters:
@@ -19450,6 +19830,15 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `use` and `Throw` are refused — a handler registers nothing, and a
     /// throw needs a delimiter rather than a handler [throw].
     fn handler_dep_effects(&mut self, h: &'p ast::HandlerDecl) -> Vec<EffectAvail> {
+        self.handler_dep_list(h)
+            .into_iter()
+            .map(|e| EffectAvail { ty: e.ty, declared: true, any: e.any })
+            .collect()
+    }
+
+    /// [effect-handler-deps] [effect-prereq] A handler's dependencies as the
+    /// program means them, with where each came from.
+    fn handler_dep_list(&mut self, h: &'p ast::HandlerDecl) -> Vec<ListedEffect> {
         // [effect-handler-deps] The list is written in the handler's own file
         // and names what *that* file can see, so it is lowered in that file's
         // scope — a `use` in a module that never imports the dependency
@@ -19467,16 +19856,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             let saved_scope = self.scope;
             let saved_errors = self.out.errors.len();
             self.scope = &self.resolution.scopes[own];
-            let out = self.handler_dep_effects_here(h);
+            let out = self.handler_dep_list_here(h);
             self.scope = saved_scope;
             self.out.errors.truncate(saved_errors);
             return out;
         }
-        self.handler_dep_effects_here(h)
+        self.handler_dep_list_here(h)
     }
 
-    fn handler_dep_effects_here(&mut self, h: &'p ast::HandlerDecl) -> Vec<EffectAvail> {
-        let mut out: Vec<EffectAvail> = Vec::new();
+    fn handler_dep_list_here(&mut self, h: &'p ast::HandlerDecl) -> Vec<ListedEffect> {
+        let mut out: Vec<ListedEffect> = Vec::new();
         for eff in h.effects.iter().flatten() {
             let (r, any) = match eff {
                 EffectRef::Use(span) => {
@@ -19512,17 +19901,39 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 continue;
             }
-            let Some(ty) = self.lower_effect_ref(r) else {
-                continue;
-            };
-            if out.iter().any(|a| a.ty == ty) {
-                self.error(
-                    r.span,
-                    format!("handler `{}` declares `{ty}` twice", h.name.name),
-                );
-                continue;
+            // [effect-alias] An alias entry stands for its members; a
+            // handler's written dependencies are not prerequisite-expanded
+            // (the handler of each supplies its own).
+            for e in self.expand_effect_refs(std::slice::from_ref(eff), false) {
+                if out.iter().any(|a| a.ty == e.ty) {
+                    if e.origin == EffectOrigin::Written {
+                        self.error(
+                            r.span,
+                            format!("handler `{}` declares `{}` twice", h.name.name, e.ty),
+                        );
+                    }
+                    continue;
+                }
+                out.push(ListedEffect { any: any || e.any, ..e });
             }
-            out.push(EffectAvail { ty, declared: true, any });
+        }
+        // [effect-prereq] A handler of an effect with prerequisites reaches
+        // them as dependencies — unless it implements one itself (`of Fs,
+        // Streams`). Not a platform or intrinsic handler: the host constructs
+        // those and has nothing to pass them.
+        if !h.platform && !h.intrinsic {
+            let faces: Vec<(Ty, Span)> = h.of.iter().map(|t| (self.lower_type(t), t.span())).collect();
+            let mut implied: Vec<ListedEffect> = faces
+                .iter()
+                .map(|(ty, span)| ListedEffect { ty: ty.clone(), any: false, span: *span, origin: EffectOrigin::Written })
+                .collect();
+            self.add_prerequisites(&mut implied);
+            for e in implied.into_iter().filter(|e| e.origin != EffectOrigin::Written) {
+                if faces.iter().any(|(f, _)| *f == e.ty) || out.iter().any(|a| a.ty == e.ty) {
+                    continue;
+                }
+                out.push(e);
+            }
         }
         out
     }
@@ -19608,9 +20019,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [effect-generic-decl] A generic effect's instance is an effect
             // too (`Addr<ActorGroup<Counter>>`): its arguments are checked as
             // the effect's own generics are, which the general walk does.
+            // [effect-alias] An alias of effects is effects too: `eff[IO]`.
             ast::Type::Named { qualifiers, base } => {
                 qualifiers.is_empty()
-                    && self.scope.effects.contains_key(base.name.name.as_str())
+                    && (self.scope.effects.contains_key(base.name.name.as_str())
+                        || self.scope.effect_aliases.contains_key(base.name.name.as_str()))
             }
             _ => false,
         }
@@ -24756,12 +25169,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     return Ty::Unknown;
                 }
                 // The requested effects (an alias expands to its members).
-                let mut want: Vec<Ty> = Vec::new();
+                let mut listed: Vec<ListedEffect> = Vec::new();
                 for r in effects {
-                    if let Some(ty) = self.lower_effect_ref(r) {
-                        if !want.contains(&ty) {
-                            want.push(ty);
-                        }
+                    self.expand_effect_entry(r, false, r.span, EffectOrigin::Written, &mut Vec::new(), &mut listed);
+                }
+                let mut want: Vec<Ty> = Vec::new();
+                for e in listed {
+                    if !want.contains(&e.ty) {
+                        want.push(e.ty);
                     }
                 }
                 // Each requested effect must be one `base` carries.
@@ -28173,7 +28588,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             ast::SafeAccess::Call { field, type_args, args, named } => {
                 let name = field.name.as_str();
-                if !self.scope.effect_members.contains_key(name) && !self.has_callable(name) {
+                if self.effect_members_here(name).is_none() && !self.has_callable(name) {
                     for a in args {
                         self.check_expr(a, None);
                     }
@@ -29552,7 +29967,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return self
                     .check_addr_call(&effect, base, field, type_args, args, named, expected, span);
             }
-            let known = self.scope.effect_members.contains_key(name) || self.has_callable(name);
+            let known = self.effect_members_here(name).is_some() || self.has_callable(name);
             if known {
                 self.out.dot_calls.insert(self.key(span));
                 let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
@@ -30355,8 +30770,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [effect-available] A written `@module` selector names a *module's
         // overloads*, which no member ever is, so it skips this block whole:
         // that is how a fn shadowed by a member is called by hand.
-        if let Some(members) = self.scope.effect_members.get(name).filter(|_| at.is_none()) {
-            let members = members.clone();
+        if let Some(members) = self.effect_members_here(name).filter(|_| at.is_none()) {
             // [effect-available] **Availability decides first** (2026-09-14):
             // a member call needs an instance, so a name that is *also* an
             // ordinary fn is that fn wherever no handler is in scope — and
@@ -32148,27 +32562,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut wants: Vec<(Ty, bool)> = Vec::new();
         {
             let saved = self.enter_generics(&decl.generics);
-            for eff in decl.effects.iter().flatten() {
-                let (r, req_any) = match eff {
-                    EffectRef::Effect(r) => (r, false),
-                    // [effect-any] The weak requirement: any binding does.
-                    EffectRef::AnyEffect(r) => (r, true),
-                    _ => continue,
-                };
-                // Unknown effect names are reported at the callee's own
-                // declaration; skip them here. Known *where the callee wrote
-                // them* [type-identity]: a caller need not import an effect
-                // the callee requires — `read_to_str`'s implied `Streams`
-                // [effect-prereq] is `fs`'s to name, not the caller's (a
-                // caller that imported `fs` alone dropped it until
-                // 2026-10-04, and the target compiler refused the call).
-                if !self.scope_of(r).effects.contains_key(r.name.name.as_str()) {
-                    continue;
-                }
-                let empty = HashMap::new();
-                let lowered = self.lower_base_ref(r, &empty, 0);
-                if !wants.iter().any(|(w, _)| *w == lowered) {
-                    wants.push((lowered, req_any));
+            // Unknown effect names are reported at the callee's own
+            // declaration, so the list is expanded quietly. Known *where the
+            // callee wrote them* [type-identity]: a caller need not import an
+            // effect the callee requires — `read_to_str`'s implied `Streams`
+            // [effect-prereq] is `fs`'s to name, not the caller's. [effect-any]
+            // `any E` is the weak requirement: any binding does.
+            for e in self.expand_effect_refs_quiet(decl.effects.as_deref().unwrap_or(&[]), true) {
+                if !wants.iter().any(|(w, _)| *w == e.ty) {
+                    wants.push((e.ty, e.any));
                 }
             }
             // [effect-any] An inherited requirement carries no strength of

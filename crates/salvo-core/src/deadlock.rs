@@ -64,7 +64,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use salvo_syntax::ast::{self, EffectRef, Item};
+use salvo_syntax::ast::{self, Item};
 use salvo_syntax::span::Span;
 
 use crate::check::Checked;
@@ -228,11 +228,7 @@ fn build(
                 if !stateful {
                     continue;
                 }
-                let has_deps = h
-                    .effects
-                    .iter()
-                    .flatten()
-                    .any(|e| matches!(e, EffectRef::Effect(_) | EffectRef::AnyEffect(_)));
+                let has_deps = !deps_of(out, symbols, h).is_empty();
                 let waits = out
                     .waitfor_sites
                     .iter()
@@ -390,13 +386,12 @@ fn build(
             // per mixed handler of the effect, since the graph cannot know
             // which one a binding will choose [actor-deadlock-cycle].
             let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
-            for dep in h.effects.iter().flatten() {
-                let (EffectRef::Effect(r) | EffectRef::AnyEffect(r)) = dep else { continue };
-                let name = r.name.name.as_str();
-                if !is_actor(name) {
+            for (key, dep_span) in deps_of(out, symbols, h) {
+                let name = crate::typekey::plain(&key);
+                if !is_actor(&key) {
                     if let Some(mixed_handlers) = mixed_of.get(name) {
                         for mh in mixed_handlers {
-                            occupancies.push((servant_node(mh), file_idx, r.span));
+                            occupancies.push((servant_node(mh), file_idx, dep_span));
                         }
                     }
                     // [effect-handle] [monitor-handler] A dep on a plain effect
@@ -406,7 +401,7 @@ fn build(
                     // user decision 2026-09-20).
                     if let Some(monitors) = monitor_of.get(name) {
                         for mh in monitors {
-                            occupancies.push((monitor_node(mh), file_idx, r.span));
+                            occupancies.push((monitor_node(mh), file_idx, dep_span));
                         }
                     }
                     continue;
@@ -416,7 +411,7 @@ fn build(
                 if served.contains(&name) {
                     continue;
                 }
-                targets.push((name.to_string(), file_idx, r.span));
+                targets.push((name.to_string(), file_idx, dep_span));
             }
             // Sends through an addr the handler holds: the peer half of the
             // graph, and the only place an own-protocol edge survives.
@@ -496,28 +491,27 @@ fn build(
         let blocks = waits_of.get(h.name.name.as_str()).copied();
         let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
         let mut targets: Vec<(String, usize, Span)> = Vec::new();
-        for dep in h.effects.iter().flatten() {
-            let (EffectRef::Effect(r) | EffectRef::AnyEffect(r)) = dep else { continue };
-            let name = r.name.name.as_str();
+        for (key, dep_span) in deps_of(out, symbols, h) {
+            let name = crate::typekey::plain(&key);
             if own_faces.contains(&name) {
                 continue;
             }
-            if !is_actor(name) {
+            if !is_actor(&key) {
                 if let Some(mixed_handlers) = mixed_of.get(name) {
                     for mh in mixed_handlers {
-                        occupancies.push((servant_node(mh), file_idx, r.span));
+                        occupancies.push((servant_node(mh), file_idx, dep_span));
                     }
                 }
                 if let Some(monitors) = monitor_of.get(name) {
                     for mh in monitors {
                         if *mh != h.name.name {
-                            occupancies.push((monitor_node(mh), file_idx, r.span));
+                            occupancies.push((monitor_node(mh), file_idx, dep_span));
                         }
                     }
                 }
                 continue;
             }
-            targets.push((name.to_string(), file_idx, r.span));
+            targets.push((name.to_string(), file_idx, dep_span));
         }
         for task in tasks_reached(out, &h.name.name) {
             for (owner, target, (file, span)) in &out.task_sends {
@@ -746,4 +740,19 @@ fn base_name(ty: &ast::Type) -> Option<&str> {
         ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
         _ => None,
     }
+}
+
+/// [effect-handler-deps] [effect-prereq] A handler's dependencies as the
+/// checker expanded them (aliases flattened, its faces' prerequisites added),
+/// by effect key, with the span each came from.
+fn deps_of(out: &Checked, symbols: &Symbols<'_>, h: &ast::HandlerDecl) -> Vec<(String, Span)> {
+    out.handler_deps
+        .get(symbols.key_or(h, &h.name.name))
+        .into_iter()
+        .flatten()
+        .filter_map(|(t, span)| match t.strip_quals() {
+            crate::types::Ty::Named { name, .. } => Some((name.clone(), *span)),
+            _ => None,
+        })
+        .collect()
 }

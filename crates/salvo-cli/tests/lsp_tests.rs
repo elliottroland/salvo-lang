@@ -2279,6 +2279,71 @@ fn load() [Reader] -> Str {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
+/// [effect-alias] [effect-member-completion] [lsp-hover-overloads] An alias
+/// imported from another module brings its members' members into reach
+/// without importing them: completion offers `ping`, though `main.sv` imports
+/// only `caps.Both`, and hovering the fn shows the list it is interpreted as,
+/// `[Ping, Pong]` (user decision R6, 2026-10-20), not the written `[Both]`.
+#[test]
+fn an_imported_alias_reaches_completion_and_expands_in_hover() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_alias_members");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let caps = "\
+export effect Ping {
+    fn ping() -> Int
+}
+
+export effect Pong {
+    fn pong() -> Int
+}
+
+export effects Both = [Ping, Pong]
+";
+    let source = "\
+import caps.Both
+
+fn run() [Both] -> Int {
+    return pi
+}
+";
+    std::fs::write(root.join("caps.sv"), caps).unwrap();
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {"textDocument": {"uri": uri}, "position": {"line": 3, "character": 13}}
+        }),
+    );
+    let response = expect_response(&lsp.rx, 2);
+    let labels: Vec<String> = response["result"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no completion list: {response}"))
+        .iter()
+        .map(|i| i["label"].as_str().unwrap().to_string())
+        .collect();
+    assert!(labels.iter().any(|l| l == "ping"), "alias member's member offered: {labels:?}");
+    let text = hover(&mut lsp, 3, &uri, 2, 4);
+    assert!(text.contains("[Ping, Pong]"), "hover shows the expanded list: {text}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
 /// [lsp-completion] Completion offers the functions in scope; after
 /// `receiver.`, the ones whose first parameter the receiver fills, before
 /// those taking any type, and none taking something else.
