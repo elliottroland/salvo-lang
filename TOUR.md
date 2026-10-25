@@ -137,6 +137,17 @@ By what you would come looking for.
 * `check.rs` (30k lines): type checking, overload resolution, narrowing, flow,
   effects, actors, qualifiers. It fills `Checked`. Start with
   `check_program`, then `check_call`, `check_effect_call`, `resolve_named_call`.
+  **Its staging** [interface-pass]: `check_once` checks every file's
+  interfaces before any body — `walk_interfaces` runs
+  `check_signature_facts` (each fn's implicits, established claims and
+  effect list: what other headers read out of tables) over every file, then
+  `check_module` in `Pass::Interface` (every other header check, recording
+  a `FnSig` per fn and a `HandlerSig` per handler in the file's
+  `FileIface`) — and `walk_bodies` then runs `check_module` in `Pass::Body`,
+  which installs those records and walks the bodies. One `Checker` per file
+  per walk; `take_iface`/`put_iface` carry the records between them.
+  `check_fn` is the split in one place: `fn_interface` (the signature half),
+  `check_fn_body` (the frame, the walk, the missing-return check).
 * `types.rs`: `Ty` (the checker's type: `Named`, `Qualified`, `Union`,
   `Tuple`, `Fn{contract}`, `Lit`, …), subtyping, overload ranking.
 * `deduce.rs`: the `=> !p` / `=> p: Mut` clause; infers which parameters a

@@ -632,6 +632,40 @@ fn g() -> Int {
 The fix is in the builder: a statically true test with a binding still binds
 (a `Let` of the subject, or an `Alias` of its place).
 
+### 0r — Open defect: an inferred state field read by another inferred one declared earlier (found 2026-10-20)
+
+An `iter fn`'s inferred state field types are interfaces [state-infer]
+[interface-pass]: the minter whose state infers one is checked with the
+interfaces, before any body, so any *body* reads the type wherever it is
+declared (PIPELINE.md step 7 piece 3). The minters themselves are checked
+in declaration order, though, so an inferred initializer that reads another
+`iter fn`'s inferred field declared *later* sees `Unknown`, its own field
+infers `Unknown`, and a mismatch passes unchecked (a [backend-never-wrong]
+hazard: the target compiler is left to refuse it). Repro, no error today:
+
+```
+fn peek(f: Firsts) -> Str {
+    return f.s                       // an `Int`
+}
+
+iter fn firsts(n: Int) -> Emitted Str | Finished {
+    state Firsts { s = counts(n).at }
+    return finished()
+}
+
+iter fn counts(n: Int) -> Emitted Int | Finished {
+    state Counts { at = 0 }
+    if at >= n { return finished() }
+    at = at + 1
+    return emitted(at)
+}
+```
+
+Swapping the two `iter fn`s reports it. The fix (R5 option b's "a cycle is
+an error"): check the inferring minters in dependency order (a minter whose
+initializer names an iterator struct with an inferred field after that
+struct's minter), and report a cycle. Only tests write the inferred form.
+
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
 **What it is.** When a message makes an actor runnable, the scheduler unparks

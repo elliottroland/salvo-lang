@@ -4007,7 +4007,10 @@ Conventions:
     (`state Ones {}`), and the struct then holds the parameters only.
   * **The `state` block is declarations only**, each with an initializer,
     evaluated **once per iterator, at the mint**; the type may be written or
-    inferred [state-infer]. The initializers become the body of the generated
+    inferred [state-infer]. An inferred type is part of the struct's
+    interface: the minter is checked with the interfaces, before any body
+    [interface-pass], so a fn declared above the `iter fn` reads it too
+    (R5 option b). The initializers become the body of the generated
     minter, which is declared `[]` — so "no effects in an initializer" is not a
     rule of its own but an ordinary effect error at the offending call.
   * **The struct holds every parameter** (user decision 2026-10-20, R5): a Copy
@@ -8458,6 +8461,39 @@ between endpoints and delivers what arrives into the scheduler.
   them, which dropped those files' rows and diagnostics first; the
   `rewalk_files` / `Checked::drop_files` / `ErrorMarks` machinery and its
   four-walk cap went with it.)
+* [interface-pass] **Every declaration's interface is checked before any
+  body** (2026-10-20, PIPELINE.md step 7 piece 3; 02-resolve-03-interfaces).
+  The checker walks each file three times, each declaration's text read
+  once per walk for its own half:
+  1. *signature facts*, over every file: each fn's implicit parameters
+     [implicit-param], the claims it establishes [deduce-reapply] and its
+     expanded effect list [fn-effects] (`decl_effects`, `fn_effects`), and
+     each effect member's implicits — what other interfaces read out of
+     tables, so they come first;
+  2. *headers*, over every file: everything else a declaration says to
+     others — a fn's parameter, return and clause checks, its lends
+     [proj-infer] and conditional responses; a handler's faces, conformance,
+     dependencies (`handler_deps`), mailbox presence, state field types and
+     member signatures; an effect's prerequisites (`effect_prereqs`), route
+     keys, kind and members; structs, `type`s, qualifiers, `params` groups,
+     aliases, renames, doc tags, name clashes; the platform boundary plans;
+  3. *bodies*: every body, reading what 1 and 2 recorded (a fn's `FnSig`, a
+     handler's `HandlerSig`, the module's renames), re-deriving and
+     re-reporting nothing about a signature.
+  Each diagnostic is reported once, by the walk that owns its check, at the
+  span it always had, so `ir::gate` blames the same declaration. What stays
+  in the body walk although it reports at the header: the *expressions* in a
+  header (a parameter's default [fn-param-default], a handler's constructor
+  defaults, mailbox slot and state initializers, a struct field's default:
+  each checked in a frame of locals, numbered by the body walk), a module's
+  `use` bindings [mod-use], and the check that a written lend list covers
+  what the body visibly lends (it reads the body). The one minter whose body
+  *is* an interface — an `iter fn` whose state infers a field's type
+  [state-infer] — is checked, body and all, in walk 2. A once-per-file
+  diagnostic memory (an ineligible key reported at a written type
+  [col-key-eligible], a spare `holds proj`) passes from the interface walks
+  to the body walk, so a mistake reported at the header is not reported
+  again in a body.
 * [deduce-same-call] Arguments are evaluated left to right; within one
   call, an argument may not *mention* (read, project, interpolate, or
   capture) a value that an earlier argument of the same call consumed —
@@ -11705,8 +11741,10 @@ replaced the working document TESTING.md).
     renders to stderr with a summary line.
   * [phase-timings] With `SALVO_TIMINGS` set, each pipeline phase prints its
     wall-clock time to stderr (`timing: resolve  16.0ms`): parse, expand,
-    resolve, the checking walk with its sub-steps and the deduction pass, and
-    the IR analysis (`salvo_core::timing`; 2026-10-20, PIPELINE.md step 1).
+    resolve, the checking walk with its sub-steps (`check: interfaces`, with
+    its two steps `interfaces: facts` and `interfaces: headers`
+    [interface-pass], then `check: bodies`) and the deduction pass, and the
+    IR analysis (`salvo_core::timing`; 2026-10-20, PIPELINE.md step 1).
 * [cli-run] `salvo run [--backend NAME|*] [--src DIR] [--main FILE]
   [--target DIR] [--clean-target before|both]` (backend, src and main from the
   manifest when omitted [manifest]) compiles and then runs the

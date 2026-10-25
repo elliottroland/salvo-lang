@@ -1456,3 +1456,97 @@ log current so the work can resume after a context reset). Newest last.
     another declaration than the one it was checking breaks the wrong one
     and leaves the right one checked; rule 3 is the safety net, and the
     audit found no false report from it.
+- **Step 7, piece 3 (02-resolve-03-interfaces as its own pass, with its own
+  diagnostics): done** (committed "Check every declaration's interface
+  before any body"). [interface-pass]: `check_once` runs `walk_interfaces`
+  (step one `check_signature_facts` over every file, then `check_module` in
+  `Pass::Interface` and the platform boundary over every file), then
+  `walk_bodies` (`check_module` in `Pass::Body`). `walk_signatures` and its
+  dropped diagnostics are gone.
+  - **Design: records, not a silent re-run.** The interface walks keep a
+    per-file `FileIface`: a `SigFacts` and a `FnSig` per fn and a
+    `HandlerSig` per handler (by declaration address), the module's
+    renames, and the once-per-file diagnostic memories. The body walk
+    installs them (`install_sig`) and re-derives nothing. `check_fn` =
+    `fn_interface` + `check_fn_body`. Signature facts are a step of their
+    own because other headers read them from tables (a written `Set<T>`
+    resolves `T`'s `hash` through `implicit_params`, and the platform
+    boundary does the same).
+  - **The classification** (`check_module`'s and `check_fn`'s per-item work):
+
+    | work | half |
+    |---|---|
+    | module: return-type overloads, Kotlin name clashes, doc tags, scalar `!v` warnings, renames | interface |
+    | module: `use` bindings [mod-use] | body: `use` statements, read only by this file's bodies |
+    | fn: implicits, `+Q` claims, effect list (step one); parameter and return types, `proj Mut`, type-named fn, constructor signature, conditional responses, `preserve`, lends (`fn_lends`), `proj`/`ref` sources, `proj(p)` kept, `canbe linear`, handler deps merged, `main` and `Throw`, the `+Q` trusted check and the return type the body is checked against (both moved up from after the body gate); platform-fn rules; free send fn; the declaration's own `fn_refs` row | interface |
+    | fn: a written lend list against what the body visibly lends | body: it reads the body |
+    | fn: parameter defaults [fn-param-default], the parameter frame, root claims, the walk, declared mutation paths, missing return, `fn_body_effects`; a stamped fn's comptime roots; `own_discharges`, `own_task` | body |
+    | handler: platform rules, implicit constructor parameter types, faces (duplicates, kinds, bodyless, `Throw`), constructor parameter types, conformance, dependencies (`handler_deps`), `spawn`, mixed, mailbox presence, names, state field types (`canbe Mut`, `proj`, linear), `init` clashes, member signatures (no effects, send member, private send member) | interface (`HandlerSig`) |
+    | handler: constructor defaults, the mailbox slot's expression, state initializers, member bodies | body: expressions checked in a frame of locals the body walk numbers |
+    | effect alias; effect (prerequisites, route keys, member signatures and implicits, kind) | interface |
+    | qualifier, struct and `type` headers; `params` groups | interface (a struct field's default stays in the body walk; a qualifier's fns split as fns) |
+    | platform boundary plans (after the body walk until now) | interface |
+    | the minter of an `iter fn` whose state infers a field type | interface, body and all (below) |
+
+  - **Diagnostics: the same set, each once.** The order changes (every
+    file's interface diagnostics before any body's). `salvo analyze` and
+    the LSP sort by file and position, and no test depended on order. No
+    span moved, so `ir::gate` blames the same declarations. Emitted code
+    did not change.
+  - **The differential, retired.** `SALVO_XP_P3` ran the old staging (a
+    `Pass::Both` walk after the dropped pre-pass) beside the new one in
+    `check_program` and `check_project`. It compared every `Checked` table
+    as a sorted multiset, diagnostics included, over every program the
+    suite checks, e2e included (2,005 distinct programs). It found two
+    latent last-writer bugs, both fixed: `foreign_ref` (a callee's signature
+    lowered at a use recorded its type names' definition sites under this
+    file: `std/fs/mem.sv`'s `Str` went to `Int`), and effect members
+    lowered without the effect's generics (`written_types` read `M` as a
+    named type). After the fixes, nothing differed.
+  - **An interface read off a body, fixed:** an `iter fn`'s inferred state
+    field type came from the minter's body walk, so a fn declared above it
+    read `Unknown` (`return c.at` from a `-> Str` passed). Such a minter
+    (`body_pass_of`) is checked in the header walk now: its body is the
+    initializers (R5 option b). Not fixed: inferring minters among
+    themselves still go in declaration order (ROADMAP 0r).
+  - **Does any interface still read a body?** No checked body. Two read a
+    body's *text*: `parking_handlers` (syntactic, 4.5) and an inferring
+    minter (its body is the declaration's state block). Outside checking,
+    one body fact crosses declarations: `param_mutations` (a generic
+    container mutated through a minted handle makes the parameter
+    `LentMut`, which callers' pass modes read in `param_mode`). Step 8's
+    IR cache must treat it as a callee-body input of a caller's IR, or the
+    fact becomes a signature one.
+  - **Interface outputs for step 8's per-declaration cache.** The checker
+    tables written by the interface walks, and their keys:
+    - step one: `implicit_params` (`FnKey`), `implicit_members` (file,
+      member name span), `established_quals` (`FnKey`, parameter),
+      `decl_effects` (file, name span), `fn_effects` (`FnKey`);
+    - headers: `fn_lends` (`FnKey`), `handler_deps` (handler key),
+      `effect_prereqs` and `route_keys` (effect key), `boundary_checks` and
+      `factories` (file, span), the declaration's own `fn_refs` row (file,
+      name span), the `expr_ty` rows of inferred `iter fn` state fields
+      (file, field name span);
+    - mixed (header rows from the interface walks, body rows from the body
+      walk): `written_types` (AST address), `def_refs`/`field_refs`/
+      `module_refs` (file, span), `expr_ty`, and `carried_identities`
+      ((`FnId`, `Ty`), first writer program-wide: piece 4's latent issue);
+      a per-declaration cache needs the header rows split from the body rows;
+    - before the walks (already interfaces): the contracts
+      (`deduce::contracts`, `FnKey`), `refinements`, `protocol_hashes`,
+      `parking_handlers`, and the indexes (`type_ref_keys`, `visible_keys`,
+      …);
+    - outside `Checked`: `FileIface` (`SigFacts`, `FnSig`, `HandlerSig`,
+      renames), keyed by declaration address today. That is the
+      per-declaration interface record to cache, once stable ids replace
+      addresses.
+  - **Timings** (`SALVO_TIMINGS=1 target/debug/salvo analyze --src demo`,
+    debug, three runs each): check 186–188ms before, 179–187ms after; the
+    walk 177–180ms (pre-pass 5.3–5.6ms, bodies 155–158ms) against 171–179ms
+    (`check: interfaces` 27.6–29.2ms = `interfaces: facts` 5.5–5.8ms +
+    `interfaces: headers` 22.0–22.7ms; `check: bodies` 128–135ms).
+  - **Left:** ROADMAP 0r. Header expressions (defaults, initializers, the
+    mailbox slot) are checked by the body walk: moving them would renumber
+    the body walk's locals. R8's leftovers (the three static move-site
+    rules; fate links computed in the IR) wait: the first is the user's
+    call, and the second needs IR-side `is` bindings.

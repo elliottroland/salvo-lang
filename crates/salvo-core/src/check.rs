@@ -2003,8 +2003,9 @@ struct WalkCtx<'a, 'p> {
     cache: Option<&'a StdCache>,
 }
 
-/// One walk over every non-std file (std's facts come from the cache when
-/// there is one).
+/// Every non-std file's interfaces, then every non-std body, each walked
+/// once [interface-pass] (std's facts come from the cache when there is
+/// one).
 fn check_once<'p>(
     ctx: &WalkCtx<'_, 'p>,
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
@@ -2061,86 +2062,105 @@ fn check_once<'p>(
     let files: Vec<usize> = (0..program.files.len())
         .filter(|f| !cache.is_some_and(|c| *f < c.std_files))
         .collect();
-    walk_signatures(ctx, &files, &mut out, param_mutations, parking_handlers);
-    walk_bodies(ctx, &files, &mut out, param_mutations, parking_handlers);
+    let mut ifaces: Vec<FileIface<'p>> = (0..program.files.len()).map(|_| FileIface::default()).collect();
+    walk_interfaces(ctx, &files, &mut out, param_mutations, parking_handlers, &mut ifaces);
+    walk_bodies(ctx, &files, &mut out, param_mutations, parking_handlers, &mut ifaces);
     program_checks(program, symbols, &mut out, parking_handlers);
     out
 }
 
-/// [implicit-param] Every fn's implicit parameters are recorded **before**
-/// any body is checked. A call reads the callee's list from that table, so
-/// a callee this walk had not reached yet silently lost its implicit
-/// arguments: the checker accepted the call and the target compiler then
-/// rejected the emitted one ([backend-never-wrong]), for nothing but
-/// declaration order — within a file or across files (found while making
-/// `demo/heap.sv` run, fixed 2026-09-22). The pre-pass's diagnostics are
-/// dropped: the signature check re-derives them in the file they belong to,
-/// where a reader is.
-fn walk_signatures<'p>(
+/// [interface-pass] The checker over one file, for one pass. Every pass gets
+/// a fresh one; what a later pass needs from an earlier one goes through
+/// `FileIface` (`take_iface` / `put_iface`).
+fn file_checker<'r, 'p>(
+    ctx: &WalkCtx<'r, 'p>,
+    file_idx: usize,
+    pass: Pass,
+    out: &'r mut Checked,
+    param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
+    parking_handlers: &'r mut HashSet<String>,
+) -> Checker<'p, 'r> {
+    let file = &ctx.program.files[file_idx];
+    let mut checker = Checker::new(
+        file_idx,
+        file.content.len(),
+        file.is_std,
+        &ctx.program.files,
+        &ctx.resolution.scopes[file_idx],
+        ctx.resolution,
+        ctx.symbols,
+        ctx.inferred,
+        ctx.refinements,
+        out,
+        param_mutations,
+        parking_handlers,
+    );
+    checker.pass = pass;
+    checker.runtime_files = ctx
+        .program
+        .files
+        .iter()
+        .map(|f| f.is_std && f.module.0.first().is_some_and(|m| m == crate::resolve::STD_INTERNAL))
+        .collect();
+    checker
+}
+
+/// [interface-pass] 02-resolve-03-interfaces: every declaration's
+/// interface, checked with its diagnostics before any body is walked, from
+/// the declaration's own text and other interfaces only. Two steps over the
+/// program: first the signature facts other interfaces read out of tables
+/// (implicit parameters, established claims, effect lists:
+/// `check_signature_facts`), then everything else in every header
+/// (`check_module` with `Pass::Interface`, and the platform boundary). Each
+/// file's records go to its body pass in `ifaces`.
+fn walk_interfaces<'p>(
     ctx: &WalkCtx<'_, 'p>,
     files: &[usize],
     out: &mut Checked,
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
+    ifaces: &mut [FileIface<'p>],
 ) {
-    let _t = crate::timing::phase("  check_once: signatures");
-    let mark = out.errors.len();
+    let _t = crate::timing::phase("  check: interfaces");
+    let facts = crate::timing::phase("    interfaces: facts");
     for &file_idx in files {
-        let file = &ctx.program.files[file_idx];
-        let mut checker = Checker::new(
-            file_idx,
-            file.content.len(),
-            file.is_std,
-            &ctx.program.files,
-            &ctx.resolution.scopes[file_idx],
-            ctx.resolution,
-            ctx.symbols,
-            ctx.inferred,
-            ctx.refinements,
-            out,
-            param_mutations,
-            parking_handlers,
-        );
-        checker.collect_implicit_signatures(&ctx.program.modules[file_idx]);
-        checker.finish_fate();
+        let mut checker = file_checker(ctx, file_idx, Pass::Interface, out, param_mutations, parking_handlers);
+        checker.put_iface(std::mem::take(&mut ifaces[file_idx]));
+        checker.check_signature_facts(&ctx.program.modules[file_idx]);
+        ifaces[file_idx] = checker.take_iface();
     }
-    out.errors.truncate(mark);
+    drop(facts);
+    let _headers = crate::timing::phase("    interfaces: headers");
+    for &file_idx in files {
+        let ast = &ctx.program.modules[file_idx];
+        let mut checker = file_checker(ctx, file_idx, Pass::Interface, out, param_mutations, parking_handlers);
+        checker.put_iface(std::mem::take(&mut ifaces[file_idx]));
+        checker.check_module(ast);
+        // [platform-check] The values the host hands back, planned from
+        // signatures.
+        checker.check_platform_boundary(ast);
+        // [state-infer] A minter checked with the interfaces made bindings.
+        checker.finish_fate();
+        ifaces[file_idx] = checker.take_iface();
+    }
 }
 
-/// The bodies of [files], each walked once.
+/// 02-resolve-05-bodies: the bodies of [files], each walked once, reading
+/// the interfaces `walk_interfaces` recorded [interface-pass].
 fn walk_bodies<'p>(
     ctx: &WalkCtx<'_, 'p>,
     files: &[usize],
     out: &mut Checked,
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
+    ifaces: &mut [FileIface<'p>],
 ) {
-    let _t = crate::timing::phase("  check_once: bodies");
+    let _t = crate::timing::phase("  check: bodies");
     for &file_idx in files {
-        let file = &ctx.program.files[file_idx];
         let ast = &ctx.program.modules[file_idx];
-        let mut checker = Checker::new(
-            file_idx,
-            file.content.len(),
-            file.is_std,
-            &ctx.program.files,
-            &ctx.resolution.scopes[file_idx],
-            ctx.resolution,
-            ctx.symbols,
-            ctx.inferred,
-            ctx.refinements,
-            out,
-            param_mutations,
-            parking_handlers,
-        );
-        checker.runtime_files = ctx
-            .program
-            .files
-            .iter()
-            .map(|f| f.is_std && f.module.0.first().is_some_and(|m| m == crate::resolve::STD_INTERNAL))
-            .collect();
+        let mut checker = file_checker(ctx, file_idx, Pass::Body, out, param_mutations, parking_handlers);
+        checker.put_iface(std::mem::take(&mut ifaces[file_idx]));
         checker.check_module(ast);
-        checker.check_platform_boundary(ast);
         checker.finish_fate();
     }
 }
@@ -2148,7 +2168,7 @@ fn walk_bodies<'p>(
 /// The whole-program checks, after every body: they read what the walk
 /// recorded.
 fn program_checks(program: &Program, symbols: &Symbols<'_>, out: &mut Checked, parking_handlers: &HashSet<String>) {
-    let _t = crate::timing::phase("  check_once: program checks");
+    let _t = crate::timing::phase("  check: program checks");
     check_intrinsic_is_std_only(program, out);
     check_module_uses(program, out);
     check_runtime_layers(program, out);
@@ -2430,7 +2450,93 @@ type NarrowSnapshot = Vec<HashMap<String, VarState>>;
 /// [fate-move-mode].
 type Binding = (Ident, Ty, Vec<FateLink>, Option<Span>);
 
+/// [interface-pass] Which half of each declaration a checking walk does
+/// (PIPELINE.md §2, 02-resolve-03-interfaces). Every file's interfaces are
+/// checked, with their diagnostics, before any body: `Interface` runs over
+/// each file twice (signature facts, then the rest of every header), and
+/// `Body` over each file once, reading what `Interface` recorded.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Pass {
+    Interface,
+    Body,
+}
+
+impl Pass {
+    fn interface(self) -> bool {
+        self == Pass::Interface
+    }
+    fn body(self) -> bool {
+        self == Pass::Body
+    }
+}
+
+/// [interface-pass] A fn's signature facts that other declarations'
+/// interfaces read, recorded first for every fn of the program
+/// (`check_signature_facts`): its implicit parameters [implicit-param], and
+/// its own effect list [fn-effects] (`check_effect_list`).
+#[derive(Clone)]
+struct SigFacts {
+    implicits: Vec<ImplicitParam>,
+    effects: Vec<EffectAvail>,
+    can_use: bool,
+    can_spawn: bool,
+}
+
+/// [interface-pass] A fn's interface as its body walk reads it: what
+/// `check_fn` used to compute in its first lines, recorded by the interface
+/// pass and installed by the body pass.
+#[derive(Clone)]
+struct FnSig {
+    implicits: Vec<ImplicitParam>,
+    /// The effect environment the body starts with: the fn's own list, plus
+    /// the dependencies a handler member inherits [effect-handler-deps].
+    effects: Vec<EffectAvail>,
+    can_use: bool,
+    can_spawn: bool,
+    derived_return: Option<String>,
+    preserve: HashMap<String, Vec<String>>,
+    derived_sources: Vec<String>,
+    lends_declared: bool,
+    lends: Vec<String>,
+    proj_arms: Vec<String>,
+    linear_generics: HashSet<String>,
+    /// What the body's returns are checked against: the written return
+    /// type with established claims stripped [deduce-reapply]; `None` for a
+    /// bodiless fn.
+    ret_ty: Ty,
+}
+
+/// [interface-pass] A handler's header, as its members' bodies read it.
+#[derive(Clone)]
+struct HandlerSig {
+    of_tys: Vec<Ty>,
+    deps: Vec<EffectAvail>,
+    spawns: bool,
+    mixed: bool,
+}
+
+/// [interface-pass] What the interface pass hands one file's body pass:
+/// the per-declaration records (keyed by declaration address, stable for
+/// one program), the module's renames, and the file's once-per-file
+/// diagnostic memories, so a mistake the header reported is not reported
+/// again by a body that meets it.
+#[derive(Default)]
+struct FileIface<'p> {
+    facts: HashMap<usize, SigFacts>,
+    fns: HashMap<usize, FnSig>,
+    handlers: HashMap<usize, HandlerSig>,
+    renames: Vec<RenameBinding<'p>>,
+    reported_ineligible_keys: HashSet<String>,
+    warned_spare_lends: HashSet<(usize, Span)>,
+    lends_memo: HashMap<usize, Vec<usize>>,
+}
+
 struct Checker<'p, 'r> {
+    /// [interface-pass] Which half of each declaration this walk checks.
+    pass: Pass,
+    /// [interface-pass] The file's interface records: written by the
+    /// interface pass, read by the body pass.
+    iface: FileIface<'p>,
     scope: &'r ModuleScope<'p>,
     /// The whole-program resolution (for import suggestions on
     /// unresolved names [diag-import-suggest]).
@@ -2823,22 +2929,22 @@ struct CondInfo {
 }
 
 impl<'p, 'r> Checker<'p, 'r> {
-    /// [implicit-param] Records every declaration's implicit parameters, with
-    /// nothing else checked. Run over the whole program before any body is,
-    /// because a call site reads the **callee's** list out of this table: a
-    /// callee the check had not reached yet looked like a fn with no implicits,
-    /// so the call was accepted with none filled and the emitted call was short
-    /// an argument — a [backend-never-wrong] violation decided by nothing but
-    /// declaration order, within a file or across them.
+    /// [interface-pass] Step one of the interface pass: every fn's signature
+    /// facts (`sig_facts`: implicit parameters, established claims, effect
+    /// list) and every effect member's implicits, with their diagnostics.
+    /// Run over the whole program before any other interface check, because
+    /// those read them out of tables: a call site, a keyed type's identity,
+    /// or a fn value reading a callee not reached yet saw a fn with no
+    /// implicits, no claims or no effects — a [backend-never-wrong]
+    /// violation decided by nothing but declaration order, within a file or
+    /// across them (found 2026-09-22 and 2026-10-20).
     ///
-    /// Mirrors the generic scopes the real walk enters, since `?cmp: (T, T) ->
-    /// Int` must lower to a variable rather than a nominal `T`, and mirrors
-    /// which declarations have an `FnKey` (only a top-level fn does; the rest
-    /// key by their name span). Its diagnostics are dropped by the caller.
-    fn collect_implicit_signatures(&mut self, module: &'p Module) {
-        // [deduce-reapply] The same-file rule for `+Q` reads this, and the
-        // pre-pass records the claims it confines — so it has to know which
-        // qualifiers this file declares, exactly as the real walk does.
+    /// Mirrors the generic scopes and the stamp scopes the rest of the walk
+    /// enters, since `?cmp: (T, T) -> Int` must lower to a variable rather
+    /// than a nominal `T`, and mirrors which declarations have an `FnKey`
+    /// (only a top-level fn does; the rest key by their name span).
+    fn check_signature_facts(&mut self, module: &'p Module) {
+        // [deduce-reapply] The same-file rule for `+Q` reads this.
         self.own_qualifiers = module
             .items
             .iter()
@@ -2854,36 +2960,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                         file: self.file_idx,
                         item: item_idx,
                     });
-                    let saved = self.enter_generics(&f.generics);
-                    self.expand_implicits(f);
-                    // [deduce-reapply] What this fn says it **establishes**, for
-                    // the same reason its implicits are recorded here: a call
-                    // site reads it out of a table, so a callee the walk had not
-                    // reached yet looked like a fn that establishes nothing and
-                    // the claim silently failed to reach the caller (found
-                    // 2026-09-22, the same defect one table over).
-                    self.check_reapplied_deductions(f);
-                    // [fn-effects] The fn's effect list, expanded, for the
-                    // same reason: a fn named as a *value* by a body the walk
-                    // reaches first builds its `Ty::Fn` from this table, and
-                    // a callee declared later read no effects — the checker
-                    // passed `apply(shout)` and the Rust emitter crashed on
-                    // the missing effect argument (found 2026-10-20,
-                    // PIPELINE.md step 7).
-                    let (effects, _, _) = self.check_effect_list(f);
-                    let tys: Vec<Ty> = effects.into_iter().map(|a| a.ty).collect();
-                    self.out.decl_effects.insert(self.key(f.name.span), tys.clone());
-                    if let Some(key) = self.own_fn {
-                        self.out.fn_effects.insert(key, tys);
+                    self.own_stamp = f.stamped.as_ref();
+                    let saved_scope = self.scope;
+                    if let Some(&i) = self.resolution.fn_stamp_scope.get(&(f as *const FnDecl as usize)) {
+                        self.scope = &self.resolution.stamp_scopes[i];
                     }
+                    let saved = self.enter_generics(&f.generics);
+                    self.record_sig_facts(f);
                     self.generics = saved;
+                    self.flush_copy_warnings();
+                    self.scope = saved_scope;
+                    self.own_stamp = None;
                     self.own_fn = None;
                 }
                 Item::Qualifier(q) => {
                     let saved = self.enter_generics(&q.generics);
                     for f in &q.fns {
                         let inner = self.enter_generics(&f.generics);
-                        self.expand_implicits(f);
+                        self.record_sig_facts(f);
                         self.generics = inner;
                     }
                     self.generics = saved;
@@ -2892,21 +2986,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let saved = self.enter_generics(&e.generics);
                     for f in &e.fns {
                         let inner = self.enter_generics(&f.generics);
-                        let implicits = self.collect_implicits(f);
-                        if !implicits.is_empty() {
-                            self.out
-                                .implicit_members
-                                .insert(self.key(f.name.span), implicits);
-                        }
+                        self.effect_member_implicits(f);
                         self.generics = inner;
                     }
                     self.generics = saved;
                 }
                 Item::Handler(h) => {
                     let saved = self.enter_generics(&h.generics);
-                    for f in &h.fns {
+                    for f in h.fns.iter().chain(h.init.iter()) {
                         let inner = self.enter_generics(&f.generics);
-                        self.expand_implicits(f);
+                        self.record_sig_facts(f);
                         self.generics = inner;
                     }
                     self.generics = saved;
@@ -2915,12 +3004,52 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
     }
+
+    fn record_sig_facts(&mut self, f: &'p FnDecl) {
+        let facts = self.sig_facts(f);
+        self.iface.facts.insert(f as *const FnDecl as usize, facts);
+    }
+
+    /// [implicit-param] An effect member is an ordinary signature, so it may
+    /// declare implicit parameters. They belong to the member's signature —
+    /// the interface method takes them, every handler's implementation takes
+    /// them, and the call site fills them — so the expansion is recorded
+    /// here, keyed by the member's name (a member has no `FnKey`).
+    fn effect_member_implicits(&mut self, f: &'p FnDecl) {
+        let implicits = self.collect_implicits(f);
+        if !implicits.is_empty() {
+            self.out
+                .implicit_members
+                .insert(self.key(f.name.span), implicits);
+        }
+    }
+
+    /// [interface-pass] Hands this file's interface records on to the next
+    /// pass over it, with the once-per-file diagnostic memories.
+    fn take_iface(&mut self) -> FileIface<'p> {
+        let mut iface = std::mem::take(&mut self.iface);
+        iface.renames = std::mem::take(&mut self.renames);
+        iface.reported_ineligible_keys = std::mem::take(&mut self.reported_ineligible_keys);
+        iface.warned_spare_lends = std::mem::take(&mut self.warned_spare_lends);
+        iface.lends_memo = std::mem::take(&mut self.lends_memo);
+        iface
+    }
+
+    /// [interface-pass] The other half of `take_iface`.
+    fn put_iface(&mut self, mut iface: FileIface<'p>) {
+        self.renames = std::mem::take(&mut iface.renames);
+        self.reported_ineligible_keys = std::mem::take(&mut iface.reported_ineligible_keys);
+        self.warned_spare_lends = std::mem::take(&mut iface.warned_spare_lends);
+        self.lends_memo = std::mem::take(&mut iface.lends_memo);
+        self.iface = iface;
+    }
 }
 
 impl<'p, 'r> Checker<'p, 'r> {
     /// One file's checker. Every field that is not a borrow from outside
-    /// starts empty, so the two walks over the program — the signature
-    /// pre-pass and the check itself — differ only in what they call.
+    /// starts empty, so the walks over the program — the interface pass's
+    /// two and the body pass [interface-pass] — differ only in their `pass`
+    /// and in the records they are handed (`put_iface`).
     #[allow(clippy::too_many_arguments)]
     fn new(
         file_idx: usize,
@@ -2937,6 +3066,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             parking_handlers: &'r mut HashSet<String>,
     ) -> Checker<'p, 'r> {
         Checker {
+            pass: Pass::Interface,
+            iface: FileIface::default(),
             reported_ineligible_keys: HashSet::new(),
             scope,
             resolution,
@@ -3194,7 +3325,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             file: self.file_idx,
             item: item_idx,
         };
-        self.out.fn_refs.insert(self.key(f.name.span), key);
+        let (iface, body) = (self.pass.interface(), self.pass == self.body_pass_of(f));
+        if iface {
+            self.out.fn_refs.insert(self.key(f.name.span), key);
+        }
         // [fate-move-mode] The fn's own effective contract
         // decides whether a parameter root is owned.
         self.own_fn = Some(key);
@@ -3212,7 +3346,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // name written here, and is visible here or an error — the
         // expansion looked it up program-wide, before resolution. Recorded
         // for go-to-definition like any type reference.
-        if let Some(stamp) = &f.stamped {
+        if let (true, Some(stamp)) = (body, &f.stamped) {
             for root in &stamp.roots {
                 let r = ast::TypeRef {
                     name: root.clone(),
@@ -3243,38 +3377,42 @@ impl<'p, 'r> Checker<'p, 'r> {
         // consumed parameter whose type is a linear struct
         // declared in this same file, `discard` becomes legal
         // in this body (user decision 2026-09-12).
-        self.own_discharges = f
-            .params
-            .iter()
-            .filter_map(|p| {
-                let base = match &p.ty {
-                    ast::Type::Named { base, .. } => &base.name.name,
-                    _ => return None,
-                };
-                if !self.linear_capable(&self.type_key(base)) {
-                    return None;
-                }
-                if self.scope.struct_files.get(base.as_str()).copied()
-                    != Some(self.file_idx)
-                {
-                    return None;
-                }
-                let consumed = self
-                    .own_contract
-                    .as_ref()
-                    .is_some_and(|c| {
-                        c.iter().any(|d| d.param == p.name.name && !d.kept)
-                    });
-                // [type-identity] By key: `discard` compares the value's type.
-                consumed.then(|| self.type_key(base))
-            })
-            .collect();
+        if body {
+            self.own_discharges = f
+                .params
+                .iter()
+                .filter_map(|p| {
+                    let base = match &p.ty {
+                        ast::Type::Named { base, .. } => &base.name.name,
+                        _ => return None,
+                    };
+                    if !self.linear_capable(&self.type_key(base)) {
+                        return None;
+                    }
+                    if self.scope.struct_files.get(base.as_str()).copied()
+                        != Some(self.file_idx)
+                    {
+                        return None;
+                    }
+                    let consumed = self
+                        .own_contract
+                        .as_ref()
+                        .is_some_and(|c| {
+                            c.iter().any(|d| d.param == p.name.name && !d.kept)
+                        });
+                    // [type-identity] By key: `discard` compares the value's type.
+                    consumed.then(|| self.type_key(base))
+                })
+                .collect();
+        }
         // [free-send-fn] The send kind's refusal list, at the
         // declaration where the author is deciding.
-        self.check_free_send_fn(f);
+        if iface {
+            self.check_free_send_fn(f);
+        }
         // [task-mint] What this body's sends are attributed to in
         // the deadlock graph.
-        self.own_task = f.is_send.then(|| f.name.name.clone());
+        self.own_task = (body && f.is_send).then(|| f.name.name.clone());
         self.check_fn(f, &[], &[]);
         self.flush_copy_warnings();
         self.scope = saved_scope;
@@ -3285,6 +3423,428 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.own_written.clear();
         self.own_contract = None;
     }
+
+    /// A handler declaration, in the half `self.pass` names [interface-pass]:
+    /// its header (faces, dependencies, parameters, state field types, the
+    /// mailbox's presence, conformance, each member's signature) in the
+    /// interface pass, which records a `HandlerSig`; its expressions (the
+    /// constructor parameters' defaults, the mailbox slot, the state
+    /// initializers) and its members' bodies in the body pass.
+    fn check_handler(&mut self, h: &'p ast::HandlerDecl) {
+        let saved = self.enter_generics(&h.generics);
+        let (iface, body) = (self.pass.interface(), self.pass.body());
+        let addr = h as *const ast::HandlerDecl as usize;
+        let sig = if iface {
+            let sig = self.handler_interface(h);
+            self.iface.handlers.insert(addr, sig.clone());
+            sig
+        } else {
+            match self.iface.handlers.get(&addr) {
+                Some(sig) => sig.clone(),
+                None => panic!(
+                    "[interface-pass] handler `{}` reached the body pass with no interface",
+                    h.name.name
+                ),
+            }
+        };
+        let HandlerSig { of_tys, deps: handler_deps, spawns, mixed } = sig;
+        // [fn-param-default] A constructor parameter's default is
+        // checked exactly as a fn parameter's is: once, here,
+        // against the parameter's type, with no effects
+        // available and only the *earlier* parameters in scope.
+        // It is lowered fresh at each construction that omits it
+        // (`Lower::construct_handler`). An expression, checked in a
+        // frame of locals: the body pass's.
+        if body && h.params.iter().any(|p| p.default.is_some()) {
+            let saved_env = std::mem::take(&mut self.effect_env);
+            for (i, p) in h.params.iter().enumerate() {
+                let Some(default) = &p.default else { continue };
+                let frame = self.read_only_frame(&h.params[..i]);
+                self.locals.push(frame);
+                let expected = self.lower_type(&p.ty).strip_spread();
+                self.check_default(default, &expected);
+                self.locals.pop();
+            }
+            self.effect_env = saved_env;
+        }
+        let saved_deps =
+            std::mem::replace(&mut self.handler_deps, handler_deps);
+        let saved_spawns = std::mem::replace(&mut self.handler_spawns, spawns);
+        let saved_own_handler = std::mem::replace(&mut self.own_handler, Some(h));
+        let saved_of = std::mem::replace(&mut self.handler_ofs, of_tys.clone());
+        // [actor-mailbox] The actor settings slot, before the
+        // state fields: it is the one part of a handler that is
+        // computed *before* any state exists. Its presence is the
+        // header's, its expression the body pass's.
+        self.check_mailbox_slot(h, &of_tys);
+        if iface {
+            self.check_handler_names(h);
+        }
+        for field in &h.state {
+            if iface {
+                if let Some(t) = &field.ty {
+                    self.validate_type(t);
+                }
+                if field.canbe_mut {
+                    self.error(
+                        field.span,
+                        "`canbe Mut` is for a struct's fields [field-canbe-mut]; a \
+                         handler's state is mutable already, so write `Mut` or nothing"
+                            .to_string(),
+                    );
+                }
+                self.check_proj_field(&h.name.name, field);
+                self.check_linear_field(&h.name.name, field);
+            }
+            // A state field's initializer is checked against its
+            // declared type, exactly like a struct field's
+            // default [effect-handler]: it runs in `new()` with
+            // no locals in scope. (Until 2026-09-04 it was not
+            // checked at all, so `held: Mut List<Int> = "no"`
+            // was accepted and the emitters never saw the
+            // expression's types.)
+            //
+            // [state-infer] With no annotation (`name = value`)
+            // the field's type *is* the initializer's, inferred
+            // exactly as a `let x = value` is — and recorded at
+            // the field-name span for the IR to read back (the
+            // channel `waitfor` uses). An annotation may be wider
+            // than the value, so the written type is checked as a
+            // supertype, as a `let x: T = value` is. A handler's
+            // state is its own, so the inferred type is read by its
+            // members' bodies only: the body pass's.
+            if let (true, Some(default)) = (body, &field.default) {
+                // [handler-state] An initialiser may read the constructor's
+                // parameters: the state is built from them, once, at construction.
+                let frame = self.read_only_frame(&h.params);
+                self.locals.push(frame);
+                match &field.ty {
+                    Some(t) => {
+                        let expected = self.lower_type(t);
+                        self.check_default(default, &expected);
+                    }
+                    None => {
+                        let got = self.check_expr(default, None);
+                        // Record the inferred field type where the
+                        // member-body frame and the IR read it.
+                        self.out
+                            .expr_ty
+                            .insert(self.key(field.name.span), got);
+                    }
+                }
+                self.locals.pop();
+            }
+        }
+        // [handler-init] The `init` block is checked as one more
+        // member — a parameterless private send member the
+        // runtime sends first — and a written member of the same
+        // name would collide with its message variant.
+        if let (true, Some(init)) = (iface, &h.init) {
+            if mixed {
+                self.error(
+                    init.name.span,
+                    format!(
+                        "handler `{}` is mixed [mixed-handler], and a mixed handler \
+                         has no `init` block yet: start it with a send member instead",
+                        h.name.name
+                    ),
+                );
+            }
+            if let Some(clash) = h.fns.iter().find(|f| f.name.name == init.name.name) {
+                self.error(
+                    clash.name.span,
+                    format!(
+                        "handler `{}` has an `init` block, so it cannot also declare a \
+                         member named `init`: the block is that member",
+                        h.name.name
+                    ),
+                );
+            }
+        }
+        for f in h.fns.iter().chain(h.init.iter()) {
+            if iface {
+                self.reject_member_effects(f, "handler member functions");
+                // [actor-send-fn] A handler's `send fn` answers
+                // nothing, exactly as the effect's declaration does.
+                self.check_send_member(f);
+                // [mixed-handler] [actor-private-send] A send member
+                // no face declares — every one of a mixed handler's,
+                // an actor handler's private ones — carries the free
+                // send fn's obligations, because no effect
+                // declaration mirrors it: a written, all-consumed
+                // clause, no `Mut`, no generics, sendable payloads.
+                let private = f.is_send
+                    && (mixed
+                        || crate::handler_member_faces(&self.handler_faces(h), f).is_empty());
+                if private {
+                    self.check_local_send_member(h, f);
+                }
+            }
+            // [defer-deduction] The rung-4 contract point: while
+            // a mixed send member's body is checked, its reply
+            // parameters and their declared deferrals are what
+            // the escape hooks consult.
+            let saved_replies = std::mem::replace(
+                &mut self.servant_reply_params,
+                (f.is_send && mixed).then(|| {
+                    f.params
+                        .iter()
+                        .filter(|p| !p.implicit)
+                        .filter(|p| {
+                            matches!(
+                                &p.ty,
+                                ast::Type::Named { base, .. }
+                                    if base.name.name == REPLY_TYPE
+                            )
+                        })
+                        .map(|p| {
+                            let deferred = f.deductions.iter().flatten().any(|d| {
+                                matches!(d.kind, ast::DeductionKind::Deferred)
+                                    && d.param_name()
+                                        .is_some_and(|n| n.name == p.name.name)
+                            });
+                            (p.name.name.clone(), deferred)
+                        })
+                        .collect()
+                }),
+            );
+            // [mixed-handler] A sync member of a mixed handler is
+            // the façade: it runs on the caller's thread over the
+            // façade value, so it sees the constructor parameters
+            // and its own arguments — not the state (confined to
+            // the servant), not the handler's dependencies (they
+            // live in the servant) — and its `waitfor` needs no
+            // capability (SH-5(d)'s down payment: the façade does
+            // not run on the spawned thread, so there is no
+            // placement to check).
+            let facade = mixed && !f.is_send;
+            let saved_facade =
+                std::mem::replace(&mut self.facade_handler, facade.then_some(h));
+            let saved_confined = std::mem::replace(
+                &mut self.confined_state,
+                if facade {
+                    h.state.iter().map(|s| s.name.name.clone()).collect()
+                } else {
+                    Vec::new()
+                },
+            );
+            let saved_facade_deps = if facade {
+                std::mem::take(&mut self.handler_deps)
+            } else {
+                Vec::new()
+            };
+            let member_state: &[ast::FieldDecl] =
+                if facade { &[] } else { &h.state };
+            // [linear-group] [linear-discard] A handler member
+            // implementing a **consuming** effect member is a
+            // discharge context: discharger status attaches to
+            // the *member declaration*, so every handler's body
+            // for it may terminate the obligation with `discard`
+            // — wherever the handler lives, including a test
+            // double in another module (user decision
+            // 2026-09-14, entailed by stream ops being members).
+            let context = self.member_discharge_context(h, f);
+            let saved_discharges =
+                std::mem::replace(&mut self.own_discharges, context);
+            // [fate-move-mode] A member's clause is written, and
+            // it is the member's own contract: a parameter it
+            // consumes is owned here, so a binding taken from it
+            // (`let {body} = input`) is move-mode exactly as in a
+            // fn. Without this every derived binding in a member
+            // stayed read-only and a consumed parameter could
+            // only be handed on whole (found 2026-09-30 writing
+            // `MemS3.put_object`).
+            let contract = self.effective_contract(None, f);
+            let saved_contract = std::mem::replace(&mut self.own_contract, contract);
+            let saved_written = std::mem::replace(
+                &mut self.own_written,
+                f.deductions
+                    .iter()
+                    .flatten()
+                    .filter_map(|d| d.param_name().map(|n| n.name.clone()))
+                    .collect(),
+            );
+            self.check_fn(f, &h.params, member_state);
+            self.own_contract = saved_contract;
+            self.own_written = saved_written;
+            self.own_discharges = saved_discharges;
+            self.servant_reply_params = saved_replies;
+            self.facade_handler = saved_facade;
+            self.confined_state = saved_confined;
+            if facade {
+                self.handler_deps = saved_facade_deps;
+            }
+        }
+        self.handler_deps = saved_deps;
+        self.handler_spawns = saved_spawns;
+        self.own_handler = saved_own_handler;
+        self.handler_ofs = saved_of;
+        self.generics = saved;
+    }
+
+    /// [interface-pass] A handler's header: its faces, constructor
+    /// parameters, conformance and dependency list, with the generics in
+    /// scope.
+    fn handler_interface(&mut self, h: &'p ast::HandlerDecl) -> HandlerSig {
+        // [platform-handler] A host implementation of an ordinary
+        // effect: bodyless, dependency-free, non-generic.
+        self.check_platform_handler(h);
+        // [copy-implicit] A handler constructor may take implicit
+        // parameters (lifted 2026-09-11): the `use` site is where
+        // the handler's type arguments are known, so it resolves
+        // them exactly as a call resolves a fn's. The case that
+        // forced it: a generic handler that must `copy` a `T` —
+        // `?copy: (v: T) -> T` is filled at `use Cyclic([1, 2])`
+        // with the copy of `Int`, which the Kotlin backend can
+        // lower where a bare `copy` of `T` it cannot [kt-copy].
+        for p in &h.params {
+            if p.implicit && !matches!(p.ty, ast::Type::Fn { .. }) {
+                self.error(
+                    p.span,
+                    "an implicit parameter must have a function type: what \
+                     fills it is resolved as a function of that name"
+                        .to_string(),
+                );
+            }
+        }
+        let of_tys: Vec<Ty> =
+            h.of.iter().map(|t| self.lower_type(t)).collect();
+        // [effect-handler-multi] One face per effect, and the list
+        // is a set: naming an effect twice would make `spawn`
+        // answer the same addr twice and say nothing new.
+        for (i, (written, ty)) in h.of.iter().zip(&of_tys).enumerate() {
+            if of_tys[..i].contains(ty) {
+                self.error(
+                    written.span(),
+                    format!(
+                        "handler `{}` already implements `{ty}`: a handler \
+                         wears each face once",
+                        h.name.name
+                    ),
+                );
+            }
+        }
+        // [effect-handler-multi] Every implemented effect must be
+        // of the **same kind**. A handler with both an `actor
+        // effect` and a plain one is refused: a handler is bound
+        // one way or the other, and the construct whose plain
+        // members run on the caller's thread while its send
+        // members run on the actor's is the mixed handler
+        // [mixed-handler] — classified by shape, all faces plain.
+        let kinds: Vec<(&ast::Type, bool)> = h
+            .of
+            .iter()
+            .zip(&of_tys)
+            .filter_map(|(written, ty)| {
+                let Ty::Named { name, .. } = ty.strip_quals() else {
+                    return None;
+                };
+                let effect = self.symbols.effects.get(name.as_str())?;
+                Some((written, effect.is_actor))
+            })
+            .collect();
+        if let Some((_, first)) = kinds.first().copied() {
+            for (written, is_actor) in &kinds[1..] {
+                if *is_actor != first {
+                    let (async_kind, sync_kind) = if *is_actor {
+                        ("this one", "the first")
+                    } else {
+                        ("the first", "this one")
+                    };
+                    self.error(
+                        written.span(),
+                        format!(
+                            "handler `{}` implements effects of two kinds — \
+                             {async_kind} is an `actor effect` and {sync_kind} \
+                             is not: a handler is bound one way or the other \
+                             (`spawn` or `use`), so its faces must agree",
+                            h.name.name
+                        ),
+                    );
+                }
+            }
+        }
+        // [effect-handler-multi] A **bodyless** handler wears one
+        // face: an `intrinsic handler`'s members are the backend's
+        // and a `platform handler`'s are the host's, and each is one
+        // implementation of one generated interface — so a second
+        // face has nobody to implement it.
+        if (h.intrinsic || h.platform) && h.of.len() > 1 {
+            let kind = if h.intrinsic {
+                "intrinsic"
+            } else {
+                "platform"
+            };
+            self.error(
+                h.of[1].span(),
+                format!(
+                    "`{kind} handler {}` implements several effects: its \
+                     members are implemented outside Salvo, where one class \
+                     implements one generated interface — declare one \
+                     handler per effect",
+                    h.name.name
+                ),
+            );
+        }
+        // [throw] There is no handler for throwing: the
+        // delimiter is `try`, and a handler would have to
+        // *resume* the operation, which `Never` forbids.
+        for (written, of_ty) in h.of.iter().zip(&of_tys) {
+            if matches!(
+                of_ty.strip_quals(),
+                Ty::Named { name, .. } if name == THROW_EFFECT
+            ) {
+                self.error(
+                    written.span(),
+                    format!(
+                        "`{THROW_EFFECT}` has no handlers: a throw is delimited by a \
+                         `try {{ ... }}` block, not handled"
+                    ),
+                );
+            }
+        }
+        for p in &h.params {
+            // [effect-handler-deps] Dependencies are declared in
+            // the handler's own effect list now (user decision
+            // 2026-09-14), so a constructor parameter is always
+            // ordinary data — and an effect-typed one is the
+            // plain [effect-not-data] error, with no exception
+            // left anywhere in the language.
+            self.validate_type(&p.ty);
+        }
+        // [effect-handler-multi] Conformance, face by face: every
+        // member of every implemented effect needs an
+        // implementation here, and a member that implements two
+        // faces at once has to be *one* signature — which is what
+        // "legal when overloading distinguishes them, or when one
+        // method implements both" means when it is checked.
+        self.check_handler_conformance(h);
+        let dep_list = self.handler_dep_list(h);
+        self.out.handler_deps.insert(
+            self.symbols.key_or(h, &h.name.name).to_string(),
+            dep_list.iter().map(|e| (e.ty.clone(), e.span)).collect(),
+        );
+        let deps: Vec<EffectAvail> = dep_list
+            .into_iter()
+            .map(|e| EffectAvail { ty: e.ty, declared: true, any: e.any })
+            .collect();
+        // [actor-spawn-effect] [actor-replyto] The handler its
+        // members belong to: `spawn` in its dependency list is a
+        // capability they inherit, and `replyto` resolves its
+        // target member against this declaration.
+        let spawns = h
+            .effects
+            .iter()
+            .flatten()
+            .any(|e| matches!(e, EffectRef::Spawn(_)));
+        // [mixed-handler] Plain faces + `send fn` members: the
+        // mixed handler (SH-1, user decision 2026-09-19). The
+        // send members and the state form the servant; the sync
+        // members form the façade.
+        let mixed = self.handler_is_mixed(h);
+        HandlerSig { of_tys, deps, spawns, mixed }
+    }
+
 
     /// [state-name] [bare-names] A handler's names (user decision
     /// 2026-10-20, R4). Its constructor parameters and state fields are one
@@ -3798,11 +4358,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn check_module(&mut self, module: &'p Module) {
-        self.check_return_overloads(module);
+        let (iface, body) = (self.pass.interface(), self.pass.body());
+        if iface {
+            self.check_return_overloads(module);
+        }
         // [mod-use] The module's own bindings, checked as a `use` in a body
         // with nothing else in scope (no locals, no effects), so what they
         // construct can depend on nothing the module's functions could see.
-        if !module.uses.is_empty() {
+        // A body's work: they are `use` statements, and only this file's
+        // bodies read the availabilities they make.
+        if body && !module.uses.is_empty() {
             let saved_env = std::mem::take(&mut self.effect_env);
             let saved_can_use = std::mem::replace(&mut self.can_use, true);
             // A module binding may spawn (`use H() on thread()`): the runtime
@@ -3819,17 +4384,20 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [name-camel] Names the Kotlin backend would spell alike are an
         // error on every backend (user decision 2026-10-01, ABI D6).
-        for (span, msg) in crate::case::module_clashes(module) {
-            self.error(span, msg);
-        }
-        self.check_doc_tags(module);
-        self.check_scalar_moves(module);
-        // [fn-rename] Module-level renames are in force for the whole module,
-        // in every file of it — order-independent, like every other
-        // module-level declaration. They are validated once here (a duplicate
-        // or a mismatch is reported per file, which is where the reader is).
-        for decl in self.scope.renames.clone() {
-            self.declare_rename(decl);
+        if iface {
+            for (span, msg) in crate::case::module_clashes(module) {
+                self.error(span, msg);
+            }
+            self.check_doc_tags(module);
+            self.check_scalar_moves(module);
+            // [fn-rename] Module-level renames are in force for the whole
+            // module, in every file of it — order-independent, like every
+            // other module-level declaration. They are validated once here (a
+            // duplicate or a mismatch is reported per file, which is where the
+            // reader is); the body pass is handed the bindings (`put_iface`).
+            for decl in self.scope.renames.clone() {
+                self.declare_rename(decl);
+            }
         }
         self.own_qualifiers = module
             .items
@@ -3845,7 +4413,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // [platform-fn] The host writes one concrete function
                     // that performs no Salvo effect: no generics, no
                     // implicits, no effect list beyond `[]`.
-                    if f.platform {
+                    if iface && f.platform {
                         // [platform-generic] Type parameters are allowed
                         // (runtime E1): opaque to the host, which may only
                         // store, move and hand one back.
@@ -3864,7 +4432,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // other (user decision 2026-10-01, ABI D5): each has a
                     // namespace of its own at the boundary. One may share its
                     // name with ordinary fns.
-                    if f.platform {
+                    if iface && f.platform {
                         let first = module.items.iter().position(|i| {
                             matches!(i, Item::Fn(g) if g.platform && g.name.name == f.name.name)
                         });
@@ -3883,8 +4451,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 // [implicit-group] A group's members are signatures for
                 // *parameters*, validated as declaration sites like an
-                // effect's.
-                Item::Params(g) => {
+                // effect's. No body.
+                Item::Params(g) if iface => {
                     let saved = self.enter_generics(&g.generics);
                     for f in &g.fns {
                         self.reject_implicits(f, "a `params` group member");
@@ -3912,390 +4480,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     self.generics = saved;
                 }
-                Item::Handler(h) => {
-                    let saved = self.enter_generics(&h.generics);
-                    // [platform-handler] A host implementation of an ordinary
-                    // effect: bodyless, dependency-free, non-generic.
-                    self.check_platform_handler(h);
-                    // [copy-implicit] A handler constructor may take implicit
-                    // parameters (lifted 2026-09-11): the `use` site is where
-                    // the handler's type arguments are known, so it resolves
-                    // them exactly as a call resolves a fn's. The case that
-                    // forced it: a generic handler that must `copy` a `T` —
-                    // `?copy: (v: T) -> T` is filled at `use Cyclic([1, 2])`
-                    // with the copy of `Int`, which the Kotlin backend can
-                    // lower where a bare `copy` of `T` it cannot [kt-copy].
-                    for p in &h.params {
-                        if p.implicit && !matches!(p.ty, ast::Type::Fn { .. }) {
-                            self.error(
-                                p.span,
-                                "an implicit parameter must have a function type: what \
-                                 fills it is resolved as a function of that name"
-                                    .to_string(),
-                            );
-                        }
-                    }
-                    let of_tys: Vec<Ty> =
-                        h.of.iter().map(|t| self.lower_type(t)).collect();
-                    // [effect-handler-multi] One face per effect, and the list
-                    // is a set: naming an effect twice would make `spawn`
-                    // answer the same addr twice and say nothing new.
-                    for (i, (written, ty)) in h.of.iter().zip(&of_tys).enumerate() {
-                        if of_tys[..i].contains(ty) {
-                            self.error(
-                                written.span(),
-                                format!(
-                                    "handler `{}` already implements `{ty}`: a handler \
-                                     wears each face once",
-                                    h.name.name
-                                ),
-                            );
-                        }
-                    }
-                    // [effect-handler-multi] Every implemented effect must be
-                    // of the **same kind**. A handler with both an `actor
-                    // effect` and a plain one is refused: a handler is bound
-                    // one way or the other, and the construct whose plain
-                    // members run on the caller's thread while its send
-                    // members run on the actor's is the mixed handler
-                    // [mixed-handler] — classified by shape, all faces plain.
-                    let kinds: Vec<(&ast::Type, bool)> = h
-                        .of
-                        .iter()
-                        .zip(&of_tys)
-                        .filter_map(|(written, ty)| {
-                            let Ty::Named { name, .. } = ty.strip_quals() else {
-                                return None;
-                            };
-                            let effect = self.symbols.effects.get(name.as_str())?;
-                            Some((written, effect.is_actor))
-                        })
-                        .collect();
-                    if let Some((_, first)) = kinds.first().copied() {
-                        for (written, is_actor) in &kinds[1..] {
-                            if *is_actor != first {
-                                let (async_kind, sync_kind) = if *is_actor {
-                                    ("this one", "the first")
-                                } else {
-                                    ("the first", "this one")
-                                };
-                                self.error(
-                                    written.span(),
-                                    format!(
-                                        "handler `{}` implements effects of two kinds — \
-                                         {async_kind} is an `actor effect` and {sync_kind} \
-                                         is not: a handler is bound one way or the other \
-                                         (`spawn` or `use`), so its faces must agree",
-                                        h.name.name
-                                    ),
-                                );
-                            }
-                        }
-                    }
-                    // [effect-handler-multi] A **bodyless** handler wears one
-                    // face: an `intrinsic handler`'s members are the backend's
-                    // and a `platform handler`'s are the host's, and each is one
-                    // implementation of one generated interface — so a second
-                    // face has nobody to implement it.
-                    if (h.intrinsic || h.platform) && h.of.len() > 1 {
-                        let kind = if h.intrinsic {
-                            "intrinsic"
-                        } else {
-                            "platform"
-                        };
-                        self.error(
-                            h.of[1].span(),
-                            format!(
-                                "`{kind} handler {}` implements several effects: its \
-                                 members are implemented outside Salvo, where one class \
-                                 implements one generated interface — declare one \
-                                 handler per effect",
-                                h.name.name
-                            ),
-                        );
-                    }
-                    // [throw] There is no handler for throwing: the
-                    // delimiter is `try`, and a handler would have to
-                    // *resume* the operation, which `Never` forbids.
-                    for (written, of_ty) in h.of.iter().zip(&of_tys) {
-                        if matches!(
-                            of_ty.strip_quals(),
-                            Ty::Named { name, .. } if name == THROW_EFFECT
-                        ) {
-                            self.error(
-                                written.span(),
-                                format!(
-                                    "`{THROW_EFFECT}` has no handlers: a throw is delimited by a \
-                                     `try {{ ... }}` block, not handled"
-                                ),
-                            );
-                        }
-                    }
-                    for p in &h.params {
-                        // [effect-handler-deps] Dependencies are declared in
-                        // the handler's own effect list now (user decision
-                        // 2026-09-14), so a constructor parameter is always
-                        // ordinary data — and an effect-typed one is the
-                        // plain [effect-not-data] error, with no exception
-                        // left anywhere in the language.
-                        self.validate_type(&p.ty);
-                    }
-                    // [fn-param-default] A constructor parameter's default is
-                    // checked exactly as a fn parameter's is: once, here,
-                    // against the parameter's type, with no effects
-                    // available and only the *earlier* parameters in scope.
-                    // It is lowered fresh at each construction that omits it
-                    // (`Lower::construct_handler`).
-                    if h.params.iter().any(|p| p.default.is_some()) {
-                        let saved_env = std::mem::take(&mut self.effect_env);
-                        for (i, p) in h.params.iter().enumerate() {
-                            let Some(default) = &p.default else { continue };
-                            let frame = self.read_only_frame(&h.params[..i]);
-                            self.locals.push(frame);
-                            let expected = self.lower_type(&p.ty).strip_spread();
-                            self.check_default(default, &expected);
-                            self.locals.pop();
-                        }
-                        self.effect_env = saved_env;
-                    }
-                    // [effect-handler-multi] Conformance, face by face: every
-                    // member of every implemented effect needs an
-                    // implementation here, and a member that implements two
-                    // faces at once has to be *one* signature — which is what
-                    // "legal when overloading distinguishes them, or when one
-                    // method implements both" means when it is checked.
-                    self.check_handler_conformance(h);
-                    let dep_list = self.handler_dep_list(h);
-                    self.out.handler_deps.insert(
-                        self.symbols.key_or(h, &h.name.name).to_string(),
-                        dep_list.iter().map(|e| (e.ty.clone(), e.span)).collect(),
-                    );
-                    let handler_deps: Vec<EffectAvail> = dep_list
-                        .into_iter()
-                        .map(|e| EffectAvail { ty: e.ty, declared: true, any: e.any })
-                        .collect();
-                    let saved_deps =
-                        std::mem::replace(&mut self.handler_deps, handler_deps);
-                    // [actor-spawn-effect] [actor-replyto] The handler its
-                    // members belong to: `spawn` in its dependency list is a
-                    // capability they inherit, and `replyto` resolves its
-                    // target member against this declaration.
-                    let spawns = h
-                        .effects
-                        .iter()
-                        .flatten()
-                        .any(|e| matches!(e, EffectRef::Spawn(_)));
-                    let saved_spawns = std::mem::replace(&mut self.handler_spawns, spawns);
-                    let saved_own_handler = std::mem::replace(&mut self.own_handler, Some(h));
-                    let saved_of = std::mem::replace(&mut self.handler_ofs, of_tys.clone());
-                    // [mixed-handler] Plain faces + `send fn` members: the
-                    // mixed handler (SH-1, user decision 2026-09-19). The
-                    // send members and the state form the servant; the sync
-                    // members form the façade.
-                    let mixed = self.handler_is_mixed(h);
-                    // [actor-mailbox] The actor settings slot, before the
-                    // state fields: it is the one part of a handler that is
-                    // computed *before* any state exists.
-                    self.check_mailbox_slot(h, &of_tys);
-                    self.check_handler_names(h);
-                    for field in &h.state {
-                        if let Some(t) = &field.ty {
-                            self.validate_type(t);
-                        }
-                        if field.canbe_mut {
-                            self.error(
-                                field.span,
-                                "`canbe Mut` is for a struct's fields [field-canbe-mut]; a \
-                                 handler's state is mutable already, so write `Mut` or nothing"
-                                    .to_string(),
-                            );
-                        }
-                        self.check_proj_field(&h.name.name, field);
-                        self.check_linear_field(&h.name.name, field);
-                        // A state field's initializer is checked against its
-                        // declared type, exactly like a struct field's
-                        // default [effect-handler]: it runs in `new()` with
-                        // no locals in scope. (Until 2026-09-04 it was not
-                        // checked at all, so `held: Mut List<Int> = "no"`
-                        // was accepted and the emitters never saw the
-                        // expression's types.)
-                        //
-                        // [state-infer] With no annotation (`name = value`)
-                        // the field's type *is* the initializer's, inferred
-                        // exactly as a `let x = value` is — and recorded at
-                        // the field-name span for the IR to read back (the
-                        // channel `waitfor` uses). An annotation may be wider
-                        // than the value, so the written type is checked as a
-                        // supertype, as a `let x: T = value` is.
-                        if let Some(default) = &field.default {
-                            // [handler-state] An initialiser may read the constructor's
-                            // parameters: the state is built from them, once, at construction.
-                            let frame = self.read_only_frame(&h.params);
-                            self.locals.push(frame);
-                            match &field.ty {
-                                Some(t) => {
-                                    let expected = self.lower_type(t);
-                                    self.check_default(default, &expected);
-                                }
-                                None => {
-                                    let got = self.check_expr(default, None);
-                                    // Record the inferred field type where the
-                                    // member-body frame and the IR read it.
-                                    self.out
-                                        .expr_ty
-                                        .insert(self.key(field.name.span), got);
-                                }
-                            }
-                            self.locals.pop();
-                        }
-                    }
-                    // [handler-init] The `init` block is checked as one more
-                    // member — a parameterless private send member the
-                    // runtime sends first — and a written member of the same
-                    // name would collide with its message variant.
-                    if let Some(init) = &h.init {
-                        if mixed {
-                            self.error(
-                                init.name.span,
-                                format!(
-                                    "handler `{}` is mixed [mixed-handler], and a mixed handler \
-                                     has no `init` block yet: start it with a send member instead",
-                                    h.name.name
-                                ),
-                            );
-                        }
-                        if let Some(clash) = h.fns.iter().find(|f| f.name.name == init.name.name) {
-                            self.error(
-                                clash.name.span,
-                                format!(
-                                    "handler `{}` has an `init` block, so it cannot also declare a \
-                                     member named `init`: the block is that member",
-                                    h.name.name
-                                ),
-                            );
-                        }
-                    }
-                    for f in h.fns.iter().chain(h.init.iter()) {
-                        self.reject_member_effects(f, "handler member functions");
-                        // [actor-send-fn] A handler's `send fn` answers
-                        // nothing, exactly as the effect's declaration does.
-                        self.check_send_member(f);
-                        // [mixed-handler] [actor-private-send] A send member
-                        // no face declares — every one of a mixed handler's,
-                        // an actor handler's private ones — carries the free
-                        // send fn's obligations, because no effect
-                        // declaration mirrors it: a written, all-consumed
-                        // clause, no `Mut`, no generics, sendable payloads.
-                        let private = f.is_send
-                            && (mixed
-                                || crate::handler_member_faces(&self.handler_faces(h), f).is_empty());
-                        if private {
-                            self.check_local_send_member(h, f);
-                        }
-                        // [defer-deduction] The rung-4 contract point: while
-                        // a mixed send member's body is checked, its reply
-                        // parameters and their declared deferrals are what
-                        // the escape hooks consult.
-                        let saved_replies = std::mem::replace(
-                            &mut self.servant_reply_params,
-                            (f.is_send && mixed).then(|| {
-                                f.params
-                                    .iter()
-                                    .filter(|p| !p.implicit)
-                                    .filter(|p| {
-                                        matches!(
-                                            &p.ty,
-                                            ast::Type::Named { base, .. }
-                                                if base.name.name == REPLY_TYPE
-                                        )
-                                    })
-                                    .map(|p| {
-                                        let deferred = f.deductions.iter().flatten().any(|d| {
-                                            matches!(d.kind, ast::DeductionKind::Deferred)
-                                                && d.param_name()
-                                                    .is_some_and(|n| n.name == p.name.name)
-                                        });
-                                        (p.name.name.clone(), deferred)
-                                    })
-                                    .collect()
-                            }),
-                        );
-                        // [mixed-handler] A sync member of a mixed handler is
-                        // the façade: it runs on the caller's thread over the
-                        // façade value, so it sees the constructor parameters
-                        // and its own arguments — not the state (confined to
-                        // the servant), not the handler's dependencies (they
-                        // live in the servant) — and its `waitfor` needs no
-                        // capability (SH-5(d)'s down payment: the façade does
-                        // not run on the spawned thread, so there is no
-                        // placement to check).
-                        let facade = mixed && !f.is_send;
-                        let saved_facade =
-                            std::mem::replace(&mut self.facade_handler, facade.then_some(h));
-                        let saved_confined = std::mem::replace(
-                            &mut self.confined_state,
-                            if facade {
-                                h.state.iter().map(|s| s.name.name.clone()).collect()
-                            } else {
-                                Vec::new()
-                            },
-                        );
-                        let saved_facade_deps = if facade {
-                            std::mem::take(&mut self.handler_deps)
-                        } else {
-                            Vec::new()
-                        };
-                        let member_state: &[ast::FieldDecl] =
-                            if facade { &[] } else { &h.state };
-                        // [linear-group] [linear-discard] A handler member
-                        // implementing a **consuming** effect member is a
-                        // discharge context: discharger status attaches to
-                        // the *member declaration*, so every handler's body
-                        // for it may terminate the obligation with `discard`
-                        // — wherever the handler lives, including a test
-                        // double in another module (user decision
-                        // 2026-09-14, entailed by stream ops being members).
-                        let context = self.member_discharge_context(h, f);
-                        let saved_discharges =
-                            std::mem::replace(&mut self.own_discharges, context);
-                        // [fate-move-mode] A member's clause is written, and
-                        // it is the member's own contract: a parameter it
-                        // consumes is owned here, so a binding taken from it
-                        // (`let {body} = input`) is move-mode exactly as in a
-                        // fn. Without this every derived binding in a member
-                        // stayed read-only and a consumed parameter could
-                        // only be handed on whole (found 2026-09-30 writing
-                        // `MemS3.put_object`).
-                        let contract = self.effective_contract(None, f);
-                        let saved_contract = std::mem::replace(&mut self.own_contract, contract);
-                        let saved_written = std::mem::replace(
-                            &mut self.own_written,
-                            f.deductions
-                                .iter()
-                                .flatten()
-                                .filter_map(|d| d.param_name().map(|n| n.name.clone()))
-                                .collect(),
-                        );
-                        self.check_fn(f, &h.params, member_state);
-                        self.own_contract = saved_contract;
-                        self.own_written = saved_written;
-                        self.own_discharges = saved_discharges;
-                        self.servant_reply_params = saved_replies;
-                        self.facade_handler = saved_facade;
-                        self.confined_state = saved_confined;
-                        if facade {
-                            self.handler_deps = saved_facade_deps;
-                        }
-                    }
-                    self.handler_deps = saved_deps;
-                    self.handler_spawns = saved_spawns;
-                    self.own_handler = saved_own_handler;
-                    self.handler_ofs = saved_of;
-                    self.generics = saved;
-                }
+                Item::Handler(h) => self.check_handler(h),
                 // [effect-alias] Its own list: only named effects, and it closes.
-                Item::EffectAlias(a) => self.check_effect_alias(a),
-                Item::Effect(e) => {
+                Item::EffectAlias(a) if iface => self.check_effect_alias(a),
+                // An effect is all header: its members have no bodies.
+                Item::Effect(e) if iface => {
                     self.check_effect_prereqs(e);
                     self.check_route_keys(e);
                     self.check_effect_member_signatures(e);
@@ -4314,19 +4503,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         for p in &f.params {
                             self.validate_type(&p.ty);
                         }
-                        // [implicit-param] An effect member is an ordinary
-                        // signature, so it may declare implicit parameters.
-                        // They belong to the member's signature — the
-                        // interface method takes them, every handler's
-                        // implementation takes them, and the call site fills
-                        // them — so the expansion is recorded here, keyed by
-                        // the member's name (a member has no `FnKey`).
-                        let implicits = self.collect_implicits(f);
-                        if !implicits.is_empty() {
-                            self.out
-                                .implicit_members
-                                .insert(self.key(f.name.span), implicits);
-                        }
+                        // [implicit-param] The member's implicits went with
+                        // the signature facts (`check_signature_facts`).
                         if let Some(rt) = &f.return_type {
                             self.validate_type(rt);
                         }
@@ -4336,26 +4514,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Item::Qualifier(q) => {
                     let saved = self.enter_generics(&q.generics);
-                    // [comptime-qualifier] A comptime qualifier's subject is a
-                    // `core.comptime` type, the one ordinary position one may
-                    // be named in.
-                    self.in_comptime_decl = q.comptime;
-                    self.check_fn_slots(&q.name.name, &q.fn_slots, &q.generics);
-                    // [qual-depend] One kind of slot per qualifier for now:
-                    // nothing in std or the design's catalog mixes an
-                    // identity slot with a value slot, and the positional
-                    // reading of a mixed block is undecided.
-                    if !q.fn_slots.is_empty() && !q.value_slots.is_empty() {
-                        self.error(
-                            q.name.span,
-                            "a qualifier declares fn slots or value slots, not both",
-                        );
+                    if iface {
+                        // [comptime-qualifier] A comptime qualifier's subject is a
+                        // `core.comptime` type, the one ordinary position one may
+                        // be named in.
+                        self.in_comptime_decl = q.comptime;
+                        self.check_fn_slots(&q.name.name, &q.fn_slots, &q.generics);
+                        // [qual-depend] One kind of slot per qualifier for now:
+                        // nothing in std or the design's catalog mixes an
+                        // identity slot with a value slot, and the positional
+                        // reading of a mixed block is undecided.
+                        if !q.fn_slots.is_empty() && !q.value_slots.is_empty() {
+                            self.error(
+                                q.name.span,
+                                "a qualifier declares fn slots or value slots, not both",
+                            );
+                        }
+                        for v in &q.value_slots {
+                            self.validate_type(&v.ty);
+                        }
+                        self.check_qualifier_decl(q);
+                        self.in_comptime_decl = false;
                     }
-                    for v in &q.value_slots {
-                        self.validate_type(&v.ty);
-                    }
-                    self.check_qualifier_decl(q);
-                    self.in_comptime_decl = false;
                     for f in &q.fns {
                         self.check_fn(f, &[], &[]);
                     }
@@ -4364,14 +4544,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Struct(s) => {
                     let saved = self.enter_generics(&s.generics);
                     self.in_comptime_decl = s.comptime;
-                    self.check_annotations(&s.annotations, "Struct");
-                    for field in &s.fields {
-                        self.check_annotations(&field.annotations, "Field");
+                    if iface {
+                        self.check_annotations(&s.annotations, "Struct");
+                        for field in &s.fields {
+                            self.check_annotations(&field.annotations, "Field");
+                        }
+                        self.check_fn_slots(&s.name.name, &s.fn_slots, &s.generics);
+                        self.validate_auto_quals(&s.auto_qualifiers);
+                        self.check_obligations(s);
+                        self.check_struct_cycle(s);
                     }
-                    self.check_fn_slots(&s.name.name, &s.fn_slots, &s.generics);
-                    self.validate_auto_quals(&s.auto_qualifiers);
-                    self.check_obligations(s);
-                    self.check_struct_cycle(s);
                     for field in &s.fields {
                         // [state-infer] A generated iterator struct's state
                         // field may be inferred (`ty` is `None`); its type is
@@ -4382,14 +4564,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // parser only admits the inferred form in a `state { }`
                         // block.)
                         let Some(written) = &field.ty else { continue };
-                        self.validate_type(written);
-                        self.check_canbe_mut_field(s, field);
-                        // [proj-field] Any struct may hold a borrow through a
-                        // `proj` field; it is then a *view*, tied to whatever
-                        // its literal stored there [proj-infer].
-                        self.check_proj_field(&s.name.name, field);
-                        self.check_linear_field(&s.name.name, field);
-                        if let Some(default) = &field.default {
+                        if iface {
+                            self.validate_type(written);
+                            self.check_canbe_mut_field(s, field);
+                            // [proj-field] Any struct may hold a borrow through a
+                            // `proj` field; it is then a *view*, tied to whatever
+                            // its literal stored there [proj-infer].
+                            self.check_proj_field(&s.name.name, field);
+                            self.check_linear_field(&s.name.name, field);
+                        }
+                        // [fn-param-default] A field's default is an
+                        // expression, checked as a body is: the body pass's.
+                        if let (true, Some(default)) = (body, &field.default) {
                             let expected = self.lower_type(written);
                             self.locals.push(HashMap::new());
                             self.check_default(default, &expected);
@@ -4399,7 +4585,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.in_comptime_decl = false;
                     self.generics = saved;
                 }
-                Item::Type(t) => {
+                // A `type` is all header.
+                Item::Type(t) if iface => {
                     let saved = self.enter_generics(&t.generics);
                     self.in_comptime_decl = t.comptime;
                     self.check_fn_slots(&t.name.name, &t.fn_slots, &t.generics);
@@ -4893,8 +5080,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// declaration, so the diagnostic is deterministic and fires exactly once
     /// per collision.
     fn check_effect_member_signatures(&mut self, e: &'p EffectDecl) {
-        // Lowered fixed-parameter lists, in declaration order.
+        // Lowered fixed-parameter lists, in declaration order. Under the
+        // effect's generics as well as the member's: lowered without them, an
+        // effect's `M` read as a type named `M`, and that lowering is what the
+        // IR reads for the written type (`Checked::written_types`) when no
+        // later lowering overwrote it (found 2026-10-20, when the interface
+        // pass changed which lowering came last).
         let mut seen: Vec<(&str, Vec<Ty>)> = Vec::new();
+        let outer = self.enter_generics(&e.generics);
         for f in &e.fns {
             self.check_send_member(f);
             let inner = self.enter_generics(&f.generics);
@@ -4921,6 +5114,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             seen.push((f.name.name.as_str(), params));
         }
+        self.generics = outer;
     }
 
     /// [actor-send-fn] What a `send fn` may declare. A send member is a
@@ -8543,8 +8737,118 @@ impl<'p, 'r> Checker<'p, 'r> {
         frame
     }
 
+    /// A fn, a qualifier fn or a handler member, in the half `self.pass`
+    /// names [interface-pass]: the interface pass checks the signature and
+    /// records it (`FnSig`); the body pass installs that record and walks the
+    /// body, re-deriving and re-reporting nothing about the signature. (The
+    /// one body walked with the interfaces is an inferring `iter fn`
+    /// minter's: `body_pass_of`.)
     fn check_fn(&mut self, f: &'p FnDecl, extra_params: &'p [Param], state: &'p [FieldDecl]) {
         let saved_generics = self.enter_generics(&f.generics);
+        let addr = f as *const FnDecl as usize;
+        let sig = if self.pass.interface() {
+            let sig = self.fn_interface(f, extra_params);
+            self.iface.fns.insert(addr, sig.clone());
+            sig
+        } else {
+            match self.iface.fns.get(&addr) {
+                Some(sig) => sig.clone(),
+                None => panic!(
+                    "[interface-pass] `{}` reached the body pass with no interface",
+                    f.name.name
+                ),
+            }
+        };
+        if self.pass != self.body_pass_of(f) {
+            self.generics = saved_generics;
+            return;
+        }
+        self.install_sig(f, &sig);
+        let Some(body) = &f.body else {
+            self.generics = saved_generics;
+            return;
+        };
+        // [proj-infer] A written lend list against what the body visibly
+        // lends: a check that reads the body, so it is the body's, though
+        // it reports at the clause.
+        self.check_written_lends_against_body(f, body);
+        self.check_fn_body(f, body, extra_params, state, sig, saved_generics);
+    }
+
+    /// [interface-pass] [state-infer] The pass that walks `f`'s body: the
+    /// body pass, except for the generated minter of an `iter fn` whose
+    /// state infers a field's type (`at = 0`). That minter's body is the
+    /// state initializers, and the types they give are the iterator
+    /// struct's fields, which other declarations read
+    /// (`declared_field_ty`): an interface, so the minter is checked, body
+    /// and all, with the interfaces (PIPELINE.md 4.6, R5 option b). Read
+    /// off a body walk, a fn declared above the `iter fn` saw the field as
+    /// `Unknown`, and `return c.at` from a `-> Str` passed (found
+    /// 2026-10-20).
+    fn body_pass_of(&self, f: &FnDecl) -> Pass {
+        let Some(state) = &f.iter_state_name else { return Pass::Body };
+        let Some(body) = &f.body else { return Pass::Body };
+        let [ast::Stmt::Expr(Expr::Return { value: Some(value), .. })] = body.stmts.as_slice() else {
+            return Pass::Body;
+        };
+        let Expr::StructLit { ty: Some(ast::Type::Named { base, .. }), .. } = value.as_ref() else {
+            return Pass::Body;
+        };
+        let infers = base.name.name == state.name
+            && self
+                .scope
+                .structs
+                .get(state.name.as_str())
+                .is_some_and(|s| s.fields.iter().any(|field| field.ty.is_none()));
+        if infers {
+            Pass::Interface
+        } else {
+            Pass::Body
+        }
+    }
+
+    /// [interface-pass] Puts a fn's recorded interface where its body walk
+    /// reads it.
+    fn install_sig(&mut self, f: &'p FnDecl, sig: &FnSig) {
+        self.own_derived_return = sig.derived_return.clone();
+        self.own_response = f.response.clone();
+        self.own_preserve = sig.preserve.clone();
+        self.reader_bound.clear();
+        self.own_derived_sources = sig.derived_sources.clone();
+        self.own_lends_declared = sig.lends_declared;
+        self.own_lends = sig.lends.clone();
+        self.own_proj_arms = sig.proj_arms.clone();
+        self.own_linear_generics = sig.linear_generics.clone();
+    }
+
+    /// [interface-pass] Records a fn's signature facts that other
+    /// declarations' interfaces read (02-resolve-03, step one): its implicit
+    /// parameters, the claims it establishes, and its effect list.
+    fn sig_facts(&mut self, f: &'p FnDecl) -> SigFacts {
+        // [implicit-param] [implicit-group] Expanded and validated before
+        // anything else needs them: the body sees each as a local of fn
+        // type, and every call site reads the same list.
+        let implicits = self.expand_implicits(f);
+        // [deduce-reapply] `=> p: +Q Mut` — the claims this fn establishes.
+        self.check_reapplied_deductions(f);
+        // Validate the declared effect list (unknown effects, duplicates)
+        // and build the fn's effect environment.
+        let (effects, can_use, can_spawn) = self.check_effect_list(f);
+        // [fn-effects] The fn's own list, expanded: a fn named as a *value*
+        // builds its `Ty::Fn` from this table, whichever body names it
+        // first (PIPELINE.md step 7).
+        let tys: Vec<Ty> = effects.iter().map(|a| a.ty.clone()).collect();
+        self.out.decl_effects.insert(self.key(f.name.span), tys.clone());
+        if let Some(key) = self.own_fn {
+            self.out.fn_effects.insert(key, tys);
+        }
+        SigFacts { implicits, effects, can_use, can_spawn }
+    }
+
+    /// [interface-pass] The signature half of `check_fn`: every check of the
+    /// fn's header, with the fn's generics in scope. Reads the fn's text and
+    /// other declarations' interfaces, never a body.
+    fn fn_interface(&mut self, f: &'p FnDecl, extra_params: &'p [Param]) -> FnSig {
         self.require_explicit_decl(f);
         if f.body.is_none() {
             let what = if f.platform { "a `platform fn`" } else { "an `intrinsic fn`" };
@@ -8577,10 +8881,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
         }
-        // [implicit-param] [implicit-group] Expand and validate the implicit
-        // parameters before anything else needs them: the body sees each as
-        // a local of fn type, and every call site reads the same list.
-        let implicits = self.expand_implicits(f);
+        // [implicit-param] [deduce-reapply] [fn-effects] The facts step one
+        // recorded for every fn (`check_signature_facts`).
+        let addr = f as *const FnDecl as usize;
+        let facts = match self.iface.facts.get(&addr) {
+            Some(facts) => facts.clone(),
+            None => panic!(
+                "[interface-pass] `{}` reached the interface check with no signature facts",
+                f.name.name
+            ),
+        };
+        let SigFacts { implicits, effects: mut fn_effects, can_use, mut can_spawn } = facts;
         if let Some(rt) = &f.return_type {
             self.validate_type(rt);
         }
@@ -8593,14 +8904,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         if f.constructs.is_some() {
             self.check_constructor_sig(f);
         }
-        // [deduce-reapply] `=> p: +Q Mut` — the claims this fn establishes.
-        self.check_reapplied_deductions(f);
         // [readonly-return] `-> proj(p) T`: `p` must be a
         // parameter and must be *kept* — a moved parameter's data needs
         // no annotation (the callee owns it), and a borrow of a moved
         // value could not outlive the call.
-        self.own_derived_return = f.derived_return.as_ref().map(|id| id.name.clone());
-        self.own_response = f.response.clone();
+        let derived_return = f.derived_return.as_ref().map(|id| id.name.clone());
         // [deduce-conditional] Validate a qualifier-conditional response: each
         // subject must be a *kept* parameter (a moved one tells the caller
         // nothing afterwards), and the qualifier must be in scope and apply.
@@ -8662,8 +8970,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // body walk, and validated — the entry needs a body to check
         // against (a bodiless declaration is what refinements are for), a
         // parameter of this fn, and a dependent qualifier.
-        self.own_preserve.clear();
-        self.reader_bound.clear();
+        let mut preserve: HashMap<String, Vec<String>> = HashMap::new();
         for d in f.deductions.iter().flatten() {
             let (Some(name), ast::DeductionKind::Preserve(quals)) = (d.param_name(), &d.kind)
             else {
@@ -8704,10 +9011,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 names.push(q.name.name.clone());
             }
             if !names.is_empty() {
-                self.own_preserve.insert(name.name.clone(), names);
+                preserve.insert(name.name.clone(), names);
             }
         }
-        self.own_derived_sources = f
+        let derived_sources: Vec<String> = f
             .return_type
             .as_ref()
             .and_then(|rt| proj_refs(rt).into_iter().find(|r| !r.from.is_empty()))
@@ -8716,77 +9023,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [proj-infer] What this fn's result holds borrows of: declared with
         // `holds proj(p)`, else every kept non-Copy parameter — from the
         // signature alone (PIPELINE.md 4.2). A written list is checked against
-        // what the body visibly lends; the default covers every kept parameter
-        // by construction.
+        // what the body visibly lends (`check_written_lends_against_body`, in
+        // the body pass); the default covers every kept parameter by
+        // construction.
+        let lends_declared = crate::lends::declared_lends(f).is_some();
+        let lends: Vec<String>;
         {
             let lent = self.infer_lends(f);
-            self.own_lends_declared = crate::lends::declared_lends(f).is_some();
-            self.own_lends = lent
+            lends = lent
                 .iter()
                 .filter_map(|&i| f.params.get(i).map(|p| p.name.name.clone()))
                 .collect();
             if let Some(key) = self.fn_key_of_decl(f) {
                 self.out.fn_lends.insert(key, lent.clone());
-            }
-            if let (Some(declared), Some(body)) = (crate::lends::declared_lends(f), &f.body) {
-                let scope_fns = &self.scope.fns;
-                let lookup = |name: &str| -> Vec<&'p FnDecl> {
-                    scope_fns
-                        .get(name)
-                        .map(|v| v.iter().map(|e| e.decl).collect())
-                        .unwrap_or_default()
-                };
-                let mut env = crate::lends::LendsEnv {
-                    structs: &self.scope.structs,
-                    fns: &lookup,
-                    memo: &mut self.lends_memo,
-                };
-                let inferred: Option<Vec<usize>> = crate::lends::infer_from_body(f, body, &mut env)
-                    .map(|set| {
-                        let mut v: Vec<usize> = set.into_iter().collect();
-                        v.sort_unstable();
-                        v
-                    });
-                if let Some(inferred) = inferred {
-                    // Declared must cover inferred: a lend the body visibly
-                    // performs cannot go unwritten. The reverse is allowed —
-                    // a generic body (`add(out, x)` with `x` an element of an
-                    // opaque pass) lends through opacity the analysis cannot
-                    // see, and the written entry is how it says so.
-                    if inferred.iter().any(|i| !declared.contains(i)) {
-                        let show = |v: &[usize]| -> String {
-                            let names: Vec<String> = v
-                                .iter()
-                                .filter_map(|&i| f.params.get(i).map(|p| p.name.name.clone()))
-                                .collect();
-                            if names.is_empty() {
-                                "nothing".to_string()
-                            } else {
-                                format!("`{}`", names.join("`, `"))
-                            }
-                        };
-                        let span = f
-                            .deductions
-                            .as_ref()
-                            .and_then(|l| {
-                                l.iter()
-                                    .find(|d| d.proj_sources().is_some())
-                                    .map(|d| d.span)
-                            })
-                            .unwrap_or(f.name.span);
-                        self.error(
-                            span,
-                            format!(
-                                "the deduction list says the result projects {}, but the \
-                                 body returns a value that projects {}: every lend the body \
-                                 performs must be written (or omit the `proj` entries and \
-                                 let them be inferred)",
-                                show(&declared),
-                                show(&inferred)
-                            ),
-                        );
-                    }
-                }
             }
             if let Some(list) = &f.deductions {
                 // A parameter both consumed (`!p`) and named as a projection
@@ -8812,7 +9061,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        self.own_proj_arms = f
+        let proj_arms = f
             .return_type
             .as_ref()
             .map(proj_arm_qualifiers)
@@ -8921,7 +9170,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // treats `T`-typed values as linear in this body and admits
         // linear instantiation at call sites. Only `Linear` is
         // supported in a type-parameter `with` clause.
-        self.own_linear_generics = f
+        let linear_generics: HashSet<String> = f
             .generic_canbe
             .iter()
             .filter(|(_, q)| q.name.name == "linear")
@@ -8939,9 +9188,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
         }
-        // Validate the declared effect list (unknown effects, duplicates)
-        // and build the fn's effect environment.
-        let (mut fn_effects, can_use, mut can_spawn) = self.check_effect_list(f);
         // [actor-spawn-effect] A handler member inherits its handler's
         // dependency list, and `[spawn]` is part of that list — a supervisor
         // spawns its children from a member body.
@@ -8978,24 +9224,151 @@ impl<'p, 'r> Checker<'p, 'r> {
         // its handler declares in its effect list, exactly as if the member
         // had declared them — which it may not
         // ([effect-member-no-effects]): the dependency belongs to the
-        // implementation, so it is declared once on the handler.
-        self.out
-            .decl_effects
-            .insert(self.key(f.name.span), fn_effects.iter().map(|a| a.ty.clone()).collect());
+        // implementation, so it is declared once on the handler. (The
+        // fn's own list went to `decl_effects`/`fn_effects` with its
+        // signature facts; a top-level fn inherits no dependencies.)
         for dep in &self.handler_deps {
             if !fn_effects.iter().any(|a| a.ty == dep.ty) {
                 fn_effects.push(dep.clone());
             }
         }
-        if let Some(key) = self.own_fn {
-            self.out
-                .fn_effects
-                .insert(key, fn_effects.iter().map(|a| a.ty.clone()).collect());
+        // Inside a qualifier constructor (`-> T as Qual`) return points
+        // produce plain `T` values; the qualifier is applied by construction
+        // (callers see `Qual T`). Only a body has return points.
+        let mut ret_ty = Ty::none();
+        if f.body.is_some() {
+            ret_ty = f
+                .return_type
+                .as_ref()
+                .map(|t| self.lower_type(t))
+                .unwrap_or_else(Ty::none);
+            // [deduce-reapply] `+Q` inside the return type marks a claim this
+            // fn **establishes**: callers see it (`fn_return_ty` lowers the
+            // written type as-is), the body's returns are checked *without*
+            // it — trusted, so only in the qualifier's own file, the same
+            // gate a constructor's head `+Q` answers to.
+            let established: Vec<(String, Span)> = f
+                .return_type
+                .as_ref()
+                .map(|rt| established_quals(rt))
+                .unwrap_or_default();
+            if !established.is_empty() {
+                let mut strip: HashSet<String> = HashSet::new();
+                for (name, span) in &established {
+                    if !self.own_qualifiers.contains(name.as_str()) {
+                        self.error(
+                            *span,
+                            format!(
+                                "`+{name}` is trusted, so it is allowed only in the \
+                                 file that declares `{name}` — exactly like a \
+                                 constructor [deduce-reapply]"
+                            ),
+                        );
+                    }
+                    strip.insert(name.clone());
+                }
+                ret_ty = match ret_ty {
+                    Ty::Union(arms) => Ty::union_of(
+                        arms.into_iter().map(|a| a.remove_quals(&strip)).collect(),
+                    ),
+                    other => other.remove_quals(&strip),
+                };
+            }
         }
-        let Some(body) = &f.body else {
-            self.generics = saved_generics;
-            return;
+        FnSig {
+            implicits,
+            effects: fn_effects,
+            can_use,
+            can_spawn,
+            derived_return,
+            preserve,
+            derived_sources,
+            lends_declared,
+            lends,
+            proj_arms,
+            linear_generics,
+            ret_ty,
+        }
+    }
+
+    /// [proj-infer] A written lend list must cover every lend the body
+    /// visibly performs. Reads the body (syntactically, `lends::infer_from_body`),
+    /// so it runs in the body pass; the fn's lends themselves are the
+    /// signature's (`fn_interface`).
+    fn check_written_lends_against_body(&mut self, f: &'p FnDecl, body: &'p Block) {
+        let Some(declared) = crate::lends::declared_lends(f) else { return };
+        let scope_fns = &self.scope.fns;
+        let lookup = |name: &str| -> Vec<&'p FnDecl> {
+            scope_fns
+                .get(name)
+                .map(|v| v.iter().map(|e| e.decl).collect())
+                .unwrap_or_default()
         };
+        let mut env = crate::lends::LendsEnv {
+            structs: &self.scope.structs,
+            fns: &lookup,
+            memo: &mut self.lends_memo,
+        };
+        let inferred: Option<Vec<usize>> = crate::lends::infer_from_body(f, body, &mut env)
+            .map(|set| {
+                let mut v: Vec<usize> = set.into_iter().collect();
+                v.sort_unstable();
+                v
+            });
+        let Some(inferred) = inferred else { return };
+        // Declared must cover inferred: a lend the body visibly performs
+        // cannot go unwritten. The reverse is allowed — a generic body
+        // (`add(out, x)` with `x` an element of an opaque pass) lends
+        // through opacity the analysis cannot see, and the written entry is
+        // how it says so.
+        if inferred.iter().any(|i| !declared.contains(i)) {
+            let show = |v: &[usize]| -> String {
+                let names: Vec<String> = v
+                    .iter()
+                    .filter_map(|&i| f.params.get(i).map(|p| p.name.name.clone()))
+                    .collect();
+                if names.is_empty() {
+                    "nothing".to_string()
+                } else {
+                    format!("`{}`", names.join("`, `"))
+                }
+            };
+            let span = f
+                .deductions
+                .as_ref()
+                .and_then(|l| {
+                    l.iter()
+                        .find(|d| d.proj_sources().is_some())
+                        .map(|d| d.span)
+                })
+                .unwrap_or(f.name.span);
+            self.error(
+                span,
+                format!(
+                    "the deduction list says the result projects {}, but the \
+                     body returns a value that projects {}: every lend the body \
+                     performs must be written (or omit the `proj` entries and \
+                     let them be inferred)",
+                    show(&declared),
+                    show(&inferred)
+                ),
+            );
+        }
+    }
+
+    /// The body half of `check_fn`: the parameter frame, the body walk, and
+    /// what is checked against the walk (declared field mutations, a missing
+    /// return). Every signature fact comes from `sig` [interface-pass].
+    fn check_fn_body(
+        &mut self,
+        f: &'p FnDecl,
+        body: &'p Block,
+        extra_params: &'p [Param],
+        state: &'p [FieldDecl],
+        sig: FnSig,
+        saved_generics: HashSet<String>,
+    ) {
+        let FnSig { implicits, effects: fn_effects, can_use, can_spawn, ret_ty, .. } = sig;
         // [lsp-completion] Record locals of this body (params below, `let`/
         // binding locals in `declare_var`) against the body span.
         self.cur_fn_body = Some(body.span);
@@ -9019,48 +9392,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let saved_can_spawn = std::mem::replace(&mut self.can_spawn, can_spawn);
         // [implicit-forward] What this body can forward to the calls it makes.
         let saved_implicits = std::mem::replace(&mut self.own_implicits, implicits.clone());
-        // Inside a qualifier constructor (`-> T as Qual`) return points
-        // produce plain `T` values; the qualifier is applied by construction
-        // (callers see `Qual T`).
-        self.ret_ty = f
-            .return_type
-            .as_ref()
-            .map(|t| self.lower_type(t))
-            .unwrap_or_else(Ty::none);
-        // [deduce-reapply] `+Q` inside the return type marks a claim this
-        // fn **establishes**: callers see it (`fn_return_ty` lowers the
-        // written type as-is), the body's returns are checked *without* it
-        // — trusted, so only in the qualifier's own file, the same gate a
-        // constructor's head `+Q` answers to.
-        {
-            let established: Vec<(String, Span)> = f
-                .return_type
-                .as_ref()
-                .map(|rt| established_quals(rt))
-                .unwrap_or_default();
-            if !established.is_empty() {
-                let mut strip: HashSet<String> = HashSet::new();
-                for (name, span) in &established {
-                    if !self.own_qualifiers.contains(name.as_str()) {
-                        self.error(
-                            *span,
-                            format!(
-                                "`+{name}` is trusted, so it is allowed only in the \
-                                 file that declares `{name}` — exactly like a \
-                                 constructor [deduce-reapply]"
-                            ),
-                        );
-                    }
-                    strip.insert(name.clone());
-                }
-                self.ret_ty = match self.ret_ty.clone() {
-                    Ty::Union(arms) => Ty::union_of(
-                        arms.into_iter().map(|a| a.remove_quals(&strip)).collect(),
-                    ),
-                    other => other.remove_quals(&strip),
-                };
-            }
-        }
+        self.ret_ty = ret_ty;
 
         let mut top = HashMap::new();
         for p in extra_params.iter().chain(&f.params) {
@@ -9536,8 +9868,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         // requirement keys on "has send members" as much as on the faces'
         // kind.
         let has_queue = is_actor || h.fns.iter().any(|f| f.is_send);
+        // [interface-pass] Whether there is a slot is the header's question;
+        // the slot's expression is checked in a frame of locals, the body
+        // pass's.
+        let (iface, body) = (self.pass.interface(), self.pass.body());
         match (&h.mailbox, has_queue) {
-            (None, true) => {
+            (None, true) if iface => {
                 self.error(
                     h.name.span,
                     format!(
@@ -9555,7 +9891,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 );
             }
-            (Some(mailbox), false) => {
+            (Some(mailbox), false) if iface => {
                 self.error(
                     mailbox.span(),
                     format!(
@@ -9566,7 +9902,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 );
             }
-            (Some(mailbox), true) => {
+            (Some(mailbox), true) if body => {
                 // Constructor parameters only: the bound is computed when the
                 // handler is built, before any state exists.
                 let mut top: HashMap<String, LocalVar> = HashMap::new();
@@ -9607,7 +9943,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // handler stores what it was built with — and its message names
                 // `copy`, which is the remedy here too.
             }
-            (None, false) => {}
+            _ => {}
         }
     }
 
@@ -10988,6 +11324,20 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Records a non-fn name use as pointing at its declaration's
     /// identifier [lsp-definition]. Silent when the name resolves to
     /// nothing visible (locals, generics, backend interop).
+    /// [lsp-definition] Whether a written type reference is another file's:
+    /// a callee's signature or a struct's field lowered at a use here. Its
+    /// own file records what it points at; recording it here keyed it by
+    /// this file and that file's span, a position in this file it does not
+    /// occupy (found 2026-10-20, when the interface pass changed which
+    /// writer came last: `list_dir`'s body overwrote `read_all`'s `Str` in
+    /// `std/fs/mem.sv` with a callee's `Int`).
+    fn foreign_ref(&self, r: &TypeRef) -> bool {
+        self.resolution
+            .type_ref_files
+            .get(&(r as *const TypeRef as usize))
+            .is_some_and(|f| *f != self.file_idx)
+    }
+
     fn record_def_ref(&mut self, span: Span, name: &str) {
         if let Some(site) = self.scope.def_sites.get(name).copied() {
             self.out.def_refs.insert(self.key(span), site);
@@ -18023,7 +18373,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 // [lsp-definition] Only a user qualifier has a declaration to
                 // point at; a built-in auto-qualifier (`Mut`) does not.
-                if self.scope.is_qualifier(&q.name.name) {
+                if self.scope.is_qualifier(&q.name.name) && !self.foreign_ref(q) {
                     self.record_def_ref(q.name.span, &q.name.name);
                 }
                 out.push(Qual {
@@ -18767,7 +19117,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // (`Mut`, `once`) is a language keyword with no declaration to
                 // jump to, and recording a ref for it made hover resolve `Mut`
                 // to an arbitrary `canbe Mut` type (e.g. `Set`) [lsp-definition].
-                if self.scope.is_qualifier(&q.name.name) {
+                if self.scope.is_qualifier(&q.name.name) && !self.foreign_ref(q) {
                     self.record_def_ref(q.name.span, &q.name.name);
                 }
                 Qual {
@@ -18871,7 +19221,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // recorded before alias expansion, so an alias use jumps to the
         // alias itself rather than its target.
         let name_span = base.name.span;
-        self.record_def_ref(name_span, name);
+        if !self.foreign_ref(base) {
+            self.record_def_ref(name_span, name);
+        }
         // [generic-arity] A generic struct, opaque type, or alias referenced
         // in a type position must supply every type argument it declares —
         // unlike a struct *literal* (`Box { value: 7 }`), which may infer

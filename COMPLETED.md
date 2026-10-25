@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2045 tests, complete: the toolchain tests are
+cargo test                  # 2046 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,85 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Every declaration's interface is checked before any body
+
+PIPELINE.md §7 step 7, piece 3 [interface-pass] [implicit-param]
+[fn-effects] [state-infer] [phase-timings]. 02-resolve-03-interfaces is its
+own pass, with its own diagnostics. Until now `walk_signatures` recorded
+implicits, established claims and effect lists and dropped its
+diagnostics, and `check_fn`'s first ~450 lines and `check_module`'s
+handler and effect arms did the rest of the signature work *during* the
+body walk, re-deriving what the pre-pass had found. The checker now walks
+each file three times: the signature facts over every file
+(`check_signature_facts`), then every other header (`check_module` in
+`Pass::Interface`, plus the platform boundary), then the bodies
+(`check_module` in `Pass::Body`). Each diagnostic is reported once, by the
+walk that owns its check, at the span it always had.
+
+- **The design: records, not a silent re-run.** The interface walks record
+  per declaration what a body needs back (`FileIface`: a `SigFacts` and a
+  `FnSig` per fn, a `HandlerSig` per handler, by declaration address; the
+  module's renames). The body walk installs them (`install_sig`) and
+  re-derives nothing. `check_fn` is the split in one place: `fn_interface`,
+  then `check_fn_body`. One `Checker` per file per walk;
+  `take_iface`/`put_iface` carry the records and the once-per-file
+  diagnostic memories (`reported_ineligible_keys`, `warned_spare_lends`,
+  the lends memo), so a key reported at a signature is still not reported
+  again in a body. The signature facts come first because other headers
+  read them out of tables: a written `Set<T>` resolves `T`'s `hash` through
+  `implicit_params`, and so does the platform boundary.
+- **Left in the body walk, and why.** The expressions in a header: a
+  parameter's default, a handler's constructor defaults, mailbox slot and
+  state initializers, a struct field's default. They are checked in a frame
+  of locals that the body walk numbers. Also left there: a module's `use`
+  bindings (statements, read only by this file's bodies), the check that a
+  written lend list covers what the body visibly lends (it reads the body),
+  the visibility of a stamped fn's comptime roots (named in its body), and
+  the body state (`own_discharges`, `own_task`, the parameter frame,
+  `fn_body_effects`). The `+Q` trusted-claim check and the return type a
+  body is checked against moved *into* the interface (they sat after the
+  body gate).
+- **One interface was read off a body, and is not any more.** An `iter
+  fn`'s inferred state field type (`state Counts { at = 0 }`) was recorded
+  when the minter's body was walked. A fn declared above the `iter fn` read
+  the field as `Unknown`, so `fn peek(c: Counts) -> Str { return c.at }`
+  passed. The minter of an `iter fn` whose state infers a field is now
+  checked, body and all, in the header walk (`body_pass_of`; R5 option b).
+  Its body is the initializers. Test:
+  `an_inferred_state_field_is_typed_before_any_body` (iter_fn_tests). Not
+  fixed: an inferred initializer reading another `iter fn`'s inferred field
+  declared later (ROADMAP 0r, with the repro).
+- **The differential** (temporary, `SALVO_XP_P3`): `check_program` and
+  `check_project` ran the old staging (a `Pass::Both` walk after the
+  diagnostics-dropping pre-pass) beside the new one and compared every
+  `Checked` table as a sorted multiset (diagnostics included), over every
+  program the suite checks, e2e included: 2,005 distinct programs. It found
+  two latent bugs, both of the last-writer-wins kind. Interface-first
+  staging changed which writer came last, so each one showed. Both are
+  fixed:
+  1. A callee's signature lowered at a use (`fn_value_ty`) recorded its
+     type names' definition sites under *this* file's key and the callee
+     file's span. `list_dir`'s body overwrote `read_all`'s `Str` in
+     `std/fs/mem.sv` with a callee's `Int`, so go-to-definition there went
+     to `Int`. `foreign_ref` skips a type reference another file wrote.
+  2. `check_effect_member_signatures` lowered member types without the
+     effect's generics. An effect's `M` read as a type named `M`, and when
+     nothing lowered it later, that row was what the IR read.
+  After the fixes nothing differed anywhere, and the hook and `Pass::Both`
+  went.
+- **Diagnostics and emission.** The set of diagnostics is the same. The
+  order changes: every file's interface diagnostics come before any body's.
+  `salvo analyze` and the language server sort by file and position, and
+  no test depended on the order. `ir::gate` blames by span, and no span
+  moved. Emitted code did not change. 2046 tests (one added).
+- **Timings** (`SALVO_TIMINGS=1 target/debug/salvo analyze --src demo`,
+  debug, three runs each, before against after): check 186–188ms against
+  179–187ms; the walk 177–180ms (pre-pass 5.3–5.6ms, bodies 155–158ms)
+  against 171–179ms (`check: interfaces` 27.6–29.2ms, of which `interfaces:
+  facts` 5.5–5.8ms and `interfaces: headers` 22.0–22.7ms; `check: bodies`
+  128–135ms). The signature work costs what it cost inside the body walk,
+  and the pre-pass's duplicate is gone.
 
 ### 2026-10-20 — Ownership is checked per declaration, beside type errors elsewhere
 
@@ -29068,7 +29147,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2045 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2046 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -30343,6 +30422,16 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A last-writer-wins table hides a wrong writer until the order
+  changes** (2026-10-20, step 7 piece 3). `def_refs` (by span) and
+  `written_types` (by AST address) take whichever lowering came last. Two
+  wrong writers sat there unseen because a right one always followed: a
+  foreign signature's type names recorded under this file, and effect
+  members lowered without the effect's generics. Moving every header ahead
+  of every body changed the order and exposed both. When a staging change
+  shows a one-row difference in such a table, look for the wrong writer
+  before blaming the order.
 
 - **A link to a binding gone from scope still names the binding that made
   it** (2026-10-20, R8 piece 8). The flow pass's `forget` used to drop

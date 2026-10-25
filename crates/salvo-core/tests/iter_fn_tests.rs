@@ -177,6 +177,33 @@ fn a_state_field_is_type_checked() {
     );
 }
 
+/// [state-infer] [interface-pass] An inferred state field's type is the
+/// iterator struct's, an interface: a fn declared *above* the `iter fn`
+/// reads it as one declared below does. It was read off the minter's body
+/// walk, so the fn above saw `Unknown` and returned an `Int` field from a
+/// `-> Str` unopposed (found 2026-10-20).
+#[test]
+fn an_inferred_state_field_is_typed_before_any_body() {
+    for (above, below) in [(true, false), (false, true)] {
+        let reader = "fn peek(c: Counts) -> Str {\n    return c.at\n}\n";
+        let iter = "iter fn counts(n: Int) -> Emitted Int | Finished {\n    \
+                    state Counts { at = 0 }\n    \
+                    if at >= n { return finished() }\n    \
+                    at = at + 1\n    \
+                    return emitted(at)\n}\n";
+        let src = format!(
+            "{}{iter}{}",
+            if above { reader } else { "" },
+            if below { reader } else { "" }
+        );
+        let errs = errors(&src);
+        assert!(
+            errs.iter().any(|e| e.contains("expected return type `Str`, found `Int`")),
+            "reader above: {above}: {errs:?}"
+        );
+    }
+}
+
 /// The subject is **read-only** (user decision 2026-09-09): it is a field of
 /// the pass typed as the subject, so writing through it is the standing
 /// [struct-mut] refusal rather than a rule of its own.
