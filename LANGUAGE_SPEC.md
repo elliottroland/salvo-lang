@@ -8174,6 +8174,20 @@ between endpoints and delivers what arrives into the scheduler.
   * A move is therefore always **declared**: a body edit that starts moving a
     kept parameter is a compile error at that function, never a silent change to
     what callers depend on.
+* [ownership-audit] **Ownership never changes what an accepted program
+  means** (the user's expectation, PIPELINE.md R5; made evidence 2026-10-20,
+  step 7 piece 2). Where ownership feeds typing it is the *callee's
+  signature* speaking — a contract dropping `NonEmpty`, a `Mut` argument
+  invalidating narrowings [flow-place-invalidate], a mutation stripping
+  dependent claims — and that stays in typing. Body-flow ownership touches
+  typing only on error paths: a consumed value reads as `Ty::Unknown` after
+  its diagnostic, and so does a partially moved one, which only suppresses
+  cascades [type-unknown-lenient]. `check_program_ownership_blind` switches
+  those off; `ownership_never_changes_the_typing_of_an_accepted_program`
+  checks every example (and std) both ways and requires identical types,
+  representations, callees, coercions and union tests. (A dependent
+  qualifier's roots are variable numbers, which the two walks number
+  differently in std's `heap.sv`; compared by the path they name.)
 * [deduce-consume] Deduction clauses are enforced flow-sensitively at call
   sites on bare identifier arguments: a callee's contract (default or written)
   decides whether the caller's argument is consumed, so `return list` in a

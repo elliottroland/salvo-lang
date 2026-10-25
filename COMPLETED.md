@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2033 tests, complete: the toolchain tests are
+cargo test                  # 2034 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,25 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — The ownership audit, as a test
+
+PIPELINE.md §7 step 7, piece 2: the audit the phase split waits on, turned
+from a reading into evidence [ownership-audit]. Reading the checker found
+ownership feeding typing in two ways. **Signature-level** (a callee's
+contract dropping a qualifier, `invalidate_place_narrows`,
+`strip_dependent_claims`) is the callee's interface and stays in typing.
+**Body-flow** (`narrowed = Never` marking a consumed value, read as
+`Ty::Unknown`; a partial move read as `Unknown`) shows only on error paths.
+`check_program_ownership_blind` (a thread-local switch, `mark_consumed`)
+turns the body-flow half off, and the new test checks every example and std
+both ways: the types, representations, callees, coercions and union tests
+agree. One wrinkle, recorded in the test: dependent-qualifier roots are
+variable numbers, and the two walks number std's `heap.sv` three apart from
+somewhere before `pop` (no consumed value is read in either); they are
+compared by the path the claim names. What is left for the user is a
+diagnostics question for piece 6: keep the cascade suppression after an
+ownership error, or let typing carry on.
 
 ### 2026-10-20 — A fn's effects are recorded with the signatures
 
@@ -28319,7 +28338,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2033 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2034 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

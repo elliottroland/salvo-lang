@@ -1656,6 +1656,44 @@ pub fn platform_keeps_param(f: &ast::FnDecl, p: &ast::Param) -> bool {
         })
 }
 
+thread_local! {
+    /// [ownership-audit] Set while `check_program_ownership_blind` runs: the
+    /// walk leaves a consumed value's type as it was and never reads a
+    /// partial move as `Unknown`, so its typing tables can be compared with
+    /// a normal walk's (PIPELINE.md step 7, piece 2).
+    static OWNERSHIP_BLIND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn ownership_blind() -> bool {
+    OWNERSHIP_BLIND.with(|b| b.get())
+}
+
+/// [deduce-consume] A consumed (moved) value's type becomes `Never`, which a
+/// later read reports — except in the ownership audit, which must see the
+/// typing ownership leaves alone.
+fn mark_consumed(narrowed: &mut Ty) {
+    if !ownership_blind() {
+        *narrowed = Ty::Never;
+    }
+}
+
+/// [ownership-audit] `check_program` with ownership's feedback into typing
+/// switched off: a consumed value keeps its type and a partially moved one
+/// reads as itself. For the audit that ownership never changes what an
+/// accepted program means (PIPELINE.md R5, step 7): on a program the normal
+/// walk accepts, every typing table must come out the same. Not a checker
+/// mode a driver should use — its ownership diagnostics are incomplete.
+pub fn check_program_ownership_blind<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &Symbols<'p>,
+) -> Checked {
+    OWNERSHIP_BLIND.with(|b| b.set(true));
+    let out = check_program(program, resolution, symbols);
+    OWNERSHIP_BLIND.with(|b| b.set(false));
+    out
+}
+
 /// Checks the whole program (resolution must come from the same program).
 ///
 /// Runs in two rounds so that *inferred* deductions are enforced at call
@@ -11720,7 +11758,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Returns whether an error was reported, so callers can stop rather
     /// than cascade [type-unknown-lenient].
     fn check_moved_place(&mut self, place: &Place, span: Span) -> bool {
-        if self.assign_target {
+        if self.assign_target || ownership_blind() {
             return false;
         }
         let Some(var) = self.lookup(&place.root) else {
@@ -12275,7 +12313,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     true
                 });
                 if hit {
-                    var.narrowed = Ty::Never;
+                    mark_consumed(&mut var.narrowed);
                     var.poison = Some(Poison {
                         root_name: root_name.to_string(),
                         event,
@@ -12496,7 +12534,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             if let Some(var) = self.var_by_id_mut(l.root_id) {
                 loop_origin = var.for_origin;
-                var.narrowed = Ty::Never;
+                mark_consumed(&mut var.narrowed);
                 var.consumed_by = None;
                 var.poison = Some(Poison {
                     root_name: binding_name.to_string(),
@@ -13081,7 +13119,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
                 if let Some(var) = self.lookup_mut(&id.name) {
-                    var.narrowed = Ty::Never;
+                    mark_consumed(&mut var.narrowed);
                     var.consumed_by = Some("an earlier call");
                 }
                 consumed_here.push(name);
@@ -13234,7 +13272,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             if let Some(var) = self.var_by_id_mut(l.root_id) {
                 loop_origin = var.for_origin;
-                var.narrowed = Ty::Never;
+                mark_consumed(&mut var.narrowed);
                 var.poison = None;
                 var.consumed_by = Some(
                     "a move of mutable data projected out of it \
@@ -24069,7 +24107,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.note_linear_move(&name, id.span);
         self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
         if let Some(var) = self.lookup_mut(&id.name) {
-            var.narrowed = Ty::Never;
+            mark_consumed(&mut var.narrowed);
             var.consumed_by = Some(moved_by);
         }
     }
@@ -26915,7 +26953,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Consume the original: the closure owns the value now.
                 self.poison_derived(cap.var_id, &cap.name, FateEvent::Moved, span, Some(&[]));
                 if let Some(var) = self.var_by_id_mut(cap.var_id) {
-                    var.narrowed = Ty::Never;
+                    mark_consumed(&mut var.narrowed);
                     var.poison = None;
                     var.consumed_by = Some(
                         "a lambda that captures and mutates it (bind a `copy` first \
@@ -30489,7 +30527,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     Some(&[]),
                                 );
                                 if let Some(var) = self.lookup_mut(&lname) {
-                                    var.narrowed = Ty::Never;
+                                    mark_consumed(&mut var.narrowed);
                                     var.consumed_by = Some(
                                         "a call (a `once` function is callable \
                                          at most once)",
@@ -32121,7 +32159,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.note_linear_move(&name, id.span);
                     self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
                     if let Some(var) = self.lookup_mut(&id.name) {
-                        var.narrowed = Ty::Never;
+                        mark_consumed(&mut var.narrowed);
                         var.consumed_by = Some("an earlier call");
                     }
                     consumed_here.push(name);

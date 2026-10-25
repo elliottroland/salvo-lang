@@ -786,3 +786,11 @@ log current so the work can resume after a context reset). Newest last.
   7. the flow pass onto the IR (03-generate-02-flow) — **user call
      needed**: ownership errors only on type-clean programs — plus the
      deadlock router node (§7 note).
+- **Step 7, piece 2 (done, committed "Check that ownership never changes an
+  accepted program's typing").** [ownership-audit]:
+  `check_program_ownership_blind` (thread-local switch; `mark_consumed` at
+  the 8 `narrowed = Never` sites; `check_moved_place` off) and
+  `ownership_audit_tests.rs` over every example and std: no difference in
+  `expr_ty`/`repr_ty`/`call_fn`/`coerce`/`is_tests` once dependent-qualifier
+  root numbers are normalized (std `heap.sv` numbers variables 3 apart
+  between the walks; unexplained, identity only). Next: piece 3.
