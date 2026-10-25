@@ -144,6 +144,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                         factories: None,
                         body: Some(Block { stmts: vec![Stmt::Expr(send)], value: None, span: x.span }),
                         span: x.span,
+                        fate: FateFacts::default(),
                     }
                 })
                 .collect();
@@ -239,6 +240,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                 factories: None,
                 body: Some(Block { stmts, value: None, span }),
                 span,
+                fate: FateFacts::default(),
             });
         }
         let param = |name: &str, ty: Ty| Param { local: Local(name.into()), ty, mode: crate::param_mode::PassMode::Lent, variadic: false, check: None, span };
@@ -390,6 +392,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                         factories: None,
                         body: Some(Block { stmts: vec![Stmt::Expr(switch)], value: None, span: h.span }),
                         span: h.span,
+                        fate: FateFacts::default(),
                     },
                 ));
                 names.push((fid.clone(), fname));

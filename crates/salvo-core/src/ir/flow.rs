@@ -2,9 +2,9 @@
 //! PIPELINE.md R8): per path, the set of wholly moved locals, and the places
 //! moved *out of* each local [fate-partial-move]; a later read of either is
 //! the error. It is the only use-after-move diagnostic (since piece 3a the
-//! checker reports no consumed read, and since piece 3b no partial-move
-//! use): `ir::analyze` runs it per declaration, and `tests/flow_tests.rs`
-//! pins it.
+//! checker reports no consumed read, since piece 3b no partial-move use,
+//! and since piece 3c no poisoned read [fate-poison]): `ir::analyze` runs
+//! it per declaration, and `tests/flow_tests.rs` pins it.
 //!
 //! [fate-partial-move] A `Read { consume: true }` of a projection (not
 //! `moved`) moves that place out of its root's storage — composed through
@@ -34,6 +34,33 @@
 //! built to agree with the checker's, so its version could be switched off;
 //! tightening them (ROADMAP 0o) is a later, separate change.
 //!
+//! [fate-poison] [fate-move-mode] **Poisoned reads** (R8 piece 3c). Per path
+//! the pass also keeps the fate links of every borrow-mode binding — the
+//! checker's (`FnDecl::fate`, from `Checked::fate_binds`: by the binding's
+//! statement, or an assignment's value), flattened to the roots, each at
+//! the projection of its root the value came from. An event on a root
+//! poisons every other local linked to it at an overlapping path
+//! [fate-field-disjoint]: a move (whole, at `[]`; a projection moved out,
+//! at its path, on the place's storage and on every root the locals on the
+//! way are linked to — the checker's `projection_move`), a reassignment of
+//! the whole local (after its value), and a mutation, which the IR cannot
+//! see and the checker records (`Checked::fate_mutations`: a call's `Mut`
+//! argument, applied after the call; an assignment through a projection,
+//! before its value), with what it spares — the acting handle, a handle to
+//! the mutated thing itself under a contents mutation [deduce-field], the
+//! handles a live `NotSame` claim proves apart [elem-distinct]. A poisoned
+//! local is gone like a moved one (it replaces a move as the reason; a
+//! join keeps the first path's poison over a plain move, as the checker's
+//! `merge_fallthrough` keeps the first poison); a read of it names the root
+//! and the event. A move-mode binding (`FateFacts::bound`, from
+//! `Checked::fate_bound` — the IR does not always read its root as a move,
+//! `let m = o ?: unreachable!()`) takes ownership at the binding: what was
+//! derived from each root it took is poisoned, and a later read of a root
+//! it took whole names the binding. Links are by variable: a fresh binding of a name drops the
+//! links to its earlier binding (the checker's links are by id). A fresh
+//! binding or a reassignment revives, and sets the local's new links; a
+//! loop re-walks when the links changed, as when the moves did.
+//!
 //! * The walk is sequential over every statement of a block, including the
 //!   dead ones after a `return`/`break`/`continue` (the checker walks them
 //!   too). A block *leaves* when any of its statements does.
@@ -61,6 +88,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::nodes::*;
+use crate::check::{FlowLink, FlowMutation};
 
 /// One use of a moved local: where it was read, its name as written, and
 /// where it was moved.
@@ -74,6 +102,22 @@ pub struct FlowDiagnostic {
     /// [fate-partial-move] A read of a value something was moved *out of*,
     /// rather than of a value moved wholly.
     pub part: Option<PartUse>,
+    /// [fate-poison] A read of a value poisoned by an event on a root it
+    /// shares fate with, or of a root a move-mode binding took
+    /// [fate-move-mode]; `moved_at` is then the event, or the binding.
+    pub poison: Option<PoisonUse>,
+}
+
+/// [fate-poison] Why a read of a value that is not moved itself is a use of
+/// a value that is gone.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PoisonUse {
+    /// The value was bound from `root` (borrow-mode) and `root` was then
+    /// `event` (`moved`, `mutated`, `reassigned`).
+    Shared { root: String, event: &'static str },
+    /// [fate-move-mode] The value is the root `binding` was bound from, and
+    /// the binding took ownership.
+    BoundAway { binding: String },
 }
 
 /// [fate-partial-move] What a use of a partially moved value read, and
@@ -93,6 +137,9 @@ impl FlowDiagnostic {
     /// same declaration as its use).
     pub fn render(&self, content: &str) -> String {
         let (line, _) = salvo_syntax::span::line_col(content, self.moved_at.start);
+        if let Some(p) = &self.poison {
+            return poison_message(&self.local, p, &format!(" at line {line}"));
+        }
         match &self.part {
             None => format!(
                 "`{}` cannot be used here: it was consumed (moved) at line {line}; reassign it before use, or `copy` it where it is moved",
@@ -120,6 +167,23 @@ fn part_message(root: &str, p: &PartUse, at: &str) -> String {
              `copy` at the site that moved it to keep this readable",
             p.place
         )
+    }
+}
+
+/// [fate-poison] [fate-move-mode] The two shapes of a poisoned read: a
+/// derived value whose root an event ended, and a root a move-mode binding
+/// took. `at` names the event or the binding (" at line 3"), or is empty.
+fn poison_message(x: &str, p: &PoisonUse, at: &str) -> String {
+    match p {
+        PoisonUse::BoundAway { binding } => format!(
+            "`{x}` cannot be used here: `{binding}` was bound from it{at} and later moves the value, so the binding \
+             took ownership; bind with `copy(...)` (e.g. `let {binding} = copy(...)`) to keep `{x}` usable, or \
+             reassign it before use"
+        ),
+        PoisonUse::Shared { root, event } => format!(
+            "`{x}` cannot be used here: it was bound from `{root}` and shares its fate, and `{root}` was {event}{at} \
+             after the binding; bind it with `copy(...)` to keep an independent value, or reassign it before use"
+        ),
     }
 }
 
@@ -151,7 +215,7 @@ pub fn check_one(decl: &Decl) -> Vec<FlowDiagnostic> {
 
 fn check_fn(f: &FnDecl, out: &mut Vec<FlowDiagnostic>) {
     let Some(body) = &f.body else { return };
-    let mut w = Walker::default();
+    let mut w = Walker { fate: Some(&f.fate), ..Walker::default() };
     for p in &f.params {
         w.decl_ty.insert(p.local.0.clone(), p.ty.clone());
     }
@@ -166,13 +230,57 @@ fn check_fn(f: &FnDecl, out: &mut Vec<FlowDiagnostic>) {
 type Path = Vec<crate::place::Step>;
 
 /// The flow state on one path: the wholly moved locals, each with the span
-/// of its move; and [fate-partial-move] the places moved *out of* each
-/// local (keyed by its storage), in the order they left, each with the span
-/// of its move.
+/// of its move (or [fate-poison] the event that poisoned it); [fate-partial-move]
+/// the places moved *out of* each local (keyed by its storage), in the
+/// order they left, each with the span of its move; and [fate-link] the
+/// fate links of each borrow-mode binding (by storage), as the checker
+/// holds them.
 #[derive(Clone, Default, PartialEq)]
 struct Moved {
-    whole: BTreeMap<String, Span>,
+    whole: BTreeMap<String, Gone>,
     parts: BTreeMap<String, Vec<(Path, Span)>>,
+    links: BTreeMap<String, Vec<FlowLink>>,
+}
+
+/// Why a local is unusable, and where it happened: the checker's
+/// `narrowed = Never` with its `poison` [fate-poison].
+#[derive(Clone, PartialEq)]
+struct Gone {
+    span: Span,
+    why: Why,
+}
+
+#[derive(Clone, PartialEq)]
+enum Why {
+    /// Consumed (moved) itself.
+    Moved,
+    /// [fate-poison] Bound from `root`, which was then `event`.
+    Poisoned { root: String, event: &'static str },
+    /// [fate-move-mode] A move-mode binding, `binding`, took it.
+    BoundAway { binding: String },
+}
+
+impl Gone {
+    fn moved(span: Span) -> Gone {
+        Gone { span, why: Why::Moved }
+    }
+}
+
+/// [fate-field-disjoint] Whether an event on `event` reaches a link at
+/// `link`: either unknown overlaps everything.
+fn overlaps_opt(link: Option<&[crate::place::Step]>, event: Option<&[crate::place::Step]>) -> bool {
+    match (link, event) {
+        (Some(a), Some(b)) => overlaps(a, b),
+        _ => true,
+    }
+}
+
+/// A link's path extended by `more` (`None` either way is unknown).
+fn compose(base: Option<&[crate::place::Step]>, more: Option<&[crate::place::Step]>) -> Option<Path> {
+    let (base, more) = (base?, more?);
+    let mut out = base.to_vec();
+    out.extend(more.iter().cloned());
+    Some(out)
 }
 
 impl Moved {
@@ -185,10 +293,31 @@ impl Moved {
         }
     }
 
-    /// A fresh binding of `local`: nothing moved, wholly or in part.
+    /// A fresh binding of `local`: nothing moved, wholly or in part, and
+    /// no fate links.
     fn forget(&mut self, local: &str) {
         self.whole.remove(local);
         self.parts.remove(local);
+        self.links.remove(local);
+        // A link names the variable it was made to: the checker's links are
+        // by variable, so one to an earlier binding of this name (an earlier
+        // iteration's `let`) is not to this one.
+        for ls in self.links.values_mut() {
+            ls.retain(|l| l.root != local);
+        }
+        self.links.retain(|_, ls| !ls.is_empty());
+    }
+
+    /// [fate-link] `local`'s links from now on: the checker's, or none.
+    fn set_links(&mut self, local: &str, links: Option<&Vec<FlowLink>>) {
+        match links {
+            Some(ls) if !ls.is_empty() => {
+                self.links.insert(local.to_string(), ls.clone());
+            }
+            _ => {
+                self.links.remove(local);
+            }
+        }
     }
 }
 
@@ -238,7 +367,9 @@ struct PartOf {
 }
 
 #[derive(Default)]
-struct Walker {
+struct Walker<'f> {
+    /// [fate-poison] The fn's flow-only facts.
+    fate: Option<&'f FateFacts>,
     out: Vec<FlowDiagnostic>,
     /// Reported use spans: a read reached by both loop walks reports once.
     reported: HashSet<(u32, u32)>,
@@ -262,7 +393,7 @@ struct Walker {
     switches: HashMap<u32, String>,
 }
 
-impl Walker {
+impl<'f> Walker<'f> {
     /// The storage a local names: itself, or the local a chain of whole
     /// narrowings and aliases leads to.
     fn storage<'a>(&'a self, local: &'a str) -> &'a str {
@@ -279,11 +410,11 @@ impl Walker {
     }
 
     /// The moved local that a read of `local` uses, if any, and its move.
-    fn moved_use(&self, local: &str, moved: &Moved) -> Option<(String, Span)> {
+    fn moved_use(&self, local: &str, moved: &Moved) -> Option<(String, Gone)> {
         let mut at = local;
         for _ in 0..64 {
-            if let Some(span) = moved.whole.get(at) {
-                return Some((at.to_string(), *span));
+            if let Some(gone) = moved.whole.get(at) {
+                return Some((at.to_string(), gone.clone()));
             }
             match self.part_of.get(at) {
                 Some(p) => at = &p.root,
@@ -295,7 +426,7 @@ impl Walker {
 
     /// Reports a use of a wholly moved local; whether it did.
     fn report_use(&mut self, local: &str, span: Span, moved: &Moved) -> bool {
-        let Some((name, moved_at)) = self.moved_use(local, moved) else { return false };
+        let Some((name, gone)) = self.moved_use(local, moved) else { return false };
         let written = written_name(self.storage(&name)).to_string();
         if written.starts_with("__") {
             return false;
@@ -303,13 +434,18 @@ impl Walker {
         if !self.reported.insert((span.start, span.end)) {
             return true;
         }
-        self.out.push(FlowDiagnostic {
-            span,
-            message: format!("`{written}` cannot be used here: it was consumed (moved) earlier; reassign it before use"),
-            local: written,
-            moved_at,
-            part: None,
-        });
+        // [fate-poison] [fate-move-mode] A poisoned value, or a root a
+        // move-mode binding took: the checker's two-site messages.
+        let poison = match gone.why {
+            Why::Moved => None,
+            Why::Poisoned { root, event } => Some(PoisonUse::Shared { root, event }),
+            Why::BoundAway { binding } => Some(PoisonUse::BoundAway { binding }),
+        };
+        let message = match &poison {
+            Some(p) => poison_message(&written, p, ""),
+            None => format!("`{written}` cannot be used here: it was consumed (moved) earlier; reassign it before use"),
+        };
+        self.out.push(FlowDiagnostic { span, message, local: written, moved_at: gone.span, part: None, poison });
         true
     }
 
@@ -358,7 +494,7 @@ impl Walker {
                 return;
             }
             let part = PartUse { place: show_place(&written, read), moved: show_place(&written, &gone), whole: read.is_empty() };
-            self.out.push(FlowDiagnostic { span, message: part_message(&written, &part, ""), local: written, moved_at, part: Some(part) });
+            self.out.push(FlowDiagnostic { span, message: part_message(&written, &part, ""), local: written, moved_at, part: Some(part), poison: None });
             return;
         }
     }
@@ -370,8 +506,98 @@ impl Walker {
             if path.is_empty() {
                 return;
             }
+            // [fate-poison] Moving data out poisons what was derived from
+            // it — on every root the place is linked to, at the place's
+            // path out of each (the checker's `projection_move`).
+            for (r, p) in self.event_roots(local, steps, moved) {
+                self.poison(&r, p.as_deref(), "moved", span, None, moved);
+            }
             moved.add_part(&root, path, span);
         }
+    }
+
+    /// [fate-poison] The roots an event on a place rooted at `local`
+    /// lands on, each with the place's path out of it: the storage the
+    /// place is part of (through narrowings and bindings of projections),
+    /// and every root the locals on the way are fate-linked to, their link
+    /// paths extended by the rest of the place.
+    fn event_roots(&self, local: &str, steps: &[Step], moved: &Moved) -> Vec<(String, Option<Path>)> {
+        let mut out: Vec<(String, Option<Path>)> = Vec::new();
+        let mut at = self.storage(local).to_string();
+        let mut path: Option<Path> = Some(steps.iter().map(place_step).collect());
+        for _ in 0..64 {
+            out.push((at.clone(), path.clone()));
+            for l in moved.links.get(&at).into_iter().flatten() {
+                if !out.iter().any(|(r, _)| *r == l.root) {
+                    out.push((l.root.clone(), compose(l.path.as_deref(), path.as_deref())));
+                }
+            }
+            match self.part_of.get(&at) {
+                Some(p) => {
+                    path = compose(Some(&p.path), path.as_deref());
+                    at = self.storage(&p.root).to_string();
+                }
+                None => break,
+            }
+        }
+        out
+    }
+
+    /// [fate-poison] An event on `root` at `path`: every other local linked
+    /// to it at an overlapping path [fate-field-disjoint] is poisoned — the
+    /// checker's `poison_derived_full`. A mutation names what it spares: the
+    /// acting handle, a handle to the mutated thing itself under a contents
+    /// mutation [deduce-field], and the handles proven apart
+    /// [elem-distinct].
+    fn poison(&self, root: &str, path: Option<&[crate::place::Step]>, event: &'static str, span: Span, m: Option<&FlowMutation>, moved: &mut Moved) {
+        let contents_only = m.is_some_and(|m| m.contents_only);
+        let victims: Vec<String> = moved
+            .links
+            .iter()
+            .filter(|(v, _)| v.as_str() != root)
+            .filter(|(v, _)| !m.is_some_and(|m| m.exempt.as_deref() == Some(v.as_str()) || m.spared.iter().any(|s| s == *v)))
+            .filter(|(_, ls)| {
+                ls.iter().any(|l| {
+                    if l.root != root || !overlaps_opt(l.path.as_deref(), path) {
+                        return false;
+                    }
+                    // A contents mutation spares an inline handle at
+                    // exactly the mutated place.
+                    if contents_only && !l.crosses {
+                        if let (Some(link), Some(ev)) = (l.path.as_deref(), path) {
+                            if !link.is_empty() && link == ev {
+                                return false;
+                            }
+                        }
+                    }
+                    true
+                })
+            })
+            .map(|(v, _)| v.clone())
+            .collect();
+        for v in victims {
+            for g in self.group(&v) {
+                moved.whole.insert(g, Gone { span, why: Why::Poisoned { root: root.to_string(), event } });
+            }
+        }
+    }
+
+    /// [fate-poison] The mutation events the checker placed at `span`.
+    fn mutations_at(&self, span: Span, assign: bool) -> Vec<FlowMutation> {
+        let Some(fate) = self.fate else { return Vec::new() };
+        let table = if assign { &fate.assign_mutations } else { &fate.mutations };
+        table.get(&(span.start, span.end)).cloned().unwrap_or_default()
+    }
+
+    fn apply_mutations(&self, events: &[FlowMutation], span: Span, moved: &mut Moved) {
+        for ev in events {
+            self.poison(&ev.root, ev.path.as_deref(), "mutated", span, Some(ev), moved);
+        }
+    }
+
+    /// [fate-link] The links the checker gave a binding statement.
+    fn bind_links(&self, id: NodeId) -> Option<&'f Vec<FlowLink>> {
+        self.fate?.binds.get(&id.0)
     }
 
     /// [fate-partial-move] Assigning a place puts back every moved place
@@ -411,8 +637,30 @@ impl Walker {
     /// `local` is moved at `span`, whatever its type: a consumed capture, or
     /// a move the checker made (`moved` on a read or a call).
     fn mark_moved_whole(&mut self, local: &str, span: Span, moved: &mut Moved) {
+        // [fate-poison] Moving a root poisons what was derived from it.
+        let root = self.storage(local).to_string();
+        self.poison(&root, Some(&[]), "moved", span, None, moved);
         for l in self.group(local) {
-            moved.whole.entry(l).or_insert(span);
+            moved.whole.entry(l).or_insert(Gone::moved(span));
+        }
+    }
+
+    /// [fate-move-mode] A move-mode binding, `binding`, takes ownership
+    /// through `links` (the checker's `apply_binding_mode`): what was
+    /// derived from each root at the link's projection is poisoned, and a
+    /// root taken whole is gone, named by the binding (which replaces
+    /// whatever it held); one taken at a projection keeps the rest, the
+    /// part being the consuming read's [fate-partial-move].
+    fn bind_away(&mut self, bound: Option<&(String, Vec<FlowLink>)>, span: Span, moved: &mut Moved) {
+        let Some((binding, links)) = bound else { return };
+        for l in links {
+            self.poison(&l.root, l.path.as_deref(), "moved", span, None, moved);
+            if l.path.as_deref().is_some_and(|p| !p.is_empty()) {
+                continue;
+            }
+            for g in self.group(&l.root) {
+                moved.whole.insert(g, Gone { span, why: Why::BoundAway { binding: binding.clone() } });
+            }
         }
     }
 
@@ -458,23 +706,33 @@ impl Walker {
                 self.walk_loop(body, None, moved);
                 Flow::FallsThrough
             }
-            Stmt::ForEach { local, ty, iterable, body, .. } => {
+            Stmt::ForEach { id, local, ty, iterable, body } => {
                 let flow = self.walk_expr(iterable, moved);
                 self.decl_ty.insert(local.0.clone(), ty.clone());
-                self.walk_loop(body, Some(&local.0), moved);
+                let links = self.bind_links(*id);
+                self.walk_loop(body, Some((&local.0, links)), moved);
                 flow
             }
-            Stmt::Let { local, ty, value, .. } => {
+            Stmt::Let { id, local, ty, value } => {
                 let flow = self.walk_expr(value, moved);
+                let bound = self.fate.and_then(|f| f.bound.get(&id.0));
+                self.bind_away(bound, value.span, moved);
                 self.decl_ty.insert(local.0.clone(), ty.clone());
                 self.alias_of.remove(&local.0);
                 self.part_of.remove(&local.0);
                 moved.forget(&local.0);
+                // [fate-link] A borrow-mode binding shares fate with its roots.
+                moved.set_links(&local.0, self.bind_links(*id));
                 flow
             }
-            Stmt::Alias { local, ty, place, .. } => {
+            Stmt::Alias { id, local, ty, place } => {
                 self.walk_steps(place, moved);
                 self.bind_view(&local.0, ty, place, false, false, moved);
+                // [fate-link] A binding the checker keeps as its place is a
+                // variable of its own there, linked to the place's root.
+                if !place.steps.is_empty() {
+                    moved.set_links(&local.0, self.bind_links(*id));
+                }
                 Flow::FallsThrough
             }
             Stmt::Narrow { local, ty, from, because, .. } => {
@@ -493,6 +751,11 @@ impl Walker {
             }
             Stmt::Assign { place, value } => {
                 self.walk_steps(place, moved);
+                // [fate-poison] An assignment through a projection mutates
+                // its roots, before the value is read (the checker checks
+                // the target first).
+                let events = self.mutations_at(value.span, true);
+                self.apply_mutations(&events, value.span, moved);
                 // [fate-partial-move] The checker puts a projection back
                 // when it checks the target, before the value: what the value
                 // moves out of the place stays moved (`p.tags = f(p.tags)`).
@@ -501,8 +764,19 @@ impl Walker {
                 }
                 let flow = self.walk_expr(value, moved);
                 if place.steps.is_empty() {
+                    // [fate-move-mode] A move-mode assignment takes its
+                    // value's roots first.
+                    let bound = self.fate.and_then(|f| f.assign_bound.get(&(value.span.start, value.span.end)));
+                    self.bind_away(bound, value.span, moved);
+                    // [fate-poison] The old value is gone: what was derived
+                    // from it is poisoned, and the local takes the new
+                    // value's links [fate-link].
+                    let root = self.storage(&place.root.0).to_string();
+                    self.poison(&root, Some(&[]), "reassigned", value.span, None, moved);
                     self.revive(&place.root.0, moved);
                     self.revive_parts(&place.root.0, &[], moved);
+                    let links = self.fate.and_then(|f| f.assigns.get(&(value.span.start, value.span.end)));
+                    moved.set_links(&root, links);
                 }
                 flow
             }
@@ -564,8 +838,8 @@ impl Walker {
             self.decl_ty.insert(local.to_string(), declared);
             self.part_of.remove(local);
             if !fresh {
-                if let Some(span) = moved.whole.get(self.storage(&root)).copied() {
-                    moved.whole.insert(local.to_string(), span);
+                if let Some(gone) = moved.whole.get(self.storage(&root)).cloned() {
+                    moved.whole.insert(local.to_string(), gone);
                 }
             }
             self.alias_of.insert(local.to_string(), root);
@@ -590,20 +864,22 @@ impl Walker {
     /// more from the end set when the body changed it; after the loop, the
     /// end set joined with every `break`'s, then everything the body assigns
     /// revived. `binding` is a `for` binding, fresh on every iteration.
-    fn walk_loop(&mut self, body: &Block, binding: Option<&str>, moved: &mut Moved) {
+    fn walk_loop(&mut self, body: &Block, binding: Option<(&str, Option<&Vec<FlowLink>>)>, moved: &mut Moved) {
         self.breaks.push(Vec::new());
         let entry = moved.clone();
         let mut end = entry.clone();
-        if let Some(b) = binding {
+        if let Some((b, links)) = binding {
             end.forget(b);
+            end.set_links(b, links);
         }
         self.walk_block(body, &mut end);
         // [fate-partial-move] A changed set of moved places changes the
-        // checker's snapshot too.
-        if !end.whole.keys().eq(entry.whole.keys()) || end.parts != entry.parts {
+        // checker's snapshot too, and so do [fate-link] changed links.
+        if !end.whole.keys().eq(entry.whole.keys()) || end.parts != entry.parts || end.links != entry.links {
             let mut again = end.clone();
-            if let Some(b) = binding {
+            if let Some((b, links)) = binding {
                 again.forget(b);
+                again.set_links(b, links);
             }
             self.walk_block(body, &mut again);
             end = again;
@@ -617,13 +893,22 @@ impl Walker {
         for name in assigned {
             self.revive(&name, &mut end);
         }
-        if let Some(b) = binding {
+        if let Some((b, _)) = binding {
             end.forget(b);
         }
         *moved = end;
     }
 
     fn walk_expr(&mut self, e: &Expr, moved: &mut Moved) -> Flow {
+        let flow = self.walk_expr_kind(e, moved);
+        // [fate-poison] A mutation the checker placed here (a call's `Mut`
+        // argument, an iterated subject) lands after the expression.
+        let events = self.mutations_at(e.span, false);
+        self.apply_mutations(&events, e.span, moved);
+        flow
+    }
+
+    fn walk_expr_kind(&mut self, e: &Expr, moved: &mut Moved) -> Flow {
         match &e.kind {
             ExprKind::Read { place, consume, moved: checker_moved } => {
                 self.walk_steps(place, moved);
@@ -798,7 +1083,27 @@ impl Walker {
 /// checker's `merge_fallthrough` joins `moved_places`).
 fn join_into(acc: &mut Moved, other: Moved) {
     for (k, v) in other.whole {
-        acc.whole.entry(k).or_insert(v);
+        match acc.whole.get_mut(&k) {
+            // [fate-poison] The reason kept is the first path's poison, if
+            // any path has one (the checker's `merge_fallthrough`).
+            Some(have) => {
+                if have.why == Why::Moved && v.why != Why::Moved {
+                    *have = v;
+                }
+            }
+            None => {
+                acc.whole.insert(k, v);
+            }
+        }
+    }
+    // [fate-link] Links union: may-be-linked is linked.
+    for (k, ls) in other.links {
+        let have = acc.links.entry(k).or_default();
+        for l in ls {
+            if !have.iter().any(|e| e.root == l.root) {
+                have.push(l);
+            }
+        }
     }
     for (root, list) in other.parts {
         for (path, span) in list {

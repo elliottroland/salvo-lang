@@ -138,6 +138,92 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — Poisoned and bound-away reads are reported from the IR
+
+PIPELINE.md R8 piece 3c [fate-poison] [fate-move-mode] [flow-use-after-move].
+The IR flow pass now reports the checker's last two use diagnostics: a read
+of a value derived from a root that was then moved, mutated or reassigned
+("`ys` cannot be used here: it was bound from `xs` and shares its fate, and
+`xs` was mutated at line 4 after the binding; …"), and a read of a root a
+move-mode binding took ("`p` cannot be used here: `q` was bound from it at
+line 3 and later moves the value, so the binding took ownership; …"). Both
+keep the checker's shapes and now name the event's line.
+
+The pass needs three facts the IR nodes do not carry, and the checker
+records them. `Checked::fate_binds` holds each borrow-mode binding's fate
+links, as the checker holds them: flattened to the roots, each with the
+projection it came from and [deduce-field]'s `crosses` bit. They are keyed
+by the bound name, or by an assignment's target. `Checked::fate_bound` holds
+the links a move-mode binding took ownership through. The IR does not always
+read that root as a move: `let m = o ?: unreachable!()` lowers the unwrap to
+a block. `Checked::fate_mutations` holds every mutation event
+`poison_derived_full` saw, with what it spares: the acting handle, the
+contents-mutation spare, and the handles a `NotSame` claim proves apart. The
+builder carries these facts on a new, flow-only `FnDecl::fate` (`FateFacts`):
+by the binding statement's `NodeId`, by an assignment's value span, or by
+the span of the expression a mutation happens at. Emitted code did not
+change.
+
+Per path, the pass keeps those links. An event on a root poisons every other
+local linked to it at an overlapping path. A move is one the pass already
+sees: whole at `[]`, or a projection moved out at its path, on every root the
+locals on the way are linked to. A reassignment of the whole local is
+applied after its value. A mutation is applied after its call, or before the
+value for an assignment through a projection, which is the checker's order. A
+poisoned local is gone like a moved one, and the poison replaces the move as
+the reason. A join keeps the first path's poison over a plain move, as
+`merge_fallthrough` kept the first poison. A fresh binding drops the links to
+an earlier binding of its name, because the checker's links are by variable:
+this kept std's `scan` (a `let here` per iteration, `first = here`) clean. A
+loop re-walks when its links changed.
+
+The differential was a temporary test. It ran the checker with its messages
+still on, then the pass, over 42 new `poison_…`/`bound_away…` cases in
+`flow_tests`: roots moved, mutated, reassigned and bound away; disjoint
+fields; the contents spare; nested derivation; branches, `when` and loops; a
+late link in a loop; revival and relinking; a narrowed root; lambdas; a
+destructure. They agreed read for read, word for word apart from the line,
+except in two places. `bound_away_one_arm` is a plain use-after-move the
+checker never reported, which is expected since piece 3a. `poison_same_call`
+is a fix. In `eatlook(s, t)` with `let t = s`, the checker applied a call's
+moves after reading every argument and accepted it. The Rust output (`let t =
+&s;` then `eatlook(s, t)`) is an E0505. The pass reports `t`
+[deduce-same-call]. One more case, `bound_away_unwrap`, came from reading
+`apply_binding_mode` after the differential. The pass first missed it, and
+the remedy was `fate_bound`. There are 138 cases.
+
+Then the checker's two messages went, and its whole `poison` state went with
+them: `LocalVar::poison`, `VarState::poison`, the `Poison` struct,
+`FateEvent::BoundAway` and `describe`, and `apply_binding_mode`'s name
+argument. Nothing else read them. A poisoned value is now just a consumed
+one, read as the type it had, like a moved one (the callable path too). The
+checker keeps the poisoning itself (`poison_derived`/`_full` mark the values
+consumed), because its joins and linear rules read that marker, and it keeps
+the links, which move-mode inference and [fate-derived-readonly] read.
+
+Tests that asserted the old messages now go through `ir::analyze` on a clean
+program. deduce_tests' `field_errors` and a new `gate_errors`, carry_tests'
+`std_errors`, and the `errors` helpers in elem_distinct_tests and
+widen_tests all gained the IR stage. Nine test programs mixed a checker
+error with a poison, and a checker error hides the flow pass, so they were
+split or made clean: five analyze_tests (`fate_derived_variables_are_read_only`,
+`s2_move_mode_ancestors_are_consumed`, `l4_lambda_captures`,
+`l7c_derived_returns`, `a_combinator_result_is_a_view_of_its_container`),
+deduce_tests' `fn_type_groups_and_multi_source_projections` and
+`a_dynamic_index_stays_conservative`, and two widen_tests that moved a kept
+parameter. The test count is unchanged.
+
+Found (ROADMAP 0o, 0p). First, the `if` revival also revives a *poisoned*
+local. With `t = xs; add(xs, "a")` in an arm, `size(t)` after it is
+accepted, and `salvo run --backend '*'` prints 0 on Rust (the assignment
+clones) and 1 on Kotlin (it aliases). The pass mirrors this. Second, a
+statically true `is` test with a binding (`if head is Person h` on a `proj
+Person`) lowers to `true` and `UNSUPPORTED(ident h)`. That program fails to
+compile, and there is no read of `head` left to report a poison at. Third,
+the checker's `reset_assigned` left a stale `poison` on a revived variable,
+so a later plain move of it would have shown the poison message. That went
+with the field.
+
 ### 2026-10-20 — Partial moves are reported from the IR
 
 PIPELINE.md R8 piece 3b [fate-partial-move] [flow-use-after-move]. The IR
@@ -29788,6 +29874,23 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A poison is the flow pass's, from the checker's links** (2026-10-20, R8
+  piece 3c): the pass does not derive fate links itself. They come from
+  `Checked::fate_binds` (and a move-mode binding's from `fate_bound`),
+  because the checker's links reach through derived-return calls, lending
+  calls, `proj` fields, lambda captures and unwraps, with Copy-scalar
+  exclusions, which the IR alone cannot reconstruct. Two traps. The links
+  are by *name* in the pass and by variable id in the checker, so a fresh
+  binding must drop the links to the name's earlier binding (std's `scan`
+  reported a false poison until it did). And a move-mode binding is not
+  always a consuming read in the IR (an unwrap is a block), so "the read
+  that consumed the root" is not enough: take the binding's links.
+- **A test asserting a use-after-move, partial-move or poison message must
+  run `ir::analyze` on a program the checker accepts.** Several test
+  programs had an unrelated checker error next to the poison they asserted,
+  and that error hides every flow diagnostic. Split them, or make them
+  clean.
 
 - **The checker checked a field read's base, so the flow pass checks every
   shorter projection** (2026-10-20, R8 piece 3b): the IR reads `n.a.b` as

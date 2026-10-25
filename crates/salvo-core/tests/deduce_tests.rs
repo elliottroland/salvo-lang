@@ -97,6 +97,21 @@ fn effect_form(program: &Program, checked: &Checked, fn_name: &str, param: &str)
     }
 }
 
+/// [fate-poison] What the gates report on `src`: the checker's errors, or,
+/// when it accepts the program, the IR analyses' — a poisoned read, or a
+/// read of a root a move-mode binding took, is the IR flow pass's since R8
+/// piece 3c [flow-use-after-move].
+fn gate_errors(src: &str) -> Vec<String> {
+    let (program, checked) = check_src(src);
+    let mut all = checked.errors.clone();
+    if !all.iter().any(|e| e.is_error()) {
+        let symbols = Symbols::collect(&program);
+        let resolution = resolve(&program);
+        all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
+    }
+    all.into_iter().filter(|e| e.is_error()).map(|e| e.message).collect()
+}
+
 const QUALIFIED_LISTS: &str = r#"
 
 qualifier A<T> of List<T>
@@ -954,8 +969,7 @@ fn late<T>(seed: List<T>) -> Int => !seed {{
 fn list_size<T>(list: List<T>) [] -> Int => list {{ return 0 }}
 "
     );
-    let (_, checked) = check_src(&src);
-    let messages: Vec<&str> = checked.errors.iter().map(|e| e.message.as_str()).collect();
+    let messages = gate_errors(&src);
     assert!(
         messages
             .iter()
@@ -1164,7 +1178,7 @@ fn a_prefix_projection_is_poisoned_by_a_deeper_mutation() {
 #[test]
 fn a_dynamic_index_stays_conservative() {
     let errs = disjoint_errors(
-        "    let arr: Mut List<Str>[] = array_of(Mut List(), Mut List())\n\
+        "    let arr: Mut List<Str>[] = array_of(Mut List<Str>(), Mut List<Str>())\n\
          \x20   let one = arr[0]\n\
          \x20   add_tag(arr[1], \"z\")\n\
          \x20   let k = count(one)",
@@ -1427,20 +1441,27 @@ fn either<T>(a: List<T>, b: List<T>, flag: Bool) -> proj(a, b) List<T> {{
     }}
     return b
 }}
-fn main<T>(a: List<T>, b: List<T>) -> None {{
-    let v = either(a, b, true)
-    consume(a)
-    let n = v
-}}
 "
     );
     let (_, checked) = check_src(&src);
     let errs: Vec<&str> = checked.errors.iter().map(|e| e.message.as_str()).collect();
-    // The call through `f` consumes `list` (the group says so), so `apply`
-    // is inferred to consume it too — no error, just the fact.
+    // [fate-poison] The result of a `proj(a, b)` call shares fate with both:
+    // moving `a` poisons it (the flow pass's diagnostic, on a clean program).
+    let linked = gate_errors(&format!(
+        "{QUALIFIED_LISTS}
+fn either<T>(a: List<T>, b: List<T>) -> proj(a, b) List<T> {{
+    return a
+}}
+fn main<T>(a: List<T>, b: List<T>) -> None => !a {{
+    let v = either(a, b)
+    consume(a)
+    let _n = v
+}}
+"
+    ));
     assert!(
-        errs.iter().any(|e| e.contains("`v` cannot be used here") && e.contains("`a`")),
-        "the projection must be linked to both sources: {errs:?}"
+        linked.iter().any(|e| e.contains("`v` cannot be used here") && e.contains("`a`")),
+        "the projection must be linked to both sources: {linked:?}"
     );
     assert!(
         !errs.iter().any(|e| e.contains("returns `proj(a, b)`, so every returned value")),
@@ -1748,9 +1769,13 @@ fn field_errors(src: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    checked
-        .errors
-        .iter()
+    // [fate-poison] As the gates do, the IR analyses run on a program the
+    // checker accepts: a poisoned read is the flow pass's since R8 piece 3c.
+    let mut all = checked.errors.clone();
+    if !all.iter().any(|e| e.is_error()) {
+        all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
+    }
+    all.iter()
         .filter(|e| e.is_error())
         .map(|e| e.message.clone())
         .collect()

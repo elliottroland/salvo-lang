@@ -89,13 +89,14 @@ fn errors(src: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    resolution
-        .errors
-        .iter()
-        .chain(checked.errors.iter())
-        .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
-        .collect()
+    let mut all: Vec<_> = resolution.errors.iter().chain(checked.errors.iter()).filter(|d| d.is_error()).cloned().collect();
+    // [fate-poison] As the gates do, the IR analyses run on a program the
+    // checker accepts: a poisoned read is the IR flow pass's since R8 piece
+    // 3c [flow-use-after-move].
+    if all.is_empty() {
+        all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked).into_iter().filter(|d| d.is_error()));
+    }
+    all.into_iter().map(|d| d.message).collect()
 }
 
 const PRELUDE: &str = "\
@@ -144,7 +145,7 @@ fn without_a_claim_the_sibling_handle_poisons() {
     );
     let errs = errors(&src);
     assert!(
-        errs.iter().any(|e| e.contains("mutated after the binding")),
+        errs.iter().any(|e| e.contains("`es` was mutated at line ") && e.contains(" after the binding")),
         "expected the sibling poison: {errs:?}"
     );
 }
@@ -168,7 +169,7 @@ fn rebinding_a_handle_strips_the_claim() {
     );
     let errs = errors(&src);
     assert!(
-        errs.iter().any(|e| e.contains("mutated after the binding")),
+        errs.iter().any(|e| e.contains("`es` was mutated at line ") && e.contains(" after the binding")),
         "expected the rebinding to restore the poison: {errs:?}"
     );
 }
@@ -190,7 +191,7 @@ fn the_same_index_without_a_proof_still_poisons() {
     );
     let errs = errors(&src);
     assert!(
-        errs.iter().any(|e| e.contains("mutated after the binding")),
+        errs.iter().any(|e| e.contains("`es` was mutated at line ") && e.contains(" after the binding")),
         "expected the same-element poison: {errs:?}"
     );
 }

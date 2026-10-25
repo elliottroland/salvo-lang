@@ -348,6 +348,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         let faces_n = crate::effects::handler_member_faces(&face_decls, f).len();
         let mut d = fn_decl(ctx, file_idx, id.clone(), None, f, FnKind::Member { faces: faces_n }, None, &[], errors);
         // Members have no FnKey: build the body with the handler's scope.
+        let mut fate = FateFacts::default();
         d.body = f.body.as_ref().map(|b| {
             let mut lower = Lower::new(ctx, file_idx, None);
             lower.self_fields = self_fields.clone();
@@ -382,9 +383,11 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
             }
             let ret = f.return_type.as_ref().map(|t| ctx.written_ty(file_idx, t)).unwrap_or_else(Ty::none);
             let block = lower.fn_body(b, &ret);
+            fate = std::mem::take(&mut lower.fate);
             errors.extend(lower.finish());
             block
         });
+        d.fate = fate;
         d
     };
     let init = h.init.as_ref().map(|f| member_fn(f, errors));
@@ -547,6 +550,7 @@ fn fn_decl(
     } else {
         f.body.as_ref().map(|b| lower.fn_body(b, &ret))
     };
+    let fate = std::mem::take(&mut lower.fate);
     errors.extend(lower.finish());
     // [ref-anchor] Handle parameters and the container each names.
     let ref_anchors: Vec<(usize, usize)> = f
@@ -583,6 +587,7 @@ fn fn_decl(
         factories: if f.platform { ctx.checked.factories.get(&(file_idx, f.name.span)).cloned() } else { None },
         body,
         span: f.span,
+        fate,
     }
 }
 

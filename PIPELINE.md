@@ -1036,3 +1036,52 @@ log current so the work can resume after a context reset). Newest last.
     capture moves; state stores; lends validation; the 0o unsound rules (in
     the pass, each fixed rule changing its case's pinned expectation); then
     move-mode and the re-walk loop's deletion.
+- **R8 piece 3c: done** (committed "Report poisoned and bound-away reads
+  from the IR"). The checker records what the IR cannot show:
+  `Checked::fate_binds` (each borrow-mode binding's flattened fate links —
+  root, projection path, `crosses` — by the bound name or an assignment's
+  target), `Checked::fate_bound` (the links a move-mode binding took
+  ownership through) and `Checked::fate_mutations` (every mutation event
+  `poison_derived_full` saw, by its span, with the acting handle, the
+  contents-mutation spare and the `NotSame`-proven handles it spares). The
+  builder carries them on a flow-only `FnDecl::fate` (`FateFacts`, by the
+  binding's `NodeId`, an assignment's value span, or the mutated-at
+  expression's span); emitted code did not change. `ir::flow` keeps the links
+  per path (joined by union, re-walking a loop when they change, dropped by
+  a fresh binding of the root's name — the checker's links are by id) and
+  poisons at every event on a root: the moves it already sees (whole at `[]`;
+  a projection at its path, on every root along the way), a whole
+  reassignment (after the value), a mutation (after its call; before an
+  assignment's value), and a move-mode binding (which also marks a root
+  taken whole as bound away, named by the binding). A poison replaces a move
+  as the reason; a join keeps the first path's poison. Messages: the
+  checker's two shapes with the event's line (`PoisonUse`). Then the
+  checker's two messages went, with all its `poison` state (`LocalVar::poison`,
+  `VarState::poison`, `Poison`, `FateEvent::BoundAway`/`describe`): nothing
+  else read it. The poisoning itself stays (it marks the values consumed,
+  which the checker's joins and linear rules read), and so do the links
+  (move-mode inference, [fate-derived-readonly]).
+  - **The differential:** 42 `poison_…`/`bound_away…` cases; the checker's
+    messages, dumped by a temporary test before removal, equal the pass's
+    read for read and word for word but the line, except
+    `poison_same_call` (`eatlook(s, t)` with `let t = s`): the checker applied
+    a call's moves after reading every argument and accepted it, an E0505 in
+    Rust; the pass reports it [deduce-same-call], a fix. `bound_away_unwrap`
+    (a move-mode `let m = o ?: unreachable!()`, which the IR does not read as
+    a move) came from reading `apply_binding_mode` afterwards and is what
+    `fate_bound` is for. 138 cases; the test count is unchanged.
+  - **Found:** the `if` revival (0o's `reset_assigned` rule) revives a
+    *poisoned* local too — `t = xs; add(xs, "a")` in an arm, then
+    `size(t)`, prints 0 on Rust and 1 on Kotlin (ROADMAP 0o, mirrored); a
+    statically true `is` test with a binding loses the binding in the IR
+    (`UNSUPPORTED(ident h)`, ROADMAP 0p), so no read is left to report a
+    poison at; the checker's `reset_assigned` left a stale poison that would
+    have misnamed a later plain move (gone with the field). Nine test
+    programs mixed a checker error with a poison and were split or made
+    clean (a checker error hides the flow pass).
+  - **Piece 3 next**, in order: lambda capture moves; state stores; lends
+    validation; the 0o unsound rules (in the pass, each fixed rule changing
+    its case's pinned expectation — the poison revival with the arm rule);
+    then move-mode and the re-walk loop's deletion. The links are still the
+    checker's (`fate_binds`): computing them in the pass is part of
+    move-mode's piece, which needs them first.

@@ -323,6 +323,37 @@ pub struct FnDecl {
     pub factories: Option<crate::abi::Factories>,
     pub body: Option<Block>,
     pub span: Span,
+    /// [fate-poison] Flow-only facts for `ir::flow`; no emitter reads them
+    /// and the dump does not show them.
+    pub fate: FateFacts,
+}
+
+/// [fate-poison] What the IR flow pass needs to poison a derived value and
+/// name a move-mode binding, beyond the nodes themselves — from the
+/// checker's tables, keyed by what the IR carries. Flow-only.
+#[derive(Clone, Default)]
+pub struct FateFacts {
+    /// A borrow-mode binding's fate links, by its statement's `NodeId` (a
+    /// `Let`, an `Alias`, a `ForEach`): the roots it shares fate with, at
+    /// the projection it came from [fate-link] [fate-field-disjoint].
+    pub binds: std::collections::HashMap<u32, Vec<crate::check::FlowLink>>,
+    /// The same for an assignment of a whole local, by the assigned value's
+    /// span (an `Assign` has no id).
+    pub assigns: std::collections::HashMap<(u32, u32), Vec<crate::check::FlowLink>>,
+    /// [fate-move-mode] A move-mode binding, by its statement's `NodeId`:
+    /// its name, and the links it took ownership through — each root is
+    /// consumed at the binding (named by it), what was derived from it is
+    /// poisoned.
+    pub bound: std::collections::HashMap<u32, (String, Vec<crate::check::FlowLink>)>,
+    /// The same for a move-mode assignment, by the assigned value's span.
+    pub assign_bound: std::collections::HashMap<(u32, u32), (String, Vec<crate::check::FlowLink>)>,
+    /// Mutation events on a root, by the span of the IR expression they
+    /// happen at (a call, an iterated subject): applied after it.
+    pub mutations: std::collections::HashMap<(u32, u32), Vec<crate::check::FlowMutation>>,
+    /// Mutation events of an assignment through a projection, by the
+    /// assigned value's span: applied before the value (the checker's
+    /// order — the target, then the value).
+    pub assign_mutations: std::collections::HashMap<(u32, u32), Vec<crate::check::FlowMutation>>,
 }
 
 #[derive(Clone)]

@@ -573,7 +573,7 @@ reading the second runs `h()` first; `construct_handler` mirrors this) — bind
 every argument up to the last one read, in order, if evaluation order is to
 hold.
 
-### 0o — Open defect: the checker's consumed-read and partial-move rules (mirrored in the flow pass) accept moved reads (found 2026-10-20)
+### 0o — Open defect: the checker's consumed-read, partial-move and poison rules (mirrored in the flow pass) accept moved reads (found 2026-10-20)
 
 Found mirroring the checker's join and loop rules onto the IR (R8 piece 1,
 [flow-use-after-move]; PIPELINE.md §8). Each program below checks clean, and
@@ -659,6 +659,53 @@ fn sibling(n: Nest) -> Int => !n {   // over-strict: `n.a`, the shorter
 The fix, in the pass: read an assignment's value before putting its place
 back, and check only the read's own place (`part_reassign_from_itself`,
 `part_nested_sibling` in `flow_tests`).
+
+One more, from mirroring the checker's poison (R8 piece 3c, [fate-poison]):
+the `if` revival reaches a *poisoned* value too, so an arm that links a local
+and then ends its root's value is accepted, and the two backends disagree.
+`salvo run --backend '*'` prints `0` on Rust (the assignment clones) and `1`
+on Kotlin (it aliases):
+
+```
+fn arm(c: Bool) -> Int {             // `t = xs` links `t`, `add` poisons it,
+    let xs = Mut List<Str>()         // and `reset_assigned` revives `t`
+    let t = Mut List<Str>()          // after the join because the arm
+    if c {                           // assigned it
+        t = xs
+        add(xs, "a")
+    }
+    return size(t)
+}
+```
+
+The fix is the arm rule above (an assignment revives on its own path only);
+the poison then reaches the join like a move does.
+
+### 0p — Open defect: a statically decided `is` test with a binding loses the binding (found 2026-10-20)
+
+When the checker decides an `is` test statically (the subject's type already
+is the arm), the IR builder lowers the test to `true`, and the binding it
+names to `UNSUPPORTED(ident h)`; compiling then fails with "unresolved
+identifier `h`" (no wrong code, but a program the checker accepts does not
+build). Found in R8 piece 3c: `first` of a `Mut List(…)` literal answers a
+`proj Person` (the `NonEmpty` overload), so `if head is Person h { return
+h.age }` is always true. With the test gone the IR has no read of `head`,
+so a poison on it is not reported there (the checker used to report it at
+the test). Repro, `struct Person { name: Str, age: Int }`:
+
+```
+fn g() -> Int {
+    let people = Mut List(Person {name: "Ada", age: 36})
+    let head = first(people)
+    if head is Person h {
+        return h.age
+    }
+    return 0
+}
+```
+
+The fix is in the builder: a statically true test with a binding still binds
+(a `Let` of the subject, or an `Alias` of its place).
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 

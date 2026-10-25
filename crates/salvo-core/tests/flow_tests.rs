@@ -1,6 +1,7 @@
 //! [flow-use-after-move] The IR's use-after-move pass (`ir::flow`, PIPELINE.md
 //! R8), the only use-after-move diagnostic since piece 3a and the only
-//! partial-move one since piece 3b [fate-partial-move]: over a corpus of
+//! partial-move one since piece 3b [fate-partial-move], and the only
+//! poisoned-read one since piece 3c [fate-poison]: over a corpus of
 //! small programs, the checker reports nothing (a consumed read, or a read of
 //! a place moved out, is never its error), the gate (`ir::analyze`) reports
 //! what the pass finds over the IR built from the checker's tables, and each
@@ -14,11 +15,15 @@
 //! pinned expectations are those reads. The partial-move cases (`part_…`,
 //! piece 3b) were compared the same way with the checker's two
 //! `check_moved_place` messages before they were removed: same reads, same
-//! messages, one difference (`part_same_call`, noted there). The checker
-//! still owns the consumption marking (`narrowed = Never`) and the
-//! `moved_places` record its linear and poison machinery read, so a case
-//! whose expectation changes must say whether the pass's rule changed
-//! (ROADMAP 0o's unsound join/loop rules, say) or the checker's marking did.
+//! messages, one difference (`part_same_call`, noted there). So were the
+//! poisoned reads (`poison_…`, `bound_away…`, piece 3c [fate-poison]
+//! [fate-move-mode]) with the checker's two poison messages: same reads,
+//! same words, one difference (`poison_same_call`, noted there). The
+//! checker still owns the consumption marking (`narrowed = Never`), the
+//! fate links (`fate_binds`), the mutation events (`fate_mutations`) and
+//! the `moved_places` record its linear machinery reads, so a case whose
+//! expectation changes must say whether the pass's rule changed (ROADMAP
+//! 0o's unsound join/loop rules, say) or the checker's tables did.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -108,6 +113,19 @@ fn relist(xs: Mut List<Str>) [] -> Mut List<Str> => !xs {
 }
 
 fn eatl2(a: Mut List<Str>, b: Mut List<Str>) [] -> None => !a, !b {
+}
+
+fn touch(p: Mut Rec) [] -> None => p: Mut {
+}
+
+fn tagit(p: Mut Rec) [] -> None => p.tags: Mut {
+}
+
+fn eatlook(a: Str, b: Str) [] -> None => !a {
+}
+
+fn mkrec() [] -> Mut Rec {
+    return Mut Rec { name: \"a\", tags: Mut List<Str>() }
 }
 
 ";
@@ -255,6 +273,61 @@ const CASES: &[(&str, &str)] = &[
     // Near misses: a Copy scalar field, and immutable data, never move.
     ("part_copy_scalar", "fn f(c: Cnt) [] -> Int => !c {\n    take(c.n)\n    take(c.n)\n    return c.n + peek(c)\n}\n"),
     ("part_immutable_field", "fn f() [] -> Int {\n    let p = newrec()\n    eat(p.name)\n    takep(p)\n    return 0\n}\n"),
+    // [R8 piece 3c] [fate-poison] A derived (borrow-mode) value whose root
+    // is moved, mutated or reassigned after the binding is poisoned.
+    ("poison_root_moved", "fn f() [] -> Int {\n    let p = newrec()\n    let q = p\n    takep(p)\n    return peek(q)\n}\n"),
+    ("poison_root_mutated", "fn f() [] -> Int {\n    let xs = Mut List<Str>()\n    let ys = xs\n    add(xs, \"a\")\n    return size(ys)\n}\n"),
+    ("poison_root_reassigned", "fn f() [] -> Int {\n    let s = mk()\n    let t = s\n    s = mk()\n    return look(t)\n}\n"),
+    ("poison_root_whole_mutated", "fn f() [] -> Int {\n    let p = mkrec()\n    let n = p.name\n    touch(p)\n    return look(n)\n}\n"),
+    ("poison_field_moved", "fn f() [] -> Int {\n    let p = newrec()\n    let t = p.tags\n    eatl(p.tags)\n    return peek(t)\n}\n"),
+    ("poison_field_assigned", "fn f() [] -> Int {\n    let p = mkrec()\n    let t = p.tags\n    p.tags = Mut List<Str>()\n    return peek(t)\n}\n"),
+    // Fields are tracked apart: an event on a disjoint field leaves it.
+    ("poison_disjoint_assigned", "fn f() [] -> Int {\n    let p = mkrec()\n    let n = p.name\n    p.tags = Mut List<Str>()\n    return look(n)\n}\n"),
+    ("poison_disjoint_moved", "fn f() [] -> Int {\n    let p = newrec()\n    let n = p.name\n    eatl(p.tags)\n    return look(n)\n}\n"),
+    ("poison_disjoint_call", "fn f() [] -> Int {\n    let p = mkrec()\n    let n = p.name\n    add(p.tags, mk())\n    return look(n)\n}\n"),
+    ("poison_field_call", "fn f() [] -> Int {\n    let p = mkrec()\n    let n = p.name\n    tagit(p)\n    return look(n)\n}\n"),
+    // A contents mutation spares a handle to the mutated thing itself.
+    ("poison_contents_spares", "fn f() [] -> Int {\n    let p = mkrec()\n    let t = p.tags\n    add(p.tags, mk())\n    return peek(t)\n}\n"),
+    // Derivation is transitive: the root's event reaches every link.
+    ("poison_nested", "fn f() [] -> Int {\n    let p = newrec()\n    let q = p\n    let r = q\n    takep(p)\n    return peek(r) + peek(q)\n}\n"),
+    ("poison_nested_field", "fn f() [] -> Int {\n    let n = Nest { a: newrec(), other: Mut List<Str>() }\n    let a = n.a\n    let t = a.tags\n    eatl(n.other)\n    let k = peek(t)\n    takep(n.a)\n    return k + peek(t)\n}\n"),
+    // The root stays usable after a mutation or a reassignment.
+    ("poison_root_usable", "fn f() [] -> Int {\n    let xs = Mut List<Str>()\n    let ys = xs\n    add(xs, \"a\")\n    return size(xs)\n}\n"),
+    // Branches and loops.
+    ("poison_in_arm", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    let t = s\n    if c {\n        eat(s)\n    }\n    return look(t)\n}\n"),
+    ("poison_arm_exits", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    let t = s\n    if c {\n        eat(s)\n        return 0\n    }\n    return look(t)\n}\n"),
+    ("poison_when_arm", "fn f(v: Int | Bool) [] -> Int {\n    let s = mk()\n    let t = s\n    when v {\n        is Int {\n            s = mk()\n        }\n        is Bool {\n        }\n    }\n    return look(t)\n}\n"),
+    ("bound_away_one_arm", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    let t = s\n    if c {\n        eat(t)\n    } else {\n        eat(s)\n    }\n    return look(t)\n}\n"),
+    ("poison_in_loop", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    let t = s\n    let n = 0\n    while c {\n        n = n + look(t)\n        s = mk()\n    }\n    return n + look(t)\n}\n"),
+    ("poison_loop_mutated", "fn f(c: Bool) [] -> Int {\n    let xs = Mut List<Str>()\n    let ys = xs\n    let n = 0\n    while c {\n        n = n + size(ys)\n        add(xs, \"a\")\n    }\n    return n\n}\n"),
+    ("poison_loop_linked_late", "fn f(c: Bool) [] -> Int {\n    let xs = Mut List<Str>()\n    let ys = Mut List<Str>()\n    let n = 0\n    while c {\n        add(xs, \"a\")\n        n = n + size(ys)\n        ys = xs\n    }\n    return n\n}\n"),
+    // Revival and relinking.
+    ("poison_revived", "fn f() [] -> Int {\n    let s = mk()\n    let t = s\n    eat(s)\n    t = mk()\n    return look(t)\n}\n"),
+    ("poison_relinked", "fn f() [] -> Int {\n    let a = mk()\n    let b = mk()\n    let t = a\n    t = b\n    eat(a)\n    return look(t)\n}\n"),
+    ("poison_relinked_moved", "fn f() [] -> Int {\n    let a = mk()\n    let b = mk()\n    let t = a\n    t = b\n    eat(b)\n    return look(t)\n}\n"),
+    ("poison_bound_after", "fn f() [] -> Int {\n    let xs = Mut List<Str>()\n    add(xs, \"a\")\n    let ys = xs\n    return size(ys)\n}\n"),
+    // Near misses: an independent value, a Copy scalar.
+    ("poison_copy", "fn f() [] -> Int {\n    let s = mk()\n    let t = copy(s)\n    eat(s)\n    return look(t)\n}\n"),
+    ("poison_scalar", "fn f(c: Cnt) [] -> Int => !c {\n    let n = c.n\n    take(c)\n    return n\n}\n"),
+    // A narrowed root, a lambda, the same call.
+    ("poison_narrowed_root", "fn f(o: Str?) [] -> Int => !o {\n    if o is Str {\n        let t = o\n        eat(o)\n        return look(t)\n    }\n    return 0\n}\n"),
+    ("poison_lambda_mutated", "fn f() [] -> Int {\n    let xs = Mut List<Str>()\n    let g = () -> size(xs)\n    add(xs, \"a\")\n    return g()\n}\n"),
+    ("poison_lambda_moved", "fn f() [] -> Int {\n    let s = mk()\n    let g = () -> look(s)\n    eat(s)\n    return g()\n}\n"),
+    ("poison_same_call", "fn f() [] -> None {\n    let s = mk()\n    let t = s\n    eatlook(s, t)\n}\n"),
+    // [fate-move-mode] A binding that later moves the value takes
+    // ownership: its root is gone from the binding on.
+    ("bound_away", "fn f() [] -> Int {\n    let p = newrec()\n    let q = p\n    takep(q)\n    return peek(p)\n}\n"),
+    ("bound_away_in_arm", "fn f(c: Bool) [] -> Int {\n    let p = newrec()\n    let q = p\n    if c {\n        takep(q)\n    }\n    return peek(p)\n}\n"),
+    ("bound_away_assign", "fn f() [] -> Int {\n    let s = mk()\n    let t = mk()\n    t = s\n    eat(t)\n    return look(s)\n}\n"),
+    ("bound_away_chain", "fn f() [] -> Int {\n    let a = mk()\n    let b = a\n    let c = b\n    eat(c)\n    return look(a) + look(b)\n}\n"),
+    ("bound_away_mutated", "fn f() [] -> Int {\n    let xs = Mut List<Str>()\n    let ys = xs\n    add(ys, \"a\")\n    return size(xs)\n}\n"),
+    ("bound_away_in_loop", "fn f(c: Bool) [] -> Int {\n    let n = 0\n    while c {\n        let s = mk()\n        let t = s\n        eat(t)\n        n = n + look(s)\n    }\n    return n\n}\n"),
+    ("bound_away_reassigned", "fn f() [] -> Int {\n    let p = newrec()\n    let q = p\n    takep(q)\n    p = newrec()\n    return peek(p)\n}\n"),
+    ("poison_root_bound_away", "fn f() [] -> Int {\n    let p = newrec()\n    let a = p\n    let b = p\n    takep(b)\n    return peek(a)\n}\n"),
+    ("poison_read_projection", "fn f() [] -> Int {\n    let p = newrec()\n    let q = p\n    takep(p)\n    return look(q.name)\n}\n"),
+    ("poison_for_binding", "fn f(xs: Mut List<Str>) [] -> Int => xs: Mut {\n    let n = 0\n    for x in xs {\n        n = n + look(x)\n    }\n    let ys = xs\n    add(xs, mk())\n    return n + size(ys)\n}\n"),
+    ("bound_away_unwrap", "fn f(o: Mut List<Str>?) [] -> Int => !o {\n    let m = o ?: unreachable!()\n    eatl(m)\n    return peek(o)\n}\n"),
+    ("bound_away_destructure", "fn f() [] -> Int {\n    let t = (mk(), mk())\n    let (a, b) = t\n    eat(a)\n    return look(b) + peek(t)\n}\n"),
 ];
 
 fn program(cases: &[(&str, &str)]) -> Program {
@@ -318,6 +391,21 @@ fn the_gate_reports_what_the_flow_pass_finds() {
                     "{}",
                     d.message
                 );
+                // [fate-poison] The two-site messages: the root and its
+                // event, or the binding that took ownership.
+                match &d.poison {
+                    Some(salvo_core::ir::flow::PoisonUse::Shared { root, event }) => assert!(
+                        d.message.contains(&format!("it was bound from `{root}` and shares its fate, and `{root}` was {event} after the binding")),
+                        "{}",
+                        d.message
+                    ),
+                    Some(salvo_core::ir::flow::PoisonUse::BoundAway { binding }) => assert!(
+                        d.message.contains(&format!("`{binding}` was bound from it and later moves the value, so the binding took ownership")),
+                        "{}",
+                        d.message
+                    ),
+                    None => {}
+                }
                 flow.entry(file).or_default().insert(d.span.start);
                 total += 1;
             }
@@ -334,7 +422,9 @@ fn the_gate_reports_what_the_flow_pass_finds() {
             d.message.contains("cannot be used here: it was consumed (moved) at line ")
                 || d.message.contains("cannot be used as a whole here: `")
                     && d.message.contains("` was moved out of it at line ")
-                || d.message.contains("cannot be used here: `") && d.message.contains("` at line "),
+                || d.message.contains("cannot be used here: `") && d.message.contains("` at line ")
+                || d.message.contains("and shares its fate, and `") && d.message.contains(" at line ") && d.message.contains(" after the binding")
+                || d.message.contains("` was bound from it at line ") && d.message.contains("so the binding took ownership"),
             "the gate names the move: {}",
             d.message
         );
@@ -457,6 +547,63 @@ fn the_flow_pass_reports_these_reads() {
         ("part_narrowed_field", &[(5, 17)]),
         ("part_copy_scalar", &[]),
         ("part_immutable_field", &[]),
+        ("poison_root_moved", &[(5, 17)]),
+        ("poison_root_mutated", &[(5, 17)]),
+        ("poison_root_reassigned", &[(5, 17)]),
+        ("poison_root_whole_mutated", &[(5, 17)]),
+        ("poison_field_moved", &[(5, 17)]),
+        ("poison_field_assigned", &[(5, 17)]),
+        ("poison_disjoint_assigned", &[]),
+        ("poison_disjoint_moved", &[]),
+        ("poison_disjoint_call", &[]),
+        // `tagit` declares `=> p.tags: Mut`: the event is `[.tags]`.
+        ("poison_field_call", &[]),
+        // A contents mutation (`add(p.tags, …)`) spares a handle to the
+        // mutated list itself [deduce-field].
+        ("poison_contents_spares", &[]),
+        ("poison_nested", &[(6, 17), (6, 27)]),
+        ("poison_nested_field", &[(8, 21)]),
+        ("poison_root_usable", &[]),
+        ("poison_in_arm", &[(7, 17)]),
+        ("poison_arm_exits", &[]),
+        ("poison_when_arm", &[(11, 17)]),
+        // `t` takes `s` at its binding (it is moved later): reading `s` is
+        // the binding's use; `look(t)` after `eat(t)` on one path is a
+        // plain use-after-move.
+        ("bound_away_one_arm", &[(7, 13), (9, 17)]),
+        ("poison_in_loop", &[(6, 22), (9, 21)]),
+        ("poison_loop_mutated", &[(6, 22)]),
+        ("poison_loop_linked_late", &[(7, 22)]),
+        ("poison_revived", &[]),
+        ("poison_relinked", &[]),
+        ("poison_relinked_moved", &[(7, 17)]),
+        ("poison_bound_after", &[]),
+        ("poison_copy", &[]),
+        ("poison_scalar", &[]),
+        ("poison_narrowed_root", &[(5, 21)]),
+        ("poison_lambda_mutated", &[(5, 12)]),
+        ("poison_lambda_moved", &[(5, 12)]),
+        // The one difference from the checker, which accepted this and
+        // failed rustc (E0505: `let t = &s;` then `eatlook(s, t)`): it moved
+        // a call's arguments after reading them all [deduce-same-call].
+        ("poison_same_call", &[(4, 16)]),
+        ("bound_away", &[(5, 17)]),
+        ("bound_away_in_arm", &[(7, 17)]),
+        ("bound_away_assign", &[(6, 17)]),
+        ("bound_away_chain", &[(6, 17), (6, 27)]),
+        ("bound_away_mutated", &[(5, 17)]),
+        ("bound_away_in_loop", &[(7, 22)]),
+        ("bound_away_reassigned", &[]),
+        ("poison_root_bound_away", &[(6, 17)]),
+        ("poison_read_projection", &[(5, 17)]),
+        ("poison_for_binding", &[(8, 21)]),
+        // The IR does not read `o` as a move (the unwrap is a block): the
+        // binding's links say what it took (`fate_bound`). Found after the
+        // differential, reading `apply_binding_mode`: the pass missed it
+        // while it took a move-mode binding from its consuming read alone.
+        ("bound_away_unwrap", &[(4, 17)]),
+        // The checker names the pattern's last binding.
+        ("bound_away_destructure", &[(5, 27)]),
     ];
     assert_eq!(expected.len(), CASES.len(), "one expectation per case");
     let program = program(CASES);
@@ -545,4 +692,5 @@ fn the_flow_pass_accepts_every_example_and_std() {
     }
     assert!(found.is_empty(), "{} false positive(s):\n{}", found.len(), found.join("\n"));
 }
+
 

@@ -67,6 +67,9 @@ pub struct Lower<'a, 'p> {
     /// [ir-narrow] Projection places a test narrowed (a lifted claim,
     /// `h.f is ^Ok`): the binding, valid until the scope at that depth closes.
     pub(crate) scoped_aliases: Vec<(usize, Place, Local, Ty)>,
+    /// [fate-poison] The flow-only facts of the fn being lowered (its
+    /// `FnDecl::fate`).
+    pub(crate) fate: FateFacts,
 }
 
 impl<'a, 'p> Lower<'a, 'p> {
@@ -94,6 +97,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             in_condition: false,
             place_aliases: Vec::new(),
             scoped_aliases: Vec::new(),
+            fate: FateFacts::default(),
         }
     }
 
@@ -186,6 +190,19 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
+    /// [fate-poison] A binding's fate links, from the checker's tables
+    /// (keyed by the bound name), onto the binding statement: a borrow-mode
+    /// binding's (`fate_binds`), or [fate-move-mode] the ones a move-mode
+    /// binding took ownership through (`fate_bound`).
+    pub(crate) fn note_bind(&mut self, id: NodeId, name: &salvo_syntax::ast::Ident) {
+        if let Some(links) = self.ctx.checked.fate_binds.get(&self.key(name.span)) {
+            self.fate.binds.insert(id.0, links.clone());
+        }
+        if let Some(links) = self.ctx.checked.fate_bound.get(&self.key(name.span)) {
+            self.fate.bound.insert(id.0, (name.name.clone(), links.clone()));
+        }
+    }
+
     pub(crate) fn lookup(&self, name: &str) -> Option<&Bound> {
         self.scopes.iter().rev().find_map(|s| s.get(name))
     }
@@ -262,6 +279,22 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // [fate-move-mode] an assignment that takes ownership.
                 if self.ctx.checked.binding_modes.contains(&self.key(*span)) {
                     self.consume_bound(&mut v);
+                }
+                // [fate-poison] The new value's fate links (or what a
+                // move-mode assignment took ownership through), and the
+                // mutation an assignment through a projection is, for the
+                // flow pass.
+                let at = (v.span.start, v.span.end);
+                if let AExpr::Ident(id) = target {
+                    if let Some(links) = self.ctx.checked.fate_binds.get(&self.key(id.span)) {
+                        self.fate.assigns.insert(at, links.clone());
+                    }
+                    if let Some(links) = self.ctx.checked.fate_bound.get(&self.key(id.span)) {
+                        self.fate.assign_bound.insert(at, (id.name.clone(), links.clone()));
+                    }
+                }
+                if let Some(events) = self.ctx.checked.fate_mutations.get(&self.key(*span)) {
+                    self.fate.assign_mutations.insert(at, events.clone());
                 }
                 match self.assign_place_of(target) {
                     Some(place) => vec![Stmt::Assign { place, value: v }],
@@ -357,6 +390,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let ty = declared.unwrap_or_else(|| v.ty.clone());
                 let local = self.bind(&name.name, ty.clone());
                 let id = self.id();
+                self.note_bind(id, name);
                 // [deduce-field] a binding the checker keeps as its place.
                 if self.ctx.checked.virtual_place_binds.contains_key(&self.key(span)) {
                     if let ExprKind::Read { place, .. } = &v.kind {
@@ -383,6 +417,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             Pattern::Ident(id) => {
                 let local = self.bind(&id.name, ty.clone());
                 let nid = self.id();
+                self.note_bind(nid, id);
                 out.push(Stmt::Let { id: nid, local, ty: ty.clone(), value: Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root, steps: Vec::new() }, consume: true, moved: false } } });
             }
             Pattern::Tuple { elems, .. } => {
@@ -396,6 +431,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                         Pattern::Ident(id_) => {
                             let local = self.bind(&id_.name, ety.clone());
                             let nid = self.id();
+                            self.note_bind(nid, id_);
                             out.push(Stmt::Let {
                                 id: nid,
                                 local,
@@ -427,6 +463,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                         .unwrap_or(Ty::Unknown);
                     let local = self.bind(&f.binding.name, fty.clone());
                     let nid = self.id();
+                    self.note_bind(nid, &f.binding);
                     out.push(Stmt::Let {
                         id: nid,
                         local,

@@ -72,6 +72,13 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// An expression, with the slot's coercion applied [ir-coerce].
     pub fn expr(&mut self, e: &AExpr) -> Expr {
         let mut raw = self.expr_raw(e);
+        // [fate-poison] A mutation event the checker placed at this
+        // expression (a call's `Mut` argument, an iterated subject), for the
+        // flow pass.
+        if let Some(events) = self.ctx.checked.fate_mutations.get(&self.key(e.span())) {
+            let span = e.span();
+            self.fate.mutations.insert((span.start, span.end), events.clone());
+        }
         if !matches!(e, AExpr::Ident(_)) && self.ctx.checked.flow_moves.contains(&self.key(e.span())) {
             mark_root_move(e, &mut raw);
         }
@@ -1573,6 +1580,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let ty = self.ty_of(b.span);
                 let local = self.bind(&b.name, ty.clone());
                 let id = self.id();
+                self.note_bind(id, b);
                 self.pending_after_test.push(Stmt::Let { id, local, ty: ty.clone(), value: Expr { ty, span, kind: ExprKind::Read { place, consume: false, moved: false } } });
             }
             return acc.unwrap_or(Expr { ty: bool_ty, span, kind: ExprKind::Bool(true) });
@@ -2559,6 +2567,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             Some(name) => {
                 let local = self.bind(&name.name, subj_ty.clone());
                 let lid = self.id();
+                self.note_bind(lid, name);
                 let bind = Stmt::Let { id: lid, local: local.clone(), ty: subj_ty.clone(), value: s };
                 let read = Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false, moved: false } };
                 (vec![bind], read, Some(Place { root: local, steps: Vec::new() }))
@@ -2725,6 +2734,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             Pattern::Ident(id) => {
                 let local = me.bind(&id.name, value.ty.clone());
                 let nid = me.id();
+                me.note_bind(nid, id);
                 stmts.push(Stmt::Let { id: nid, local, ty: value.ty.clone(), value });
             }
             other => {
@@ -2820,7 +2830,11 @@ impl<'a, 'p> Lower<'a, 'p> {
             None => {
                 // [iter-for-native] an intrinsic container.
                 let local = match pattern {
-                    Pattern::Ident(id) => self.bind(&id.name, elem_ty.clone()),
+                    Pattern::Ident(id) => {
+                        let local = self.bind(&id.name, elem_ty.clone());
+                        self.note_bind(loop_id, id);
+                        local
+                    }
                     other => {
                         let tmp = self.fresh("__elem");
                         stmts.extend(self.destructure(other, tmp.clone(), &elem_ty, span));

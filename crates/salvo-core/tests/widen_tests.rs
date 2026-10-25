@@ -53,13 +53,14 @@ fn errors(src: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    resolution
-        .errors
-        .iter()
-        .chain(checked.errors.iter())
-        .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
-        .collect()
+    let mut all: Vec<_> = resolution.errors.iter().chain(checked.errors.iter()).filter(|d| d.is_error()).cloned().collect();
+    // [fate-poison] As the gates do, the IR analyses run on a program the
+    // checker accepts: a poisoned read is the IR flow pass's since R8 piece
+    // 3c [flow-use-after-move].
+    if all.is_empty() {
+        all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked).into_iter().filter(|d| d.is_error()));
+    }
+    all.into_iter().map(|d| d.message).collect()
 }
 
 const PRELUDE: &str = r#"
@@ -557,7 +558,7 @@ fn a_view_keeps_its_source_alive_through_an_inferred_lend() {
     let src = format!(
         "{VIEW_PRELUDE}\
          fn eat<T>(xs: List<T>) -> Int => !xs {{ return 0 }}\n\
-         fn main(xs: List<Int>) {{\n    let v = view(xs)\n    eat(xs)\n    advance(v)\n}}\n"
+         fn main(xs: List<Int>) => !xs {{\n    let v = view(xs)\n    eat(xs)\n    advance(v)\n}}\n"
     );
     let errs = errors(&src);
     assert!(
@@ -596,7 +597,7 @@ fn a_written_proj_entry_keeps_and_declares() {
         "{VIEW_PRELUDE}\
          effect Src {{\n    fn borrowed(xs: List<Int>, tag: Str) -> Mut View<Int> holds proj(xs) => xs, tag\n}}\n\
          fn eat(xs: List<Int>) -> Int => !xs {{ return 0 }}\n\
-         fn main(xs: List<Int>, tag: Str) [Src] {{\n    let v = borrowed(xs, tag)\n    advance(v)\n    eat(xs)\n    advance(v)\n}}\n"
+         fn main(xs: List<Int>, tag: Str) [Src] => !xs, tag {{\n    let v = borrowed(xs, tag)\n    advance(v)\n    eat(xs)\n    advance(v)\n}}\n"
     );
     let errs = errors(&src);
     // The first `advance` is fine (the entry keeps `xs` and lends it); the

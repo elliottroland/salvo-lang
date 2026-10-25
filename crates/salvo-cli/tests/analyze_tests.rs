@@ -770,9 +770,7 @@ fn fate_derived_variables_are_read_only() {
         dir.join("main.sv"),
         "fn consume(v: List<Int>) -> None => !v {\n}\n\n\
          fn move_derived() -> Int {\n    let xs = List(1, 2)\n    let ys = xs\n    consume(ys)\n    return size(xs)\n}\n\n\
-         fn mutate_derived() -> Int {\n    let xs = Mut List(1, 2)\n    let ys = xs\n    add(ys, 3)\n    return size(xs)\n}\n\n\
-         fn return_derived(v: Str) -> Str => v {\n    let w = v\n    return w\n}\n\n\
-         fn read_derived(v: Str) -> Int => v {\n    let w = v\n    return size(w)\n}\n",
+         fn mutate_derived() -> Int {\n    let xs = Mut List(1, 2)\n    let ys = xs\n    add(ys, 3)\n    return size(xs)\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -780,23 +778,39 @@ fn fate_derived_variables_are_read_only() {
     assert!(!out.status.success());
     // [fate-move-mode] S2: moving or mutating a derived variable whose
     // roots are owned is legal — the binding takes ownership and the
-    // *root* is consumed at the binding; its later use names the binding.
+    // *root* is consumed at the binding; its later use names the binding
+    // (the IR flow pass's diagnostic since R8 piece 3c).
     assert_eq!(
         stderr
-            .matches("`xs` cannot be used here: `ys` was bound from it and later moves the value")
+            .matches("`xs` cannot be used here: `ys` was bound from it at line ")
             .count(),
         2,
         "stderr: {stderr}"
     );
+    assert!(stderr.contains("`ys` was bound from it at line 6 and later moves the value"), "stderr: {stderr}");
+    assert!(stderr.contains("`ys` was bound from it at line 13 and later moves the value"), "stderr: {stderr}");
+    assert!(stderr.contains("2 errors"), "stderr: {stderr}");
+    assert!(stderr.contains("copy"), "stderr: {stderr}");
+
     // A *written-kept* parameter root keeps the S1 error at the move
-    // site [fate-derived-readonly]: you cannot move out of a borrow.
+    // site [fate-derived-readonly]: you cannot move out of a borrow. (Its
+    // own program: a checker error hides the flow pass's diagnostics.)
+    let dir = src_dir("fate_readonly_kept");
+    fs::write(
+        dir.join("main.sv"),
+        "fn return_derived(v: Str) -> Str => v {\n    let w = v\n    return w\n}\n\n\
+         fn read_derived(v: Str) -> Int => v {\n    let w = v\n    return size(w)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
     assert!(
         stderr.contains("cannot return `w`: it was bound from `v`"),
         "stderr: {stderr}"
     );
-    // Exactly the three violations: reading a derived variable is fine.
-    assert!(stderr.contains("3 errors"), "stderr: {stderr}");
-    assert!(stderr.contains("copy"), "stderr: {stderr}");
+    // Exactly the one violation: reading a derived variable is fine.
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }
 
 // [fate-poison] Mutating, moving, or reassigning a root poisons every
@@ -821,19 +835,21 @@ fn fate_root_events_poison_derived_variables() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
+    // The IR flow pass's diagnostic since R8 piece 3c, naming the event's
+    // line.
     assert!(
         stderr.contains(
             "`ys` cannot be used here: it was bound from `xs` and shares its fate, \
-             and `xs` was mutated after the binding"
+             and `xs` was mutated at line 7 after the binding"
         ),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("`xs` was moved after the binding"),
+        stderr.contains("`xs` was moved at line 14 after the binding"),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("`xs` was reassigned after the binding"),
+        stderr.contains("`xs` was reassigned at line 21 after the binding"),
         "stderr: {stderr}"
     );
     assert!(stderr.contains("3 errors"), "stderr: {stderr}");
@@ -1024,9 +1040,9 @@ fn l2_move_sites_consume_roots() {
 
     // [fate-move-mode] S2: storing/spreading a derived variable of owned
     // roots is legal — the binding takes ownership, so the *root* is
-    // consumed at the binding and its later use names the binding. Still
-    // the checker's diagnostic, so its own program: the IR analyses run on
-    // a program the checker accepts.
+    // consumed at the binding and its later use names the binding. The IR
+    // flow pass's diagnostic since R8 piece 3c; its own program, as the IR
+    // analyses run on a program the checker accepts.
     fs::write(
         dir.join("main.sv"),
         "struct Box {\n    item: Str\n}\n\n\
@@ -1043,11 +1059,11 @@ fn l2_move_sites_consume_roots() {
     assert!(!out.status.success());
     assert!(
         stderr
-            .contains("`xs` cannot be used here: `ys` was bound from it and later moves the value"),
+            .contains("`xs` cannot be used here: `ys` was bound from it at line 10 and later moves the value"),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("`b` cannot be used here: `d` was bound from it and later moves the value"),
+        stderr.contains("`b` cannot be used here: `d` was bound from it at line 20 and later moves the value"),
         "stderr: {stderr}"
     );
     assert!(stderr.contains("2 errors"), "stderr: {stderr}");
@@ -1145,9 +1161,6 @@ fn s2_move_mode_ancestors_are_consumed() {
         "struct Holder {\n    tags: Mut List<Int>\n}\n\n\
          struct Wrapper {\n    item: Mut List<Int>\n}\n\n\
          fn wrap(list: Mut List<Int>) -> Wrapper => !list {\n    return Wrapper {item: list}\n}\n\n\
-         fn consume_list(v: List<Int>) -> None => !v {\n}\n\n\
-         fn chain() -> Int {\n    let xs = List(1, 2)\n    let a = xs\n    let b = a\n    \
-         consume_list(b)\n    return size(xs)\n}\n\n\
          fn kept_leak(h: Holder) -> Wrapper => h {\n    return wrap(h.tags)\n}\n\n\
          fn kept_remedy(h: Holder) -> Wrapper => h {\n    return wrap(copy(h.tags))\n}\n\n\
          fn kept_binding(v: Str) -> Str => v {\n    let w = v\n    return w\n}\n",
@@ -1156,13 +1169,6 @@ fn s2_move_mode_ancestors_are_consumed() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    // Chain: `xs` was consumed at `a`'s binding (the whole chain is
-    // move-mode); the use-site error names the binding.
-    assert!(
-        stderr
-            .contains("`xs` cannot be used here: `a` was bound from it and later moves the value"),
-        "stderr: {stderr}"
-    );
     // A kept parameter's mutable data cannot be moved out; `copy` is the
     // remedy (kept_remedy is clean).
     assert!(
@@ -1175,7 +1181,26 @@ fn s2_move_mode_ancestors_are_consumed() {
         stderr.contains("cannot return `w`: it was bound from `v`"),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains("3 errors"), "stderr: {stderr}");
+    assert!(stderr.contains("2 errors"), "stderr: {stderr}");
+
+    // Chain: `xs` was consumed at `a`'s binding (the whole chain is
+    // move-mode); the use-site error names the binding. The IR flow pass's
+    // diagnostic since R8 piece 3c, so its own program.
+    fs::write(
+        dir.join("main.sv"),
+        "fn consume_list(v: List<Int>) -> None => !v {\n}\n\n\
+         fn chain() -> Int {\n    let xs = List(1, 2)\n    let a = xs\n    let b = a\n    \
+         consume_list(b)\n    return size(xs)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("`xs` cannot be used here: `a` was bound from it at line 6 and later moves the value"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
 
     // The parity probe is rejected: `wrap(h.tags)` moved mutable data out
     // of `h`, so the later `add(h.tags, 9)` cannot observe an alias on one
@@ -1265,9 +1290,6 @@ fn l4_lambda_captures() {
          fn immutable_free() -> Int {\n    let base = 10\n    let text = \"hi\"\n    \
          let f = (n: Int) -> { return n + base + size(text) }\n    \
          let r = apply(f, 1)\n    return r + base + size(text)\n}\n\n\
-         fn poisoned_after_mutation() -> Int {\n    let xs = Mut List(1, 2)\n    \
-         let f = (n: Int) -> { return n + size(xs) }\n    let before = apply(f, 1)\n    \
-         add(xs, 9)\n    return apply(f, 1)\n}\n\n\
          fn used_before_mutation() -> Int {\n    let xs = Mut List(1, 2)\n    \
          let f = (n: Int) -> { return n + size(xs) }\n    let r = apply(f, 1)\n    \
          add(xs, 9)\n    return r + size(xs)\n}\n\n\
@@ -1286,14 +1308,6 @@ fn l4_lambda_captures() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    // Mutating a mutable read-capture's root poisons the closure.
-    assert!(
-        stderr.contains(
-            "`f` cannot be used here: it was bound from `xs` and shares its fate, \
-             and `xs` was mutated after the binding"
-        ),
-        "stderr: {stderr}"
-    );
     // A capture-consuming lambda is legal since L7b but `once`-typed
     // [once-fn]: passing it where a plain fn is expected fails at the
     // boundary.
@@ -1307,8 +1321,30 @@ fn l4_lambda_captures() {
         "stderr: {stderr}"
     );
     // The positive matrix (immutable captures, pre-mutation use, `copy`
-    // remedies) is clean: exactly the three violations.
-    assert!(stderr.contains("3 errors"), "stderr: {stderr}");
+    // remedies) is clean: exactly the two violations.
+    assert!(stderr.contains("2 errors"), "stderr: {stderr}");
+
+    // Mutating a mutable read-capture's root poisons the closure: the IR
+    // flow pass's diagnostic since R8 piece 3c, so its own program.
+    fs::write(
+        dir.join("main.sv"),
+        "fn apply(f: (Int) -> Int, v: Int) -> Int {\n    return f(v)\n}\n\n\
+         fn poisoned_after_mutation() -> Int {\n    let xs = Mut List(1, 2)\n    \
+         let f = (n: Int) -> { return n + size(xs) }\n    let before = apply(f, 1)\n    \
+         add(xs, 9)\n    return before + apply(f, 1)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains(
+            "`f` cannot be used here: it was bound from `xs` and shares its fate, \
+             and `xs` was mutated at line 9 after the binding"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
 
     // [flow-use-after-move] The uses after a move are the IR flow pass's,
     // which runs on a program the checker accepts: their own program.
@@ -1689,10 +1725,6 @@ fn l7c_derived_returns() {
          return None\n}\n\n\
          fn bad_param(persons: List<Person>) -> proj(nobody) Person? => persons {\n    \
          return None\n}\n\n\
-         fn poison_after_mutation() -> Int {\n    \
-         let people = Mut List(Person {name: \"Ada\", age: 36})\n    \
-         let head = first(people)\n    add(people, Person {name: \"Grace\", age: 45})\n    \
-         if head is Person h {\n        return h.age\n    }\n    return 0\n}\n\n\
          fn escape_borrowed() {\n    let people = List(Person {name: \"Ada\", age: 36})\n    \
          let head = first(people)\n    if head is Person h {\n        take(h)\n    }\n}\n\n\
          fn ok_use() -> Int {\n    let people = List(Person {name: \"Ada\", age: 36})\n    \
@@ -1720,21 +1752,36 @@ fn l7c_derived_returns() {
         stderr.contains("`proj(nobody)` names no parameter"),
         "stderr: {stderr}"
     );
-    // Mutating the argument poisons the derived result.
-    assert!(
-        stderr.contains(
-            "`head` cannot be used here: it was bound from `people` and shares \
-             its fate, and `people` was mutated after the binding"
-        ),
-        "stderr: {stderr}"
-    );
     // The borrowed result can never be moved; `copy` is the remedy
     // (ok_copy_escape is clean). [proj-type] names the projection's type.
     assert!(
         stderr.contains("`h` is a projection (`proj Person`), and `take` consumes `p`"),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains("5 errors"), "stderr: {stderr}");
+    assert!(stderr.contains("4 errors"), "stderr: {stderr}");
+
+    // Mutating the argument poisons the derived result: the IR flow pass's
+    // diagnostic since R8 piece 3c, so its own program.
+    fs::write(
+        dir.join("main.sv"),
+        "struct Person {\n    name: Str,\n    age: Int\n}\n\n\
+         fn poison_after_mutation() -> Int {\n    \
+         let people = Mut List(Person {name: \"Ada\", age: 36})\n    \
+         let head = first(people)\n    add(people, Person {name: \"Grace\", age: 45})\n    \
+         return head.age\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains(
+            "`head` cannot be used here: it was bound from `people` and shares \
+             its fate, and `people` was mutated at line 9 after the binding"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }
 
 // [fn-contract] L7d: fn types carry contracts — named parameters plus a
@@ -2247,9 +2294,6 @@ fn a_combinator_result_is_a_view_of_its_container() {
          let p = iter(words)\n    \
          let kept = map(p, keep)\n    \
          eat(kept)\n    \
-         let more = keep_all(iter(words))\n    \
-         eat(words)\n    \
-         println(\"${size(more)}\")\n    \
          let free = keep_all(iter(Chars {n: 2}))\n    \
          println(\"${size(free)}\")\n    \
          let parts = Mut List(Mut Str(\"a\"))\n    \
@@ -2268,15 +2312,6 @@ fn a_combinator_result_is_a_view_of_its_container() {
         ),
         "stderr: {stderr}"
     );
-    // The view is fate-linked *through* the temporary pass to the container:
-    // consuming the container poisons it.
-    assert!(
-        stderr.contains(
-            "`more` cannot be used here: it was bound from `words` and shares \
-             its fate, and `words` was moved after the binding"
-        ),
-        "stderr: {stderr}"
-    );
     // `copy(e)` on a `proj Mut Str` is a `Mut Str`: one level un-projected,
     // the `Mut` kept.
     assert!(
@@ -2284,8 +2319,35 @@ fn a_combinator_result_is_a_view_of_its_container() {
         "stderr: {stderr}"
     );
     // The generator instantiation is unlinked (`free` draws no error), so
-    // exactly the three violations above are reported.
-    assert!(stderr.contains("3 errors"), "stderr: {stderr}");
+    // exactly the two violations above are reported.
+    assert!(stderr.contains("2 errors"), "stderr: {stderr}");
+
+    // The view is fate-linked *through* the temporary pass to the container:
+    // consuming the container poisons it. The IR flow pass's diagnostic
+    // since R8 piece 3c, so its own program.
+    fs::write(
+        dir.join("main.sv"),
+        "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
+         fn keep_all<It, T>(it: Mut It, ?Yield<It, T>) -> Mut List<T> => it: Mut {\n    \
+         let out = Mut List<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
+         fn main() [use] {\n    use StdConsole()\n    \
+         let words = List(\"ann\", \"bo\")\n    \
+         let more = keep_all(iter(words))\n    \
+         eat(words)\n    \
+         println(\"${size(more)}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains(
+            "`more` cannot be used here: it was bound from `words` and shares \
+             its fate, and `words` was moved at line 15 after the binding"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }
 
 // [lambda-view] A capturing lambda is a *view*: it holds borrows of its
@@ -2327,7 +2389,7 @@ fn a_capturing_lambda_is_a_view_of_its_captures() {
     assert!(
         stderr.contains(
             "`picked2` cannot be used here: it was bound from `all2` and shares \
-             its fate, and `all2` was moved after the binding"
+             its fate, and `all2` was moved at line 20 after the binding"
         ),
         "stderr: {stderr}"
     );
@@ -2373,7 +2435,7 @@ fn a_written_proj_entry_narrows_the_instantiation_link() {
     assert!(
         stderr.contains(
             "`kept2` cannot be used here: it was bound from `words2` and shares \
-             its fate, and `words2` was moved after the binding"
+             its fate, and `words2` was moved at line 21 after the binding"
         ),
         "stderr: {stderr}"
     );
