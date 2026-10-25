@@ -3091,6 +3091,10 @@ Conventions:
     a fn or a block it applies from its line to the end of that scope, loops
     and lambdas included. Not importable — taking an overload out of a
     shared name is the consumer's decision [qual-refn-scope]'s reasoning.
+    A module-level rename is checked, and its new name recorded as a
+    reference, in the file it is written in only; its module's other files
+    take the binding (2026-10-20: before, a mistake in it was reported in
+    every file of the module, at the declaring file's positions).
   * The new name must be otherwise unused (a rename removes an ambiguity, so
     adding one would defeat it), and it is **erased**: `renamed_calls` tells
     the emitters to spell the declaration's own name, where an import alias
@@ -12048,6 +12052,31 @@ replaced the working document TESTING.md).
   cache and computes the project's, merging the by-span keys as gathering
   them together would. An analysis through the front reports what one
   without it reports (`std_front_matches_an_analysis_without_it`).
+* [lsp-check-cache] **A file an edit left alone is not checked again**
+  (2026-10-20, PIPELINE.md step 8): the server keeps one `CheckCache`, every
+  project file's checker rows as its last walks left them, and checks through
+  the std cache with `check_project_cached`. A file whose module is the `Arc`
+  its rows were checked from (a parse-cache hit comptime did not stamp into)
+  has them inserted where its three walks (signature facts, headers, bodies)
+  would run, in program order, instead of being walked: its keyed rows with
+  the first walk, and per walk what it appended (diagnostics, the tables kept
+  in order), the `written_types` rows it wrote (each with the file whose node
+  it is) and the handlers it marked parking. The rows stand in only while
+  the program's interfaces are as they were: the same files (names, modules,
+  flags), std's same modules, the same syntactic parking set, and each new
+  module's file the same text outside its plain fn bodies (top-level, struct,
+  handler-member and qualifier fns that are not comptime, stamped, `by` or
+  `iter fn`); otherwise every file is walked and the cache rebuilt. A body
+  edit moves the declarations after it, so a cached file's definition sites
+  there move by the bodies' growth, and its `written_types` rows for the
+  changed file's nodes move to the same nodes of its new module (outside the
+  bodies the two hold the same nodes in the same order). The program-wide
+  steps (written keys, program checks, deductions, the literal lowering) run
+  over the merged rows as in a full check, so the result is the full check's.
+  A program with one project file skips the cache (it would walk that file
+  anyway). Shown by `check_cache_matches_an_uncached_analysis_across_edits`
+  (`modules/aws` and two written programs); the CLI and the compile paths do
+  not use it.
 * [lsp-hover-iter-fn] An `iter fn`'s minter and generated `next` both hover as
   the `iter fn` written (`iter fn upto(n: Int) -> Emitted Int | Finished`),
   with its docs and without the `next` overload set.

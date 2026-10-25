@@ -199,7 +199,7 @@ pub fn analyze_sources(
     native_ext: &str,
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<Analysis, String> {
-    analyze_project(src, project, native_ext, overlay, None, None)
+    analyze_project(src, project, native_ext, overlay, None, None, None)
 }
 
 /// [lsp-std-front] [std-cache] The embedded std's front half, built once by
@@ -358,30 +358,22 @@ pub fn std_copy_root() -> PathBuf {
 /// parsing. The nearest manifest above `path` decides the source root and
 /// whether the tree is std; with none, `fallback` (the workspace root) is
 /// analysed and the analysis says so (`manifest_missing`). The cache is
-/// advisory — behaviour matches a fresh parse.
+/// advisory — behaviour matches a fresh parse. [lsp-check-cache] So is
+/// `check_cache`: the checker rows of the files an edit left alone.
 pub fn analyze_for_document_cached(
     path: &Path,
     fallback: &Path,
     overlay: &HashMap<PathBuf, String>,
     cache: &mut ParseCache,
     std_front: &StdFront,
-) -> Result<Analysis, String> {
-    analyze_for_document_impl(path, fallback, overlay, Some(cache), Some(std_front))
-}
-
-fn analyze_for_document_impl(
-    path: &Path,
-    fallback: &Path,
-    overlay: &HashMap<PathBuf, String>,
-    cache: Option<&mut ParseCache>,
-    std_front: Option<&StdFront>,
+    check_cache: &mut salvo_core::CheckCache,
 ) -> Result<Analysis, String> {
     match salvo_core::Project::find(path)? {
         Some(project) => {
             let src = project.src();
-            analyze_project(&src, Some(project), "", overlay, cache, std_front)
+            analyze_project(&src, Some(project), "", overlay, Some(cache), Some(std_front), Some(check_cache))
         }
-        None => analyze_project(fallback, None, "", overlay, cache, std_front),
+        None => analyze_project(fallback, None, "", overlay, Some(cache), Some(std_front), Some(check_cache)),
     }
 }
 
@@ -392,14 +384,18 @@ fn analyze_project(
     overlay: &HashMap<PathBuf, String>,
     cache: Option<&mut ParseCache>,
     std_front: Option<&StdFront>,
+    check_cache: Option<&mut salvo_core::CheckCache>,
 ) -> Result<Analysis, String> {
-    analyze_project_with(src, project, native_ext, overlay, cache, std_front, true)
+    analyze_project_with(src, project, native_ext, overlay, cache, std_front, true, check_cache)
 }
 
 /// [`analyze_project`], with `front_half` saying whether the std front may
 /// stand in for std's parse and expansion (its `StdCache` is used either
 /// way): off, the analysis is what it was before [lsp-std-front], which is
-/// what its soundness tests compare against.
+/// what its soundness tests compare against. [lsp-check-cache] With a
+/// `check_cache`, a check over the std cache reuses its rows
+/// (`check_project_cached`).
+#[allow(clippy::too_many_arguments)]
 fn analyze_project_with(
     src: &Path,
     project: Option<salvo_core::Project>,
@@ -408,6 +404,7 @@ fn analyze_project_with(
     mut cache: Option<&mut ParseCache>,
     std_front: Option<&StdFront>,
     front_half: bool,
+    check_cache: Option<&mut salvo_core::CheckCache>,
 ) -> Result<Analysis, String> {
     if !src.is_dir() {
         return Err(format!(
@@ -589,8 +586,11 @@ fn analyze_project_with(
         drop(t);
         // `check_program` folds resolution errors into its own.
         let t = salvo_core::timing::phase("check");
-        let mut checked = match std_front.map(|f| &f.cache) {
-            Some(cache) if std_cache_applies(&program, cache) => {
+        let mut checked = match (std_front.map(|f| &f.cache), check_cache) {
+            (Some(cache), Some(check_cache)) if std_cache_applies(&program, cache) => {
+                salvo_core::check_project_cached(&program, &resolution, &symbols, cache, check_cache)
+            }
+            (Some(cache), _) if std_cache_applies(&program, cache) => {
                 salvo_core::check_project(&program, &resolution, &symbols, cache)
             }
             _ => salvo_core::check_program(&program, &resolution, &symbols),
@@ -1005,7 +1005,7 @@ mod tests {
         let mut cache = ParseCache::new();
         // First analysis: everything a cache miss.
         let cached1 =
-            analyze_project(&root, None, "", &HashMap::new(), Some(&mut cache), None).expect("a1");
+            analyze_project(&root, None, "", &HashMap::new(), Some(&mut cache), None, None).expect("a1");
         let fresh1 = analyze_sources(&root, None, "", &HashMap::new()).expect("f1");
         assert_eq!(
             messages(&cached1),
@@ -1020,7 +1020,7 @@ mod tests {
         let mut overlay = HashMap::new();
         overlay.insert(root.join("main.sv"), edited.to_string());
         let cached2 =
-            analyze_project(&root, None, "", &overlay, Some(&mut cache), None).expect("a2");
+            analyze_project(&root, None, "", &overlay, Some(&mut cache), None, None).expect("a2");
         let fresh2 = analyze_sources(&root, None, "", &overlay).expect("f2");
         assert_eq!(
             messages(&cached2),
@@ -1064,7 +1064,7 @@ mod tests {
 
         let full = analyze_sources(&root, None, "", &HashMap::new()).expect("full");
         let std_front = build_std_front("");
-        let cached = analyze_project(&root, None, "", &HashMap::new(), None, Some(&std_front))
+        let cached = analyze_project(&root, None, "", &HashMap::new(), None, Some(&std_front), None)
             .expect("cached");
         assert!(
             std_cache_applies(&cached.program, &std_front.cache),
@@ -1140,7 +1140,8 @@ mod tests {
     }
 
     /// The analysis of a program directory, as the language server makes it
-    /// (`analyze_for_document_impl`), with or without the front half.
+    /// (`analyze_for_document_cached`, without the check cache), with or
+    /// without the front half.
     fn front_analysis(dir: &Path, front: Option<&StdFront>, front_half: bool) -> Analysis {
         let overlay = HashMap::new();
         let mut cache = ParseCache::new();
@@ -1148,7 +1149,7 @@ mod tests {
             Some(project) => (project.src(), Some(project)),
             None => (dir.to_path_buf(), None),
         };
-        analyze_project_with(&src, project, "", &overlay, Some(&mut cache), front, front_half).expect("analysis")
+        analyze_project_with(&src, project, "", &overlay, Some(&mut cache), front, front_half, None).expect("analysis")
     }
 
     // [lsp-std-front] std's expansion is a function of std alone: expanding
@@ -1184,61 +1185,65 @@ mod tests {
         }
     }
 
+    /// The checker rows of the project's files (from file `n` on).
+    fn rows<K: Copy, V: std::fmt::Debug>(
+        table: &HashMap<(usize, salvo_syntax::Span), V>,
+        n: usize,
+        _k: std::marker::PhantomData<K>,
+    ) -> Vec<String> {
+        let mut out: Vec<String> = table
+            .iter()
+            .filter(|((file, _), _)| *file >= n)
+            .map(|((file, span), v)| format!("{file} {}..{} {v:?}", span.start, span.end))
+            .collect();
+        out.sort();
+        out
+    }
+    /// What the language server reads of an analysis, for the project's
+    /// files (from file `n` on): diagnostics, the rows its views read, the
+    /// IR's diagnostics, hovers, overloads and completions.
+    fn view(a: &Analysis, n: usize) -> Vec<(&'static str, Vec<String>)> {
+        let c = a.checked.as_ref().expect("checked");
+        let p = std::marker::PhantomData::<()>;
+        let mut diags: Vec<String> = a
+            .diagnostics
+            .iter()
+            .map(|d| format!("{} {}..{} {:?} {} {:?}", d.file, d.span.start, d.span.end, d.severity, d.message, d.suggested_imports))
+            .collect();
+        diags.sort();
+        let mut locals: Vec<String> =
+            c.local_decls.iter().filter(|(f, _)| **f >= n).map(|(f, v)| format!("{f} {v:?}")).collect();
+        locals.sort();
+        let mut ir: Vec<String> = a.ir_reliant.iter().map(|(f, s)| format!("{f} {}..{}", s.start, s.end)).collect();
+        ir.sort();
+        let mut errors: Vec<String> = c.errors.iter().map(|d| format!("{} {}..{} {}", d.file, d.span.start, d.span.end, d.message)).collect();
+        errors.sort();
+        let hovers = a.comptime_hovers.iter().map(|h| format!("{} {}..{} {} {:?}", h.file, h.span.start, h.span.end, h.text, h.module)).collect();
+        let arms = a.comptime_when_arms.iter().map(|w| format!("{w:?}")).collect();
+        let mut overloads: Vec<String> = a.overloads.iter().enumerate().skip(n).flat_map(|(f, m)| m.iter().map(move |(k, v)| format!("{f} {k} {v:?}"))).collect();
+        overloads.sort();
+        let completions = a.completions.iter().skip(n).map(|c| format!("{c:?}")).collect();
+        vec![
+            ("diagnostics", diags),
+            ("expr_ty", rows(&c.expr_ty, n, p)),
+            ("fn_refs", rows(&c.fn_refs, n, p)),
+            ("def_refs", rows(&c.def_refs, n, p)),
+            ("field_refs", rows(&c.field_refs, n, p)),
+            ("call_fn", rows(&c.call_fn, n, p)),
+            ("local_decls", locals),
+            ("errors", errors),
+            ("ir diagnostics", ir),
+            ("comptime hovers", hovers),
+            ("comptime when arms", arms),
+            ("overloads", overloads),
+            ("completions", completions),
+        ]
+    }
     // [lsp-std-front] An analysis through the front reports what one without
     // it reports, and the checker rows the language server reads for the
     // project's files are the same, as are the IR's diagnostics.
     #[test]
     fn std_front_matches_an_analysis_without_it() {
-        fn rows<K: Copy, V: std::fmt::Debug>(
-            table: &HashMap<(usize, salvo_syntax::Span), V>,
-            n: usize,
-            _k: std::marker::PhantomData<K>,
-        ) -> Vec<String> {
-            let mut out: Vec<String> = table
-                .iter()
-                .filter(|((file, _), _)| *file >= n)
-                .map(|((file, span), v)| format!("{file} {}..{} {v:?}", span.start, span.end))
-                .collect();
-            out.sort();
-            out
-        }
-        fn view(a: &Analysis, n: usize) -> Vec<(&'static str, Vec<String>)> {
-            let c = a.checked.as_ref().expect("checked");
-            let p = std::marker::PhantomData::<()>;
-            let mut diags: Vec<String> = a
-                .diagnostics
-                .iter()
-                .map(|d| format!("{} {}..{} {:?} {} {:?}", d.file, d.span.start, d.span.end, d.severity, d.message, d.suggested_imports))
-                .collect();
-            diags.sort();
-            let mut locals: Vec<String> =
-                c.local_decls.iter().filter(|(f, _)| **f >= n).map(|(f, v)| format!("{f} {v:?}")).collect();
-            locals.sort();
-            let mut ir: Vec<String> = a.ir_reliant.iter().map(|(f, s)| format!("{f} {}..{}", s.start, s.end)).collect();
-            ir.sort();
-            let mut errors: Vec<String> = c.errors.iter().map(|d| format!("{} {}..{} {}", d.file, d.span.start, d.span.end, d.message)).collect();
-            errors.sort();
-            let hovers = a.comptime_hovers.iter().map(|h| format!("{} {}..{} {} {:?}", h.file, h.span.start, h.span.end, h.text, h.module)).collect();
-            let arms = a.comptime_when_arms.iter().map(|w| format!("{w:?}")).collect();
-            let mut overloads: Vec<String> = a.overloads.iter().enumerate().skip(n).flat_map(|(f, m)| m.iter().map(move |(k, v)| format!("{f} {k} {v:?}"))).collect();
-            overloads.sort();
-            let completions = a.completions.iter().skip(n).map(|c| format!("{c:?}")).collect();
-            vec![
-                ("diagnostics", diags),
-                ("expr_ty", rows(&c.expr_ty, n, p)),
-                ("fn_refs", rows(&c.fn_refs, n, p)),
-                ("def_refs", rows(&c.def_refs, n, p)),
-                ("field_refs", rows(&c.field_refs, n, p)),
-                ("call_fn", rows(&c.call_fn, n, p)),
-                ("local_decls", locals),
-                ("errors", errors),
-                ("ir diagnostics", ir),
-                ("comptime hovers", hovers),
-                ("comptime when arms", arms),
-                ("overloads", overloads),
-                ("completions", completions),
-            ]
-        }
         let front = build_std_front("");
         let n = front.files.len();
         for (dir, admitted) in front_programs() {
@@ -1272,6 +1277,165 @@ mod tests {
                 assert!(messages.iter().any(|m| m.contains("nonexistent")), "{messages:#?}");
                 assert!(messages.iter().any(|m| m.contains("Float")), "{messages:#?}");
                 assert!(!with.comptime_hovers.iter().all(|h| h.file < n), "no project hover");
+            }
+        }
+    }
+
+    /// [lsp-check-cache] Programs of more than one file for the check cache's
+    /// test: `modules/aws`, and two written ones whose files reach into each
+    /// other's declarations — types, fields, a qualifier with a value slot, a
+    /// module-level rename, a generic struct read through a substitution, an
+    /// effect and its handler, a test annex, and an error in a body.
+    fn check_cache_programs() -> Vec<PathBuf> {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let scratch = |name: &str, files: &[(&str, &str)]| -> PathBuf {
+            let root = repo.join("tmp/check_cache_test").join(name);
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&root).unwrap();
+            for (file, text) in files {
+                std::fs::write(root.join(file), text).unwrap();
+            }
+            root
+        };
+        vec![
+            repo.join("modules/aws"),
+            scratch(
+                "shapes",
+                &[
+                    (
+                        "geo.sv",
+                        "export struct Pt {\n    x: Int,\n    y: Int\n}\n\n\
+                         export fn origin() [] -> Pt {\n    let p = Pt { x: 0, y: 0 }\n    return p\n}\n\n\
+                         export struct Box<T> {\n    item: T,\n    count: Int\n}\n\n\
+                         export fn boxed<T>(item: T) [] -> Box<T> => !item {\n    return Box { item: item, count: 1 }\n}\n\n\
+                         export qualifier Below(limit: Int) of Int {\n    fn qualifies(n: Int, limit: Int) -> Bool {\n        return n < limit\n    }\n}\n\n\
+                         export fn norm(p: Pt) [] -> Int => p {\n    return p.x * p.x + p.y * p.y\n}\n\n\
+                         rename fn plus = add2(a: Int, b: Int)\n\n\
+                         export fn add2(a: Int, b: Int) [] -> Int {\n    return a + b\n}\n",
+                    ),
+                    (
+                        "geo.test.sv",
+                        "test \"the origin is at zero\" {\n    let p = origin()\n    let n = norm(p)\n    let s = plus(n, 1)\n}\n",
+                    ),
+                    (
+                        "count.sv",
+                        "export effect Counter {\n    fn bump(by: Int) -> Int\n}\n\n\
+                         export handler Tally(start: Int) of Counter {\n    state { total: Int = start }\n    fn bump(by: Int) -> Int {\n        total = total + by\n        return total\n    }\n}\n",
+                    ),
+                    (
+                        "main.sv",
+                        "import geo\nimport count\n\n\
+                         fn run() [Counter] -> Int {\n    let p = origin()\n    let b = boxed(p)\n    let n = norm(b.item) + b.count\n    let lim = 100\n    \
+                         if n is Below(lim) {\n        return bump(n)\n    }\n    return bump(1)\n}\n\n\
+                         fn main() [use] {\n    use StdConsole()\n    use Tally(1)\n    let n = run()\n    let m = missing_fn(n)\n    println(\"${n}\")\n}\n",
+                    ),
+                ],
+            ),
+            scratch(
+                "chain",
+                &[
+                    (
+                        "a.sv",
+                        "export fn first() [] -> Int {\n    return 1\n}\n\n\
+                         export struct Wrap {\n    value: Int\n}\n\n\
+                         export fn wrap(n: Int) [] -> Wrap {\n    return Wrap { value: n }\n}\n",
+                    ),
+                    (
+                        "b.sv",
+                        "import a\n\nexport fn second() [] -> Int {\n    return first() + 1\n}\n\n\
+                         export fn unwrap(w: Wrap) [] -> Int => w {\n    return w.value\n}\n",
+                    ),
+                    (
+                        "c.sv",
+                        "import a\nimport b\n\nfn third() [] -> Int {\n    let w = wrap(second())\n    return unwrap(w) + first()\n}\n",
+                    ),
+                ],
+            ),
+        ]
+    }
+
+    /// [lsp-check-cache] `text` with a statement added at the start of its
+    /// first fn body, so every later declaration in the file moves; `None`
+    /// for a file without one.
+    fn edit_first_body(text: &str) -> Option<String> {
+        let mut at = 0;
+        let mut after_fn = false;
+        for line in text.split_inclusive('\n') {
+            let t = line.trim();
+            let is_fn = ["fn ", "export fn ", "send fn "].iter().any(|k| t.starts_with(k));
+            // A body's brace ends the fn's line, or a deduction clause's on
+            // the next one.
+            if (is_fn || (after_fn && t.starts_with("=>"))) && t.ends_with('{') {
+                let brace = at + line.trim_end().len();
+                let mut out = text.to_string();
+                out.insert_str(brace, "\n    let edited_here = 12345");
+                return Some(out);
+            }
+            after_fn = is_fn;
+            at += line.len();
+        }
+        None
+    }
+
+    // [lsp-check-cache] A body edit, file after file (edits accumulating),
+    // then all reverted: through the check cache the analysis reports and
+    // reads what an analysis without it does, and only the edited file is
+    // walked (with any file comptime stamps, which every analysis makes new).
+    #[test]
+    fn check_cache_matches_an_uncached_analysis_across_edits() {
+        let front = build_std_front("");
+        let n = front.files.len();
+        for dir in check_cache_programs() {
+            let (src, project) = match salvo_core::Project::find(&dir.join("x.sv")).expect("manifest") {
+                Some(project) => (project.src(), Some(project)),
+                None => (dir.clone(), None),
+            };
+            let root = src.canonicalize().unwrap();
+            let mut parse = ParseCache::new();
+            let mut checks = salvo_core::CheckCache::new();
+            let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
+                analyze_project_with(&src, project.clone(), "", overlay, Some(&mut parse), Some(&front), true, checks).expect("analysis")
+            };
+            let mut overlay: HashMap<PathBuf, String> = HashMap::new();
+            let first = analyze(&overlay, Some(&mut checks));
+            let files: Vec<usize> = (n..first.program.files.len()).collect();
+            assert!(files.len() > 1, "{}: one file", dir.display());
+            assert_eq!(checks.walked(), files.as_slice(), "{}: the first analysis walks every file", dir.display());
+            // What every analysis walks whatever changed: the files comptime
+            // stamps (a new module each time).
+            analyze(&overlay, Some(&mut checks));
+            let always: Vec<usize> = checks.walked().to_vec();
+            assert!(always.len() < files.len(), "{}: nothing was cached: {always:?}", dir.display());
+            let mut edited: Vec<usize> = Vec::new();
+            for &f in &files {
+                let path = root.join(&first.program.files[f].name);
+                let Some(text) = edit_first_body(&first.program.files[f].content) else { continue };
+                overlay.insert(path, text);
+                let cached = analyze(&overlay, Some(&mut checks));
+                let mut want: Vec<usize> = always.iter().copied().chain([f]).collect();
+                want.sort();
+                want.dedup();
+                assert_eq!(checks.walked(), want.as_slice(), "{}: editing {}", dir.display(), first.program.files[f].name);
+                let uncached = analyze(&overlay, None);
+                for ((what, a), (_, b)) in view(&cached, n).into_iter().zip(view(&uncached, n)) {
+                    assert!(a == b, "{}: {what} differ after editing {}:\n{a:#?}\nwithout the cache:\n{b:#?}", dir.display(), first.program.files[f].name);
+                }
+                edited.push(f);
+            }
+            assert!(edited.len() > 1, "{}: edited {edited:?}", dir.display());
+            overlay.clear();
+            let cached = analyze(&overlay, Some(&mut checks));
+            let mut want: Vec<usize> = always.iter().copied().chain(edited.iter().copied()).collect();
+            want.sort();
+            want.dedup();
+            assert_eq!(checks.walked(), want.as_slice(), "{}: reverting", dir.display());
+            let uncached = analyze(&overlay, None);
+            for ((what, a), (_, b)) in view(&cached, n).into_iter().zip(view(&uncached, n)) {
+                assert!(a == b, "{}: {what} differ after reverting:\n{a:#?}\nwithout the cache:\n{b:#?}", dir.display());
+            }
+            if dir.ends_with("shapes") {
+                let messages: Vec<&str> = cached.diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.as_str()).collect();
+                assert!(messages.iter().any(|m| m.contains("missing_fn")), "{messages:#?}");
             }
         }
     }

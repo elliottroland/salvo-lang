@@ -28,6 +28,14 @@ pub fn phase(name: impl Into<String>) -> Option<Phase> {
     enabled().then(|| Phase { name: name.into(), start: Instant::now() })
 }
 
+/// Prints a phase measured in parts (`elapsed`, summed by the caller), when
+/// timings are on.
+pub fn report(name: &str, elapsed: std::time::Duration) {
+    if enabled() {
+        eprintln!("timing: {:<28} {:>9.1}ms", name, elapsed.as_secs_f64() * 1000.0);
+    }
+}
+
 impl Drop for Phase {
     fn drop(&mut self) {
         let ms = self.start.elapsed().as_secs_f64() * 1000.0;

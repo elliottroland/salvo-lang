@@ -272,6 +272,7 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
         dirty: false,
         parse_cache: std::cell::RefCell::new(crate::analysis::ParseCache::new()),
         std_front: std::cell::RefCell::new(None),
+        check_cache: std::cell::RefCell::new(salvo_core::CheckCache::new()),
         analyses: std::cell::RefCell::new(Vec::new()),
         std_analysis: std::cell::RefCell::new(None),
         snippets,
@@ -426,6 +427,10 @@ struct Server<'c> {
     /// later one whose program starts with that std unshadowed. A `RefCell`
     /// for the same reason as `parse_cache`.
     std_front: std::cell::RefCell<Option<crate::analysis::StdFront>>,
+    /// [lsp-check-cache] The checker rows of every project file, kept across
+    /// analyses: an edit re-walks only the files whose modules changed. A
+    /// `RefCell` for the same reason as `parse_cache`.
+    check_cache: std::cell::RefCell<salvo_core::CheckCache>,
     /// [lsp-analysis-reuse] The analyses made since the last document event,
     /// by (project root, hash of the overlay analysed): a hover, a completion
     /// and a go-to-definition between two edits answer from one analysis
@@ -698,6 +703,7 @@ impl Server<'_> {
             overlay,
             &mut self.parse_cache.borrow_mut(),
             &std_front,
+            &mut self.check_cache.borrow_mut(),
         );
         let elapsed = started.elapsed();
         if elapsed >= slow_dump_threshold() {

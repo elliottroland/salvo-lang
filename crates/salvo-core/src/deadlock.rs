@@ -619,14 +619,14 @@ fn tasks_reached(out: &Checked, minter: &str) -> BTreeSet<String> {
     let mut queue: Vec<String> = out
         .task_mints
         .iter()
-        .filter(|(who, _)| who == minter)
-        .map(|(_, task)| task.clone())
+        .filter(|(who, _, _)| who == minter)
+        .map(|(_, task, _)| task.clone())
         .collect();
     while let Some(task) = queue.pop() {
         if !reached.insert(task.clone()) {
             continue;
         }
-        for (who, next) in &out.task_mints {
+        for (who, next, _) in &out.task_mints {
             if *who == task {
                 queue.push(next.clone());
             }

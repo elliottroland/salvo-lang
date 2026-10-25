@@ -1653,3 +1653,154 @@ log current so the work can resume after a context reset). Newest last.
     prerequisites listed in "Step 8, measured first"); std's scopes per
     analysis are the largest single cost left, and sharing them is part of
     ROADMAP §5 item 4 (Option B).
+- **Step 8, piece 3 (the per-file checker rows): planned (2026-10-20).**
+  Measured on the one multi-file project in the repository, `modules/aws`
+  (7 files, 2,775 lines; `tools/lsp-timing.py target/debug/salvo
+  modules/aws/salvo modules/aws/salvo/aws/s3.sv "export fn close(value:
+  PutObjectInput) [Streams] -> Ok None | Err Checked<StreamError> => !value
+  {"`), one body edit of `s3.sv`: ~56ms — resolve 17.7 (scopes 13.8),
+  `check: interfaces` 14.8 (of it `ddb.sv`'s platform boundary 10.6, the
+  `boundary_plan` recursion through DynamoDB's nested types for every
+  platform fn), bodies 3.0, seed 4.4, deduce 2.9, IR 4.8. Reusing the six
+  unchanged files' rows would save ~16ms of it. Design, from a survey of
+  every `Checked` field:
+  - **Validity of a file's rows**: its module is the *same `Arc`* as when
+    they were recorded (a `ParseCache` hit that comptime did not stamp into;
+    a stamped or reparsed module is a new one, so its file is walked), and
+    the program's **interface fingerprint** is unchanged: the file list
+    (names, modules, flags), each file's text with its plain fn bodies cut
+    out (bodies of top-level fns, handler members and qualifier fns; kept:
+    comptime fns, an inferring `iter fn` minter, header expressions), and the
+    syntactic parking set (PIPELINE 4.5). A body-only edit changes only its
+    own file's module.
+  - **The rows**: everything the file's two walks write, snapshotted after
+    `walk_bodies` and before `program_checks`, `deduce::infer`,
+    `literal::lower_tables` and `unmangle_scoped_locals` (which run over the
+    whole `Checked` every time); partitioned by key file (`Checked::
+    take_file`, an exhaustive destructure as `drop_files` was in 94ef85dc).
+    Prerequisites: `written_types` rows a walk writes for *another* file's
+    nodes are kept only while that file's module is the same `Arc`;
+    `carried_identities` made order-independent (keyed with the file, or
+    resolved at the read); `task_mints` and the walk's `parking_handlers`
+    inserts carried per file; the walk's diagnostics separated from the
+    resolution's, the refinements' and the program checks'.
+  - **What another file's edit shifts**: a clean file's `def_refs` /
+    `field_refs` targets in an edited file move by the edits in the bodies
+    before them; remapped from the old and new bodies' byte ranges (the
+    same count and order when the fingerprint matched). Anything else
+    pointing into another file's text (a message with its line, a span in a
+    `Ty`) is found by the differential.
+  - **Proof**: a temporary differential over every program the suite checks
+    and over generated edits (a body edit of each file of each multi-file
+    program, shifting later declarations): the cached check equals a full
+    check, every table as a sorted multiset, diagnostics included; then a
+    permanent test over `modules/aws` and a few multi-file programs.
+- **Step 8, piece 3: done** (committed "Reuse unchanged files' checks across
+  language-server edits"). [lsp-check-cache].
+  - **Built.** `check_cache::CheckCache`, kept by the server beside its
+    `ParseCache`, and `check_project_cached`, which the language server's
+    check through the std cache now is (`salvo analyze` and the compile paths
+    are unchanged). Per project file: the module `Arc`, the hash of its text
+    with its plain fn bodies cut out, the bodies' byte ranges, its keyed rows
+    (`Checked::split_files`, an exhaustive destructure; `insert_rows`) with
+    its `param_mutations`, and per walk step (signature facts, headers,
+    bodies; `StepRows`) what the step appended: diagnostics, the ordered
+    tables (`waitfor_sites`, `handler_constructs`, `actor_gates`,
+    `actor_sends`, `task_sends`, `task_mints`, `fn_body_effects`), the
+    `written_types` rows it wrote (in order, with the row, whether only if
+    absent, and the file whose node it is, from an address → file map kept
+    over every module, `walk_module`), and the handlers it marked parking.
+    `CheckCache::plan` keeps a file's rows when its module is the same `Arc`
+    and the program's interfaces are as they were (same files, std's same
+    modules, same syntactic parking set, every new module's text the same
+    outside its plain bodies); `check_once`'s walks insert a cached file's
+    keyed rows at its signature-facts step and each step's appends at that
+    step, so the order of everything is the full check's, and walk the rest;
+    `record` takes the walked files' rows before the program checks. The
+    program-wide steps run as before. `CheckCache::walked` names the files
+    the last check walked.
+  - **Prerequisites (behavior-neutral; the suite passed with them alone,
+    2048/2048):** `carried_identities` keyed by file as well (the first file
+    to write an identity was the only one whose `fn_refs` and errors recorded
+    it); `task_mints` carry the mint's span; the walk logs (`record`,
+    `written_log`, `parking_log`); per-step marks for the ordered tables and
+    the diagnostics.
+  - **Deviations.** (1) `written_types`: neither "kept only while that
+    file's module is the same `Arc`" nor "each file lowers its own types":
+    dropping a cached file's rows for an edited file's nodes lost rows only
+    another file's walk writes (a signature's nested type arguments, lowered
+    in declared shape at a substituted use, by callers only), 63 tables in the
+    first differential. They now follow the node: outside its plain bodies a
+    body-edited file's old and new modules hold the same nodes in the same
+    order (`node_map`, checked against `remap`), so each row moves to the new
+    node. (2) The log keeps each step's own row and its if-absent flag rather
+    than the final table's, so a writer that differs from a later one is
+    replayed as it was. (3) The keyed tables go in with a file's first step,
+    not split per step: no walk reads another file's keyed rows except
+    signature facts (all written before any header), `handler_deps` (read
+    for the walking handler's own), `written_types` (per step) and
+    `carried_identities` (now per file). (4) A program with one project file
+    skips the cache: that file is walked anyway, and plan plus record cost
+    ~1ms (`examples/cluster`). (5) A file comptime stamps is a new module on
+    every analysis, so it is walked every time (`modules/aws`'s `aws.sv`).
+  - **The differential** (temporary, `SALVO_XP_P8`, in `check_program` and
+    `check_project`): beside each check, a second full check (the control),
+    a recording check, an all-cached check, and for every non-std, unstamped
+    file with a plain body an edit adding a statement to its first body
+    (every later declaration moves), cached against full, then reverted;
+    every table as a sorted multiset (diagnostics, then their order), and the
+    IR's diagnostics. 2,004 distinct programs (106 through the std cache),
+    3,858 edits, 293 with more than one file. The control showed that a few
+    `written_types` rows are keyed by nodes the checker builds and drops,
+    which differ between two full checks; rows at no module's node were left
+    out of the comparison. First run: 21 programs differed, every one a
+    latent bug of the checker's or the first design's, fixed at its cause:
+    1. `type_ref_files` (the file every written type reference is in, which
+       `foreign_ref` and `scope_for_ref` read) missed the references in a
+       qualifier's slots, a rename's parameters, parameter defaults and
+       more: a use of `Heap<T>(?cmp: (T, T) -> Int)` from `main.sv`
+       recorded `Int`'s definition site under `main.sv` at `heap.sv`'s
+       span, and resolved the slot's names in `main.sv`'s scope. It is
+       built by the exhaustive `walk_module` now.
+    2. A predicate `is` test lowered *copies* of the qualifier's value slots
+       (`value_slots.clone()`): `map.test.sv`'s `k is KeyOf(m)` recorded
+       `Map`'s site at `map.sv`'s span, and rows at dropped nodes. It lowers
+       the declaration's own slots.
+    3. A module-level `rename fn` was checked and recorded in every file of
+       its module: the annex `sorted.test.sv` held `fn_refs` at
+       `sorted.sv`'s positions, and a mistake in a rename was reported in
+       every file at the declaring file's span. It is checked in its own
+       file; the others take the binding.
+    4. The `written_types` rows of deviation (1).
+    5. An obligation's `self` type was lowered from a temporary node,
+       leaving a row at its address in every program with an obligation
+       (found by counting rows at no module's node).
+    Second run: nothing differed anywhere (one LSP test timed out under the
+    hook's cost, `hover_works_in_a_std_shadowing_file`, and passes without
+    it). The hook is gone; `check_cache_matches_an_uncached_analysis_across_edits`
+    (`analysis.rs`) stays: over `modules/aws` and two written programs
+    (qualifier slots, a module rename with an annex, a generic struct read
+    through a substitution, an effect and handler, an error in a body), a
+    body edit of each file in turn, accumulating, then all reverted, gives
+    the same diagnostics, IR diagnostics and the rows the views read
+    (`expr_ty`, `fn_refs`, `def_refs`, `field_refs`, `call_fn`,
+    `local_decls`, errors, overloads, completions) as an analysis without
+    the cache, walking only the edited file and the stamped ones.
+  - **Numbers** (`tools/lsp-timing.py`, debug, medians of three edits, two
+    runs after): `modules/aws`, one body edit of `s3.sv`: **~56.7ms →
+    ~44–47ms**; `check` 29.7 → 17.7–18.2 (`interfaces` 14.5 → 2.6–2.8,
+    bodies 3.0 → 1.2–1.3; new: `cache plan` 0.3–0.4, `cache insert`
+    1.3–1.4, `cache record` 0.5–0.6). `examples/cluster` (one project file,
+    the skip): `check` 18.8 before, 17.6–21.5 after, totals within the
+    clock-ramp noise (33–54ms; see the gotcha).
+  - **Left per edit** (`modules/aws`): resolve ~17 (std's scopes ~14), the
+    std seed's clone ~5, `deduce` ~3.4 (`deduce::infer` clones the whole
+    `expr_ty`, std's rows included, each check), IR ~5, `s3.sv`'s own headers
+    ~2.3 (its platform boundary), the stamped `aws.sv` walked every time, and
+    the insert cloning every cached row.
+  - **Next: piece 4**: measure whether per-declaration caching (the edited
+    file's other declarations) is worth building, and look at the remaining
+    costs: std's scopes in resolve, the std seed's clone, `ddb.sv`'s
+    boundary recursion (`boundary_plan` through DynamoDB's nested types for
+    every platform fn), and a stamped module that comes out equal to the
+    last one.

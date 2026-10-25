@@ -9,6 +9,7 @@ pub mod borrows;
 pub mod abi;
 pub mod case;
 pub mod check;
+pub mod check_cache;
 pub mod comptime;
 pub mod deadlock;
 pub mod deduce;
@@ -37,11 +38,12 @@ pub mod types;
 pub mod wire;
 
 pub use check::{
-    check_program, check_project, Checked, Coercion, CompareVia, ImplicitArg, ImplicitParam, PassDriver,
+    check_program, check_project, check_project_cached, Checked, Coercion, CompareVia, ImplicitArg, ImplicitParam, PassDriver,
     PassMember, StdCache,
     ThrowSite,
     UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };
+pub use check_cache::CheckCache;
 pub use deduce::ParamDeduction;
 pub use comptime::{CompHover, CompWhenArms};
 pub use expand::{expand, Expansion, TestCase};

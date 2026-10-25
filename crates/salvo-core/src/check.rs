@@ -886,8 +886,10 @@ pub struct Checked {
     /// where the minter is the enclosing handler's name or — for a task that
     /// mints another task — the enclosing free `send fn`'s. Whole-program and
     /// conservative, exactly as coarse as the type-level graph already is
-    /// (FC-6: a real cycle class would otherwise go unreported).
-    pub task_mints: Vec<(String, String)>,
+    /// (FC-6: a real cycle class would otherwise go unreported). With the
+    /// mint's `replyto` span, so a row belongs to the file it was written in
+    /// [lsp-check-cache].
+    pub task_mints: Vec<(String, String, Key)>,
     /// The concrete effect instance an effect-member call dispatches
     /// through (keyed by the call span), after generic disambiguation.
     pub effect_calls: HashMap<Key, Ty>,
@@ -1175,7 +1177,13 @@ pub struct Checked {
     /// calls — and resolution is the checker's job, not a thing an emitter should
     /// redo and possibly disagree about. Recorded where such a type is written,
     /// which is the only place a named identity can enter.
-    pub carried_identities: HashMap<(FnId, Ty), FnKey>,
+    ///
+    /// Keyed by the file it is written in as well [lsp-check-cache]: a name
+    /// resolves in its file's scope, and a table shared by every file made
+    /// the first file to write an identity the only one whose `fn_refs` and
+    /// diagnostics recorded it, so a file's rows depended on which files
+    /// were walked before it.
+    pub carried_identities: HashMap<(usize, FnId, Ty), FnKey>,
     /// What fills each implicit parameter at a call [implicit-resolve],
     /// keyed by the call span, in the callee's declared order.
     pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,
@@ -1685,7 +1693,7 @@ pub fn check_program<'p>(
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
 ) -> Checked {
-    let mut out = check_program_walk(program, resolution, symbols, None);
+    let mut out = check_program_walk(program, resolution, symbols, None, None);
     crate::literal::lower_tables(&mut out);
     check_std_deductions_total(program, &mut out);
     unmangle_scoped_locals(&mut out);
@@ -1721,7 +1729,26 @@ pub fn check_project<'p>(
     symbols: &Symbols<'p>,
     cache: &StdCache,
 ) -> Checked {
-    let mut out = check_program_walk(program, resolution, symbols, Some(cache));
+    let mut out = check_program_walk(program, resolution, symbols, Some(cache), None);
+    crate::literal::lower_tables(&mut out);
+    unmangle_scoped_locals(&mut out);
+    out
+}
+
+/// [lsp-check-cache] [`check_project`], reusing `check_cache`'s rows for
+/// every file whose module is the one they were checked from, when no
+/// interface has changed (`CheckCache::plan`): those files are not walked.
+/// The result is what `check_project` gives; the cache is left holding every
+/// project file's rows for the next check. For the language server, which
+/// checks one program edit after edit.
+pub fn check_project_cached<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &Symbols<'p>,
+    cache: &StdCache,
+    check_cache: &mut crate::check_cache::CheckCache,
+) -> Checked {
+    let mut out = check_program_walk(program, resolution, symbols, Some(cache), Some(check_cache));
     crate::literal::lower_tables(&mut out);
     unmangle_scoped_locals(&mut out);
     out
@@ -1912,6 +1939,7 @@ fn check_program_walk<'p>(
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
     cache: Option<&StdCache>,
+    check_cache: Option<&mut crate::check_cache::CheckCache>,
 ) -> Checked {
     // [deduce-syntax] Parameters whose data the body mutates, published for
     // the backends' pass modes (`param_mode`); they never feed back into
@@ -1921,7 +1949,8 @@ fn check_program_walk<'p>(
     // continuation, read off each handler's own text before anything is
     // walked (PIPELINE.md 4.5), so the `use` refusal it drives is right in
     // the first walk.
-    let mut parking: HashSet<String> = syntactic_parking_handlers(program);
+    let syntactic = syntactic_parking_handlers(program);
+    let mut parking: HashSet<String> = syntactic.clone();
 
     // [std-cache] std is not walked, so the facts that also surface as `out`
     // tables are seeded with std's cached rows, or the final
@@ -1962,7 +1991,7 @@ fn check_program_walk<'p>(
         cache,
     };
     let t = crate::timing::phase("check: walk");
-    let mut out = check_once(&ctx, &mut mutations, &mut parking);
+    let mut out = check_once(&ctx, &mut mutations, &mut parking, check_cache.map(|c| (c, &syntactic)));
     drop(t);
     // [deduce-default] Each fn's contract against its body, and the
     // contracts themselves into the table every consumer reads.
@@ -2038,6 +2067,7 @@ fn check_once<'p>(
     ctx: &WalkCtx<'_, 'p>,
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
+    check_cache: Option<(&mut crate::check_cache::CheckCache, &HashSet<String>)>,
 ) -> Checked {
     let WalkCtx { program, resolution, symbols, refinements, cache, .. } = *ctx;
     // [std-cache] Start from std's rows when caching (so project call sites
@@ -2128,14 +2158,111 @@ fn check_once<'p>(
     let t = crate::timing::phase("  check: platform closure");
     out.platform_closure_all = crate::abi::platform_closure_all(program, symbols);
     drop(t);
-    let files: Vec<usize> = (0..program.files.len())
-        .filter(|f| !cache.is_some_and(|c| *f < c.std_files))
-        .collect();
+    let first = cache.map_or(0, |c| c.std_files);
+    let files: Vec<usize> = (first..program.files.len()).collect();
     let mut ifaces: Vec<FileIface<'p>> = (0..program.files.len()).map(|_| FileIface::default()).collect();
-    walk_interfaces(ctx, &files, &mut out, param_mutations, parking_handlers, &mut ifaces);
-    walk_bodies(ctx, &files, &mut out, param_mutations, parking_handlers, &mut ifaces);
+    // [lsp-check-cache] Which files' rows stand in for their walks.
+    let t = crate::timing::phase("  check: cache plan");
+    let (check_cache, syntactic) = match check_cache {
+        Some((c, syntactic)) => (Some(c), Some(syntactic)),
+        None => (None, None),
+    };
+    let mut check_cache = check_cache;
+    // [lsp-check-cache] One file is walked whatever the cache holds, so a
+    // single-file program pays for nothing it could use: no plan, no record.
+    if files.len() < 2 {
+        if let Some(c) = check_cache.take() {
+            c.skip(&files);
+        }
+    }
+    let cached: HashSet<usize> = match (&mut check_cache, syntactic) {
+        (Some(c), Some(syntactic)) => c.plan(program, first, syntactic),
+        _ => HashSet::new(),
+    };
+    drop(t);
+    let mut steps = Steps {
+        cache: check_cache.as_deref(),
+        cached,
+        record: check_cache.is_some(),
+        walked: HashMap::new(),
+        inserting: std::time::Duration::ZERO,
+    };
+    walk_interfaces(ctx, &files, &mut out, param_mutations, parking_handlers, &mut ifaces, &mut steps);
+    walk_bodies(ctx, &files, &mut out, param_mutations, parking_handlers, &mut ifaces, &mut steps);
+    crate::timing::report("  check: cache insert", steps.inserting);
+    let mut walked: Vec<(usize, [crate::check_cache::StepRows; 3])> = steps.walked.into_iter().collect();
+    walked.sort_by_key(|(f, _)| *f);
+    if let (Some(c), Some(syntactic)) = (check_cache, syntactic) {
+        let _t = crate::timing::phase("  check: cache record");
+        let walked_files: HashSet<usize> = walked.iter().map(|(f, _)| *f).collect();
+        let mut decl_file: HashMap<String, usize> = HashMap::new();
+        for &f in &walked_files {
+            for item in &program.modules[f].items {
+                match item {
+                    Item::Handler(h) => {
+                        decl_file.insert(symbols.key_or(h, &h.name.name).to_string(), f);
+                    }
+                    Item::Effect(e) => {
+                        decl_file.insert(symbols.key_or(e, &e.name.name).to_string(), f);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        c.record(program, first, syntactic, &out, param_mutations, walked, &decl_file);
+    }
     program_checks(program, symbols, &mut out, parking_handlers);
     out
+}
+
+/// [lsp-check-cache] How the walks treat each file under a `CheckCache`:
+/// the cached files' rows are inserted where their walks would run, and what
+/// every walked file's steps did is recorded.
+struct Steps<'c> {
+    cache: Option<&'c crate::check_cache::CheckCache>,
+    cached: HashSet<usize>,
+    record: bool,
+    walked: HashMap<usize, [crate::check_cache::StepRows; 3]>,
+    /// The time spent inserting cached rows, for `check: cache insert`.
+    inserting: std::time::Duration,
+}
+
+impl Steps<'_> {
+    /// The rows standing in for file [f]'s walks, when it is cached.
+    fn cached(&self, f: usize) -> Option<&crate::check_cache::FileRows> {
+        if !self.cached.contains(&f) {
+            return None;
+        }
+        self.cache.and_then(|c| c.rows(f))
+    }
+
+    /// Stands in for step [step] of a cached file [f]: its keyed rows with
+    /// the first step, and what each step appended.
+    fn insert(
+        &mut self,
+        f: usize,
+        step: usize,
+        out: &mut Checked,
+        param_mutations: &mut HashMap<FnKey, HashSet<String>>,
+        parking_handlers: &mut HashSet<String>,
+    ) -> bool {
+        let Some(rows) = self.cached(f) else { return false };
+        let started = std::time::Instant::now();
+        if step == crate::check_cache::FACTS {
+            out.insert_rows(&rows.rows);
+            param_mutations.extend(rows.rows.param_mutations.iter().map(|(k, v)| (*k, v.clone())));
+        }
+        rows.steps[step].apply(out, parking_handlers);
+        self.inserting += started.elapsed();
+        true
+    }
+
+    /// Records what step [step] of walked file [f] did.
+    fn note(&mut self, f: usize, step: usize, marks: crate::check_cache::StepMarks, out: &Checked, logs: (Vec<(usize, Ty, bool)>, Vec<String>)) {
+        if self.record {
+            self.walked.entry(f).or_default()[step] = marks.take(out, logs.0, logs.1);
+        }
+    }
 }
 
 /// [interface-pass] The checker over one file, for one pass. Every pass gets
@@ -2182,6 +2309,7 @@ fn file_checker<'r, 'p>(
 /// `check_signature_facts`), then everything else in every header
 /// (`check_module` with `Pass::Interface`, and the platform boundary). Each
 /// file's records go to its body pass in `ifaces`.
+#[allow(clippy::too_many_arguments)]
 fn walk_interfaces<'p>(
     ctx: &WalkCtx<'_, 'p>,
     files: &[usize],
@@ -2189,20 +2317,34 @@ fn walk_interfaces<'p>(
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
     ifaces: &mut [FileIface<'p>],
+    steps: &mut Steps<'_>,
 ) {
+    use crate::check_cache::{StepMarks, FACTS, HEADERS};
     let _t = crate::timing::phase("  check: interfaces");
     let facts = crate::timing::phase("    interfaces: facts");
     for &file_idx in files {
+        if steps.insert(file_idx, FACTS, out, param_mutations, parking_handlers) {
+            continue;
+        }
+        let marks = StepMarks::of(out);
         let mut checker = file_checker(ctx, file_idx, Pass::Interface, out, param_mutations, parking_handlers);
+        checker.record = steps.record;
         checker.put_iface(std::mem::take(&mut ifaces[file_idx]));
         checker.check_signature_facts(&ctx.program.modules[file_idx]);
+        let logs = checker.take_logs();
         ifaces[file_idx] = checker.take_iface();
+        steps.note(file_idx, FACTS, marks, out, logs);
     }
     drop(facts);
     let _headers = crate::timing::phase("    interfaces: headers");
     for &file_idx in files {
+        if steps.insert(file_idx, HEADERS, out, param_mutations, parking_handlers) {
+            continue;
+        }
         let ast = &ctx.program.modules[file_idx];
+        let marks = StepMarks::of(out);
         let mut checker = file_checker(ctx, file_idx, Pass::Interface, out, param_mutations, parking_handlers);
+        checker.record = steps.record;
         checker.put_iface(std::mem::take(&mut ifaces[file_idx]));
         checker.check_module(ast);
         // [platform-check] The values the host hands back, planned from
@@ -2210,12 +2352,15 @@ fn walk_interfaces<'p>(
         checker.check_platform_boundary(ast);
         // [state-infer] A minter checked with the interfaces made bindings.
         checker.finish_fate();
+        let logs = checker.take_logs();
         ifaces[file_idx] = checker.take_iface();
+        steps.note(file_idx, HEADERS, marks, out, logs);
     }
 }
 
 /// 02-resolve-05-bodies: the bodies of [files], each walked once, reading
 /// the interfaces `walk_interfaces` recorded [interface-pass].
+#[allow(clippy::too_many_arguments)]
 fn walk_bodies<'p>(
     ctx: &WalkCtx<'_, 'p>,
     files: &[usize],
@@ -2223,14 +2368,24 @@ fn walk_bodies<'p>(
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
     ifaces: &mut [FileIface<'p>],
+    steps: &mut Steps<'_>,
 ) {
+    use crate::check_cache::{StepMarks, BODIES};
     let _t = crate::timing::phase("  check: bodies");
     for &file_idx in files {
+        if steps.insert(file_idx, BODIES, out, param_mutations, parking_handlers) {
+            continue;
+        }
         let ast = &ctx.program.modules[file_idx];
+        let marks = StepMarks::of(out);
         let mut checker = file_checker(ctx, file_idx, Pass::Body, out, param_mutations, parking_handlers);
+        checker.record = steps.record;
         checker.put_iface(std::mem::take(&mut ifaces[file_idx]));
         checker.check_module(ast);
         checker.finish_fate();
+        let logs = checker.take_logs();
+        drop(checker);
+        steps.note(file_idx, BODIES, marks, out, logs);
     }
 }
 
@@ -2940,6 +3095,17 @@ struct Checker<'p, 'r> {
     /// body, innermost last: an un-annotated lambda's effect set is
     /// *inferred* from what its body performs.
     effect_uses: Vec<Vec<Ty>>,
+    /// [lsp-check-cache] Whether this walk records what a cached check needs
+    /// to stand in for it: `written_log` and `parking_log`.
+    record: bool,
+    /// [lsp-check-cache] Every `written_types` row this walk wrote, in
+    /// order, by address, with the row and whether it was written only if
+    /// absent (the declared shape at a use, `lower_type_subst`): what a cached
+    /// check writes for this file at this step.
+    written_log: Vec<(usize, Ty, bool)>,
+    /// [lsp-check-cache] Every handler this walk added to
+    /// `parking_handlers`, already there or not.
+    parking_log: Vec<String>,
 }
 
 /// One enclosing `try` delimiter while its body is checked [try].
@@ -3093,6 +3259,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [lsp-check-cache] What this walk recorded for a cached check.
+    fn take_logs(&mut self) -> (Vec<(usize, Ty, bool)>, Vec<String>) {
+        (std::mem::take(&mut self.written_log), std::mem::take(&mut self.parking_log))
+    }
+
     /// [interface-pass] Hands this file's interface records on to the next
     /// pass over it, with the once-per-file diagnostic memories.
     fn take_iface(&mut self) -> FileIface<'p> {
@@ -3217,6 +3388,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             warned_spare_lends: HashSet::new(),
             try_stack: Vec::new(),
             effect_uses: Vec::new(),
+            record: false,
+            written_log: Vec::new(),
+            parking_log: Vec::new(),
         }
     }
 }
@@ -3224,6 +3398,14 @@ impl<'p, 'r> Checker<'p, 'r> {
 impl<'p, 'r> Checker<'p, 'r> {
     fn key(&self, span: Span) -> Key {
         (self.file_idx, span)
+    }
+
+    /// An error, reported only when [report] (a check shared by the files of
+    /// a module, reported in the one it is written in).
+    fn error_if(&mut self, report: bool, span: Span, msg: impl Into<String>) {
+        if report {
+            self.error(span, msg);
+        }
     }
 
     fn error(&mut self, span: Span, msg: impl Into<String>) {
@@ -4142,7 +4324,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let slots = self.type_fn_slots(name);
         for (at, slot) in slots.iter().enumerate() {
             let key = match written.get(at) {
-                Some(id) => self.out.carried_identities.get(&(id.clone(), subject.clone())).copied(),
+                Some(id) => self.out.carried_identities.get(&(self.file_idx, id.clone(), subject.clone())).copied(),
                 None => {
                     let Some(want) = self.type_slot_ty(name, &type_args, at) else { continue };
                     self.resolve_implicit_fn_at(&slot.name, None, &want).ok().map(|(k, _)| k)
@@ -4461,11 +4643,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.check_scalar_moves(module);
             // [fn-rename] Module-level renames are in force for the whole
             // module, in every file of it — order-independent, like every
-            // other module-level declaration. They are validated once here (a
-            // duplicate or a mismatch is reported per file, which is where the
-            // reader is); the body pass is handed the bindings (`put_iface`).
+            // other module-level declaration. Each is validated, and its new
+            // name recorded as a reference, in the file it is written in;
+            // every file takes the bindings, handed to its body pass
+            // (`put_iface`). Reported from every file, a mistake in one
+            // rename showed in the others at its own file's positions, and a
+            // file's rows held another file's spans (found 2026-10-20, by
+            // the check cache's differential [lsp-check-cache]).
             for decl in self.scope.renames.clone() {
-                self.declare_rename(decl);
+                let own = module.items.iter().any(|i| matches!(i, Item::Rename(r) if std::ptr::eq(r, decl)));
+                self.declare_rename(decl, own);
             }
         }
         self.own_qualifiers = module
@@ -4887,7 +5074,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         span: name.span,
                     },
                 };
-                self.lower_type(&written)
+                // Not recorded in `written_types`: the node is this
+                // temporary's, and its address another's once it is gone.
+                self.lower_type_subst(&written, &HashMap::new(), 0)
             };
             for a in &ob.args {
                 if !is_self_ref(a) {
@@ -6632,7 +6821,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     (identity, Some(want.strip_quals().clone()))
                 {
                     if let Some(subject) = params.first() {
-                        let ckey = (id.clone(), subject.strip_quals().clone());
+                        let ckey = (self.file_idx, id.clone(), subject.strip_quals().clone());
                         match &filled_arg {
                             ImplicitArg::Resolved { key: fkey, .. } => {
                                 self.out.carried_identities.entry(ckey).or_insert(*fkey);
@@ -7551,19 +7740,25 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// type parameters — the same match a `refn` uses [qual-refn-match], so a
     /// std rename surfaces as a diagnostic here rather than as a rename that
     /// silently stops applying.
-    fn declare_rename(&mut self, decl: &'p ast::RenameDecl) {
+    ///
+    /// [lsp-check-cache] `own`: the rename is written in this file. One
+    /// written in another file of the module binds here too, but is checked
+    /// and referenced only in its own file, where its spans are.
+    fn declare_rename(&mut self, decl: &'p ast::RenameDecl, own: bool) {
         // The rename's own type parameters are in scope for its parameter
         // list, exactly as a `refn`'s are [qual-refn-match].
-        let saved = self.enter_generics(&decl.generics);
-        for p in &decl.params {
-            self.validate_type(&p.ty);
+        if own {
+            let saved = self.enter_generics(&decl.generics);
+            for p in &decl.params {
+                self.validate_type(&p.ty);
+            }
+            self.generics = saved;
         }
-        self.generics = saved;
         let new_name = decl.name.name.as_str();
         // The new name must be free: a rename exists to remove an ambiguity,
         // so adding one to an existing name would defeat it.
         if self.scope.fns.contains_key(new_name) {
-            self.error(
+            self.error_if(own,
                 decl.name.span,
                 format!(
                     "`{new_name}` is already a function in scope, so it cannot \
@@ -7576,7 +7771,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         if self.scope.effect_members.contains_key(new_name) {
-            self.error(
+            self.error_if(own,
                 decl.name.span,
                 format!("`{new_name}` is already an effect member in scope"),
             );
@@ -7584,7 +7779,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if let Some(prev) = self.renames.iter().find(|r| r.new_name == new_name) {
             let prev_span = prev.span;
-            self.error(
+            self.error_if(own,
                 decl.name.span,
                 format!(
                     "`{new_name}` already names a renamed overload in this scope \
@@ -7606,7 +7801,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             Ok(entry) => {
                 // [lsp-definition] The new name points at the declaration it
                 // renames, so go-to-definition works through it.
-                self.out.fn_refs.insert(self.key(decl.name.span), entry.key);
+                if own {
+                    self.out.fn_refs.insert(self.key(decl.name.span), entry.key);
+                }
                 self.renames.push(RenameBinding {
                     new_name: new_name.to_string(),
                     target: decl.target.name.clone(),
@@ -7614,7 +7811,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     span: decl.span,
                 });
             }
-            Err(shapes) if shapes.is_empty() => self.error(
+            Err(shapes) if shapes.is_empty() => self.error_if(own,
                 decl.target.span,
                 format!(
                     "no function `{}` is visible here, so there is nothing to \
@@ -7622,7 +7819,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     decl.target.name
                 ),
             ),
-            Err(shapes) => self.error(
+            Err(shapes) => self.error_if(own,
                 decl.target.span,
                 format!(
                     "this names no `{}` in scope: a rename repeats one overload's \
@@ -13961,7 +14158,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let Some(id @ FnId::Named { .. }) = self.written_fn_id(written, Some(&want)) else {
                 continue;
             };
-            let key = (id.clone(), subject.clone());
+            let key = (self.file_idx, id.clone(), subject.clone());
             if self.out.carried_identities.contains_key(&key) {
                 continue;
             }
@@ -16533,7 +16730,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .map(|h| h.name.name.clone())
             .or_else(|| self.own_task.clone())
         {
-            self.out.task_mints.push((minter, member.name.clone()));
+            self.out.task_mints.push((minter, member.name.clone(), self.key(span)));
         }
         if let Some(key) = self.scope.fns.get(member.name.as_str()).and_then(|es| {
             es.iter()
@@ -16745,6 +16942,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // it, and a synchronously bound instance has neither. Refused at the
         // `use` site (below), which is where the binding is chosen.
         self.parking_handlers.insert(h.name.name.clone());
+        if self.record {
+            self.parking_log.push(h.name.name.clone());
+        }
         // [actor-deadlock-cycle] The gate is the wait-for graph's tail: while
         // this continuation is outstanding the actor serves only its answer,
         // so whatever this handler can send to must be able to answer without
@@ -18104,6 +18304,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         let lowered = self.lower_type_subst(ty, &subst, 0);
         if !lowered.is_unknown() {
             self.out.written_types.insert(written_type_key(ty), lowered.clone());
+            if self.record {
+                self.written_log.push((written_type_key(ty), lowered.clone(), false));
+            }
         }
         lowered
     }
@@ -18127,7 +18330,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let as_declared: HashMap<String, Ty> = subst.keys().map(|k| (k.clone(), Ty::Var(k.clone()))).collect();
                 let declared = self.lower_type_subst(ty, &as_declared, 1);
                 if !declared.is_unknown() {
+                    if self.record {
+                        self.written_log.push((key, declared.clone(), true));
+                    }
                     self.out.written_types.insert(key, declared);
+                }
+            } else if self.record {
+                // [lsp-check-cache] Found written: this walk writes it when
+                // no earlier one has, so a cached check writes it then too,
+                // in the shape found (every lowering of a node's declared
+                // shape gives the same).
+                if let Some(found) = self.out.written_types.get(&key) {
+                    self.written_log.push((key, found.clone(), true));
                 }
             }
         }
@@ -23259,7 +23473,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         match stmt {
             // [fn-rename] In force from here to the end of the block.
             Stmt::Rename(decl) => {
-                self.declare_rename(decl);
+                self.declare_rename(decl, true);
                 Ty::none()
             }
             // [comptime-inline] A comptime statement outside a `compfn` is a
@@ -25093,6 +25307,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // a `use` of this handler is refused where the binding is
                 // chosen, as a `replyto` handler's is [actor-replyto].
                 self.parking_handlers.insert(h.name.name.clone());
+                if self.record {
+                    self.parking_log.push(h.name.name.clone());
+                }
                 Ty::Named { name: ADDR_TYPE.to_string(), args: vec![ty] }
             }
             // [actor-replyto] A parked one-shot continuation targeting a
@@ -27276,8 +27493,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // the claim will bind to.
         let mut checks: Vec<PredicateCheck> = Vec::new();
         for ((q, decl), args) in pat.quals.iter().zip(resolved).zip(&pat.qual_args) {
-            let slots: Vec<ast::ValueSlot> =
-                decl.map(|d| d.value_slots.clone()).unwrap_or_default();
+            // The declaration's own slots, not copies: a slot's type is
+            // lowered and its names resolved as the declaring file's
+            // (`type_ref_files`), and recorded at its own node.
+            let slots: &'p [ast::ValueSlot] = decl.map(|d| d.value_slots.as_slice()).unwrap_or(&[]);
             if slots.is_empty() && !args.is_empty() {
                 self.error(
                     args[0].1,

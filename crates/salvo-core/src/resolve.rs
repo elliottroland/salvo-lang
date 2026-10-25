@@ -2201,11 +2201,27 @@ pub fn type_ref_files(program: &Program) -> HashMap<usize, usize> {
     type_ref_files_in(&program.modules)
 }
 
+///
+/// Every reference, wherever in a declaration it is written (a qualifier's
+/// slots, a rename's parameters, a parameter's default …): a reference this
+/// missed was taken for the lowering file's own, so its definition site and
+/// its names were recorded and resolved there (found 2026-10-20, by the
+/// check cache's differential [lsp-check-cache]).
 fn type_ref_files_in<M: std::borrow::Borrow<salvo_syntax::ast::Module>>(modules: &[M]) -> HashMap<usize, usize> {
+    use salvo_syntax::visit::Visitor;
+    struct Collect<'o> {
+        file: usize,
+        out: &'o mut HashMap<usize, usize>,
+    }
+    impl Visitor for Collect<'_> {
+        fn visit_type_ref(&mut self, t: &salvo_syntax::ast::TypeRef) {
+            self.out.insert(t as *const salvo_syntax::ast::TypeRef as usize, self.file);
+        }
+    }
     let mut out = HashMap::new();
-    for_each_type_ref(modules, &mut |file, t| {
-        out.insert(t as *const salvo_syntax::ast::TypeRef as usize, file);
-    });
+    for (file, ast) in modules.iter().enumerate() {
+        crate::check_cache::walk_module(&mut Collect { file, out: &mut out }, ast.borrow());
+    }
     out
 }
 
@@ -2311,15 +2327,8 @@ pub fn span_keys_final(raw: SpanKeys) -> HashMap<(u32, u32, String), String> {
         .collect()
 }
 
-fn for_each_type_ref<M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
-    modules: &[M],
-    f: &mut dyn FnMut(usize, &salvo_syntax::ast::TypeRef),
-) {
-    for_each_type_ref_from(modules, 0, f)
-}
-
-/// [`for_each_type_ref`] over the files from `first` on, by their index in
-/// `modules`.
+/// Every written type reference of the files from `first` on, by their
+/// index in `modules`.
 fn for_each_type_ref_from<M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
     modules: &[M],
     first: usize,

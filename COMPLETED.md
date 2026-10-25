@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2048 tests, complete: the toolchain tests are
+cargo test                  # 2049 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,63 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A language-server edit re-checks only the files it changed
+
+PIPELINE.md step 8, piece 3 [lsp-check-cache]. With std's front shared, a
+body edit in one file of a multi-file project still walked every project
+file: on `modules/aws` (7 files) the check was ~30ms of an edit's ~57ms, and
+`ddb.sv`'s platform boundary alone ~10ms of it, for a file nobody touched.
+
+- **The cache.** `CheckCache` (new `check_cache.rs`), held by the server
+  beside its parse cache; `check_project_cached` is the language server's
+  check through the std cache. For each project file it keeps the module
+  `Arc`, the hash of the file's text with its plain fn bodies cut out, the
+  bodies' ranges, the file's keyed rows, and per walk step (signature facts,
+  headers, bodies) what the step appended: diagnostics, the tables kept in
+  order, the `written_types` rows it wrote (each with the file whose node it
+  is) and the handlers it marked parking. A file whose module is the same
+  `Arc` has all that inserted where its walks would have run, in program
+  order, while the interfaces are as they were (same files, std's modules,
+  the syntactic parking set, each new module's text outside its plain
+  bodies); every other file is walked and recorded. The program-wide steps
+  run over the merged rows as before.
+- **What an edit moves.** A cached file's definition sites in an edited file
+  move by the edited bodies' growth, and its `written_types` rows for the
+  edited file's nodes move to the same nodes of the new module: outside its
+  plain bodies the old and new modules hold the same nodes in the same
+  order. Dropping those rows instead lost the ones only a caller writes (a
+  signature's nested type arguments, lowered at a substituted use).
+- **Prerequisites.** `carried_identities` is keyed by file too: the first
+  file to write an identity was the only one whose `fn_refs` and errors
+  recorded it. `task_mints` carry the mint's span. The walks log what a
+  cached check replays.
+- **The differential** (temporary): beside every check of the suite, a
+  control, a recording, an all-cached and, for each unstamped file with a
+  plain body, an edit of its first body (cached against full, then
+  reverted), every table compared as a sorted multiset with the IR's
+  diagnostics: 2,004 programs, 3,858 edits. The first run found 21 programs
+  differing, and every difference was a checker bug or the first design's:
+  `type_ref_files` missed references in qualifier slots, rename parameters
+  and parameter defaults (a slot's names were resolved, and its definition
+  sites recorded, as the using file's; it is built by the exhaustive
+  `walk_module` now); a predicate `is` test lowered copies of the
+  qualifier's value slots; a module-level `rename fn` was checked and
+  recorded in every file of its module, at the declaring file's positions;
+  an obligation's `self` type was lowered from a temporary node; and the
+  `written_types` rows above. The second run found nothing. One diagnostic
+  change falls out: a mistake in a module-level rename is reported once, in
+  its own file.
+- **Tests.** `check_cache_matches_an_uncached_analysis_across_edits`
+  (`analysis.rs`): `modules/aws` and two written programs, a body edit of
+  each file in turn and then a revert, report and read what an uncached
+  analysis does, and only the edited file (and any file comptime stamps) is
+  walked.
+
+`modules/aws`, one body edit of `s3.sv` (debug): ~57ms → ~44–47ms; check
+29.7 → ~18 (interfaces 14.5 → 2.7, bodies 3.0 → 1.3; plan 0.4, insert 1.4,
+record 0.6). A program with one project file skips the cache, so
+`examples/cluster` is unchanged. 2049 tests.
 
 ### 2026-10-20 — The language server parses and expands std once
 
@@ -29224,7 +29281,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2048 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2049 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -30499,6 +30556,28 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A file's rows can hold another file's positions** (2026-10-20, step 8
+  piece 3). Three writers keyed rows by the walking file and the declaring
+  file's span: a qualifier slot's types (`type_ref_files` had not seen them,
+  so `foreign_ref` said "own"), copies of a qualifier's value slots, and
+  module-level renames checked in every file of the module. Nothing showed
+  until the declaring file moved under a cached row. When a check reads
+  another declaration's types, lower the declaration's own nodes, never a
+  copy, and ask `type_ref_files` whose they are.
+
+- **Dropping another file's rows can lose rows only it is given**
+  (2026-10-20, step 8 piece 3). `written_types` rows for a signature's nested
+  type arguments are written by callers (the declared shape at a substituted
+  use), never by the declaring file's own walk. A cache that dropped a cached
+  file's rows for an edited file's nodes lost them; the rows have to follow
+  the nodes into the new module instead.
+
+- **Run the differential against itself first** (2026-10-20, step 8 piece
+  3). A second full check beside the first showed `written_types` rows that
+  differ between two identical checks: keyed by nodes the checker builds and
+  drops, at whatever address they got. Without that control those rows read
+  as cache bugs.
 
 - **Removing the start of a short burst slows what follows** (2026-10-20,
   step 8 piece 2). With std's parse and expansion gone from a
