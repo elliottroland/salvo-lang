@@ -273,7 +273,7 @@ impl Bookkeeping {
 
 impl crate::__Stateful_Ledger for Bookkeeping {
     fn report(&mut self, label: String, out: crate::scheduler::SalvoReply) {
-        self.__dep0.total({ let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Bookkeeping::Reported(label.clone(), out)); __r });
+        self.__dep0.total({ let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Bookkeeping::Reported(label, out)); __r });
     }
     fn reported(&mut self, label: String, out: crate::scheduler::SalvoReply, total: i32) {
         crate::scheduler::salvo_reply_wire::<String>(out, format!("{}={}", label, total));
@@ -588,7 +588,7 @@ pub fn formatted(mut label: String, mut out: crate::scheduler::SalvoReply, mut t
 }
 
 pub fn report_line(mut counter: usize, mut label: String, mut out: crate::scheduler::SalvoReply) {
-    crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Total(({ let __c0 = label.clone(); let __c1 = out; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), std::boxed::Box::new(move |__v| crate::formatted(__c0, __c1, *__v.downcast::<i32>().expect("the awaited answer"))), (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))) })), crate::__PROTO_Counter);
+    crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Total(({ let __c0 = label; let __c1 = out; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), std::boxed::Box::new(move |__v| crate::formatted(__c0, __c1, *__v.downcast::<i32>().expect("the awaited answer"))), (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))) })), crate::__PROTO_Counter);
 }
 
 pub fn main() {

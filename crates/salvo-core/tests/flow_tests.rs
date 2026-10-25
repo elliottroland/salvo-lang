@@ -1,19 +1,28 @@
 //! [flow-use-after-move] The IR's use-after-move pass (`ir::flow`, PIPELINE.md
-//! R8 piece 1) against the checker's consumed-read diagnostic
-//! [deduce-consume]: over a corpus of small programs, the reads the checker
-//! reports as "cannot be used here: it was consumed (moved) by …" (the normal
-//! walk) must be the reads the flow pass reports over the IR built from the
-//! **ownership-blind** walk's tables [ownership-audit] — which is what the
-//! pass will see once typing runs ownership-blind (piece 2).
+//! R8), the gate's use-after-move diagnostic since piece 2, against the
+//! checker's consumption machinery [deduce-consume]: over a corpus of small
+//! programs, the reads the checker reports as "cannot be used here: it was
+//! consumed (moved) by …" when its own diagnostic is switched back on
+//! (`check_program_reporting_consumed_reads`, a test-only mode) must be the
+//! reads the flow pass reports over the IR built from the normal walk's
+//! tables — which is what the gates build it from. The normal walk itself
+//! reports nothing on the corpus: a consumed read is no longer its error.
+//!
+//! The differential is kept, rather than only pinned expectations, because
+//! the checker still owns the consumption marking (`narrowed = Never`) its
+//! linear and poison machinery read: until those move to the IR (piece 3 and
+//! on) the two must agree on what is moved where. A deliberate divergence —
+//! ROADMAP 0o's unsound join/loop rules fixed in the pass — goes into
+//! `KNOWN` with its reason, and the pinned test below changes with it.
 //!
 //! Positions are compared by the read's start offset: the checker reports a
 //! moved base at the identifier (`b` in `b.s`), the IR at the whole read,
-//! which starts there. The checker's same-call variant ("consumed (moved) by
-//! an earlier argument of this call") counts: it fires on the later argument,
-//! which for a bare name is exactly the read the flow pass reports.
+//! which starts there. The checker's same-call variant ("consumed (moved)
+//! by an earlier argument of this call") counts: it fires on the later
+//! argument, which for a bare name is exactly the read the flow pass reports.
 //!
-//! `KNOWN` lists the differences that are understood and left for piece 2,
-//! each with its reason; anything else is a failure, in either direction.
+//! `KNOWN` lists the differences that are understood, each with its reason;
+//! anything else is a failure, in either direction.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -106,26 +115,21 @@ const CASES: &[(&str, &str)] = &[
     // An inner loop's move is the outer loop's next-iteration use.
     ("nested_loops", "fn f(c: Bool, d: Bool) [] -> Int {\n    let s = mk()\n    let n = 0\n    while c {\n        n = n + look(s)\n        while d {\n            n = n + 1\n        }\n        if d {\n            eat(s)\n        }\n    }\n    return n\n}\n"),
     ("moved_in_condition", "fn eats(s: Str) [] -> Bool => !s {\n    return true\n}\n\nfn f() [] -> Int {\n    let s = mk()\n    if eats(s) {\n        return look(s)\n    }\n    return 0\n}\n"),
+    // A literal moves what it stores after reading every component: the IR
+    // evaluates the reading components first [flow-use-after-move].
+    ("tuple_reads_before_store", "fn f() [] -> Int {\n    let s = mk()\n    let t = (s, look(s))\n    return 0\n}\n"),
+    // A written `if true` that breaks is a branch that leaves, not the
+    // builder's block expression: the body is not changed, so not re-walked.
+    ("break_in_always_arm", "fn f() [] -> Int {\n    let s = mk()\n    let _r = while true {\n        if true {\n            break s\n        }\n    }\n    return look(s)\n}\n"),
+    ("spread_reads_base", "fn f() [] -> Int {\n    let b = Box { s: mk() }\n    let b2 = Box { ...b, s: \"${b.s}!\" }\n    return look(b2.s)\n}\n"),
 ];
 
-/// Understood differences, left for piece 2: `(case, side, line, column)`
-/// where `side` is the one that reports the read (`"checker"`: the IR does
-/// not mark that move consumed), and line/column are within the case's
-/// source.
-///
-/// The IR marks a move `consume: true` only where the emitters need it: a
-/// call's moved argument, a `return`, a move-mode binding, a linear value's
-/// move, a lambda's consumed capture. A literal store, a spread, a `use`
-/// constructor argument and a `break` value are moves to the checker but
-/// plain reads in the IR — and marking them would change the Rust output
-/// (an unconsumed read of an owned value is `.clone()`d, a consumed one is
-/// moved), so piece 2 must carry those moves some other way.
-const KNOWN: &[(&str, &str, u32, u32)] = &[
-    ("struct_store", "checker", 4, 17),
-    ("spread", "checker", 4, 17),
-    ("use_arg", "checker", 14, 17),
-    ("break_value", "checker", 8, 17),
-];
+/// Understood differences: `(case, side, line, column)` where `side` is the
+/// one that reports the read, and line/column are within the case's source.
+/// Empty since piece 2: the IR carries the moves it used to read plainly (a
+/// literal store, a spread, a `use` argument, a `break` value) through the
+/// checker's `moved_reads`.
+const KNOWN: &[(&str, &str, u32, u32)] = &[];
 
 fn program(cases: &[(&str, &str)]) -> Program {
     let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
@@ -154,8 +158,8 @@ fn case_line_col(content: &str, offset: u32) -> (u32, u32) {
     (line - HELPERS.lines().count() as u32, col)
 }
 
+/// The checker's consumed-read message (its same-call variant included).
 const CONSUMED_READ: &str = "it was consumed (moved) by";
-const SAME_CALL: &str = "consumed (moved) by an earlier argument of this call";
 
 #[test]
 fn the_flow_pass_reports_the_reads_the_checker_reports() {
@@ -165,12 +169,12 @@ fn the_flow_pass_reports_the_reads_the_checker_reports() {
     let user: HashMap<&str, usize> =
         program.files.iter().enumerate().filter(|(_, f)| !f.is_std).map(|(i, f)| (f.name.as_str(), i)).collect();
 
-    // (a) The checker, normally: its consumed-read errors; nothing else may
-    // be an error.
-    let normal = salvo_core::check_program(&program, &resolution, &symbols);
+    // (a) The checker with its consumed-read diagnostic switched back on:
+    // those errors; nothing else may be an error.
+    let reporting = salvo_core::check_program_reporting_consumed_reads(&program, &resolution, &symbols);
     let mut checker: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
     let mut unexpected = Vec::new();
-    for d in normal.errors.iter().filter(|d| d.is_error() && !program.files[d.file].is_std) {
+    for d in reporting.errors.iter().filter(|d| d.is_error() && !program.files[d.file].is_std) {
         if d.message.contains(CONSUMED_READ) {
             checker.entry(d.file).or_default().insert(d.span.start);
         } else {
@@ -179,20 +183,20 @@ fn the_flow_pass_reports_the_reads_the_checker_reports() {
     }
     assert!(unexpected.is_empty(), "the corpus must only have consumed-read errors:\n{}", unexpected.join("\n"));
 
-    // (b) Ownership-blind: no typing error in the corpus (the same-call
-    // rule is not consumption and still fires), then the IR of the corpus
-    // modules and the flow pass over it.
-    let blind = salvo_core::check_program_ownership_blind(&program, &resolution, &symbols);
-    let typing: Vec<String> = blind
+    // (b) The checker as the gates run it: no error in the corpus at all (a
+    // consumed read is the flow pass's), then the IR of the corpus modules
+    // and the flow pass over it.
+    let normal = salvo_core::check_program(&program, &resolution, &symbols);
+    let errors: Vec<String> = normal
         .errors
         .iter()
-        .filter(|d| d.is_error() && !program.files[d.file].is_std && !d.message.contains(SAME_CALL))
+        .filter(|d| d.is_error() && !program.files[d.file].is_std)
         .map(|d| d.render(&program.files))
         .collect();
-    assert!(typing.is_empty(), "the ownership-blind walk reports errors in the corpus:\n{}", typing.join("\n"));
+    assert!(errors.is_empty(), "the checker reports errors in the corpus:\n{}", errors.join("\n"));
     let wanted: std::collections::HashSet<&salvo_core::ModulePath> =
         program.units().filter(|u| !u.file.is_std).map(|u| &u.file.module).collect();
-    let (ir, build_errors) = salvo_core::ir::build_program(&program, &symbols, &resolution, &blind, Some(&wanted));
+    let (ir, build_errors) = salvo_core::ir::build_program(&program, &symbols, &resolution, &normal, Some(&wanted));
     assert!(build_errors.is_empty(), "IR build errors: {build_errors:?}");
     let mut flow: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
     let mut total = 0;
@@ -207,6 +211,20 @@ fn the_flow_pass_reports_the_reads_the_checker_reports() {
         }
     }
     assert_eq!(salvo_core::ir::flow::check(&ir).len(), total, "`check` is `check_one` over every decl");
+
+    // (c) The gate (`ir::analyze`) reports exactly those reads, naming the
+    // move.
+    let mut gate: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
+    for d in salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &normal) {
+        assert!(d.is_error(), "{}", d.message);
+        assert!(
+            d.message.contains("cannot be used here: it was consumed (moved) at line "),
+            "the gate names the move: {}",
+            d.message
+        );
+        gate.entry(d.file).or_default().insert(d.span.start);
+    }
+    assert_eq!(gate, flow, "`ir::analyze` reports what the flow pass finds");
 
     // Compare per case, modulo the known differences.
     let mut mismatches = Vec::new();
@@ -250,10 +268,10 @@ fn the_flow_pass_reports_these_reads() {
         ("reassign_revives", &[]),
         ("loop_reassign_revives", &[]),
         ("return_in_arm", &[]),
-        ("struct_store", &[]),
-        ("spread", &[]),
-        ("use_arg", &[]),
-        ("break_value", &[]),
+        ("struct_store", &[(4, 17)]),
+        ("spread", &[(4, 17)]),
+        ("use_arg", &[(14, 17)]),
+        ("break_value", &[(8, 17)]),
         ("lambda_mutates", &[(5, 17)]),
         ("lambda_mutates_int", &[]),
         ("copy_scalar", &[]),
@@ -276,15 +294,18 @@ fn the_flow_pass_reports_these_reads() {
         ("else_if_chain", &[(10, 17)]),
         ("nested_loops", &[(5, 22), (10, 17)]),
         ("moved_in_condition", &[(8, 21)]),
+        ("tuple_reads_before_store", &[]),
+        ("spread_reads_base", &[]),
+        ("break_in_always_arm", &[(8, 17)]),
     ];
     assert_eq!(expected.len(), CASES.len(), "one expectation per case");
     let program = program(CASES);
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
-    let blind = salvo_core::check_program_ownership_blind(&program, &resolution, &symbols);
+    let checked = salvo_core::check_program(&program, &resolution, &symbols);
     let wanted: std::collections::HashSet<&salvo_core::ModulePath> =
         program.units().filter(|u| !u.file.is_std).map(|u| &u.file.module).collect();
-    let (ir, _) = salvo_core::ir::build_program(&program, &symbols, &resolution, &blind, Some(&wanted));
+    let (ir, _) = salvo_core::ir::build_program(&program, &symbols, &resolution, &checked, Some(&wanted));
     let mut found: BTreeMap<String, Vec<(u32, u32)>> = BTreeMap::new();
     for module in &ir.modules {
         let content = &program.files.iter().find(|f| f.name == module.file_name).unwrap().content;
@@ -327,7 +348,7 @@ fn example_program(dir: &Path) -> Program {
 }
 
 /// No false positives: over the IR of every example and of std (built from
-/// the ownership-blind tables, as piece 2 will), the flow pass reports
+/// the checker's tables, as the gates do), the flow pass reports
 /// nothing — the checker accepts all of it.
 #[test]
 fn the_flow_pass_accepts_every_example_and_std() {
@@ -349,11 +370,11 @@ fn the_flow_pass_accepts_every_example_and_std() {
         let program = example_program(dir);
         let symbols = salvo_core::Symbols::collect(&program);
         let resolution = salvo_core::resolve(&program);
-        let blind = salvo_core::check_program_ownership_blind(&program, &resolution, &symbols);
+        let checked = salvo_core::check_program(&program, &resolution, &symbols);
         // std once (with the first example), then each example's own modules.
         let wanted: std::collections::HashSet<&salvo_core::ModulePath> =
             program.units().filter(|u| i == 0 || !u.file.is_std).map(|u| &u.file.module).collect();
-        let (ir, _) = salvo_core::ir::build_program(&program, &symbols, &resolution, &blind, Some(&wanted));
+        let (ir, _) = salvo_core::ir::build_program(&program, &symbols, &resolution, &checked, Some(&wanted));
         for module in &ir.modules {
             let content = &program.files.iter().find(|f| f.name == module.file_name).unwrap().content;
             for d in module.decls.iter().flat_map(salvo_core::ir::flow::check_one) {

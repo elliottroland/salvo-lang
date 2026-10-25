@@ -734,7 +734,7 @@ pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy
         };
         i = i32::wrapping_add(i, 1i32);
     }
-    return (yes.clone(), no.clone());
+    return (yes, no);
 }
 
 pub fn reverse<T>(list: &mut Vec<T>) {
@@ -1213,10 +1213,10 @@ pub fn Errs<T>(mut value: T) -> T {
 
 pub fn both<A: Clone, B: Clone, E: Clone>(mut a: crate::unions::Union2<A, Vec<E>>, mut b: crate::unions::Union2<B, Vec<E>>, copy: &mut dyn FnMut(&E) -> E) -> crate::unions::Union2<(A, B), Vec<E>> {
     return if matches!(a, crate::unions::Union2::U1(_)) {
-        let mut a_1 = match &a { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+        let mut a_1 = match a { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         if matches!(b, crate::unions::Union2::U1(_)) {
-            let mut b_2 = match &b { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            return crate::unions::Union2::U1(crate::core_result::Ok::<(A, B)>((a_1.clone(), b_2.clone())));
+            let mut b_2 = match b { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+            return crate::unions::Union2::U1(crate::core_result::Ok::<(A, B)>((a_1, b_2)));
         } else if matches!(b, crate::unions::Union2::U2(_)) {
             let mut b_3 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::core_result::Errs::<Vec<E>>(b_3));
@@ -1946,7 +1946,7 @@ pub fn split_once(str: &String, sep: &String) -> Option<(String, String)> {
                 String::from("")
             }
         };
-        return Some((before.clone(), after.clone()));
+        return Some((before, after));
     };
     return None;
 }
@@ -1973,7 +1973,7 @@ pub fn split_last(str: &String, sep: &String) -> Option<(String, String)> {
                 String::from("")
             }
         };
-        return Some((before.clone(), after.clone()));
+        return Some((before, after));
     };
     return None;
 }

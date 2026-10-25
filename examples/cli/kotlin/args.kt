@@ -1106,8 +1106,9 @@ fun<T> parseNamed(args: List<String>, prefix: String?, argSpec: () -> Spec, from
     } else {
         val prefix_1: String = prefix!!
         kotlin.run {
-            val __spread_2: Spec = base
-            Spec(name = "${prefix_1} ${base.name}", about = __spread_2.about, opts = __spread_2.opts, args = __spread_2.args, groups = __spread_2.groups, commands = __spread_2.commands, commandRequired = __spread_2.commandRequired, commandFields = __spread_2.commandFields)
+            val __part_2: String = "${prefix_1} ${base.name}"
+            val __spread_3: Spec = base
+            Spec(name = __part_2, about = __spread_3.about, opts = __spread_3.opts, args = __spread_3.args, groups = __spread_3.groups, commands = __spread_3.commands, commandRequired = __spread_3.commandRequired, commandFields = __spread_3.commandFields)
         }
     })
     val found: Found = scan(spec, args)
@@ -1117,12 +1118,12 @@ fun<T> parseNamed(args: List<String>, prefix: String?, argSpec: () -> Spec, from
     }
     val r: Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> = fromFound(found)
     if ((r is Union2.U2<*, *>)) {
-        val r_3: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = ((r as Union2.U2<*, *>).value as List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>)
-        for (e in salvo.platform.core.list.each(r_3)) {
+        val r_4: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = ((r as Union2.U2<*, *>).value as List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>)
+        for (e in salvo.platform.core.list.each(r_4)) {
             val one: Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested> = e
             if ((one is Union11.U11<*, *, *, *, *, *, *, *, *, *, *>)) {
-                val one_4: HelpRequested = ((one as Union11.U11<*, *, *, *, *, *, *, *, *, *, *>).value as HelpRequested)
-                val help: Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested> = Union11.U11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(one_4)
+                val one_5: HelpRequested = ((one as Union11.U11<*, *, *, *, *, *, *, *, *, *, *>).value as HelpRequested)
+                val help: Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested> = Union11.U11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(one_5)
                 return Union2.U2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>(salvo.core.result.errs(help))
             }
         }

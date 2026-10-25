@@ -209,7 +209,7 @@ impl Sessions {
 
 impl crate::__Stateful_Session for Sessions {
     fn open(&mut self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply) {
-        self.__dep0.after(crate::time::plus__Duration_Duration(&budget, &crate::time::seconds(1i64)), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Sessions::Expire(started.clone(), budget.clone(), out)); __r });
+        self.__dep0.after(crate::time::plus__Duration_Duration(&budget, &crate::time::seconds(1i64)), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Sessions::Expire(started, budget, out)); __r });
     }
     fn expire(&mut self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
         crate::scheduler::salvo_reply_wire::<String>(out, crate::verdict(&started, &f.at, &budget));
@@ -441,7 +441,7 @@ pub fn main() {
     let mut outcome: String = {
         let (mut answer, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
-        crate::scheduler::salvo_send_wire(sessions, crate::__Msg_Session::Open(crate::time::Tick { nanos: 0i64 }, budget.clone(), answer), crate::__PROTO_Session);
+        crate::scheduler::salvo_send_wire(sessions, crate::__Msg_Session::Open(crate::time::Tick { nanos: 0i64 }, budget, answer), crate::__PROTO_Session);
         {
             let (mut settled, __wid) = crate::scheduler::salvo_waiter();
             crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<crate::core_actor::Idle>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));

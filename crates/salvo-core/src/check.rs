@@ -786,6 +786,14 @@ pub struct Checked {
     /// handle type that happens to be `Clone`, impossible for one that is not
     /// (a reply token), and wrong either way.
     pub linear_moves: HashSet<Key>,
+    /// [flow-use-after-move] Reads of a bare identifier that **move the whole
+    /// variable** through `fate_move` — a literal store, a `...` spread, a
+    /// `use` or spawn constructor argument, a `break`/`return`/`throw`
+    /// value, a send, a driven pass — keyed by the identifier's span (as
+    /// `linear_moves` is). The IR reads them `consume: true`, so the flow
+    /// pass sees the move and the Rust emitter moves rather than clones
+    /// (the checker has consumed the variable: nothing reads it again).
+    pub moved_reads: HashSet<Key>,
     /// [linear-state] Reads of a handler **state field** that *move* the
     /// value out (LC-4's allowance: a container of obligations being drained),
     /// keyed by the read's span. Rust cannot move out of a field behind
@@ -1349,7 +1357,7 @@ impl Checked {
     /// a new table is a compile error here until it says whether it is
     /// per file.
     fn drop_files(&mut self, files: &HashSet<usize>) {
-        let Checked { expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_uses, route_keys, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, binding_modes, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, virtual_place_binds, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors, decl_effects, handler_deps, effect_prereqs } = self;
+        let Checked { expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_uses, route_keys, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, moved_reads, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, binding_modes, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, virtual_place_binds, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors, decl_effects, handler_deps, effect_prereqs } = self;
         expr_ty.retain(|k, _| !files.contains(&k.0));
         comparisons.retain(|k, _| !files.contains(&k.0));
         arm_compares.retain(|k, _| !files.contains(&k.0));
@@ -1392,6 +1400,7 @@ impl Checked {
         addr_calls.retain(|k, _| !files.contains(&k.0));
         self_sends.retain(|k, _| !files.contains(&k.0));
         linear_moves.retain(|k| !files.contains(&k.0));
+        moved_reads.retain(|k| !files.contains(&k.0));
         state_takes.retain(|k| !files.contains(&k.0));
         actor_gates.retain(|(_, k)| !files.contains(&k.0));
         actor_sends.retain(|(_, _, k)| !files.contains(&k.0));
@@ -1668,13 +1677,91 @@ fn ownership_blind() -> bool {
     OWNERSHIP_BLIND.with(|b| b.get())
 }
 
-/// [deduce-consume] A consumed (moved) value's type becomes `Never`, which a
-/// later read reports — except in the ownership audit, which must see the
-/// typing ownership leaves alone.
-fn mark_consumed(narrowed: &mut Ty) {
-    if !ownership_blind() {
-        *narrowed = Ty::Never;
+thread_local! {
+    /// [flow-use-after-move] Set while `check_program_reporting_consumed_reads`
+    /// runs: the checker reports a consumed read itself, as it did before the
+    /// IR flow pass took the diagnostic (R8 piece 2) — for `flow_tests`'
+    /// differential only.
+    static REPORT_CONSUMED_READS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn report_consumed_reads() -> bool {
+    REPORT_CONSUMED_READS.with(|b| b.get())
+}
+
+/// [flow-use-after-move] `check_program` with the checker's own consumed-read
+/// diagnostic switched back on (every consumed read, and a later argument of
+/// the same call reading what an earlier one moved): the reads the IR flow
+/// pass must report, by the checker's machinery, for `tests/flow_tests.rs`.
+/// Not a mode a driver should use — its consumed reads type as `Unknown`.
+pub fn check_program_reporting_consumed_reads<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &Symbols<'p>,
+) -> Checked {
+    REPORT_CONSUMED_READS.with(|b| b.set(true));
+    let out = check_program(program, resolution, symbols);
+    REPORT_CONSUMED_READS.with(|b| b.set(false));
+    out
+}
+
+/// [once-fn] What consumed a `once` fn called once already. The IR has no
+/// read at a call of a local, so the flow pass cannot see this move: the
+/// checker still reports the next use (R8 piece 3 moves it).
+const CONSUMED_BY_ONCE_CALL: &str = "a call (a `once` function is callable at most once)";
+/// [fate-partial-move] What consumed a root a projection move took wholly
+/// (a derivation the analysis could not place). The IR marks the projection,
+/// not the root, so this one is also still the checker's (R8 piece 3).
+const CONSUMED_BY_PROJECTION: &str =
+    "a move of mutable data projected out of it (`copy` at that site keeps it usable)";
+
+/// [flow-use-after-move] Whether the checker still reports a read of a value
+/// of type `declared` consumed by `consumed_by` (no poison): only for the
+/// moves the IR does not carry — a `once` call, a projection taking its root,
+/// and any move of a **fn value** (the IR lends a fn-typed parameter whatever
+/// its contract, so the flow pass leaves fn values alone). Every other
+/// consumed read is the IR flow pass's diagnostic. R8 piece 3 takes the rest.
+fn checker_reports_consumed_read(consumed_by: Option<&str>, declared: &Ty) -> bool {
+    report_consumed_reads()
+        || matches!(declared.strip_quals(), Ty::Fn { .. })
+        || matches!(consumed_by, Some(c) if c == CONSUMED_BY_ONCE_CALL || c == CONSUMED_BY_PROJECTION)
+}
+
+/// [deduce-consume] The join of the narrowed types of a local on the paths
+/// that fall through: agreeing states win; consumed (`Never`) on any path is
+/// consumed; otherwise only the qualifiers every path keeps survive.
+fn join_narrowed(states: &[&Ty]) -> Ty {
+    if states.iter().all(|t| **t == *states[0]) {
+        states[0].clone()
+    } else if states.iter().any(|t| matches!(t, Ty::Never)) {
+        Ty::Never
+    } else {
+        // Keep only qualifiers every path preserves.
+        let mut common: HashSet<String> = states[0].quals().iter().map(|q| q.name.clone()).collect();
+        for t in &states[1..] {
+            let names: HashSet<String> = t.quals().iter().map(|q| q.name.clone()).collect();
+            common.retain(|q| names.contains(q));
+        }
+        let removed: HashSet<String> =
+            states[0].quals().iter().map(|q| q.name.clone()).filter(|q| !common.contains(q)).collect();
+        states[0].clone().remove_quals(&removed)
     }
+}
+
+/// [deduce-consume] A consumed (moved) value's `narrowed` becomes `Never` —
+/// the marker the checker's own ownership machinery reads (joins, linear
+/// obligations, poison) — and the type it had is kept in `consumed_ty`, which
+/// is what a later read answers [flow-use-after-move]: reporting that read is
+/// the IR flow pass's job. Nothing at all in the ownership audit, which must
+/// see the typing ownership leaves alone.
+fn mark_consumed(var: &mut LocalVar) {
+    if ownership_blind() {
+        return;
+    }
+    if !matches!(var.narrowed, Ty::Never) {
+        var.consumed_ty = Some(var.narrowed.clone());
+    }
+    var.narrowed = Ty::Never;
 }
 
 /// [ownership-audit] `check_program` with ownership's feedback into typing
@@ -2421,6 +2508,14 @@ struct LocalVar {
     /// handler registration) — names the event in the use-site
     /// diagnostic [deduce-consume].
     consumed_by: Option<&'static str>,
+    /// [flow-use-after-move] While `narrowed` is `Never` because the value
+    /// was consumed: the type it had before — what a read of it answers,
+    /// since the use-after-move is the IR flow pass's diagnostic and typing
+    /// must go on as if ownership were not there [ownership-audit]. It is
+    /// kept up to date the way `narrowed` would be (narrowings installed,
+    /// restored and joined), so the read types like the ownership-blind
+    /// walk's. Meaningless while the value is live.
+    consumed_ty: Option<Ty>,
     /// [linear-union-arm] The obligation of a linear-union value was
     /// discharged by narrowing to a non-linear arm on every path
     /// reaching here (set per-branch by `with_narrows`, joined by
@@ -2641,6 +2736,7 @@ struct VarState {
     links: Vec<FateLink>,
     poison: Option<Poison>,
     consumed_by: Option<&'static str>,
+    consumed_ty: Option<Ty>,
     place_narrows: Vec<PlaceNarrow>,
     /// [fate-partial-move] Moved-out projections, union-merged across
     /// branches: the dual of `place_narrows`, which intersects.
@@ -8778,6 +8874,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     links: Vec::new(),
                     poison: None,
                     consumed_by: None,
+                    consumed_ty: None,
                     linear_settled: false,
                     is_param: true,
                     for_origin: None,
@@ -9352,6 +9449,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     links: Vec::new(),
                     poison: None,
                     consumed_by: None,
+                    consumed_ty: None,
                 linear_settled: false,
                     is_param: true,
                     for_origin: None,
@@ -9383,6 +9481,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     links: Vec::new(),
                     poison: None,
                     consumed_by: None,
+                    consumed_ty: None,
                 linear_settled: false,
                     is_param: true,
                     for_origin: None,
@@ -9431,6 +9530,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     links: Vec::new(),
                     poison: None,
                     consumed_by: None,
+                    consumed_ty: None,
                 linear_settled: false,
                     is_param: true,
                     for_origin: None,
@@ -9846,6 +9946,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             links: Vec::new(),
                             poison: None,
                             consumed_by: None,
+                            consumed_ty: None,
                             linear_settled: false,
                             is_param: true,
                             for_origin: None,
@@ -11424,6 +11525,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 links,
                 poison: None,
                 consumed_by: None,
+                consumed_ty: None,
                 linear_settled: false,
                 is_param,
                 for_origin,
@@ -12313,7 +12415,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     true
                 });
                 if hit {
-                    mark_consumed(&mut var.narrowed);
+                    mark_consumed(var);
                     var.poison = Some(Poison {
                         root_name: root_name.to_string(),
                         event,
@@ -12534,7 +12636,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             if let Some(var) = self.var_by_id_mut(l.root_id) {
                 loop_origin = var.for_origin;
-                mark_consumed(&mut var.narrowed);
+                mark_consumed(var);
                 var.consumed_by = None;
                 var.poison = Some(Poison {
                     root_name: binding_name.to_string(),
@@ -13119,10 +13221,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
                 if let Some(var) = self.lookup_mut(&id.name) {
-                    mark_consumed(&mut var.narrowed);
+                    mark_consumed(var);
                     var.consumed_by = Some("an earlier call");
                 }
-                consumed_here.push(name);
+                // [flow-use-after-move] A later argument reading `name` is
+                // the IR flow pass's to report (the IR reads the arguments
+                // in order), so it is not `consumed_here`.
+                if report_consumed_reads() {
+                    consumed_here.push(name);
+                }
                 continue;
             }
             if mutable {
@@ -13272,12 +13379,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             if let Some(var) = self.var_by_id_mut(l.root_id) {
                 loop_origin = var.for_origin;
-                mark_consumed(&mut var.narrowed);
+                mark_consumed(var);
                 var.poison = None;
-                var.consumed_by = Some(
-                    "a move of mutable data projected out of it \
-                     (`copy` at that site keeps it usable)",
-                );
+                var.consumed_by = Some(CONSUMED_BY_PROJECTION);
                 consumed.push(l.root_name.clone());
             }
             // Moving data out of a `for`-loop binding means the loop
@@ -18036,6 +18140,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             if n.place.is_root() {
                 if let Some(var) = self.lookup_mut(&n.place.root) {
                     if matches!(var.narrowed, Ty::Never) {
+                        // [flow-use-after-move] A consumed value stays
+                        // consumed; a later read types as the narrowing
+                        // says, as it would were ownership not there.
+                        var.consumed_ty = Some(n.narrowed.clone());
+                        if n.declared != var.declared {
+                            var.widened = Some(n.declared.clone());
+                        }
                         continue;
                     }
                     var.narrowed = n.narrowed.clone();
@@ -18050,7 +18161,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn with_narrows<T>(&mut self, narrows: &[Narrow], f: impl FnOnce(&mut Self) -> T) -> T {
-        let mut saved: Vec<(String, Ty)> = Vec::new();
+        let mut saved: Vec<(String, Ty, Option<Ty>)> = Vec::new();
         // Applied place facts, with the fact each one displaced
         // [flow-place].
         let mut saved_places: Vec<(Place, Ty, Option<PlaceNarrow>)> = Vec::new();
@@ -18069,7 +18180,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .lookup(&n.place.root)
                         .is_some_and(|v| self.ty_own_linear(&v.narrowed));
                 if let Some(var) = self.lookup_mut(&n.place.root) {
-                    saved.push((n.place.root.clone(), var.narrowed.clone()));
+                    saved.push((n.place.root.clone(), var.narrowed.clone(), var.consumed_ty.clone()));
                     var.narrowed = n.narrowed.clone();
                     if settles {
                         var.linear_settled = true;
@@ -18090,16 +18201,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                 var.widened = view;
             }
         }
-        for (name, ty) in saved.into_iter().rev() {
+        for (name, ty, consumed_ty) in saved.into_iter().rev() {
             if let Some(var) = self.lookup_mut(&name) {
                 // A value consumed while narrowed stays consumed: the
                 // `is`-narrowing restore must not resurrect it — the
                 // consumption is a flow fact, not part of the narrowing
-                // [deduce-consume].
+                // [deduce-consume]. What a later read answers is restored
+                // instead [flow-use-after-move].
                 if matches!(var.narrowed, Ty::Never) {
+                    var.consumed_ty = Some(match ty {
+                        Ty::Never => consumed_ty.unwrap_or(Ty::Never),
+                        live => live,
+                    });
                     continue;
                 }
                 var.narrowed = ty;
+                var.consumed_ty = consumed_ty;
             }
         }
         for (place, applied, displaced) in saved_places.into_iter().rev() {
@@ -18158,6 +18275,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 links: var.links.clone(),
                                 poison: var.poison.clone(),
                                 consumed_by: var.consumed_by,
+                                consumed_ty: var.consumed_ty.clone(),
                                 place_narrows: var.place_narrows.clone(),
                                 moved_places: var.moved_places.clone(),
                             },
@@ -18177,6 +18295,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     var.links = state.links.clone();
                     var.poison = state.poison.clone();
                     var.consumed_by = state.consumed_by;
+                    var.consumed_ty = state.consumed_ty.clone();
                     var.place_narrows = state.place_narrows.clone();
                     // [fate-partial-move] Restored like every other flow
                     // fact: this resets to the *entry* state before the
@@ -18284,30 +18403,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
-                let joined = if narrowed_states.iter().all(|t| **t == *narrowed_states[0]) {
-                    narrowed_states[0].clone()
-                } else if narrowed_states.iter().any(|t| matches!(t, Ty::Never)) {
-                    Ty::Never
-                } else {
-                    // Keep only qualifiers every path preserves.
-                    let mut common: HashSet<String> = narrowed_states[0]
-                        .quals()
+                let joined = join_narrowed(&narrowed_states);
+                // [flow-use-after-move] What a read of a consumed value
+                // answers joins the way the paths' types would.
+                let consumed_ty = matches!(joined, Ty::Never).then(|| {
+                    let live: Vec<Ty> = states
                         .iter()
-                        .map(|q| q.name.clone())
+                        .map(|s| match (&s.narrowed, &s.consumed_ty) {
+                            (Ty::Never, Some(t)) => t.clone(),
+                            (t, _) => t.clone(),
+                        })
                         .collect();
-                    for t in &narrowed_states[1..] {
-                        let names: HashSet<String> =
-                            t.quals().iter().map(|q| q.name.clone()).collect();
-                        common.retain(|q| names.contains(q));
-                    }
-                    let removed: HashSet<String> = narrowed_states[0]
-                        .quals()
-                        .iter()
-                        .map(|q| q.name.clone())
-                        .filter(|q| !common.contains(q))
-                        .collect();
-                    narrowed_states[0].clone().remove_quals(&removed)
-                };
+                    join_narrowed(&live.iter().collect::<Vec<_>>())
+                });
                 // Fate links union across branches [fate-link].
                 let mut links: Vec<FateLink> = Vec::new();
                 for s in &states {
@@ -18368,6 +18476,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     var.links = links;
                     var.poison = poison;
                     var.consumed_by = consumed_by;
+                    var.consumed_ty = consumed_ty;
                     var.place_narrows = place_narrows;
                     var.moved_places = moved_places;
                 }
@@ -22841,7 +22950,7 @@ fn block_mentions_name(block: &Block, name: &str) -> bool {
 ///
 /// Exhaustive over `Expr` **on purpose**: a wildcard arm here answers "no"
 /// for a form it has never heard of, and a use-after-move goes unreported.
-fn expr_mentions(expr: &Expr, name: &str) -> bool {
+pub(crate) fn expr_mentions(expr: &Expr, name: &str) -> bool {
     let block_mentions = |block: &Block| -> bool { block_mentions_name(block, name) };
     match expr {
         Expr::Assert { cond, message, .. } => {
@@ -24105,9 +24214,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         self.note_linear_move(&name, id.span);
+        // [flow-use-after-move] The IR reads this one as a move.
+        self.out.moved_reads.insert(self.key(id.span));
         self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
         if let Some(var) = self.lookup_mut(&id.name) {
-            mark_consumed(&mut var.narrowed);
+            mark_consumed(var);
             var.consumed_by = Some(moved_by);
         }
     }
@@ -24334,7 +24445,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     var.used = true;
                 }
                 if let Some(var) = self.lookup(&id.name) {
-                    let narrowed = var.narrowed.clone();
+                    let mut narrowed = var.narrowed.clone();
+                    let consumed_ty = var.consumed_ty.clone();
+                    let var_declared = var.declared.clone();
                     // [qual-lift] Inside a `^` branch the physical view is
                     // the widened type: the wrapper the arm test peeled is
                     // materialized by the emitters, so reads (and any
@@ -24352,6 +24465,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                         && self.check_moved_place(&Place::root(id.name.clone()), id.span)
                     {
                         return Ty::Unknown;
+                    }
+                    // [flow-use-after-move] A value consumed (moved) by a
+                    // move the IR carries reads as the type it had: the IR
+                    // flow pass reports the use, once, and typing goes on
+                    // as if ownership were not there [ownership-audit].
+                    if matches!(narrowed, Ty::Never) && poison.is_none() && !checker_reports_consumed_read(consumed_by, &var_declared) {
+                        narrowed = consumed_ty.unwrap_or_else(|| declared.clone());
                     }
                     // [deduce-consume] `Never` marks a consumed (moved)
                     // value: referring to it is an impossibility.
@@ -24389,12 +24509,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     event = p.event.describe(),
                                 ),
                             ),
+                            // The moves the IR does not carry yet (a
+                            // `once` call, a projection taking its root).
                             None => self.error(
                                 id.span,
                                 format!(
                                     "`{}` cannot be used here: it was consumed (moved) \
-                                     by {}, so its type is `Never`; \
-                                     reassign it before use",
+                                     by {}; reassign it before use",
                                     id.name,
                                     consumed_by.unwrap_or("an earlier call"),
                                 ),
@@ -26953,7 +27074,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Consume the original: the closure owns the value now.
                 self.poison_derived(cap.var_id, &cap.name, FateEvent::Moved, span, Some(&[]));
                 if let Some(var) = self.var_by_id_mut(cap.var_id) {
-                    mark_consumed(&mut var.narrowed);
+                    mark_consumed(var);
                     var.poison = None;
                     var.consumed_by = Some(
                         "a lambda that captures and mutates it (bind a `copy` first \
@@ -30364,7 +30485,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // A local holding a callable (lambda parameter etc.).
             if let Some(var) = self.lookup(&lname) {
-                let vty = var.narrowed.clone();
+                let mut vty = var.narrowed.clone();
+                // [flow-use-after-move] A callable consumed by a move the IR
+                // carries is called as the type it had: the flow pass
+                // reports the call as the use.
+                if matches!(vty, Ty::Never) && var.poison.is_none() && !checker_reports_consumed_read(var.consumed_by, &var.declared) {
+                    vty = var.consumed_ty.clone().unwrap_or_else(|| var.declared.clone());
+                }
                 // A consumed callable (e.g. a `once` fn already called
                 // [once-fn]) reports the standard consumed-use error.
                 if matches!(vty, Ty::Never) {
@@ -30527,11 +30654,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     Some(&[]),
                                 );
                                 if let Some(var) = self.lookup_mut(&lname) {
-                                    mark_consumed(&mut var.narrowed);
-                                    var.consumed_by = Some(
-                                        "a call (a `once` function is callable \
-                                         at most once)",
-                                    );
+                                    mark_consumed(var);
+                                    var.consumed_by = Some(CONSUMED_BY_ONCE_CALL);
                                 }
                             }
                         }
@@ -32027,7 +32151,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             // a value moved by an earlier argument of *this* call cannot
             // be mentioned by a later one. (Argument typing runs before
             // this loop, so the ordinary consumed-read error cannot see
-            // sibling-argument moves.)
+            // sibling-argument moves.) A bare variable moved by an earlier
+            // argument is the IR flow pass's to report [flow-use-after-move];
+            // what is left here is a root a projection move took wholly,
+            // which the IR does not carry (R8 piece 3).
             let mut consumed_here: Vec<String> = Vec::new();
             for (i, arg) in args.iter().enumerate() {
                 if let Some(name) = consumed_here
@@ -32159,10 +32286,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.note_linear_move(&name, id.span);
                     self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
                     if let Some(var) = self.lookup_mut(&id.name) {
-                        mark_consumed(&mut var.narrowed);
+                        mark_consumed(var);
                         var.consumed_by = Some("an earlier call");
                     }
-                    consumed_here.push(name);
+                    // [flow-use-after-move] The flow pass reports a later
+                    // argument reading `name`; see `apply_call_contract`.
+                    if report_consumed_reads() {
+                        consumed_here.push(name);
+                    }
                     continue;
                 }
                 // Kept. A parameter declared `Mut` gives the callee

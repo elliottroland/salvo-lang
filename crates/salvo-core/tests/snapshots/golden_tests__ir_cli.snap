@@ -169,7 +169,7 @@ fn main::arg_spec()() -> Spec<Tool> {
   bind#14 let short__c1__c2__c3__c4: Char? = none[None]
   assign short__c1__c2__c3__c4 = present('v')
   narrow#15[after branch#13.cond#0] short__c1__c2__c3__c4~1: Char = short__c1__c2__c3__c4
-  bind#16 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "verbose", short: present(read short__c1__c2__c3__c4~1), takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Print more."), default_text: read default_text__c1__c2__c3__c4, choices: drop_mut(read choices__c1__c2__c3__c4), group: none[None] }
+  bind#16 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "verbose", short: present(!read short__c1__c2__c3__c4~1), takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Print more."), default_text: !read default_text__c1__c2__c3__c4, choices: drop_mut(!read choices__c1__c2__c3__c4), group: none[None] }
   branch#17 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
     call core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
   }
@@ -179,7 +179,7 @@ fn main::arg_spec()() -> Spec<Tool> {
   bind#19 let child__c8__c9__c11__c14__c15: Spec<Fetch> = call main::arg_spec()()
   call core.list::add<CmdSpec>(read commands, construct CmdSpec { name: call core.basic::copy<Str>(read child__c8__c9__c11__c14__c15.name), about: call core.basic::copy<Str?>(read child__c8__c9__c11__c14__c15.about) })
   bind#20 let name: Str = call args::command_name("Tool")
-  return construct Spec<Tool> { name: read name, about: present("A toy file server."), opts: drop_mut(read opts), args: drop_mut(read args), groups: drop_mut(read groups), commands: drop_mut(read commands), command_required: read command_required, command_fields: read command_fields }
+  return construct Spec<Tool> { name: !read name, about: present("A toy file server."), opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> Tool | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
@@ -242,7 +242,7 @@ fn main::arg_spec()() -> Spec<Serve> {
   assign short__c5__c6__c7__c8 = present('p')
   narrow#18[after branch#16.cond#0] short__c5__c6__c7__c8~2: Char = short__c5__c6__c7__c8
   narrow#19[after branch#16.cond#0] default_text__c5__c6__c7__c8~3: Str = default_text__c5__c6__c7__c8
-  bind#20 let opt__c5__c6__c7__c8: OptSpec = construct OptSpec { field: "port", short: present(read short__c5__c6__c7__c8~2), takes_value: !(read switch__c5__c6__c7__c8), repeats: read many__c5__c6__c7__c8, required: (read required__c5__c6__c7__c8 && !(read exclusive__c5__c6__c7__c8)), help: present("Port to listen on."), default_text: present(read default_text__c5__c6__c7__c8~3), choices: drop_mut(read choices__c5__c6__c7__c8), group: none[None] }
+  bind#20 let opt__c5__c6__c7__c8: OptSpec = construct OptSpec { field: "port", short: present(!read short__c5__c6__c7__c8~2), takes_value: !(read switch__c5__c6__c7__c8), repeats: read many__c5__c6__c7__c8, required: (read required__c5__c6__c7__c8 && !(read exclusive__c5__c6__c7__c8)), help: present("Port to listen on."), default_text: present(!read default_text__c5__c6__c7__c8~3), choices: drop_mut(!read choices__c5__c6__c7__c8), group: none[None] }
   branch#21 cond#0 (!(read exclusive__c5__c6__c7__c8) || !(call core.list::is_empty<Str>(read opt__c5__c6__c7__c8.choices))) {
     call core.list::add<OptSpec>(read opts, !read opt__c5__c6__c7__c8)
   }
@@ -260,7 +260,7 @@ fn main::arg_spec()() -> Spec<Serve> {
   }
   bind#29 let short__c16__c17__c18__c19: Char? = none[None]
   narrow#30[after branch#28.cond#0] default_text__c16__c17__c18__c19~4: Str = default_text__c16__c17__c18__c19
-  bind#31 let opt__c16__c17__c18__c19: OptSpec = construct OptSpec { field: "output", short: read short__c16__c17__c18__c19, takes_value: !(read switch__c16__c17__c18__c19), repeats: read many__c16__c17__c18__c19, required: (read required__c16__c17__c18__c19 && !(read exclusive__c16__c17__c18__c19)), help: present("Output format."), default_text: present(read default_text__c16__c17__c18__c19~4), choices: drop_mut(read choices__c16__c17__c18__c19), group: none[None] }
+  bind#31 let opt__c16__c17__c18__c19: OptSpec = construct OptSpec { field: "output", short: !read short__c16__c17__c18__c19, takes_value: !(read switch__c16__c17__c18__c19), repeats: read many__c16__c17__c18__c19, required: (read required__c16__c17__c18__c19 && !(read exclusive__c16__c17__c18__c19)), help: present("Output format."), default_text: present(!read default_text__c16__c17__c18__c19~4), choices: drop_mut(!read choices__c16__c17__c18__c19), group: none[None] }
   branch#32 cond#0 (!(read exclusive__c16__c17__c18__c19) || !(call core.list::is_empty<Str>(read opt__c16__c17__c18__c19.choices))) {
     call core.list::add<OptSpec>(read opts, !read opt__c16__c17__c18__c19)
   }
@@ -278,13 +278,13 @@ fn main::arg_spec()() -> Spec<Serve> {
     call args::add_one(read groups, "files", read required__c36__c37__c38__c39, present("Files to serve."))
   }
   bind#41 let short__c36__c37__c38__c39: Char? = none[None]
-  bind#42 let opt__c36__c37__c38__c39: OptSpec = construct OptSpec { field: "files", short: read short__c36__c37__c38__c39, takes_value: !(read switch__c36__c37__c38__c39), repeats: read many__c36__c37__c38__c39, required: (read required__c36__c37__c38__c39 && !(read exclusive__c36__c37__c38__c39)), help: present("Files to serve."), default_text: read default_text__c36__c37__c38__c39, choices: drop_mut(read choices__c36__c37__c38__c39), group: none[None] }
+  bind#42 let opt__c36__c37__c38__c39: OptSpec = construct OptSpec { field: "files", short: !read short__c36__c37__c38__c39, takes_value: !(read switch__c36__c37__c38__c39), repeats: read many__c36__c37__c38__c39, required: (read required__c36__c37__c38__c39 && !(read exclusive__c36__c37__c38__c39)), help: present("Files to serve."), default_text: !read default_text__c36__c37__c38__c39, choices: drop_mut(!read choices__c36__c37__c38__c39), group: none[None] }
   branch#43 cond#0 read exclusive__c36__c37__c38__c39 {
     unreachable("positional `files` is a choice of option groups") at main:157:1
   }
   call core.list::add<ArgSpec>(read args, construct ArgSpec { field: call core.basic::copy<Str>(read opt__c36__c37__c38__c39.field), help: call core.basic::copy<Str?>(read opt__c36__c37__c38__c39.help), required: read opt__c36__c37__c38__c39.required, many: read opt__c36__c37__c38__c39.repeats })
   bind#44 let name: Str = call args::command_name("Serve")
-  return construct Spec<Serve> { name: read name, about: present("Serve files over HTTP."), opts: drop_mut(read opts), args: drop_mut(read args), groups: drop_mut(read groups), commands: drop_mut(read commands), command_required: read command_required, command_fields: read command_fields }
+  return construct Spec<Serve> { name: !read name, about: present("Serve files over HTTP."), opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> Serve | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
@@ -381,7 +381,7 @@ fn main::arg_spec()() -> Spec<Net> {
   }
   bind#14 let short__c1__c2__c3__c4: Char? = none[None]
   narrow#15[after branch#13.cond#0] default_text__c1__c2__c3__c4~1: Str = default_text__c1__c2__c3__c4
-  bind#16 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "host", short: read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Address to bind."), default_text: present(read default_text__c1__c2__c3__c4~1), choices: drop_mut(read choices__c1__c2__c3__c4), group: none[None] }
+  bind#16 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "host", short: !read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Address to bind."), default_text: present(!read default_text__c1__c2__c3__c4~1), choices: drop_mut(!read choices__c1__c2__c3__c4), group: none[None] }
   branch#17 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
     call core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
   }
@@ -395,12 +395,12 @@ fn main::arg_spec()() -> Spec<Net> {
     call args::add_one(read groups, "workers", read required__c11__c12__c13__c14, present("Connections served at once."))
   }
   bind#25 let short__c11__c12__c13__c14: Char? = none[None]
-  bind#26 let opt__c11__c12__c13__c14: OptSpec = construct OptSpec { field: "workers", short: read short__c11__c12__c13__c14, takes_value: !(read switch__c11__c12__c13__c14), repeats: read many__c11__c12__c13__c14, required: (read required__c11__c12__c13__c14 && !(read exclusive__c11__c12__c13__c14)), help: present("Connections served at once."), default_text: read default_text__c11__c12__c13__c14, choices: drop_mut(read choices__c11__c12__c13__c14), group: none[None] }
+  bind#26 let opt__c11__c12__c13__c14: OptSpec = construct OptSpec { field: "workers", short: !read short__c11__c12__c13__c14, takes_value: !(read switch__c11__c12__c13__c14), repeats: read many__c11__c12__c13__c14, required: (read required__c11__c12__c13__c14 && !(read exclusive__c11__c12__c13__c14)), help: present("Connections served at once."), default_text: !read default_text__c11__c12__c13__c14, choices: drop_mut(!read choices__c11__c12__c13__c14), group: none[None] }
   branch#27 cond#0 (!(read exclusive__c11__c12__c13__c14) || !(call core.list::is_empty<Str>(read opt__c11__c12__c13__c14.choices))) {
     call core.list::add<OptSpec>(read opts, !read opt__c11__c12__c13__c14)
   }
   bind#28 let name: Str = call args::command_name("Net")
-  return construct Spec<Net> { name: read name, about: present("Network options."), opts: drop_mut(read opts), args: drop_mut(read args), groups: drop_mut(read groups), commands: drop_mut(read commands), command_required: read command_required, command_fields: read command_fields }
+  return construct Spec<Net> { name: !read name, about: present("Network options."), opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> Net | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
@@ -455,7 +455,7 @@ fn main::arg_spec()() -> Spec<Tls> {
     call args::add_one(read groups, "cert", read required__c1__c2__c3__c4, present("Certificate file."))
   }
   bind#14 let short__c1__c2__c3__c4: Char? = none[None]
-  bind#15 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "cert", short: read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Certificate file."), default_text: read default_text__c1__c2__c3__c4, choices: drop_mut(read choices__c1__c2__c3__c4), group: none[None] }
+  bind#15 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "cert", short: !read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Certificate file."), default_text: !read default_text__c1__c2__c3__c4, choices: drop_mut(!read choices__c1__c2__c3__c4), group: none[None] }
   branch#16 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
     call core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
   }
@@ -470,12 +470,12 @@ fn main::arg_spec()() -> Spec<Tls> {
     call args::add_one(read groups, "key", read required__c11__c12__c13__c14, present("Private key file."))
   }
   bind#24 let short__c11__c12__c13__c14: Char? = none[None]
-  bind#25 let opt__c11__c12__c13__c14: OptSpec = construct OptSpec { field: "key", short: read short__c11__c12__c13__c14, takes_value: !(read switch__c11__c12__c13__c14), repeats: read many__c11__c12__c13__c14, required: (read required__c11__c12__c13__c14 && !(read exclusive__c11__c12__c13__c14)), help: present("Private key file."), default_text: read default_text__c11__c12__c13__c14, choices: drop_mut(read choices__c11__c12__c13__c14), group: none[None] }
+  bind#25 let opt__c11__c12__c13__c14: OptSpec = construct OptSpec { field: "key", short: !read short__c11__c12__c13__c14, takes_value: !(read switch__c11__c12__c13__c14), repeats: read many__c11__c12__c13__c14, required: (read required__c11__c12__c13__c14 && !(read exclusive__c11__c12__c13__c14)), help: present("Private key file."), default_text: !read default_text__c11__c12__c13__c14, choices: drop_mut(!read choices__c11__c12__c13__c14), group: none[None] }
   branch#26 cond#0 (!(read exclusive__c11__c12__c13__c14) || !(call core.list::is_empty<Str>(read opt__c11__c12__c13__c14.choices))) {
     call core.list::add<OptSpec>(read opts, !read opt__c11__c12__c13__c14)
   }
   bind#27 let name: Str = call args::command_name("Tls")
-  return construct Spec<Tls> { name: read name, about: none[None], opts: drop_mut(read opts), args: drop_mut(read args), groups: drop_mut(read groups), commands: drop_mut(read commands), command_required: read command_required, command_fields: read command_fields }
+  return construct Spec<Tls> { name: !read name, about: none[None], opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> Tls | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
@@ -544,7 +544,7 @@ fn main::arg_spec()() -> Spec<Fetch> {
     call args::add_one(read groups, "source", read required__c1__c2__c3__c4, present("Where to read."))
   }
   bind#17 let short__c1__c2__c3__c4: Char? = none[None]
-  bind#18 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "source", short: read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Where to read."), default_text: read default_text__c1__c2__c3__c4, choices: drop_mut(read choices__c1__c2__c3__c4), group: none[None] }
+  bind#18 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "source", short: !read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Where to read."), default_text: !read default_text__c1__c2__c3__c4, choices: drop_mut(!read choices__c1__c2__c3__c4), group: none[None] }
   branch#19 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
     call core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
   }
@@ -559,12 +559,12 @@ fn main::arg_spec()() -> Spec<Fetch> {
     call args::add_one(read groups, "header", read required__c18__c19__c20__c21, present("A header line to send; repeatable."))
   }
   bind#27 let short__c18__c19__c20__c21: Char? = none[None]
-  bind#28 let opt__c18__c19__c20__c21: OptSpec = construct OptSpec { field: "header", short: read short__c18__c19__c20__c21, takes_value: !(read switch__c18__c19__c20__c21), repeats: read many__c18__c19__c20__c21, required: (read required__c18__c19__c20__c21 && !(read exclusive__c18__c19__c20__c21)), help: present("A header line to send; repeatable."), default_text: read default_text__c18__c19__c20__c21, choices: drop_mut(read choices__c18__c19__c20__c21), group: none[None] }
+  bind#28 let opt__c18__c19__c20__c21: OptSpec = construct OptSpec { field: "header", short: !read short__c18__c19__c20__c21, takes_value: !(read switch__c18__c19__c20__c21), repeats: read many__c18__c19__c20__c21, required: (read required__c18__c19__c20__c21 && !(read exclusive__c18__c19__c20__c21)), help: present("A header line to send; repeatable."), default_text: !read default_text__c18__c19__c20__c21, choices: drop_mut(!read choices__c18__c19__c20__c21), group: none[None] }
   branch#29 cond#0 (!(read exclusive__c18__c19__c20__c21) || !(call core.list::is_empty<Str>(read opt__c18__c19__c20__c21.choices))) {
     call core.list::add<OptSpec>(read opts, !read opt__c18__c19__c20__c21)
   }
   bind#30 let name: Str = call args::command_name("Fetch")
-  return construct Spec<Fetch> { name: read name, about: present("Fetch a document."), opts: drop_mut(read opts), args: drop_mut(read args), groups: drop_mut(read groups), commands: drop_mut(read commands), command_required: read command_required, command_fields: read command_fields }
+  return construct Spec<Fetch> { name: !read name, about: present("Fetch a document."), opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> Fetch | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
@@ -640,7 +640,7 @@ fn main::arg_spec()() -> Spec<FromUrl> {
     call args::add_one(read groups, "url", read required__c1__c2__c3__c4, present("Where to fetch from."))
   }
   bind#14 let short__c1__c2__c3__c4: Char? = none[None]
-  bind#15 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "url", short: read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Where to fetch from."), default_text: read default_text__c1__c2__c3__c4, choices: drop_mut(read choices__c1__c2__c3__c4), group: none[None] }
+  bind#15 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "url", short: !read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Where to fetch from."), default_text: !read default_text__c1__c2__c3__c4, choices: drop_mut(!read choices__c1__c2__c3__c4), group: none[None] }
   branch#16 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
     call core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
   }
@@ -656,12 +656,12 @@ fn main::arg_spec()() -> Spec<FromUrl> {
   }
   bind#24 let short__c11__c12__c13__c14: Char? = none[None]
   narrow#25[after branch#23.cond#0] default_text__c11__c12__c13__c14~1: Str = default_text__c11__c12__c13__c14
-  bind#26 let opt__c11__c12__c13__c14: OptSpec = construct OptSpec { field: "timeout", short: read short__c11__c12__c13__c14, takes_value: !(read switch__c11__c12__c13__c14), repeats: read many__c11__c12__c13__c14, required: (read required__c11__c12__c13__c14 && !(read exclusive__c11__c12__c13__c14)), help: present("Seconds to wait."), default_text: present(read default_text__c11__c12__c13__c14~1), choices: drop_mut(read choices__c11__c12__c13__c14), group: none[None] }
+  bind#26 let opt__c11__c12__c13__c14: OptSpec = construct OptSpec { field: "timeout", short: !read short__c11__c12__c13__c14, takes_value: !(read switch__c11__c12__c13__c14), repeats: read many__c11__c12__c13__c14, required: (read required__c11__c12__c13__c14 && !(read exclusive__c11__c12__c13__c14)), help: present("Seconds to wait."), default_text: present(!read default_text__c11__c12__c13__c14~1), choices: drop_mut(!read choices__c11__c12__c13__c14), group: none[None] }
   branch#27 cond#0 (!(read exclusive__c11__c12__c13__c14) || !(call core.list::is_empty<Str>(read opt__c11__c12__c13__c14.choices))) {
     call core.list::add<OptSpec>(read opts, !read opt__c11__c12__c13__c14)
   }
   bind#28 let name: Str = call args::command_name("FromUrl")
-  return construct Spec<FromUrl> { name: read name, about: none[None], opts: drop_mut(read opts), args: drop_mut(read args), groups: drop_mut(read groups), commands: drop_mut(read commands), command_required: read command_required, command_fields: read command_fields }
+  return construct Spec<FromUrl> { name: !read name, about: none[None], opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> FromUrl | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
@@ -722,12 +722,12 @@ fn main::arg_spec()() -> Spec<FromFile> {
     call args::add_one(read groups, "file", read required__c1__c2__c3__c4, present("A file to read instead."))
   }
   bind#14 let short__c1__c2__c3__c4: Char? = none[None]
-  bind#15 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "file", short: read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("A file to read instead."), default_text: read default_text__c1__c2__c3__c4, choices: drop_mut(read choices__c1__c2__c3__c4), group: none[None] }
+  bind#15 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "file", short: !read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("A file to read instead."), default_text: !read default_text__c1__c2__c3__c4, choices: drop_mut(!read choices__c1__c2__c3__c4), group: none[None] }
   branch#16 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
     call core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
   }
   bind#17 let name: Str = call args::command_name("FromFile")
-  return construct Spec<FromFile> { name: read name, about: none[None], opts: drop_mut(read opts), args: drop_mut(read args), groups: drop_mut(read groups), commands: drop_mut(read commands), command_required: read command_required, command_fields: read command_fields }
+  return construct Spec<FromFile> { name: !read name, about: none[None], opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> FromFile | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
@@ -763,7 +763,7 @@ fn main::arg_spec()() -> Spec<FromStdin> {
   bind#5 let command_required: Bool = false
   bind#6 let command_fields: Int = 0
   bind#7 let name: Str = call args::command_name("FromStdin")
-  return construct Spec<FromStdin> { name: read name, about: present("Read standard input."), opts: drop_mut(read opts), args: drop_mut(read args), groups: drop_mut(read groups), commands: drop_mut(read commands), command_required: read command_required, command_fields: read command_fields }
+  return construct Spec<FromStdin> { name: !read name, about: present("Read standard input."), opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> FromStdin | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {

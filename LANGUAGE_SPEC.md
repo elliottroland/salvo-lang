@@ -8180,8 +8180,12 @@ between endpoints and delivers what arrives into the scheduler.
   signature* speaking — a contract dropping `NonEmpty`, a `Mut` argument
   invalidating narrowings [flow-place-invalidate], a mutation stripping
   dependent claims — and that stays in typing. Body-flow ownership touches
-  typing only on error paths: a consumed value reads as `Ty::Unknown` after
-  its diagnostic, and so does a partially moved one, which only suppresses
+  typing only on error paths: since R8 piece 2 a consumed value reads as the
+  type it had before the move (`LocalVar::consumed_ty`), with no checker
+  diagnostic — the use is the IR flow pass's [flow-use-after-move]; a
+  partially moved value, a poisoned one, and the moves the checker still
+  reports itself (a `once` call, a projection taking its root, a fn value)
+  read as `Ty::Unknown` after their diagnostic, which only suppresses
   cascades [type-unknown-lenient]. `check_program_ownership_blind` switches
   those off; `ownership_never_changes_the_typing_of_an_accepted_program`
   checks every example (and std) both ways and requires identical types,
@@ -8189,35 +8193,70 @@ between endpoints and delivers what arrives into the scheduler.
   qualifier's roots are variable numbers, which the two walks number
   differently in std's `heap.sv`; compared by the path they name.)
 * [flow-use-after-move] **The IR's use-after-move pass** (`ir::flow`,
-  03-generate-02-flow; PIPELINE.md R8 piece 1, 2026-10-20). Built and
-  tested, **not yet a gate**: no driver runs it, and the checker's
-  consumed-read error [deduce-consume] is still the one a build reports.
-  Per path it keeps the set of wholly moved locals: a `Read { consume: true }`
-  of a whole local whose declared type does not move for free
-  [copy-scalar-free], and a lambda's consumed `Capture`. Any read of a place
-  rooted at a moved local is the error, reported once per read; assigning
-  the whole local or a fresh `let` of it revives it. A narrowing binding of a
-  whole local is the same storage (one justified by a test of that local
-  where it is made starts alive, as the checker re-narrows there). Joins and loops
-  **mirror the checker's rules as they are**, unsound corners included: an
-  `if`'s non-leaving arms and every arm of a `when` revive what they assign
-  after the join; a loop body is walked once more from its end state when it
-  changed (the end state is taken even when the body always leaves); the set
-  after it joins the `break`s and revives what the body assigns; a `continue`
-  carries nothing to the next iteration. `tests/flow_tests.rs` checks it
-  against the checker over a corpus, building the IR from the
-  ownership-blind tables [ownership-audit]: equal, modulo the moves the IR
-  does not mark (`consume` is what the Rust emitter moves rather than clones,
-  so a literal store, a spread, a `use` argument and a `break` value are
-  plain reads in the IR) — and nothing on any example or on std.
+  03-generate-02-flow; PIPELINE.md R8 pieces 1–2, 2026-10-20) **is the
+  gate's use-after-move diagnostic**: `ir::analyze` runs it per declaration
+  next to the linear check (`ir::check`), over the user's modules and their
+  test files, so every gate reports it once the checker is clean — `salvo
+  analyze` and the LSP (`analysis.rs`), compile/run/build/test
+  (`check_for_emission`), and `salvo ir` inline (`!!!`). The message names
+  the move's line: "`s` cannot be used here: it was consumed (moved) at line
+  3; reassign it before use, or `copy` it where it is moved". Per program at
+  first: a checker error anywhere hides the flow pass's diagnostics until it
+  is fixed.
+  * Per path it keeps the set of wholly moved locals: a `Read { consume:
+    true }` of a whole local whose declared type does not move for free
+    [copy-scalar-free] and is not a fn type, and a lambda's consumed
+    `Capture`. Any read of a place rooted at a moved local is the error,
+    reported once per read; assigning the whole local or a fresh `let` of it
+    revives it. A narrowing binding of a whole local is the same storage (one
+    justified by a test of that local where it is made starts alive, as the
+    checker re-narrows there). The builder's block expression is a
+    one-arm always-true `Branch` whose condition spans the whole branch; a
+    written `if true { … }` is a branch like any other.
+  * The moves the IR reads as moves: a call's moved argument, a `return`, a
+    move-mode binding, a linear value's move, a lambda's consumed capture —
+    and, through the checker's **`moved_reads`** table (every bare
+    identifier `fate_move` consumes wholly: a literal store, a `...` spread,
+    a `use`/spawn constructor argument, a `break`/`throw` value, a send, a
+    `replyto` capture, a driven pass), the rest. The Rust emitter moves such
+    a read instead of `.clone()`ing it [rs-read-mode].
+  * **A literal reads before it stores** (the checker's order: `fate_move`
+    runs after every component is checked): when a component reads a local
+    another component of the same tuple or struct literal stores (`(w,
+    size(w))`, `Spec { ...base, name: "${base.name}" }`), the builder
+    evaluates every non-moving component first, in order, into a temporary
+    (`__part`), then the moves (`hoist_past_stores`).
+  * Joins and loops **mirror the checker's rules as they are**, unsound
+    corners included (ROADMAP 0o): an `if`'s non-leaving arms and every arm
+    of a `when` revive what they assign after the join; a loop body is
+    walked once more from its end state when it changed (the end state is
+    taken even when the body always leaves); the set after it joins the
+    `break`s and revives what the body assigns; a `continue` carries nothing
+    to the next iteration.
+  * **Still the checker's** (R8 piece 3): a read after a `once` call
+    (`CONSUMED_BY_ONCE_CALL`: the IR has no read at a call of a local), a
+    read of a root a projection move took wholly (`CONSUMED_BY_PROJECTION`),
+    any consumed **fn value** (the IR lends fn-typed parameters whatever
+    their contract, so the pass leaves fn values alone), poison and
+    BoundAway [fate-poison] [fate-move-mode], and partial moves
+    [fate-partial-move]; [deduce-same-call] keeps only its projection-root
+    half.
+  * `tests/flow_tests.rs` checks the pass against the checker's own
+    consumed-read diagnostic, switched back on for the test
+    (`check_program_reporting_consumed_reads`), over a corpus — equal, with
+    an empty `KNOWN` list — and pins every case's reads; the normal checker
+    reports nothing on the corpus, the gate (`ir::analyze`) reports what the
+    pass finds, and the pass finds nothing on any example or on std.
 * [deduce-consume] Deduction clauses are enforced flow-sensitively at call
   sites on bare identifier arguments: a callee's contract (default or written)
   decides whether the caller's argument is consumed, so `return list` in a
   callee declared `=> !list` consumes the caller's argument.
-  * A parameter *not kept* is consumed — the variable's type narrows to
-    `Never`, and any later reference to it is a compile error (a
-    `Never`-typed value represents an impossibility). Reassigning the
-    variable revives it. **A Copy scalar is never consumed**: moving one is
+  * A parameter *not kept* is consumed — any later reference to the
+    variable is a compile error, reported by the IR flow pass
+    [flow-use-after-move] (since R8 piece 2 the checker marks it consumed —
+    `narrowed = Never`, which its joins, linear and poison machinery read —
+    but a read of it answers the type it had and is not the checker's
+    error). Reassigning the variable revives it. **A Copy scalar is never consumed**: moving one is
     a copy [copy-scalar-free] (user decision 2026-10-20, reversing the
     2026-09-01 "consumption is uniform across all types … consistency over
     target-level permissiveness").
@@ -8227,9 +8266,10 @@ between endpoints and delivers what arrives into the scheduler.
     struct/array/tuple literal, spreading it (`...n` — in a struct
     literal or any spread position), `return n`, `break n`,
     and passing it to a `use` handler constructor. The use-site
-    diagnostic names the consuming event ("consumed (moved) by a
-    literal store / a `...` spread / a `break` / a `use`
-    handler registration / an earlier call"). Reads never consume —
+    diagnostic names the line of the move (the flow pass's; the checker's
+    own variants, for the moves it still reports, name the event: "consumed
+    (moved) by a call (a `once` function …)" / "by a move of mutable data
+    projected out of it" / "by an earlier call"). Reads never consume —
     in particular string interpolation `"${n}"` is a read [type-str]
     (user decision 2026-09-02, L2a).
   * A move event reaches through a *representation-only* coercion the
@@ -8297,9 +8337,12 @@ between endpoints and delivers what arrives into the scheduler.
   capture) a value that an earlier argument of the same call consumed —
   `f(a, a)` with two moving parameters, `f(a, size(a))`, and the like
   are errors at the later argument. The remedy is `copy` at the
-  argument that consumes the value. (Argument typing precedes contract
-  enforcement, so this sibling-argument scan is what closes the gap;
-  nested calls were always ordered correctly.)
+  argument that consumes the value. Since R8 piece 2 a bare variable moved
+  by an earlier argument is the IR flow pass's to report (the IR reads a
+  call's arguments in order) [flow-use-after-move]; the checker's
+  sibling-argument scan (both copies: `apply_call_contract` and the named
+  call) is left for a root a projection move took wholly, which the IR does
+  not carry.
 
 ## Shared fate
 

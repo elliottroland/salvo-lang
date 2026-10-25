@@ -200,11 +200,11 @@ pub fn rebuild(item: &crate::core_map::Map<String, crate::unions::Union10<crate:
 }
 
 pub fn s(mut value: String) -> crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull> {
-    return crate::unions::Union10::U1(crate::aws_ddb::AttributeValueS { value: value.clone() });
+    return crate::unions::Union10::U1(crate::aws_ddb::AttributeValueS { value: value });
 }
 
 pub fn n(mut value: String) -> crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull> {
-    return crate::unions::Union10::U2(crate::aws_ddb::AttributeValueN { value: value.clone() });
+    return crate::unions::Union10::U2(crate::aws_ddb::AttributeValueN { value: value });
 }
 
 pub fn boolean(mut value: bool) -> crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull> {
@@ -236,7 +236,7 @@ pub fn round_trip(ddb: &crate::aws_ddb::Ddb, console: &crate::core_console::Cons
     let mut put: crate::unions::Union2<crate::aws_ddb::PutItemOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|_| None));
-        ddb.put_item(crate::aws_ddb::PutItemInput { table_name: (table).clone(), item: item.clone(), expected: None, return_values: None, return_consumed_capacity: None, return_item_collection_metrics: None, conditional_operator: None, condition_expression: None, expression_attribute_names: None, expression_attribute_values: None, return_values_on_condition_check_failure: None }, r);
+        ddb.put_item(crate::aws_ddb::PutItemInput { table_name: (table).clone(), item: item, expected: None, return_values: None, return_consumed_capacity: None, return_item_collection_metrics: None, conditional_operator: None, condition_expression: None, expression_attribute_names: None, expression_attribute_values: None, return_values_on_condition_check_failure: None }, r);
         *crate::scheduler::salvo_wait(__wid).downcast::<crate::unions::Union2<crate::aws_ddb::PutItemOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>>>().expect("the awaited answer")
     };
     if matches!(put, crate::unions::Union2::U1(_)) {

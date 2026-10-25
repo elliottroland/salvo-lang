@@ -66,7 +66,7 @@ impl SlowLooking(lent who: Str, lent timer: eff[Timer]) of Lookup stateful {
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(lent key: Str, lent out: Reply<Str>) -> None {
     obligation release [out]
-    send time::Timer#0(read timer, call time::millis(150L), replyto answer(read key, !read out))
+    send time::Timer#0(read timer, call time::millis(150L), replyto answer(!read key, !read out))
   }
   fn answer(lent key: Str, lent out: Reply<Str>, lent fired: Fired) -> None {
     obligation release [out]
@@ -83,7 +83,7 @@ impl Scattering(lent group: eff[ActorGroup<Search>], lent gather: eff[Gather]) o
       send net::ActorGroup#2(read group, !read ms)
     }
     obligation release [out]
-    send main::Gather#0(read gather, read word, read members, !read out)
+    send main::Gather#0(read gather, !read word, !read members, !read out)
   }
 }
 
@@ -138,7 +138,7 @@ impl Hedging(lent group: eff[ActorGroup<Lookup>], lent racer: eff[Race]) of any 
       send net::ActorGroup#2(read group, !read ms)
     }
     obligation release [out]
-    send main::Race#0(read racer, read key, read members, !read out)
+    send main::Race#0(read racer, !read key, !read members, !read out)
   }
 }
 
@@ -192,7 +192,7 @@ impl LastHost(lent nodes: eff[NodeGroup], lent me: NodeEndpoint) of Leader {
         assign best = call core.basic::copy<NodeId>(read n.id)
       }
     }
-    return present(read best)
+    return present(!read best)
   }
 }
 
@@ -304,7 +304,7 @@ fn main::find(lent lookup: Lookup; moved key: Str) -> Str {
 fn main::two_ids(lent leader: Leader, lent console: Console; moved seq: eff[ActorGroup<Sequencer>]) -> None {
   bind#1 let __use~1: Elected<Sequencer> = construct Elected<Sequencer> { config: call net::default_route_config(), __dep0: read leader }
   bind#2 let __handle~2: RouteSelector<Sequencer> = handle[RouteSelector<Sequencer>](read __use~1)
-  bind#3 let __use~3: __Route_Sequencer = construct __Route_Sequencer { group: read seq, __dep0: read __handle~2 }
+  bind#3 let __use~3: __Route_Sequencer = construct __Route_Sequencer { group: !read seq, __dep0: read __handle~2 }
   bind#4 let __handle~4: Sequencer = handle[Sequencer](read __use~3)
   call core.console::println(read console, concat("  ", call main::fresh_id(read __handle~4), " ", call main::fresh_id(read __handle~4)))
 }
@@ -312,7 +312,7 @@ fn main::two_ids(lent leader: Leader, lent console: Console; moved seq: eff[Acto
 fn main::shop(lent console: Console; moved stock: eff[ActorGroup<Inventory>]) -> None {
   bind#1 let __use~1: Sharded<Inventory> = construct Sharded<Inventory> { config: call net::default_route_config() }
   bind#2 let __handle~2: RouteSelector<Inventory> = handle[RouteSelector<Inventory>](read __use~1)
-  bind#3 let __use~3: __Route_Inventory = construct __Route_Inventory { group: read stock, __dep0: read __handle~2 }
+  bind#3 let __use~3: __Route_Inventory = construct __Route_Inventory { group: !read stock, __dep0: read __handle~2 }
   bind#4 let __handle~4: Inventory = handle[Inventory](read __use~3)
   call main::checkout(read __handle~4, read console, call core.list::List(T, T[])<Str>("apple", array[Str[]]("pear", "apple", "fig", "pear")))
 }
@@ -337,7 +337,7 @@ impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: eff[
     spawn[eff[Search]](construct Indexing { words: call core.list::List(T, T[])<Str>("salvo", array[Str[]]("actors", "salvo", "nodes")) }, on: read p, in: read index) serves [Search]
     bind#7 let looks: eff[ActorGroup<Lookup>] = call net::actor_group(eff[NodeGroup])<Lookup>(!read group, fn net::protocol)
     bind#8 let timer: eff[Timer] = spawn[eff[Timer]](construct DefaultTimer { }, on: read p) serves [Timer]
-    spawn[eff[Lookup]](construct SlowLooking { who: "b (slow)", timer: read timer }, on: read p, in: read looks) serves [Lookup]
+    spawn[eff[Lookup]](construct SlowLooking { who: "b (slow)", timer: !read timer }, on: read p, in: read looks) serves [Lookup]
     obligation release [done]
     call core.actor::send<eff[Sequencer]>(!read done, !read mine)
   }

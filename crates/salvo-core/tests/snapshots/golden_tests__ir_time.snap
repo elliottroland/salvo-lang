@@ -33,7 +33,7 @@ impl Sessions() of Session deps [Timer] stateful {
   mailbox construct Mailbox { capacity: 8 }
   fn open(lent started: Tick, lent budget: Duration, lent out: Reply<Str>) -> None {
     obligation release [out]
-    member time::Timer#0(read __dep0, call time::plus(Duration, Duration)(read budget, call time::seconds(1L)), replyto expire(read started, read budget, !read out))
+    member time::Timer#0(read __dep0, call time::plus(Duration, Duration)(read budget, call time::seconds(1L)), replyto expire(!read started, !read budget, !read out))
   }
   fn expire(lent started: Tick, lent budget: Duration, lent out: Reply<Str>, lent f: Fired) -> None {
     obligation release [out]
@@ -96,7 +96,7 @@ fn main::main() -> None {
   bind#17 let outcome: Str = waitfor answer: Reply<Str> {
     obligation gain [answer]
     obligation release [answer]
-    send main::Session#0(read sessions, construct Tick { nanos: 0L }, read budget, !read answer)
+    send main::Session#0(read sessions, construct Tick { nanos: 0L }, !read budget, !read answer)
     waitfor settled: Reply<Idle> {
       obligation gain [settled]
       obligation release [settled]
@@ -105,7 +105,7 @@ fn main::main() -> None {
     send time::TimerCtl#0(read ctl, call time::millis(2500L))
   }
   call core.console::println(read __handle~2, concat("session: ", read outcome))
-  bind#18 let sleeper: eff[Sleeper] = spawn[eff[Sleeper]](construct Napping { __dep0: instance_at(read timer), __dep1: handle[Ticker](construct TestTicker { timer: read timer }) }, on: call core.actor::thread()) serves [Sleeper]
+  bind#18 let sleeper: eff[Sleeper] = spawn[eff[Sleeper]](construct Napping { __dep0: instance_at(read timer), __dep1: handle[Ticker](construct TestTicker { timer: !read timer }) }, on: call core.actor::thread()) serves [Sleeper]
   bind#19 let napped: Str = waitfor answer: Reply<Str> {
     obligation gain [answer]
     obligation release [answer]

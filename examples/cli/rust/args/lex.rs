@@ -75,7 +75,7 @@ pub fn lex(args: &Vec<String>) -> Vec<crate::unions::Union4<crate::args_lex::Lon
     for mut arg in args.iter() {
         let mut a: String = (arg).clone();
         if ended {
-            crate::core_list::add_platform::<crate::unions::Union4<crate::args_lex::LongToken, crate::args_lex::ShortToken, crate::args_lex::WordToken, crate::args_lex::EndToken>>(&mut out, crate::unions::Union4::U3(crate::args_lex::WordToken { value: a.clone() }));
+            crate::core_list::add_platform::<crate::unions::Union4<crate::args_lex::LongToken, crate::args_lex::ShortToken, crate::args_lex::WordToken, crate::args_lex::EndToken>>(&mut out, crate::unions::Union4::U3(crate::args_lex::WordToken { value: a }));
         } else if (&a[..] == &String::from("--")[..]) {
             ended = true;
             crate::core_list::add_platform::<crate::unions::Union4<crate::args_lex::LongToken, crate::args_lex::ShortToken, crate::args_lex::WordToken, crate::args_lex::EndToken>>(&mut out, crate::unions::Union4::U4(crate::args_lex::EndToken {}));
@@ -83,18 +83,18 @@ pub fn lex(args: &Vec<String>) -> Vec<crate::unions::Union4<crate::args_lex::Lon
             let mut body: String = crate::core_string::trim_prefix_platform(&a, &String::from("--"));
             let mut parts: Option<(String, String)> = crate::core_string::split_once(&body, &String::from("="));
             if parts.is_none() {
-                crate::core_list::add_platform::<crate::unions::Union4<crate::args_lex::LongToken, crate::args_lex::ShortToken, crate::args_lex::WordToken, crate::args_lex::EndToken>>(&mut out, crate::unions::Union4::U1(crate::args_lex::LongToken { name: body.clone(), value: None }));
+                crate::core_list::add_platform::<crate::unions::Union4<crate::args_lex::LongToken, crate::args_lex::ShortToken, crate::args_lex::WordToken, crate::args_lex::EndToken>>(&mut out, crate::unions::Union4::U1(crate::args_lex::LongToken { name: body, value: None }));
             } else {
                 let mut parts_1 = parts.unwrap();
                 let mut __destructured_2: (String, String) = parts_1;
                 let mut name: String = __destructured_2.0;
                 let mut value: String = __destructured_2.1;
-                crate::core_list::add_platform::<crate::unions::Union4<crate::args_lex::LongToken, crate::args_lex::ShortToken, crate::args_lex::WordToken, crate::args_lex::EndToken>>(&mut out, crate::unions::Union4::U1(crate::args_lex::LongToken { name: name.clone(), value: Some(value.clone()) }));
+                crate::core_list::add_platform::<crate::unions::Union4<crate::args_lex::LongToken, crate::args_lex::ShortToken, crate::args_lex::WordToken, crate::args_lex::EndToken>>(&mut out, crate::unions::Union4::U1(crate::args_lex::LongToken { name: name, value: Some(value) }));
             };
         } else if ((crate::core_string::starts_with_platform(&a, &String::from("-")) && !((&a[..] == &String::from("-")[..]))) && !(crate::args_lex::is_number(&a))) {
             crate::core_list::add_platform::<crate::unions::Union4<crate::args_lex::LongToken, crate::args_lex::ShortToken, crate::args_lex::WordToken, crate::args_lex::EndToken>>(&mut out, crate::unions::Union4::U2(crate::args_lex::ShortToken { letters: crate::core_string::trim_prefix_platform(&a, &String::from("-")) }));
         } else {
-            crate::core_list::add_platform::<crate::unions::Union4<crate::args_lex::LongToken, crate::args_lex::ShortToken, crate::args_lex::WordToken, crate::args_lex::EndToken>>(&mut out, crate::unions::Union4::U3(crate::args_lex::WordToken { value: a.clone() }));
+            crate::core_list::add_platform::<crate::unions::Union4<crate::args_lex::LongToken, crate::args_lex::ShortToken, crate::args_lex::WordToken, crate::args_lex::EndToken>>(&mut out, crate::unions::Union4::U3(crate::args_lex::WordToken { value: a }));
         };
     }
     return out;

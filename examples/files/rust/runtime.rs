@@ -1293,7 +1293,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         let __h1: usize = crate::core_list::at_platform(&self.actors, addr).expect("salvo: value is absent at runtime:617:37");
         if self.actors[__h1].dead {
             let mut reason: String = (self.actors[__h1].exit_reason).clone();
-            crate::runtime::deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, watch, crate::runtime::erase_platform::<crate::core_actor::Exit>(crate::core_actor::Exit { reason: reason.clone() }));
+            crate::runtime::deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, watch, crate::runtime::erase_platform::<crate::core_actor::Exit>(crate::core_actor::Exit { reason: reason }));
             return;
         };
         crate::core_list::add_platform::<crate::runtime::Token>(&mut self.actors[__h1].watchers, watch);
@@ -1866,7 +1866,7 @@ pub fn report_fault(actors: &mut Vec<crate::runtime::ActorRec>, pools: &mut Vec<
     if (sink >= 0i32) {
         let __h1: usize = crate::core_list::at_platform(&*actors, sink).expect("salvo: value is absent at runtime:1088:37");
         if !(actors[__h1].dead) {
-            let mut e: crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported> = crate::unions::Union3::U3(crate::runtime::Reported { reason: reason.clone() });
+            let mut e: crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported> = crate::unions::Union3::U3(crate::runtime::Reported { reason: reason });
             crate::core_deque::add_last_platform::<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>(&mut actors[__h1].queue, e);
             crate::core_deque::add_last_platform::<i64>(&mut actors[__h1].slots, ((i32::wrapping_neg(1i32)) as i64));
             if crate::runtime::mark_ready(&mut actors[__h1], &mut *pools, sink) {

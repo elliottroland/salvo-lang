@@ -607,7 +607,7 @@ impl SlowLooking {
 
 impl crate::__Stateful_Lookup for SlowLooking {
     fn lookup(&mut self, key: String, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.timer, crate::time::__Msg_Timer::After(crate::time::millis(150i64), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_SlowLooking::Answer(key.clone(), out)); __r }), crate::time::__PROTO_Timer);
+        crate::scheduler::salvo_send_wire(self.timer, crate::time::__Msg_Timer::After(crate::time::millis(150i64), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_SlowLooking::Answer(key, out)); __r }), crate::time::__PROTO_Timer);
     }
 }
 
@@ -691,7 +691,7 @@ impl crate::__Stateless_Search for Scattering {
             crate::scheduler::salvo_send_wire(self.group, crate::net::__Msg_ActorGroup::Members(ms), crate::net::__PROTO_ActorGroup);
             *crate::scheduler::salvo_wait(__wid).downcast::<Vec<usize>>().expect("the awaited answer")
         };
-        crate::scheduler::salvo_send_wire(self.gather, crate::__Msg_Gather::Scatter(word.clone(), members.clone(), out), crate::__PROTO_Gather);
+        crate::scheduler::salvo_send_wire(self.gather, crate::__Msg_Gather::Scatter(word, members, out), crate::__PROTO_Gather);
     }
 }
 
@@ -911,7 +911,7 @@ impl crate::__Stateless_Lookup for Hedging {
             crate::scheduler::salvo_send_wire(self.group, crate::net::__Msg_ActorGroup::Members(ms), crate::net::__PROTO_ActorGroup);
             *crate::scheduler::salvo_wait(__wid).downcast::<Vec<usize>>().expect("the awaited answer")
         };
-        crate::scheduler::salvo_send_wire(self.racer, crate::__Msg_Race::Race(key.clone(), members.clone(), out), crate::__PROTO_Race);
+        crate::scheduler::salvo_send_wire(self.racer, crate::__Msg_Race::Race(key, members, out), crate::__PROTO_Race);
     }
 }
 
@@ -1125,7 +1125,7 @@ impl crate::net::__Stateless_Leader for LastHost {
                 best = (n.id).clone();
             };
         }
-        return Some(best.clone());
+        return Some(best);
     }
 }
 

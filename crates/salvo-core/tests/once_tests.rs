@@ -53,13 +53,20 @@ fn errors(src: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    resolution
+    let mut out: Vec<String> = resolution
         .errors
         .iter()
         .chain(checked.errors.iter())
         .filter(|d| d.is_error())
         .map(|d| d.message.clone())
-        .collect()
+        .collect();
+    // [flow-use-after-move] As the gates do: the IR analyses (a use after a
+    // move among them) on a program the checker accepts.
+    if out.is_empty() {
+        let ir = salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked);
+        out.extend(ir.iter().filter(|d| d.is_error()).map(|d| d.message.clone()));
+    }
+    out
 }
 
 // --- where `once` may be written -------------------------------------------
@@ -227,7 +234,7 @@ fn once_on_a_data_type_enforces_single_use() {
          fn spend(t: once Ticket) -> None => !t {\n    redeem(t)\n    redeem(t)\n}\n",
     );
     assert!(
-        double.iter().any(|e| e.contains("consumed (moved) by an earlier call")),
+        double.iter().any(|e| e.contains("`t` cannot be used here: it was consumed (moved) at line 6")),
         "got {double:?}"
     );
 }

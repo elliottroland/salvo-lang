@@ -908,4 +908,57 @@ log current so the work can resume after a context reset). Newest last.
     off. Fix the unsound rules (ROADMAP 0o) in the pass once the checker's
     version is off, with `flow_tests`' pinned expectations changing in the
     same commit.
-
+- **R8 piece 2: done** (committed "Report use-after-move from the IR").
+  Design as adjusted from piece 1's note: the drivers do **not** run typing
+  ownership-blind (its linear join reads `Never` as settled — ~20 false
+  errors in std). The checker keeps its internal `narrowed = Never` marking,
+  but a consumed read is no longer its diagnostic: it answers the type the
+  value had before it was consumed (`LocalVar::consumed_ty`, set by
+  `mark_consumed(var)` and kept up to date through `install_narrows`,
+  `with_narrows`' restore, snapshots and `merge_fallthrough`'s join, so it
+  types like the blind walk), so typing is unaffected and the IR gets built.
+  `ir::analyze` runs `ir::flow::check_one` per decl next to `ir::check`
+  (test files included now, for the flow pass only) and renders "`s` cannot
+  be used here: it was consumed (moved) at line N; reassign it before use, or
+  `copy` it where it is moved" (`FlowDiagnostic::render`); `ir::dump_program`
+  puts the same inline. The four moves the IR missed come through
+  `Checked::moved_reads` (every bare identifier `fate_move` consumes wholly),
+  read `consume: true`: the Rust output moves where it cloned (std's
+  `partition`/`both`/`split_once`, `args.sv`'s `scan`, `replyto` captures, …;
+  five Rust and eight IR goldens, 79 example files and std's and aws's
+  host projects regenerated; rustc and kotlinc green). The same-call rule's bare-name half is off in both copies.
+  - **Found building it:** the IR evaluated a literal's components in
+    order, but the checker moves what a literal stores *after* reading every
+    component — `(w, size(w))` (examples/collections) and std's
+    `Spec { ...base, name: "${base.name}" }` were E0382s waiting for the
+    move. The builder now hoists the reading components into `__part`
+    temporaries ahead of the moves when they conflict
+    (`hoist_past_stores`, tuples and struct literals). And the flow pass
+    took a written `if true { break s }` for the builder's block expression;
+    a block expression's condition spans the whole branch now.
+  - **Left in the checker (piece 3 takes them):** a read after a `once` call
+    (the IR has no read at a call of a local), a root a projection move took
+    wholly (the IR marks the projection, not the root), and **every fn
+    value** (the IR lends fn-typed parameters whatever their contract, so
+    `take(g)` of a `=> !g` parameter is a plain read; the pass skips
+    fn-typed locals so nothing reports twice), plus poison/BoundAway and
+    partial moves as planned. The same-call scan keeps its projection-root
+    half for the same reason.
+  - **The differential, reworked:** `flow_tests` compares the pass with the
+    checker run through `check_program_reporting_consumed_reads` (a
+    thread-local switch putting the old diagnostic back, test-only), builds
+    the IR from the normal walk (which must report nothing on the corpus),
+    and checks the gate (`ir::analyze`) reports what the pass finds; `KNOWN`
+    is empty. 39 cases (three new: `tuple_reads_before_store`,
+    `spread_reads_base`, `break_in_always_arm`).
+  - **Gating is per program:** a checker error anywhere hides every flow
+    diagnostic (analyze tests that mixed both were split in two). Per
+    declaration would need the builder to run over a program with errors.
+  - **Piece 3 next**, in order: the remaining checker-reported moves above
+    (a second flag on `Read` — moved, as opposed to consumed-for-emission —
+    is the likely shape for fn values and projection roots; a `once` call
+    needs the call of a local to read it); partial moves (`moved_places`,
+    `check_moved_place`); poison/BoundAway (fate links); lambda capture
+    moves; state stores; lends validation; the 0o unsound join/loop rules
+    (in the pass, with a `KNOWN` entry per fixed rule); then move-mode and
+    the re-walk loop's deletion.

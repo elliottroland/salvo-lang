@@ -36,7 +36,7 @@ pub mod typekey;
 pub mod types;
 pub mod wire;
 
-pub use check::{check_program_ownership_blind, 
+pub use check::{check_program_ownership_blind, check_program_reporting_consumed_reads, 
     check_program, check_project, Checked, Coercion, CompareVia, ImplicitArg, ImplicitParam, PassDriver,
     PassMember, StdCache,
     ThrowSite,

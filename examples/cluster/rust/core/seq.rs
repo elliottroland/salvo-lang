@@ -136,7 +136,7 @@ pub fn next__Mapping<It: Clone, T: Clone, U: Clone>(m: &mut crate::core_seq::Map
 }
 
 pub fn mapping<It: Clone, T: Clone, U: Clone>(mut it: It, f: impl Fn(&T) -> U + Send + Sync + 'static, next: impl Fn(&mut It) -> crate::unions::Union2<T, crate::core_iterator::Finished> + Send + Sync + 'static) -> crate::core_seq::Mapping<It, T, U> {
-    return crate::core_seq::Mapping { src: it.clone(), step: std::sync::Arc::new(next), f: std::sync::Arc::new(f) };
+    return crate::core_seq::Mapping { src: it, step: std::sync::Arc::new(next), f: std::sync::Arc::new(f) };
 }
 
 #[derive(Clone)]
@@ -175,7 +175,7 @@ pub fn next__Filtering<It: Clone, T: Clone>(t: &mut crate::core_seq::Filtering<I
 }
 
 pub fn filtering<It: Clone, T: Clone>(mut it: It, keep: impl Fn(&T) -> bool + Send + Sync + 'static, next: impl Fn(&mut It) -> crate::unions::Union2<T, crate::core_iterator::Finished> + Send + Sync + 'static) -> crate::core_seq::Filtering<It, T> {
-    return crate::core_seq::Filtering { src: it.clone(), step: std::sync::Arc::new(next), keep: std::sync::Arc::new(keep) };
+    return crate::core_seq::Filtering { src: it, step: std::sync::Arc::new(next), keep: std::sync::Arc::new(keep) };
 }
 
 #[derive(Clone)]
@@ -205,7 +205,7 @@ pub fn next__Taking<It: Clone, T: Clone>(t: &mut crate::core_seq::Taking<It, T>)
 }
 
 pub fn taking<It: Clone, T: Clone>(mut it: It, mut n: i32, next: impl Fn(&mut It) -> crate::unions::Union2<T, crate::core_iterator::Finished> + Send + Sync + 'static) -> crate::core_seq::Taking<It, T> {
-    return crate::core_seq::Taking { src: it.clone(), step: std::sync::Arc::new(next), left: n };
+    return crate::core_seq::Taking { src: it, step: std::sync::Arc::new(next), left: n };
 }
 
 #[derive(Clone)]
@@ -248,7 +248,7 @@ pub fn next__TakingWhile<It: Clone, T: Clone>(t: &mut crate::core_seq::TakingWhi
 }
 
 pub fn taking_while<It: Clone, T: Clone>(mut it: It, keep: impl Fn(&T) -> bool + Send + Sync + 'static, next: impl Fn(&mut It) -> crate::unions::Union2<T, crate::core_iterator::Finished> + Send + Sync + 'static) -> crate::core_seq::TakingWhile<It, T> {
-    return crate::core_seq::TakingWhile { src: it.clone(), step: std::sync::Arc::new(next), keep: std::sync::Arc::new(keep), done: false };
+    return crate::core_seq::TakingWhile { src: it, step: std::sync::Arc::new(next), keep: std::sync::Arc::new(keep), done: false };
 }
 
 #[derive(Clone)]
@@ -285,7 +285,7 @@ pub fn next__Skipping<It: Clone, T: Clone>(t: &mut crate::core_seq::Skipping<It,
 }
 
 pub fn skipping<It: Clone, T: Clone>(mut it: It, mut n: i32, next: impl Fn(&mut It) -> crate::unions::Union2<T, crate::core_iterator::Finished> + Send + Sync + 'static) -> crate::core_seq::Skipping<It, T> {
-    return crate::core_seq::Skipping { src: it.clone(), step: std::sync::Arc::new(next), left: n };
+    return crate::core_seq::Skipping { src: it, step: std::sync::Arc::new(next), left: n };
 }
 
 #[derive(Clone)]
@@ -331,7 +331,7 @@ pub fn next__SkippingWhile<It: Clone, T: Clone>(t: &mut crate::core_seq::Skippin
 }
 
 pub fn skipping_while<It: Clone, T: Clone>(mut it: It, skip: impl Fn(&T) -> bool + Send + Sync + 'static, next: impl Fn(&mut It) -> crate::unions::Union2<T, crate::core_iterator::Finished> + Send + Sync + 'static) -> crate::core_seq::SkippingWhile<It, T> {
-    return crate::core_seq::SkippingWhile { src: it.clone(), step: std::sync::Arc::new(next), skip: std::sync::Arc::new(skip), started: false };
+    return crate::core_seq::SkippingWhile { src: it, step: std::sync::Arc::new(next), skip: std::sync::Arc::new(skip), started: false };
 }
 
 pub fn to_list<'a, It: Clone, T: Clone>(it: &'a mut It, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::core_iterator::Finished>) -> Vec<T> {

@@ -55,6 +55,19 @@ pub struct FlowDiagnostic {
     pub moved_at: Span,
 }
 
+impl FlowDiagnostic {
+    /// The message a gate shows, naming where the move was: `content` is
+    /// the source of the file the diagnostic is in (a move is always in the
+    /// same declaration as its use).
+    pub fn render(&self, content: &str) -> String {
+        let (line, _) = salvo_syntax::span::line_col(content, self.moved_at.start);
+        format!(
+            "`{}` cannot be used here: it was consumed (moved) at line {line}; reassign it before use, or `copy` it where it is moved",
+            self.local
+        )
+    }
+}
+
 /// Check every fn body of `program` (handler members and `init`s included).
 pub fn check(program: &Program) -> Vec<FlowDiagnostic> {
     let mut out = Vec::new();
@@ -183,10 +196,13 @@ impl Walker {
         out
     }
 
-    /// `local` is moved at `span`, unless its declared type moves for free.
+    /// `local` is moved at `span`, unless its declared type moves for free
+    /// — or is a fn type: a fn value's use after a move is still the
+    /// checker's diagnostic (the IR lends fn-typed parameters whatever their
+    /// contract, so it cannot see every such move; R8 piece 3).
     fn mark_moved(&mut self, local: &str, read_ty: &Ty, span: Span, moved: &mut Moved) {
         let ty = self.decl_ty.get(self.storage(local)).unwrap_or(read_ty);
-        if crate::types::moves_for_free(ty) {
+        if crate::types::moves_for_free(ty) || matches!(ty.strip_quals(), Ty::Fn { .. }) {
             return;
         }
         for l in self.group(local) {
@@ -195,6 +211,9 @@ impl Walker {
     }
 
     fn mark_moved_capture(&mut self, local: &str, span: Span, moved: &mut Moved) {
+        if self.decl_ty.get(self.storage(local)).is_some_and(|t| matches!(t.strip_quals(), Ty::Fn { .. })) {
+            return;
+        }
         for l in self.group(local) {
             moved.entry(l).or_insert(span);
         }
@@ -398,9 +417,11 @@ impl Walker {
                     self.tested_in(cond, &mut tested);
                     self.conds.insert((id.0, i), tested);
                 }
-                // A block expression (one always-true arm): the statements
-                // run in sequence, nothing forks.
-                if arms.len() == 1 && otherwise.is_none() && matches!(arms[0].0.kind, ExprKind::Bool(true)) {
+                // A block expression (one always-true arm, the builder's,
+                // spanning the whole branch): the statements run in
+                // sequence, nothing forks. A written `if true { … }` is a
+                // branch like any other (its condition has its own span).
+                if arms.len() == 1 && otherwise.is_none() && matches!(arms[0].0.kind, ExprKind::Bool(true)) && arms[0].0.span == e.span {
                     return self.walk_block(&arms[0].1, moved);
                 }
                 let mut falls: Vec<Moved> = Vec::new();

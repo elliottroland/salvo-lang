@@ -68,7 +68,7 @@ impl crate::wire::__Wire for FileHandle {
 
 pub fn open_file(console: &crate::core_console::Console, mut name: String) -> crate::FileHandle {
     crate::core_console::println(console, &format!("1. open {}", name));
-    return crate::FileHandle { name: name.clone() };
+    return crate::FileHandle { name: name };
 }
 
 pub fn close(console: &crate::core_console::Console, mut handle: crate::FileHandle) {

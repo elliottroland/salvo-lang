@@ -11,7 +11,7 @@ linear struct Ticket wire {
 
 fn main::issue(lent console: Console; lent id: Int, moved seat: Str) -> Ticket {
   call core.console::println(read console, concat("1. issued #", call core.basic::to_str(Int)(read id), " for ", read seat))
-  return construct Ticket { id: read id, seat: read seat }
+  return construct Ticket { id: read id, seat: !read seat }
 }
 
 fn main::redeem(lent console: Console; moved ticket: Ticket) -> None {

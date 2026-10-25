@@ -370,7 +370,7 @@ pub fn arg_spec__SpecTool() -> crate::args::Spec {
     let mut short__c1__c2__c3__c4: Option<char> = None;
     short__c1__c2__c3__c4 = Some('v');
     let mut short__c1__c2__c3__c4_1 = short__c1__c2__c3__c4.unwrap();
-    let mut opt__c1__c2__c3__c4: crate::args::OptSpec = crate::args::OptSpec { field: String::from("verbose"), short: Some(short__c1__c2__c3__c4_1), takes_value: !(switch__c1__c2__c3__c4), repeats: many__c1__c2__c3__c4, required: (required__c1__c2__c3__c4 && !(exclusive__c1__c2__c3__c4)), help: Some(String::from("Print more.")), default_text: default_text__c1__c2__c3__c4.clone(), choices: choices__c1__c2__c3__c4.clone(), group: None };
+    let mut opt__c1__c2__c3__c4: crate::args::OptSpec = crate::args::OptSpec { field: String::from("verbose"), short: Some(short__c1__c2__c3__c4_1), takes_value: !(switch__c1__c2__c3__c4), repeats: many__c1__c2__c3__c4, required: (required__c1__c2__c3__c4 && !(exclusive__c1__c2__c3__c4)), help: Some(String::from("Print more.")), default_text: default_text__c1__c2__c3__c4, choices: choices__c1__c2__c3__c4, group: None };
     if (!(exclusive__c1__c2__c3__c4) || !(crate::core_list::is_empty::<String>(&opt__c1__c2__c3__c4.choices))) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut opts, opt__c1__c2__c3__c4);
     };
@@ -380,7 +380,7 @@ pub fn arg_spec__SpecTool() -> crate::args::Spec {
     let mut child__c8__c9__c11__c14__c15: crate::args::Spec = crate::arg_spec__SpecFetch();
     crate::core_list::add_platform::<crate::args::CmdSpec>(&mut commands, crate::args::CmdSpec { name: (child__c8__c9__c11__c14__c15.name).clone(), about: (child__c8__c9__c11__c14__c15.about).clone() });
     let mut name: String = crate::args::command_name(&String::from("Tool"));
-    return crate::args::Spec { name: name.clone(), about: Some(String::from("A toy file server.")), opts: opts.clone(), args: args.clone(), groups: groups.clone(), commands: commands.clone(), command_required: command_required, command_fields: command_fields };
+    return crate::args::Spec { name: name, about: Some(String::from("A toy file server.")), opts: opts, args: args, groups: groups, commands: commands, command_required: command_required, command_fields: command_fields };
 }
 
 pub fn from_found__Found_OkToolOrErrsNonEmptyListArgError(found: &crate::args::Found) -> crate::unions::Union2<crate::Tool, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> {
@@ -443,7 +443,7 @@ pub fn arg_spec__SpecServe() -> crate::args::Spec {
     short__c5__c6__c7__c8 = Some('p');
     let mut short__c5__c6__c7__c8_2 = short__c5__c6__c7__c8.unwrap();
     let mut default_text__c5__c6__c7__c8_3 = default_text__c5__c6__c7__c8.as_ref().unwrap();
-    let mut opt__c5__c6__c7__c8: crate::args::OptSpec = crate::args::OptSpec { field: String::from("port"), short: Some(short__c5__c6__c7__c8_2), takes_value: !(switch__c5__c6__c7__c8), repeats: many__c5__c6__c7__c8, required: (required__c5__c6__c7__c8 && !(exclusive__c5__c6__c7__c8)), help: Some(String::from("Port to listen on.")), default_text: Some(default_text__c5__c6__c7__c8_3.clone()), choices: choices__c5__c6__c7__c8.clone(), group: None };
+    let mut opt__c5__c6__c7__c8: crate::args::OptSpec = crate::args::OptSpec { field: String::from("port"), short: Some(short__c5__c6__c7__c8_2), takes_value: !(switch__c5__c6__c7__c8), repeats: many__c5__c6__c7__c8, required: (required__c5__c6__c7__c8 && !(exclusive__c5__c6__c7__c8)), help: Some(String::from("Port to listen on.")), default_text: Some(default_text__c5__c6__c7__c8_3.clone()), choices: choices__c5__c6__c7__c8, group: None };
     if (!(exclusive__c5__c6__c7__c8) || !(crate::core_list::is_empty::<String>(&opt__c5__c6__c7__c8.choices))) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut opts, opt__c5__c6__c7__c8);
     };
@@ -461,7 +461,7 @@ pub fn arg_spec__SpecServe() -> crate::args::Spec {
     };
     let mut short__c16__c17__c18__c19: Option<char> = None;
     let mut default_text__c16__c17__c18__c19_4 = default_text__c16__c17__c18__c19.as_ref().unwrap();
-    let mut opt__c16__c17__c18__c19: crate::args::OptSpec = crate::args::OptSpec { field: String::from("output"), short: short__c16__c17__c18__c19.clone(), takes_value: !(switch__c16__c17__c18__c19), repeats: many__c16__c17__c18__c19, required: (required__c16__c17__c18__c19 && !(exclusive__c16__c17__c18__c19)), help: Some(String::from("Output format.")), default_text: Some(default_text__c16__c17__c18__c19_4.clone()), choices: choices__c16__c17__c18__c19.clone(), group: None };
+    let mut opt__c16__c17__c18__c19: crate::args::OptSpec = crate::args::OptSpec { field: String::from("output"), short: short__c16__c17__c18__c19, takes_value: !(switch__c16__c17__c18__c19), repeats: many__c16__c17__c18__c19, required: (required__c16__c17__c18__c19 && !(exclusive__c16__c17__c18__c19)), help: Some(String::from("Output format.")), default_text: Some(default_text__c16__c17__c18__c19_4.clone()), choices: choices__c16__c17__c18__c19, group: None };
     if (!(exclusive__c16__c17__c18__c19) || !(crate::core_list::is_empty::<String>(&opt__c16__c17__c18__c19.choices))) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut opts, opt__c16__c17__c18__c19);
     };
@@ -479,13 +479,13 @@ pub fn arg_spec__SpecServe() -> crate::args::Spec {
         crate::args::add_one(&mut groups, &String::from("files"), required__c36__c37__c38__c39, Some(String::from("Files to serve.")));
     };
     let mut short__c36__c37__c38__c39: Option<char> = None;
-    let mut opt__c36__c37__c38__c39: crate::args::OptSpec = crate::args::OptSpec { field: String::from("files"), short: short__c36__c37__c38__c39.clone(), takes_value: !(switch__c36__c37__c38__c39), repeats: many__c36__c37__c38__c39, required: (required__c36__c37__c38__c39 && !(exclusive__c36__c37__c38__c39)), help: Some(String::from("Files to serve.")), default_text: default_text__c36__c37__c38__c39.clone(), choices: choices__c36__c37__c38__c39.clone(), group: None };
+    let mut opt__c36__c37__c38__c39: crate::args::OptSpec = crate::args::OptSpec { field: String::from("files"), short: short__c36__c37__c38__c39, takes_value: !(switch__c36__c37__c38__c39), repeats: many__c36__c37__c38__c39, required: (required__c36__c37__c38__c39 && !(exclusive__c36__c37__c38__c39)), help: Some(String::from("Files to serve.")), default_text: default_text__c36__c37__c38__c39, choices: choices__c36__c37__c38__c39, group: None };
     if exclusive__c36__c37__c38__c39 {
         panic!("salvo: positional `files` is a choice of option groups at main:157:1");
     };
     crate::core_list::add_platform::<crate::args::ArgSpec>(&mut args, crate::args::ArgSpec { field: (opt__c36__c37__c38__c39.field).clone(), help: (opt__c36__c37__c38__c39.help).clone(), required: opt__c36__c37__c38__c39.required, many: opt__c36__c37__c38__c39.repeats });
     let mut name: String = crate::args::command_name(&String::from("Serve"));
-    return crate::args::Spec { name: name.clone(), about: Some(String::from("Serve files over HTTP.")), opts: opts.clone(), args: args.clone(), groups: groups.clone(), commands: commands.clone(), command_required: command_required, command_fields: command_fields };
+    return crate::args::Spec { name: name, about: Some(String::from("Serve files over HTTP.")), opts: opts, args: args, groups: groups, commands: commands, command_required: command_required, command_fields: command_fields };
 }
 
 pub fn from_found__Found_OkServeOrErrsNonEmptyListArgError(found: &crate::args::Found) -> crate::unions::Union2<crate::Serve, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> {
@@ -582,7 +582,7 @@ pub fn arg_spec__SpecNet() -> crate::args::Spec {
     };
     let mut short__c1__c2__c3__c4: Option<char> = None;
     let mut default_text__c1__c2__c3__c4_1 = default_text__c1__c2__c3__c4.as_ref().unwrap();
-    let mut opt__c1__c2__c3__c4: crate::args::OptSpec = crate::args::OptSpec { field: String::from("host"), short: short__c1__c2__c3__c4.clone(), takes_value: !(switch__c1__c2__c3__c4), repeats: many__c1__c2__c3__c4, required: (required__c1__c2__c3__c4 && !(exclusive__c1__c2__c3__c4)), help: Some(String::from("Address to bind.")), default_text: Some(default_text__c1__c2__c3__c4_1.clone()), choices: choices__c1__c2__c3__c4.clone(), group: None };
+    let mut opt__c1__c2__c3__c4: crate::args::OptSpec = crate::args::OptSpec { field: String::from("host"), short: short__c1__c2__c3__c4, takes_value: !(switch__c1__c2__c3__c4), repeats: many__c1__c2__c3__c4, required: (required__c1__c2__c3__c4 && !(exclusive__c1__c2__c3__c4)), help: Some(String::from("Address to bind.")), default_text: Some(default_text__c1__c2__c3__c4_1.clone()), choices: choices__c1__c2__c3__c4, group: None };
     if (!(exclusive__c1__c2__c3__c4) || !(crate::core_list::is_empty::<String>(&opt__c1__c2__c3__c4.choices))) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut opts, opt__c1__c2__c3__c4);
     };
@@ -596,12 +596,12 @@ pub fn arg_spec__SpecNet() -> crate::args::Spec {
         crate::args::add_one(&mut groups, &String::from("workers"), required__c11__c12__c13__c14, Some(String::from("Connections served at once.")));
     };
     let mut short__c11__c12__c13__c14: Option<char> = None;
-    let mut opt__c11__c12__c13__c14: crate::args::OptSpec = crate::args::OptSpec { field: String::from("workers"), short: short__c11__c12__c13__c14.clone(), takes_value: !(switch__c11__c12__c13__c14), repeats: many__c11__c12__c13__c14, required: (required__c11__c12__c13__c14 && !(exclusive__c11__c12__c13__c14)), help: Some(String::from("Connections served at once.")), default_text: default_text__c11__c12__c13__c14.clone(), choices: choices__c11__c12__c13__c14.clone(), group: None };
+    let mut opt__c11__c12__c13__c14: crate::args::OptSpec = crate::args::OptSpec { field: String::from("workers"), short: short__c11__c12__c13__c14, takes_value: !(switch__c11__c12__c13__c14), repeats: many__c11__c12__c13__c14, required: (required__c11__c12__c13__c14 && !(exclusive__c11__c12__c13__c14)), help: Some(String::from("Connections served at once.")), default_text: default_text__c11__c12__c13__c14, choices: choices__c11__c12__c13__c14, group: None };
     if (!(exclusive__c11__c12__c13__c14) || !(crate::core_list::is_empty::<String>(&opt__c11__c12__c13__c14.choices))) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut opts, opt__c11__c12__c13__c14);
     };
     let mut name: String = crate::args::command_name(&String::from("Net"));
-    return crate::args::Spec { name: name.clone(), about: Some(String::from("Network options.")), opts: opts.clone(), args: args.clone(), groups: groups.clone(), commands: commands.clone(), command_required: command_required, command_fields: command_fields };
+    return crate::args::Spec { name: name, about: Some(String::from("Network options.")), opts: opts, args: args, groups: groups, commands: commands, command_required: command_required, command_fields: command_fields };
 }
 
 pub fn from_found__Found_OkNetOrErrsNonEmptyListArgError(found: &crate::args::Found) -> crate::unions::Union2<crate::Net, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> {
@@ -656,7 +656,7 @@ pub fn arg_spec__SpecTls() -> crate::args::Spec {
         crate::args::add_one(&mut groups, &String::from("cert"), required__c1__c2__c3__c4, Some(String::from("Certificate file.")));
     };
     let mut short__c1__c2__c3__c4: Option<char> = None;
-    let mut opt__c1__c2__c3__c4: crate::args::OptSpec = crate::args::OptSpec { field: String::from("cert"), short: short__c1__c2__c3__c4.clone(), takes_value: !(switch__c1__c2__c3__c4), repeats: many__c1__c2__c3__c4, required: (required__c1__c2__c3__c4 && !(exclusive__c1__c2__c3__c4)), help: Some(String::from("Certificate file.")), default_text: default_text__c1__c2__c3__c4.clone(), choices: choices__c1__c2__c3__c4.clone(), group: None };
+    let mut opt__c1__c2__c3__c4: crate::args::OptSpec = crate::args::OptSpec { field: String::from("cert"), short: short__c1__c2__c3__c4, takes_value: !(switch__c1__c2__c3__c4), repeats: many__c1__c2__c3__c4, required: (required__c1__c2__c3__c4 && !(exclusive__c1__c2__c3__c4)), help: Some(String::from("Certificate file.")), default_text: default_text__c1__c2__c3__c4, choices: choices__c1__c2__c3__c4, group: None };
     if (!(exclusive__c1__c2__c3__c4) || !(crate::core_list::is_empty::<String>(&opt__c1__c2__c3__c4.choices))) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut opts, opt__c1__c2__c3__c4);
     };
@@ -671,12 +671,12 @@ pub fn arg_spec__SpecTls() -> crate::args::Spec {
         crate::args::add_one(&mut groups, &String::from("key"), required__c11__c12__c13__c14, Some(String::from("Private key file.")));
     };
     let mut short__c11__c12__c13__c14: Option<char> = None;
-    let mut opt__c11__c12__c13__c14: crate::args::OptSpec = crate::args::OptSpec { field: String::from("key"), short: short__c11__c12__c13__c14.clone(), takes_value: !(switch__c11__c12__c13__c14), repeats: many__c11__c12__c13__c14, required: (required__c11__c12__c13__c14 && !(exclusive__c11__c12__c13__c14)), help: Some(String::from("Private key file.")), default_text: default_text__c11__c12__c13__c14.clone(), choices: choices__c11__c12__c13__c14.clone(), group: None };
+    let mut opt__c11__c12__c13__c14: crate::args::OptSpec = crate::args::OptSpec { field: String::from("key"), short: short__c11__c12__c13__c14, takes_value: !(switch__c11__c12__c13__c14), repeats: many__c11__c12__c13__c14, required: (required__c11__c12__c13__c14 && !(exclusive__c11__c12__c13__c14)), help: Some(String::from("Private key file.")), default_text: default_text__c11__c12__c13__c14, choices: choices__c11__c12__c13__c14, group: None };
     if (!(exclusive__c11__c12__c13__c14) || !(crate::core_list::is_empty::<String>(&opt__c11__c12__c13__c14.choices))) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut opts, opt__c11__c12__c13__c14);
     };
     let mut name: String = crate::args::command_name(&String::from("Tls"));
-    return crate::args::Spec { name: name.clone(), about: None, opts: opts.clone(), args: args.clone(), groups: groups.clone(), commands: commands.clone(), command_required: command_required, command_fields: command_fields };
+    return crate::args::Spec { name: name, about: None, opts: opts, args: args, groups: groups, commands: commands, command_required: command_required, command_fields: command_fields };
 }
 
 pub fn from_found__Found_OkTlsOrErrsNonEmptyListArgError(found: &crate::args::Found) -> crate::unions::Union2<crate::Tls, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> {
@@ -745,7 +745,7 @@ pub fn arg_spec__SpecFetch() -> crate::args::Spec {
         crate::args::add_one(&mut groups, &String::from("source"), required__c1__c2__c3__c4, Some(String::from("Where to read.")));
     };
     let mut short__c1__c2__c3__c4: Option<char> = None;
-    let mut opt__c1__c2__c3__c4: crate::args::OptSpec = crate::args::OptSpec { field: String::from("source"), short: short__c1__c2__c3__c4.clone(), takes_value: !(switch__c1__c2__c3__c4), repeats: many__c1__c2__c3__c4, required: (required__c1__c2__c3__c4 && !(exclusive__c1__c2__c3__c4)), help: Some(String::from("Where to read.")), default_text: default_text__c1__c2__c3__c4.clone(), choices: choices__c1__c2__c3__c4.clone(), group: None };
+    let mut opt__c1__c2__c3__c4: crate::args::OptSpec = crate::args::OptSpec { field: String::from("source"), short: short__c1__c2__c3__c4, takes_value: !(switch__c1__c2__c3__c4), repeats: many__c1__c2__c3__c4, required: (required__c1__c2__c3__c4 && !(exclusive__c1__c2__c3__c4)), help: Some(String::from("Where to read.")), default_text: default_text__c1__c2__c3__c4, choices: choices__c1__c2__c3__c4, group: None };
     if (!(exclusive__c1__c2__c3__c4) || !(crate::core_list::is_empty::<String>(&opt__c1__c2__c3__c4.choices))) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut opts, opt__c1__c2__c3__c4);
     };
@@ -760,12 +760,12 @@ pub fn arg_spec__SpecFetch() -> crate::args::Spec {
         crate::args::add_one(&mut groups, &String::from("header"), required__c18__c19__c20__c21, Some(String::from("A header line to send; repeatable.")));
     };
     let mut short__c18__c19__c20__c21: Option<char> = None;
-    let mut opt__c18__c19__c20__c21: crate::args::OptSpec = crate::args::OptSpec { field: String::from("header"), short: short__c18__c19__c20__c21.clone(), takes_value: !(switch__c18__c19__c20__c21), repeats: many__c18__c19__c20__c21, required: (required__c18__c19__c20__c21 && !(exclusive__c18__c19__c20__c21)), help: Some(String::from("A header line to send; repeatable.")), default_text: default_text__c18__c19__c20__c21.clone(), choices: choices__c18__c19__c20__c21.clone(), group: None };
+    let mut opt__c18__c19__c20__c21: crate::args::OptSpec = crate::args::OptSpec { field: String::from("header"), short: short__c18__c19__c20__c21, takes_value: !(switch__c18__c19__c20__c21), repeats: many__c18__c19__c20__c21, required: (required__c18__c19__c20__c21 && !(exclusive__c18__c19__c20__c21)), help: Some(String::from("A header line to send; repeatable.")), default_text: default_text__c18__c19__c20__c21, choices: choices__c18__c19__c20__c21, group: None };
     if (!(exclusive__c18__c19__c20__c21) || !(crate::core_list::is_empty::<String>(&opt__c18__c19__c20__c21.choices))) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut opts, opt__c18__c19__c20__c21);
     };
     let mut name: String = crate::args::command_name(&String::from("Fetch"));
-    return crate::args::Spec { name: name.clone(), about: Some(String::from("Fetch a document.")), opts: opts.clone(), args: args.clone(), groups: groups.clone(), commands: commands.clone(), command_required: command_required, command_fields: command_fields };
+    return crate::args::Spec { name: name, about: Some(String::from("Fetch a document.")), opts: opts, args: args, groups: groups, commands: commands, command_required: command_required, command_fields: command_fields };
 }
 
 pub fn from_found__Found_OkFetchOrErrsNonEmptyListArgError(found: &crate::args::Found) -> crate::unions::Union2<crate::Fetch, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> {
@@ -841,7 +841,7 @@ pub fn arg_spec__SpecFromUrl() -> crate::args::Spec {
         crate::args::add_one(&mut groups, &String::from("url"), required__c1__c2__c3__c4, Some(String::from("Where to fetch from.")));
     };
     let mut short__c1__c2__c3__c4: Option<char> = None;
-    let mut opt__c1__c2__c3__c4: crate::args::OptSpec = crate::args::OptSpec { field: String::from("url"), short: short__c1__c2__c3__c4.clone(), takes_value: !(switch__c1__c2__c3__c4), repeats: many__c1__c2__c3__c4, required: (required__c1__c2__c3__c4 && !(exclusive__c1__c2__c3__c4)), help: Some(String::from("Where to fetch from.")), default_text: default_text__c1__c2__c3__c4.clone(), choices: choices__c1__c2__c3__c4.clone(), group: None };
+    let mut opt__c1__c2__c3__c4: crate::args::OptSpec = crate::args::OptSpec { field: String::from("url"), short: short__c1__c2__c3__c4, takes_value: !(switch__c1__c2__c3__c4), repeats: many__c1__c2__c3__c4, required: (required__c1__c2__c3__c4 && !(exclusive__c1__c2__c3__c4)), help: Some(String::from("Where to fetch from.")), default_text: default_text__c1__c2__c3__c4, choices: choices__c1__c2__c3__c4, group: None };
     if (!(exclusive__c1__c2__c3__c4) || !(crate::core_list::is_empty::<String>(&opt__c1__c2__c3__c4.choices))) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut opts, opt__c1__c2__c3__c4);
     };
@@ -857,12 +857,12 @@ pub fn arg_spec__SpecFromUrl() -> crate::args::Spec {
     };
     let mut short__c11__c12__c13__c14: Option<char> = None;
     let mut default_text__c11__c12__c13__c14_1 = default_text__c11__c12__c13__c14.as_ref().unwrap();
-    let mut opt__c11__c12__c13__c14: crate::args::OptSpec = crate::args::OptSpec { field: String::from("timeout"), short: short__c11__c12__c13__c14.clone(), takes_value: !(switch__c11__c12__c13__c14), repeats: many__c11__c12__c13__c14, required: (required__c11__c12__c13__c14 && !(exclusive__c11__c12__c13__c14)), help: Some(String::from("Seconds to wait.")), default_text: Some(default_text__c11__c12__c13__c14_1.clone()), choices: choices__c11__c12__c13__c14.clone(), group: None };
+    let mut opt__c11__c12__c13__c14: crate::args::OptSpec = crate::args::OptSpec { field: String::from("timeout"), short: short__c11__c12__c13__c14, takes_value: !(switch__c11__c12__c13__c14), repeats: many__c11__c12__c13__c14, required: (required__c11__c12__c13__c14 && !(exclusive__c11__c12__c13__c14)), help: Some(String::from("Seconds to wait.")), default_text: Some(default_text__c11__c12__c13__c14_1.clone()), choices: choices__c11__c12__c13__c14, group: None };
     if (!(exclusive__c11__c12__c13__c14) || !(crate::core_list::is_empty::<String>(&opt__c11__c12__c13__c14.choices))) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut opts, opt__c11__c12__c13__c14);
     };
     let mut name: String = crate::args::command_name(&String::from("FromUrl"));
-    return crate::args::Spec { name: name.clone(), about: None, opts: opts.clone(), args: args.clone(), groups: groups.clone(), commands: commands.clone(), command_required: command_required, command_fields: command_fields };
+    return crate::args::Spec { name: name, about: None, opts: opts, args: args, groups: groups, commands: commands, command_required: command_required, command_fields: command_fields };
 }
 
 pub fn from_found__Found_OkFromUrlOrErrsNonEmptyListArgError(found: &crate::args::Found) -> crate::unions::Union2<crate::FromUrl, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> {
@@ -923,12 +923,12 @@ pub fn arg_spec__SpecFromFile() -> crate::args::Spec {
         crate::args::add_one(&mut groups, &String::from("file"), required__c1__c2__c3__c4, Some(String::from("A file to read instead.")));
     };
     let mut short__c1__c2__c3__c4: Option<char> = None;
-    let mut opt__c1__c2__c3__c4: crate::args::OptSpec = crate::args::OptSpec { field: String::from("file"), short: short__c1__c2__c3__c4.clone(), takes_value: !(switch__c1__c2__c3__c4), repeats: many__c1__c2__c3__c4, required: (required__c1__c2__c3__c4 && !(exclusive__c1__c2__c3__c4)), help: Some(String::from("A file to read instead.")), default_text: default_text__c1__c2__c3__c4.clone(), choices: choices__c1__c2__c3__c4.clone(), group: None };
+    let mut opt__c1__c2__c3__c4: crate::args::OptSpec = crate::args::OptSpec { field: String::from("file"), short: short__c1__c2__c3__c4, takes_value: !(switch__c1__c2__c3__c4), repeats: many__c1__c2__c3__c4, required: (required__c1__c2__c3__c4 && !(exclusive__c1__c2__c3__c4)), help: Some(String::from("A file to read instead.")), default_text: default_text__c1__c2__c3__c4, choices: choices__c1__c2__c3__c4, group: None };
     if (!(exclusive__c1__c2__c3__c4) || !(crate::core_list::is_empty::<String>(&opt__c1__c2__c3__c4.choices))) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut opts, opt__c1__c2__c3__c4);
     };
     let mut name: String = crate::args::command_name(&String::from("FromFile"));
-    return crate::args::Spec { name: name.clone(), about: None, opts: opts.clone(), args: args.clone(), groups: groups.clone(), commands: commands.clone(), command_required: command_required, command_fields: command_fields };
+    return crate::args::Spec { name: name, about: None, opts: opts, args: args, groups: groups, commands: commands, command_required: command_required, command_fields: command_fields };
 }
 
 pub fn from_found__Found_OkFromFileOrErrsNonEmptyListArgError(found: &crate::args::Found) -> crate::unions::Union2<crate::FromFile, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> {
@@ -964,7 +964,7 @@ pub fn arg_spec__SpecFromStdin() -> crate::args::Spec {
     let mut command_required: bool = false;
     let mut command_fields: i32 = 0i32;
     let mut name: String = crate::args::command_name(&String::from("FromStdin"));
-    return crate::args::Spec { name: name.clone(), about: Some(String::from("Read standard input.")), opts: opts.clone(), args: args.clone(), groups: groups.clone(), commands: commands.clone(), command_required: command_required, command_fields: command_fields };
+    return crate::args::Spec { name: name, about: Some(String::from("Read standard input.")), opts: opts, args: args, groups: groups, commands: commands, command_required: command_required, command_fields: command_fields };
 }
 
 pub fn from_found__Found_OkFromStdinOrErrsNonEmptyListArgError(found: &crate::args::Found) -> crate::unions::Union2<crate::FromStdin, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> {

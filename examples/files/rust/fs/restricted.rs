@@ -112,8 +112,8 @@ impl crate::fs::__Stateless_Fs for RestrictedFs {
         if real.is_none() {
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>>(crate::fs_restricted::fs_escaped(&path_text)));
         };
-        let mut real_1 = real.as_ref().unwrap();
-        return self.__dep0.open_read(&crate::fs_path::Path { value: real_1.clone() });
+        let mut real_1 = real.unwrap();
+        return self.__dep0.open_read(&crate::fs_path::Path { value: real_1 });
     }
     fn open_read_at(&self, path: &crate::fs_path::Path, offset: i64) -> crate::unions::Union2<crate::stream::InStream, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> {
         let mut path_text: String = crate::fs_path::to_str(path);
@@ -121,8 +121,8 @@ impl crate::fs::__Stateless_Fs for RestrictedFs {
         if real.is_none() {
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>>(crate::fs_restricted::fs_escaped(&path_text)));
         };
-        let mut real_1 = real.as_ref().unwrap();
-        return self.__dep0.open_read_at(&crate::fs_path::Path { value: real_1.clone() }, offset);
+        let mut real_1 = real.unwrap();
+        return self.__dep0.open_read_at(&crate::fs_path::Path { value: real_1 }, offset);
     }
     fn open_write(&self, path: &crate::fs_path::Path) -> crate::unions::Union2<crate::stream::OutStream, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> {
         let mut path_text: String = crate::fs_path::to_str(path);
@@ -130,8 +130,8 @@ impl crate::fs::__Stateless_Fs for RestrictedFs {
         if real.is_none() {
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>>(crate::fs_restricted::fs_escaped(&path_text)));
         };
-        let mut real_1 = real.as_ref().unwrap();
-        return self.__dep0.open_write(&crate::fs_path::Path { value: real_1.clone() });
+        let mut real_1 = real.unwrap();
+        return self.__dep0.open_write(&crate::fs_path::Path { value: real_1 });
     }
     fn open_append(&self, path: &crate::fs_path::Path) -> crate::unions::Union2<crate::stream::OutStream, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> {
         let mut path_text: String = crate::fs_path::to_str(path);
@@ -139,8 +139,8 @@ impl crate::fs::__Stateless_Fs for RestrictedFs {
         if real.is_none() {
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>>(crate::fs_restricted::fs_escaped(&path_text)));
         };
-        let mut real_1 = real.as_ref().unwrap();
-        return self.__dep0.open_append(&crate::fs_path::Path { value: real_1.clone() });
+        let mut real_1 = real.unwrap();
+        return self.__dep0.open_append(&crate::fs_path::Path { value: real_1 });
     }
     fn exists(&self, path: &crate::fs_path::Path) -> bool {
         let mut path_text: String = crate::fs_path::to_str(path);
@@ -148,8 +148,8 @@ impl crate::fs::__Stateless_Fs for RestrictedFs {
         if real.is_none() {
             return false;
         };
-        let mut real_1 = real.as_ref().unwrap();
-        return self.__dep0.exists(&crate::fs_path::Path { value: real_1.clone() });
+        let mut real_1 = real.unwrap();
+        return self.__dep0.exists(&crate::fs_path::Path { value: real_1 });
     }
     fn metadata(&self, path: &crate::fs_path::Path) -> crate::unions::Union2<crate::fs::FileInfo, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> {
         let mut path_text: String = crate::fs_path::to_str(path);
@@ -157,8 +157,8 @@ impl crate::fs::__Stateless_Fs for RestrictedFs {
         if real.is_none() {
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>>(crate::fs_restricted::fs_escaped(&path_text)));
         };
-        let mut real_1 = real.as_ref().unwrap();
-        return self.__dep0.metadata(&crate::fs_path::Path { value: real_1.clone() });
+        let mut real_1 = real.unwrap();
+        return self.__dep0.metadata(&crate::fs_path::Path { value: real_1 });
     }
     fn list_dir(&self, path: &crate::fs_path::Path) -> crate::unions::Union2<Vec<String>, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> {
         let mut path_text: String = crate::fs_path::to_str(path);
@@ -166,8 +166,8 @@ impl crate::fs::__Stateless_Fs for RestrictedFs {
         if real.is_none() {
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>>(crate::fs_restricted::fs_escaped(&path_text)));
         };
-        let mut real_1 = real.as_ref().unwrap();
-        return self.__dep0.list_dir(&crate::fs_path::Path { value: real_1.clone() });
+        let mut real_1 = real.unwrap();
+        return self.__dep0.list_dir(&crate::fs_path::Path { value: real_1 });
     }
     fn create_dirs(&self, path: &crate::fs_path::Path) -> crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> {
         let mut path_text: String = crate::fs_path::to_str(path);
@@ -175,8 +175,8 @@ impl crate::fs::__Stateless_Fs for RestrictedFs {
         if real.is_none() {
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>>(crate::fs_restricted::fs_escaped(&path_text)));
         };
-        let mut real_1 = real.as_ref().unwrap();
-        return self.__dep0.create_dirs(&crate::fs_path::Path { value: real_1.clone() });
+        let mut real_1 = real.unwrap();
+        return self.__dep0.create_dirs(&crate::fs_path::Path { value: real_1 });
     }
     fn delete(&self, path: &crate::fs_path::Path) -> crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> {
         let mut path_text: String = crate::fs_path::to_str(path);
@@ -184,8 +184,8 @@ impl crate::fs::__Stateless_Fs for RestrictedFs {
         if real.is_none() {
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>>(crate::fs_restricted::fs_escaped(&path_text)));
         };
-        let mut real_1 = real.as_ref().unwrap();
-        return self.__dep0.delete(&crate::fs_path::Path { value: real_1.clone() });
+        let mut real_1 = real.unwrap();
+        return self.__dep0.delete(&crate::fs_path::Path { value: real_1 });
     }
     fn rename_path(&self, from: &crate::fs_path::Path, to: &crate::fs_path::Path) -> crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> {
         let mut from_text: String = crate::fs_path::to_str(from);
@@ -198,8 +198,8 @@ impl crate::fs::__Stateless_Fs for RestrictedFs {
         if real_to.is_none() {
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>>(crate::fs_restricted::fs_escaped(&to_text)));
         };
-        let mut real_from_1 = real_from.as_ref().unwrap();
-        let mut real_to_2 = real_to.as_ref().unwrap();
-        return self.__dep0.rename_path(&crate::fs_path::Path { value: real_from_1.clone() }, &crate::fs_path::Path { value: real_to_2.clone() });
+        let mut real_from_1 = real_from.unwrap();
+        let mut real_to_2 = real_to.unwrap();
+        return self.__dep0.rename_path(&crate::fs_path::Path { value: real_from_1 }, &crate::fs_path::Path { value: real_to_2 });
     }
 }

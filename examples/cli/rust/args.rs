@@ -492,7 +492,7 @@ pub fn merge_group(opts: &mut Vec<crate::args::OptSpec>, groups: &mut Vec<crate:
             let mut __narrowed_4 = o.group.as_ref().unwrap();
             format!("{}/{}", key, __narrowed_4)
         };
-        crate::core_list::add_platform::<crate::args::OptSpec>(&mut *opts, crate::args::OptSpec { field: (o.field).clone(), short: o.short.clone(), takes_value: o.takes_value, repeats: o.repeats, required: o.required, help: (o.help).clone(), default_text: (o.default_text).clone(), choices: (o.choices).clone(), group: Some(group.clone()) });
+        crate::core_list::add_platform::<crate::args::OptSpec>(&mut *opts, crate::args::OptSpec { field: (o.field).clone(), short: o.short.clone(), takes_value: o.takes_value, repeats: o.repeats, required: o.required, help: (o.help).clone(), default_text: (o.default_text).clone(), choices: (o.choices).clone(), group: Some(group) });
     }
     if ((&kind[..] == &String::from("arm")[..]) && crate::core_list::is_empty::<crate::args::OptSpec>(&child.opts)) {
         crate::core_list::add_platform::<crate::args::OptSpec>(&mut *opts, crate::args::OptSpec { field: crate::core_string::replace_platform(&crate::args::command_name(&child.name), &String::from("-"), &String::from("_")), short: None, takes_value: false, repeats: false, required: false, help: (child.about).clone(), default_text: None, choices: vec![], group: Some((key).clone()) });
@@ -500,7 +500,7 @@ pub fn merge_group(opts: &mut Vec<crate::args::OptSpec>, groups: &mut Vec<crate:
 }
 
 pub fn add_one(groups: &mut Vec<crate::args::GroupSpec>, key: &String, mut required: bool, mut heading: Option<String>) {
-    crate::core_list::add_platform::<crate::args::GroupSpec>(&mut *groups, crate::args::GroupSpec { key: (key).clone(), kind: String::from("one"), required: required, heading: heading.clone() });
+    crate::core_list::add_platform::<crate::args::GroupSpec>(&mut *groups, crate::args::GroupSpec { key: (key).clone(), kind: String::from("one"), required: required, heading: heading });
 }
 
 pub fn any_given(found: &crate::args::Found, spec: &crate::args::Spec) -> bool {
@@ -666,7 +666,7 @@ pub fn scan(spec: &crate::args::Spec, args: &Vec<String>) -> crate::args::Found 
                     if (!(o_10.takes_value) && attached.is_none()) {
                         crate::core_list::add_platform::<crate::args::Hit>(&mut hits, crate::args::Hit { field: (o_10.field).clone(), value: String::from("") });
                     } else if !(o_10.takes_value) {
-                        crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U4(crate::args::Invalid { what: flag.clone(), value: {
+                        crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U4(crate::args::Invalid { what: flag, value: {
                             let mut __pick_11 = &attached;
                             if __pick_11.is_some() {
                                 let mut __picked_12 = __pick_11.as_ref().unwrap();
@@ -676,15 +676,15 @@ pub fn scan(spec: &crate::args::Spec, args: &Vec<String>) -> crate::args::Found 
                             }
                         }, reason: String::from("the option takes no value") }));
                     } else if !(attached.is_none()) {
-                        let mut attached_14 = attached.as_ref().unwrap();
-                        crate::core_list::add_platform::<crate::args::Hit>(&mut hits, crate::args::Hit { field: (o_10.field).clone(), value: attached_14.clone() });
+                        let mut attached_14 = attached.unwrap();
+                        crate::core_list::add_platform::<crate::args::Hit>(&mut hits, crate::args::Hit { field: (o_10.field).clone(), value: attached_14 });
                     } else {
                         let mut v: Option<String> = crate::args::word_at(&tokens, i);
                         if v.is_none() {
-                            crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U2(crate::args::MissingValue { option: flag.clone() }));
+                            crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U2(crate::args::MissingValue { option: flag }));
                         } else {
-                            let mut v_15 = v.as_ref().unwrap();
-                            crate::core_list::add_platform::<crate::args::Hit>(&mut hits, crate::args::Hit { field: (o_10.field).clone(), value: v_15.clone() });
+                            let mut v_15 = v.unwrap();
+                            crate::core_list::add_platform::<crate::args::Hit>(&mut hits, crate::args::Hit { field: (o_10.field).clone(), value: v_15 });
                             i = i32::wrapping_add(i, 1i32);
                         };
                     };
@@ -739,8 +739,8 @@ pub fn scan(spec: &crate::args::Spec, args: &Vec<String>) -> crate::args::Found 
                                     crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U2(crate::args::MissingValue { option: format!("-{}", c) }));
                                 } else {
                                     let mut o_26 = o.as_ref().unwrap();
-                                    let mut v_27 = v.as_ref().unwrap();
-                                    crate::core_list::add_platform::<crate::args::Hit>(&mut hits, crate::args::Hit { field: (o_26.field).clone(), value: v_27.clone() });
+                                    let mut v_27 = v.unwrap();
+                                    crate::core_list::add_platform::<crate::args::Hit>(&mut hits, crate::args::Hit { field: (o_26.field).clone(), value: v_27 });
                                     i = i32::wrapping_add(i, 1i32);
                                 };
                             };
@@ -769,8 +769,8 @@ pub fn scan(spec: &crate::args::Spec, args: &Vec<String>) -> crate::args::Found 
         if ((count == 0i32) && o.required) {
             let mut why: Option<String> = crate::args::unmet_group(spec, &hits, (&o.group).as_ref());
             if why.is_some() {
-                let mut why_28 = why.as_ref().unwrap();
-                crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U7(crate::args::Requires { option: why_28.clone(), needs: (flag).clone() }));
+                let mut why_28 = why.unwrap();
+                crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U7(crate::args::Requires { option: why_28, needs: (flag).clone() }));
             } else if crate::args::live(spec, &hits, (&o.group).as_ref()) {
                 crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U3(crate::args::Missing { what: (flag).clone() }));
             } else {
@@ -790,15 +790,15 @@ pub fn scan(spec: &crate::args::Spec, args: &Vec<String>) -> crate::args::Found 
                             let mut here_29 = here.as_ref().unwrap();
                             first = Some(here_29.clone());
                         } else {
-                            let mut here_30 = here.as_ref().unwrap();
+                            let mut here_30 = here.unwrap();
                             let mut first_31 = first.as_ref().unwrap();
-                            crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U8(crate::args::Conflict { option: here_30.clone(), other: (first_31).clone() }));
+                            crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U8(crate::args::Conflict { option: here_30, other: (first_31).clone() }));
                         };
                     };
                 };
             }
             if (first.is_none() && g.required) {
-                crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U9(crate::args::MissingOne { options: names.clone() }));
+                crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U9(crate::args::MissingOne { options: names }));
             };
         };
     }
@@ -860,7 +860,7 @@ pub fn scan(spec: &crate::args::Spec, args: &Vec<String>) -> crate::args::Found 
     if (((!(crate::core_list::is_empty::<crate::args::CmdSpec>(&spec.commands)) && command.is_none()) && !(failed_command)) && spec.command_required) {
         crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut errors, crate::unions::Union11::U3(crate::args::Missing { what: String::from("<command>") }));
     };
-    return crate::args::Found { hits: hits.clone(), errors: errors.clone(), help: help, command: command.clone(), rest: rest.clone(), path: (spec.name).clone() };
+    return crate::args::Found { hits: hits, errors: errors, help: help, command: command, rest: rest, path: (spec.name).clone() };
 }
 
 pub fn parent_key(key: &String) -> Option<String> {
@@ -872,7 +872,7 @@ pub fn parent_key(key: &String) -> Option<String> {
     let mut __destructured_2: (String, String) = cut_1;
     let mut parent: String = __destructured_2.0;
     let mut __unused_3: String = __destructured_2.1;
-    return Some(parent.clone());
+    return Some(parent);
 }
 
 pub fn parent_is(key: &String, parent: &String) -> bool {
@@ -1273,8 +1273,9 @@ pub fn parse_named<T: Clone>(args: &Vec<String>, mut prefix: Option<String>, arg
     } else {
         let mut prefix_1 = prefix.as_ref().unwrap();
         {
-            let mut __spread_2: crate::args::Spec = base.clone();
-            crate::args::Spec { name: format!("{} {}", prefix_1, base.name), about: __spread_2.about, opts: __spread_2.opts, args: __spread_2.args, groups: __spread_2.groups, commands: __spread_2.commands, command_required: __spread_2.command_required, command_fields: __spread_2.command_fields }
+            let mut __part_2: String = format!("{} {}", prefix_1, base.name);
+            let mut __spread_3: crate::args::Spec = base;
+            crate::args::Spec { name: __part_2, about: __spread_3.about, opts: __spread_3.opts, args: __spread_3.args, groups: __spread_3.groups, commands: __spread_3.commands, command_required: __spread_3.command_required, command_fields: __spread_3.command_fields }
         }
     };
     let mut found: crate::args::Found = crate::args::scan(&spec, args);
@@ -1284,12 +1285,12 @@ pub fn parse_named<T: Clone>(args: &Vec<String>, mut prefix: Option<String>, arg
     };
     let mut r: crate::unions::Union2<T, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> = from_found(&found);
     if matches!(r, crate::unions::Union2::U2(_)) {
-        let mut r_3 = match &r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        for mut e in r_3.iter() {
+        let mut r_4 = match &r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        for mut e in r_4.iter() {
             let mut one: crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested> = (e).clone();
             if matches!(one, crate::unions::Union11::U11(_)) {
-                let mut one_4 = match &one { crate::unions::Union11::U11(__v) => __v, _ => unreachable!() };
-                let mut help: crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested> = crate::unions::Union11::U11(one_4.clone());
+                let mut one_5 = match &one { crate::unions::Union11::U11(__v) => __v, _ => unreachable!() };
+                let mut help: crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested> = crate::unions::Union11::U11(one_5.clone());
                 return crate::unions::Union2::U2(crate::core_result::errs::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(help));
             };
         }
@@ -1313,8 +1314,8 @@ pub fn args_or_exit<T: Clone>(console: &crate::core_console::Console, process: &
 pub fn parse_valid<T: Clone, V: Clone>(args: &Vec<String>, validate: &mut dyn FnMut(T) -> std::ops::ControlFlow<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>, V>, arg_spec: &mut dyn FnMut() -> crate::args::Spec, from_found: &mut dyn FnMut(&crate::args::Found) -> crate::unions::Union2<T, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>>) -> crate::unions::Union2<V, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> {
     let mut parsed: crate::unions::Union2<T, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> = crate::args::parse_args::<T>(args, &mut *arg_spec, &mut *from_found);
     return if matches!(parsed, crate::unions::Union2::U2(_)) {
-        let mut parsed_1 = match &parsed { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        return crate::unions::Union2::U2(parsed_1.clone());
+        let mut parsed_1 = match parsed { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        return crate::unions::Union2::U2(parsed_1);
     } else if matches!(parsed, crate::unions::Union2::U1(_)) {
         let mut parsed_2 = match parsed { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         let mut checked: crate::unions::Union2<V, crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>> = ('try_1: {
@@ -1497,8 +1498,8 @@ pub fn check_value<B: Clone>(errors: &mut Vec<crate::unions::Union11<crate::args
             let mut v_1 = v.as_ref().unwrap();
             let mut why: Option<String> = test(v_1);
             if !(why.is_none()) {
-                let mut why_2 = why.as_ref().unwrap();
-                crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut *errors, crate::unions::Union11::U4(crate::args::Invalid { what: (shown).clone(), value: (s).clone(), reason: why_2.clone() }));
+                let mut why_2 = why.unwrap();
+                crate::core_list::add_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&mut *errors, crate::unions::Union11::U4(crate::args::Invalid { what: (shown).clone(), value: (s).clone(), reason: why_2 }));
             };
         };
     }

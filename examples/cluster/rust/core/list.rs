@@ -405,7 +405,7 @@ pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy
         };
         i = i32::wrapping_add(i, 1i32);
     }
-    return (yes.clone(), no.clone());
+    return (yes, no);
 }
 
 pub fn reverse<T>(list: &mut Vec<T>) {

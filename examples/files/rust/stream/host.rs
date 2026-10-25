@@ -193,8 +193,8 @@ impl RawStreams {
 
 pub fn host_received(mut reply: crate::scheduler::SalvoReply, mut handle: i64, mut got: crate::unions::Union3<crate::core_bytes::Bytes, crate::stream::End, crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>) {
     if matches!(got, crate::unions::Union3::U1(_)) {
-        let mut got_1 = match &got { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
-        (reply).send(std::boxed::Box::<crate::unions::Union3<crate::stream::Packet, crate::stream::End, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>>::new(crate::unions::Union3::U1(crate::core_result::ok::<crate::stream::Packet>(crate::stream::Packet { bytes: got_1.clone(), stream: crate::stream::InStream { handle: handle } }))));
+        let mut got_1 = match got { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
+        (reply).send(std::boxed::Box::<crate::unions::Union3<crate::stream::Packet, crate::stream::End, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>>::new(crate::unions::Union3::U1(crate::core_result::ok::<crate::stream::Packet>(crate::stream::Packet { bytes: got_1, stream: crate::stream::InStream { handle: handle } }))));
     } else if matches!(got, crate::unions::Union3::U2(_)) {
         let mut got_2 = match &got { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
         (reply).send(std::boxed::Box::<crate::unions::Union3<crate::stream::Packet, crate::stream::End, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>>::new(crate::unions::Union3::U2(got_2.clone())));
@@ -377,9 +377,9 @@ pub fn next_line(mut handle: i64) -> Option<String> {
 
 pub fn kind(mut source: String, f: &crate::runtime_streams::Fault) -> crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed> {
     if f.utf8 {
-        return crate::unions::Union2::U1(crate::stream::InvalidUtf8 { source: source.clone() });
+        return crate::unions::Union2::U1(crate::stream::InvalidUtf8 { source: source });
     };
-    return crate::unions::Union2::U2(crate::stream::StreamFailed { source: source.clone(), message: (f.message).clone() });
+    return crate::unions::Union2::U2(crate::stream::StreamFailed { source: source, message: (f.message).clone() });
 }
 
 #[derive(Clone)]

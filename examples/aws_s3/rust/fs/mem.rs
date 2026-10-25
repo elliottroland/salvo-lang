@@ -139,7 +139,7 @@ impl crate::fs::__Stateful_Fs for MemFs {
         let mut path_text: String = crate::fs_path::to_str(path);
         let mut handle: i64 = crate::stream::fresh_handle();
         let mut empty: crate::core_bytes::Bytes = crate::core_bytes::mut_bytes(vec![]);
-        crate::core_map::put_platform::<i64, crate::fs_mem::MemWrite>(&mut self.writes, handle, crate::fs_mem::MemWrite { path: (path_text).clone(), buffer: empty.clone() }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
+        crate::core_map::put_platform::<i64, crate::fs_mem::MemWrite>(&mut self.writes, handle, crate::fs_mem::MemWrite { path: (path_text).clone(), buffer: empty }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
         return crate::unions::Union2::U1(crate::core_result::ok::<crate::stream::OutStream>(crate::stream::OutStream { handle: handle }));
     }
     fn open_append(&mut self, path: &crate::fs_path::Path) -> crate::unions::Union2<crate::stream::OutStream, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> {
@@ -152,7 +152,7 @@ impl crate::fs::__Stateful_Fs for MemFs {
             crate::core_bytes::append_platform(&mut start, existing_1);
         };
         let mut handle: i64 = crate::stream::fresh_handle();
-        crate::core_map::put_platform::<i64, crate::fs_mem::MemWrite>(&mut self.writes, handle, crate::fs_mem::MemWrite { path: (path_text).clone(), buffer: start.clone() }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
+        crate::core_map::put_platform::<i64, crate::fs_mem::MemWrite>(&mut self.writes, handle, crate::fs_mem::MemWrite { path: (path_text).clone(), buffer: start }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
         return crate::unions::Union2::U1(crate::core_result::ok::<crate::stream::OutStream>(crate::stream::OutStream { handle: handle }));
     }
     fn exists(&mut self, path: &crate::fs_path::Path) -> bool {
@@ -290,7 +290,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
         crate::core_map::remove_platform::<i64, crate::fs_mem::MemRead>(&mut self.reads, &s.handle, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
         std::mem::drop(s);
         if failed {
-            return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(crate::unions::Union2::U1(crate::stream::InvalidUtf8 { source: source.clone() }))));
+            return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(crate::unions::Union2::U1(crate::stream::InvalidUtf8 { source: source }))));
         };
         return crate::unions::Union2::U1(crate::core_result::ok::<()>(()));
     }
@@ -340,11 +340,11 @@ impl crate::stream::__Stateful_Streams for MemFs {
             (reply).send(std::boxed::Box::<crate::unions::Union3<crate::stream::Packet, crate::stream::End, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>>::new(crate::unions::Union3::U2(crate::stream::End {})));
             return;
         };
-        (reply).send(std::boxed::Box::<crate::unions::Union3<crate::stream::Packet, crate::stream::End, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>>::new(crate::unions::Union3::U1(crate::core_result::ok::<crate::stream::Packet>(crate::stream::Packet { bytes: data.clone(), stream: s }))));
+        (reply).send(std::boxed::Box::<crate::unions::Union3<crate::stream::Packet, crate::stream::End, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>>::new(crate::unions::Union3::U1(crate::core_result::ok::<crate::stream::Packet>(crate::stream::Packet { bytes: data, stream: s }))));
     }
     fn from_bytes(&mut self, data: crate::core_bytes::Bytes) -> crate::stream::InStream {
         let mut handle: i64 = crate::stream::fresh_handle();
-        crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut self.reads, handle, crate::fs_mem::MemRead { source: String::from("<bytes>"), data: data.clone(), at: 0i32, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
+        crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut self.reads, handle, crate::fs_mem::MemRead { source: String::from("<bytes>"), data: data, at: 0i32, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
         return crate::stream::InStream { handle: handle };
     }
 }
@@ -387,7 +387,7 @@ pub fn mem_append(writes: &mut crate::core_map::Map<i64, crate::fs_mem::MemWrite
     let mut grown: crate::core_bytes::Bytes = crate::core_bytes::mut_bytes(vec![open.buffer.clone()]);
     crate::core_bytes::append_platform(&mut grown, data);
     let mut buffer: crate::core_bytes::Bytes = grown.clone();
-    crate::core_map::put_platform::<i64, crate::fs_mem::MemWrite>(&mut *writes, handle, crate::fs_mem::MemWrite { path: (open.path).clone(), buffer: buffer.clone() }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
+    crate::core_map::put_platform::<i64, crate::fs_mem::MemWrite>(&mut *writes, handle, crate::fs_mem::MemWrite { path: (open.path).clone(), buffer: buffer }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
     return ((crate::core_bytes::size_platform(data)) as i64);
 }
 
@@ -436,10 +436,10 @@ pub fn mem_read_line(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRea
     };
     let mut text: Option<String> = crate::core_bytes::str_of_bytes_platform(&line);
     if text.is_none() {
-        crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (open.source).clone(), data: bytes.clone(), at: next_at, failed: true }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
+        crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (open.source).clone(), data: bytes, at: next_at, failed: true }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
         return None;
     };
-    crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (open.source).clone(), data: bytes.clone(), at: next_at, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
+    crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (open.source).clone(), data: bytes, at: next_at, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
     let mut text_4 = text.as_ref().unwrap();
     return Some(crate::core_string::trim_suffix_platform(text_4, &String::from("\r")));
 }
@@ -448,7 +448,7 @@ pub fn mem_read_all(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRead
     let mut open: crate::fs_mem::MemRead = crate::fs_mem::mem_read_state(&*reads, handle);
     let mut source: String = (open.source).clone();
     if open.failed {
-        return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(crate::unions::Union2::U1(crate::stream::InvalidUtf8 { source: source.clone() }))));
+        return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(crate::unions::Union2::U1(crate::stream::InvalidUtf8 { source: source }))));
     };
     let mut bytes: crate::core_bytes::Bytes = (open.data).clone();
     let mut end: i32 = crate::core_bytes::size_platform(&bytes);
@@ -463,10 +463,10 @@ pub fn mem_read_all(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRead
     };
     let mut text: Option<String> = crate::core_bytes::str_of_bytes_platform(&rest);
     if text.is_none() {
-        crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (source).clone(), data: bytes.clone(), at: end, failed: true }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
+        crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (source).clone(), data: bytes, at: end, failed: true }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
         return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(crate::unions::Union2::U1(crate::stream::InvalidUtf8 { source: (source).clone() }))));
     };
-    crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (source).clone(), data: bytes.clone(), at: end, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
+    crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (source).clone(), data: bytes, at: end, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
     let mut text_4 = text.unwrap();
     return crate::unions::Union2::U1(crate::core_result::ok::<String>(text_4));
 }
@@ -475,7 +475,7 @@ pub fn mem_read_bytes(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRe
     let mut open: crate::fs_mem::MemRead = crate::fs_mem::mem_read_state(&*reads, handle);
     let mut source: String = (open.source).clone();
     if open.failed {
-        return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(crate::unions::Union2::U1(crate::stream::InvalidUtf8 { source: source.clone() }))));
+        return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(crate::unions::Union2::U1(crate::stream::InvalidUtf8 { source: source }))));
     };
     let mut bytes: crate::core_bytes::Bytes = (open.data).clone();
     let mut stop: i32 = i32::wrapping_add(open.at, max);
@@ -495,6 +495,6 @@ pub fn mem_read_bytes(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRe
             panic!("salvo: unreachable at fs.mem:434:48")
         }
     };
-    crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (source).clone(), data: bytes.clone(), at: stop, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
+    crate::core_map::put_platform::<i64, crate::fs_mem::MemRead>(&mut *reads, handle, crate::fs_mem::MemRead { source: (source).clone(), data: bytes, at: stop, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
     return crate::unions::Union2::U1(crate::core_result::ok::<crate::core_bytes::Bytes>(taken));
 }

@@ -623,8 +623,11 @@ The causes: `reset_assigned` puts a variable assigned anywhere in a
 fall-through arm (every arm, for `when`) back to its declared type *after*
 the join, whatever the arm did with it next; and `check_loop_body` re-walks
 from the body's fall-through end state, while `continue` states are dropped.
-Fix it in the flow pass, not the checker (R8: the checker's version is to be
-switched off). Its rules then become: an assignment revives a variable on its
+Fix it in the flow pass, not the checker: since R8 piece 2 the pass is the
+gate's use-after-move diagnostic and the checker's consumed read is switched
+off (the checker still marks the move, which its linear machinery reads, and
+`flow_tests`' differential compares the two — a fixed rule goes into its
+`KNOWN` list). Its rules then become: an assignment revives a variable on its
 own path only, so the join already says the right thing and the reset goes;
 and the back edge joins the end state with every `continue` state. Two
 over-strict rules to drop with them: the end state of a body that always

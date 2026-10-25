@@ -488,13 +488,13 @@ pub fn fresh_handle() -> i64 {
 
 pub fn register_in(mut source: String, mut host: crate::runtime_streams::HostIn, mut position: i64) -> i64 {
     let mut handle: i64 = crate::runtime_streams::fresh_handle();
-    crate::runtime_streams::__module_use0_0().put_in(handle, crate::runtime_streams::InEntry { source: source.clone(), host: host, position: position, ahead: crate::core_bytes::mut_bytes(vec![]), failed: None });
+    crate::runtime_streams::__module_use0_0().put_in(handle, crate::runtime_streams::InEntry { source: source, host: host, position: position, ahead: crate::core_bytes::mut_bytes(vec![]), failed: None });
     return handle;
 }
 
 pub fn register_out(mut source: String, mut host: crate::runtime_streams::HostOut, mut position: i64) -> i64 {
     let mut handle: i64 = crate::runtime_streams::fresh_handle();
-    crate::runtime_streams::__module_use0_0().put_out(handle, crate::runtime_streams::OutEntry { source: source.clone(), host: host, position: position, failed: None });
+    crate::runtime_streams::__module_use0_0().put_out(handle, crate::runtime_streams::OutEntry { source: source, host: host, position: position, failed: None });
     return handle;
 }
 
@@ -581,7 +581,7 @@ pub fn close_out(mut handle: i64, mut e: crate::runtime_streams::OutEntry) -> Op
 }
 
 pub fn record(e: &mut crate::runtime_streams::InEntry, mut message: String) -> crate::runtime_streams::Fault {
-    let mut f: crate::runtime_streams::Fault = crate::runtime_streams::Fault { utf8: false, message: message.clone() };
+    let mut f: crate::runtime_streams::Fault = crate::runtime_streams::Fault { utf8: false, message: message };
     e.failed = Some((f).clone());
     return f;
 }
@@ -675,7 +675,7 @@ pub fn read_line(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_stre
                 return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: None };
             };
             let mut rest: crate::core_bytes::Bytes = { let __arg1 = crate::core_bytes::size_platform(&e.ahead); crate::runtime_streams::take_ahead(&mut *e, __arg1) };
-            return crate::runtime_streams::Read { data: rest.clone(), end: false, fault: None };
+            return crate::runtime_streams::Read { data: rest, end: false, fault: None };
         };
         crate::core_bytes::append_platform(&mut e.ahead, &got.data);
     }
@@ -738,7 +738,7 @@ pub fn decode(e: &mut crate::runtime_streams::InEntry, data: &crate::core_bytes:
 }
 
 pub fn record_out(e: &mut crate::runtime_streams::OutEntry, mut message: String) {
-    e.failed = Some(crate::runtime_streams::Fault { utf8: false, message: message.clone() });
+    e.failed = Some(crate::runtime_streams::Fault { utf8: false, message: message });
 }
 
 pub fn write(e: &mut crate::runtime_streams::OutEntry, data: &crate::core_bytes::Bytes) -> i64 {
@@ -819,7 +819,7 @@ pub fn read_and_answer(mut handle: i64) {
         let mut __destructured_1: crate::runtime_streams::Pending = found;
         let mut _h: i64 = __destructured_1.handle;
         let mut done: crate::scheduler::SalvoReply = __destructured_1.done;
-        crate::scheduler::salvo_reply_wire::<crate::runtime_streams::Chunk>(done, crate::runtime_streams::Chunk { data: got.data.clone(), end: got.end, fault: got.fault.clone(), source: source.clone() });
+        crate::scheduler::salvo_reply_wire::<crate::runtime_streams::Chunk>(done, crate::runtime_streams::Chunk { data: got.data.clone(), end: got.end, fault: got.fault.clone(), source: source });
     };
     crate::runtime::external_end();
 }

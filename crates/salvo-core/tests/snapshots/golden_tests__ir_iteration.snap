@@ -174,7 +174,7 @@ fn main::sum_of<It>(lent_mut it: Mut It; ?lent next: (Mut It) -> Int | Finished)
 
 fn main::total<C, It>(lent c: C; ?lent iter: (C) -> Mut It, lent next: (Mut It) -> Int | Finished) -> Int {
   bind#1 let total: Int = 0
-  bind#3 let __pass~1: Mut It = call local iter(read c)
+  bind#3 let __pass~1: Mut It = call local iter(!read c)
   loop#2 {
     bind#4 let __step~2: Int | Finished = call local next(read __pass~1)
     switch#5 read __step~2 {

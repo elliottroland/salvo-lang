@@ -89,7 +89,10 @@ fun main() {
     salvo.core.console.println(__handle_2, "5. to_set ${salvo.core.set.toStr(deduped, { __a0 -> (__a0).toString() })}")
     val words: List<String> = listOf<String>("alpha", "be")
     val lengths: salvo.platform.core.map.Map<String, Int> = salvo.core.map.toMap(words, fun(w: String): kotlin.Pair<String, Int> {
-        return kotlin.Pair(w, salvo.core.string.sizePlatform(w))
+        return kotlin.run {
+            val __part_5: Int = salvo.core.string.sizePlatform(w)
+            kotlin.Pair(w, __part_5)
+        }
     }, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.core.console.println(__handle_2, "5. to_map with a rule ${salvo.core.map.toStr(lengths, { __a0 -> __a0 }, { __a0 -> (__a0).toString() }, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })}")
     val filled: List<String> = listOf<String>("ada", "grace")
@@ -99,9 +102,9 @@ fun main() {
     salvo.core.console.println(__handle_2, "6. after add, first is ${salvo.core.list.first(growing)}")
     val ordered: List<Int> = salvo.core.list.sort(listOf<Int>(40, 10, 30, 20), { __a0, __a1 -> (__a0).compareTo(__a1) })
     salvo.core.console.println(__handle_2, "6. sorted ${salvo.core.list.toStr(ordered, { __a0 -> (__a0).toString() })}")
-    val __subject_5: Int? = salvo.core.list.binarySearch(ordered, 30, { __a0, __a1 -> (__a0).compareTo(__a1) })
-    if ((__subject_5 != null)) {
-        val at: Int = __subject_5!!
+    val __subject_6: Int? = salvo.core.list.binarySearch(ordered, 30, { __a0, __a1 -> (__a0).compareTo(__a1) })
+    if ((__subject_6 != null)) {
+        val at: Int = __subject_6!!
         salvo.core.console.println(__handle_2, "6. found 30 at ${at}")
     }
     val live: salvo.platform.core.list.MutList<Int> = salvo.core.list.mutSort(listOf<Int>(10, 30), { __a0, __a1 -> (__a0).compareTo(__a1) })
@@ -110,20 +113,20 @@ fun main() {
     salvo.core.console.println(__handle_2, "6. still sorted ${salvo.core.list.toStr(live, { __a0 -> (__a0).toString() })}")
     val bylen: List<String> = salvo.core.list.sort(listOf<String>("alpha", "be", "z"), ::byLen)
     salvo.core.console.println(__handle_2, "6. by length ${salvo.core.list.toStr(bylen, { __a0 -> __a0 })}")
-    val __subject_6: Int? = salvo.core.list.binarySearch(bylen, "hi", ::byLen)
-    if ((__subject_6 != null)) {
-        val atLen: Int = __subject_6!!
+    val __subject_7: Int? = salvo.core.list.binarySearch(bylen, "hi", ::byLen)
+    if ((__subject_7 != null)) {
+        val atLen: Int = __subject_7!!
         salvo.core.console.println(__handle_2, "6. a two-letter word at ${atLen}")
     }
     val unique: List<Int> = salvo.core.set.toListPlatform(deduped)
     salvo.core.console.println(__handle_2, "6. distinct ${salvo.core.list.toStr(unique, { __a0 -> (__a0).toString() })} of ${countUnique(unique)}")
-    val __pass_7: salvo.core.set.SetYield<String> = salvo.core.set.iter(vowels)
+    val __pass_8: salvo.core.set.SetYield<String> = salvo.core.set.iter(vowels)
     while (true) {
-        val __step_8: Union2<String, salvo.core.iterator.Finished> = salvo.core.set.next(__pass_7)
+        val __step_9: Union2<String, salvo.core.iterator.Finished> = salvo.core.set.next(__pass_8)
         when {
-            (__step_8 is Union2.U1<*, *>) -> {
-                val __emitted_9: String = ((__step_8 as Union2.U1<*, *>).value as String)
-                val v: String = __emitted_9
+            (__step_9 is Union2.U1<*, *>) -> {
+                val __emitted_10: String = ((__step_9 as Union2.U1<*, *>).value as String)
+                val v: String = __emitted_10
                 __handle_2.print(v)
             }
             else -> {
@@ -132,17 +135,17 @@ fun main() {
         }
     }
     salvo.core.console.println(__handle_2, "")
-    val __pass_10: salvo.core.map.MapKeyYield<String> = salvo.core.map.iter(ages)
+    val __pass_11: salvo.core.map.MapKeyYield<String> = salvo.core.map.iter(ages)
     while (true) {
-        val __step_11: Union2<String, salvo.core.iterator.Finished> = salvo.core.map.next__MapKeyYield(__pass_10)
+        val __step_12: Union2<String, salvo.core.iterator.Finished> = salvo.core.map.next__MapKeyYield(__pass_11)
         when {
-            (__step_11 is Union2.U1<*, *>) -> {
-                val __emitted_12: String = ((__step_11 as Union2.U1<*, *>).value as String)
-                val name: String = __emitted_12
+            (__step_12 is Union2.U1<*, *>) -> {
+                val __emitted_13: String = ((__step_12 as Union2.U1<*, *>).value as String)
+                val name: String = __emitted_13
                 val age: Int? = salvo.core.map.getPlatform(ages, name, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
                 if ((age != null)) {
-                    val age_13: Int = age!!
-                    salvo.core.console.println(__handle_2, "7. ${name} is ${age_13}")
+                    val age_14: Int = age!!
+                    salvo.core.console.println(__handle_2, "7. ${name} is ${age_14}")
                 }
             }
             else -> {

@@ -311,9 +311,9 @@ pub fn route_frames(mut out: usize) {
 pub fn forward_frame(mut out: i32, to: &crate::core_bytes::Bytes, mut frame: crate::core_bytes::Bytes) {
     let mut __subject_1: Option<crate::net::NodeEndpoint> = crate::wire::salvo_decode::<crate::net::NodeEndpoint>(&to);
     if __subject_1.is_some() {
-        let mut ep = __subject_1.as_ref().unwrap();
+        let mut ep = __subject_1.unwrap();
         let mut sending: usize = ((out) as usize);
-        crate::scheduler::salvo_send_wire(sending, crate::net::__Msg_Outbound::SendFrame(ep.clone(), frame.clone()), crate::net::__PROTO_Outbound);
+        crate::scheduler::salvo_send_wire(sending, crate::net::__Msg_Outbound::SendFrame(ep, frame), crate::net::__PROTO_Outbound);
     };
 }
 
@@ -828,7 +828,7 @@ pub fn handshake(transport: &crate::net::Transport, group: &String, mut from: cr
         crate::net::set_peer_protocols(&(from).clone(), &(msg_1.protocols).clone());
         let mut ack: crate::unions::Union4<crate::net::Hello, crate::net::Ack, crate::net::Leaving, crate::net::Intro> = crate::unions::Union4::U2(crate::net::Ack { group: (group).clone(), at: transport.local_endpoint(), protocols: crate::runtime_routing::local_protocols() });
         crate::net::send_control(&(from).clone(), &String::from(""), crate::wire::salvo_encode(&ack));
-        return Some(crate::unions::Union3::U1(crate::net::PeerHello { node: from.clone(), at: (msg_1.at).clone() }));
+        return Some(crate::unions::Union3::U1(crate::net::PeerHello { node: from, at: (msg_1.at).clone() }));
     } else if matches!(msg, Some(crate::unions::Union4::U2(_))) {
         let mut msg_2 = match &msg { Some(crate::unions::Union4::U2(__v)) => __v, _ => unreachable!() };
         if !((&msg_2.group[..] == &group[..])) {
@@ -836,11 +836,11 @@ pub fn handshake(transport: &crate::net::Transport, group: &String, mut from: cr
         };
         crate::net::add_route(&(from).clone(), &(msg_2.at).clone());
         crate::net::set_peer_protocols(&(from).clone(), &(msg_2.protocols).clone());
-        return Some(crate::unions::Union3::U1(crate::net::PeerHello { node: from.clone(), at: (msg_2.at).clone() }));
+        return Some(crate::unions::Union3::U1(crate::net::PeerHello { node: from, at: (msg_2.at).clone() }));
     } else if matches!(msg, Some(crate::unions::Union4::U3(_))) {
         let mut msg_3 = match &msg { Some(crate::unions::Union4::U3(__v)) => __v, _ => unreachable!() };
         crate::net::node_left(&(from).clone());
-        return Some(crate::unions::Union3::U2(crate::net::PeerGone { node: from.clone() }));
+        return Some(crate::unions::Union3::U2(crate::net::PeerGone { node: from }));
     } else if matches!(msg, Some(crate::unions::Union4::U4(_))) {
         let mut msg_4 = match &msg { Some(crate::unions::Union4::U4(__v)) => __v, _ => unreachable!() };
         return Some(crate::unions::Union3::U3(crate::net::PeerIntro { peers: (msg_4.peers).clone() }));
@@ -1345,7 +1345,7 @@ pub fn actor_group__Addr(mut nodes: usize, protocol: &mut dyn FnMut() -> crate::
 }
 
 pub fn actor_group__Str_Addr(mut name: String, mut nodes: usize, protocol: &mut dyn FnMut() -> crate::net::Protocol) -> usize {
-    let mut __destructured_1: (usize, usize) = ({ let __h = crate::net::ActorGrouping::new(name.clone(), protocol()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::core_actor::pool(1i32), __cap as usize, std::boxed::Box::new(crate::net::__Actor_ActorGrouping::new(__h)), crate::net::__DECODE_ActorGrouping); crate::scheduler::salvo_send(__a, std::boxed::Box::new(crate::net::__Priv_ActorGrouping::Init)); (__a, __a) });
+    let mut __destructured_1: (usize, usize) = ({ let __h = crate::net::ActorGrouping::new(name, protocol()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::core_actor::pool(1i32), __cap as usize, std::boxed::Box::new(crate::net::__Actor_ActorGrouping::new(__h)), crate::net::__DECODE_ActorGrouping); crate::scheduler::salvo_send(__a, std::boxed::Box::new(crate::net::__Priv_ActorGrouping::Init)); (__a, __a) });
     let mut group: usize = __destructured_1.0;
     let mut watcher: usize = __destructured_1.1;
     crate::scheduler::salvo_send_wire(nodes, crate::net::__Msg_NodeGroup::Subscribe(watcher), crate::net::__PROTO_NodeGroup);
@@ -2275,7 +2275,7 @@ impl crate::net::__Stateless_Transport for MemTransport {
             return crate::unions::Union2::U2(crate::unions::Union2::U1(crate::core_result::err::<crate::net::Unreachable>(crate::net::Unreachable { to: (to).clone() })));
         };
         let mut sink_1 = sink.unwrap();
-        crate::scheduler::salvo_send_wire(sink_1, crate::net::__Msg_Inbound::ReceiveFrame((self.me).clone(), frame.clone()), crate::net::__PROTO_Inbound);
+        crate::scheduler::salvo_send_wire(sink_1, crate::net::__Msg_Inbound::ReceiveFrame((self.me).clone(), frame), crate::net::__PROTO_Inbound);
         return crate::unions::Union2::U1(crate::core_result::ok::<()>(()));
     }
     fn local_endpoint(&self) -> crate::net::NodeEndpoint {

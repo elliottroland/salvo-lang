@@ -734,7 +734,7 @@ pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy
         };
         i = i32::wrapping_add(i, 1i32);
     }
-    return (yes.clone(), no.clone());
+    return (yes, no);
 }
 
 pub fn reverse<T>(list: &mut Vec<T>) {
@@ -1847,7 +1847,7 @@ pub fn split_once(str: &String, sep: &String) -> Option<(String, String)> {
                 String::from("")
             }
         };
-        return Some((before.clone(), after.clone()));
+        return Some((before, after));
     };
     return None;
 }
@@ -1874,7 +1874,7 @@ pub fn split_last(str: &String, sep: &String) -> Option<(String, String)> {
                 String::from("")
             }
         };
-        return Some((before.clone(), after.clone()));
+        return Some((before, after));
     };
     return None;
 }
@@ -2026,7 +2026,7 @@ pub fn main() {
     let mut person: crate::Person = crate::Person { name: String::from("Roland"), surname: Some(String::from("Elliott")), age: 36i32 };
     crate::greet(&__handle_2, &person);
     let mut anon: crate::Person = {
-        let mut __spread_3: crate::Person = person.clone();
+        let mut __spread_3: crate::Person = person;
         crate::Person { name: __spread_3.name, surname: None, age: __spread_3.age }
     };
     crate::greet(&__handle_2, &anon);

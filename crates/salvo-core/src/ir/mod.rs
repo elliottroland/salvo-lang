@@ -75,6 +75,18 @@ pub fn dump_program(
                 };
                 inline.push((d.span, format!("{loc}: {}", d.message)));
             }
+            // [flow-use-after-move] A use of a moved value, inline the same way.
+            for d in flow::check_one(decl) {
+                let message = d.render(content.unwrap_or(""));
+                let loc = match content {
+                    Some(c) => {
+                        let (line, col) = salvo_syntax::span::line_col(c, d.span.start);
+                        format!("{}:{line}:{col}", m.path.0.join("."))
+                    }
+                    None => format!("{}:{}", m.path.0.join("."), d.span.start),
+                };
+                inline.push((d.span, format!("{loc}: {message}")));
+            }
         }
         let module_text = dump::Dumper::module_with_leaks(&ir, m, &inline);
         // A leak whose span never appeared inline (no matching dumped line) is

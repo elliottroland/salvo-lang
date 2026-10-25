@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2037 tests, complete: the toolchain tests are
+cargo test                  # 2038 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,61 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Use-after-move is reported from the IR
+
+PIPELINE.md R8 piece 2 [flow-use-after-move]. The IR flow pass is now the
+gate's use-after-move diagnostic: `ir::analyze` runs `ir::flow::check_one`
+per declaration next to the linear check, and every gate that calls it on a
+clean program reports it — `salvo analyze` and the LSP, compile/run/build/
+test (`check_for_emission`), and `salvo ir` inline. The message names the
+move: "`s` cannot be used here: it was consumed (moved) at line 3; reassign
+it before use, or `copy` it where it is moved". The flow pass now also runs
+on test files (`*.test.sv`), which the linear check still skips.
+
+The checker stops reporting a consumed read. It still marks the move
+(`narrowed = Never`), since its joins, linear obligations and poison read
+that marker (the ownership-blind walk showed what happens without it). A
+read of a consumed value answers the type it had before, kept in
+`LocalVar::consumed_ty`. `mark_consumed` takes the variable now, and the
+type follows narrowing installs, narrowing restores, snapshots and joins, so
+a later read types as it would with ownership switched off. Both copies of
+the same-call rule lose their bare-name half; the flow pass reports that
+read. Some consumed reads are still the checker's, because the IR does not
+carry those moves: a read after a `once` call, a root a projection move took
+wholly, and any fn value. The IR lends fn-typed parameters whatever their
+contract, so the flow pass skips fn-typed locals and nothing reports twice.
+Poison, BoundAway and partial moves stay as planned for piece 3.
+
+The four moves the IR missed (a literal store, a spread, a `use` argument, a
+`break` value) come through a new `Checked::moved_reads`: every bare
+identifier `fate_move` consumes wholly, read `consume: true`. That also
+covers sends, throws, `replyto` captures and driven passes. The Rust output
+now moves where it cloned: std's `partition`, `both`, `split_once` and `split_last` return
+their tuples without clones; `args.sv`'s `scan` moves its hits, errors and
+narrowed optionals; and a `replyto` stores `label` itself. This changed five
+Rust goldens, eight IR goldens, 79 example files, and the host projects
+checked in beside std and aws, all reviewed and regenerated, with rustc and
+kotlinc green. Two things turned up while
+building it. First, the IR evaluated a literal's components in order, while
+the checker moves what a literal stores only after reading all of them, so
+`(w, size(w))` in examples/collections and std's `Spec { ...base, name:
+"${base.name}" }` would have been E0382s. The builder now hoists the reading
+components into `__part` temporaries when they conflict (Kotlin output
+changed for those two). Second, the flow pass took a written `if true {
+break s }` for a builder block expression.
+
+`flow_tests` keeps its differential. The pass is compared with the checker
+run through `check_program_reporting_consumed_reads`, a test-only
+thread-local switch that restores the old diagnostic. The IR is built from
+the normal walk, which must report nothing on the corpus, and the gate must
+report what the pass finds. `KNOWN` is empty. There are 39 cases. Tests that
+asserted the old messages (in analyze_tests, once_tests and
+copy_scalar_tests) now go through `ir::analyze` and assert the move's line.
+Three analyze tests that mixed checker errors with use-after-moves were split
+in two, because gating is per program: a checker error hides the flow
+pass's diagnostics. A new test, `every_gate_reports_a_use_after_move`,
+checks analyze, both compiles, `salvo ir` and a test file.
 
 ### 2026-10-20 — The IR's use-after-move pass, checked against the checker
 
@@ -28369,7 +28424,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2037 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2038 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -29644,6 +29699,24 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A literal moves what it stores after reading every component**
+  (2026-10-20): the checker runs `fate_move` for a tuple's or a struct
+  literal's components only once all of them are checked, so `(w, size(w))`
+  and `Spec { ...base, name: "${base.name}" }` are legal — but the IR built
+  them in order, and the Rust output worked only because the moved read was
+  a `.clone()`. Making those reads moves (R8 piece 2) needs the reading
+  components hoisted ahead of the moves (`hoist_past_stores`); a move the
+  IR orders differently from the checker shows up as a flow-pass false
+  positive on std or an example (`the_flow_pass_accepts_every_example_and_std`)
+  before it shows up as an E0382.
+
+- **The builder's block expression and a written `if true` are the same
+  shape** (2026-10-20): both are a one-arm `Branch` whose condition is
+  `Bool(true)`. A block expression's condition spans the whole branch; a
+  written one has its own span. The flow pass walked `while true { if true {
+  break s } }` as straight-line code and reported the `break` on the
+  re-walk.
 
 - **The ownership-blind walk's own errors are not to be trusted**
   (2026-10-20): `check_program_ownership_blind` keeps a consumed value's

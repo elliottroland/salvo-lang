@@ -168,7 +168,10 @@ pub fn main() {
     crate::core_console::println(&__handle_2, &format!("5. to_set {}", crate::core_set::to_str::<i32>(&deduped, &mut |__a0: &i32| format!("{}", *__a0))));
     let mut words: Vec<String> = vec![String::from("alpha"), String::from("be")];
     let mut lengths: crate::core_map::Map<String, i32> = crate::core_map::to_map::<String, String, i32>(&words, &mut |mut w| -> (String, i32) {
-        (w.clone(), crate::core_string::size_platform(w))
+        {
+            let mut __part_5: i32 = crate::core_string::size_platform(w);
+            (w.clone(), __part_5)
+        }
     }, &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
     crate::core_console::println(&__handle_2, &format!("5. to_map with a rule {}", crate::core_map::to_str::<String, i32>(&lengths, &mut |__a0: &String| format!("{}", __a0), &mut |__a0: &i32| format!("{}", *__a0), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]))));
     let mut filled: Vec<String> = vec![String::from("ada"), String::from("grace")];
@@ -178,9 +181,9 @@ pub fn main() {
     crate::core_console::println(&__handle_2, &format!("6. after add, first is {}", (*crate::core_list::first::<i32>(&growing))));
     let mut ordered: Vec<i32> = crate::core_list::sort::<i32>(&vec![40i32, 10i32, 30i32, 20i32], &mut |__a0: &i32, __a1: &i32| (Ord::cmp(&(*__a0), &(*__a1)) as i32));
     crate::core_console::println(&__handle_2, &format!("6. sorted {}", crate::core_list::to_str::<i32>(&ordered, &mut |__a0: &i32| format!("{}", *__a0))));
-    let mut __subject_5: Option<i32> = crate::core_list::binary_search::<i32>(&ordered, &30i32, &mut |__a0: &i32, __a1: &i32| (Ord::cmp(&(*__a0), &(*__a1)) as i32));
-    if __subject_5.is_some() {
-        let mut at = __subject_5.unwrap();
+    let mut __subject_6: Option<i32> = crate::core_list::binary_search::<i32>(&ordered, &30i32, &mut |__a0: &i32, __a1: &i32| (Ord::cmp(&(*__a0), &(*__a1)) as i32));
+    if __subject_6.is_some() {
+        let mut at = __subject_6.unwrap();
         crate::core_console::println(&__handle_2, &format!("6. found 30 at {}", at));
     };
     let mut live: Vec<i32> = crate::core_list::mut_sort::<i32>(&vec![10i32, 30i32], &mut |__a0: &i32, __a1: &i32| (Ord::cmp(&(*__a0), &(*__a1)) as i32));
@@ -189,35 +192,35 @@ pub fn main() {
     crate::core_console::println(&__handle_2, &format!("6. still sorted {}", crate::core_list::to_str::<i32>(&live, &mut |__a0: &i32| format!("{}", *__a0))));
     let mut bylen: Vec<String> = crate::core_list::sort::<String>(&vec![String::from("alpha"), String::from("be"), String::from("z")], &mut |__a0: &String, __a1: &String| crate::by_len(__a0, __a1));
     crate::core_console::println(&__handle_2, &format!("6. by length {}", crate::core_list::to_str::<String>(&bylen, &mut |__a0: &String| format!("{}", __a0))));
-    let mut __subject_6: Option<i32> = crate::core_list::binary_search::<String>(&bylen, &String::from("hi"), &mut |__a0: &String, __a1: &String| crate::by_len(__a0, __a1));
-    if __subject_6.is_some() {
-        let mut at_len = __subject_6.unwrap();
+    let mut __subject_7: Option<i32> = crate::core_list::binary_search::<String>(&bylen, &String::from("hi"), &mut |__a0: &String, __a1: &String| crate::by_len(__a0, __a1));
+    if __subject_7.is_some() {
+        let mut at_len = __subject_7.unwrap();
         crate::core_console::println(&__handle_2, &format!("6. a two-letter word at {}", at_len));
     };
     let mut unique: Vec<i32> = crate::core_set::to_list_platform::<i32>(&deduped);
     crate::core_console::println(&__handle_2, &format!("6. distinct {} of {}", crate::core_list::to_str::<i32>(&unique, &mut |__a0: &i32| format!("{}", *__a0)), crate::count_unique(&unique)));
-    let mut __pass_7: crate::core_set::SetYield<String> = crate::core_set::iter::<String>(&vowels);
+    let mut __pass_8: crate::core_set::SetYield<String> = crate::core_set::iter::<String>(&vowels);
     loop {
-        let mut __step_8: crate::unions::Union2<String, crate::core_iterator::Finished> = crate::core_set::next(&mut __pass_7);
-        if matches!(__step_8, crate::unions::Union2::U1(_)) {
-            let mut __emitted_9 = match __step_8 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            let mut v: String = __emitted_9;
+        let mut __step_9: crate::unions::Union2<String, crate::core_iterator::Finished> = crate::core_set::next(&mut __pass_8);
+        if matches!(__step_9, crate::unions::Union2::U1(_)) {
+            let mut __emitted_10 = match __step_9 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+            let mut v: String = __emitted_10;
             __handle_2.print(&v);
         } else {
             break;
         };
     }
     crate::core_console::println(&__handle_2, &String::from(""));
-    let mut __pass_10: crate::core_map::MapKeyYield<String> = crate::core_map::iter::<String, i32>(&ages);
+    let mut __pass_11: crate::core_map::MapKeyYield<String> = crate::core_map::iter::<String, i32>(&ages);
     loop {
-        let mut __step_11: crate::unions::Union2<String, crate::core_iterator::Finished> = crate::core_map::next__MapKeyYield(&mut __pass_10);
-        if matches!(__step_11, crate::unions::Union2::U1(_)) {
-            let mut __emitted_12 = match __step_11 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            let mut name: String = __emitted_12;
+        let mut __step_12: crate::unions::Union2<String, crate::core_iterator::Finished> = crate::core_map::next__MapKeyYield(&mut __pass_11);
+        if matches!(__step_12, crate::unions::Union2::U1(_)) {
+            let mut __emitted_13 = match __step_12 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+            let mut name: String = __emitted_13;
             let mut age: Option<i32> = crate::core_map::get_platform::<String, i32>(&ages, &name, &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..])).copied();
             if age.is_some() {
-                let mut age_13 = age.unwrap();
-                crate::core_console::println(&__handle_2, &format!("7. {} is {}", name, age_13));
+                let mut age_14 = age.unwrap();
+                crate::core_console::println(&__handle_2, &format!("7. {} is {}", name, age_14));
             };
         } else {
             break;

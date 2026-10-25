@@ -1947,10 +1947,14 @@ effects" keeps the history).
   }
   ```
 
-  The base is a value (a clone when the read does not consume it), so the
-  copy is deep where Kotlin's `.copy()` is shallow on `Mut` fields — which is
+  The base is a value — the move itself when the base is a bare local the
+  checker consumes there (`moved_reads` [flow-use-after-move], so `let mut
+  __spread_7: crate::P = p;`), else a clone — so the copy is deep where
+  Kotlin's `.copy()` is shallow on `Mut` fields — which is
   unobservable, because the checker consumes the spread base
-  [deduce-consume]. Several spreads each bind a base (`__spread_3`,
+  [deduce-consume]. A written field that reads the base (`P {...p, name:
+  p.name + "!"}`) is evaluated first into a temporary (`let mut __part_6 =
+  …;`), ahead of the base's move: a literal reads before it stores. Several spreads each bind a base (`__spread_3`,
   `__spread_4`), the later one supplying a field both have; a base no field
   is taken from is bound by reference (`let mut __spread_3 = &p;`).
 

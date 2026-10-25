@@ -233,7 +233,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
         if !(crate::core_map::contains_key_platform::<String, Vec<String>>(&self.queues, &url, &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]))) {
             crate::core_map::put_platform::<String, Vec<String>>(&mut self.queues, (url).clone(), vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
         };
-        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::CreateQueueOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::core_result::ok::<crate::aws_sqs::CreateQueueOutput>(crate::aws_sqs::CreateQueueOutput { queue_url: Some(url.clone()) })));
+        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::CreateQueueOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::core_result::ok::<crate::aws_sqs::CreateQueueOutput>(crate::aws_sqs::CreateQueueOutput { queue_url: Some(url) })));
     }
     fn get_queue_url(&mut self, input: crate::aws_sqs::GetQueueUrlInput, reply: crate::scheduler::SalvoReply) {
         let mut url: String = format!("mem://{}", input.queue_name);
@@ -241,7 +241,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
             crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::GetQueueUrlOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>(crate::core_checked::checked::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(crate::unions::Union2::U1(crate::no_queue(url))))));
             return;
         };
-        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::GetQueueUrlOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::core_result::ok::<crate::aws_sqs::GetQueueUrlOutput>(crate::aws_sqs::GetQueueUrlOutput { queue_url: Some(url.clone()) })));
+        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::GetQueueUrlOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::core_result::ok::<crate::aws_sqs::GetQueueUrlOutput>(crate::aws_sqs::GetQueueUrlOutput { queue_url: Some(url) })));
     }
     fn send_message(&mut self, input: crate::aws_sqs::SendMessageInput, reply: crate::scheduler::SalvoReply) {
         let mut held: Option<&Vec<String>> = crate::core_map::get_platform::<String, Vec<String>>(&self.queues, &input.queue_url, &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
@@ -258,7 +258,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
         crate::core_list::add_platform::<String>(&mut grown, (input.message_body).clone());
         let mut stored: Vec<String> = grown.clone();
         crate::core_map::put_platform::<String, Vec<String>>(&mut self.queues, (input.queue_url).clone(), stored, &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
-        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::SendMessageOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::core_result::ok::<crate::aws_sqs::SendMessageOutput>(crate::aws_sqs::SendMessageOutput { md5_of_message_body: None, md5_of_message_attributes: None, md5_of_message_system_attributes: None, message_id: Some(id.clone()), sequence_number: None })));
+        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::SendMessageOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::core_result::ok::<crate::aws_sqs::SendMessageOutput>(crate::aws_sqs::SendMessageOutput { md5_of_message_body: None, md5_of_message_attributes: None, md5_of_message_system_attributes: None, message_id: Some(id), sequence_number: None })));
     }
     fn receive_message(&mut self, input: crate::aws_sqs::ReceiveMessageInput, reply: crate::scheduler::SalvoReply) {
         let mut held: Option<&Vec<String>> = crate::core_map::get_platform::<String, Vec<String>>(&self.queues, &input.queue_url, &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
@@ -274,7 +274,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
             crate::core_list::add_platform::<crate::aws_sqs::Message>(&mut out, crate::aws_sqs::Message { message_id: Some(format!("m{}", i)), receipt_handle: Some(format!("m{}", i)), md5_of_body: None, body: Some((b).clone()), attributes: None, md5_of_message_attributes: None, message_attributes: None });
         }
         let mut messages: Vec<crate::aws_sqs::Message> = out.clone();
-        (reply).send(std::boxed::Box::<crate::unions::Union2<crate::aws_sqs::ReceiveMessageOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>::new(crate::unions::Union2::U1(crate::core_result::ok::<crate::aws_sqs::ReceiveMessageOutput>(crate::aws_sqs::ReceiveMessageOutput { messages: Some(messages.clone()) }))));
+        (reply).send(std::boxed::Box::<crate::unions::Union2<crate::aws_sqs::ReceiveMessageOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>::new(crate::unions::Union2::U1(crate::core_result::ok::<crate::aws_sqs::ReceiveMessageOutput>(crate::aws_sqs::ReceiveMessageOutput { messages: Some(messages) }))));
     }
     fn delete_message(&mut self, input: crate::aws_sqs::DeleteMessageInput, reply: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_reply_wire::<crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::core_result::ok::<()>(())));

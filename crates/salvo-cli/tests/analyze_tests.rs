@@ -265,8 +265,9 @@ fn missing_return_is_an_error() {
     );
 }
 
-// [deduce-consume] A written `!p` consumes the identifier argument: its type
-// narrows to `Never` and later uses are errors; reassignment revives it; kept
+// [deduce-consume] A written `!p` consumes the identifier argument and later
+// uses are errors — the IR flow pass's, naming the move
+// [flow-use-after-move]; reassignment revives it; kept
 // parameters are unaffected. Consumption on an always-exiting branch does not
 // leak past the branch. A Copy scalar is the exception [copy-scalar-free]:
 // moving one is a copy, so the same program over `Int`s compiles.
@@ -284,7 +285,7 @@ fn use_after_consume_is_an_error() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains("`a` cannot be used here: it was consumed (moved) by an earlier call"),
+        stderr.contains("`a` cannot be used here: it was consumed (moved) at line 9; reassign it before use, or `copy` it where it is moved"),
         "stderr: {stderr}"
     );
     // [copy-scalar-free] The same over `Int`s: moving one is a copy, and the
@@ -339,6 +340,53 @@ fn use_after_consume_is_an_error() {
     );
 }
 
+// [flow-use-after-move] The IR flow pass is a gate: `salvo analyze` (and so
+// the LSP), `salvo compile` on both backends, and `salvo ir` (inline) all
+// report a use after a move, naming the move's line; a test file's bodies
+// are checked too.
+#[test]
+fn every_gate_reports_a_use_after_move() {
+    let dir = src_dir("flow_gate");
+    fs::write(
+        dir.join("main.sv"),
+        "fn eat(s: Str) -> None => !s {\n}\n\n\
+         fn twice() {\n    let s = \"a${1}\"\n    eat(s)\n    eat(s)\n}\n",
+    )
+    .unwrap();
+    let message = "`s` cannot be used here: it was consumed (moved) at line 6; reassign it before use, or `copy` it where it is moved";
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "stderr: {stderr}");
+    assert!(stderr.contains(&format!("{message} --> main.sv:7:9")), "stderr: {stderr}");
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
+    for backend in ["rust", "kotlin"] {
+        let target = dir.join(format!("out_{backend}"));
+        let out = salvo(&["compile", "--backend", backend, "--src", dir.to_str().unwrap(), "--target", target.to_str().unwrap()]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{backend} compiled a use after a move: {stderr}");
+        assert!(stderr.contains(message), "{backend}: {stderr}");
+    }
+    // `salvo ir` dumps the program and shows the use where it happens.
+    let out = salvo(&["ir", "--src", dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains(&format!("!!! main:7:9: {message}")), "stdout: {stdout}");
+
+    // A test file's bodies are checked by the flow pass as well.
+    fs::write(dir.join("main.sv"), "fn eat(s: Str) -> None => !s {\n}\n").unwrap();
+    fs::write(
+        dir.join("main.test.sv"),
+        "test \"twice\" {\n    let s = \"a${1}\"\n    eat(s)\n    eat(s)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "stderr: {stderr}");
+    assert!(
+        stderr.contains("`s` cannot be used here: it was consumed (moved) at line 3; reassign it before use"),
+        "stderr: {stderr}"
+    );
+}
+
 // [deduce-consume] A *declared* consuming parameter is enforced like an
 // inferred one used to be (second checking round): a callee that consumes
 // its parameter moves it, so the caller's argument is consumed with the
@@ -364,8 +412,7 @@ fn inferred_moves_consume_arguments() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr
-            .contains("`strings` cannot be used here: it was consumed (moved) by an earlier call"),
+        stderr.contains("`strings` cannot be used here: it was consumed (moved) at line 9"),
         "stderr: {stderr}"
     );
 
@@ -948,7 +995,42 @@ fn l2_move_sites_consume_roots() {
          read(b.item)\n}\n\n\
          fn break_in_branch() {\n    let s = \"x\"\n    let r = while true {\n        \
          if true {\n            break s\n        }\n    }\n    read(s)\n}\n\n\
-         fn use_ctor() [use] {\n    let s = \"hi\"\n    use FixedGreeter(s)\n    read(s)\n}\n\n\
+         fn use_ctor() [use] {\n    let s = \"hi\"\n    use FixedGreeter(s)\n    read(s)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // [flow-use-after-move] The use is the IR flow pass's to report, and it
+    // names the line of the move: literal stores (tuple, struct) each
+    // consume `s`.
+    for line in [20, 32] {
+        assert!(
+            stderr.contains(&format!("`s` cannot be used here: it was consumed (moved) at line {line};")),
+            "line {line}, stderr: {stderr}"
+        );
+    }
+    // [col-no-literal] A list is built by a constructor call now, and
+    // `List` consumes its elements like any `!` parameter.
+    assert!(stderr.contains("`s` cannot be used here: it was consumed (moved) at line 26;"), "stderr: {stderr}");
+    // Spread consumes its base.
+    assert!(stderr.contains("`b` cannot be used here: it was consumed (moved) at line 38;"), "stderr: {stderr}");
+    // `break s` inside an always-exiting branch still reaches the code
+    // after the loop (the loop exit merges break-path states).
+    assert!(stderr.contains("`s` cannot be used here: it was consumed (moved) at line 46;"), "stderr: {stderr}");
+    // Handler-constructor arguments are stored in the handler.
+    assert!(stderr.contains("`s` cannot be used here: it was consumed (moved) at line 54;"), "stderr: {stderr}");
+    assert!(stderr.contains("6 errors"), "stderr: {stderr}");
+
+    // [fate-move-mode] S2: storing/spreading a derived variable of owned
+    // roots is legal — the binding takes ownership, so the *root* is
+    // consumed at the binding and its later use names the binding. Still
+    // the checker's diagnostic, so its own program: the IR analyses run on
+    // a program the checker accepts.
+    fs::write(
+        dir.join("main.sv"),
+        "struct Box {\n    item: Str\n}\n\n\
+         fn read(s: Str) -> None => s {\n}\n\n\
          fn store_derived() {\n    let xs = List(1, 2)\n    let ys = xs\n    let t = (ys, 1)\n    \
          read_list(xs)\n}\n\n\
          fn read_list(v: List<Int>) -> None => v {\n}\n\n\
@@ -959,41 +1041,6 @@ fn l2_move_sites_consume_roots() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    // Literal stores (tuple, struct) each consume `s`.
-    assert_eq!(
-        stderr
-            .matches("`s` cannot be used here: it was consumed (moved) by a literal store")
-            .count(),
-        2,
-        "stderr: {stderr}"
-    );
-    // [col-no-literal] A list is built by a constructor call now, and
-    // `List` consumes its elements like any `!` parameter.
-    assert!(
-        stderr.contains("`s` cannot be used here: it was consumed (moved) by an earlier call"),
-        "stderr: {stderr}"
-    );
-    // Spread consumes its base.
-    assert!(
-        stderr.contains("`b` cannot be used here: it was consumed (moved) by a `...` spread"),
-        "stderr: {stderr}"
-    );
-    // `break s` inside an always-exiting branch still reaches the code
-    // after the loop (the loop exit merges break-path states).
-    assert!(
-        stderr.contains("`s` cannot be used here: it was consumed (moved) by a `break`"),
-        "stderr: {stderr}"
-    );
-    // Handler-constructor arguments are stored in the handler.
-    assert!(
-        stderr.contains(
-            "`s` cannot be used here: it was consumed (moved) by a `use` handler registration"
-        ),
-        "stderr: {stderr}"
-    );
-    // [fate-move-mode] S2: storing/spreading a derived variable of owned
-    // roots is legal — the binding takes ownership, so the *root* is
-    // consumed at the binding and its later use names the binding.
     assert!(
         stderr
             .contains("`xs` cannot be used here: `ys` was bound from it and later moves the value"),
@@ -1003,7 +1050,7 @@ fn l2_move_sites_consume_roots() {
         stderr.contains("`b` cannot be used here: `d` was bound from it and later moves the value"),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains("8 errors"), "stderr: {stderr}");
+    assert!(stderr.contains("2 errors"), "stderr: {stderr}");
 }
 
 // [deduce-consume] L2 positive matrix: `copy` at each new move site keeps
@@ -1146,7 +1193,7 @@ fn s2_move_mode_ancestors_are_consumed() {
 
 // [deduce-same-call] L3: arguments are evaluated left to right, so a
 // value moved by an earlier argument of the same call cannot be
-// mentioned by a later one — double moves (`f(a, a)`), move-then-read
+// mentioned by a later one (the IR flow pass's diagnostic since R8 piece 2) — double moves (`f(a, a)`), move-then-read
 // (`f(a, size(a))`), and interpolated mentions are all rejected at the
 // later argument. `copy` at the consuming argument is the remedy;
 // kept-position reads are unaffected.
@@ -1167,16 +1214,14 @@ fn l3_same_call_ordering() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    assert_eq!(
-        stderr
-            .matches(
-                "`xs` cannot be used here: it was consumed (moved) by an earlier \
-                 argument of this call"
-            )
-            .count(),
-        2,
-        "stderr: {stderr}"
-    );
+    // [flow-use-after-move] The IR reads a call's arguments in order, so
+    // the flow pass reports the later argument, naming the call's line.
+    for (line, at) in [(12, "main.sv:12:17"), (17, "main.sv:17:28")] {
+        assert!(
+            stderr.contains(&format!("`xs` cannot be used here: it was consumed (moved) at line {line}; reassign it before use, or `copy` it where it is moved --> {at}")),
+            "line {line}, stderr: {stderr}"
+        );
+    }
     // remedy and kept_then_read are clean: exactly the two violations.
     assert!(stderr.contains("2 errors"), "stderr: {stderr}");
 }
@@ -1211,8 +1256,6 @@ fn l4_lambda_captures() {
          fn used_before_mutation() -> Int {\n    let xs = Mut List(1, 2)\n    \
          let f = (n: Int) -> { return n + size(xs) }\n    let r = apply(f, 1)\n    \
          add(xs, 9)\n    return r + size(xs)\n}\n\n\
-         fn mutate_capture_consumes() -> Int {\n    let xs = Mut List(1, 2)\n    \
-         let g = () -> { add(xs, 1) }\n    run(g)\n    return size(xs)\n}\n\n\
          fn mutate_capture_remedy() -> Int {\n    let xs = Mut List(1, 2)\n    \
          let snapshot = copy(xs)\n    let g = () -> { add(snapshot, 1) }\n    run(g)\n    \
          return size(xs)\n}\n\n\
@@ -1222,9 +1265,7 @@ fn l4_lambda_captures() {
          let h = () -> { consume_list(copy(xs)) }\n    run(h)\n}\n\n\
          fn kept_mutates(xs: Mut List<Int>) -> None => xs: Mut {\n    \
          let g = () -> { add(xs, 1) }\n    run(g)\n}\n\n\
-         fn infer_claims(xs: Mut List<Int>)\n=> !xs {\n    let g = () -> { add(xs, 1) }\n    run(g)\n}\n\n\
-         fn claim_reaches_caller() -> Int {\n    let xs = Mut List(1)\n    \
-         infer_claims(xs)\n    return size(xs)\n}\n",
+         fn infer_claims(xs: Mut List<Int>)\n=> !xs {\n    let g = () -> { add(xs, 1) }\n    run(g)\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -1235,14 +1276,6 @@ fn l4_lambda_captures() {
         stderr.contains(
             "`f` cannot be used here: it was bound from `xs` and shares its fate, \
              and `xs` was mutated after the binding"
-        ),
-        "stderr: {stderr}"
-    );
-    // A mutated capture is consumed at creation.
-    assert!(
-        stderr.contains(
-            "`xs` cannot be used here: it was consumed (moved) by a lambda that \
-             captures and mutates it"
         ),
         "stderr: {stderr}"
     );
@@ -1258,14 +1291,36 @@ fn l4_lambda_captures() {
         stderr.contains("this lambda captures and mutates `xs`, which is a kept parameter"),
         "stderr: {stderr}"
     );
-    // The capture claim propagates: the caller's argument is consumed.
+    // The positive matrix (immutable captures, pre-mutation use, `copy`
+    // remedies) is clean: exactly the three violations.
+    assert!(stderr.contains("3 errors"), "stderr: {stderr}");
+
+    // [flow-use-after-move] The uses after a move are the IR flow pass's,
+    // which runs on a program the checker accepts: their own program.
+    fs::write(
+        dir.join("main.sv"),
+        "fn run(f: once () -> None) {\n    f()\n}\n\n\
+         fn mutate_capture_consumes() -> Int {\n    let xs = Mut List(1, 2)\n    \
+         let g = () -> { add(xs, 1) }\n    run(g)\n    return size(xs)\n}\n\n\
+         fn infer_claims(xs: Mut List<Int>)\n=> !xs {\n    let g = () -> { add(xs, 1) }\n    run(g)\n}\n\n\
+         fn claim_reaches_caller() -> Int {\n    let xs = Mut List(1)\n    \
+         infer_claims(xs)\n    return size(xs)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // A mutated capture is consumed at creation (the lambda's line).
     assert!(
-        stderr.contains("`xs` cannot be used here: it was consumed (moved) by an earlier call"),
+        stderr.contains("`xs` cannot be used here: it was consumed (moved) at line 7;"),
         "stderr: {stderr}"
     );
-    // The positive matrix (immutable captures, pre-mutation use, `copy`
-    // remedies) is clean: exactly the five violations.
-    assert!(stderr.contains("5 errors"), "stderr: {stderr}");
+    // The capture claim propagates: the caller's argument is consumed.
+    assert!(
+        stderr.contains("`xs` cannot be used here: it was consumed (moved) at line 20;"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("2 errors"), "stderr: {stderr}");
 }
 
 // [linear-obligation] L6: values of a `: Linear<self>` type must be used —
@@ -1677,17 +1732,12 @@ fn l7d_fn_type_contracts() {
          return f(data)\n}\n\n\
          fn apply_keeping(f: (v: List<Int>) -> Int, data: List<Int>) -> Int =>[f] v => data {\n    \
          return f(data) + f(data)\n}\n\n\
-         fn double_use_bad(f: (v: List<Int>) -> Int, data: List<Int>) -> Int =>[f] !v => !data {\n    \
-         let a = f(data)\n    return f(data)\n}\n\n\
          fn eat(v: List<Int>) -> Int => !v {\n    return 0\n}\n\n\
          fn consuming_where_keeping_bad() -> Int {\n    let xs = List(1, 2)\n    \
          return apply_keeping(eat, xs)\n}\n\n\
          fn kept_param_consumed_bad() -> Int {\n    let xs = List(1, 2)\n    \
          return apply_keeping((v: List<Int>) -> {\n        let w = eat(v)\n        \
          return w\n    }, xs)\n}\n\n\
-         fn caller_loses() -> Int {\n    let xs = List(1, 2)\n    \
-         let n = apply_consuming((v: List<Int>) -> { return size(v) }, xs)\n    \
-         return n + size(xs)\n}\n\n\
          fn caller_keeps() -> Int {\n    let xs = List(1, 2)\n    \
          let n = apply_keeping((v: List<Int>) -> { return size(v) }, xs)\n    \
          return n + size(xs)\n}\n",
@@ -1696,11 +1746,6 @@ fn l7d_fn_type_contracts() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    // Double use through a consuming contract.
-    assert!(
-        stderr.contains("`data` cannot be used here: it was consumed (moved) by an earlier call"),
-        "stderr: {stderr}"
-    );
     // A consuming named fn cannot fit a keeping contract.
     assert!(
         stderr.contains("no matching overload for `apply_keeping("),
@@ -1711,13 +1756,37 @@ fn l7d_fn_type_contracts() {
         stderr.contains("cannot consume `v`: this lambda's contract keeps it"),
         "stderr: {stderr}"
     );
-    // The consuming contract propagates: the caller's argument dies.
+    // caller_keeps is clean: exactly the two violations.
+    assert!(stderr.contains("2 errors"), "stderr: {stderr}");
+
+    // [flow-use-after-move] The uses after a move through a fn value's
+    // contract are the IR flow pass's, which runs on a program the checker
+    // accepts: their own program.
+    fs::write(
+        dir.join("main.sv"),
+        "fn apply_consuming(f: (v: List<Int>) -> Int, data: List<Int>) -> Int =>[f] !v => !data {\n    \
+         return f(data)\n}\n\n\
+         fn double_use_bad(f: (v: List<Int>) -> Int, data: List<Int>) -> Int =>[f] !v => !data {\n    \
+         let a = f(data)\n    return f(data)\n}\n\n\
+         fn caller_loses() -> Int {\n    let xs = List(1, 2)\n    \
+         let n = apply_consuming((v: List<Int>) -> { return size(v) }, xs)\n    \
+         return n + size(xs)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // Double use through a consuming contract.
     assert!(
-        stderr.contains("`xs` cannot be used here: it was consumed (moved) by an earlier call"),
+        stderr.contains("`data` cannot be used here: it was consumed (moved) at line 6;"),
         "stderr: {stderr}"
     );
-    // caller_keeps is clean: exactly the four violations.
-    assert!(stderr.contains("4 errors"), "stderr: {stderr}");
+    // The consuming contract propagates: the caller's argument dies.
+    assert!(
+        stderr.contains("`xs` cannot be used here: it was consumed (moved) at line 12;"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("2 errors"), "stderr: {stderr}");
 }
 
 // ===== D1: exhaustive and delta qualifier deductions =====

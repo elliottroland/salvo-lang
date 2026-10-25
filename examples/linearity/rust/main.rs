@@ -74,7 +74,7 @@ impl crate::wire::__Wire for Ticket {
 
 pub fn issue(console: &crate::core_console::Console, mut id: i32, mut seat: String) -> crate::Ticket {
     crate::core_console::println(console, &format!("1. issued #{} for {}", id, seat));
-    return crate::Ticket { id: id, seat: seat.clone() };
+    return crate::Ticket { id: id, seat: seat };
 }
 
 pub fn redeem(console: &crate::core_console::Console, mut ticket: crate::Ticket) {

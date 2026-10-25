@@ -30,9 +30,14 @@ fn diagnostics(src: &str) -> (Vec<String>, Vec<String>) {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    let all = resolution.errors.iter().chain(checked.errors.iter());
-    let (errs, warns): (Vec<_>, Vec<_>) = all.partition(|d| d.is_error());
-    (errs.into_iter().map(|d| d.message.clone()).collect(), warns.into_iter().map(|d| d.message.clone()).collect())
+    let mut all: Vec<_> = resolution.errors.iter().chain(checked.errors.iter()).cloned().collect();
+    // [flow-use-after-move] As the gates do: the IR analyses (a use after a
+    // move among them) on a program the checker accepts.
+    if !all.iter().any(|d| d.is_error()) {
+        all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
+    }
+    let (errs, warns): (Vec<_>, Vec<_>) = all.into_iter().partition(|d| d.is_error());
+    (errs.into_iter().map(|d| d.message).collect(), warns.into_iter().map(|d| d.message).collect())
 }
 
 /// A generic moved parameter called with each Copy scalar, twice: the
@@ -68,5 +73,5 @@ fn a_str_handed_to_a_moved_parameter_is_consumed() {
     let src = "fn eat<T>(v: T) [] -> None => !v {\n}\n\n\
                fn f(s: Str) [] -> None => !s {\n    eat(s)\n    eat(s)\n}\n";
     let (errs, _) = diagnostics(src);
-    assert!(errs.iter().any(|e| e.contains("consumed (moved) by an earlier call")), "{errs:?}");
+    assert!(errs.iter().any(|e| e.contains("`s` cannot be used here: it was consumed (moved) at line 5")), "{errs:?}");
 }

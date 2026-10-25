@@ -1055,7 +1055,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         return None;
     }
     fn watch_channel(&mut self, node: i64, channel: String, sink: i32) {
-        crate::core_map::put_platform::<crate::runtime_routing::ControlKey, i32>(&mut self.controls, crate::runtime_routing::ControlKey { node: node, channel: channel.clone() }, sink, &mut |__a0: &crate::runtime_routing::ControlKey| crate::runtime_routing::hash__ControlKey(__a0), &mut |__a0: &crate::runtime_routing::ControlKey, __a1: &crate::runtime_routing::ControlKey| crate::runtime_routing::eq__ControlKey_ControlKey(__a0, __a1));
+        crate::core_map::put_platform::<crate::runtime_routing::ControlKey, i32>(&mut self.controls, crate::runtime_routing::ControlKey { node: node, channel: channel }, sink, &mut |__a0: &crate::runtime_routing::ControlKey| crate::runtime_routing::hash__ControlKey(__a0), &mut |__a0: &crate::runtime_routing::ControlKey, __a1: &crate::runtime_routing::ControlKey| crate::runtime_routing::eq__ControlKey_ControlKey(__a0, __a1));
     }
     fn channel_sink(&mut self, node: i64, channel: &String) -> i32 {
         let mut s: Option<i32> = crate::core_map::get_platform::<crate::runtime_routing::ControlKey, i32>(&self.controls, &crate::runtime_routing::ControlKey { node: node, channel: (channel).clone() }, &mut |__a0: &crate::runtime_routing::ControlKey| crate::runtime_routing::hash__ControlKey(__a0), &mut |__a0: &crate::runtime_routing::ControlKey, __a1: &crate::runtime_routing::ControlKey| crate::runtime_routing::eq__ControlKey_ControlKey(__a0, __a1)).copied();
@@ -1066,7 +1066,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         return i32::wrapping_neg(1i32);
     }
     fn set_protocols(&mut self, table: Vec<(String, String)>) {
-        self.local = table.clone();
+        self.local = table;
     }
     fn protocols(&mut self) -> Vec<(String, String)> {
         return (self.local).clone();
@@ -1222,11 +1222,11 @@ pub fn stage_in(routes: &crate::core_map::Map<i64, crate::core_bytes::Bytes>, ou
     if ep.is_some() {
         let mut at = ep.unwrap();
         if crate::core_set::contains_platform::<i64>(outbound, &from, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1))) {
-            crate::core_list::add_platform::<crate::runtime_routing::Staged>(&mut *outbox, crate::runtime_routing::Staged { from: from, to: (at).clone(), frame: frame.clone() });
+            crate::core_list::add_platform::<crate::runtime_routing::Staged>(&mut *outbox, crate::runtime_routing::Staged { from: from, to: (at).clone(), frame: frame });
             return;
         };
     };
-    crate::core_list::add_platform::<crate::runtime_routing::Parked>(&mut *parked, crate::runtime_routing::Parked { from: from, to: to, frame: frame.clone() });
+    crate::core_list::add_platform::<crate::runtime_routing::Parked>(&mut *parked, crate::runtime_routing::Parked { from: from, to: to, frame: frame });
 }
 
 pub fn restage(routes: &crate::core_map::Map<i64, crate::core_bytes::Bytes>, outbound: &crate::core_set::Set<i64>, outbox: &mut Vec<crate::runtime_routing::Staged>, parked: &mut Vec<crate::runtime_routing::Parked>) {
@@ -1326,7 +1326,7 @@ pub fn send_remote(mut addr: i32, mut proto: String, mut payload: crate::core_by
         if (got == 1i32) {
             let mut from: i64 = crate::runtime_routing::here_node();
             let mut r_1 = r.as_ref().unwrap();
-            let mut frame: crate::core_bytes::Bytes = { let __enc: crate::unions::Union5<crate::runtime_routing::MsgFrame, crate::runtime_routing::AnswerFrame, crate::runtime_routing::GrantFrame, crate::runtime_routing::OpenFrame, crate::runtime_routing::ControlFrame> = crate::unions::Union5::U1(crate::runtime_routing::MsgFrame { to: r_1.node, actor: r_1.actor, bits: r_1.bits, from: from, proto: proto.clone(), payload: payload.clone() }); crate::wire::salvo_encode(&__enc) };
+            let mut frame: crate::core_bytes::Bytes = { let __enc: crate::unions::Union5<crate::runtime_routing::MsgFrame, crate::runtime_routing::AnswerFrame, crate::runtime_routing::GrantFrame, crate::runtime_routing::OpenFrame, crate::runtime_routing::ControlFrame> = crate::unions::Union5::U1(crate::runtime_routing::MsgFrame { to: r_1.node, actor: r_1.actor, bits: r_1.bits, from: from, proto: proto, payload: payload }); crate::wire::salvo_encode(&__enc) };
             crate::runtime_routing::__module_use0_0().stage(from, r_1.node, frame);
             crate::runtime_routing::flush();
             return;
@@ -1344,7 +1344,7 @@ pub fn send_remote(mut addr: i32, mut proto: String, mut payload: crate::core_by
 
 pub fn answer_remote(mut t: crate::runtime_routing::ReplyParts, mut payload: crate::core_bytes::Bytes) {
     let mut from: i64 = crate::runtime_routing::here_node();
-    let mut frame: crate::core_bytes::Bytes = { let __enc: crate::unions::Union5<crate::runtime_routing::MsgFrame, crate::runtime_routing::AnswerFrame, crate::runtime_routing::GrantFrame, crate::runtime_routing::OpenFrame, crate::runtime_routing::ControlFrame> = crate::unions::Union5::U2(crate::runtime_routing::AnswerFrame { to: t.node, kind: t.kind, id: t.id, slot: t.slot, bits: t.bits, payload: payload.clone() }); crate::wire::salvo_encode(&__enc) };
+    let mut frame: crate::core_bytes::Bytes = { let __enc: crate::unions::Union5<crate::runtime_routing::MsgFrame, crate::runtime_routing::AnswerFrame, crate::runtime_routing::GrantFrame, crate::runtime_routing::OpenFrame, crate::runtime_routing::ControlFrame> = crate::unions::Union5::U2(crate::runtime_routing::AnswerFrame { to: t.node, kind: t.kind, id: t.id, slot: t.slot, bits: t.bits, payload: payload }); crate::wire::salvo_encode(&__enc) };
     crate::runtime_routing::__module_use0_0().stage(from, t.node, frame);
     crate::runtime_routing::flush();
 }
@@ -1415,13 +1415,13 @@ pub fn watch_control(mut channel: String, mut sink: i32) {
 
 pub fn send_control(mut to: i64, mut channel: String, mut payload: crate::core_bytes::Bytes) {
     let mut from: i64 = crate::runtime_routing::here_node();
-    let mut frame: crate::core_bytes::Bytes = { let __enc: crate::unions::Union5<crate::runtime_routing::MsgFrame, crate::runtime_routing::AnswerFrame, crate::runtime_routing::GrantFrame, crate::runtime_routing::OpenFrame, crate::runtime_routing::ControlFrame> = crate::unions::Union5::U5(crate::runtime_routing::ControlFrame { to: to, from: from, channel: channel.clone(), payload: payload.clone() }); crate::wire::salvo_encode(&__enc) };
+    let mut frame: crate::core_bytes::Bytes = { let __enc: crate::unions::Union5<crate::runtime_routing::MsgFrame, crate::runtime_routing::AnswerFrame, crate::runtime_routing::GrantFrame, crate::runtime_routing::OpenFrame, crate::runtime_routing::ControlFrame> = crate::unions::Union5::U5(crate::runtime_routing::ControlFrame { to: to, from: from, channel: channel, payload: payload }); crate::wire::salvo_encode(&__enc) };
     crate::runtime_routing::__module_use0_0().stage(from, to, frame);
     crate::runtime_routing::flush();
 }
 
 pub fn control_frame(mut channel: String, mut payload: crate::core_bytes::Bytes) -> crate::core_bytes::Bytes {
-    return { let __enc: crate::unions::Union5<crate::runtime_routing::MsgFrame, crate::runtime_routing::AnswerFrame, crate::runtime_routing::GrantFrame, crate::runtime_routing::OpenFrame, crate::runtime_routing::ControlFrame> = crate::unions::Union5::U5(crate::runtime_routing::ControlFrame { to: 0i64, from: crate::runtime_routing::here_node(), channel: channel.clone(), payload: payload.clone() }); crate::wire::salvo_encode(&__enc) };
+    return { let __enc: crate::unions::Union5<crate::runtime_routing::MsgFrame, crate::runtime_routing::AnswerFrame, crate::runtime_routing::GrantFrame, crate::runtime_routing::OpenFrame, crate::runtime_routing::ControlFrame> = crate::unions::Union5::U5(crate::runtime_routing::ControlFrame { to: 0i64, from: crate::runtime_routing::here_node(), channel: channel, payload: payload }); crate::wire::salvo_encode(&__enc) };
 }
 
 pub fn node_left(mut node: i64) {

@@ -6,9 +6,10 @@
 //! This is the home for analyses that are about *what happens as the code runs*
 //! — flow, consumption, control-leaves — as opposed to the typing/resolution/
 //! declaration-shape checks that stay in `check.rs` (IR_CHECKER.md Phase 2).
-//! Its first tenant is the linear-obligation check (`ir::check`); the
-//! fate/release, loop-totality, exhaustiveness, and deadlock analyses are to
-//! follow.
+//! Its tenants are the linear-obligation check (`ir::check`, on the user's own
+//! modules) and the use-after-move pass (`ir::flow` [flow-use-after-move], on
+//! those and their test files); the fate/release, loop-totality,
+//! exhaustiveness, and deadlock analyses are to follow.
 //!
 //! Runs only on a program the type-checker accepted: the IR builder copies the
 //! checker's answers and assumes no type errors, and the type errors are the
@@ -32,7 +33,7 @@ pub fn analyze(program: &Program, symbols: &Symbols, resolution: &Resolution, ch
     // modules are always fully checked, so their tables are complete.
     let wanted: std::collections::HashSet<&crate::ModulePath> = program
         .units()
-        .filter(|u| !u.file.is_std && !u.file.is_test)
+        .filter(|u| !u.file.is_std)
         .map(|u| &u.file.module)
         .collect();
     let (mut ir, _build_errors) = super::build::build_program(program, symbols, resolution, checked, Some(&wanted));
@@ -47,7 +48,18 @@ pub fn analyze(program: &Program, symbols: &Symbols, resolution: &Resolution, ch
     for module in &ir.modules {
         let file = file_of.get(module.file_name.as_str()).copied().unwrap_or(0);
         let scope = resolution.scopes.get(file);
+        let content = program.files.get(file).map(|f| f.content.as_str()).unwrap_or("");
+        // The linear check runs on the user's own modules; a test file's
+        // obligations are the harness's business.
+        let linear = !program.files.get(file).is_some_and(|f| f.is_test);
         for decl in &module.decls {
+            // [flow-use-after-move] A use of a moved value, naming the move.
+            for d in super::flow::check_one(decl) {
+                out.push(FileDiagnostic::error(file, d.span, d.render(content)));
+            }
+            if !linear {
+                continue;
+            }
             for d in super::check::check_one(decl, &throws) {
                 // [linear-group] Name the dischargers in the remedy ("discharge
                 // it with `drain` / `close`"), computed from the leaked type in

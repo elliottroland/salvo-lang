@@ -91,12 +91,20 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             AExpr::Call { callee, type_args: _, args, named, .. } => self.call(callee, args, named, span),
             AExpr::Tuple { elems, .. } => {
-                let es: Vec<Expr> = elems.iter().map(|x| self.expr(x)).collect();
+                let mut es: Vec<Expr> = elems.iter().map(|x| self.expr(x)).collect();
                 let mut ty = self.ty_of(span);
                 if ty.is_unknown() {
                     ty = Ty::Tuple(es.iter().map(|x| x.ty.clone()).collect());
                 }
-                Expr { ty, span, kind: ExprKind::Tuple(es) }
+                let refs: Vec<&AExpr> = elems.iter().collect();
+                let mut stmts = Vec::new();
+                self.hoist_past_stores(&refs, &mut es, &mut stmts);
+                let tuple = Expr { ty, span, kind: ExprKind::Tuple(es) };
+                if stmts.is_empty() {
+                    tuple
+                } else {
+                    self.block_expr(stmts, tuple, span)
+                }
             }
             AExpr::StructLit { ty, fields, .. } => self.struct_lit(ty.as_ref(), fields, span),
             AExpr::Unary { op, operand, .. } => {
@@ -438,6 +446,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let aliased = projected.then(|| self.place_alias(&place).map(|a| a.ty)).flatten();
         let place = self.through_alias(place);
         let consume = self.ctx.checked.linear_moves.contains(&key)
+            || self.ctx.checked.moved_reads.contains(&key)
             || self.ctx.checked.state_takes.contains(&key)
             || self.ctx.checked.moved_projections.contains(&key);
         // [qual-field-override] A field a qualifier of the subject refines
@@ -1302,6 +1311,47 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     // ------------------------------------------------------------ structs --
 
+    /// [flow-use-after-move] A store-like construct (a literal) moves the
+    /// bare locals it stores only after reading every component — the
+    /// checker's order, `fate_move` after the components' checks — so
+    /// `(w, size(w))` and `Spec { ...base, name: base.name }` read before
+    /// they move. When some component reads a local another component
+    /// stores (`moved_reads`), every component that is not such a move is
+    /// evaluated first, in order, into a temporary in `stmts`: reading a
+    /// local has no effects, so only the moves change places. `asts` are the
+    /// components as written, `comps` as built, one for one. Answers whether
+    /// anything was hoisted.
+    fn hoist_past_stores(&mut self, asts: &[&AExpr], comps: &mut [Expr], stmts: &mut Vec<Stmt>) -> bool {
+        let stored = |b: &Self, a: &AExpr| -> Option<String> {
+            let inner = match a {
+                AExpr::Spread { operand, .. } => operand.as_ref(),
+                other => other,
+            };
+            match inner {
+                AExpr::Ident(id) if b.ctx.checked.moved_reads.contains(&b.key(id.span)) => Some(id.name.clone()),
+                _ => None,
+            }
+        };
+        let moves: Vec<Option<String>> = asts.iter().map(|a| stored(self, a)).collect();
+        let conflict = moves.iter().enumerate().any(|(i, m)| {
+            m.as_ref().is_some_and(|name| asts.iter().enumerate().any(|(j, a)| j != i && crate::check::expr_mentions(a, name)))
+        });
+        if !conflict {
+            return false;
+        }
+        for (c, m) in comps.iter_mut().zip(&moves) {
+            if m.is_some() {
+                continue;
+            }
+            let tmp = self.fresh("__part");
+            let id = self.id();
+            let (ty, at) = (c.ty.clone(), c.span);
+            let value = std::mem::replace(c, Expr { ty: ty.clone(), span: at, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: true } });
+            stmts.push(Stmt::Let { id, local: tmp, ty, value });
+        }
+        true
+    }
+
     fn struct_lit(&mut self, written_ty: Option<&ast::Type>, fields: &[ast::StructLitField], span: Span) -> Expr {
         let mut ty = self.ty_of(span);
         // A literal the checker typed nowhere this file could see (a field
@@ -1317,24 +1367,43 @@ impl<'a, 'p> Lower<'a, 'p> {
         };
         let mut written: Vec<(String, Expr)> = Vec::new();
         let mut spreads: Vec<Expr> = Vec::new();
+        let mut written_ast: Vec<&AExpr> = Vec::new();
+        let mut spread_ast: Vec<&AExpr> = Vec::new();
         for f in fields {
             match &f.kind {
                 ast::StructLitFieldKind::Named { name, value } => {
                     let v = self.expr(value);
                     written.push((name.name.clone(), v));
+                    written_ast.push(value);
                 }
-                ast::StructLitFieldKind::Spread(e) => spreads.push(self.expr(e)),
+                ast::StructLitFieldKind::Spread(e) => {
+                    spreads.push(self.expr(e));
+                    spread_ast.push(e);
+                }
                 ast::StructLitFieldKind::InlineFor { .. } => {
                     self.error(f.span, "comptime inline-for survived expansion");
+                }
+            }
+        }
+        // [flow-use-after-move] The literal moves what it stores after
+        // reading every component: written values that read a stored local
+        // run first (the spreads are bound below, ahead of the construct).
+        let mut stmts = Vec::new();
+        {
+            let refs: Vec<&AExpr> = written_ast.iter().chain(spread_ast.iter()).copied().collect();
+            let mut comps: Vec<Expr> = written.iter().map(|(_, v)| v.clone()).chain(spreads.iter().cloned()).collect();
+            if self.hoist_past_stores(&refs, &mut comps, &mut stmts) {
+                for ((_, v), c) in written.iter_mut().zip(comps) {
+                    *v = c;
                 }
             }
         }
         // Every field in declaration order: written, from a spread, or the default.
         let Some(decl) = decl else {
             // A handler literal, or a struct the symbols do not name: as written.
-            return Expr { ty, span, kind: ExprKind::Construct { fields: written } };
+            let construct = Expr { ty, span, kind: ExprKind::Construct { fields: written } };
+            return if stmts.is_empty() { construct } else { self.block_expr(stmts, construct, span) };
         };
-        let mut stmts = Vec::new();
         let spread_locals: Vec<Local> = spreads
             .into_iter()
             .map(|s| {

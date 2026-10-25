@@ -208,6 +208,7 @@ pub struct MemberCall { pub effect: String /* symbol key */, pub index: usize }
 
 ```rust
 pub linear_moves: HashSet<Key>,      // this read consumes a linear value
+pub moved_reads: HashSet<Key>,       // this bare name is moved by a store, spread, `break`, …
 pub state_takes: HashSet<Key>,       // this read takes a handler's state field
 pub moved_projections: HashSet<Key>, // `s.field` moved out of a consumed root
 pub binding_modes: HashSet<Key>,     // this `let` is a move-mode bind event
@@ -216,7 +217,9 @@ pub deductions: HashMap<FnKey, Vec<ParamDeduction>>,  // per fn, per parameter
 
 For `consume(xs)` the fn's `deductions` say `items: kept = false` (the clause
 `=> !items`), and in `main` the checker treats `xs` as consumed afterwards.
-That is why `twin = copy(xs)` is written before `consume(xs)`.
+That is why `twin = copy(xs)` is written before `consume(xs)`: a later read
+of `xs` would be the IR flow pass's error (`ir::flow`, run by
+`ir::analyze`), which sees the move as the read the IR marks consumed.
 
 **Lending (views of other values)**
 

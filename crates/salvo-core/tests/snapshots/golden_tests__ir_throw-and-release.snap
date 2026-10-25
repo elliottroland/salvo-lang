@@ -10,7 +10,7 @@ linear struct FileHandle wire {
 
 fn main::open_file(lent console: Console; moved name: Str) -> FileHandle {
   call core.console::println(read console, concat("1. open ", read name))
-  return construct FileHandle { name: read name }
+  return construct FileHandle { name: !read name }
 }
 
 fn main::close(lent console: Console; moved handle: FileHandle) -> None {

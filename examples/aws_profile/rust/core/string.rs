@@ -266,7 +266,7 @@ pub fn split_once(str: &String, sep: &String) -> Option<(String, String)> {
                 String::from("")
             }
         };
-        return Some((before.clone(), after.clone()));
+        return Some((before, after));
     };
     return None;
 }
@@ -293,7 +293,7 @@ pub fn split_last(str: &String, sep: &String) -> Option<(String, String)> {
                 String::from("")
             }
         };
-        return Some((before.clone(), after.clone()));
+        return Some((before, after));
     };
     return None;
 }

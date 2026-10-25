@@ -77,7 +77,7 @@ pub fn file_name(p: &crate::fs_path::Path) -> Option<String> {
         if crate::core_string::is_empty(&text) {
             return None;
         };
-        return Some(text.clone());
+        return Some(text);
     };
     let mut cut_1 = cut.unwrap();
     let mut __destructured_2: (String, String) = cut_1;
@@ -86,7 +86,7 @@ pub fn file_name(p: &crate::fs_path::Path) -> Option<String> {
     if crate::core_string::is_empty(&name) {
         return None;
     };
-    return Some(name.clone());
+    return Some(name);
 }
 
 pub fn extension(p: &crate::fs_path::Path) -> Option<String> {
@@ -104,7 +104,7 @@ pub fn extension(p: &crate::fs_path::Path) -> Option<String> {
         if crate::core_string::is_empty(&stem) {
             return None;
         };
-        return Some(ext.clone());
+        return Some(ext);
     };
     return None;
 }
@@ -124,7 +124,7 @@ pub fn stem(p: &crate::fs_path::Path) -> Option<String> {
         if crate::core_string::is_empty(&stem) {
             return Some(n.clone());
         };
-        return Some(stem.clone());
+        return Some(stem);
     };
     return None;
 }

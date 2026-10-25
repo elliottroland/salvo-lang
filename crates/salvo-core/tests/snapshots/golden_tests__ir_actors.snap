@@ -30,7 +30,7 @@ impl Bookkeeping() of Ledger deps [Counter] stateful {
   mailbox construct Mailbox { capacity: 4 }
   fn report(lent label: Str, lent out: Reply<Str>) -> None {
     obligation release [out]
-    member main::Counter#1(read __dep0, replyto reported(read label, !read out))
+    member main::Counter#1(read __dep0, replyto reported(!read label, !read out))
   }
   fn reported(lent label: Str, lent out: Reply<Str>, lent total: Int) -> None {
     obligation release [out]
@@ -109,7 +109,7 @@ fn main::formatted(moved label: Str, moved out: Reply<Str>, moved total: Int) ->
 fn main::report_line(moved counter: eff[Counter], moved label: Str, moved out: Reply<Str>) -> None {
   obligation gain-params [out]
   obligation release [out]
-  send main::Counter#1(read counter, replyto task main::formatted(read label, !read out))
+  send main::Counter#1(read counter, replyto task main::formatted(!read label, !read out))
 }
 
 fn main::main() -> None {
