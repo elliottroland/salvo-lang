@@ -9,6 +9,7 @@ pub mod analyze;
 pub mod build;
 pub mod check;
 pub mod dump;
+pub mod flow;
 pub mod nodes;
 pub mod obligations;
 pub mod safe_nav;

@@ -8188,6 +8188,28 @@ between endpoints and delivers what arrives into the scheduler.
   representations, callees, coercions and union tests. (A dependent
   qualifier's roots are variable numbers, which the two walks number
   differently in std's `heap.sv`; compared by the path they name.)
+* [flow-use-after-move] **The IR's use-after-move pass** (`ir::flow`,
+  03-generate-02-flow; PIPELINE.md R8 piece 1, 2026-10-20). Built and
+  tested, **not yet a gate**: no driver runs it, and the checker's
+  consumed-read error [deduce-consume] is still the one a build reports.
+  Per path it keeps the set of wholly moved locals: a `Read { consume: true }`
+  of a whole local whose declared type does not move for free
+  [copy-scalar-free], and a lambda's consumed `Capture`. Any read of a place
+  rooted at a moved local is the error, reported once per read; assigning
+  the whole local or a fresh `let` of it revives it. A narrowing binding of a
+  whole local is the same storage (one justified by a test of that local
+  where it is made starts alive, as the checker re-narrows there). Joins and loops
+  **mirror the checker's rules as they are**, unsound corners included: an
+  `if`'s non-leaving arms and every arm of a `when` revive what they assign
+  after the join; a loop body is walked once more from its end state when it
+  changed (the end state is taken even when the body always leaves); the set
+  after it joins the `break`s and revives what the body assigns; a `continue`
+  carries nothing to the next iteration. `tests/flow_tests.rs` checks it
+  against the checker over a corpus, building the IR from the
+  ownership-blind tables [ownership-audit]: equal, modulo the moves the IR
+  does not mark (`consume` is what the Rust emitter moves rather than clones,
+  so a literal store, a spread, a `use` argument and a `break` value are
+  plain reads in the IR) — and nothing on any example or on std.
 * [deduce-consume] Deduction clauses are enforced flow-sensitively at call
   sites on bare identifier arguments: a callee's contract (default or written)
   decides whether the caller's argument is consumed, so `return list` in a

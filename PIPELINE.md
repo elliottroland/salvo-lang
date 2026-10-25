@@ -216,6 +216,16 @@ Route stubs, derived per effect in the IR (step 6, piece 5):
   defaults on handler constructor parameters ([fn-param-default] extended),
   built first as its own piece.
 
+### R8 (2026-10-20)
+
+- **Ownership leaves the body walk straight for the IR (route b).** Typing
+  runs ownership-blind (a consumed value keeps its declared type), and
+  03-generate-02-flow on the IR owns fate, poison, partial moves,
+  move-mode, lends validation and linearity; the checker's re-walk loop
+  goes. Ownership errors exist where the IR exists — per declaration that
+  type-checks — so a body with a type error reports its ownership errors
+  once the type error is fixed.
+
 ## 4. Body-derived interface facts (D2)
 
 Six facts a declaration's callers read today come from type-checking its
@@ -794,3 +804,108 @@ log current so the work can resume after a context reset). Newest last.
   `expr_ty`/`repr_ty`/`call_fn`/`coerce`/`is_tests` once dependent-qualifier
   root numbers are normalized (std `heap.sv` numbers variables 3 apart
   between the walks; unexplained, identity only). Next: piece 3.
+- **Step 7, piece 4 surveyed (bodies read interfaces only): already nearly
+  true.** The `self.out.*` reads in check.rs that another body could have
+  written: `fn_effects` (fixed, piece 1), `implicit_params` and
+  `established_quals` (pre-pass), `written_types` (an output keyed by AST
+  node, read only to skip re-lowering the same node — harmless), and
+  `carried_identities` (keyed by `(FnId, subject)`, first writer wins
+  program-wide: two files resolving the same written identity name to
+  different fns would share the first one's answer — latent, unreproduced;
+  fix by keying with the file, or resolving at the read). Everything else
+  read is the body's own rows.
+- **Step 7, pieces 5–7: rethought, waiting on the user (R8 questions).**
+  The audit (piece 2) shows typing does not need ownership's answers. Two
+  routes to "ownership out of the body walk":
+  (a) as planned — a checker-side event log replayed by a flow pass (piece
+  6), then that pass moved onto the IR (piece 7): two rewrites of the same
+  machinery (~thousands of lines: `fate_move`, `apply_call_contract`,
+  `fate_mutation*`, `poison_derived`, `apply_binding_mode`, partial moves,
+  lambda captures, linear obligations, state stores);
+  (b) straight to the IR: typing runs ownership-blind (the cascade question
+  answers itself — a consumed value keeps its declared type, the flow pass
+  reports the use once, and typing reports only genuine type errors, so
+  [type-unknown-lenient]'s one-mistake-one-diagnostic holds), and
+  03-generate-02-flow on the IR owns fate, poison, partial moves, move-mode
+  (a local fixpoint), lends validation and linearity; the re-walk loop goes.
+  **The user's call for (b)**: ownership errors then exist only where the
+  IR exists — per *declaration* that type-checks clean (the IR builder
+  needs typing facts), so a body with a type error reports no ownership
+  errors until the type error is fixed; today both appear together.
+  Recommendation: (b), per declaration. Piece 5 (splitting `narrowed`'s
+  consumed marker) is only needed by (a). Piece 3 (the interface pass with
+  its own diagnostics) is independent and is what step 8's per-declaration
+  cache needs; it can go before or after.
+- **R8 (route b) chosen by the user.** Pieces, each one commit, each with a
+  differential test against the checker before the checker's version is
+  switched off:
+  1. `ir/flow.rs`, the use-after-move pass, run by tests only: per path a
+     set of wholly moved locals (a `Read { consume: true }` of a whole
+     non-Copy local, a consumed lambda `Capture`); a later read of one is the
+     error. Joins and loops mirror the checker's rules exactly (whatever they
+     are — the differential decides), findings recorded. Differential test:
+     a corpus of use-after-move programs; the checker's consumed-read error
+     spans (normal walk) must equal the flow pass's spans over the IR built
+     from the ownership-blind walk's tables.
+  2. Gates: "clean" for the IR becomes "no typing errors" — typing runs
+     ownership-blind in the drivers (`analysis.rs`, `driver.rs`,
+     `ir::dump_program`), the flow pass's diagnostics join the IR's, and the
+     checker's consumed-read diagnostic is switched off. Per declaration if
+     the builder allows (a type error in one fn must not hide another fn's
+     ownership errors), else per program at first.
+  3. The same-call left-to-right rule; partial moves (`moved_places`,
+     projection consumes); poison/BoundAway (fate links); lambda capture
+     moves; state stores; lends validation; linearity's checker half; then
+     move-mode and the re-walk loop's deletion — each its own piece.
+  4. Deadlock onto the IR (link stage), with the route's router node (§7).
+- **R8 piece 1: done** (committed "Add the IR use-after-move pass, checked
+  against the checker"). `ir/flow.rs` (`check`, `check_one`)
+  [flow-use-after-move], run by tests only. `tests/flow_tests.rs`: 36
+  programs; the checker's "it was consumed (moved) by …" spans (normal walk,
+  the same-call variant included: on a bare later argument it is the read
+  the pass reports) equal the pass's spans over the IR built from the
+  ownership-blind tables, compared by start offset (the checker marks `b` in
+  `b.s`, the IR the whole read), except for a documented `KNOWN` list. A
+  second test pins every case's reads; a third finds nothing on any example
+  or on std.
+  - **What differs (piece 2 must carry these moves):** a literal store, a
+    `...` spread, a `use` constructor argument and a `break` value are moves
+    to the checker (`fate_move`) but plain reads in the IR, so the pass does
+    not see them. The builder was not changed: `consume: true` is the Rust
+    emitter's move-versus-`.clone()` switch (`ir_emit/body.rs`, the `Read`
+    arm and `f.consumed`), so marking them changes the output. Options: a
+    second flag on `Read` (moved, as opposed to consumed-for-emission), or
+    accept the clone→move change in Rust and review the goldens. Linear
+    values already come through, via `linear_moves`.
+  - **The checker's rules, mirrored as they are.** Joins are union (moved
+    on any fall-through path is moved; all arms leaving keeps the pre-arm
+    set). After the join, `reset_assigned` revives every variable assigned
+    in a fall-through `if` arm, or in *any* `when` arm. A loop body is
+    walked again from its end state when that changed; the end state is the
+    sequential state even when the body always leaves. The set after the
+    loop is that end state joined with every `break`, then the body's
+    assignments are revived. `continue` states are dropped. A narrowing
+    binding of a whole local is the local; one re-made at a test *of that
+    local* starts alive, any other inherits (a `Cond` justification is
+    reused for persisting narrows, so the pass reads the condition's `Test`
+    nodes).
+  - **Findings.** Unsound, each failing rustc with E0382 (ROADMAP 0o, with
+    repros): an `if` arm that assigns then moves; a `when` whose leaving
+    arm assigns; a move before `continue` read in the next iteration.
+    Over-strict: a body that always `break`s is still re-walked
+    (`while c { eat(s); break }` reports `eat(s)`, and a top-level
+    `break s` is refused), and a narrowed Copy scalar is consumed because
+    the checker judges by the declared type. A surprise: the ownership-blind
+    walk reports ~20 false linear errors in std, because its linear join
+    reads `narrowed == Never` as settled. The audit compared tables only.
+    Piece 2 must not gate on the blind walk's linear errors; the IR's
+    linear check (`ir::check`) already owns that question.
+  - **Piece 2 must:** make the IR carry the four missing moves; run typing
+    ownership-blind in the drivers and drop or move the linear half of the
+    checker's join that depends on `Never`; join the flow diagnostics to the
+    IR's in `ir::analyze` with a renderer that names the move
+    (`FlowDiagnostic::moved_at`); then switch the checker's consumed-read
+    off. Fix the unsound rules (ROADMAP 0o) in the pass once the checker's
+    version is off, with `flow_tests`' pinned expectations changing in the
+    same commit.
+

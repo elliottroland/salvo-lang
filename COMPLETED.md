@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2034 tests, complete: the toolchain tests are
+cargo test                  # 2037 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — The IR's use-after-move pass, checked against the checker
+
+PIPELINE.md R8 (route b), piece 1 [flow-use-after-move]. `ir/flow.rs`
+(`check`, `check_one`) walks each fn body of the IR keeping, per path, the
+wholly moved locals; a later read of one is the error. It is run by tests
+only. `tests/flow_tests.rs` is the differential: 36 small programs, the
+checker's "it was consumed (moved) by …" spans (normal walk, the same-call
+variant included) against the pass's spans over the IR built from the
+ownership-blind tables. They agree, except for four reads the checker reports
+and the pass cannot: a literal store, a spread, a `use` argument and a
+`break` value are moves to the checker but plain reads in the IR. The builder
+was left alone, because `consume: true` is what makes the Rust emitter move
+instead of `.clone()`. A second test pins each case's expected reads, and a
+third finds nothing over every example and std.
+
+The checker's join and loop rules were mirrored as they are, and reading them
+turned up three unsound corners. Each is accepted by the checker and fails
+rustc with E0382 (`tmp/r8`, recorded in ROADMAP.md): `reset_assigned` revives
+a variable an `if` arm assigned and then moved; a `when` revives what a
+*leaving* arm assigned; and a `continue` path's moves never reach the next
+iteration. Two over-strict ones: a body that always `break`s is still walked
+a second time from its end state, so `while c { eat(s); break }` reports
+`eat(s)`, and a `break s` at the top of a body is an error outright; and a
+narrowed Copy scalar (`v: Int | Bool`, `v is Int`) is consumed, because the
+checker judges by the declared type while [copy-scalar-free] says the
+argument's own type. One surprise for piece 2: the ownership-blind walk
+reports about 20 false linear errors in std (`… consumed on some paths but
+not others`, `assigning to r drops …`), because the linear join treats
+`narrowed == Never` as settled. The audit compared tables, not errors, so it
+never showed them.
 
 ### 2026-10-20 — The ownership audit, as a test
 
@@ -28338,7 +28369,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2034 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2037 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -29613,6 +29644,23 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **The ownership-blind walk's own errors are not to be trusted**
+  (2026-10-20): `check_program_ownership_blind` keeps a consumed value's
+  type, and the linear join reads `narrowed == Never` as "settled", so it
+  reports ~20 false linear errors in std (`… consumed on some paths but not
+  others`, `assigning to r drops …`). Its *typing tables* are what the audit
+  and `flow_tests` use; filter its errors to the files under test.
+
+- **A narrowing binding is the variable, to the IR flow pass** (2026-10-20):
+  the builder reads a narrowed `v` through `v~1` (`Narrow … = v`), so a move
+  of `v~1` is a move of `v`. A narrowing justified by a test *of `v`* where
+  it is made starts alive (the checker re-narrows there); any other inherits
+  `v`'s state, or `if v is None { return }; if c { eat(v) }; look(v)` goes
+  unreported. A `Cond` justification does not mean the condition tested
+  `v`: a narrowing that persists from a guard is re-made in every arm,
+  justified by that arm's condition (`if c`), so the pass checks what the
+  condition's `Test` nodes read.
 
 - **"cached cgu … should have an object file, but doesn't"** (2026-10-20):
   the `salvo-testkit` hygiene test prunes `.rcgu.o` files no live binary

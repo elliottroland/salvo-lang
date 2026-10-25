@@ -573,6 +573,70 @@ reading the second runs `h()` first; `construct_handler` mirrors this) — bind
 every argument up to the last one read, in order, if evaluation order is to
 hold.
 
+### 0o — Open defect: the checker's consumed-read rule accepts three moved reads (found 2026-10-20)
+
+Found mirroring the checker's join and loop rules onto the IR (R8 piece 1,
+[flow-use-after-move]; PIPELINE.md §8). Each program below checks clean, and
+its Rust output fails rustc with E0382 ("borrow of moved value: `s`"); Kotlin
+runs it. A [backend-never-wrong] violation. `eat(s: Str) => !s`, `look(s:
+Str) -> Int`, `mk() -> Str`:
+
+```
+fn arm(c: Bool) -> Int {             // reset_assigned after an `if`
+    let s = mk()
+    if c {
+        s = mk()
+        eat(s)
+    }
+    return look(s)
+}
+fn leaving(v: Int | Bool) -> Int {   // a `when` resets a leaving arm's
+    let s = mk()                     // assignments too
+    eat(s)
+    when v {
+        is Int {
+            s = mk()
+            return look(s)
+        }
+        is Bool {
+        }
+    }
+    return look(s)
+}
+fn skips(d: Bool) -> Int {           // `continue` never feeds the back edge
+    let s = mk()
+    let n = 0
+    let i = 0
+    while i < 2 {
+        i = i + 1
+        n = n + look(s)
+        if d {
+            eat(s)
+            continue
+        }
+    }
+    return n
+}
+```
+
+The causes: `reset_assigned` puts a variable assigned anywhere in a
+fall-through arm (every arm, for `when`) back to its declared type *after*
+the join, whatever the arm did with it next; and `check_loop_body` re-walks
+from the body's fall-through end state, while `continue` states are dropped.
+Fix it in the flow pass, not the checker (R8: the checker's version is to be
+switched off). Its rules then become: an assignment revives a variable on its
+own path only, so the join already says the right thing and the reset goes;
+and the back edge joins the end state with every `continue` state. Two
+over-strict rules to drop with them: the end state of a body that always
+leaves (`while c { eat(s); break }` reports `eat(s)`; a top-level `break s`
+of a non-Copy local is refused outright), and a narrowed Copy scalar being
+consumed because the checker judges by the declared type (`v: Int | Bool`,
+`if v is Int { take(v) }`), where [copy-scalar-free] says the argument's own
+type. `crates/salvo-core/tests/flow_tests.rs` pins every case today
+(`continue_skips`, `break_moves`, `assign_then_consume_in_arm`,
+`assign_then_consume_in_loop`, `when_assign_in_leaving_arm`,
+`narrowed_scalar`). Its expectations change when the rules do.
+
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
 **What it is.** When a message makes an actor runnable, the scheduler unparks
