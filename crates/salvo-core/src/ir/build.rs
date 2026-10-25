@@ -36,6 +36,9 @@ pub struct Ctx<'p> {
     /// [fate-move-mode] Every file's binding facts, by stamp: what a body's
     /// decision reads about the bindings in it.
     pub facts_by_file: HashMap<usize, Vec<&'p crate::check::BindFact>>,
+    /// [ir-analyze] What the program's errors broke: those declarations are
+    /// built without their code, a broken file not at all.
+    pub gate: &'p super::gate::Gate,
 }
 
 impl<'p> Ctx<'p> {
@@ -310,7 +313,8 @@ pub fn erase(ty: &Ty) -> Ty {
     }
 }
 
-/// Builds the IR of every module in `modules` (all of them when `None`).
+/// Builds the IR of every module in `modules` (all of them when `None`), of
+/// a program with no errors.
 pub fn build_program<'p>(
     program: &'p CoreProgram,
     symbols: &'p Symbols<'p>,
@@ -318,6 +322,23 @@ pub fn build_program<'p>(
     checked: &'p Checked,
     modules: Option<&HashSet<&crate::ModulePath>>,
 ) -> (Program, Vec<String>) {
+    let gate = super::gate::Gate::default();
+    let (ir, errors, _) = build_program_gated(program, symbols, resolution, checked, modules, &gate);
+    (ir, errors)
+}
+
+/// [ir-analyze] `build_program` past a program's errors: a declaration
+/// `gate` says broke is built without its code, a broken file not at all.
+/// Also answers the items (by file and item index) whose build reported an
+/// error.
+pub fn build_program_gated<'p>(
+    program: &'p CoreProgram,
+    symbols: &'p Symbols<'p>,
+    resolution: &'p Resolution<'p>,
+    checked: &'p Checked,
+    modules: Option<&HashSet<&crate::ModulePath>>,
+    gate: &'p super::gate::Gate,
+) -> (Program, Vec<String>, HashSet<(usize, usize)>) {
     let _t = crate::timing::phase("ir build");
     let mut facts_by_file: HashMap<usize, Vec<&crate::check::BindFact>> = HashMap::new();
     for ((file, _), fact) in &checked.bind_facts {
@@ -326,9 +347,10 @@ pub fn build_program<'p>(
     for v in facts_by_file.values_mut() {
         v.sort_by_key(|f| (f.stamp.start, f.stamp.end));
     }
-    let mut ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program), decision: Decision::default(), facts_by_file };
+    let mut ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program), decision: Decision::default(), facts_by_file, gate };
     let mut out = Program { modules: Vec::new(), names: HashMap::new(), decision: Decision::default() };
     let mut errors = Vec::new();
+    let mut failed: HashSet<(usize, usize)> = HashSet::new();
     let mut built: Vec<usize> = Vec::new();
     let t = crate::timing::phase("  ir build: bodies");
     for (file_idx, (file, module)) in program.files.iter().zip(&program.modules).enumerate() {
@@ -337,7 +359,11 @@ pub fn build_program<'p>(
                 continue;
             }
         }
-        let (m, errs) = decls::build_module(&ctx, file_idx, file, module);
+        if gate.files.contains(&file_idx) {
+            continue;
+        }
+        let (m, errs, failed_items) = decls::build_module(&ctx, file_idx, file, module);
+        failed.extend(failed_items.into_iter().map(|i| (file_idx, i)));
         out.modules.push(m);
         built.push(file_idx);
         errors.push(errs.into_iter().map(|e| format!("{}: {e}", file.name)).collect::<Vec<_>>());
@@ -365,7 +391,8 @@ pub fn build_program<'p>(
         let _t = crate::timing::phase("  ir build: again");
         for i in redo {
             let file_idx = built[i];
-            let (m, errs) = decls::build_module(&ctx, file_idx, &program.files[file_idx], &program.modules[file_idx]);
+            let (m, errs, failed_items) = decls::build_module(&ctx, file_idx, &program.files[file_idx], &program.modules[file_idx]);
+            failed.extend(failed_items.into_iter().map(|i| (file_idx, i)));
             out.modules[i] = m;
             errors[i] = errs.into_iter().map(|e| format!("{}: {e}", program.files[file_idx].name)).collect();
         }
@@ -377,7 +404,7 @@ pub fn build_program<'p>(
     out.names = ctx.names;
     out.names.extend(generated);
     out.decision = ctx.decision;
-    (out, errors)
+    (out, errors, failed)
 }
 
 /// The span-keyed coercion a slot recorded for an expression, applied as IR

@@ -138,6 +138,71 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — Ownership is checked per declaration, beside type errors elsewhere
+
+PIPELINE.md R8 piece 9 [ir-analyze] [flow-use-after-move] [cli-analyze].
+The IR is built, and the flow pass and the linear check run, for every
+declaration whose own checking produced no error, whatever errors the rest
+of the program has. Until now a checker error anywhere hid every IR
+diagnostic. A declaration with an error reports that error and nothing from
+the IR. Emission is unchanged: a program with any error emits nothing.
+
+- **The skip rule** (`ir::gate`). `Gate::new` reads the error spans. An error
+  a stamped fn's copy raised (at the stamp's `by` site or a region target,
+  with the "in `f` from `x` for `…`" prefix) breaks that fn's body only, not
+  the struct it lands in. Otherwise every item containing the error breaks:
+  its body when the error is inside a fn's body (or a handler member's), its
+  interface anywhere else. An import error, an error in no item (a
+  module-level `use`), one past the file's end, and any parse or expansion
+  error break the whole file. The builder (`build_program_gated`, a `Gate` on
+  `Ctx`) builds a broken declaration's interface only and a broken file not
+  at all, and answers the items whose build reported an error.
+  `gate::Checkable` then skips, in a program with any error, a broken
+  declaration, one whose build failed or holds `Unsupported`, and one that
+  calls or names a declaration whose interface broke (a `FnRef::Decl`, a
+  task target, a member's interface, a type key anywhere in its IR). A
+  program with no error checks everything, as before.
+- **Changed from the plan.** `Ty::Unknown` is not a reason to skip: a census
+  over the suite found it in the IR of 84 clean programs. The checker needs
+  no per-declaration bookkeeping: span attribution, plus the stamp prefix,
+  was enough.
+- **The audit** (a temporary hook in `check_program`, `SALVO_XP_P9`, over
+  every program the suite checks with the toolchain tests skipped). Every
+  errored program went through the gated build in `catch_unwind`: no panic.
+  Six errored programs had IR diagnostics or builder failures. Their IR
+  diagnostics were real: the leaks in `l6_linear_obligations` and
+  `l7a_generic_linear_opt_in`, which those tests now assert. As a
+  differential, each clean program was checked again with an unrelated
+  broken module added. The IR diagnostics were identical in all 104 that had
+  any (or a builder failure).
+- **The gates.** `analysis.rs` (`salvo analyze`, the LSP) calls
+  `analyze_full` always, with the parse and expansion diagnostics, and lists
+  the IR's diagnostics after the checker's. The LSP drops a move-mode
+  binding's fate links from its hover on a program with errors too.
+  `check_for_emission` and `ir::dump_program` refuse a program with errors
+  as before, and list the IR's diagnostics on its clean declarations after
+  the checker's. The test helpers that ran `ir::analyze` only on an
+  error-free program (deduce, linear_group, carry, actor, once, throw and
+  eight others) now run it always, as the gates do.
+- **Tests:** `ownership_errors_are_reported_beside_type_errors_elsewhere`
+  (analyze_tests): `salvo analyze` and both backends' `compile` report a type
+  error in one fn beside a use after a move in another. A fn with both
+  reports only its type error. A caller of a fn whose signature broke is
+  skipped, a stamped `hash`'s error breaks the stamp and not the struct, and
+  a file that does not parse is skipped. `ownership_errors_show_beside_a_type_error`
+  (lsp_tests) is the same in the editor. `l6_path_exit_leaks` and
+  `l7a_opted_body_leaks`, split off when gating was per program, were merged
+  back into `l6_linear_obligations` and `l7a_generic_linear_opt_in`. The
+  comments that said a test was "its own program" because a checker error
+  hides the flow pass were corrected. Emitted code did not change. 2045 in
+  all (two added, two merged back).
+- **Timings** (`SALVO_TIMINGS=1 target/debug/salvo analyze --src demo`,
+  debug, three runs each, before against after): check 182–185ms against
+  176–183ms. The IR analysis is 1.0ms either way, since demo/ is clean. With
+  an unrelated broken file added, the IR analysis costs 1.0–1.1ms (before:
+  none). The language server now builds the IR on every analysis, and that
+  costs about 1ms here.
+
 ### 2026-10-20 — A binding's mode is decided in the IR, and the walk keeps no consumption state
 
 PIPELINE.md R8 piece 8 [fate-move-mode] [fate-derived-readonly]
@@ -30315,8 +30380,8 @@ snapshot diffs.
   reassigned linear value could leak unreported, and a borrow-mode alias
   gained one of its own. When a construct can bring an obligation into a
   local, check what the annotator gains for it in `salvo ir`; a checker
-  error elsewhere in the test program hides the IR's mistakes (gating is
-  per program).
+  error in the same declaration hides the IR's mistakes (gating is per
+  declaration since R8 piece 9).
 
 - **A handler the IR derives is invisible to the deadlock graph** (2026-10-20,
   R8 piece 6). The graph reads AST `HandlerDecl`s plus the checker's tables,
@@ -30351,10 +30416,12 @@ snapshot diffs.
   always a consuming read in the IR (an unwrap is a block), so "the read
   that consumed the root" is not enough: take the binding's links.
 - **A test asserting a use-after-move, partial-move or poison message must
-  run `ir::analyze` on a program the checker accepts.** Several test
-  programs had an unrelated checker error next to the poison they asserted,
-  and that error hides every flow diagnostic. Split them, or make them
-  clean.
+  run `ir::analyze`, on a declaration with no checker error of its own.**
+  Gating is per declaration since R8 piece 9 [ir-analyze]: an error in the
+  same fn hides its flow diagnostics, and so does one in the signature of a
+  fn it calls or in a type it names, or any parse error in its file. Until
+  then an error anywhere in the program did, and several tests were split
+  for it.
 
 - **The checker checked a field read's base; the flow pass no longer does**
   (2026-10-20, R8 pieces 3b and 5): the IR reads `n.a.b` as one place,

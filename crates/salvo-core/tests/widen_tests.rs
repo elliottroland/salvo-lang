@@ -54,12 +54,11 @@ fn errors(src: &str) -> Vec<String> {
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
     let mut all: Vec<_> = resolution.errors.iter().chain(checked.errors.iter()).filter(|d| d.is_error()).cloned().collect();
-    // [fate-poison] As the gates do, the IR analyses run on a program the
-    // checker accepts: a poisoned read is the IR flow pass's since R8 piece
+    // [fate-poison] As the gates do, the IR analyses run on every
+    // declaration the checker's errors leave clean [ir-analyze]: a poisoned
+    // read is the IR flow pass's since R8 piece
     // 3c [flow-use-after-move].
-    if all.is_empty() {
-        all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked).into_iter().filter(|d| d.is_error()));
-    }
+    all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked).into_iter().filter(|d| d.is_error()));
     all.into_iter().map(|d| d.message).collect()
 }
 

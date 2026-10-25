@@ -103,13 +103,11 @@ fn diagnostics(src: &str) -> Vec<String> {
         .filter(|d| d.is_error())
         .map(|d| d.message.clone())
         .collect();
-    if !checked.errors.iter().any(|d| d.is_error()) {
-        msgs.extend(
-            salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
-                .into_iter()
-                .map(|d| d.message),
-        );
-    }
+    msgs.extend(
+        salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
+            .into_iter()
+            .map(|d| d.message),
+    );
     msgs
 }
 

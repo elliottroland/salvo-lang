@@ -63,13 +63,11 @@ fn errors(src: &str) -> Vec<String> {
         .map(|d| d.message.clone())
         .collect();
     // [ir-analyze] The path-exit/throw linear leak checks moved to the IR.
-    if !checked.errors.iter().any(|d| d.is_error()) {
-        msgs.extend(
-            salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
-                .into_iter()
-                .map(|d| d.message),
-        );
-    }
+    msgs.extend(
+        salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
+            .into_iter()
+            .map(|d| d.message),
+    );
     msgs
 }
 

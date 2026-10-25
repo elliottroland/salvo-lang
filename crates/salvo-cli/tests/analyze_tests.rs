@@ -387,6 +387,79 @@ fn every_gate_reports_a_use_after_move() {
     );
 }
 
+// [ir-analyze] [cli-analyze] Ownership errors are per declaration (R8 piece
+// 9): a type error in one fn does not hide another fn's use after a move, on
+// `salvo analyze` or in a build's error list (which still emits nothing). A
+// fn with a type error of its own reports only that; a fn calling one whose
+// signature broke is skipped; a stamped fn's error (reported at the struct's
+// field) breaks the stamp only, not the struct; a file that does not parse
+// is skipped whole.
+#[test]
+fn ownership_errors_are_reported_beside_type_errors_elsewhere() {
+    let dir = src_dir("per_decl_gate");
+    fs::write(
+        dir.join("main.sv"),
+        "fn eat(s: Str) -> None => !s {\n}\n\n\
+         fn typo() -> Int {\n    return \"x\"\n}\n\n\
+         fn twice() {\n    let s = \"a${1}\"\n    eat(s)\n    eat(s)\n}\n\n\
+         fn both() -> Int {\n    let s = \"a${1}\"\n    eat(s)\n    eat(s)\n    return \"y\"\n}\n\n\
+         fn odd(s: Str) -> Nope {\n    return s\n}\n\n\
+         fn caller() {\n    let s = \"a${1}\"\n    eat(s)\n    eat(s)\n    let _ = odd(\"q\")\n}\n\n\
+         struct Sample : Hashed<self> by auto {\n    at: Double\n}\n\n\
+         fn gone(p: Sample) -> None => !p {\n}\n\n\
+         fn sampled() {\n    let p = Sample { at: 1.0 }\n    gone(p)\n    gone(p)\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("broken.sv"),
+        "fn eat2(s: Str) -> None => !s {\n}\n\n\
+         fn thrice() {\n    let s = \"a${1}\"\n    eat2(s)\n    eat2(s)\n    let = 3\n}\n",
+    )
+    .unwrap();
+    let moved = |line: u32| format!("cannot be used here: it was consumed (moved) at line {line}");
+    let reports = |stderr: &str, what: &str, at: &str| stderr.lines().any(|l| l.contains(what) && l.ends_with(at));
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "stderr: {stderr}");
+    // The type errors, each once.
+    assert!(stderr.contains("expected return type `Int`, found `Str` --> main.sv:5:12"), "stderr: {stderr}");
+    assert!(stderr.contains("expected return type `Int`, found `Str` --> main.sv:18:12"), "stderr: {stderr}");
+    assert!(stderr.contains("unknown type `Nope` --> main.sv:21:19"), "stderr: {stderr}");
+    assert!(stderr.contains("expected return type `Nope`, found `Str` --> main.sv:22:12"), "stderr: {stderr}");
+    assert!(stderr.contains("`s` is kept by default, but the body moves it"), "stderr: {stderr}");
+    assert!(stderr.contains("in `hash` from `auto` for `Sample.at: Double`"), "stderr: {stderr}");
+    assert!(stderr.contains("expected identifier, found `=` --> broken.sv:8:9"), "stderr: {stderr}");
+    // `twice` is clean: its use after a move is reported beside them.
+    assert!(reports(&stderr, &format!("`s` {}", moved(10)), "--> main.sv:11:9"), "stderr: {stderr}");
+    // So is `sampled`: the stamp's error broke the stamped `hash`, not
+    // `Sample`.
+    assert!(reports(&stderr, &format!("`p` {}", moved(41)), "--> main.sv:42:10"), "stderr: {stderr}");
+    // `both` has a type error of its own, `caller` calls `odd`, whose
+    // signature broke, and `broken.sv` does not parse: none of them reports
+    // its use after a move.
+    assert!(!stderr.contains("main.sv:17:9"), "stderr: {stderr}");
+    assert!(!stderr.contains("main.sv:28:9"), "stderr: {stderr}");
+    assert!(!stderr.contains("broken.sv:7"), "stderr: {stderr}");
+    let errors = stderr.matches("error: ").count();
+    assert_eq!(errors, 9, "stderr: {stderr}");
+    assert!(stderr.contains("9 errors"), "stderr: {stderr}");
+
+    // A build lists both kinds, and still emits nothing.
+    fs::remove_file(dir.join("broken.sv")).unwrap();
+    for backend in ["rust", "kotlin"] {
+        let target = dir.join(format!("out_{backend}"));
+        let out = salvo(&["compile", "--backend", backend, "--src", dir.to_str().unwrap(), "--target", target.to_str().unwrap()]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{backend}: {stderr}");
+        assert!(stderr.contains("expected return type `Int`, found `Str`"), "{backend}: {stderr}");
+        assert!(stderr.contains(&format!("`s` {}", moved(10))), "{backend}: {stderr}");
+        assert!(stderr.contains(&format!("`p` {}", moved(41))), "{backend}: {stderr}");
+        assert!(!stderr.contains(&moved(16)), "{backend}: {stderr}");
+        assert!(!stderr.contains(&moved(27)), "{backend}: {stderr}");
+        assert!(!target.exists() || fs::read_dir(&target).unwrap().next().is_none(), "{backend} emitted code");
+    }
+}
+
 // [flow-use-after-move] [fate-partial-move] [fate-poison] ROADMAP 0o's
 // unsound rules, fixed in the IR flow pass (R8 piece 5): each of these
 // checked clean before and failed rustc with E0382 (or, `linked`, printed 0
@@ -915,8 +988,7 @@ fn fate_derived_variables_are_read_only() {
     assert!(stderr.contains("copy"), "stderr: {stderr}");
 
     // A *written-kept* parameter root keeps the S1 error at the move
-    // site [fate-derived-readonly]: you cannot move out of a borrow. (Its
-    // own program: a checker error hides the flow pass's diagnostics.)
+    // site [fate-derived-readonly]: you cannot move out of a borrow.
     let dir = src_dir("fate_readonly_kept");
     fs::write(
         dir.join("main.sv"),
@@ -1163,8 +1235,7 @@ fn l2_move_sites_consume_roots() {
     // [fate-move-mode] S2: storing/spreading a derived variable of owned
     // roots is legal — the binding takes ownership, so the *root* is
     // consumed at the binding and its later use names the binding. The IR
-    // flow pass's diagnostic since R8 piece 3c; its own program, as the IR
-    // analyses run on a program the checker accepts.
+    // flow pass's diagnostic since R8 piece 3c.
     fs::write(
         dir.join("main.sv"),
         "struct Box {\n    item: Str\n}\n\n\
@@ -1273,8 +1344,9 @@ fn s2_move_mode_pipelines_stay_clean() {
 // root usable but records the moved place, so reading *that* projection back
 // is the error (closing the 2026-09-02 parity divergence — L5 made the
 // diagnostic name the field rather than the whole variable). The parity probe
-// is its own program since R8 piece 3b: its error is the IR flow pass's, and a
-// checker error anywhere hides those.
+// is its own program since R8 piece 3b, when its error became the IR flow
+// pass's and a checker error anywhere hid those (per declaration since R8
+// piece 9).
 #[test]
 fn s2_move_mode_ancestors_are_consumed() {
     let dir = src_dir("s2_negative");
@@ -1299,8 +1371,7 @@ fn s2_move_mode_ancestors_are_consumed() {
     assert!(stderr.contains("1 error"), "stderr: {stderr}");
 
     // A written-kept parameter binding keeps the S1 error at the move
-    // site [fate-derived-readonly] — the IR flow pass's since R8 piece 8, so
-    // its own program (a checker error hides the flow pass's diagnostics).
+    // site [fate-derived-readonly] — the IR flow pass's since R8 piece 8.
     let dir = src_dir("s2_negative_kept");
     fs::write(dir.join("main.sv"), "fn kept_binding(v: Str) -> Str => v {\n    let w = v\n    return w\n}\n").unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -1314,7 +1385,7 @@ fn s2_move_mode_ancestors_are_consumed() {
 
     // Chain: `xs` was consumed at `a`'s binding (the whole chain is
     // move-mode); the use-site error names the binding. The IR flow pass's
-    // diagnostic since R8 piece 3c, so its own program.
+    // diagnostic since R8 piece 3c.
     fs::write(
         dir.join("main.sv"),
         "fn consume_list(v: List<Int>) -> None => !v {\n}\n\n\
@@ -1454,7 +1525,7 @@ fn l4_lambda_captures() {
     assert!(stderr.contains("2 errors"), "stderr: {stderr}");
 
     // Mutating a mutable read-capture's root poisons the closure: the IR
-    // flow pass's diagnostic since R8 piece 3c, so its own program.
+    // flow pass's diagnostic since R8 piece 3c.
     fs::write(
         dir.join("main.sv"),
         "fn apply(f: (Int) -> Int, v: Int) -> Int {\n    return f(v)\n}\n\n\
@@ -1475,8 +1546,7 @@ fn l4_lambda_captures() {
     );
     assert!(stderr.contains("1 error"), "stderr: {stderr}");
 
-    // [flow-use-after-move] The uses after a move are the IR flow pass's,
-    // which runs on a program the checker accepts: their own program.
+    // [flow-use-after-move] The uses after a move are the IR flow pass's.
     fs::write(
         dir.join("main.sv"),
         "fn run(f: once () -> None) {\n    f()\n}\n\n\
@@ -1551,18 +1621,31 @@ fn close(x: Conn) -> None => !x { discard(x) }
          let n = inspect(alias)\n    close_file(h)\n}\n\n\
          fn composite_refused() {\n    let h = open_file(\"data.txt\")\n    \
          let b = Box2 {item: h}\n    close_box(b)\n}\n\n\
-         fn caller_obligated() {\n    let h = ok_return()\n    close_file(h)\n}\n",
+         fn caller_obligated() {\n    let h = ok_return()\n    close_file(h)\n}\n\n\
+         fn maybe_leak(flag: Bool) {\n    let h = open_file(\"data.txt\")\n    \
+         if flag {\n        close_file(h)\n    }\n}\n\n\
+         fn overwrite() {\n    let h = open_file(\"a.txt\")\n    h = open_file(\"b.txt\")\n    \
+         close_file(h)\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    // [ir-analyze] The path-dependent rules — the leaks (`leak`,
-    // `return_while_owing`), a value consumed on some paths only, an
-    // assignment over a live one — are the IR analysis's, which runs only on
-    // an otherwise-clean program; with the structural violations below
-    // present, they are not reported here — see `l6_path_exit_leaks` for them
-    // on a clean program.
+    // [ir-analyze] The path-dependent rules are the IR analysis's — the
+    // leaks (`leak`, `return_while_owing`), a value consumed on some paths
+    // only (`maybe_leak`), an assignment over a live one (`overwrite`, R8
+    // piece 7: the last two were the checker's) — reported, per declaration,
+    // beside the structural violations in the other fns.
+    let leaks = stderr.matches("`h` still owns a linear value when the path leaves").count();
+    assert_eq!(leaks, 2, "expected both path-exit leaks, stderr: {stderr}");
+    assert!(
+        stderr.contains("`h` owns a linear value that is consumed on some paths but not others; discharge or move it on every path --> main.sv:114:5"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("assigning to `h` drops the linear value it still owns; move it onward or `discard(h)` first --> main.sv:121:5"),
+        "stderr: {stderr}"
+    );
     assert!(
         stderr.contains("this expression produces a linear value that is dropped immediately"),
         "stderr: {stderr}"
@@ -1580,76 +1663,8 @@ fn close(x: Conn) -> None => !x { discard(x) }
     // the obligation, `close_box` discharges it by forwarding, and the
     // whole shape draws no error.
     assert!(!stderr.contains("Box2.item"), "stderr: {stderr}");
-    // Three structural violations here; the path-dependent ones are checked
-    // on a clean program in `l6_path_exit_leaks` [ir-analyze].
-    assert!(stderr.contains("3 errors"), "stderr: {stderr}");
-}
-
-/// [ir-analyze] The path-dependent linear rules — a value owned at the end of
-/// a scope, owned across an early `return`, consumed on some paths but not
-/// others, overwritten while it still owes — on an otherwise-clean program,
-/// where the IR analysis runs (R8 piece 7: the last two were the checker's).
-/// (In `l6_linear_obligations` the surrounding structural violations
-/// suppress them.)
-#[test]
-fn l6_path_exit_leaks() {
-    let dir = src_dir("l6_path_exit");
-    fs::write(
-        dir.join("main.sv"),
-        "linear struct FileHandle {\n    fd: Int\n}
-
-fn close(x: FileHandle) -> None => !x { discard(x) }
-
-fn open_file(path: Str) -> FileHandle => !path {
-    return FileHandle {fd: size(path)}
-}
-fn close_file(h: FileHandle) -> None => !h { close(h) }
-
-fn leak() {
-    let h = open_file(\"data.txt\")
-}
-
-fn return_while_owing(flag: Bool) -> Int {
-    let h = open_file(\"data.txt\")
-    if flag {
-        return 0
-    }
-    close_file(h)
-    return 1
-}
-
-fn maybe_leak(flag: Bool) {
-    let h = open_file(\"data.txt\")
-    if flag {
-        close_file(h)
-    }
-}
-
-fn overwrite() {
-    let h = open_file(\"a.txt\")
-    h = open_file(\"b.txt\")
-    close_file(h)
-}
-",
-    )
-    .unwrap();
-    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(!out.status.success(), "stderr: {stderr}");
-    // Both leaks, in the uniform IR wording.
-    let leaks = stderr.matches("`h` still owns a linear value when the path leaves").count();
-    assert!(leaks >= 2, "expected both path-exit leaks, stderr: {stderr}");
-    // [linear-obligation] The join and the assignment, at the `if` and the
-    // assignment statement.
-    assert!(
-        stderr.contains("`h` owns a linear value that is consumed on some paths but not others; discharge or move it on every path --> main.sv:27:5"),
-        "stderr: {stderr}"
-    );
-    assert!(
-        stderr.contains("assigning to `h` drops the linear value it still owns; move it onward or `discard(h)` first --> main.sv:34:5"),
-        "stderr: {stderr}"
-    );
-    assert!(stderr.contains("4 errors"), "stderr: {stderr}");
+    // Three structural violations and four path-dependent ones.
+    assert!(stderr.contains("7 errors"), "stderr: {stderr}");
 }
 
 // [linear-generics] Generic instantiation with a linear type is refused
@@ -1719,9 +1734,13 @@ fn close(x: FileHandle) -> None => !x { discard(x) }
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    // [ir-analyze] The opted body's path-exit leak (`eat` drops its moved
-    // `value`) is the IR flow analysis's job and is suppressed here by the
-    // structural errors below; see `l7a_opted_body_leaks`.
+    // [ir-analyze] The opted body treats `T` as linear: `eat` drops its
+    // moved `value`, a path-exit leak the IR reports beside the structural
+    // errors in the other fns.
+    assert!(
+        stderr.contains("`value` still owns a linear value when the path leaves; move it onward (pass, return, or store it) or discharge it --> main.sv:17:52"),
+        "stderr: {stderr}"
+    );
     // Forwarding to an unopted generic is rejected.
     assert!(
         stderr.contains(
@@ -1745,36 +1764,8 @@ fn close(x: FileHandle) -> None => !x { discard(x) }
         stderr.contains("cannot be stored in the `T[]` of `Mut List<T>`"),
         "stderr: {stderr}"
     );
-    // Four structural violations; the opted-body and container path-exit
-    // leaks are checked on a clean program in `l7a_opted_body_leaks`
-    // [ir-analyze].
-    assert!(stderr.contains("4 errors"), "stderr: {stderr}");
-}
-
-/// [ir-analyze] The opted generic body treats `T` as linear: a written-moved
-/// parameter the body drops is a path-exit leak — on an otherwise-clean
-/// program, where the IR flow analysis runs.
-#[test]
-fn l7a_opted_body_leaks() {
-    let dir = src_dir("l7a_opted_leak");
-    fs::write(
-        dir.join("main.sv"),
-        "linear struct FileHandle {\n    fd: Int\n}
-
-fn close(x: FileHandle) -> None => !x { discard(x) }
-
-fn eat<T canbe linear>(value: T) -> None => !value {
-}
-",
-    )
-    .unwrap();
-    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(!out.status.success(), "stderr: {stderr}");
-    assert!(
-        stderr.contains("`value` still owns a linear value when the path leaves"),
-        "stderr: {stderr}"
-    );
+    // Four structural violations and the opted body's leak.
+    assert!(stderr.contains("5 errors"), "stderr: {stderr}");
 }
 
 // [once-fn] L7b: `once` on fn types means callable at most once,
@@ -1824,8 +1815,7 @@ fn l7b_once_fns() {
     assert!(stderr.contains("3 errors"), "stderr: {stderr}");
 
     // A `once` lambda cannot go where a plain fn is expected — a checker
-    // error, so in a program of its own (a checker error hides the flow
-    // pass's diagnostics).
+    // error, and the fn with it reports no flow diagnostic.
     fs::write(
         dir.join("main.sv"),
         "fn run_plain(f: () -> None) {\n    f()\n    f()\n}\n\n\
@@ -1905,7 +1895,7 @@ fn l7c_derived_returns() {
     assert!(stderr.contains("4 errors"), "stderr: {stderr}");
 
     // Mutating the argument poisons the derived result: the IR flow pass's
-    // diagnostic since R8 piece 3c, so its own program.
+    // diagnostic since R8 piece 3c.
     fs::write(
         dir.join("main.sv"),
         "struct Person {\n    name: Str,\n    age: Int\n}\n\n\
@@ -1972,8 +1962,7 @@ fn l7d_fn_type_contracts() {
     assert!(stderr.contains("2 errors"), "stderr: {stderr}");
 
     // [flow-use-after-move] The uses after a move through a fn value's
-    // contract are the IR flow pass's, which runs on a program the checker
-    // accepts: their own program.
+    // contract are the IR flow pass's.
     fs::write(
         dir.join("main.sv"),
         "fn apply_consuming(f: (v: List<Int>) -> Int, data: List<Int>) -> Int =>[f] !v => !data {\n    \
@@ -2468,7 +2457,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
 
     // The view is fate-linked *through* the temporary pass to the container:
     // consuming the container poisons it. The IR flow pass's diagnostic
-    // since R8 piece 3c, so its own program.
+    // since R8 piece 3c.
     fs::write(
         dir.join("main.sv"),
         "fn eat(xs: List<Str>) -> None => !xs {}\n\n\

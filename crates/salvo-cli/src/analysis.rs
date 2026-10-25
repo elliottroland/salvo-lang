@@ -472,26 +472,24 @@ fn analyze_project(
         };
         drop(t);
         checked.errors.retain(|d| !parse_broken.contains(&d.file));
-        // [ir-analyze] Run the IR-level analyses only on a clean program: the
-        // IR builder reads the checker's tables (`linear_moves`, coercions, …),
-        // which are only complete when the check found no errors. On a program
-        // with errors those tables are partial, so the IR obligation ledger —
-        // and the leaks derived from it — would be unreliable. The actionable
-        // signal there is the errors already reported; the path-exit leaks
-        // surface once those are fixed.
-        let clean = parse_broken.is_empty() && !diagnostics.iter().any(|d| d.is_error()) && !checked.errors.iter().any(|d| d.is_error());
-        if clean {
+        // [ir-analyze] The IR-level analyses run per declaration: every one
+        // whose own checking (and its file's parse) found no error is built
+        // and checked, so a type error in one fn does not hide another's
+        // ownership errors, and a broken declaration reports its own errors
+        // only (`ir::gate`). They are listed after the checker's.
+        let ir_diags = {
             let _t = salvo_core::timing::phase("ir analyze");
-            let (ir_diags, decision) = salvo_core::ir::analyze::analyze_full(&program, &symbols, &resolution, &checked);
+            let (ir_diags, decision) = salvo_core::ir::analyze::analyze_full(&program, &symbols, &resolution, &checked, &diagnostics);
             // [fate-link] [fate-move-mode] A binding that took ownership
             // presents no links (the IR decides which did).
             salvo_core::ir::analyze::drop_owned_fate_reads(&mut checked, &decision);
             for d in &ir_diags {
                 ir_reliant.insert((d.file, d.span));
             }
-            diagnostics.extend(ir_diags);
-        }
+            ir_diags
+        };
         diagnostics.append(&mut checked.errors);
+        diagnostics.extend(ir_diags);
         // [platform-root] Platform declarations need a platform root.
         let backends = project.as_ref().map(salvo_core::required_backends).unwrap_or_else(|| vec!["rust"]);
         diagnostics.extend(salvo_core::platform_root_required(&program, project.as_ref(), &backends));

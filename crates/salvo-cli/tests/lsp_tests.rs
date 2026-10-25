@@ -499,6 +499,44 @@ fn diagnostics_hover_and_shutdown() {
 // diagnostic carrying import suggestions in `data`, and
 // `textDocument/codeAction` turns them into a quickfix inserting the
 // import line at the top of the file.
+/// [ir-analyze] [cli-lsp] The editor sees a use after a move in one fn while
+/// another has a type error: the IR is built per declaration, and a fn with a
+/// type error of its own shows only that.
+#[test]
+fn ownership_errors_show_beside_a_type_error() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_per_decl_gate");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1,
+                "text": "fn eat(s: Str) -> None => !s {\n}\n\n\
+                         fn typo() -> Int {\n    return \"x\"\n}\n\n\
+                         fn twice() {\n    let s = \"a${1}\"\n    eat(s)\n    eat(s)\n}\n\n\
+                         fn both() -> Int {\n    let s = \"a${1}\"\n    eat(s)\n    eat(s)\n    return \"y\"\n}\n"
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(params["uri"].as_str().unwrap(), uri);
+    let diags = params["diagnostics"].as_array().unwrap();
+    let at = |line: u32| diags.iter().filter(|d| d["range"]["start"]["line"] == json!(line)).count();
+    assert_eq!(diags.len(), 3, "diagnostics: {diags:?}");
+    // The two type errors (0-based lines 4 and 17) and `twice`'s use after
+    // a move (line 10); `both`'s (line 16) is not reported.
+    assert_eq!((at(4), at(17), at(10), at(16)), (1, 1, 1, 0), "diagnostics: {diags:?}");
+    let moved = diags.iter().find(|d| d["range"]["start"]["line"] == json!(10)).unwrap();
+    assert!(
+        moved["message"].as_str().unwrap().contains("`s` cannot be used here: it was consumed (moved) at line 10"),
+        "diagnostics: {diags:?}"
+    );
+}
+
 #[test]
 fn code_actions_offer_import_quickfix() {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_code_action");

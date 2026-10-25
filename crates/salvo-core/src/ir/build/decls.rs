@@ -12,7 +12,9 @@ use salvo_syntax::ast::{self, Item};
 use super::{body::Lower, erase, AModule, Ctx};
 use crate::ir::*;
 
-pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &AModule) -> (Module, Vec<String>) {
+/// Builds one module. Also answers the items whose build reported an error
+/// (all of them when a module-level `use` did) [ir-analyze].
+pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &AModule) -> (Module, Vec<String>, Vec<usize>) {
     let mut out = Module {
         path: file.module.clone(),
         file_name: file.name.clone(),
@@ -77,8 +79,11 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
         out.decls.push(Decl::Static(StaticDecl { id: DeclId { module: file.module.clone(), item: usize::MAX - i * 16, sub: 0 }, local: inst_local, ty: inst_ty, stmts: own, span: u.span }));
         out.decls.extend(faces.into_iter().map(Decl::Static));
     }
+    let statics_failed = !errors.is_empty();
+    let mut failed: Vec<usize> = Vec::new();
     for (item_idx, item) in module.items.iter().enumerate() {
         let id = ctx.item_id(file_idx, item_idx);
+        let before = errors.len();
         match item {
             Item::Struct(s) if s.comptime => {}
             Item::Struct(s) => out.decls.push(Decl::Struct(struct_decl(ctx, file_idx, id, s, &mut errors))),
@@ -148,8 +153,11 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
             // [effect-alias] Expanded away before the IR is built.
             Item::EffectAlias(_) => {}
         }
+        if statics_failed || errors.len() > before {
+            failed.push(item_idx);
+        }
     }
-    (out, errors)
+    (out, errors, failed)
 }
 
 fn type_params(generics: &[ast::Ident], canbe: &[(ast::Ident, ast::TypeRef)]) -> Vec<TypeParam> {
@@ -174,6 +182,7 @@ fn fields(
     decls: &[ast::FieldDecl],
     state: bool,
     scope: &[(String, Ty)],
+    bodies: bool,
     errors: &mut Vec<String>,
 ) -> Vec<Field> {
     decls
@@ -190,7 +199,8 @@ fn fields(
             Field {
                 name: f.name.name.clone(),
                 canbe_mut: f.canbe_mut,
-                default: f.default.as_ref().map(|d| {
+                // [ir-analyze] A broken declaration's defaults are not built.
+                default: f.default.as_ref().filter(|_| bodies).map(|d| {
                     let mut lower = Lower::new(ctx, file_idx, None);
                     for (n, t) in scope {
                         lower.bind(n, t.clone());
@@ -212,12 +222,13 @@ fn fields(
 }
 
 fn struct_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, s: &ast::StructDecl, errors: &mut Vec<String>) -> StructDecl {
+    let bodies = !ctx.gate.body_broken(file_idx, id.item);
     StructDecl {
         id,
         name: s.name.name.clone(),
         exported: s.exported,
         type_params: type_params(&s.generics, &s.generic_canbe),
-        fields: fields(ctx, file_idx, &s.fields, false, &[], errors),
+        fields: fields(ctx, file_idx, &s.fields, false, &[], bodies, errors),
         linear: s.linear,
         opaque: s.opaque,
         canbe_mut: s.auto_qualifiers.iter().any(|q| q.name.name == "Mut"),
@@ -327,7 +338,9 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         })
         .collect();
     let ctor_scope: Vec<(String, Ty)> = ctor_params.iter().map(|p| (p.local.0.clone(), p.ty.clone())).collect();
-    let state = fields(ctx, file_idx, &h.state, true, &ctor_scope, errors);
+    // [ir-analyze] A broken handler is built without its code.
+    let bodies = !ctx.gate.body_broken(file_idx, id.item);
+    let state = fields(ctx, file_idx, &h.state, true, &ctor_scope, bodies, errors);
     // The handler's fields are in scope inside its members.
     let self_fields: Vec<(String, Ty)> = ctor_params
         .iter()
@@ -356,7 +369,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         let mut d = fn_decl(ctx, file_idx, id.clone(), None, f, FnKind::Member { faces: faces_n }, None, &[], errors);
         // Members have no FnKey: build the body with the handler's scope.
         let mut fate = FateFacts::default();
-        d.body = f.body.as_ref().map(|b| {
+        d.body = f.body.as_ref().filter(|_| bodies).map(|b| {
             let mut lower = Lower::new(ctx, file_idx, None);
             lower.self_fields = self_fields.clone();
             lower.effect_env = statics.to_vec();
@@ -401,7 +414,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
     };
     let init = h.init.as_ref().map(|f| member_fn(f, errors));
     let members: Vec<FnDecl> = h.fns.iter().map(|f| member_fn(f, errors)).collect();
-    let mailbox = h.mailbox.as_ref().map(|m| {
+    let mailbox = h.mailbox.as_ref().filter(|_| bodies).map(|m| {
         let mut lower = Lower::new(ctx, file_idx, None);
         for (n, t) in &self_fields {
             lower.bind(n, t.clone());
@@ -556,6 +569,8 @@ fn fn_decl(
     }
     let body = if matches!(kind, FnKind::Member { .. }) {
         None // filled by the caller with the handler's scope
+    } else if ctx.gate.body_broken(file_idx, id.item) {
+        None // [ir-analyze] a broken declaration's interface only
     } else {
         f.body.as_ref().map(|b| lower.fn_body(b, &ret))
     };

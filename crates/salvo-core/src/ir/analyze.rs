@@ -11,9 +11,9 @@
 //! those and their test files); the fate/release, loop-totality,
 //! exhaustiveness, and deadlock analyses are to follow.
 //!
-//! Runs only on a program the type-checker accepted: the IR builder copies the
-//! checker's answers and assumes no type errors, and the type errors are the
-//! actionable signal when there are any.
+//! Runs per declaration (`ir::gate`): every declaration whose own checking
+//! produced no error is built and checked, whatever errors the rest of the
+//! program has; a broken one reports its own errors only.
 
 use std::collections::HashMap;
 
@@ -23,17 +23,29 @@ use crate::program::{Program, Symbols};
 use crate::resolve::Resolution;
 
 /// Build the IR of `program` and run the IR-level analyses, returning their
-/// diagnostics attributed to source files. The caller must have confirmed the
-/// program type-checks (no `checked` errors).
+/// diagnostics attributed to source files: on every declaration the
+/// checker's errors (`checked.errors`) leave clean [ir-analyze].
 pub fn analyze(program: &Program, symbols: &Symbols, resolution: &Resolution, checked: &Checked) -> Vec<FileDiagnostic> {
-    analyze_full(program, symbols, resolution, checked).0
+    analyze_full(program, symbols, resolution, checked, &[]).0
 }
 
 /// `analyze`, also answering the flow pass's decision of the bindings'
 /// modes [fate-move-mode] (the user's modules), for a consumer that
 /// presents them — the language server drops the fate links of a binding
-/// that took ownership from its hover (`Checked::fate_reads`).
-pub fn analyze_full(program: &Program, symbols: &Symbols, resolution: &Resolution, checked: &Checked) -> (Vec<FileDiagnostic>, super::Decision) {
+/// that took ownership from its hover (`Checked::fate_reads`). A file with an
+/// error among `parse` (the parser's and the expansions' diagnostics) is
+/// broken wholesale.
+pub fn analyze_full(
+    program: &Program,
+    symbols: &Symbols,
+    resolution: &Resolution,
+    checked: &Checked,
+    parse: &[FileDiagnostic],
+) -> (Vec<FileDiagnostic>, super::Decision) {
+    let mut gate = super::gate::Gate::new(program, &checked.errors);
+    for d in parse.iter().filter(|d| d.is_error()) {
+        gate.break_file(d.file);
+    }
     // Analyze only the user's own modules. std (and a dependency) is checked
     // elsewhere — and under the std-cache path its bodies are not re-walked, so
     // the checker tables the IR reads (`linear_moves`, …) are not populated for
@@ -44,7 +56,8 @@ pub fn analyze_full(program: &Program, symbols: &Symbols, resolution: &Resolutio
         .filter(|u| !u.file.is_std)
         .map(|u| &u.file.module)
         .collect();
-    let (mut ir, _build_errors) = super::build::build_program(program, symbols, resolution, checked, Some(&wanted));
+    let (mut ir, _build_errors, failed) = super::build::build_program_gated(program, symbols, resolution, checked, Some(&wanted), &gate);
+    let checkable = super::gate::Checkable::new(program, symbols, &gate, &failed);
     super::obligations::annotate(&mut ir, symbols);
 
     // Map each IR module's source file name to its index into `program.files`,
@@ -62,6 +75,9 @@ pub fn analyze_full(program: &Program, symbols: &Symbols, resolution: &Resolutio
         // consumed on some paths only, an assignment dropping one) are not.
         let linear = !program.files.get(file).is_some_and(|f| f.is_test);
         for decl in &module.decls {
+            if !checkable.check(decl) {
+                continue;
+            }
             // [flow-use-after-move] A use of a moved value, naming the move.
             for d in super::flow::check_one(decl) {
                 out.push(FileDiagnostic::error(file, d.span, d.render(content)));

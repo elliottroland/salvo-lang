@@ -8222,13 +8222,14 @@ between endpoints and delivers what arrives into the scheduler.
   also decides the bindings' modes and reports the S1 error
   [fate-derived-readonly]: `ir::analyze` runs it per declaration
   next to the linear check (`ir::check`), over the user's modules and their
-  test files, so every gate reports it once the checker is clean — `salvo
-  analyze` and the LSP (`analysis.rs`), compile/run/build/test
-  (`check_for_emission`), and `salvo ir` inline (`!!!`). The message names
-  the move's line: "`s` cannot be used here: it was consumed (moved) at line
-  3; reassign it before use, or `copy` it where it is moved". Per program at
-  first: a checker error anywhere hides the flow pass's diagnostics until it
-  is fixed.
+  test files, so every gate reports it — `salvo analyze` and the LSP
+  (`analysis.rs`), compile/run/build/test (`check_for_emission`), and `salvo
+  ir` inline (`!!!`). The message names the move's line: "`s` cannot be used
+  here: it was consumed (moved) at line 3; reassign it before use, or `copy`
+  it where it is moved". **Per declaration** [ir-analyze] (R8 piece 9; per
+  program until then): a type error in one fn does not hide another fn's
+  use after a move, and a fn with an error of its own reports only that
+  until it is fixed.
   * Per path it keeps the set of wholly moved locals: a `Read { consume:
     true }` of a whole local whose value does not move for free — judged by
     the read's own type, so a union narrowed to a Copy scalar is copied
@@ -11373,6 +11374,34 @@ replaced the working document TESTING.md).
   left no answer, the node is `Unsupported` and an error names it, so a
   backend never renders a guess [backend-never-wrong]. Both backends read
   the IR only; the checker's span-keyed tables are the builder's inputs.
+* [ir-analyze] **The IR analyses run per declaration** (`ir::analyze`,
+  `ir::gate`; PIPELINE.md R8 piece 9, 2026-10-20): the IR is built, and the
+  flow pass [flow-use-after-move] and the linear check [ir-linear-check] run,
+  for every declaration whose own checking produced no error, whatever the
+  rest of the program holds. A declaration with an error reports that error
+  and nothing from the IR (no duplicate, no cascade). Emission is unchanged:
+  a program with any error emits nothing (`check_for_emission` lists the
+  checker's errors, then the IR's on the clean declarations).
+  * **Which declarations broke**, from the errors' spans. An error a
+    stamped fn's copy raised — redirected to the stamp's `by` site or a
+    region's target, with the "in `f` from `x` for `…`" prefix
+    [comptime-instantiate] — breaks that fn's body only. Otherwise every item
+    containing the error breaks: inside a fn's body, or a handler member's
+    (or `init`'s), the body; anywhere else in a declaration, its interface (a
+    fn's signature; a struct, type, effect, qualifier or `params`
+    declaration; a handler outside its member bodies). An error in an
+    import, in no declaration (a module-level `use`), or past the file's end,
+    and any parse or expansion error of the file, breaks the whole file.
+  * **The builder** builds a broken declaration's interface only (no body,
+    no field default, no state initializer or mailbox) and a broken file not
+    at all (`build_program_gated`).
+  * **The checks skip**, in a program with any error: a broken declaration;
+    one whose build reported an error or holds an `Unsupported` node; and
+    one that calls or names a declaration whose interface broke (a
+    `FnRef::Decl` call or fn value, a task's `ReplyTarget`, a member's
+    interface, a type by its key anywhere in its IR). A `Ty::Unknown` is no
+    reason to skip: clean programs' IR holds them. A program with no error
+    checks every declaration.
 * [ir-nodes] The node set (`crates/salvo-core/src/ir/nodes.rs`): every expression
   carries its resolved type; every reference is absolute (a `DeclId`, a
   local, or an interface member by index), so the IR has no imports;
@@ -11666,6 +11695,10 @@ replaced the working document TESTING.md).
     still resolve for other files) but contribute only their parse
     diagnostics; their resolution/checker diagnostics are dropped
     (recovered ASTs cascade nonsense).
+  * The IR analyses (use after move, linear flow and leaks) run per
+    declaration [ir-analyze]: every declaration with no error of its own, in
+    a file that parses, reports them beside the other declarations' errors,
+    listed after the checker's.
   * `--format json` prints a JSON array of
     `{file, line, col, start, end, severity, message}` objects to
     stdout (line/col 1-based, start/end byte offsets); text mode

@@ -1404,3 +1404,55 @@ log current so the work can resume after a context reset). Newest last.
     which `check_loop_body`'s link-triggered re-walk can go; and gating per
     declaration (a checker error anywhere still hides every flow
     diagnostic, the S1 error now included).
+- **R8 piece 9 (per-declaration gating): done** (committed "Check
+  ownership per declaration, beside type errors elsewhere"). The IR is
+  built, and the flow pass and the linear check run, for every declaration
+  whose own checking produced no error [ir-analyze]; emission still refuses
+  any program with an error.
+  - **The skip rule, as built** (`ir::gate`). (1) Attribution, from the
+    errors' spans: an error at a stamp's `by` site or region target with the
+    stamp's "in `f` from `x` for `…`" prefix breaks that stamped fn's body
+    only; otherwise every item containing it breaks — its body when inside a
+    fn's (or a handler member's) body, its interface elsewhere; an import,
+    no item, past the file's end, or any parse/expansion error breaks the
+    file. (2) `build_program_gated` (a `Gate` on `Ctx`) builds a broken
+    declaration's interface only and a broken file not at all, and answers
+    the items whose build reported an error. (3) `gate::Checkable`, in a
+    program with any error, skips a broken declaration, one whose build
+    failed or holds `Unsupported`, and one that calls or names a broken
+    interface (`FnRef::Decl`, `ReplyTarget::Task`, `MemberRef.interface`, a
+    type key anywhere in its IR). (4) `analyze_full` takes the parse
+    diagnostics; `analysis.rs` calls it always and lists its diagnostics
+    after the checker's; `check_for_emission` and `dump_program` list the
+    checker's errors, then the IR's, and still refuse.
+  - **Changed from the plan:** no `Ty::Unknown` rule — a census found it in
+    the IR of 84 clean programs of the suite. The checker keeps no
+    per-declaration error bookkeeping; spans plus the stamp prefix sufficed.
+  - **The audit** (temporary `SALVO_XP_P9` hook, every program the suite
+    checks, toolchain tests skipped): no builder panic on any errored
+    program; six had IR diagnostics or builder failures, the diagnostics all
+    real (the leaks `l6_linear_obligations` and `l7a_generic_linear_opt_in`
+    now assert). Differential: each clean program again with an unrelated
+    broken module — the IR diagnostics were identical in all 104 that had
+    any.
+  - **Tests:** `ownership_errors_are_reported_beside_type_errors_elsewhere`
+    (analyze, both compiles: a type error beside another fn's use after a
+    move; one fn with both; a broken-signature callee's caller; a stamped
+    `hash` with an error; a parse-broken file) and
+    `ownership_errors_show_beside_a_type_error` (LSP). The l6/l7a tests
+    split for per-program gating were merged back; the test helpers that ran
+    `ir::analyze` only on error-free programs run it always.
+  - **Timings** (`SALVO_TIMINGS=1 target/debug/salvo analyze --src demo`,
+    debug, three runs): check 182–185ms before, 176–183ms after; IR
+    analysis 1.0ms both (demo/ is clean). With an unrelated broken file, the
+    IR analysis now runs: 1.0–1.1ms.
+  - **What is left of R8.** Lambda capture moves, handler-storage moves and
+    lends validation (static move-site rules, still the checker's; moving
+    them is only for R8's "the flow pass owns lends validation", or that
+    sentence is amended — the user's call). The fate links themselves in the
+    IR (an `is` binding with links of its own, the typing facts as IR
+    facts), after which `check_loop_body`'s link-triggered re-walk can go.
+    The gate is span-based: an error the checker reports at a span inside
+    another declaration than the one it was checking breaks the wrong one
+    and leaves the right one checked; rule 3 is the safety net, and the
+    audit found no false report from it.

@@ -104,11 +104,9 @@ fn effect_form(program: &Program, checked: &Checked, fn_name: &str, param: &str)
 fn gate_errors(src: &str) -> Vec<String> {
     let (program, checked) = check_src(src);
     let mut all = checked.errors.clone();
-    if !all.iter().any(|e| e.is_error()) {
-        let symbols = Symbols::collect(&program);
-        let resolution = resolve(&program);
-        all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
-    }
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
     all.into_iter().filter(|e| e.is_error()).map(|e| e.message).collect()
 }
 
@@ -1047,11 +1045,10 @@ fn disjoint_errors(body: &str) -> Vec<String> {
     // Errors only: an unused-variable *warning* [unused-var] is a different
     // severity and these tests are about legality. [fate-partial-move] As the
     // gates do, the IR analyses (a partial move's use among them, the flow
-    // pass's since R8 piece 3b) run on a program the checker accepts.
+    // pass's since R8 piece 3b) run on every declaration the checker's
+    // errors leave clean [ir-analyze].
     let mut all = checked.errors.clone();
-    if !all.iter().any(|e| e.is_error()) {
-        all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
-    }
+    all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
     all.iter()
         .filter(|e| e.is_error())
         .map(|e| e.message.clone())
@@ -1765,12 +1762,11 @@ fn field_errors(src: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    // [fate-poison] As the gates do, the IR analyses run on a program the
-    // checker accepts: a poisoned read is the flow pass's since R8 piece 3c.
+    // [fate-poison] As the gates do, the IR analyses run on every
+    // declaration the checker's errors leave clean [ir-analyze]: a poisoned
+    // read is the flow pass's since R8 piece 3c.
     let mut all = checked.errors.clone();
-    if !all.iter().any(|e| e.is_error()) {
-        all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
-    }
+    all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
     all.iter()
         .filter(|e| e.is_error())
         .map(|e| e.message.clone())

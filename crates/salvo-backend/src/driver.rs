@@ -21,12 +21,14 @@ pub fn check_for_emission(
     let symbols = Symbols::collect(program);
     let resolution = salvo_core::resolve(program);
     let checked = salvo_core::check_program(program, &resolution, &symbols);
-    if checked.errors.iter().any(|d| d.is_error()) {
-        return Err(checked.errors.iter().map(|d| d.render(&program.files)).collect());
-    }
-    // [ir-analyze] The IR-level analyses (linear obligations, …) run on a
-    // type-checked program and gate emission like any other error.
+    // [ir-analyze] The IR-level analyses (linear obligations, use after
+    // move, …) run on every declaration the checker's errors leave clean,
+    // and gate emission like any other error: a program with any error
+    // emits nothing, and lists both kinds.
     let ir_diags = salvo_core::ir::analyze::analyze(program, &symbols, &resolution, &checked);
+    if checked.errors.iter().any(|d| d.is_error()) {
+        return Err(checked.errors.iter().chain(&ir_diags).map(|d| d.render(&program.files)).collect());
+    }
     if ir_diags.iter().any(|d| d.is_error()) {
         return Err(ir_diags.iter().map(|d| d.render(&program.files)).collect());
     }

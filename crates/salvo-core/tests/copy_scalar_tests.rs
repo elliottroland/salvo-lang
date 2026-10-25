@@ -32,10 +32,9 @@ fn diagnostics(src: &str) -> (Vec<String>, Vec<String>) {
     let checked = check_program(&program, &resolution, &symbols);
     let mut all: Vec<_> = resolution.errors.iter().chain(checked.errors.iter()).cloned().collect();
     // [flow-use-after-move] As the gates do: the IR analyses (a use after a
-    // move among them) on a program the checker accepts.
-    if !all.iter().any(|d| d.is_error()) {
-        all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
-    }
+    // move among them) on every declaration the checker's errors leave clean
+    // [ir-analyze].
+    all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
     let (errs, warns): (Vec<_>, Vec<_>) = all.into_iter().partition(|d| d.is_error());
     (errs.into_iter().map(|d| d.message).collect(), warns.into_iter().map(|d| d.message).collect())
 }

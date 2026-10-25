@@ -10,13 +10,14 @@ pub mod build;
 pub mod check;
 pub mod dump;
 pub mod flow;
+pub mod gate;
 pub mod nodes;
 pub mod obligations;
 pub mod safe_nav;
 pub mod walk;
 
 pub use build::actors::enum_key;
-pub use build::build_program;
+pub use build::{build_program, build_program_gated};
 pub use nodes::*;
 
 /// Checks `program` the way a build does, builds the IR of its modules and
@@ -31,7 +32,10 @@ pub fn dump_program(
     let resolution = crate::resolve(program);
     let checked = crate::check_program(program, &resolution, &symbols);
     if checked.errors.iter().any(|d| d.is_error()) {
-        return Err(checked.errors.iter().map(|d| d.render(&program.files)).collect());
+        // [ir-analyze] With the IR's diagnostics on the declarations the
+        // errors leave clean, as a build lists them.
+        let ir = analyze::analyze(program, &symbols, &resolution, &checked);
+        return Err(checked.errors.iter().chain(&ir).map(|d| d.render(&program.files)).collect());
     }
     let reachable = crate::reachable_modules(program, &resolution, &checked);
     let wanted: std::collections::HashSet<&crate::ModulePath> = program

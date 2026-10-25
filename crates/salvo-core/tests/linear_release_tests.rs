@@ -66,13 +66,11 @@ fn errors(src: &str) -> Vec<String> {
         .collect();
     // [ir-analyze] The flow linear checks (path-exit/throw leaks) moved to the
     // IR analysis; include its diagnostics so these tests see them.
-    if !checked.errors.iter().any(|d| d.is_error()) {
-        msgs.extend(
-            salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
-                .into_iter()
-                .map(|d| d.message),
-        );
-    }
+    msgs.extend(
+        salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
+            .into_iter()
+            .map(|d| d.message),
+    );
     msgs
 }
 

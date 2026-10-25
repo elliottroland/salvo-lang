@@ -61,11 +61,10 @@ fn errors(src: &str) -> Vec<String> {
         .map(|d| d.message.clone())
         .collect();
     // [flow-use-after-move] As the gates do: the IR analyses (a use after a
-    // move among them) on a program the checker accepts.
-    if out.is_empty() {
-        let ir = salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked);
-        out.extend(ir.iter().filter(|d| d.is_error()).map(|d| d.message.clone()));
-    }
+    // move among them) on every declaration the checker's errors leave clean
+    // [ir-analyze].
+    let ir = salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked);
+    out.extend(ir.iter().filter(|d| d.is_error()).map(|d| d.message.clone()));
     out
 }
 

@@ -71,13 +71,11 @@ fn errors(src: &str) -> Vec<String> {
         .filter(|d| d.is_error())
         .map(|d| d.message.clone())
         .collect();
-    if !checked.errors.iter().any(|d| d.is_error()) {
-        msgs.extend(
-            salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
-                .into_iter()
-                .map(|d| d.message),
-        );
-    }
+    msgs.extend(
+        salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
+            .into_iter()
+            .map(|d| d.message),
+    );
     msgs
 }
 
@@ -132,13 +130,11 @@ fn errors_in_files(main_src: &str, other_src: &str) -> Vec<String> {
         .filter(|d| d.is_error())
         .map(|d| d.message.clone())
         .collect();
-    if !checked.errors.iter().any(|d| d.is_error()) {
-        msgs.extend(
-            salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
-                .into_iter()
-                .map(|d| d.message),
-        );
-    }
+    msgs.extend(
+        salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
+            .into_iter()
+            .map(|d| d.message),
+    );
     msgs
 }
 
@@ -646,7 +642,7 @@ fn an_unnarrowed_linear_union_leaks() {
         "{LINES}{FALLIBLE}\n\
          fn leak(flag: Bool, n: Str) -> None {{\n    let r = open(flag, n)\n}}\n"
     ));
-    // type-level deduction error now fires first; leak check runs only on type-clean programs (IR_CHECKER.md)
+    // type-level deduction error now fires first; the leak check runs only on a declaration with no error of its own [ir-analyze]
     assert!(
         !errs.is_empty()
             && errs.iter().any(|e| e.contains("still owns a linear value")
@@ -754,7 +750,7 @@ fn a_conditional_container_owes_when_instantiated_linear() {
          fn go(n: Str) -> None {{\n    \
          let b = Box<Lines> {{ item: open_lines(n) }}\n}}\n"
     ));
-    // type-level deduction error now fires first; leak check runs only on type-clean programs (IR_CHECKER.md)
+    // type-level deduction error now fires first; the leak check runs only on a declaration with no error of its own [ir-analyze]
     assert!(
         !errs.is_empty()
             && errs.iter().any(|e| e.contains("still owns a linear value")
@@ -1057,13 +1053,11 @@ fn errors_with_std_module(token_src: &str, main_src: &str) -> Vec<String> {
         .filter(|d| d.is_error())
         .map(|d| d.message.clone())
         .collect();
-    if !checked.errors.iter().any(|d| d.is_error()) {
-        msgs.extend(
-            salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
-                .into_iter()
-                .map(|d| d.message),
-        );
-    }
+    msgs.extend(
+        salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
+            .into_iter()
+            .map(|d| d.message),
+    );
     msgs
 }
 
