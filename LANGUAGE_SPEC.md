@@ -8300,14 +8300,16 @@ between endpoints and delivers what arrives into the scheduler.
     checker still poisons (it marks the value consumed, which its own joins
     and linear rules read) and records the links and the mutations; it
     reports none of it.
-  * `tests/flow_tests.rs` pins every case's reads over a corpus (138
+  * `tests/flow_tests.rs` pins every case's reads over a corpus (142
     programs: fn values moved then called, passed or lent, `once` fns called
     twice, in a loop, after being passed on, roots a projection took, fields
     moved then read whole, again, disjointly, nested, by index, after
     reassignment; values derived from a root then moved, mutated, reassigned,
     bound away, disjointly, through a nested derivation, a lambda, a
-    narrowing; move-mode bindings then their roots read; all in branches and
-    loops, and near misses), checks that the checker reports nothing on it
+    narrowing; move-mode bindings then their roots read, and bindings whose
+    mode a later use decides after their root was reassigned, through a
+    destructure used in one arm, along a chain; all in branches and loops,
+    and near misses), checks that the checker reports nothing on it
     and that the gate (`ir::analyze`) reports what the pass finds, and finds
     nothing on any example or on std. Until pieces 3a, 3b and 3c it was a
     differential against the checker's own diagnostics; they agreed on the
@@ -8382,19 +8384,19 @@ between endpoints and delivers what arrives into the scheduler.
     consume-then-reassign within the body stays clean).
   * Variadic parameters and non-identifier arguments are not tracked.
 
-* [deduce-fixpoint] **The checking walk repeats only while walk-derived facts
-  change** (decision L3a, 2026-09-02; reshaped 2026-10-20, PIPELINE.md step
-  2). Every contract is known before the first walk [deduce-default]
-  (`deduce::contracts`), so the first walk is a real one; another follows
-  only when it recorded new move-mode candidates [fate-move-mode], capped at
-  four walks, and it walks **only the files whose walk found them**
-  (`rewalk_files`, PIPELINE.md step 5): a candidate is a bind span of the
-  file that found it, read by no other file's walk. The re-walk drops those
-  files' rows (`Checked::drop_files`, exhaustive over the tables) and their
-  diagnostics, walks their signatures and bodies again, and reruns the
-  program checks and the deductions, which read every file. Parameter
-  mutations and parking facts do not drive it (mutations are only read
-  after checking, parking is read off the handlers' text [actor-replyto]).
+* [deduce-fixpoint] **Every body is walked once** (decision L3a, 2026-09-02;
+  reshaped 2026-10-20, PIPELINE.md steps 2 and 5; the last re-walk removed
+  2026-10-20, R8 piece 4). Every contract is known before the walk
+  [deduce-default] (`deduce::contracts`), parking handlers are read off the
+  handlers' text [actor-replyto], parameter mutations are only read after
+  checking, and a binding's mode is decided inside the walk, at the first
+  moving use of what it bound [fate-move-mode] — so nothing a walk learns is
+  read by another, and `check_program_walk` is one walk over every body
+  followed by the deductions. (Until R8 piece 4 a walk that recorded new
+  move-mode candidates was followed by another over the files that found
+  them, which dropped those files' rows and diagnostics first; the
+  `rewalk_files` / `Checked::drop_files` / `ErrorMarks` machinery and its
+  four-walk cap went with it.)
 * [deduce-same-call] Arguments are evaluated left to right; within one
   call, an argument may not *mention* (read, project, interpolate, or
   capture) a value that an earlier argument of the same call consumed —
@@ -8472,12 +8474,37 @@ between endpoints and delivers what arrives into the scheduler.
     as a fn's does, so `let {body} = input` in a member consuming `input`
     is move-mode. Until then a member had no contract in scope and every
     derived binding in it stayed read-only.
-  * Mode inference rides the checking walks [deduce-fixpoint]: a walk
-    records every derived move/mutation's bind chain as move-mode
-    candidates, and a walk that recorded a new one is followed by another
-    that applies it (the first walk's diagnostics are replaced). A
-    candidate first discovered in a later walk triggers one more, so it is
-    applied rather than left as a strict error.
+  * **The mode is decided at the first moving use, in the one walk**
+    [deduce-fixpoint] (R8 piece 4, 2026-10-20; until then a second walk
+    applied what the first had found). A binding is met in borrow-mode; the
+    walk judges there whether it *may* take ownership (the conditions above:
+    nothing borrowed through a derived return, every live ancestor owned,
+    none outside an enclosing lambda — `may_take_ownership`) and logs it
+    (`bind_log`). The first move or mutation of the derived variable lands in
+    `error_derived`, which makes every binding of the chain behind it
+    (`record_move_candidates`) that may take ownership move-mode, oldest
+    first, and gives the current path what the binding did: the ancestors
+    consumed (or the projection moved out of them) and their other
+    derivatives poisoned — none made after the binding, and no ancestor
+    assigned since, whose value is a new one — the bound variable left with
+    no links (a poison that came through them undone), and its descendants
+    with no copies of the links it had. The use then proceeds as the move
+    of an owned value; a binding that may not take ownership keeps the S1
+    error [fate-derived-readonly]. A path that went through the binding but
+    not the use gets the same at the next join (`take_ownership_on_paths`,
+    in `merge_fallthrough`), so `let {body} = e` before `if body is Body b
+    { put(b) }` consumes `e` on both paths, as the binding did. A binding
+    met again once decided (a loop body's second pass) takes ownership at
+    the binding (`apply_binding_mode`). What the bindings recorded is
+    written when the file's walk ends (`finish_fate`): no link stamped by a
+    move-mode binding survives in `fate_binds` or `fate_reads`, and its own
+    links go to `fate_bound`. An "assigning drops the linear value" error
+    raised while such a binding was still undecided goes when it is decided
+    (the binding had consumed the value). Checked, before the second walk
+    was deleted, by a differential over every program the suite checks
+    (both walks' `Checked` tables and diagnostics equal, the
+    ownership-blind audit walk aside, which reports three fewer of its
+    false linear errors in std).
   * A **projection in a moved position** (consuming call argument,
     literal store, spread, `return`/`break`, `use` ctor
     argument) moves data out of its provenance roots — but only
@@ -11515,7 +11542,7 @@ replaced the working document TESTING.md).
     renders to stderr with a summary line.
   * [phase-timings] With `SALVO_TIMINGS` set, each pipeline phase prints its
     wall-clock time to stderr (`timing: resolve  16.0ms`): parse, expand,
-    resolve, each checking round with its sub-steps and deduction pass, and
+    resolve, the checking walk with its sub-steps and the deduction pass, and
     the IR analysis (`salvo_core::timing`; 2026-10-20, PIPELINE.md step 1).
 * [cli-run] `salvo run [--backend NAME|*] [--src DIR] [--main FILE]
   [--target DIR] [--clean-target before|both]` (backend, src and main from the

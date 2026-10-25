@@ -328,6 +328,14 @@ const CASES: &[(&str, &str)] = &[
     ("poison_for_binding", "fn f(xs: Mut List<Str>) [] -> Int => xs: Mut {\n    let n = 0\n    for x in xs {\n        n = n + look(x)\n    }\n    let ys = xs\n    add(xs, mk())\n    return n + size(ys)\n}\n"),
     ("bound_away_unwrap", "fn f(o: Mut List<Str>?) [] -> Int => !o {\n    let m = o ?: unreachable!()\n    eatl(m)\n    return peek(o)\n}\n"),
     ("bound_away_destructure", "fn f() [] -> Int {\n    let t = (mk(), mk())\n    let (a, b) = t\n    eat(a)\n    return look(b) + peek(t)\n}\n"),
+    // [fate-move-mode] A binding's mode is decided at the first moving use,
+    // in the one walk (R8 piece 4): a root assigned between the binding and
+    // the use keeps its new value; a path that went through the binding but
+    // not the use took ownership too; a field assigned again is whole.
+    ("mode_root_reassigned", "fn f() [] -> Int {\n    let s = mk()\n    let t = s\n    s = mk()\n    eat(t)\n    return look(s)\n}\n"),
+    ("mode_destructure_one_arm", "fn f(c: Bool) [] -> Int {\n    let p = newrec()\n    let {name, tags} = p\n    if c {\n        eatl(tags)\n    }\n    return look(name)\n}\n"),
+    ("mode_field_reassigned", "fn f() [] -> Int {\n    let p = mkrec()\n    let n = p.name\n    p.name = mk()\n    eat(n)\n    return look(p.name)\n}\n"),
+    ("mode_chain_root_read", "fn f(c: Bool) [] -> Int {\n    let a = mk()\n    let b = a\n    let d = b\n    if c {\n        eat(d)\n    }\n    return look(a)\n}\n"),
 ];
 
 fn program(cases: &[(&str, &str)]) -> Program {
@@ -604,6 +612,10 @@ fn the_flow_pass_reports_these_reads() {
         ("bound_away_unwrap", &[(4, 17)]),
         // The checker names the pattern's last binding.
         ("bound_away_destructure", &[(5, 27)]),
+        ("mode_root_reassigned", &[]),
+        ("mode_destructure_one_arm", &[]),
+        ("mode_field_reassigned", &[]),
+        ("mode_chain_root_read", &[(8, 17)]),
     ];
     assert_eq!(expected.len(), CASES.len(), "one expectation per case");
     let program = program(CASES);

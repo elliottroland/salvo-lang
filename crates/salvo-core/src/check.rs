@@ -1408,137 +1408,6 @@ pub struct LambdaCapture {
 }
 
 impl Checked {
-    /// [fate-move-mode] Removes every row a walk of [files] wrote, before
-    /// they are walked again (`rewalk_files`). Exhaustive by construction —
-    /// a new table is a compile error here until it says whether it is
-    /// per file.
-    fn drop_files(&mut self, files: &HashSet<usize>) {
-        let Checked { expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_uses, route_keys, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_binds, fate_bound, fate_mutations, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, binding_modes, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, virtual_place_binds, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors, decl_effects, handler_deps, effect_prereqs } = self;
-        expr_ty.retain(|k, _| !files.contains(&k.0));
-        comparisons.retain(|k, _| !files.contains(&k.0));
-        arm_compares.retain(|k, _| !files.contains(&k.0));
-        promotions.retain(|k, _| !files.contains(&k.0));
-        repr_ty.retain(|k, _| !files.contains(&k.0));
-        coerce.retain(|k, _| !files.contains(&k.0));
-        is_tests.retain(|k, _| !files.contains(&k.0));
-        safe_navs.retain(|k, _| !files.contains(&k.0));
-        when_exhaustive.retain(|k| !files.contains(&k.0));
-        when_arms.retain(|k, _| !files.contains(&k.0));
-        predicate_tests.retain(|k, _| !files.contains(&k.0));
-        qual_member_calls.retain(|k, _| !files.contains(&k.0));
-        field_casts.retain(|k, _| !files.contains(&k.0));
-        call_fn.retain(|k, _| !files.contains(&k.0));
-        for_drivers.retain(|k, _| !files.contains(&k.0));
-        // `refinements`: not written per file by a walk (or, `errors`, handled by the caller).
-        let _ = refinements;
-        use_effects.retain(|k, _| !files.contains(&k.0));
-        route_uses.retain(|k, _| !files.contains(&k.0));
-        let _ = route_keys; // by effect key, rewritten when its declaration is checked
-        // `parking_handlers`: not written per file by a walk (or, `errors`, handled by the caller).
-        let _ = parking_handlers;
-        // `protocol_hashes`: not written per file by a walk (or, `errors`, handled by the caller).
-        let _ = protocol_hashes;
-        use_deps.retain(|k, _| !files.contains(&k.0));
-        use_with_items.retain(|k, _| !files.contains(&k.0));
-        spawn_effects.retain(|k, _| !files.contains(&k.0));
-        spawn_deps.retain(|k, _| !files.contains(&k.0));
-        spawn_dep_items.retain(|k, _| !files.contains(&k.0));
-        replyto_members.retain(|k, _| !files.contains(&k.0));
-        facade_sends.retain(|k, _| !files.contains(&k.0));
-        waitfor_sites.retain(|(_, k)| !files.contains(&k.0));
-        handler_constructs.retain(|(_, _, k)| !files.contains(&k.0));
-        replyto_tasks.retain(|k, _| !files.contains(&k.0));
-        task_mint_effects.retain(|k, _| !files.contains(&k.0));
-        use_addrs.retain(|k, _| !files.contains(&k.0));
-        use_addr_tuples.retain(|k, _| !files.contains(&k.0));
-        project_effects.retain(|k, _| !files.contains(&k.0));
-        merge_effects.retain(|k, _| !files.contains(&k.0));
-        addr_calls.retain(|k, _| !files.contains(&k.0));
-        self_sends.retain(|k, _| !files.contains(&k.0));
-        linear_moves.retain(|k| !files.contains(&k.0));
-        moved_reads.retain(|k| !files.contains(&k.0));
-        flow_moves.retain(|k| !files.contains(&k.0));
-        fate_binds.retain(|k, _| !files.contains(&k.0));
-        fate_bound.retain(|k, _| !files.contains(&k.0));
-        fate_mutations.retain(|k, _| !files.contains(&k.0));
-        state_takes.retain(|k| !files.contains(&k.0));
-        actor_gates.retain(|(_, k)| !files.contains(&k.0));
-        actor_sends.retain(|(_, _, k)| !files.contains(&k.0));
-        task_sends.retain(|(_, _, k)| !files.contains(&k.0));
-        // `task_mints`: not written per file by a walk (or, `errors`, handled by the caller).
-        let _ = task_mints;
-        effect_calls.retain(|k, _| !files.contains(&k.0));
-        effect_member_calls.retain(|k, _| !files.contains(&k.0));
-        member_calls.retain(|k, _| !files.contains(&k.0));
-        dot_calls.retain(|k| !files.contains(&k.0));
-        // `written_types`: not written per file by a walk (or, `errors`, handled by the caller).
-        let _ = written_types;
-        local_calls.retain(|k| !files.contains(&k.0));
-        local_call_names.retain(|k, _| !files.contains(&k.0));
-        call_effects.retain(|k, _| !files.contains(&k.0));
-        fn_effects.retain(|k, _| !files.contains(&k.file));
-        fn_body_effects.retain(|(f, _, _)| !files.contains(f));
-        call_type_args.retain(|k, _| !files.contains(&k.0));
-        lambda_effects.retain(|k, _| !files.contains(&k.0));
-        fn_value_implicits.retain(|k, _| !files.contains(&k.0));
-        widen_targets.retain(|k, _| !files.contains(&k.0));
-        pick_left.retain(|k, _| !files.contains(&k.0));
-        elvis_picks.retain(|k, _| !files.contains(&k.0));
-        elvis_tests.retain(|k, _| !files.contains(&k.0));
-        elvis_widen.retain(|k, _| !files.contains(&k.0));
-        may_throw.retain(|k, _| !files.contains(&k.0));
-        deductions.retain(|k, _| !files.contains(&k.file));
-        fn_refs.retain(|k, _| !files.contains(&k.0));
-        def_refs.retain(|k, _| !files.contains(&k.0));
-        local_decls.retain(|f, _| !files.contains(f));
-        // `type_ref_keys`: not written per file by a walk (or, `errors`, handled by the caller).
-        let _ = type_ref_keys;
-        // `type_ref_span_keys`: not written per file by a walk (or, `errors`, handled by the caller).
-        let _ = type_ref_span_keys;
-        // `visible_keys`: not written per file by a walk (or, `errors`, handled by the caller).
-        let _ = visible_keys;
-        // `visible_handler_keys`: not written per file by a walk (or, `errors`, handled by the caller).
-        let _ = visible_handler_keys;
-        field_refs.retain(|k, _| !files.contains(&k.0));
-        module_refs.retain(|k, _| !files.contains(&k.0));
-        fate_reads.retain(|k, _| !files.contains(&k.0));
-        interp_to_str.retain(|k, _| !files.contains(&k.0));
-        interp_union.retain(|k, _| !files.contains(&k.0));
-        interp_implicit.retain(|k, _| !files.contains(&k.0));
-        temp_views.retain(|k| !files.contains(&k.0));
-        lending_calls.retain(|k, _| !files.contains(&k.0));
-        fn_lends.retain(|k, _| !files.contains(&k.file));
-        binding_modes.retain(|k| !files.contains(&k.0));
-        handle_muts.retain(|k| !files.contains(&k.0));
-        param_mutations.retain(|k, _| !files.contains(&k.file));
-        moved_projections.retain(|k| !files.contains(&k.0));
-        boundary_checks.retain(|k, _| !files.contains(&k.0));
-        factories.retain(|k, _| !files.contains(&k.0));
-        // `platform_closure_all`: not written per file by a walk (or, `errors`, handled by the caller).
-        let _ = platform_closure_all;
-        lambda_captures.retain(|k, _| !files.contains(&k.0));
-        derived_calls.retain(|k, _| !files.contains(&k.0));
-        distinct_pairs.retain(|k, _| !files.contains(&k.0));
-        virtual_place_binds.retain(|k, _| !files.contains(&k.0));
-        mut_lend_calls.retain(|k| !files.contains(&k.0));
-        fn_value_calls.retain(|k, _| !files.contains(&k.0));
-        lambda_contracts.retain(|k, _| !files.contains(&k.0));
-        implicit_params.retain(|k, _| !files.contains(&k.file));
-        established_quals.retain(|(k, _), _| !files.contains(&k.file));
-        // `carried_identities`: not written per file by a walk (or, `errors`, handled by the caller).
-        let _ = carried_identities;
-        implicit_args.retain(|k, _| !files.contains(&k.0));
-        use_handler_args.retain(|k, _| !files.contains(&k.0));
-        implicit_members.retain(|k, _| !files.contains(&k.0));
-        // `errors`: not written per file by a walk (or, `errors`, handled by the caller).
-        let _ = errors;
-        decl_effects.retain(|k, _| !files.contains(&k.0));
-        // `handler_deps`, `effect_prereqs`: by name, rewritten alike by a re-walk.
-        let _ = (handler_deps, effect_prereqs);
-    }
-}
-
-impl Checked {
     /// [type-identity] The key a written type reference resolves to: its
     /// declaration's, or the written name.
     /// [type-identity] The key a name written in file [file] stands for.
@@ -1734,6 +1603,7 @@ thread_local! {
     static OWNERSHIP_BLIND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+
 fn ownership_blind() -> bool {
     OWNERSHIP_BLIND.with(|b| b.get())
 }
@@ -1794,20 +1664,16 @@ pub fn check_program_ownership_blind<'p>(
 
 /// Checks the whole program (resolution must come from the same program).
 ///
-/// Runs in two rounds so that *inferred* deductions are enforced at call
-/// sites exactly like declared ones [deduce-consume]: round one checks
-/// with only declared lists and runs whole-program deduction inference
-/// [deduce-infer]; round two re-checks with the inferred lists injected
-/// (moves consume arguments, kept parameters shed their removal set) and
-/// re-infers against the final call resolutions. Round one's diagnostics
-/// are discarded — checking is deterministic, so round two re-derives
-/// them.
+/// Every contract is a function of its signature, known before any body
+/// [deduce-default], so every body is walked once against them
+/// [deduce-fixpoint]; the deductions then check each body against its
+/// contract.
 pub fn check_program<'p>(
     program: &'p Program,
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
 ) -> Checked {
-    let mut out = check_program_rounds(program, resolution, symbols, None);
+    let mut out = check_program_walk(program, resolution, symbols, None);
     crate::literal::lower_tables(&mut out);
     check_std_deductions_total(program, &mut out);
     unmangle_scoped_locals(&mut out);
@@ -1843,7 +1709,7 @@ pub fn check_project<'p>(
     symbols: &Symbols<'p>,
     cache: &StdCache,
 ) -> Checked {
-    let mut out = check_program_rounds(program, resolution, symbols, Some(cache));
+    let mut out = check_program_walk(program, resolution, symbols, Some(cache));
     crate::literal::lower_tables(&mut out);
     unmangle_scoped_locals(&mut out);
     out
@@ -2026,17 +1892,15 @@ fn total_deduction_clause(f: &ast::FnDecl, deductions: &[crate::deduce::ParamDed
     entries.join(", ")
 }
 
-fn check_program_rounds<'p>(
+/// [deduce-fixpoint] One walk over every body, then the deductions. Nothing
+/// the walk learns feeds back into another walk: a binding's mode is decided
+/// at its first moving use, inside the walk [fate-move-mode].
+fn check_program_walk<'p>(
     program: &'p Program,
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
     cache: Option<&StdCache>,
 ) -> Checked {
-    // [fate-move-mode] Bind events whose bound variable a walk saw moved or
-    // mutated (move-mode candidates): a binding is declared move-mode when a
-    // later use needs it, which the walk learns only after the binding, so a
-    // walk that finds a new candidate is followed by another.
-    let mut candidates: HashSet<Key> = HashSet::new();
     // [deduce-syntax] Parameters whose data the body mutates, published for
     // the backends' pass modes (`param_mode`); they never feed back into
     // checking.
@@ -2051,8 +1915,7 @@ fn check_program_rounds<'p>(
     // tables are seeded with std's cached rows, or the final
     // `out.param_mutations = mutations` would drop them and
     // `parking_handlers` would lose std's parking handlers (which
-    // `deadlock::check` reads). `candidates` drive only the walked fns, so
-    // they need no std seed.
+    // `deadlock::check` reads).
     if let Some(cache) = cache {
         mutations.extend(
             cache
@@ -2064,8 +1927,8 @@ fn check_program_rounds<'p>(
 
     // [qual-refn] Refinements are resolved and validated once: they depend
     // on declarations and per-file visibility only, not on anything a
-    // checking walk produces. Every walk replays their diagnostics and
-    // reads their table, so the two sides of a refinement — what it means
+    // checking walk produces. The walk replays their diagnostics and reads
+    // their table, so the two sides of a refinement — what it means
     // at a call site and what it means for a contract — cannot come from
     // different data.
     let t = crate::timing::phase("check: refinements");
@@ -2076,11 +1939,6 @@ fn check_program_rounds<'p>(
     // (PIPELINE.md step 2): the first walk is a real one.
     let contracts = crate::deduce::contracts(program, cache);
 
-    // [deduce-fixpoint] Walk, then walk again the files whose walk found new
-    // move-mode candidates (PIPELINE.md 4.4), capped at MAX_ROUNDS walks. A
-    // program whose walk finds nothing new — most — is walked once, and a
-    // re-walk covers only the files that need it.
-    const MAX_ROUNDS: usize = 4;
     let ctx = WalkCtx {
         program,
         resolution,
@@ -2089,31 +1947,16 @@ fn check_program_rounds<'p>(
         refinements: &refinements,
         cache,
     };
-    let t = crate::timing::phase("check: round 1");
-    let (mut out, mut marks) = check_once(&ctx, &mut candidates, &mut mutations, &mut parking);
+    let t = crate::timing::phase("check: walk");
+    let mut out = check_once(&ctx, &mut mutations, &mut parking);
     drop(t);
-    let mut round = 1;
-    loop {
-        // [deduce-default] Each fn's contract against its body, and the
-        // contracts themselves into the table every consumer reads.
-        let t = crate::timing::phase(format!("check: deduce {round}"));
-        crate::deduce::infer(program, symbols, &mut out, cache.map(|c| c.std_files));
-        drop(t);
-        let fresh: HashSet<usize> = candidates
-            .iter()
-            .filter(|k| !marks.seen.contains(k))
-            .map(|k| k.0)
-            .collect();
-        if fresh.is_empty() || round >= MAX_ROUNDS {
-            out.param_mutations = mutations;
-            return out;
-        }
-        round += 1;
-        marks.seen = candidates.clone();
-        let t = crate::timing::phase(format!("check: round {round} ({} files)", fresh.len()));
-        rewalk_files(&ctx, &fresh, &mut out, &mut marks, &mut candidates, &mut mutations, &mut parking);
-        drop(t);
-    }
+    // [deduce-default] Each fn's contract against its body, and the
+    // contracts themselves into the table every consumer reads.
+    let t = crate::timing::phase("check: deduce");
+    crate::deduce::infer(program, symbols, &mut out, cache.map(|c| c.std_files));
+    drop(t);
+    out.param_mutations = mutations;
+    out
 }
 
 /// [actor-replyto] The handlers whose members mint a continuation into the
@@ -2163,8 +2006,8 @@ fn syntactic_parking_handlers(program: &Program) -> HashSet<String> {
 }
 
 
-/// The program inputs every walk shares; `inferred` carries the contracts
-/// every walk reads [deduce-default].
+/// The program inputs the walk reads; `inferred` carries the contracts
+/// [deduce-default].
 struct WalkCtx<'a, 'p> {
     program: &'p Program,
     resolution: &'a Resolution<'p>,
@@ -2174,33 +2017,20 @@ struct WalkCtx<'a, 'p> {
     cache: Option<&'a StdCache>,
 }
 
-/// [fate-move-mode] Where each walked file's body diagnostics sit in
-/// `Checked::errors`, so a re-walk of some files replaces exactly theirs.
-/// `errors[..prefix_end]` are the walk-independent ones (resolution,
-/// refinements), `errors[bodies_end..]` the program checks' and the
-/// deductions', recomputed after every walk.
-struct ErrorMarks {
-    prefix_end: usize,
-    bodies: Vec<(usize, Vec<FileDiagnostic>)>,
-    /// The move-mode candidates the walks so far were run with.
-    seen: HashSet<Key>,
-}
-
 /// One walk over every non-std file (std's facts come from the cache when
 /// there is one).
 fn check_once<'p>(
     ctx: &WalkCtx<'_, 'p>,
-    move_candidates: &mut HashSet<Key>,
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
-) -> (Checked, ErrorMarks) {
+) -> Checked {
     let WalkCtx { program, resolution, symbols, refinements, cache, .. } = *ctx;
     // [std-cache] Start from std's rows when caching (so project call sites
     // and whole-program passes read std facts without std being re-checked);
     // the std files themselves are skipped below. The whole-program tables
     // reset just below (`type_ref_keys` …) are recomputed over the merged
-    // program each round — cheap, no body walk — so overwriting std's copies
-    // of them is correct.
+    // program — cheap, no body walk — so overwriting std's copies of them is
+    // correct.
     let mut out = match cache {
         Some(cache) => cache.seeded(),
         None => Checked::default(),
@@ -2237,22 +2067,18 @@ fn check_once<'p>(
                 .insert(name.to_string(), crate::wire::protocol_hash(&canonical));
         }
     }
-    // [qual-refn] Refinement validation is round-independent; its
-    // diagnostics are replayed here so they land with everything else.
+    // [qual-refn] Refinement validation reads no body; its diagnostics are
+    // replayed here so they land with everything else.
     out.errors.extend(refinements.errors.iter().cloned());
     out.refinements = refinements.clone();
     out.platform_closure_all = crate::abi::platform_closure_all(program, symbols);
-    let prefix_end = out.errors.len();
     let files: Vec<usize> = (0..program.files.len())
         .filter(|f| !cache.is_some_and(|c| *f < c.std_files))
         .collect();
-    walk_signatures(ctx, &files, &mut out, move_candidates, param_mutations, parking_handlers);
-    let bodies = walk_bodies(ctx, &files, &mut out, move_candidates, param_mutations, parking_handlers);
-    for (_, errs) in &bodies {
-        out.errors.extend(errs.iter().cloned());
-    }
+    walk_signatures(ctx, &files, &mut out, param_mutations, parking_handlers);
+    walk_bodies(ctx, &files, &mut out, param_mutations, parking_handlers);
     program_checks(program, symbols, &mut out, parking_handlers);
-    (out, ErrorMarks { prefix_end, bodies, seen: HashSet::new() })
+    out
 }
 
 /// [implicit-param] Every fn's implicit parameters are recorded **before**
@@ -2268,7 +2094,6 @@ fn walk_signatures<'p>(
     ctx: &WalkCtx<'_, 'p>,
     files: &[usize],
     out: &mut Checked,
-    move_candidates: &mut HashSet<Key>,
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
 ) {
@@ -2287,31 +2112,27 @@ fn walk_signatures<'p>(
             ctx.inferred,
             ctx.refinements,
             out,
-            move_candidates,
             param_mutations,
             parking_handlers,
         );
         checker.collect_implicit_signatures(&ctx.program.modules[file_idx]);
+        checker.finish_fate();
     }
     out.errors.truncate(mark);
 }
 
-/// The bodies of [files], each file's diagnostics returned apart from the
-/// others' (see `ErrorMarks`).
+/// The bodies of [files], each walked once.
 fn walk_bodies<'p>(
     ctx: &WalkCtx<'_, 'p>,
     files: &[usize],
     out: &mut Checked,
-    move_candidates: &mut HashSet<Key>,
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
-) -> Vec<(usize, Vec<FileDiagnostic>)> {
+) {
     let _t = crate::timing::phase("  check_once: bodies");
-    let mut bodies = Vec::new();
     for &file_idx in files {
         let file = &ctx.program.files[file_idx];
         let ast = &ctx.program.modules[file_idx];
-        let mark = out.errors.len();
         let mut checker = Checker::new(
             file_idx,
             file.content.len(),
@@ -2323,7 +2144,6 @@ fn walk_bodies<'p>(
             ctx.inferred,
             ctx.refinements,
             out,
-            move_candidates,
             param_mutations,
             parking_handlers,
         );
@@ -2335,9 +2155,8 @@ fn walk_bodies<'p>(
             .collect();
         checker.check_module(ast);
         checker.check_platform_boundary(ast);
-        bodies.push((file_idx, out.errors.split_off(mark)));
+        checker.finish_fate();
     }
-    bodies
 }
 
 /// The whole-program checks, after every body: they read what the walk
@@ -2353,39 +2172,6 @@ fn program_checks(program: &Program, symbols: &Symbols<'_>, out: &mut Checked, p
     // (`actor_gates`, `actor_sends`).
     out.parking_handlers = parking_handlers.clone();
     crate::deadlock::check(program, symbols, out);
-}
-
-/// [fate-move-mode] Walks [files] again, replacing their rows, after a walk
-/// found move-mode candidates in them (PIPELINE.md 4.4): a candidate is a
-/// bind span of the file that found it, read only by that file's walk, so
-/// no other file's facts depend on it. The program checks and the
-/// deductions, which read every file, run again after.
-fn rewalk_files<'p>(
-    ctx: &WalkCtx<'_, 'p>,
-    files: &HashSet<usize>,
-    out: &mut Checked,
-    marks: &mut ErrorMarks,
-    move_candidates: &mut HashSet<Key>,
-    param_mutations: &mut HashMap<FnKey, HashSet<String>>,
-    parking_handlers: &mut HashSet<String>,
-) {
-    out.errors.truncate(marks.prefix_end);
-    marks.bodies.retain(|(f, _)| !files.contains(f));
-    out.drop_files(files);
-    let mut order: Vec<usize> = files.iter().copied().collect();
-    order.sort_unstable();
-    walk_signatures(ctx, &order, out, move_candidates, param_mutations, parking_handlers);
-    let mark = out.errors.len();
-    let fresh = walk_bodies(ctx, &order, out, move_candidates, param_mutations, parking_handlers);
-    debug_assert_eq!(out.errors.len(), mark);
-    marks.bodies.extend(fresh);
-    marks.bodies.sort_by_key(|(f, _)| *f);
-    for (_, errs) in &marks.bodies {
-        out.errors.extend(errs.iter().cloned());
-    }
-    out.task_mints.sort();
-    out.task_mints.dedup();
-    program_checks(ctx.program, ctx.symbols, out, parking_handlers);
 }
 
 /// [intrinsic-std-only] `intrinsic` marks a declaration the *compiler*
@@ -2570,6 +2356,9 @@ struct LocalVar {
     /// across branches (moved on any path is moved), cleared per place by
     /// reassignment.
     moved_places: Vec<MovedPlace>,
+    /// [fate-move-mode] The assignments of this path (place, `bind_seq`
+    /// then), for `take_ownership_at_use`.
+    assigned: AssignLog,
 }
 
 /// One narrowed projection place [flow-place]: the path out of the
@@ -2652,6 +2441,26 @@ struct FateLink {
     elem_idx: Option<u32>,
 }
 
+/// [fate-move-mode] One link-carrying binding, as the walk made it: what
+/// `error_derived` needs to give the binding its mode at the first moving
+/// use of what it bound.
+#[derive(Clone)]
+struct BindRecord {
+    /// The bound variable (a fresh `let` binding's, or the assigned one's).
+    var_id: u32,
+    /// The links the binding made (before any mode was applied).
+    links: Vec<FateLink>,
+    /// Whether the binding may take ownership (`may_take_ownership`, judged
+    /// at the binding, where the second walk judged it).
+    eligible: bool,
+    /// Binding order: a chain takes ownership oldest binding first.
+    seq: u64,
+    /// The first variable id not yet given out at the binding: a variable
+    /// made later did not exist when the binding took ownership, so what it
+    /// did then cannot have poisoned it.
+    next_id: u32,
+}
+
 impl FateLink {
     /// [fate-field-disjoint] Whether an event on `event_path` reaches this
     /// link. Either path unknown is conservative (they overlap): a
@@ -2686,6 +2495,22 @@ enum FateEvent {
 /// Flow state of one local: narrowed type plus fate links
 /// [deduce-consume] [fate-link], and the narrowed projections out of it
 /// [flow-place].
+/// [fate-move-mode] A path's assignments of a variable: each the place
+/// assigned and `bind_seq` when it was. A binding decided at a later use
+/// took the value that was there at the binding, so a root assigned since
+/// keeps what it holds now (`take_ownership_at_use`). Flow state like the
+/// rest of `VarState` (snapshotted, restored, unioned at a join), but not
+/// part of its identity: a loop body is walked again when what the flow
+/// knows changed, and the assignments are bookkeeping for a decision.
+#[derive(Clone, Debug, Default)]
+struct AssignLog(Vec<(Option<Vec<Step>>, u64)>);
+
+impl PartialEq for AssignLog {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
 #[derive(Clone, PartialEq)]
 struct VarState {
     narrowed: Ty,
@@ -2699,6 +2524,7 @@ struct VarState {
     /// [fate-partial-move] Moved-out projections, union-merged across
     /// branches: the dual of `place_narrows`, which intersects.
     moved_places: Vec<MovedPlace>,
+    assigned: AssignLog,
 }
 
 
@@ -2841,29 +2667,49 @@ struct Checker<'p, 'r> {
     own_mut_paths: Vec<(String, Option<Vec<Step>>, bool)>,
     /// Fresh-id counter for local bindings [fate-link].
     next_var_id: u32,
-    /// Move-mode candidates [fate-move-mode]: bind events (keyed by bind
-    /// span) whose bound variable round one saw moved or mutated —
-    /// collected at `error_derived`, the single choke point for every
-    /// derived move/mutation (round one's errors are discarded). Round
-    /// two applies move-mode at these bind sites.
-    move_candidates: &'r mut HashSet<Key>,
-    /// Parameters claimed by move-mode bindings and moved-position
-    /// projections [fate-move-mode]: the binding takes ownership, so the
-    /// parameter is moved. Only recorded for fns *without* a written
-    /// deduction list; seeded into deduction inference between rounds.
+    /// Move-mode candidates [fate-move-mode]: bind events (by bind span)
+    /// whose bound variable, or a value derived from it, was moved or
+    /// mutated — collected at `error_derived`, the single choke point for
+    /// every derived move/mutation. A binding met again once it is one (a
+    /// loop body's second pass) takes ownership at the binding
+    /// (`apply_binding_mode`).
+    move_candidates: HashSet<Span>,
+    /// [fate-move-mode] Every link-carrying binding of this file's walk, by
+    /// bind span (the latest encounter's, in a loop).
+    bind_log: HashMap<Span, Vec<BindRecord>>,
+    bind_seq: u64,
+    /// The bind spans of this file's move-mode bindings — decided at a use
+    /// (`take_ownership_at_use`) or met again after (`apply_binding_mode`).
+    /// Not `binding_modes`, which also holds the iterables of the loops
+    /// iterating by value, and a `for` binding is stamped with its
+    /// iterable's span.
+    decided: HashSet<Span>,
+    /// While a binding decided at a later use takes ownership: the variables
+    /// from this id on were made after the binding, so it poisons none of
+    /// them (`take_ownership_at_use`).
+    poison_floor: Option<u32>,
+    /// [linear-obligation] "assigning drops the linear value" errors raised
+    /// while a binding that may still take ownership of the value was
+    /// undecided (span, message, the bindings): the binding taking ownership
+    /// had consumed it, so the error goes when one is decided.
+    pending_drops: Vec<(Span, String, Vec<Span>)>,
+    /// Whether the binding `apply_binding_mode` last judged may take
+    /// ownership, for `record_fate_bind` to log.
+    bind_eligible: bool,
+    /// [fate-poison] Every binding's links by the fate key
+    /// `record_fate_bind` is given (the bound name or an assignment's
+    /// target), with the binding's span: written into `fate_binds` /
+    /// `fate_bound` when the file's walk ends (`finish_fate`), once every
+    /// binding's mode is known [fate-move-mode].
+    fate_log: HashMap<Span, (Span, Vec<FateLink>)>,
     /// [deduce-syntax] Parameters whose data the body mutates — recorded
     /// for *every* fn (written lists included), since the written-list
     /// validation needs them.
     param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
-    /// [deduce-field] Inferred mutated field paths, per (fn, parameter):
-    /// this round writes the bodies it walks, and call sites read what the
-    /// previous rounds established.
     /// [actor-replyto] Handlers whose member bodies mint a **self**-targeted
-    /// continuation — the names of every handler in which a `replyto` /
-    /// `replyto!` resolved lexically. Collected across rounds like
-    /// `move_candidates`, and for the same reason: a `use` may be checked
-    /// before the handler it names, so round one fills this and round two
-    /// (whose diagnostics are the ones kept) refuses.
+    /// continuation, read off each handler's text before the walk
+    /// (`syntactic_parking_handlers`), since a `use` may be checked before
+    /// the handler it names.
     ///
     /// The refusal is [actor-replyto]'s: parking is the one thing only a
     /// actor can do, so a parking handler may only be `spawn`ed. Using the
@@ -2935,10 +2781,9 @@ struct Checker<'p, 'r> {
     /// [fn-overload-return] The expected type of the value `if`/`when` being
     /// checked, which each of its branch blocks receives as `tail_hint`.
     value_expected: Option<Ty>,
-    /// The current fn's effective deduction contract (written list, else
-    /// the previous round's inferred facts): decides whether a parameter
-    /// root is *owned* (moved by the contract) for move-mode bindings
-    /// [fate-move-mode]. `None` for member fns and in round one.
+    /// The current fn's effective deduction contract (its signature's
+    /// [deduce-default]): decides whether a parameter root is *owned* (moved
+    /// by the contract) for move-mode bindings [fate-move-mode].
     own_contract: Option<Vec<crate::deduce::ParamDeduction>>,
     /// [type-literal] Every plain literal expression checked, by span: what a
     /// coercion consults when an argument typed without an expected type (so
@@ -3221,7 +3066,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         inferred: &'r HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>,
         refinements: &'r crate::refine::Refinements,
         out: &'r mut Checked,
-        move_candidates: &'r mut HashSet<Key>,
             param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
             parking_handlers: &'r mut HashSet<String>,
     ) -> Checker<'p, 'r> {
@@ -3260,7 +3104,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             driven_origins: Vec::new(),
             own_mut_paths: Vec::new(),
             next_var_id: 0,
-            move_candidates,
+            move_candidates: HashSet::new(),
+            bind_log: HashMap::new(),
+            bind_seq: 0,
+            decided: HashSet::new(),
+            poison_floor: None,
+            pending_drops: Vec::new(),
+            bind_eligible: false,
+            fate_log: HashMap::new(),
             parking_handlers,
             param_mutations,
             own_fn: None,
@@ -3484,9 +3335,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         self.out.fn_refs.insert(self.key(f.name.span), key);
         // [fate-move-mode] The fn's own effective contract
-        // decides whether a parameter root is owned: the
-        // written list when present (never gains claims),
-        // else the previous round's inferred facts.
+        // decides whether a parameter root is owned.
         self.own_fn = Some(key);
         self.own_stamp = f.stamped.as_ref();
         // [comptime-hygiene] A body stamped from another module's template is
@@ -8829,6 +8678,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     widened: None,
                     place_narrows: Vec::new(),
                     moved_places: Vec::new(),
+                    assigned: AssignLog::default(),
                     used: true,
                 },
             );
@@ -9402,6 +9252,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     widened: None,
                     place_narrows: Vec::new(),
                     moved_places: Vec::new(),
+                    assigned: AssignLog::default(),
                     used: false,
                 },
             );
@@ -9432,6 +9283,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     widened: None,
                     place_narrows: Vec::new(),
                     moved_places: Vec::new(),
+                    assigned: AssignLog::default(),
                     used: false,
                 },
             );
@@ -9479,6 +9331,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     widened: None,
                     place_narrows: Vec::new(),
                     moved_places: Vec::new(),
+                    assigned: AssignLog::default(),
                     used: false,
                 },
             );
@@ -9893,6 +9746,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             widened: None,
                             place_narrows: Vec::new(),
                             moved_places: Vec::new(),
+                            assigned: AssignLog::default(),
                             used: true,
                         },
                     );
@@ -11424,7 +11278,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let links = self.apply_binding_mode(links);
         // [fate-poison] What the IR flow pass poisons this binding by, or
         // [fate-move-mode] what it took ownership through.
-        self.record_fate_bind(name.span, &before, &links);
+        self.record_fate_bind(name.span, self.next_var_id, &before, &links);
         // [fate-link] Tooling hovers a *declaration* too, and that is where
         // a reader looks first to learn what a variable shares fate with —
         // so the presentation table is recorded here as well as at each
@@ -11474,6 +11328,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 widened: None,
                 place_narrows: Vec::new(),
                 moved_places: Vec::new(),
+                assigned: AssignLog::default(),
                 used: false,
             },
         );
@@ -12275,7 +12130,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if var.id == exempt && exempt != root_id {
                     exempt_name = Some(var_name.clone());
                 }
-                if var.id == root_id || var.id == exempt {
+                if var.id == root_id || var.id == exempt || self.poison_floor.is_some_and(|f| var.id >= f) {
                     continue;
                 }
                 let mut elem_spare = false;
@@ -12350,12 +12205,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// fate-linked (derived) variable [fate-derived-readonly]: derived
     /// values are read-only; `copy` makes an independent value.
     ///
-    /// This is also the S2 mode-inference probe [fate-move-mode]: every
-    /// move/mutation of a derived variable lands here, so the binding
-    /// event (the links' shared bind span) is recorded as a move-mode
-    /// candidate for the next round, and parameter roots are claimed as
-    /// moved when the fn's contract is inferable (no written list).
-    fn error_derived(&mut self, span: Span, action: &str, name: &str, links: &[FateLink]) {
+    /// This is also where a binding's mode is decided [fate-move-mode]:
+    /// every move/mutation of a derived variable lands here, so the chain
+    /// of bindings behind it are move-mode candidates, and each that may take
+    /// ownership does, here (`take_ownership_at_use`). Answers whether the
+    /// variable's own binding did — the use is then the move of an owned
+    /// value, and the caller goes on as for one; otherwise the S1 error is
+    /// reported [fate-derived-readonly].
+    fn error_derived(&mut self, span: Span, action: &str, name: &str, var_id: u32, links: &[FateLink]) -> bool {
         // [copy-scalar-free] Moving a derived *Copy scalar* is a read: an
         // `Int` taken out of a borrow is the value itself on both backends,
         // so nothing can observe the difference and no `copy` is owed.
@@ -12370,9 +12227,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     && t.strip_quals() != &Ty::named("Str")
             });
         if scalar {
-            return;
+            return false;
         }
-        self.record_move_candidates(links);
+        let chain = self.record_move_candidates(links);
+        // [fate-move-mode] The use decides: a binding that may take
+        // ownership does, and the use is the move of an owned value.
+        self.take_ownership_at_use(&chain);
+        if self.var_by_id(var_id).is_some_and(|v| v.links.is_empty()) {
+            return true;
+        }
         let root = &links[0].root_name;
         // [proj-readonly] A wholesale projection is the root's own data seen
         // through `proj`: read-only whatever its `Mut` says, and `copy` is
@@ -12392,7 +12255,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                      which can only be read{why}; use `copy({name})` for a value of your own"
                 ),
             );
-            return;
+            return false;
         }
         self.error(
             span,
@@ -12403,6 +12266,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                  `copy(...)`)"
             ),
         );
+        false
     }
 
     /// Records the *whole chain* of bind events behind `links` as
@@ -12412,7 +12276,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// → `name` → `longest`). Making every binding in a consuming
     /// pipeline move-mode is what lets the emitter produce a zero-clone
     /// chain of real moves.
-    fn record_move_candidates(&mut self, links: &[FateLink]) {
+    fn record_move_candidates(&mut self, links: &[FateLink]) -> Vec<Span> {
         let mut spans: Vec<Span> = Vec::new();
         let mut stack: Vec<u32> = Vec::new();
         for l in links {
@@ -12431,9 +12295,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        for span in spans {
-            self.move_candidates.insert((self.file_idx, span));
-        }
+        self.move_candidates.extend(spans.iter().copied());
+        spans
     }
 
     /// [deduce-syntax] Records that the enclosing fn invalidates one of
@@ -12460,8 +12323,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Whether a parameter is *owned* by the current fn: its effective
-    /// deduction contract (written list, else the previous round's
-    /// inferred facts including claims) moves it [fate-move-mode].
+    /// deduction contract moves it [fate-move-mode].
     fn param_owned(&self, name: &str) -> bool {
         self.own_contract
             .as_ref()
@@ -12472,51 +12334,65 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [fate-move-mode] S2: applies the binding mode at a link-creating
     /// bind event. Borrow-mode (the default) keeps the links — the
     /// binding shares fate with its ancestors. Move-mode fires when the
-    /// bind event is a candidate (round one saw the bound variable moved
-    /// or mutated) and every ancestor is owned in-function (a local, or
-    /// a parameter the fn's effective contract moves): the binding takes
-    /// ownership — the ancestors are consumed *here* (poison lands at
-    /// the binding), the event is recorded for the emitter (real move,
-    /// no clone), and the binding carries no links. A written-kept
-    /// parameter ancestor keeps borrow-mode, so the S1 error re-derives
-    /// at the move site [fate-derived-readonly].
+    /// bind event is already known to need it (a moving use was reached
+    /// and decided it: a loop's second pass meets the binding again) and
+    /// the binding may take ownership (`may_take_ownership`): the ancestors
+    /// are consumed *here* (poison lands at the binding), the event is
+    /// recorded for the emitter (real move, no clone), and the binding
+    /// carries no links. A binding first met in borrow-mode is decided at
+    /// its first moving use instead (`take_ownership_at_use`). Whether it
+    /// may take ownership is judged here, at the binding, and logged by
+    /// `record_fate_bind` for that decision.
     fn apply_binding_mode(&mut self, links: Vec<FateLink>) -> Vec<FateLink> {
         if links.is_empty() {
             return links;
         }
-        // [readonly-return] A value reached through a derived-return
-        // call is *physically borrowed*: move-mode cannot take ownership
-        // through it — the binding stays borrow-mode and the move site
-        // reports the S1 error with the `copy` remedy.
-        if links.iter().any(|l| l.borrowed) {
-            return links;
-        }
         let bind_span = links[0].bind_span;
-        if !self.move_candidates.contains(&(self.file_idx, bind_span)) {
+        self.bind_eligible = self.may_take_ownership(&links);
+        if !self.bind_eligible || !self.move_candidates.contains(&bind_span) {
             return links;
         }
-        // Every live ancestor must be owned; a dead root has nothing
-        // left to consume and does not block the move.
-        for l in &links {
+        self.take_ownership_effects(bind_span, &links);
+        self.out.binding_modes.insert((self.file_idx, bind_span));
+        self.decided.insert(bind_span);
+        Vec::new()
+    }
+
+    /// [fate-move-mode] Whether a binding with `links` may take ownership of
+    /// what it binds: nothing reached through a derived-return call
+    /// [readonly-return] (the value is *physically borrowed*: the binding
+    /// stays borrow-mode and the move site reports the S1 error with the
+    /// `copy` remedy), every live ancestor owned by the fn (a local, or a
+    /// parameter its contract moves; a dead root has nothing left to consume
+    /// and does not block), and no ancestor outside an enclosing lambda (a
+    /// lambda cannot consume a capture [fate-lambda]).
+    fn may_take_ownership(&self, links: &[FateLink]) -> bool {
+        if links.iter().any(|l| l.borrowed) {
+            return false;
+        }
+        for l in links {
             let Some(var) = self.var_by_id(l.root_id) else {
                 continue;
             };
             if (var.is_param && !self.param_owned(&l.root_name)) || var.lambda_kept {
-                return links;
+                return false;
             }
         }
-        // A lambda cannot consume a capture [fate-lambda]: a move-mode
-        // binding inside a lambda whose ancestors live outside it stays
-        // borrow-mode, and the move site reports the violation.
-        for l in &links {
+        for l in links {
             let Some(frame) = self.frame_of_id(l.root_id) else {
                 continue;
             };
             if self.lambda_ctx.iter().any(|ctx| frame < ctx.boundary) {
-                return links;
+                return false;
             }
         }
-        for l in &links {
+        true
+    }
+
+    /// [fate-move-mode] What a move-mode binding at `bind_span` does to the
+    /// ancestors it took ownership through (`links`), on the current path.
+    fn take_ownership_effects(&mut self, bind_span: Span, links: &[FateLink]) {
+        for l in links {
             // Other variables derived from this root lose their value
             // [fate-poison] — those overlapping *this* link's projection:
             // taking ownership of `p.tags` says nothing about `p.name`
@@ -12560,29 +12436,234 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.out.binding_modes.insert((file_idx, origin));
             }
         }
-        self.out.binding_modes.insert((self.file_idx, bind_span));
-        Vec::new()
+    }
+
+    /// [fate-move-mode] The moving use of a derived value decides the mode
+    /// of every binding behind it (`chain`, `record_move_candidates`' set),
+    /// in the one walk: each that may take ownership becomes move-mode, oldest
+    /// first, and the current path gets what the binding would have done —
+    /// its ancestors consumed or partly moved and their other derivatives
+    /// poisoned (`take_ownership_effects`), the bound variable left with no
+    /// links, and its descendants with no copies of the links it had (they
+    /// link to it, the owner). What the binding recorded is rewritten when
+    /// the walk ends (`finish_fate`). A path that never reaches this use
+    /// keeps the binding's links in the walk's state, but not in what the
+    /// walk records: no link stamped by a move-mode binding survives there.
+    fn take_ownership_at_use(&mut self, chain: &[Span]) {
+        let mut order: Vec<(Span, BindRecord)> = chain
+            .iter()
+            .filter_map(|s| self.bind_log.get(s).map(|recs| (*s, recs)))
+            .flat_map(|(s, recs)| recs.iter().filter(|r| r.eligible).map(move |r| (s, r.clone())))
+            .collect();
+        order.sort_by_key(|(_, r)| r.seq);
+        order.dedup_by_key(|(_, r)| r.seq);
+        for (bind_span, rec) in order {
+            let file_idx = self.file_idx;
+            self.out.binding_modes.insert((file_idx, bind_span));
+            self.decided.insert(bind_span);
+            // What the binding took ownership through: its links, less the
+            // copies of those an older binding of the chain already took.
+            let links: Vec<FateLink> = rec
+                .links
+                .iter()
+                .filter(|l| l.bind_span == bind_span || !self.decided.contains(&l.bind_span))
+                .filter(|l| !self.assigned_since(l.root_id, l.path.as_deref(), rec.seq))
+                .cloned()
+                .collect();
+            let dropped: Vec<(Span, String)> = self
+                .pending_drops
+                .iter()
+                .filter(|(_, _, binds)| binds.contains(&bind_span))
+                .map(|(span, msg, _)| (*span, msg.clone()))
+                .collect();
+            if !dropped.is_empty() {
+                self.pending_drops.retain(|(_, _, binds)| !binds.contains(&bind_span));
+                self.out
+                    .errors
+                    .retain(|e| !(e.file == file_idx && dropped.iter().any(|(s, m)| *s == e.span && *m == e.message)));
+            }
+            let inherited: HashSet<(u32, Span)> = rec.links.iter().map(|l| (l.root_id, l.bind_span)).collect();
+            for frame in &mut self.locals {
+                for var in frame.values_mut() {
+                    if var.id == rec.var_id {
+                        if var.links.iter().any(|l| l.bind_span == bind_span) {
+                            var.links.clear();
+                            // What poisoned it since went through the links
+                            // it never had.
+                            if matches!(var.narrowed, Ty::Never) {
+                                if let Some(t) = var.consumed_ty.take() {
+                                    var.narrowed = t;
+                                }
+                            }
+                        }
+                    } else if var.links.iter().any(|l| l.root_id == rec.var_id) {
+                        var.links.retain(|l| !inherited.contains(&(l.root_id, l.bind_span)));
+                    }
+                }
+            }
+            self.poison_floor = Some(rec.next_id);
+            self.take_ownership_effects(bind_span, &links);
+            self.poison_floor = None;
+        }
+    }
+
+    /// [fate-move-mode] Whether `root` was assigned, at a place overlapping
+    /// `path`, since the binding numbered `seq`.
+    fn assigned_since(&self, root: u32, path: Option<&[Step]>, seq: u64) -> bool {
+        let Some(var) = self.var_by_id(root) else {
+            return false;
+        };
+        var.assigned.0.iter().any(|(at, when)| {
+            *when >= seq && {
+                match (path, at.as_deref()) {
+                    (Some(a), Some(b)) => {
+                        let place = |p: &[Step]| Place { root: String::new(), path: p.to_vec() };
+                        place(a).overlaps(&place(b))
+                    }
+                    _ => true,
+                }
+            }
+        })
+    }
+
+    /// [fate-move-mode] A binding decided move-mode at a use on one path was
+    /// move-mode on every path through it: each path state that still holds
+    /// links stamped by such a binding (it went through the binding but not
+    /// the use) gets what the binding did, as if it had, before the paths
+    /// join. `None` when no state needs it.
+    fn take_ownership_on_paths(&mut self, states: &[NarrowSnapshot]) -> Option<Vec<NarrowSnapshot>> {
+        if self.decided.is_empty() {
+            return None;
+        }
+        let decided = self.decided.clone();
+        let stamps = |snap: &NarrowSnapshot| -> Vec<Span> {
+            let mut out: Vec<Span> = Vec::new();
+            for frame in snap {
+                for state in frame.values() {
+                    for l in &state.links {
+                        if decided.contains(&l.bind_span) && !out.contains(&l.bind_span) {
+                            out.push(l.bind_span);
+                        }
+                    }
+                }
+            }
+            out
+        };
+        if states.iter().all(|s| stamps(s).is_empty()) {
+            return None;
+        }
+        let current = self.snapshot_narrows();
+        let mut out = Vec::with_capacity(states.len());
+        for snap in states {
+            let found = stamps(snap);
+            if found.is_empty() {
+                out.push(snap.clone());
+                continue;
+            }
+            self.restore_narrows(snap);
+            self.take_ownership_at_use(&found);
+            out.push(self.snapshot_narrows());
+        }
+        self.restore_narrows(&current);
+        Some(out)
+    }
+
+    /// [fate-move-mode] The bindings, still undecided, that may take
+    /// ownership of the whole of `name`'s value: those of the live variables
+    /// linked to it.
+    fn undecided_binds_of(&self, name: &str) -> Vec<Span> {
+        let Some(root) = self.lookup(name).map(|v| v.id) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for frame in &self.locals {
+            for var in frame.values() {
+                for l in &var.links {
+                    let whole = l.path.as_deref().is_none_or(|p| p.is_empty());
+                    let eligible = self.bind_log.get(&l.bind_span).is_some_and(|recs| recs.iter().any(|r| r.eligible && r.var_id == var.id));
+                    if l.root_id == root && whole && eligible && !self.decided.contains(&l.bind_span) && !out.contains(&l.bind_span) {
+                        out.push(l.bind_span);
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// [fate-poison] Records a binding's fate links for the IR flow pass,
-    /// keyed by the bound name or the assignment's target: a borrow-mode
-    /// binding's (`Checked::fate_binds`), or [fate-move-mode] the ones a
-    /// move-mode binding took ownership through (`Checked::fate_bound` —
-    /// `apply_binding_mode` answered none for links it had). A loop body's
-    /// second walk adds what it found.
-    fn record_fate_bind(&mut self, at: Span, before: &[FateLink], after: &[FateLink]) {
-        let (table, links) = if after.is_empty() {
-            (&mut self.out.fate_bound, before)
-        } else {
-            (&mut self.out.fate_binds, after)
-        };
-        if links.is_empty() {
+    /// keyed by the bound name or the assignment's target, and [fate-move-mode]
+    /// logs the binding for `take_ownership_at_use`. Written into the tables
+    /// by `finish_fate`, once every binding's mode is known: a borrow-mode
+    /// binding's (`Checked::fate_binds`), or the ones a move-mode binding
+    /// took ownership through (`Checked::fate_bound`). A loop body's second
+    /// walk adds what it found.
+    fn record_fate_bind(&mut self, at: Span, var_id: u32, before: &[FateLink], after: &[FateLink]) {
+        if before.is_empty() {
             return;
         }
-        let entry = table.entry((self.file_idx, at)).or_default();
-        for l in links {
-            if !entry.iter().any(|e| e.root == l.root_name) {
-                entry.push(FlowLink { root: l.root_name.clone(), path: l.path.clone(), crosses: l.crosses });
+        let bind_span = before[0].bind_span;
+        if !after.is_empty() {
+            // A destructure binds several variables at one span, one after
+            // the other; a later encounter of the span (a loop's second
+            // pass) replaces them.
+            self.bind_seq += 1;
+            let seq = self.bind_seq;
+            let rec = BindRecord { var_id, links: before.to_vec(), eligible: self.bind_eligible, seq, next_id: self.next_var_id };
+            let recs = self.bind_log.entry(bind_span).or_default();
+            if recs.last().is_some_and(|r| r.seq + 1 == seq) {
+                recs.push(rec);
+            } else {
+                *recs = vec![rec];
+            }
+        }
+        let entry = self.fate_log.entry(at).or_insert_with(|| (bind_span, Vec::new()));
+        for l in before {
+            if !entry.1.iter().any(|e| e.root_id == l.root_id && e.bind_span == l.bind_span) {
+                entry.1.push(l.clone());
+            }
+        }
+    }
+
+    /// [fate-move-mode] The end of a file's walk: every binding's mode is
+    /// known, so what the bindings recorded is written as the modes have it.
+    /// No link stamped by a move-mode binding survives — the binding's own
+    /// links are what it took ownership through (`fate_bound`), and a
+    /// descendant links to the variable that owns the value, not to what it
+    /// was taken from — in `fate_binds` and in `fate_reads` alike.
+    fn finish_fate(&mut self) {
+        let file_idx = self.file_idx;
+        let decided = std::mem::take(&mut self.decided);
+        let moved = |s: Span| decided.contains(&s);
+        let mut log: Vec<(Span, (Span, Vec<FateLink>))> = std::mem::take(&mut self.fate_log).into_iter().collect();
+        log.sort_by_key(|(at, _)| (at.start, at.end));
+        for (at, (bind_span, links)) in log {
+            let mut flow: Vec<FlowLink> = Vec::new();
+            for l in &links {
+                if l.bind_span != bind_span && moved(l.bind_span) {
+                    continue;
+                }
+                if !flow.iter().any(|e| e.root == l.root_name) {
+                    flow.push(FlowLink { root: l.root_name.clone(), path: l.path.clone(), crosses: l.crosses });
+                }
+            }
+            if flow.is_empty() {
+                continue;
+            }
+            let table = if moved(bind_span) { &mut self.out.fate_bound } else { &mut self.out.fate_binds };
+            table.insert((file_idx, at), flow);
+        }
+        let stale: Vec<Key> = self
+            .out
+            .fate_reads
+            .iter()
+            .filter(|(k, reads)| k.0 == file_idx && reads.iter().any(|r| moved(r.bind_span)))
+            .map(|(k, _)| *k)
+            .collect();
+        for k in stale {
+            let Some(reads) = self.out.fate_reads.get_mut(&k) else { continue };
+            reads.retain(|r| !moved(r.bind_span));
+            if reads.is_empty() {
+                self.out.fate_reads.remove(&k);
             }
         }
     }
@@ -12786,7 +12867,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [deduce-syntax] A fn's *effective* contract: the whole-program table's
     /// entry when the deduce pass has produced one (written entries fixed,
     /// the rest inferred), else the written clause with its unmentioned
-    /// parameters optimistic — round one, or a declaration with no key.
+    /// parameters optimistic — a declaration with no key.
     fn effective_contract(
         &self,
         key: Option<FnKey>,
@@ -13122,8 +13203,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 if !links.is_empty() {
                     let name = id.name.clone();
-                    self.error_derived(id.span, "move", &name, &links);
-                    continue;
+                    if !self.error_derived(id.span, "move", &name, var_id, &links) {
+                        continue;
+                    }
                 }
                 let name = id.name.clone();
                 if let Some(frame) = self.frame_of_id(var_id) {
@@ -13204,7 +13286,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// roots give up the value — they are consumed here, and the
     /// projection is recorded for the emitter (a real partial move); a
     /// written-kept parameter root is an error (moving out of a borrow),
-    /// remedy `copy`. Round one records parameter claims only. A root
+    /// remedy `copy`. A root
     /// taken wholly is recorded in `flow_moves` at the projection, for the
     /// IR flow pass [flow-use-after-move] (which also reports a later
     /// argument of the same call reading it [deduce-same-call]).
@@ -17586,8 +17668,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 return;
             }
-            self.error_derived(span, "mutate", name, &links);
-            return;
+            if !self.error_derived(span, "mutate", name, id, &links) {
+                return;
+            }
         }
         // Mutating a variable captured from outside an enclosing lambda:
         // the closure takes ownership at creation [fate-lambda].
@@ -18185,6 +18268,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 consumed_ty: var.consumed_ty.clone(),
                                 place_narrows: var.place_narrows.clone(),
                                 moved_places: var.moved_places.clone(),
+                                assigned: var.assigned.clone(),
                             },
                         )
                     })
@@ -18207,6 +18291,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // next branch is checked, and the branches' exit
                     // states are union-merged in `merge_fallthrough`.
                     var.moved_places = state.moved_places.clone();
+                    var.assigned = state.assigned.clone();
                 }
             }
         }
@@ -18261,6 +18346,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         if fallthrough.is_empty() {
             return;
         }
+        let normalized = self.take_ownership_on_paths(fallthrough);
+        let fallthrough: &[NarrowSnapshot] = normalized.as_deref().unwrap_or(fallthrough);
         let mut linear_conflicts: Vec<String> = Vec::new();
         for (frame_idx, frame_snap) in fallthrough[0].iter().enumerate() {
             for name in frame_snap.keys() {
@@ -18361,8 +18448,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
+                let mut assigned = AssignLog::default();
+                for s in &states {
+                    for a in &s.assigned.0 {
+                        if !assigned.0.contains(a) {
+                            assigned.0.push(a.clone());
+                        }
+                    }
+                }
                 if let Some(var) = self.locals.get_mut(frame_idx).and_then(|f| f.get_mut(name)) {
                     var.narrowed = joined;
+                    var.assigned = assigned;
                     // [linear-union-arm] Settled on every path means the
                     // obligation is gone after the join, whatever the
                     // joined type says.
@@ -23712,6 +23808,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // back: the place and everything under it are
                         // whole again, so their moved-out records go.
                         if let Some(place) = Place::of_expr(other) {
+                            let seq = self.bind_seq;
+                            if let Some(var) = self.lookup_mut(&place.root) {
+                                var.assigned.0.push((Some(place.path.clone()), seq));
+                            }
                             self.revive_moved_places(&place);
                         }
                         ty
@@ -23757,15 +23857,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .lookup(&id.name)
                         .is_some_and(|var| self.owes_linear(&id.name, var));
                     if owes {
-                        self.error(
-                            *span,
-                            format!(
-                                "assigning to `{}` drops the linear value it \
-                                 still owns; move it onward or `discard({})` \
-                                 first",
-                                id.name, id.name
-                            ),
+                        let message = format!(
+                            "assigning to `{}` drops the linear value it \
+                             still owns; move it onward or `discard({})` \
+                             first",
+                            id.name, id.name
                         );
+                        // [fate-move-mode] Unless a binding of the value,
+                        // still undecided, takes ownership of it.
+                        let binds = self.undecided_binds_of(&id.name);
+                        if !binds.is_empty() {
+                            self.pending_drops.push((*span, message.clone(), binds));
+                        }
+                        self.error(*span, message);
+                    }
+                    let seq = self.bind_seq;
+                    if let Some(var) = self.lookup_mut(&id.name) {
+                        var.assigned.0.push((Some(Vec::new()), seq));
                     }
                     // [effect-state-store] Assigning into a handler *state*
                     // field is a **store**, not a binding: the field
@@ -23798,8 +23906,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let links = self.apply_binding_mode(links);
                     // [fate-poison] What the IR flow pass poisons it by, or
                     // [fate-move-mode] what it took ownership through.
-                    self.record_fate_bind(id.span, &before, &links);
                     let root = self.lookup(&id.name).map(|var| (var.id, id.name.clone()));
+                    let assigned_id = root.as_ref().map_or(u32::MAX, |&(id, _)| id);
+                    self.record_fate_bind(id.span, assigned_id, &before, &links);
                     let root_var_id = root.as_ref().map(|&(id, _)| id);
                     if let Some((root_id, root_name)) = root {
                         self.poison_derived(
@@ -24091,8 +24200,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if action == "return" {
                     self.check_returned_view_roots(&links, id.span);
                 }
-            } else {
-                self.error_derived(id.span, action, &name, &links);
+            } else if !self.error_derived(id.span, action, &name, var_id, &links) {
                 return;
             }
         }
@@ -24861,6 +24969,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // assignment to it.
                         self.reject_param_assignment(&id.name, id.span, "step");
                         let root = self.lookup(&id.name).map(|var| (var.id, id.name.clone()));
+                        let seq = self.bind_seq;
+                        if let Some(var) = self.lookup_mut(&id.name) {
+                            var.assigned.0.push((Some(Vec::new()), seq));
+                        }
                         let root_var_id = root.as_ref().map(|&(id, _)| id);
                         if let Some((root_id, root_name)) = root {
                             self.poison_derived(
@@ -30433,10 +30545,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if once {
                         let state = self.lookup(&lname).map(|var| (var.id, var.links.clone()));
                         if let Some((var_id, links)) = state {
-                            if !links.is_empty() {
-                                let name = id.name.clone();
-                                self.error_derived(id.span, "call", &name, &links);
-                            } else {
+                            let name = id.name.clone();
+                            if links.is_empty() || self.error_derived(id.span, "call", &name, var_id, &links) {
                                 let name = id.name.clone();
                                 self.poison_derived(
                                     var_id,
@@ -32038,8 +32148,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     };
                     if !links.is_empty() {
                         let name = id.name.clone();
-                        self.error_derived(id.span, "move", &name, &links);
-                        continue;
+                        if !self.error_derived(id.span, "move", &name, var_id, &links) {
+                            continue;
+                        }
                     }
                     let name = id.name.clone();
                     // [effect-state-store] A member cannot move a value out

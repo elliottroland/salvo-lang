@@ -179,9 +179,55 @@ export fn peek(h: Holder) -> Int {\n\
     assert!(leaks_of(src).is_empty(), "borrowed-field binding reported a false leak: {:?}", leaks_of(src));
 }
 
+/// [fate-move-mode] A binding of a linear value takes ownership when a later
+/// use moves what it bound, decided at that use in the one walk (PIPELINE.md
+/// R8 piece 4): the root is consumed *at the binding* on every path through
+/// it, so assigning the root again before the use drops nothing, and a path
+/// that skips the use owes nothing for the root. Neither the checker's linear
+/// rules nor the IR's ledger may report these.
+#[test]
+fn a_linear_binding_takes_ownership_where_it_is_made() {
+    let src = "\
+export linear struct Tok { id: Long }\n\
+export linear struct Pair { a: Tok, b: Tok }\n\
+export fn drop_tok(t: Tok) -> None => !t { discard(t) }\n\
+export fn mkt() -> Tok { return Tok { id: 1 } }\n\
+export fn reassigned_before_the_use() -> None {\n\
+    let p = mkt()\n\
+    let x = p\n\
+    p = mkt()\n\
+    drop_tok(x)\n\
+    drop_tok(p)\n\
+}\n\
+export fn used_in_one_arm(c: Bool, q: Pair) -> None => !q {\n\
+    let {a, b} = q\n\
+    if c {\n\
+        drop_tok(a)\n\
+        drop_tok(b)\n\
+        return\n\
+    }\n\
+    drop_tok(b)\n\
+    drop_tok(a)\n\
+}\n\
+export fn narrowed_in_an_arm(t: Tok | Str) -> None => !t {\n\
+    if t is Tok k {\n\
+        drop_tok(k)\n\
+    }\n\
+}\n";
+    let (errors, leaks) = errors_and_leaks_of(src);
+    assert!(errors.is_empty(), "the checker refused a binding that takes ownership: {errors:?}");
+    assert!(leaks.is_empty(), "the IR reported a leak: {leaks:?}");
+}
+
 /// Build the IR of `src` (with std) and return the IR check's leak messages,
 /// regardless of whether the AST checker also flags them.
 fn leaks_of(src: &str) -> Vec<String> {
+    errors_and_leaks_of(src).1
+}
+
+/// The checker's error messages on `src` (with std), and the IR check's leak
+/// messages.
+fn errors_and_leaks_of(src: &str) -> (Vec<String>, Vec<String>) {
     let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
@@ -200,7 +246,8 @@ fn leaks_of(src: &str) -> Vec<String> {
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
     let checked = salvo_core::check_program(&program, &resolution, &symbols);
+    let errors = checked.errors.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
     let (mut ir, _errs) = salvo_core::ir::build_program(&program, &symbols, &resolution, &checked, None);
     salvo_core::ir::obligations::annotate(&mut ir, &symbols);
-    salvo_core::ir::check::check(&ir).into_iter().map(|d| d.message).collect()
+    (errors, salvo_core::ir::check::check(&ir).into_iter().map(|d| d.message).collect())
 }

@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2038 tests, complete: the toolchain tests are
+cargo test                  # 2039 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,76 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A binding's mode is decided at its first moving use, and every body is walked once
+
+PIPELINE.md R8 piece 4 [fate-move-mode] [deduce-fixpoint]. The checker's
+re-walk loop is gone. A derived binding used to become move-mode in a second
+walk: the first walk recorded it as a candidate when a later use moved or
+mutated what it bound, and the files with new candidates were walked again,
+where the binding took ownership and the first walk's S1 error
+([fate-derived-readonly]) disappeared. Now the one walk decides at that use.
+`check_program_walk` is a single walk followed by the deductions; on `demo/`
+the check went from ~290ms (a 178ms walk, a 99ms re-walk of 10 files, two
+deduction passes) to ~186ms (a ~175ms walk and one ~5ms deduction pass).
+
+What the second walk changed was measured first, over every `Checked` table
+of every example: `binding_modes`, `fate_binds`/`fate_bound`, `fate_reads`,
+and, at the derived variable's later move sites, `moved_reads`, `flow_moves`,
+`linear_moves` and `fate_mutations`. It also removed nine checker linear
+diagnostics in std ("`e` owns a linear value that is consumed on some paths
+but not others", "assigning to `r` drops the linear value it still owns"),
+because a move-mode binding consumes its ancestors and the checker's linear
+joins read that. This is why the decision did not go to the IR (PIPELINE.md's
+preferred option): the walk's linear joins run on whatever state the walk
+has, so the decision must be made where they can see it, until linearity's
+checker half moves to the IR too. A per-body re-walk would still walk those
+bodies twice and needs rows stored per declaration.
+
+How it works. At a binding, the walk judges whether it *may* take ownership
+(`may_take_ownership`: nothing borrowed through a derived return, every live
+ancestor owned, none outside an enclosing lambda) and logs it (`bind_log`,
+one record per variable, so a destructure's several variables at one span
+are each there). At the first move or mutation of the derived variable,
+`error_derived` makes every binding of the chain behind it that may take
+ownership move-mode, oldest first (`take_ownership_at_use`), and gives the
+current path what the binding did: the ancestors consumed or partly moved,
+their other derivatives poisoned, the bound variable left with no links and
+its descendants with no copies of them. Then the use proceeds as the move of
+an owned value, and the caller records what it records for one; a binding
+that may not take ownership keeps the S1 error. Four refinements were each
+found by the differential below. A variable made after the binding is never
+poisoned by it (`poison_floor`): a destructure's second variable is linked
+to the same root. A root assigned since the binding keeps its new value
+(`LocalVar::assigned`, flow state unioned at joins but outside `VarState`'s
+equality, so a loop is not walked again for it), and a poison that reached
+the bound variable through the links is undone. A path that went through
+the binding but not the use gets the same at the next join
+(`take_ownership_on_paths`, in `merge_fallthrough`), which is what std's
+`let {kind, id, slot, body} = e` followed by `if body is Body b { put_task(…
+b …) }` needs. And an "assigning drops the linear value" error raised while
+such a binding was undecided is withdrawn when it is decided
+(`pending_drops`). The tables the bindings wrote before the decision are
+rewritten when the file's walk ends (`finish_fate`, from a per-file log of
+every binding's links with their stamps): no link stamped by a move-mode
+binding survives in `fate_binds` or `fate_reads`, and the binding's own go
+to `fate_bound`. The decided set is `decided`, not `binding_modes`, since a
+`for` binding is stamped with its iterable's span, which `binding_modes`
+also holds for a loop that iterates by value.
+
+The differential was temporary: with an environment switch,
+`check_program` ran the two-walk checker and the new one and wrote every
+difference (every table, line by line, and the rendered diagnostics) to
+`tmp/`. Over every program the whole suite checks, e2e included, the two
+agreed exactly, except in the ownership-blind audit walk, where the new one
+reports three fewer of the false linear errors that walk is known for in std.
+Then the second walk went: the loop, `rewalk_files`, `MAX_ROUNDS`,
+`ErrorMarks`, `Checked::drop_files` (nothing outside the checker used it or
+`ErrorMarks`), the shared `move_candidates` plumbing (now a per-file set of
+spans on the `Checker`), and the per-file split of body diagnostics. Emitted
+code did not change. New tests: four `mode_…` cases in `flow_tests` (142
+cases), and `a_linear_binding_takes_ownership_where_it_is_made` in
+`ir_linear_tests`, which fails if the withdrawn error comes back.
 
 ### 2026-10-20 — Poisoned and bound-away reads are reported from the IR
 
@@ -28599,7 +28669,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2038 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2039 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -29874,6 +29944,18 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A move-mode binding decided at a use must act as of the binding**
+  (2026-10-20, R8 piece 4). The second walk applied it at the binding, so
+  everything between the binding and the use saw the ancestors consumed and
+  the bound variable unlinked; the one walk sees the opposite until the use.
+  Each difference that mattered had a concrete fix: variables made after the
+  binding are not poisoned by it, a root assigned since keeps its new value,
+  other paths through the binding get it at the join, and a linear "assigning
+  drops" error raised in between is withdrawn. Anything else that reads the
+  ancestors' state between the binding and the use (a checker linear rule
+  that is not a join) still sees them unconsumed; the IR's leak check reads
+  `binding_modes` and is not affected.
 
 - **A poison is the flow pass's, from the checker's links** (2026-10-20, R8
   piece 3c): the pass does not derive fate links itself. They come from

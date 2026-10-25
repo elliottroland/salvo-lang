@@ -1880,8 +1880,9 @@ The language server re-runs the whole `analyze` pipeline on every document
 event with no incremental state (`crates/salvo-cli/src/lsp.rs`,
 `analysis.rs`): std's ~42 files plus any dependencies plus the project are
 parsed, resolved and checked from scratch on each keystroke. The cost is
-`check_program`'s whole-program fixpoint (`crates/salvo-core/src/check.rs`,
-the `check_once` → `deduce::infer` loop, `MAX_ROUNDS = 4`), not parsing. And
+`check_program`'s walk over every body (`crates/salvo-core/src/check.rs`; a
+whole-program fixpoint of up to four walks when this was written, one walk
+since 2026-10-20, PIPELINE.md R8 piece 4), not parsing. And
 because the server is single-threaded with no debounce or cancellation, a full
 analysis runs to completion before the next batch of events is read, so an
 analysis in flight reflects a buffer from several keystrokes ago and the

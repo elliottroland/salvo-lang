@@ -1085,3 +1085,94 @@ log current so the work can resume after a context reset). Newest last.
     then move-mode and the re-walk loop's deletion. The links are still the
     checker's (`fate_binds`): computing them in the pass is part of
     move-mode's piece, which needs them first.
+- **R8 piece 4 (move-mode and the re-walk): done** (committed "Decide
+  move-mode at the first moving use, and check every body once"). Taken
+  before the remaining static move-site rules (lambda capture moves,
+  handler-storage moves, lends validation), which need no flow and can stay
+  in the checker for now: move-mode is what the re-walk existed for.
+  - **First attempt interrupted** (no commit; its experiment hook in
+    check.rs reverted). What it measured, `tmp/xp_rewalk.txt`: with the
+    re-walk forced off (one walk), an example's program (std included) has
+    1 move-mode binding (`binding_modes`) where the normal two walks have
+    ~104, and ~120 S1 errors per example (1445 in all, mostly in std:
+    "cannot store/return/move `x`: it was bound from `y` and shares its
+    fate, so it can only be read") — exactly the derived bindings the
+    second walk turns move-mode. So the single walk's S1 errors *are* the
+    candidate set.
+  - **What the second walk changes, measured** (every `Checked` table, one
+    walk against two, on every example): `binding_modes`, `fate_bound` /
+    `fate_binds`, `fate_reads`, and at the derived variable's later move
+    sites `moved_reads`, `flow_moves`, `linear_moves` and `fate_mutations`
+    (the move is made instead of refused) — and, besides the S1 errors,
+    **nine checker linear diagnostics in std** ("`e` owns a linear value
+    that is consumed on some paths but not others", "assigning to `r` drops
+    the linear value it still owns"): a move-mode binding consumes its
+    ancestors, and the checker's linear joins read that consumption.
+  - **Design chosen: (C), the decision at the first moving use, in the one
+    walk.** (A), the IR deciding, is blocked by the checker's linear half:
+    whatever decides move-mode after the walk, the walk's own linear joins
+    have already run on borrow-mode state and reported those nine errors;
+    the decision can move to the IR together with the linear joins, not
+    before. (B), a per-body re-walk, still walks those bodies twice and
+    needs rows dropped per declaration (step 5's deferral). (C) needs
+    neither: a derived binding's mode is known exactly when its first move
+    or mutation is reached — it may take ownership (the `apply_binding_mode`
+    conditions, judged at the binding and logged: `may_take_ownership`,
+    `bind_log`) and it is now a candidate — so `error_derived` takes
+    ownership there instead of refusing (`take_ownership_at_use`): every
+    binding of the chain behind the use (`record_move_candidates`' set), in
+    binding order, gets what the second walk did at its binding —
+    `binding_modes` (and a `for` origin's), the ancestors consumed or partly
+    moved and their other derivatives poisoned on the current path, the
+    bound variable's links dropped and its descendants' copies of them — and
+    the use then proceeds as the move of an owned local, recording what the
+    second walk recorded there. A candidate that may not take ownership
+    reports the S1 error at the use, as before. What the bindings wrote
+    before the decision is rewritten when the file's walk ends
+    (`finish_fate`): `fate_binds` / `fate_bound` from a log of every
+    binding's links by stamp (no link stamped by a move-mode binding
+    survives), and `fate_reads` likewise. A binding met again after the
+    decision (a loop's second pass) takes move-mode at the binding, as the
+    second walk did.
+  - **Found by the differential, each fixed**: a destructure binds several
+    variables at one span, each linked to the whole root, so the first one's
+    poison of the root killed the next (`bind_log` holds one record per
+    variable; `poison_floor` spares every variable made after the binding);
+    a root assigned between the binding and the use keeps its new value and
+    the poison that reached the bound variable is undone
+    (`LocalVar::assigned`, flow state unioned at joins but outside
+    `VarState`'s equality; path-insensitive first, which broke std's
+    `send_or_back`: an arm that assigns and `continue`s); the paths that went
+    through the binding but not the use (std's `let {…, body} = e` then `if
+    body is Body b { put_task(…b…) }`) get it at the join
+    (`take_ownership_on_paths` in `merge_fallthrough`); a linear "assigning
+    drops" error raised while the binding was undecided is withdrawn when it
+    is decided (`pending_drops`); and a `for` binding is stamped with its
+    iterable's span, which `binding_modes` also holds for a by-value loop,
+    so the decided set is its own (`decided`).
+  - **The differential, retired**: `check_program` behind an environment
+    switch ran both checkers and wrote every difference (each table line by
+    line, the rendered diagnostics) to `tmp/xp_diff/`. Over every program
+    the whole suite checks, e2e included, nothing differed but the
+    ownership-blind audit walk, which reports three fewer of its known false
+    linear errors in std. Then the loop, `rewalk_files`, `MAX_ROUNDS`,
+    `ErrorMarks`, `Checked::drop_files` (no LSP or std-cache user), the
+    shared `move_candidates` plumbing (a per-file `HashSet<Span>` on the
+    `Checker` now) and the per-file split of body diagnostics went.
+    Emitted code did not change. Tests: four `mode_…` cases in
+    `flow_tests` (142), `a_linear_binding_takes_ownership_where_it_is_made`
+    in `ir_linear_tests` (2039 in all).
+  - **Timings** (`SALVO_TIMINGS=1 target/debug/salvo analyze --src demo`,
+    debug, three runs each; demo/ analyzes clean with the user's edits):
+    check ~290ms before (walk ~177ms, re-walk of 10 files ~99ms, two
+    deduction passes ~5.5ms each), ~186ms after (walk ~175ms, one deduction
+    pass ~5.4ms). The walk itself costs what it did.
+  - **What is left of R8**: lambda capture moves, handler-storage moves and
+    lends validation (static move-site rules, still the checker's); the
+    ROADMAP 0o unsound join/loop rules (in the flow pass, each fixed rule
+    changing its case's pinned expectation, the poison revival with the arm
+    rule); linearity's checker half (its joins, the assigning-drops rule,
+    decomposition), after which move-mode itself can move to the IR flow
+    pass with the links (`fate_binds` computed there rather than by the
+    checker); and deadlock onto the IR (the link stage), with the derived
+    route's router node per §7 and a test of a cycle through a route.
