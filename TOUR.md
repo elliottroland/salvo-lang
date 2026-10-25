@@ -211,15 +211,19 @@ pub linear_moves: HashSet<Key>,      // this read consumes a linear value
 pub moved_reads: HashSet<Key>,       // this bare name is moved by a store, spread, `break`, …
 pub state_takes: HashSet<Key>,       // this read takes a handler's state field
 pub moved_projections: HashSet<Key>, // `s.field` moved out of a consumed root
-pub binding_modes: HashSet<Key>,     // this `let` is a move-mode bind event
+pub bind_facts: HashMap<Key, BindFact>,  // a binding's fate links, and whether it may take ownership
+pub derived_uses: HashMap<Key, …>,   // a derived value moved or mutated here
 pub deductions: HashMap<FnKey, Vec<ParamDeduction>>,  // per fn, per parameter
 ```
 
 For `consume(xs)` the fn's `deductions` say `items: kept = false` (the clause
-`=> !items`), and in `main` the checker treats `xs` as consumed afterwards.
-That is why `twin = copy(xs)` is written before `consume(xs)`: a later read
-of `xs` would be the IR flow pass's error (`ir::flow`, run by
-`ir::analyze`), which sees the move as the read the IR marks consumed.
+`=> !items`), and the IR reads `xs` there as consumed. That is why `twin =
+copy(xs)` is written before `consume(xs)`: a later read of `xs` would be the
+IR flow pass's error (`ir::flow`, run by `ir::analyze`). The checker keeps no
+consumption state of its own; which `let`s take ownership of what they bind
+(move-mode) is the flow pass's decision too (`ir::flow::decide`, read by the
+builder as `ir::Decision`), from the checker's `bind_facts` and
+`derived_uses`.
 
 **Lending (views of other values)**
 
@@ -227,7 +231,7 @@ of `xs` would be the IR flow pass's error (`ir::flow`, run by
 pub derived_calls: HashMap<Key, …>,   // calls whose result is a view of an argument
 pub lending_calls: HashMap<Key, Vec<usize>>,
 pub mut_lend_calls: HashSet<Key>,     // …and a `Mut` position reads it
-pub handle_muts, virtual_place_binds, distinct_pairs, covered_calls …
+pub handle_muts, virtual_candidates, distinct_pairs, covered_calls …
 ```
 
 **Rule of thumb for finding one:** grep `pub .*: HashMap<Key` in
@@ -570,7 +574,7 @@ Applying it to every decision that is still in an emitter:
 | parameter moved / lent / lent mutably | ✔ (`PassMode`) | by value, `&T`, `&mut T`; scalars; fn values | core + Rust spell |
 | what `copy` duplicates | ✔ (`CopyPlan`) | the spelling | core + Kotlin render |
 | call → declaration, member, dot call | ✔ (tables) | the syntax of the call | core |
-| this read consumes / takes / moves a projection | ✔ (`linear_moves`, `state_takes`, `moved_projections`, `binding_modes`) | `mem::take`, move, `.unwrap()` | core tables |
+| this read consumes / takes / moves a projection | ✔ (`linear_moves`, `state_takes`, `moved_projections`; a binding's mode, `ir::Decision`) | `mem::take`, move, `.unwrap()` | core tables, IR flow pass |
 | a call's result borrows from its arguments (`proj`) | ✔ (`derived_calls`, `borrows.rs`) | `Option<&T>`, `Union2<&T, …>` | core + Rust |
 | this fn's result is read by a `Mut` position | ✔ (`mut_lends`) | locator twins | core + Rust |
 | **a `let` binds a borrow instead of a clone** | ✘ | an optimization: Salvo says a read is a copy | Rust `emit_let` |

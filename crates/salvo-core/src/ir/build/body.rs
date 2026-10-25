@@ -190,16 +190,70 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    /// [fate-poison] A binding's fate links, from the checker's tables
-    /// (keyed by the bound name), onto the binding statement: a borrow-mode
-    /// binding's (`fate_binds`), or [fate-move-mode] the ones a move-mode
-    /// binding took ownership through (`fate_bound`).
+    /// [fate-poison] A binding's fate links, from the checker's facts
+    /// (`Checked::bind_facts`, keyed by the bound name), onto the binding
+    /// statement as the flow pass's decision has the binding
+    /// (`Ctx::bind_links`): a borrow-mode binding's (`binds`), or
+    /// [fate-move-mode] the ones a move-mode binding took ownership through
+    /// (`bound`).
     pub(crate) fn note_bind(&mut self, id: NodeId, name: &salvo_syntax::ast::Ident) {
-        if let Some(links) = self.ctx.checked.fate_binds.get(&self.key(name.span)) {
-            self.fate.binds.insert(id.0, links.clone());
+        // [fate-move-mode] The checker's facts, as the decision has the
+        // binding: borrow-mode links, or what it took ownership through.
+        if let Some((decided, links)) = self.ctx.bind_links(self.file_idx, name.span) {
+            if links.is_empty() {
+            } else if decided {
+                self.fate.bound.insert(id.0, (name.name.clone(), links));
+            } else {
+                self.fate.binds.insert(id.0, links);
+            }
         }
-        if let Some(links) = self.ctx.checked.fate_bound.get(&self.key(name.span)) {
-            self.fate.bound.insert(id.0, (name.name.clone(), links.clone()));
+    }
+
+    /// [fate-move-mode] What the flow pass's decision reads off a binding:
+    /// whether it may take ownership, and the loops its roots are bound by.
+    pub(crate) fn note_fact(&mut self, fact: &crate::check::BindFact) {
+        let stamp = (fact.stamp.start, fact.stamp.end);
+        if fact.eligible {
+            self.fate.eligible.insert(stamp);
+        }
+        if !fact.origins.is_empty() {
+            let have = self.fate.origins.entry(stamp).or_default();
+            for o in &fact.origins {
+                if !have.contains(o) {
+                    have.push(*o);
+                }
+            }
+        }
+    }
+
+    /// [fate-move-mode] [deduce-field] The checker's derived uses and
+    /// virtual-place candidates at the AST span `span`, as the IR names
+    /// the locals here, onto the IR expression at `at`.
+    pub(crate) fn note_uses(&mut self, span: Span, at: Span, assign: bool) {
+        if let Some(uses) = self.ctx.checked.derived_uses.get(&self.key(span)) {
+            let lowered: Vec<DerivedUseAt> = uses
+                .iter()
+                .filter_map(|u| {
+                    let local = self.lookup(&u.name)?.local.0.clone();
+                    Some(DerivedUseAt { local, action: u.action.clone(), message: u.message.clone(), at: span, own: u.own.clone() })
+                })
+                .collect();
+            let table = if assign { &mut self.fate.assign_uses } else { &mut self.fate.uses };
+            table.entry((at.start, at.end)).or_default().extend(lowered);
+        }
+        if assign {
+            return;
+        }
+        if let Some(cands) = self.ctx.checked.virtual_candidates.get(&self.key(span)) {
+            let lowered: Vec<VirtualAt> = cands
+                .iter()
+                .map(|c| VirtualAt {
+                    stamp: c.stamp,
+                    place: c.place.clone(),
+                    local: if c.survivor { self.lookup(&c.var).map(|b| b.local.0.clone()) } else { None },
+                })
+                .collect();
+            self.fate.virtual_at.entry((at.start, at.end)).or_default().extend(lowered);
         }
     }
 
@@ -237,6 +291,17 @@ impl<'a, 'p> Lower<'a, 'p> {
             self.bind(&n, t);
         }
         let value = !ret.is_none_ty() && !ret.is_unknown();
+        // [fate-move-mode] What the decision reads about every binding in the
+        // body (an `is` binding has no statement of its own).
+        if let Some(facts) = self.ctx.facts_by_file.get(&self.file_idx) {
+            let from = facts.partition_point(|f| f.stamp.start < block.span.start);
+            for fact in &facts[from..] {
+                if fact.stamp.start >= block.span.end {
+                    break;
+                }
+                self.note_fact(fact);
+            }
+        }
         self.block(block, value)
     }
 
@@ -277,7 +342,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             AStmt::Assign { target, value, span } => {
                 let mut v = self.expr(value);
                 // [fate-move-mode] an assignment that takes ownership.
-                if self.ctx.checked.binding_modes.contains(&self.key(*span)) {
+                if self.ctx.mode(self.key(*span)) {
                     self.consume_bound(&mut v);
                 }
                 // [fate-poison] The new value's fate links (or what a
@@ -285,13 +350,27 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // mutation an assignment through a projection is, for the
                 // flow pass.
                 let at = (v.span.start, v.span.end);
+                // [fate-move-mode] A mutation of a derived local through the
+                // target (`m.n = 1`).
+                self.note_uses(*span, v.span, true);
+                // [flow-use-after-move] A write through a projection needs its
+                // root whole: where the flow pass reports one that is not.
+                let mut root = target;
+                while let AExpr::Field { base, .. } | AExpr::TupleIndex { base, .. } | AExpr::Index { base, .. } = root {
+                    root = &**base;
+                }
+                if let (AExpr::Ident(r), false) = (root, matches!(target, AExpr::Ident(_))) {
+                    self.fate.assign_targets.insert(at, r.span);
+                }
                 if let AExpr::Ident(id) = target {
                     self.fate.assign_spans.insert(at, *span);
-                    if let Some(links) = self.ctx.checked.fate_binds.get(&self.key(id.span)) {
-                        self.fate.assigns.insert(at, links.clone());
-                    }
-                    if let Some(links) = self.ctx.checked.fate_bound.get(&self.key(id.span)) {
-                        self.fate.assign_bound.insert(at, (id.name.clone(), links.clone()));
+                    if let Some((decided, links)) = self.ctx.bind_links(self.file_idx, id.span) {
+                        if links.is_empty() {
+                        } else if decided {
+                            self.fate.assign_bound.insert(at, (id.name.clone(), links));
+                        } else {
+                            self.fate.assigns.insert(at, links);
+                        }
                     }
                 }
                 if let Some(events) = self.ctx.checked.fate_mutations.get(&self.key(*span)) {
@@ -379,7 +458,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // The binding's type is the written one when there is one: `let x:
         // Int? = None` holds an `Int?`, whatever the initializer's type.
         let declared: Option<Ty> = written.map(|w| self.ctx.written_ty(self.file_idx, w)).filter(|t| !t.is_unknown());
-        let mut consumed_bind = self.ctx.checked.binding_modes.contains(&self.key(span));
+        let mut consumed_bind = self.ctx.mode(self.key(span));
         let mut v = v;
         if consumed_bind {
             self.consume_bound(&mut v);
@@ -393,7 +472,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let id = self.id();
                 self.note_bind(id, name);
                 // [deduce-field] a binding the checker keeps as its place.
-                if self.ctx.checked.virtual_place_binds.contains_key(&self.key(span)) {
+                if self.ctx.virtual_bind(self.key(span)) {
                     if let ExprKind::Read { place, .. } = &v.kind {
                         return vec![Stmt::Alias { id, local, ty, place: place.clone() }];
                     }

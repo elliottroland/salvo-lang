@@ -87,8 +87,11 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, sou
         if checked.dot_calls.contains(&key) {
             marks.push("dot");
         }
-        if checked.binding_modes.contains(&key) {
-            marks.push("moved");
+        // [fate-move-mode] A binding's mode is the IR's decision; the
+        // checker knows only the loops a projection move makes iterate by
+        // value.
+        if checked.by_value_loops.contains(&key) {
+            marks.push("by-value");
         }
         if checked.linear_moves.contains(&key) {
             marks.push("linear-move");

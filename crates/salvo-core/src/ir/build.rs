@@ -30,9 +30,45 @@ pub struct Ctx<'p> {
     /// Every fn declaration's dump name, program-wide (references may reach
     /// modules that are not built).
     pub names: HashMap<DeclId, String>,
+    /// [fate-move-mode] The IR flow pass's decision the bodies are built
+    /// from (empty on the first build: every binding borrow-mode).
+    pub decision: Decision,
+    /// [fate-move-mode] Every file's binding facts, by stamp: what a body's
+    /// decision reads about the bindings in it.
+    pub facts_by_file: HashMap<usize, Vec<&'p crate::check::BindFact>>,
 }
 
 impl<'p> Ctx<'p> {
+    /// [fate-move-mode] Whether the binding statement (or the loop, by its
+    /// iterable) at `key` takes ownership: lowered as a move.
+    pub fn mode(&self, key: (usize, Span)) -> bool {
+        self.decision.modes.contains(&key) || self.checked.by_value_loops.contains(&key)
+    }
+
+    /// [deduce-field] Whether the binding at `key` is a virtual place.
+    pub fn virtual_bind(&self, key: (usize, Span)) -> bool {
+        self.decision.virtual_binds.contains_key(&key)
+    }
+
+    /// [fate-move-mode] A binding's links as the flow pass reads them, and
+    /// whether it took ownership: the checker's facts (`bind_facts`), less
+    /// the copies of links an ancestor binding that took ownership made
+    /// (its descendant links to the owner, not to what the owner took),
+    /// one per root.
+    pub fn bind_links(&self, file_idx: usize, at: Span) -> Option<(bool, Vec<crate::check::FlowLink>)> {
+        let fact = self.checked.bind_facts.get(&(file_idx, at))?;
+        let decided = |s: Span| self.decision.decided.contains(&(file_idx, s));
+        let mut links: Vec<crate::check::FlowLink> = Vec::new();
+        for l in &fact.links {
+            if l.stamp != fact.stamp && decided(l.stamp) {
+                continue;
+            }
+            if !links.iter().any(|e| e.root == l.root) {
+                links.push(l.clone());
+            }
+        }
+        Some((decided(fact.stamp), links))
+    }
     pub fn decl_id(&self, key: FnKey) -> DeclId {
         DeclId { module: self.program.files[key.file].module.clone(), item: key.item, sub: 0 }
     }
@@ -282,9 +318,19 @@ pub fn build_program<'p>(
     checked: &'p Checked,
     modules: Option<&HashSet<&crate::ModulePath>>,
 ) -> (Program, Vec<String>) {
-    let ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program) };
-    let mut out = Program { modules: Vec::new(), names: HashMap::new() };
+    let _t = crate::timing::phase("ir build");
+    let mut facts_by_file: HashMap<usize, Vec<&crate::check::BindFact>> = HashMap::new();
+    for ((file, _), fact) in &checked.bind_facts {
+        facts_by_file.entry(*file).or_default().push(fact);
+    }
+    for v in facts_by_file.values_mut() {
+        v.sort_by_key(|f| (f.stamp.start, f.stamp.end));
+    }
+    let mut ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program), decision: Decision::default(), facts_by_file };
+    let mut out = Program { modules: Vec::new(), names: HashMap::new(), decision: Decision::default() };
     let mut errors = Vec::new();
+    let mut built: Vec<usize> = Vec::new();
+    let t = crate::timing::phase("  ir build: bodies");
     for (file_idx, (file, module)) in program.files.iter().zip(&program.modules).enumerate() {
         if let Some(wanted) = modules {
             if !wanted.contains(&file.module) {
@@ -293,13 +339,44 @@ pub fn build_program<'p>(
         }
         let (m, errs) = decls::build_module(&ctx, file_idx, file, module);
         out.modules.push(m);
-        errors.extend(errs.into_iter().map(|e| format!("{}: {e}", file.name)));
+        built.push(file_idx);
+        errors.push(errs.into_iter().map(|e| format!("{}: {e}", file.name)).collect::<Vec<_>>());
     }
+    // [fate-move-mode] The flow pass decides, over the bodies built with
+    // every binding borrow-mode, which bindings take ownership (and which
+    // stay virtual places [deduce-field]); a module with any is built
+    // again from the decision, which is what the emitters and the flow
+    // pass's own check read.
+    drop(t);
+    {
+        let t = crate::timing::phase("  ir build: decide");
+        let mut redo: Vec<usize> = Vec::new();
+        for (i, m) in out.modules.iter().enumerate() {
+            let file_idx = built[i];
+            let mut any = false;
+            for decl in &m.decls {
+                any |= super::flow::decide(decl, file_idx, &mut ctx.decision);
+            }
+            if any {
+                redo.push(i);
+            }
+        }
+        drop(t);
+        let _t = crate::timing::phase("  ir build: again");
+        for i in redo {
+            let file_idx = built[i];
+            let (m, errs) = decls::build_module(&ctx, file_idx, &program.files[file_idx], &program.modules[file_idx]);
+            out.modules[i] = m;
+            errors[i] = errs.into_iter().map(|e| format!("{}: {e}", program.files[file_idx].name)).collect();
+        }
+    }
+    let errors: Vec<String> = errors.into_iter().flatten().collect();
     let generated = actors::generate(&ctx, &mut out);
     // [ref-handle] Every `ref` names its container's type.
     refs::annotate(&mut out);
     out.names = ctx.names;
     out.names.extend(generated);
+    out.decision = ctx.decision;
     (out, errors)
 }
 

@@ -32,6 +32,8 @@ pub struct Program {
     pub modules: Vec<Module>,
     /// The dump name of every declaration, program-wide.
     pub names: std::collections::HashMap<DeclId, String>,
+    /// [fate-move-mode] The flow pass's decision the bodies were built from.
+    pub decision: Decision,
 }
 
 pub struct Module {
@@ -359,6 +361,11 @@ pub struct FateFacts {
     /// drops the linear value" points). A builder-made assignment (a loop's
     /// result, a pick) has none.
     pub assign_spans: std::collections::HashMap<(u32, u32), Span>,
+    /// [flow-use-after-move] An assignment through a projection, by the
+    /// assigned value's span: the span of the target's root as written
+    /// (`p` in `p.hp = 5`), where a write into a moved or poisoned value
+    /// is reported.
+    pub assign_targets: std::collections::HashMap<(u32, u32), Span>,
     /// [linear-obligation] A written loop's span, by its `Loop`/`ForEach`
     /// id: where a join over its exits points.
     pub loop_spans: std::collections::HashMap<u32, Span>,
@@ -367,6 +374,63 @@ pub struct FateFacts {
     /// [linear-state] In a handler member: the state fields holding
     /// obligations, which the member must leave whole.
     pub linear_state: Vec<String>,
+    /// [fate-move-mode] The bindings (by their stamp, the binding's span)
+    /// that may take ownership — the checker's judgment where the binding
+    /// is (`Checked::bind_facts`): the flow pass decides which do.
+    pub eligible: std::collections::HashSet<(u32, u32)>,
+    /// [fate-move-mode] Per binding stamp, the `for` loops (by iterable
+    /// span) whose binding is one of its roots: taking ownership makes them
+    /// iterate by value.
+    pub origins: std::collections::HashMap<(u32, u32), Vec<Span>>,
+    /// [fate-move-mode] [fate-derived-readonly] Moves and mutations of a
+    /// derived local, by the span of the IR expression they happen at: the
+    /// local, the action, and the S1 error should its binding stay
+    /// borrow-mode.
+    pub uses: std::collections::HashMap<(u32, u32), Vec<DerivedUseAt>>,
+    /// The same for a mutation by an assignment through a projection, by
+    /// the assigned value's span.
+    pub assign_uses: std::collections::HashMap<(u32, u32), Vec<DerivedUseAt>>,
+    /// [deduce-field] The bindings a mutation event at a span may leave as
+    /// virtual places (`Checked::virtual_candidates`), by the event's span.
+    pub virtual_at: std::collections::HashMap<(u32, u32), Vec<VirtualAt>>,
+}
+
+/// [fate-move-mode] A move or mutation of a derived local (`FateFacts::uses`).
+#[derive(Clone, Debug)]
+pub struct DerivedUseAt {
+    /// The local, as the IR names it.
+    pub local: String,
+    pub action: String,
+    pub message: String,
+    /// Where the checker placed the use: where the S1 error points.
+    pub at: Span,
+    /// The bindings the local's own links were made by (the checker's, at
+    /// the use: an `is` binding is the same storage as its subject in the
+    /// IR, so its link is not a local's here).
+    pub own: Vec<Span>,
+}
+
+/// [deduce-field] A binding a mutation event may leave as a virtual place:
+/// its stamp, the place, and — for a fields-declaring call's survivor — the
+/// local that must still be live there.
+#[derive(Clone, Debug)]
+pub struct VirtualAt {
+    pub stamp: Span,
+    pub place: String,
+    pub local: Option<String>,
+}
+
+/// [fate-move-mode] What the IR flow pass decided over a program's first
+/// build (`flow::decide`), which the builder then builds from: the
+/// bindings that take ownership (by stamp), the statements and loops the
+/// builder lowers as moves (`modes`: those bindings, and the loops they
+/// make iterate by value), and the bindings rendered as virtual places
+/// [deduce-field]. Keyed by (file index, span), as the checker's tables.
+#[derive(Clone, Default, Debug)]
+pub struct Decision {
+    pub decided: std::collections::HashSet<(usize, Span)>,
+    pub modes: std::collections::HashSet<(usize, Span)>,
+    pub virtual_binds: std::collections::HashMap<(usize, Span), String>,
 }
 
 #[derive(Clone)]

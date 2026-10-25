@@ -138,6 +138,128 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — A binding's mode is decided in the IR, and the walk keeps no consumption state
+
+PIPELINE.md R8 piece 8 [fate-move-mode] [fate-derived-readonly]
+[deduce-fixpoint] [ownership-audit] [flow-use-after-move] [deduce-field].
+The IR flow pass decides which borrow-mode bindings take ownership and
+reports the S1 error for the rest. The checker's walk keeps every binding
+borrow-mode, marks nothing consumed and poisons nothing; it records facts
+for the IR. Gone from check.rs: the consumption marking (`mark_consumed`,
+`narrowed = Never` as "consumed", `LocalVar::consumed_ty` and its plumbing
+through `install_narrows`, `with_narrows`, snapshots and
+`merge_fallthrough`), `poison_derived` (with every move and reassignment
+call of it, and `FateEvent`), `take_ownership_at_use`,
+`take_ownership_on_paths`, `take_ownership_effects`, `assigned_since`,
+`apply_binding_mode`, `record_move_candidates`, `BindRecord`, `bind_log`,
+`bind_seq`, `decided`, `poison_floor`, `bind_eligible`, `move_candidates`,
+`AssignLog` with `LocalVar::assigned`, the poisoned-handle early return in
+`fate_mutation_kind`, and the tables `binding_modes`,
+`virtual_place_binds`, `fate_binds` and `fate_bound`. The ownership-blind
+switch (`check_program_ownership_blind`, `OWNERSHIP_BLIND`) and its audit
+test went too: with no marking left, both walks were one walk.
+
+- **What the checker records.** `Checked::bind_facts`: every link-carrying
+  binding (by the bound name or an assignment's target), its links each
+  stamped by the binding that made it, whether it *may* take ownership
+  (`may_take_ownership`, judged where the binding is), and the `for` loops
+  whose binding is one of its roots. `Checked::derived_uses`: every move or
+  mutation of a derived variable, with the action, the S1 message, and the
+  stamps of the variable's own links (`note_derived_use`, which replaced
+  `error_derived`; the use then goes on as the move of an owned value).
+  `Checked::virtual_candidates`: the bindings a mutation event may leave as
+  virtual places. `Checked::by_value_loops`: the loops a projection move
+  out of the loop binding makes iterate by value. `fate_mutations` stays
+  (`record_mutation`, formerly `poison_derived_full`).
+- **What the IR does.** `ir::build_program` builds the bodies with every
+  binding borrow-mode, runs `ir::flow::decide` over each declaration, and
+  builds the modules with any decision again from it (`ir::Decision`, kept
+  on `ir::Program::decision`). The builder reads `Ctx::mode` (decided
+  bindings, the loops they take a binding of, the checker's
+  `by_value_loops`) where it read `binding_modes`, `Ctx::virtual_bind` where
+  it read `virtual_place_binds`, and `Ctx::bind_links` where it read
+  `fate_binds`/`fate_bound`: a decided binding's links go to
+  `FateFacts::bound`, an undecided one's to `binds`, less the copies of
+  links a decided ancestor made (what the walk's `finish_fate` filter did).
+  `decide`, at each derived use (`FateFacts::uses`): every binding behind
+  it — the variable's own, then back along the chain as the IR's links
+  stand on that path — that may take ownership does. For virtual places it
+  keeps a candidate whose binding has not taken ownership on that path
+  (`Moved::decided_here`, unioned at joins: the checker's former
+  `take_ownership_on_paths`), and a fields-declaring call's survivor only
+  if its local is still live after the event. The check walk then reports
+  a derived use none of whose own bindings may take ownership as the S1
+  error, and does not make that move.
+- **The links stay the checker's facts.** Computing them in the IR is not
+  feasible yet: an `is` binding is the same storage as its subject in the
+  IR (a `Narrow`, no statement of its own), and a derived return, a held
+  view and an element identity are typing facts. The IR does compute the
+  chains (from its per-path links) and the per-path state. The first link
+  of an `is` binding is the checker's (`DerivedUse::own`).
+- **The three other readers of the marking.** (1) `fate_mutation_kind`'s
+  early return for a write through a poisoned `Mut` handle was **not**
+  unreachable on an accepted program: `d.hp = 5` after a sibling's
+  `a.hp = 1` passed, because the flow pass never read an assignment
+  target's root. Neither did it for a moved one: `eat(p); p.hp = 5` passed
+  and failed rustc (E0382). The checker read the target's base until R8
+  piece 2, which is where this was lost. The flow pass now treats an
+  assignment through a projection as a use of its root, and of a moved
+  place strictly containing the target. That makes the early return
+  unreachable on an accepted program, and it went. (2)
+  `fate_mutation_fields_preserving`'s exclusion of consumed variables from
+  the virtual places is the IR's now (above). (3) `check_loop_body`
+  re-walks when a narrowing or a variable's links changed. Consumption no
+  longer triggers it: the flow pass has its own loop fixpoint, and the
+  links still need the second walk.
+- **The differential, retired.** A temporary hook in `check_program`
+  (`SALVO_XP_P8`) ran the old checker (behind a thread-local switch) next
+  to the new one on every program the suite checks, e2e included. It
+  compared the gates' diagnostics, the IR dump of every module (std
+  included) built from each, and twelve checker tables, and wrote every
+  difference to `tmp/xp_p8/`. Two differences were found and fixed:
+  - A `for` binding's link stamp was lost at the loop's exit. The flow
+    pass dropped every link to a local whose name was bound afresh (its
+    `forget`), so the chain from `longest` to `let name = person.name`
+    broke when `person` left scope. The pipeline's middle binding stayed
+    borrow-mode (`read person.name`, not `!read`). The fix: a link to an
+    earlier binding of a name becomes a link to no local (`GONE`), which
+    poisons nothing but keeps its stamp.
+  - `is` bindings were never eligible: the builder took eligibility from
+    the binding statements, and an `is` binding has none. Std's
+    `fs/path.sv` reported 30 false S1 errors. The fix: every fact in a
+    body's span is noted at `fn_body`, and the S1 judgment reads the
+    variable's own stamps.
+  After those, the gates and the IR were equal everywhere. The tables
+  differed only on rejected programs: the moves an S1 error used to refuse
+  (`moved_reads`, `flow_moves`), a `once` passed on after its call, and the
+  writes through poisoned handles (`handle_muts`, `fate_mutations`). Tests
+  that mixed an S1 error with a checker error were split, since gating is
+  per program and the S1 error now comes from the IR
+  (`s2_move_mode_ancestors_are_consumed`). Tests that read the S1 error
+  from `check_program` go through the gate now
+  (`a_handler_member_owns_what_it_consumes`).
+- **Emitted code did not change.** No golden, snapshot or example output
+  moved, and the IR dumps were equal in the differential.
+- **The language server** drops the fate links a move-mode binding made
+  from its hover table (`ir::analyze::analyze_full`,
+  `drop_owned_fate_reads`), on a program the checker accepts. On one with
+  errors it shows them, since the IR is not built there. `salvo facts`
+  marks the checker's by-value loops (`by-value`) where it marked
+  `binding_modes` (`moved`).
+- **Timings** (`SALVO_TIMINGS=1 target/debug/salvo analyze --src demo`,
+  debug, three runs): check 178–197ms before (walk 169–188ms), 170–181ms
+  after (walk 162–173ms). The walk got slightly cheaper. A whole-program IR
+  build (`salvo compile --backend rust --src demo`, std included) is now
+  35ms: 22ms of bodies, 2ms of deciding, 9.5ms of building again the
+  modules that had a decision (most of std's).
+- **Tests:** `flow_tests` gained four write-into cases
+  (`write_into_moved`, `write_into_poisoned_handle`,
+  `write_into_moved_part`, `write_puts_moved_part_back`), five S1 and mode
+  cases (`s1_kept_param`, `s1_is_binding_kept`, `s1_mutate_kept`,
+  `s1_no_cascade`, `mode_is_binding_owned`; 157 cases), and
+  `the_flow_pass_decides_the_modes_and_the_ir_follows`.
+  `ownership_audit_tests` was retired. 2045 in all.
+
 ### 2026-10-20 — Linear flow errors are reported from the IR
 
 PIPELINE.md R8 piece 7 [linear-obligation] [linear-state] [linear-union-arm]
@@ -30157,6 +30279,30 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A link to a binding gone from scope still names the binding that made
+  it** (2026-10-20, R8 piece 8). The flow pass's `forget` used to drop
+  every link to a local bound afresh, which was right for poison and wrong
+  for move-mode chains: the decision follows links' stamps back along the
+  chain, and losing the `for` binding's link at the loop's exit left the
+  pipeline's middle binding borrow-mode. A link to an earlier binding of a
+  name becomes a link to no local (`GONE`) instead. When a pass drops
+  state at a rebinding, check whether something reads its history.
+
+- **An `is` binding has no statement in the IR** (2026-10-20, R8 piece 8).
+  It lowers to a `Narrow`, the same storage as its subject, so a fact keyed
+  by binding statements (`note_bind`) never reaches it. Per-binding facts
+  the IR needs are noted for every binding in a body's span (`fn_body`),
+  and the first link of an `is` binding comes from the checker
+  (`DerivedUse::own`).
+
+- **A pass that reads only reads misses writes** (2026-10-20, R8 piece 8).
+  The IR's `Assign` holds a place, not a read of its root, so the flow
+  pass never saw `p.hp = 5` after `eat(p)` (rustc's E0382) or a write
+  through a poisoned handle, from R8 piece 2 (when the checker's own
+  check, through its read of the target's base, went) to piece 8. When a
+  check moves from the AST to the IR, list what the AST walk visited as a
+  read that the IR represents some other way.
+
 - **A handler's state field is a parameter to the checker** (2026-10-20,
   R8 piece 7). `LocalVar::is_param` is set for state fields, so any rule
   that exempts kept parameters exempts state too: `owes_linear` never
@@ -30261,12 +30407,12 @@ snapshot diffs.
   break s } }` as straight-line code and reported the `break` on the
   re-walk.
 
-- **The ownership-blind walk's own errors are not to be trusted**
-  (2026-10-20): `check_program_ownership_blind` keeps a consumed value's
-  type, and the linear join reads `narrowed == Never` as "settled", so it
-  reports ~20 false linear errors in std (`… consumed on some paths but not
-  others`, `assigning to r drops …`). Its *typing tables* are what the audit
-  and `flow_tests` use; filter its errors to the files under test.
+- **A checker mode that switches part of the analysis off reports errors
+  the real one does not** (2026-10-20). The ownership-blind walk
+  (`check_program_ownership_blind`, retired in R8 piece 8 with the
+  consumption marking it switched off) reported ~20 false linear errors in
+  std, because the linear join read `narrowed == Never` as "settled". Compare
+  such a mode's tables, not its diagnostics.
 
 - **A narrowing binding is the variable, to the IR flow pass** (2026-10-20):
   the builder reads a narrowed `v` through `v~1` (`Narrow … = v`), so a move

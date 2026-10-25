@@ -1284,8 +1284,7 @@ fn s2_move_mode_ancestors_are_consumed() {
          struct Wrapper {\n    item: Mut List<Int>\n}\n\n\
          fn wrap(list: Mut List<Int>) -> Wrapper => !list {\n    return Wrapper {item: list}\n}\n\n\
          fn kept_leak(h: Holder) -> Wrapper => h {\n    return wrap(h.tags)\n}\n\n\
-         fn kept_remedy(h: Holder) -> Wrapper => h {\n    return wrap(copy(h.tags))\n}\n\n\
-         fn kept_binding(v: Str) -> Str => v {\n    let w = v\n    return w\n}\n",
+         fn kept_remedy(h: Holder) -> Wrapper => h {\n    return wrap(copy(h.tags))\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -1297,13 +1296,21 @@ fn s2_move_mode_ancestors_are_consumed() {
         stderr.contains("cannot move mutable data out of `h`: it is a kept parameter"),
         "stderr: {stderr}"
     );
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
+
     // A written-kept parameter binding keeps the S1 error at the move
-    // site [fate-derived-readonly].
+    // site [fate-derived-readonly] — the IR flow pass's since R8 piece 8, so
+    // its own program (a checker error hides the flow pass's diagnostics).
+    let dir = src_dir("s2_negative_kept");
+    fs::write(dir.join("main.sv"), "fn kept_binding(v: Str) -> Str => v {\n    let w = v\n    return w\n}\n").unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
     assert!(
         stderr.contains("cannot return `w`: it was bound from `v`"),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains("2 errors"), "stderr: {stderr}");
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
 
     // Chain: `xs` was consumed at `a`'s binding (the whole chain is
     // move-mode); the use-site error names the binding. The IR flow pass's

@@ -18,13 +18,16 @@
 //! messages, one difference (`part_same_call`, noted there). So were the
 //! poisoned reads (`poison_…`, `bound_away…`, piece 3c [fate-poison]
 //! [fate-move-mode]) with the checker's two poison messages: same reads,
-//! same words, one difference (`poison_same_call`, noted there). The
-//! checker still owns the consumption marking (`narrowed = Never`), the
-//! fate links (`fate_binds`), the mutation events (`fate_mutations`) and
-//! the `moved_places` record its linear machinery reads, so a case whose
-//! expectation changes must say whether the pass's rule changed (as ROADMAP
-//! 0o's join, loop and revival rules did in R8 piece 5, each such case
-//! saying what it reported before) or the checker's tables did.
+//! same words, one difference (`poison_same_call`, noted there). Since R8
+//! piece 8 the pass also decides the bindings' modes and reports the S1
+//! error [fate-move-mode] [fate-derived-readonly] (`s1_…`, `mode_…`; the
+//! checker's decision, compared table by table before it was removed,
+//! agreed on every program the suite checks). The checker still owns the
+//! fate links (`Checked::bind_facts`) and the mutation events
+//! (`fate_mutations`), so a case whose expectation changes must say
+//! whether the pass's rule changed (as ROADMAP 0o's join, loop and revival
+//! rules did in R8 piece 5, each such case saying what it reported before)
+//! or the checker's tables did.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -127,6 +130,10 @@ fn eatlook(a: Str, b: Str) [] -> None => !a {
 
 fn mkrec() [] -> Mut Rec {
     return Mut Rec { name: \"a\", tags: Mut List<Str>() }
+}
+
+struct MNest canbe Mut {
+    r: Mut Rec
 }
 
 ";
@@ -355,6 +362,24 @@ const CASES: &[(&str, &str)] = &[
     ("mode_destructure_one_arm", "fn f(c: Bool) [] -> Int {\n    let p = newrec()\n    let {name, tags} = p\n    if c {\n        eatl(tags)\n    }\n    return look(name)\n}\n"),
     ("mode_field_reassigned", "fn f() [] -> Int {\n    let p = mkrec()\n    let n = p.name\n    p.name = mk()\n    eat(n)\n    return look(p.name)\n}\n"),
     ("mode_chain_root_read", "fn f(c: Bool) [] -> Int {\n    let a = mk()\n    let b = a\n    let d = b\n    if c {\n        eat(d)\n    }\n    return look(a)\n}\n"),
+    // [flow-use-after-move] A write through a projection needs its root
+    // (R8 piece 8; the checker read the target's base until piece 2, and
+    // the pass did not, so these passed and the first failed rustc, E0382).
+    ("write_into_moved", "fn f() [] -> Int {\n    let p = mkrec()\n    takep(p)\n    p.name = mk()\n    return 0\n}\n"),
+    ("write_into_poisoned_handle", "fn f(xs: List<Mut Rec>, i: Int, j: Int) [] -> Int => xs, i, j {\n    let a = at(xs, i) ?: unreachable!()\n    let d = at(xs, j) ?: unreachable!()\n    a.name = mk()\n    d.name = mk()\n    return 0\n}\n"),
+    ("write_into_moved_part", "fn f(n: Mut MNest) [] -> Int => !n {\n    takep(n.r)\n    n.r.name = mk()\n    return 0\n}\n"),
+    ("write_puts_moved_part_back", "fn f(n: Mut MNest) [] -> Int => !n {\n    takep(n.r)\n    n.r = mkrec()\n    n.r.name = mk()\n    return 0\n}\n"),
+    // [fate-derived-readonly] [fate-move-mode] The IR decides the modes and
+    // reports the S1 error (R8 piece 8; the checker's until then): a
+    // derived value moved or mutated where no binding behind it may take
+    // ownership — a kept parameter's, through a `let`, an `is` binding, a
+    // mutation — and its move is then not made (no second error); an owned
+    // root's `is` binding takes ownership.
+    ("s1_kept_param", "fn f(v: Str) [] -> Str => v {\n    let w = v\n    return w\n}\n"),
+    ("s1_is_binding_kept", "fn f(v: Str | Int) [] -> Str => v {\n    if v is Str s {\n        return s\n    }\n    return mk()\n}\n"),
+    ("s1_mutate_kept", "fn f(xs: Mut List<Str>) [] -> Int => xs {\n    let ys = xs\n    add(ys, mk())\n    return 0\n}\n"),
+    ("s1_no_cascade", "fn f(v: Str) [] -> Int => v {\n    let w = v\n    eat(w)\n    return look(w)\n}\n"),
+    ("mode_is_binding_owned", "fn f(v: Str?) [] -> Int => !v {\n    if v is Str s {\n        eat(s)\n    }\n    return 0\n}\n"),
 ];
 
 fn program(cases: &[(&str, &str)]) -> Program {
@@ -414,7 +439,9 @@ fn the_gate_reports_what_the_flow_pass_finds() {
         for decl in &module.decls {
             for d in salvo_core::ir::flow::check_one(decl) {
                 assert!(
-                    d.message.contains(&format!("`{}` cannot be used", d.local)) || d.message.contains(&format!("moved out of `{}`", d.local)),
+                    d.message.contains(&format!("`{}` cannot be used", d.local))
+                        || d.message.contains(&format!("moved out of `{}`", d.local))
+                        || d.readonly && d.message.contains(&format!("`{}`: it was bound from `", d.local)),
                     "{}",
                     d.message
                 );
@@ -450,8 +477,10 @@ fn the_gate_reports_what_the_flow_pass_finds() {
                 || d.message.contains("cannot be used as a whole here: `")
                     && d.message.contains("` was moved out of it at line ")
                 || d.message.contains("cannot be used here: `") && d.message.contains("` at line ")
+                || d.message.contains("cannot be assigned here: `") && d.message.contains("` at line ")
                 || d.message.contains("and shares its fate, and `") && d.message.contains(" at line ") && d.message.contains(" after the binding")
-                || d.message.contains("` was bound from it at line ") && d.message.contains("so the binding took ownership"),
+                || d.message.contains("` was bound from it at line ") && d.message.contains("so the binding took ownership")
+                || d.message.contains("and shares its fate, so it can only be read"),
             "the gate names the move: {}",
             d.message
         );
@@ -633,8 +662,8 @@ fn the_flow_pass_reports_these_reads() {
         ("poison_read_projection", &[(5, 17)]),
         ("poison_for_binding", &[(8, 21)]),
         // The IR does not read `o` as a move (the unwrap is a block): the
-        // binding's links say what it took (`fate_bound`). Found after the
-        // differential, reading `apply_binding_mode`: the pass missed it
+        // binding's links say what it took (`FateFacts::bound`). Found after
+        // the differential, reading `apply_binding_mode`: the pass missed it
         // while it took a move-mode binding from its consuming read alone.
         ("bound_away_unwrap", &[(4, 17)]),
         // The checker names the pattern's last binding.
@@ -643,6 +672,15 @@ fn the_flow_pass_reports_these_reads() {
         ("mode_destructure_one_arm", &[]),
         ("mode_field_reassigned", &[]),
         ("mode_chain_root_read", &[(8, 17)]),
+        ("write_into_moved", &[(4, 5)]),
+        ("write_into_poisoned_handle", &[(5, 5)]),
+        ("write_into_moved_part", &[(3, 5)]),
+        ("write_puts_moved_part_back", &[]),
+        ("s1_kept_param", &[(3, 12)]),
+        ("s1_is_binding_kept", &[(3, 16)]),
+        ("s1_mutate_kept", &[(3, 5)]),
+        ("s1_no_cascade", &[(3, 9)]),
+        ("mode_is_binding_owned", &[]),
     ];
     assert_eq!(expected.len(), CASES.len(), "one expectation per case");
     let program = program(CASES);
@@ -670,6 +708,43 @@ fn the_flow_pass_reports_these_reads() {
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// [fate-move-mode] The IR flow pass decides the modes (R8 piece 8): over
+/// the bodies built with every binding borrow-mode, the use that moves a
+/// derived value makes every binding behind it that may take ownership do
+/// so — the whole chain of the zero-clone pipeline, `persons` → `person`
+/// (the loop iterates by value) → `name` → `longest` — and the bodies are
+/// built again from that decision. The language server's presentation of
+/// fate links drops the ones such a binding made [fate-link].
+#[test]
+fn the_flow_pass_decides_the_modes_and_the_ir_follows() {
+    let src = "struct Person {\n    name: Str,\n    age: Int\n}\n\nfn longest_name(persons: List<Person>) [] -> Str => !persons {\n    let longest = \"\"\n    for person in persons {\n        let name = person.name\n        if size(name) > size(longest) {\n            longest = name\n        }\n    }\n    return longest\n}\n";
+    let program = program(&[("pipeline", src)]);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let mut checked = salvo_core::check_program(&program, &resolution, &symbols);
+    assert!(!checked.errors.iter().any(|d| d.is_error()));
+    let file = program.files.iter().position(|f| f.name == "pipeline.sv").unwrap();
+    let wanted: std::collections::HashSet<&salvo_core::ModulePath> = std::iter::once(&program.files[file].module).collect();
+    let (ir, _) = salvo_core::ir::build_program(&program, &symbols, &resolution, &checked, Some(&wanted));
+    // The `for` binding, `let name`, and the assignment of `longest`.
+    assert_eq!(ir.decision.decided.len(), 3, "{:?}", ir.decision);
+    let module = ir.modules.iter().find(|m| m.file_name == "pipeline.sv").unwrap();
+    let dump = salvo_core::ir::dump::Dumper::module(&ir, module);
+    for want in ["foreach#2 person: Person in !read persons", "let name: Str = !read person.name", "assign longest = !read name"] {
+        assert!(dump.contains(want), "missing `{want}`:\n{dump}");
+    }
+    // Before the IR's decision every link is presented; after, none a
+    // binding that took ownership made.
+    let stamped = |c: &salvo_core::Checked, d: &salvo_core::ir::Decision| {
+        c.fate_reads.iter().filter(|((f, _), reads)| *f == file && reads.iter().any(|r| d.decided.contains(&(*f, r.bind_span)))).count()
+    };
+    let (diags, decision) = salvo_core::ir::analyze::analyze_full(&program, &symbols, &resolution, &checked);
+    assert!(diags.is_empty(), "{:?}", diags.iter().map(|d| &d.message).collect::<Vec<_>>());
+    assert!(stamped(&checked, &decision) > 0);
+    salvo_core::ir::analyze::drop_owned_fate_reads(&mut checked, &decision);
+    assert_eq!(stamped(&checked, &decision), 0);
 }
 
 

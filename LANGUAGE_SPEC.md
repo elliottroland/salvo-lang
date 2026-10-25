@@ -8200,24 +8200,27 @@ between endpoints and delivers what arrives into the scheduler.
   step 7 piece 2). Where ownership feeds typing it is the *callee's
   signature* speaking — a contract dropping `NonEmpty`, a `Mut` argument
   invalidating narrowings [flow-place-invalidate], a mutation stripping
-  dependent claims — and that stays in typing. Body-flow ownership touches
-  typing only on error paths: since R8 piece 2 a consumed value reads as the
-  type it had before the move (`LocalVar::consumed_ty`), with no checker
-  diagnostic — the use is the IR flow pass's [flow-use-after-move], every
-  consumed read included since R8 piece 3a and every read of a partially
-  moved value since piece 3b (a read of one types as if nothing had
-  moved), and every poisoned read since piece 3c (it types as the value
-  it was) [fate-poison]. `check_program_ownership_blind` switches
-  those off; `ownership_never_changes_the_typing_of_an_accepted_program`
-  checks every example (and std) both ways and requires identical types,
-  representations, callees, coercions and union tests. (A dependent
-  qualifier's roots are variable numbers, which the two walks number
-  differently in std's `heap.sv`; compared by the path they name.)
+  dependent claims — and that stays in typing. Body-flow ownership does not
+  touch typing at all **since R8 piece 8, by construction**: the typing walk
+  tracks no moves, no poison and no binding modes (the consumption marking,
+  `narrowed = Never` with its `consumed_ty`, went with the walk's move-mode
+  decision), so a moved, poisoned or bound-away value reads as the type it
+  has, and every use of one is the IR flow pass's diagnostic
+  [flow-use-after-move]. The walk's only ownership state is the fate links
+  it records for the IR (`Checked::bind_facts`), which no typing rule
+  reads. Until piece 8 this was evidence, not construction:
+  `check_program_ownership_blind` switched the marking off and
+  `ownership_audit_tests.rs` checked every example (and std) both ways for
+  identical types, representations, callees, coercions and union tests;
+  with nothing left to switch off, both walks were the same walk, and the
+  audit was retired with the switch.
 * [flow-use-after-move] **The IR's use-after-move pass** (`ir::flow`,
-  03-generate-02-flow; PIPELINE.md R8 pieces 1–3c, 2026-10-20) **is the
-  only use-after-move diagnostic** — the checker reports no consumed read at
-  all, no read of a place moved out [fate-partial-move], and no poisoned
-  read [fate-poison] [fate-move-mode]: `ir::analyze` runs it per declaration
+  03-generate-02-flow; PIPELINE.md R8 pieces 1–3c and 8, 2026-10-20) **is
+  the only use-after-move diagnostic** — the checker reports no consumed
+  read at all, no read of a place moved out [fate-partial-move], and no
+  poisoned read [fate-poison] [fate-move-mode] — and since R8 piece 8 it
+  also decides the bindings' modes and reports the S1 error
+  [fate-derived-readonly]: `ir::analyze` runs it per declaration
   next to the linear check (`ir::check`), over the user's modules and their
   test files, so every gate reports it once the checker is clean — `salvo
   analyze` and the LSP (`analysis.rs`), compile/run/build/test
@@ -8237,7 +8240,15 @@ between endpoints and delivers what arrives into the scheduler.
     place rooted at a moved local is the error, and so is a call of one
     (`FnRef::Local`, as a call target or a fn value),
     reported once per read; assigning the whole local or a fresh `let` of it
-    revives it. A narrowing binding of a whole local is the same storage (one
+    revives it. **An assignment through a projection writes into its root**
+    (R8 piece 8): a root moved or poisoned there is a use (`eat(p); p.hp =
+    5` — rustc's E0382 — and `d.hp = 5` through a handle a sibling's write
+    poisoned [ref-handle]), and so is a place strictly inside one moved out
+    ("`n.r.name` cannot be assigned here: `n.r` was moved out of `n` at line
+    3, and this writes into it; …"); assigning the moved place itself, or
+    one covering it, puts it back. The checker read the target's base as a
+    read until R8 piece 2, which is where the pass lost it: these programs
+    passed from piece 2 to piece 8, and the first failed rustc. A narrowing binding of a whole local is the same storage (one
     justified by a test of that local where it is made starts alive, as the
     checker re-narrows there). The builder's block expression is a
     one-arm always-true `Branch` whose condition spans the whole branch; a
@@ -8303,36 +8314,39 @@ between endpoints and delivers what arrives into the scheduler.
     consumed-read message instead.
   * **Poisoned reads** (R8 piece 3c) [fate-poison] [fate-move-mode]: per
     path the pass also keeps each borrow-mode binding's fate links, as the
-    checker holds them — `Checked::fate_binds` (by the bound name or an
+    checker records them — `Checked::bind_facts` (by the bound name or an
     assignment's target; flattened to the roots, each at its projection,
-    with [deduce-field]'s `crosses`), carried on `FnDecl::fate` (flow-only:
-    by the binding statement's `NodeId`, or an assignment's value span).
+    with [deduce-field]'s `crosses` and the binding that made it), less the
+    copies an ancestor that took ownership made [fate-move-mode], carried
+    on `FnDecl::fate` (flow-only: by the binding statement's `NodeId`, or an
+    assignment's value span).
     An event on a root poisons every other local linked to it at an
     overlapping path [fate-field-disjoint]: a move the pass already sees
     (whole at `[]`; a projection moved out at its path, on the storage and
     on every root the locals on the way are linked to), a reassignment of
     the whole local (after its value), and a mutation, which the IR does not
-    show — `Checked::fate_mutations`, every `poison_derived_full` the
-    checker made for one (by the call, applied after it; by an assignment
+    show — `Checked::fate_mutations`, every mutation the checker recorded
+    (`record_mutation`; by the call, applied after it; by an assignment
     through a projection, applied before its value), with the acting handle
     it spares [ref-handle], the contents-mutation spare [deduce-field] and
     the handles proven apart [elem-distinct]. A move-mode binding takes
-    ownership through `Checked::fate_bound`'s links (the IR does not always
+    ownership through its links (`FateFacts::bound`; the IR does not always
     read its root as a move: `let m = o ?: unreachable!()`): what was
     derived from each root at that projection is poisoned, and a root taken
     whole is gone, named by the binding. A poison replaces a move as the
     reason; a join keeps the first path's poison over a plain move; a fresh
-    binding drops the links to an earlier binding of its name (the checker's
-    links are by variable); a loop re-walks when the links changed. The two
+    binding turns the links to an earlier binding of its name into links to
+    no local, which poison nothing but still name the binding that made
+    them (the checker's links are by variable); a loop re-walks when the
+    links changed. The two
     messages name the event's line: "`ys` cannot be used here: it was bound
     from `xs` and shares its fate, and `xs` was mutated at line 4 after the
     binding; bind it with `copy(...)` …", and "`p` cannot be used here: `q`
     was bound from it at line 3 and later moves the value, so the binding
     took ownership; bind with `copy(...)` (e.g. `let q = copy(...)`) …". The
-    checker still poisons (it marks the value consumed, which its own joins
-    and linear rules read) and records the links and the mutations; it
-    reports none of it.
-  * `tests/flow_tests.rs` pins every case's reads over a corpus (148
+    checker records the links and the mutations; it poisons nothing (since
+    R8 piece 8 it keeps no consumption state at all) and reports none of it.
+  * `tests/flow_tests.rs` pins every case's reads over a corpus (157
     programs: fn values moved then called, passed or lent, `once` fns called
     twice, in a loop, after being passed on, roots a projection took, fields
     moved then read whole, again, disjointly, nested, by index, after
@@ -8342,7 +8356,9 @@ between endpoints and delivers what arrives into the scheduler.
     mode a later use decides after their root was reassigned, through a
     destructure used in one arm, along a chain; all in branches and loops,
     and near misses; and ROADMAP 0o's repros, each case saying what it
-    reported while the checker's rules were mirrored), checks that the checker reports nothing on it
+    reported while the checker's rules were mirrored; writes into moved,
+    poisoned and partly moved values; S1 errors through a `let`, an `is`
+    binding and a mutation, and one with no second error after it), checks that the checker reports nothing on it
     and that the gate (`ir::analyze`) reports what the pass finds, and finds
     nothing on any example or on std. Until pieces 3a, 3b and 3c it was a
     differential against the checker's own diagnostics; they agreed on the
@@ -8353,15 +8369,19 @@ between endpoints and delivers what arrives into the scheduler.
     analyze_tests: the unsound repros refused by `analyze` and by `compile`
     on both backends) and `…_compiles_and_runs_what_the_flow_pass_now_accepts`
     on both backends (the over-strict ones, one program, one output).
+    `the_flow_pass_decides_the_modes_and_the_ir_follows` pins the decision
+    on the zero-clone pipeline [fate-move-mode] and the language server's
+    dropping of the links a move-mode binding made.
 * [deduce-consume] Deduction clauses are enforced flow-sensitively at call
   sites on bare identifier arguments: a callee's contract (default or written)
   decides whether the caller's argument is consumed, so `return list` in a
   callee declared `=> !list` consumes the caller's argument.
   * A parameter *not kept* is consumed — any later reference to the
     variable is a compile error, reported by the IR flow pass
-    [flow-use-after-move] (the checker marks it consumed — `narrowed =
-    Never`, which its joins, linear and poison machinery read — but a read
-    of it answers the type it had and is never the checker's error). Reassigning the variable revives it. **A Copy scalar is never consumed**: moving one is
+    [flow-use-after-move] (the checker records the move for the IR —
+    `moved_reads`, `flow_moves`, the consuming read — and keeps no
+    consumption state of its own since R8 piece 8; a read of a moved value
+    types as it is and is never the checker's error). Reassigning the variable revives it. **A Copy scalar is never consumed**: moving one is
     a copy [copy-scalar-free] (user decision 2026-10-20, reversing the
     2026-09-01 "consumption is uniform across all types … consistency over
     target-level permissiveness").
@@ -8398,27 +8418,29 @@ between endpoints and delivers what arrives into the scheduler.
     an exhaustive entry, the named ones for a delta — so a follow-up call
     whose overload requires a removed qualifier fails resolution (e.g. a
     second `remove_first` after `=> list: Mut` stripped `NonEmpty`).
-  * Branch-aware merging: each `if`/`when` branch body's consumption and
-    qualifier-removal effects are isolated and joined at the construct's
-    exit. A branch that always exits (`return`/`break`/`continue` on
+  * Branch-aware merging: each `if`/`when` branch body's consumption (the
+    IR flow pass's) and qualifier-removal effects (the checker's) are
+    isolated and joined at the construct's exit. A branch that always exits (`return`/`break`/`continue` on
     every path) contributes nothing to the code after the construct —
     so `if n == 2 { break ok(n) }` followed by `n++` is legal. Across
     fall-through paths: a value consumed on *any* path stays consumed
     (maybe-moved is unusable, as in Rust); disagreeing states keep only
     the qualifiers common to all paths.
-  * Each round's diagnostics replace the previous round's (checking is
-    deterministic, so the stable part re-derives identically); the final
-    round's deductions are re-inferred against its call resolutions
-    [deduce-fixpoint].
   * Consumption is preserved across narrowing scopes: consuming an
     `is`-narrowed variable (or `when` subject) inside its own narrowed
-    branch survives the narrowing restore.
-  * Loop bodies are checked twice when the first pass consumed or
-    weakened any variable: the second pass runs with the body's exit
-    state as its entry state, so back-edge flows surface — a use early
-    in the body errors when a later statement consumed the value in the
-    previous iteration (re-derived duplicate diagnostics are dropped;
-    consume-then-reassign within the body stays clean).
+    branch consumes the variable (in the IR a narrowing of a whole local is
+    the same storage).
+  * Loops: the flow pass walks a loop body to a fixpoint from the entry
+    state joined with every back edge, so a use early in the body errors
+    when a later statement consumed the value in the previous iteration,
+    and consume-then-reassign within the body stays clean
+    [flow-use-after-move]. The checker walks a body a second time, from its
+    exit state, only when the first walk weakened a narrowing or changed a
+    variable's fate links (re-derived duplicate diagnostics are dropped):
+    the qualifier a `Mut` call removed fails an overload on the next
+    iteration, and a binding made from a value the previous iteration
+    re-linked records those links too. Until R8 piece 8 a consumption also
+    triggered the second walk.
   * Variadic parameters and non-identifier arguments are not tracked.
 
 * [deduce-fixpoint] **Every body is walked once** (decision L3a, 2026-09-02;
@@ -8426,10 +8448,11 @@ between endpoints and delivers what arrives into the scheduler.
   2026-10-20, R8 piece 4). Every contract is known before the walk
   [deduce-default] (`deduce::contracts`), parking handlers are read off the
   handlers' text [actor-replyto], parameter mutations are only read after
-  checking, and a binding's mode is decided inside the walk, at the first
-  moving use of what it bound [fate-move-mode] — so nothing a walk learns is
-  read by another, and `check_program_walk` is one walk over every body
-  followed by the deductions. (Until R8 piece 4 a walk that recorded new
+  checking, and a binding's mode is not the walk's at all: the IR flow pass
+  decides it [fate-move-mode] (R8 piece 8; from piece 4 to piece 8 the walk
+  decided it at the first moving use of what it bound) — so nothing a walk
+  learns is read by another, and `check_program_walk` is one walk over every
+  body followed by the deductions. (Until R8 piece 4 a walk that recorded new
   move-mode candidates was followed by another over the files that found
   them, which dropped those files' rows and diagnostics first; the
   `rewalk_files` / `Checked::drop_files` / `ErrorMarks` machinery and its
@@ -8475,7 +8498,10 @@ between endpoints and delivers what arrives into the scheduler.
     is rendered with a compiler-inserted `proj` qualifier — bare on
     the type line, with its parameters (the fate roots and binding
     sites, recorded in `Checked::fate_reads`) shown only as on-request
-    detail. Presentation-only today; `proj` is not part of the type
+    detail. A binding that took ownership presents none: the language
+    server drops the links such a binding made, by the IR's decision
+    (`ir::analyze::drop_owned_fate_reads`, on a program the checker
+    accepts) [fate-move-mode]. Presentation-only today; `proj` is not part of the type
     system and cannot be written in source. Parameterized compiler
     qualifiers as *checked* signature vocabulary are the leading design
     for L7 (see COMPLETED.md, and ROADMAP.md for what is left of it).
@@ -8487,14 +8513,16 @@ between endpoints and delivers what arrives into the scheduler.
   site; the remedy is `copy`. Since S2, this is the rule's *residual*
   scope: it applies when an ancestor is a written-kept parameter (you
   cannot move out of a borrow) — every other derived move/mutation makes
-  the binding move-mode instead [fate-move-mode].
+  the binding move-mode instead [fate-move-mode]. The error is the IR flow
+  pass's since R8 piece 8 (the checker's until then), so a checker error
+  elsewhere in the program hides it until fixed.
 * [fate-move-mode] Bindings have modes, inferred from downstream flow
   (S2). A derived variable that is later *moved or mutated* makes its
   bind event (the `let`/assignment/`for`/`is`/`when`/destructure that
   created the links) **move-mode**: the binding takes ownership — every
   ancestor is consumed *at the binding* (a later use of an ancestor is
   an error naming the binding and its line — the IR flow pass's since R8
-  piece 3c, from `Checked::fate_bound` [flow-use-after-move]), and the
+  piece 3c [flow-use-after-move]), and the
   variable is the value's
   independent owner from the binding on (no links). The whole derivation
   chain moves together (`persons` → `person` → `name` → `longest`), so
@@ -8511,38 +8539,41 @@ between endpoints and delivers what arrives into the scheduler.
     as a fn's does, so `let {body} = input` in a member consuming `input`
     is move-mode. Until then a member had no contract in scope and every
     derived binding in it stayed read-only.
-  * **The mode is decided at the first moving use, in the one walk**
-    [deduce-fixpoint] (R8 piece 4, 2026-10-20; until then a second walk
-    applied what the first had found). A binding is met in borrow-mode; the
-    walk judges there whether it *may* take ownership (the conditions above:
-    nothing borrowed through a derived return, every live ancestor owned,
-    none outside an enclosing lambda — `may_take_ownership`) and logs it
-    (`bind_log`). The first move or mutation of the derived variable lands in
-    `error_derived`, which makes every binding of the chain behind it
-    (`record_move_candidates`) that may take ownership move-mode, oldest
-    first, and gives the current path what the binding did: the ancestors
-    consumed (or the projection moved out of them) and their other
-    derivatives poisoned — none made after the binding, and no ancestor
-    assigned since, whose value is a new one — the bound variable left with
-    no links (a poison that came through them undone), and its descendants
-    with no copies of the links it had. The use then proceeds as the move
-    of an owned value; a binding that may not take ownership keeps the S1
-    error [fate-derived-readonly]. A path that went through the binding but
-    not the use gets the same at the next join (`take_ownership_on_paths`,
-    in `merge_fallthrough`), so `let {body} = e` before `if body is Body b
-    { put(b) }` consumes `e` on both paths, as the binding did. A binding
-    met again once decided (a loop body's second pass) takes ownership at
-    the binding (`apply_binding_mode`). What the bindings recorded is
-    written when the file's walk ends (`finish_fate`): no link stamped by a
-    move-mode binding survives in `fate_binds` or `fate_reads`, and its own
-    links go to `fate_bound`. (An "assigning drops the linear value" error
-    raised while such a binding was undecided used to be withdrawn when it
-    was decided; since R8 piece 7 the error is the IR ledger's, which reads
-    the decided binding's consuming read as the move it is.) Checked, before the second walk
-    was deleted, by a differential over every program the suite checks
-    (both walks' `Checked` tables and diagnostics equal, the
-    ownership-blind audit walk aside, which reports three fewer of its
-    false linear errors in std).
+  * **The IR flow pass decides the mode** [deduce-fixpoint] (R8 piece 8,
+    2026-10-20; from piece 4 to piece 8 the checker's walk decided it at the
+    first moving use, and before piece 4 a second walk applied what the
+    first had found). The checker's walk keeps every binding borrow-mode and
+    records facts: each binding's links, every one stamped by the binding
+    that made it (`Checked::bind_facts`; the IR cannot see them all — an
+    `is` binding is the same storage as its subject there, a derived return
+    [readonly-return], a held view [proj-infer], an element identity
+    [elem-distinct] are typing facts), whether it *may* take ownership (the
+    conditions above, judged where the binding is: nothing borrowed through
+    a derived return, every live ancestor owned, none outside an enclosing
+    lambda — `may_take_ownership`, a typing and scope fact), the loops whose
+    binding is one of its roots, and every move or mutation of a derived
+    variable (`Checked::derived_uses`, with the S1 message), which then goes
+    on as the move of an owned value. `ir::build_program` builds the bodies
+    with every binding borrow-mode; `ir::flow::decide` walks each: at a
+    derived use, every binding behind it — the variable's own, then back
+    along the chain as the links stand on that path — that may take
+    ownership does; and the modules with a decision are built again from it
+    (`ir::Decision`, on `ir::Program::decision`): a move-mode binding's value
+    is read as a move, the loops it takes a binding of iterate by value, and
+    its links are what it took ownership through (`FateFacts::bound`), with
+    the copies of them its descendants carry dropped. The flow pass's check
+    then poisons and reports from that: a later use of an ancestor names the
+    binding, and a derived use none of whose own bindings may take
+    ownership is the S1 error [fate-derived-readonly], whose move is not
+    made (one mistake, one diagnostic). A path that went through the
+    binding but not the use took ownership too (the decision is the
+    binding's), so `let {body} = e` before `if body is Body b { put(b) }`
+    consumes `e` on both paths. Checked, before the checker's decision was
+    deleted, by a differential over every program the suite checks, e2e
+    included: the gates' diagnostics and the IR of every module (std
+    included) equal; the only table differences were on rejected programs
+    (the moves an S1 error used to refuse, and the writes through poisoned
+    handles below).
   * A **projection in a moved position** (consuming call argument,
     literal store, spread, `return`/`break`, `use` ctor
     argument) moves data out of its provenance roots — but only
@@ -8561,19 +8592,22 @@ between endpoints and delivers what arrives into the scheduler.
   * Emission: the Rust backend emits move-mode bind events as real
     moves (partial moves for projections; by-value iteration for
     move-mode loops; tracked moved-position projections render as raw
-    places) — `Checked::binding_modes` / `Checked::moved_projections`.
+    places) — the IR the decision builds (`ir::Decision::modes`, with the
+    loops a projection move makes iterate by value, `Checked::by_value_loops`)
+    and `Checked::moved_projections`.
     Kotlin emission is unchanged: the consumption of the ancestors is
     what keeps alias-vs-move unobservable. `is`/`when` move-mode
     bindings still emit clones on Rust (restriction-valid; a faithful
     refinement can come with S3).
 * [fate-poison] Mutating, moving, or reassigning a *root* variable
-  poisons every variable derived from it: they narrow to `Never`, a later
-  use is an error naming the root, the event and its line, and
-  reassignment revives them [deduce-consume]. The use is the IR flow
-  pass's diagnostic since R8 piece 3c (2026-10-20) [flow-use-after-move],
-  from the checker's links (`fate_binds`) and mutation events
-  (`fate_mutations`) and the moves and reassignments the IR shows; the
-  checker marks the values consumed and reports nothing. The root itself
+  poisons every variable derived from it: a later use is an error naming
+  the root, the event and its line, and reassignment revives them
+  [deduce-consume]. The poison and the use are the IR flow pass's (the use
+  since R8 piece 3c, 2026-10-20, the poison wholly since piece 8)
+  [flow-use-after-move], from the checker's links (`bind_facts`) and
+  mutation events (`fate_mutations`) and the moves and reassignments the IR
+  shows; the checker poisons nothing and reports nothing (a write through
+  a poisoned handle is a use too, so it is recorded like any other write). The root itself
   stays usable after a mutation or reassignment. Poison is not
   retroactive (a binding created after the event is unaffected), and a
   use-free poison never fires — NLL-like precision without a liveness
@@ -9175,7 +9209,14 @@ between endpoints and delivers what arrives into the scheduler.
     borrow (the callee still takes the whole value `&mut`), so it renders
     as a *virtual place* — the path re-materialized per use [rs-loc].
     Sound precisely because survival means the field was untouched, so the
-    re-read sees the object Kotlin's binding holds. (The first attempt at
+    re-read sees the object Kotlin's binding holds. Which bindings survive
+    is the IR flow pass's to say since R8 piece 8 (`ir::Decision::
+    virtual_binds`): the checker records the candidates at each event
+    (`Checked::virtual_candidates` — every binding linked to the root at a
+    field path, and the contents spares below), and `flow::decide` keeps
+    the ones still live after the event and whose binding has not taken
+    ownership on that path [fate-move-mode] (the walk's consumption marking
+    said which until then). (The first attempt at
     this rung relaxed poison for *any* field path and broke that parity;
     COMPLETED.md's log (rung ⑤) keeps the probe.)
   * **v2 (built 2026-09-25): contents versus replacement.** A **contents**

@@ -26,6 +26,14 @@ use crate::resolve::Resolution;
 /// diagnostics attributed to source files. The caller must have confirmed the
 /// program type-checks (no `checked` errors).
 pub fn analyze(program: &Program, symbols: &Symbols, resolution: &Resolution, checked: &Checked) -> Vec<FileDiagnostic> {
+    analyze_full(program, symbols, resolution, checked).0
+}
+
+/// `analyze`, also answering the flow pass's decision of the bindings'
+/// modes [fate-move-mode] (the user's modules), for a consumer that
+/// presents them — the language server drops the fate links of a binding
+/// that took ownership from its hover (`Checked::fate_reads`).
+pub fn analyze_full(program: &Program, symbols: &Symbols, resolution: &Resolution, checked: &Checked) -> (Vec<FileDiagnostic>, super::Decision) {
     // Analyze only the user's own modules. std (and a dependency) is checked
     // elsewhere — and under the std-cache path its bodies are not re-walked, so
     // the checker tables the IR reads (`linear_moves`, …) are not populated for
@@ -82,5 +90,15 @@ pub fn analyze(program: &Program, symbols: &Symbols, resolution: &Resolution, ch
     // A leak reachable by more than one walk path reports once.
     out.sort_by(|a, b| (a.file, a.span.start, &a.message).cmp(&(b.file, b.span.start, &b.message)));
     out.dedup_by(|a, b| a.file == b.file && a.span.start == b.span.start && a.message == b.message);
-    out
+    (out, ir.decision)
+}
+
+/// [fate-link] [fate-move-mode] The presentation table without the links a
+/// binding that took ownership made: such a binding is the value's owner,
+/// and nothing derived from it shares fate with what it took.
+pub fn drop_owned_fate_reads(checked: &mut Checked, decision: &super::Decision) {
+    checked.fate_reads.retain(|&(file, _), reads| {
+        reads.retain(|r| !decision.decided.contains(&(file, r.bind_span)));
+        !reads.is_empty()
+    });
 }

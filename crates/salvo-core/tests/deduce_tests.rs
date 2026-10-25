@@ -870,13 +870,9 @@ handler Taker() of Take {
     }
 }
 ";
-    let (_, checked) = check_src(src);
-    let errors: Vec<String> = checked
-        .errors
-        .iter()
-        .filter(|e| e.is_error())
-        .map(|e| e.message.clone())
-        .collect();
+    // [fate-derived-readonly] The S1 error is the IR flow pass's since R8
+    // piece 8, which decides the modes [fate-move-mode].
+    let errors = gate_errors(src);
     assert_eq!(errors.len(), 1, "errors: {errors:?}");
     assert!(
         errors[0].contains("cannot move `a`: it was bound from `p` and shares its fate"),

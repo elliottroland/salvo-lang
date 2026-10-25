@@ -1324,3 +1324,83 @@ log current so the work can resume after a context reset). Newest last.
     pass with the links (`fate_binds` computed there); lambda capture
     moves, handler-storage moves and lends validation (static move-site
     rules, still the checker's).
+- **R8 piece 8 (move-mode into the flow pass): done** (committed "Decide
+  move-mode in the IR flow pass"). The IR flow pass decides which
+  borrow-mode bindings take ownership and reports the S1 error
+  [fate-derived-readonly] for the rest; the checker's walk keeps every
+  binding borrow-mode, marks nothing consumed and poisons nothing.
+  - **The three readers of the marking.** (1) `fate_mutation_kind`'s early
+    return for a write through a poisoned `Mut` handle was *reachable* on
+    an accepted program: `a.hp = 1; d.hp = 5` (two `at` handles, no
+    `NotSame`) passed, and so did `eat(p); p.hp = 5`, which fails rustc
+    (E0382). The IR's `Assign` holds a place, not a read of its root, so
+    the flow pass never saw the target; the checker had seen it through
+    its read of the target's base until piece 2. Fixed in the pass (an
+    assignment through a projection is a use of its root, and of a moved
+    place strictly containing the target; `FateFacts::assign_targets`
+    gives the span), which makes the early return unreachable on an
+    accepted program, and it went. (2) The virtual places'
+    consumed-exclusion is the IR's (below). (3) `check_loop_body` re-walks
+    on a narrowing or a fate-link change only: the pass has its own loop
+    fixpoint, and the links still need the second walk.
+  - **Design: decide over a borrow-mode build, then build again.** The
+    checker records facts: `Checked::bind_facts` (each binding's links,
+    each stamped by the binding that made it; whether it may take
+    ownership, `may_take_ownership` at the binding; the `for` loops whose
+    binding is a root), `derived_uses` (every move or mutation of a derived
+    variable, with the S1 message and the stamps of its own links; the use
+    then goes on as an owned value's move), `virtual_candidates` and
+    `by_value_loops`. `ir::build_program` builds the bodies with every
+    binding borrow-mode, runs `flow::decide` per declaration (at each
+    derived use, every binding behind it that may take ownership does: the
+    variable's own, then back along the chain as the IR's links stand on
+    that path; and the virtual places whose binding has not taken
+    ownership on that path and, for a survivor, whose local is still
+    live), and builds the modules with a decision again from it
+    (`ir::Decision`, on `ir::Program::decision`). The rebuild is what keeps
+    emitted code identical without teaching an IR rewrite every place a
+    mode reaches (a by-value loop changes the element's type, which flows
+    into the binding locals and test subjects). The builder's `Ctx::mode`,
+    `virtual_bind` and `bind_links` replace `binding_modes`,
+    `virtual_place_binds` and `fate_binds`/`fate_bound` (with the walk's
+    `finish_fate` filter: no link copied from a decided ancestor). The
+    check walk reports a derived use none of whose own bindings may take
+    ownership as the S1 error and does not make that move (no second error).
+  - **The links stay the checker's facts**, as allowed: an `is` binding is
+    the same storage as its subject in the IR (a `Narrow`, with no
+    statement of its own), and a derived return, a held view and an
+    element identity are typing facts. The IR computes the chains and the
+    per-path state from them.
+  - **The differential** (temporary, `SALVO_XP_P8`): the old checker behind
+    a thread-local switch next to the new one in `check_program`, over
+    every program the suite checks, e2e included; it compared the gates'
+    diagnostics, the IR dump of every module (std included) and twelve
+    tables. It found two bugs, both fixed: the flow pass's `forget` dropped
+    a link to a rebound name with its stamp, so the pipeline's
+    `let name = person.name` lost its decision at the loop's exit (now a
+    `GONE` link: poisons nothing, keeps the stamp); and `is` bindings were
+    never eligible, so std's `fs/path.sv` had 30 false S1 errors (facts are
+    now noted for every binding in a body's span). After that the gates and
+    the IR were equal everywhere. Tables differed only on rejected
+    programs. Then the old checker, the hook, the ownership-blind switch
+    and its audit test (two identical walks now) went. Emitted code did
+    not change.
+  - **Timings** (`SALVO_TIMINGS=1 target/debug/salvo analyze --src demo`,
+    debug, three runs): check 178–197ms before (walk 169–188ms), 170–181ms
+    after (walk 162–173ms). A whole-program IR build (std included, for
+    emission) is 35ms: 22ms of bodies, 2ms deciding, 9.5ms building again
+    the modules with a decision (most of std's). Rebuilding per
+    declaration rather than per module would cut the last part, if it
+    matters.
+  - **What is left of R8.** Lambda capture moves, handler-storage moves and
+    lends validation are static move-site rules, still the checker's. None
+    of them *needs* moving now: they read the lambda boundaries, the
+    contract and the handler's declaration, and no flow state (what they
+    marked consumed, the IR moves through `lambda_captures` and the
+    moves they record). Moving them is only for R8's "the flow pass owns
+    lends validation" (or that sentence is amended, the user's call). Also
+    left: the fate links themselves in the IR (needs an `is` binding with
+    links of its own in the IR, and the typing facts as IR facts), after
+    which `check_loop_body`'s link-triggered re-walk can go; and gating per
+    declaration (a checker error anywhere still hides every flow
+    diagnostic, the S1 error now included).

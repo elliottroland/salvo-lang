@@ -79,6 +79,15 @@ impl<'a, 'p> Lower<'a, 'p> {
             let span = e.span();
             self.fate.mutations.insert((span.start, span.end), events.clone());
         }
+        // [fate-move-mode] A move or mutation of a derived local here (a
+        // `once` call of one is the callee's), and the bindings a mutation
+        // here may leave as virtual places [deduce-field].
+        self.note_uses(e.span(), e.span(), false);
+        if let AExpr::Call { callee, .. } = e {
+            if let AExpr::Ident(id) = callee.as_ref() {
+                self.note_uses(id.span, e.span(), false);
+            }
+        }
         if !matches!(e, AExpr::Ident(_)) && self.ctx.checked.flow_moves.contains(&self.key(e.span())) {
             mark_root_move(e, &mut raw);
         }
@@ -2720,7 +2729,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         };
         // [fate-move-mode] a body that consumes the loop variable makes the
         // loop iterate by value: the subject is consumed, each element owned.
-        if driver.is_none() && self.ctx.checked.binding_modes.contains(&self.key(iterable.span())) {
+        if driver.is_none() && self.ctx.mode(self.key(iterable.span())) {
             self.consume_if_owned(&mut subject);
             if matches!(subject.kind, ExprKind::Read { consume: true, .. }) {
                 elem_ty = elem_ty.remove_quals(&crate::types::proj_names());

@@ -482,7 +482,10 @@ fn analyze_project(
         let clean = parse_broken.is_empty() && !diagnostics.iter().any(|d| d.is_error()) && !checked.errors.iter().any(|d| d.is_error());
         if clean {
             let _t = salvo_core::timing::phase("ir analyze");
-            let ir_diags = salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked);
+            let (ir_diags, decision) = salvo_core::ir::analyze::analyze_full(&program, &symbols, &resolution, &checked);
+            // [fate-link] [fate-move-mode] A binding that took ownership
+            // presents no links (the IR decides which did).
+            salvo_core::ir::analyze::drop_owned_fate_reads(&mut checked, &decision);
             for d in &ir_diags {
                 ir_reliant.insert((d.file, d.span));
             }

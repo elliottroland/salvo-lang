@@ -238,7 +238,7 @@ impl Annotator<'_, '_> {
     }
 
     /// [linear-obligation] A borrow-mode binding fate-linked to the value it
-    /// was bound from (`let alias = h`, the checker's `fate_binds`) is an
+    /// was bound from (`let alias = h`, `FateFacts::binds`) is an
     /// alias, and owes nothing: the root keeps the obligation.
     fn derived(&self, id: NodeId) -> bool {
         self.binds.get(&id.0).is_some_and(|links| !links.is_empty())
