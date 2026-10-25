@@ -2352,9 +2352,10 @@ Conventions:
   * **The rules are the ones they always had**, only reached through the
     expression checker: the return type check, the bare-`return`-in-a-
     value-returning-fn error, `break`'s contribution to a loop's value
-    [while-value], "`break`/`continue` outside a loop", the linear exit
-    checks [linear-obligation] and the state-whole check, and the move of a
-    returned or broken value [deduce-consume].
+    [while-value], "`break`/`continue` outside a loop", and the move of a
+    returned or broken value [deduce-consume]. (The linear exit checks
+    [linear-obligation] and the state-whole check [linear-state] are the
+    IR's, at the `Return` and `Break` statements the escapes lower to.)
   * **What it deletes**: the syntactic special cases in the two path
     analyses. `block_exits` and `block_returns` now read divergence off the
     checker's recorded types alone ([type-any-never]'s predicate), which is
@@ -8534,9 +8535,10 @@ between endpoints and delivers what arrives into the scheduler.
     the binding (`apply_binding_mode`). What the bindings recorded is
     written when the file's walk ends (`finish_fate`): no link stamped by a
     move-mode binding survives in `fate_binds` or `fate_reads`, and its own
-    links go to `fate_bound`. An "assigning drops the linear value" error
-    raised while such a binding was still undecided goes when it is decided
-    (the binding had consumed the value). Checked, before the second walk
+    links go to `fate_bound`. (An "assigning drops the linear value" error
+    raised while such a binding was undecided used to be withdrawn when it
+    was decided; since R8 piece 7 the error is the IR ledger's, which reads
+    the decided binding's consuming read as the move it is.) Checked, before the second walk
     was deleted, by a differential over every program the suite checks
     (both walks' `Checked` tables and diagnostics equal, the
     ownership-blind audit walk aside, which reports three fewer of its
@@ -8631,14 +8633,14 @@ between endpoints and delivers what arrives into the scheduler.
 * [fate-partial-move] **Moving one part leaves the rest** (L5's move half,
   2026-09-10). A move of a projection (a consuming call, a move-mode
   binding, a store) records the path as *moved out* of its root; the root
-  stays live, and its `moved_places` are flow state like any other. Since
+  stays live, and what was moved out is flow state like any other. Since
   R8 piece 3b (2026-10-20) the uses below are the IR flow pass's
   diagnostics [flow-use-after-move], built to agree with the checker's
-  former `check_moved_place`; the checker still records `moved_places`
-  (and the move: `moved_projections`, which the IR reads as a consuming
-  projection read) for what reads them — a linear container settled by
-  decomposition [linear-container] and a state field left with a hole
-  [linear-state]:
+  former `check_moved_place`; the checker records the move
+  (`moved_projections`, which the IR reads as a consuming projection read),
+  and since R8 piece 7 no `moved_places` of its own — a linear container
+  settled by decomposition is the IR ledger's [linear-container], a state
+  field left with a hole the flow pass's [linear-state]:
   * a read of a **disjoint** projection iterators — `eat(p.tags)` then
     `p.name` is legal;
   * a read **overlapping** a moved place is an error naming the field
@@ -9521,9 +9523,15 @@ between endpoints and delivers what arrives into the scheduler.
   * assignment over a variable still owning a live linear value;
   * branch merges where the value is consumed on some fall-through
     paths but not all — the dual of the affine maybe-moved rule.
-  * Enforced from the second checking round onward (parameter
-    ownership needs contracts [deduce-fixpoint]); reported variables
-    are marked consumed so each obligation errors once.
+  * **Who reports what** (R8 piece 7, 2026-10-20): every rule but the
+    expression statement's is the IR's ledger [ir-linear-check] — the
+    path-exit leaks since IR_CHECKER (2026-10-12), the assignment and the
+    branch merge since piece 7, which took them from the checker's walk
+    (`owes_linear`, `merge_fallthrough`'s linear join, `linear_settled`,
+    `pending_drops`). The expression statement stays a typing rule: it is
+    decided by the expression's type alone, with no path in it. Each
+    obligation errors once: a value reported at a merge or an assignment
+    owes nothing after it.
 * [linear-discard] `core.discard` —
   `intrinsic fn discard<T canbe linear>(value: T) -> None` — deliberately => !value
   drops a value, consuming it. For a **linear** value it is the
@@ -9549,14 +9557,16 @@ between endpoints and delivers what arrives into the scheduler.
   discharged** — an `Err Str` never held the handle. `T?` falls out
   (`None` owes nothing), which is the optional-handle and lookup shape.
   This is the phase-4 unblocking move (the fallible open).
-  * Implementation: the discharge-by-narrowing is a **flow fact**
-    (`linear_settled`), set where a narrow lands a linear value on a
-    non-linear type, surviving the branch's narrow-restore exactly as
-    consumption does, and joined across branches (settled on every path —
-    by narrowing or by consuming — means settled after the join). The
-    no-`else` fall-through path of an `if` applies the else-narrows'
-    settling (`if h is Lines s { close(s) }`: on the untaken path `h`
-    is `None`).
+  * Implementation: the discharge-by-narrowing is the IR ledger's
+    [ir-obligation] — a `Narrow` to a non-linear type discharges the
+    source, a positive arm test that failed discharges its arms on every
+    path it failed on (a later arm, the `else`, the skip path of an
+    else-less `if`: `if h is Lines s { close(s) }` leaves `h` `None`
+    there), and a join settles a value only when every path did (by
+    narrowing or by consuming). Until R8 piece 7 the checker kept it as a
+    flow fact of its own (`linear_settled`), which an assignment did not
+    clear (`if r is Err e { r = open() }` read as settled on that path, a
+    false "some paths" error).
   * Backends: nothing — linearity is static and backend-identical
     [linear-static]; the union lowers as any union does.
 * [linear-composite] A composite may not **hold** a linear value **unless it
@@ -9688,6 +9698,19 @@ between endpoints and delivers what arrives into the scheduler.
   * Drain paths stay *forced* wherever the code path exists: a `Shutdown`
     member that does not answer its parked tokens is a leak, so the drain
     loop is compulsory rather than stylistic.
+  * **The IR flow pass checks it** (R8 piece 7, 2026-10-20; the checker's
+    `check_state_whole` until then): at every `return` of a member (or
+    `init`), after its value is moved, and at the end of a body that falls
+    off it, a state field holding obligations (`FateFacts::linear_state`,
+    from the builder) that is moved out of on that path — wholly or in part
+    — is the error, once per exit and field ("cannot return: the state
+    field `waiting` was moved out of and nothing was put back …"). A
+    lambda's `return` ends the lambda, not the activation. **Assigning over
+    a state field that still holds its obligations** drops them, and is the
+    ordinary "assigning to `waiting` drops the linear value it still owns"
+    error [linear-obligation] — new with the move: the checker declared a
+    state field as a parameter, which owes nothing unless the contract
+    moves it, so `waiting = Mut List()` over a full queue was accepted.
 * [linear-generics] An unconstrained generic parameter cannot be
   instantiated with a linear type (decision L6d): unopted generic code
   does not honor the obligation. A fn opts in *per type parameter* with
@@ -11418,6 +11441,33 @@ replaced the working document TESTING.md).
     borrow of `h.res`, not a move, so `r` owes nothing). A binding owes only
     when its value is an owned linear value — a call result, a construction, or
     a consuming (`!read`) move-out.
+  * **The flow rules** (R8 piece 7, 2026-10-20 — the checker's until then,
+    PIPELINE.md §8; checked against it on a corpus, `linear_flow_tests`):
+    * **Consumed on some paths but not others** [linear-obligation]: where
+      paths come back together — an `if`'s or a `when`'s arms that fall
+      through (an else-less `if`'s skip path included), and a loop's exits
+      (a `for`'s top, where the iterable runs out, with the entry set; every
+      `break`) — a value owed before the fork that some paths settled and
+      others still owe is reported at the written `if`/`when`/loop and owes
+      nothing after it. A path owes a value while it owes it or a
+      narrowing of it (a `when` arm's or an `if is` arm's binding), so
+      `when r { is Ok { } is Err { } }` reports `r`. The set after a loop is
+      its exits' join, so a value a `while true` consumes before its only
+      `break` is settled after it (the checker joined the loop's end state
+      too, a false error).
+    * **Assigning drops** [linear-obligation]: a written assignment of a
+      whole local that still owes (`FateFacts::assign_spans`, by the value's
+      span → the statement's) is the error at the statement; the new value,
+      if it owes, is gained (`Gain` after the `Assign`, with the local's
+      declared type, so a `T?` local owes as `T`). Until R8 piece 7 the
+      ledger gained nothing at an assignment, so `h = open()` after
+      `close(h)` and then nothing was an unreported leak.
+    * **An alias owes nothing**: a `let` or `for` binding the checker keeps
+      in borrow mode with fate links (`FateFacts::binds`) gains no
+      obligation — the root keeps it (`let alias = h` reported a false
+      leak of `alias` until piece 7).
+    * In a test file only these rules run, not the path-exit leaks
+      (`check_one_flow_only`).
   * **`salvo ir` dumps even a program this check rejects** (D4b): the dump is a
     debugging view, so it prints the IR and inlines each leak as a
     ` !!! module:line:col: <error>` note **at the end of the line that produced

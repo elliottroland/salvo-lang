@@ -50,17 +50,20 @@ pub fn analyze(program: &Program, symbols: &Symbols, resolution: &Resolution, ch
         let scope = resolution.scopes.get(file);
         let content = program.files.get(file).map(|f| f.content.as_str()).unwrap_or("");
         // The linear check runs on the user's own modules; a test file's
-        // obligations are the harness's business.
+        // path-exit leaks are the harness's business, its flow rules (a value
+        // consumed on some paths only, an assignment dropping one) are not.
         let linear = !program.files.get(file).is_some_and(|f| f.is_test);
         for decl in &module.decls {
             // [flow-use-after-move] A use of a moved value, naming the move.
             for d in super::flow::check_one(decl) {
                 out.push(FileDiagnostic::error(file, d.span, d.render(content)));
             }
-            if !linear {
-                continue;
-            }
-            for d in super::check::check_one(decl, &throws) {
+            let linear_diags = if linear {
+                super::check::check_one(decl, &throws)
+            } else {
+                super::check::check_one_flow_only(decl, &throws)
+            };
+            for d in linear_diags {
                 // [linear-group] Name the dischargers in the remedy ("discharge
                 // it with `drain` / `close`"), computed from the leaked type in
                 // the file's resolution scope.

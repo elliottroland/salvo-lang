@@ -286,6 +286,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // flow pass.
                 let at = (v.span.start, v.span.end);
                 if let AExpr::Ident(id) = target {
+                    self.fate.assign_spans.insert(at, *span);
                     if let Some(links) = self.ctx.checked.fate_binds.get(&self.key(id.span)) {
                         self.fate.assigns.insert(at, links.clone());
                     }
@@ -313,14 +314,14 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     fn expr_stmt(&mut self, e: &AExpr) -> Vec<Stmt> {
         match e {
-            AExpr::Return { value, .. } => {
+            AExpr::Return { value, span } => {
                 let v = value.as_ref().map(|v| {
                     let mut x = self.expr(v);
                     // A returned local is consumed [deduce-consume].
                     self.consume_if_owned(&mut x);
                     x
                 });
-                vec![Stmt::Return(v)]
+                vec![Stmt::Return(v, *span)]
             }
             AExpr::Break { value, .. } => {
                 let mut out = Vec::new();

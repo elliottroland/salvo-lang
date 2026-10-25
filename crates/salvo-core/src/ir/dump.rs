@@ -366,8 +366,8 @@ impl<'a> Dumper<'a> {
                 self.expr(value, indent);
             }
             Stmt::Expr(e) => self.expr(e, indent),
-            Stmt::Return(None) => self.out.push_str("return"),
-            Stmt::Return(Some(e)) => {
+            Stmt::Return(None, _) => self.out.push_str("return"),
+            Stmt::Return(Some(e), _) => {
                 self.out.push_str("return ");
                 self.expr(e, indent);
             }
@@ -799,7 +799,7 @@ impl<'a> Dumper<'a> {
 /// `Span::default()` for a statement that gains nothing, so it never matches.
 fn dump_stmt_span(s: &Stmt) -> Span {
     match s {
-        Stmt::Return(Some(e)) | Stmt::Expr(e) | Stmt::Let { value: e, .. } | Stmt::Assign { value: e, .. } => e.span,
+        Stmt::Return(Some(e), _) | Stmt::Expr(e) | Stmt::Let { value: e, .. } | Stmt::Assign { value: e, .. } => e.span,
         _ => Span::default(),
     }
 }

@@ -46,7 +46,8 @@ fn annotate_fn(f: &mut FnDecl, symbols: &Symbols) {
     // [ref-handle] Parameters not moved in (lent/kept) are borrows: a narrow
     // of one carries no obligation, however linear its type.
     let borrowed: HashSet<String> = f.params.iter().filter(|p| p.mode != PassMode::Moved).map(|p| p.local.0.clone()).collect();
-    let a = Annotator { symbols, own: &own, borrowed: &borrowed };
+    let tys = std::cell::RefCell::new(f.params.iter().map(|p| (p.local.0.clone(), p.ty.clone())).collect());
+    let a = Annotator { symbols, own: &own, borrowed: &borrowed, assigns: &f.fate.assign_spans, state: &f.fate.linear_state, binds: &f.fate.binds, tys };
 
     // [ir-obligation] GainParams: declared params (not effects/implicits)
     // that are linear and moved into the fn. A lent/kept parameter's
@@ -69,6 +70,14 @@ struct Annotator<'a, 'p> {
     symbols: &'a Symbols<'p>,
     own: &'a HashSet<String>,
     borrowed: &'a HashSet<String>,
+    /// The written assignments of a whole local, by the value's span.
+    assigns: &'a std::collections::HashMap<(u32, u32), Span>,
+    /// [fate-link] The borrow-mode bindings' fate links, by statement id.
+    binds: &'a std::collections::HashMap<u32, Vec<crate::check::FlowLink>>,
+    /// [linear-state] In a handler member: the state fields holding obligations.
+    state: &'a [String],
+    /// Each local's type, as its binding declares it (met in order).
+    tys: std::cell::RefCell<std::collections::HashMap<String, Ty>>,
 }
 
 impl Annotator<'_, '_> {
@@ -110,6 +119,12 @@ impl Annotator<'_, '_> {
             // it: collect the released places before the statement is moved.
             let releases = self.releases_in(&s);
 
+            match &s {
+                Stmt::Let { local, ty, .. } | Stmt::ForEach { local, ty, .. } | Stmt::Narrow { local, ty, .. } | Stmt::Alias { local, ty, .. } => {
+                    self.tys.borrow_mut().insert(local.0.clone(), ty.clone());
+                }
+                _ => {}
+            }
             let gain = self.gain_of(&s);
             let span = stmt_span(&s);
 
@@ -139,7 +154,7 @@ impl Annotator<'_, '_> {
             // condition or switch subject is evaluated before the fork — so a
             // statement's releases always precede it, while a `Gain` (a new
             // binding) follows it.
-            let leaves = matches!(s, Stmt::Return(_) | Stmt::Break | Stmt::Continue);
+            let leaves = matches!(s, Stmt::Return(..) | Stmt::Break | Stmt::Continue);
             if !releases.is_empty() {
                 out.push(Stmt::Obligation(Obligation { kind: ObligationKind::Release, refs: releases, span }));
             }
@@ -168,7 +183,7 @@ impl Annotator<'_, '_> {
     fn recurse(&self, s: &mut Stmt) {
         match s {
             Stmt::Loop { body, .. } | Stmt::ForEach { body, .. } => self.block(body),
-            Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) | Stmt::Return(Some(value)) => {
+            Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) | Stmt::Return(Some(value), _) => {
                 self.recurse_expr(value)
             }
             _ => {}
@@ -222,6 +237,13 @@ impl Annotator<'_, '_> {
         }
     }
 
+    /// [linear-obligation] A borrow-mode binding fate-linked to the value it
+    /// was bound from (`let alias = h`, the checker's `fate_binds`) is an
+    /// alias, and owes nothing: the root keeps the obligation.
+    fn derived(&self, id: NodeId) -> bool {
+        self.binds.get(&id.0).is_some_and(|links| !links.is_empty())
+    }
+
     /// `Gain` for a binding of a linear value.
     fn gain_of(&self, s: &Stmt) -> Option<Vec<ObligationRef>> {
         match s {
@@ -229,10 +251,26 @@ impl Annotator<'_, '_> {
             // value is a *borrow* of a linear place (a non-consuming read of a
             // field of a lent/kept root, or a `proj` read): a borrow owns
             // nothing, the same rule a `Narrow` of a borrowed source obeys.
-            Stmt::Let { local, ty, value, .. } if self.is_linear(ty) && !self.value_is_borrow(value) => {
+            Stmt::Let { id, local, ty, value } if self.is_linear(ty) && !self.value_is_borrow(value) && !self.derived(*id) => {
                 Some(vec![self.ref_of(Place { root: local.clone(), steps: Vec::new() }, ty)])
             }
-            Stmt::ForEach { local, ty, .. } if self.is_linear(ty) => {
+            // [linear-obligation] A written assignment of an owned linear
+            // value to a whole local gains it, as its binding did (the
+            // obligation is the local's type's: a `T?` local owes as `T`).
+            Stmt::Assign { place, value }
+                if place.steps.is_empty()
+                    && self.assigns.contains_key(&(value.span.start, value.span.end))
+                    // [linear-state] A state field's value belongs to the
+                    // handler, which owes it across activations.
+                    && !self.state.contains(&place.root.0)
+                    && self.is_linear(&value.ty)
+                    && !self.value_is_borrow(value) =>
+            {
+                let ty = self.tys.borrow().get(&place.root.0).cloned().unwrap_or_else(|| value.ty.clone());
+                let ty = if self.is_linear(&ty) { ty } else { value.ty.clone() };
+                Some(vec![self.ref_of(place.clone(), &ty)])
+            }
+            Stmt::ForEach { id, local, ty, .. } if self.is_linear(ty) && !self.derived(*id) => {
                 Some(vec![self.ref_of(Place { root: local.clone(), steps: Vec::new() }, ty)])
             }
             Stmt::Unpack { locals, .. } => {
@@ -267,7 +305,7 @@ impl Annotator<'_, '_> {
 /// A rough span for a statement (for the directive's own span).
 fn stmt_span(s: &Stmt) -> Span {
     match s {
-        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) | Stmt::Return(Some(value)) => value.span,
+        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) | Stmt::Return(Some(value), _) => value.span,
         Stmt::ForEach { iterable, .. } => iterable.span,
         _ => Span::default(),
     }
@@ -278,7 +316,7 @@ fn stmt_span(s: &Stmt) -> Span {
 /// matter for a Release sit in the statement's own expression tree.
 fn each_expr(s: &Stmt, f: &mut impl FnMut(&Expr)) {
     match s {
-        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) | Stmt::Return(Some(value)) => walk_expr(value, f),
+        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) | Stmt::Return(Some(value), _) => walk_expr(value, f),
         Stmt::ForEach { iterable, .. } => walk_expr(iterable, f),
         _ => {}
     }

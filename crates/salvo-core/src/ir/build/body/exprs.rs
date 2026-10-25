@@ -2646,6 +2646,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             out.push(Stmt::Let { id, local: r.clone(), ty: Ty::named("Bool"), value: Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(false) } });
         }
         let loop_id = self.id();
+        self.fate.loop_spans.insert(loop_id.0, span);
         self.push_scope();
         self.loops += 1;
         self.loop_results.push(result.as_ref().map(|(r, _)| r.clone()));
@@ -2729,6 +2730,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.loops += 1;
         self.loop_results.push(result.as_ref().map(|(r, _)| r.clone()));
         let loop_id = self.id();
+        self.fate.loop_spans.insert(loop_id.0, span);
         let mut stmts = Vec::new();
         let bind_pattern = |me: &mut Self, value: Expr, stmts: &mut Vec<Stmt>| match pattern {
             Pattern::Ident(id) => {
@@ -3398,7 +3400,7 @@ fn visit_reads(e: &Expr, f: &mut dyn FnMut(&Local)) {
                     f(&place.root);
                     visit_reads(value, f);
                 }
-                Stmt::Expr(e) | Stmt::Return(Some(e)) => visit_reads(e, f),
+                Stmt::Expr(e) | Stmt::Return(Some(e), _) => visit_reads(e, f),
                 Stmt::Loop { body, .. } => block(body, f),
                 _ => {}
             }
@@ -3501,7 +3503,7 @@ fn returned_ty(b: &Block) -> Option<Ty> {
     }
     fn in_stmt(s: &Stmt) -> Option<Ty> {
         match s {
-            Stmt::Return(Some(e)) if !e.ty.is_unknown() && e.ty != Ty::Never => Some(e.ty.clone()),
+            Stmt::Return(Some(e), _) if !e.ty.is_unknown() && e.ty != Ty::Never => Some(e.ty.clone()),
             Stmt::Expr(e) | Stmt::Let { value: e, .. } => in_expr(e),
             Stmt::Loop { body, .. } => in_block(body),
             _ => None,

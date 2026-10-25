@@ -354,6 +354,19 @@ pub struct FateFacts {
     /// assigned value's span: applied before the value (the checker's
     /// order — the target, then the value).
     pub assign_mutations: std::collections::HashMap<(u32, u32), Vec<crate::check::FlowMutation>>,
+    /// [linear-obligation] Every written assignment of a whole local, by
+    /// the assigned value's span: the statement's span (where "assigning
+    /// drops the linear value" points). A builder-made assignment (a loop's
+    /// result, a pick) has none.
+    pub assign_spans: std::collections::HashMap<(u32, u32), Span>,
+    /// [linear-obligation] A written loop's span, by its `Loop`/`ForEach`
+    /// id: where a join over its exits points.
+    pub loop_spans: std::collections::HashMap<u32, Span>,
+    /// [linear-state] The fn's name, where "cannot end this member" points.
+    pub name_span: Span,
+    /// [linear-state] In a handler member: the state fields holding
+    /// obligations, which the member must leave whole.
+    pub linear_state: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -403,7 +416,9 @@ pub enum Stmt {
     Unpack { id: NodeId, locals: Vec<(Local, Ty)>, from: Place, from_ty: Ty, variant: usize },
     Assign { place: Place, value: Expr },
     Expr(Expr),
-    Return(Option<Expr>),
+    /// The value, and the `return`'s source span (where a flow diagnostic about
+    /// leaving here points; not shown in the dump).
+    Return(Option<Expr>, Span),
     Break,
     Continue,
     /// [ir-obligation] A directive recording a change to the set of linear

@@ -17,7 +17,16 @@
 //! edge control leaves the fn. At every such leave the outstanding set must be
 //! empty for the destination's scope (the whole set at a fn leave; only what
 //! was gained inside the loop at a `break`/`continue`) — a leftover is the leak.
+//!
+//! [linear-obligation] The flow rules (R8 piece 7; the checker's until then):
+//! where paths come back together — the arms of a branch or a switch that fall
+//! through, a loop's exits (a `for`'s top, every `break`) — a value owed before
+//! the fork that some paths settled and others still owe (itself, or through a
+//! narrowing of it) is "consumed on some paths but not others", reported at the
+//! written construct and owed no longer; and a written assignment over a local
+//! that still owes drops its value. The set after a loop is its exits' join.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
 use super::nodes::*;
@@ -30,6 +39,9 @@ pub struct IrDiagnostic {
     /// The leaked linear type's name, if known — so the gate (`ir::analyze`)
     /// can name its dischargers in the remedy ("discharge it with `drain`").
     pub discharge_type: Option<String>,
+    /// A path-exit leak, as opposed to a flow rule (consumed on some paths
+    /// only, an assignment that drops a value).
+    pub leak: bool,
 }
 
 /// Check every fn body in `program`, returning one diagnostic per leaked
@@ -40,7 +52,7 @@ pub fn check(program: &Program) -> Vec<IrDiagnostic> {
     let mut out = Vec::new();
     for module in &program.modules {
         for decl in &module.decls {
-            out.extend(check_one_with(decl, &throws));
+            out.extend(check_one_with(decl, &throws, true));
         }
     }
     // A leak reachable by more than one walk path reports once.
@@ -53,7 +65,14 @@ pub fn check(program: &Program) -> Vec<IrDiagnostic> {
 /// `throws` says which top-level fns may throw (a call to one is a conditional
 /// leave); build it once with [`throws_map`] and pass it for every decl.
 pub fn check_one(decl: &Decl, throws: &HashMap<DeclId, bool>) -> Vec<IrDiagnostic> {
-    check_one_with(decl, throws)
+    check_one_with(decl, throws, true)
+}
+
+/// [linear-obligation] Only the flow rules of a declaration in a test file:
+/// a value consumed on some paths but not others, and an assignment that
+/// drops one — not its path-exit leaks, which are the harness's business.
+pub fn check_one_flow_only(decl: &Decl, throws: &HashMap<DeclId, bool>) -> Vec<IrDiagnostic> {
+    check_one_with(decl, throws, false)
 }
 
 /// The map of which top-level fns may throw, keyed by `DeclId`.
@@ -69,16 +88,16 @@ pub fn throws_map(program: &Program) -> HashMap<DeclId, bool> {
         .collect()
 }
 
-fn check_one_with(decl: &Decl, throws: &HashMap<DeclId, bool>) -> Vec<IrDiagnostic> {
+fn check_one_with(decl: &Decl, throws: &HashMap<DeclId, bool>, leaks: bool) -> Vec<IrDiagnostic> {
     let mut out = Vec::new();
     match decl {
-        Decl::Fn(f) => check_fn(f, throws, &mut out),
+        Decl::Fn(f) => check_fn(f, throws, leaks, &mut out),
         Decl::Impl(h) => {
             if let Some(init) = &h.init {
-                check_fn(init, throws, &mut out);
+                check_fn(init, throws, leaks, &mut out);
             }
             for m in &h.members {
-                check_fn(m, throws, &mut out);
+                check_fn(m, throws, leaks, &mut out);
             }
         }
         _ => {}
@@ -116,17 +135,40 @@ struct Ctx<'a> {
     throws: &'a HashMap<DeclId, bool>,
     loop_base: Option<&'a Owed>,
     in_try: bool,
+    /// What the walk learns as it goes, shared by every nested context.
+    shared: &'a RefCell<Shared>,
+    /// The fn's flow-only facts: which assignments are written, and where.
+    fate: &'a FateFacts,
 }
 
-fn check_fn(f: &FnDecl, throws: &HashMap<DeclId, bool>, out: &mut Vec<IrDiagnostic>) {
+impl<'a> Ctx<'a> {
+    fn with(&self, loop_base: Option<&'a Owed>, in_try: bool) -> Ctx<'a> {
+        Ctx { throws: self.throws, loop_base, in_try, shared: self.shared, fate: self.fate }
+    }
+}
+
+/// [linear-obligation] The walk's mutable side: per enclosing loop
+/// (innermost last), the sets at its `break`s; and each narrowing binding's
+/// source, so a path that still owes the binding owes the source.
+#[derive(Default)]
+struct Shared {
+    breaks: Vec<Vec<Owed>>,
+    narrow_of: HashMap<Key, Key>,
+}
+
+fn check_fn(f: &FnDecl, throws: &HashMap<DeclId, bool>, leaks: bool, out: &mut Vec<IrDiagnostic>) {
     let Some(body) = &f.body else { return };
     let mut owed = Owed::new();
-    let ctx = Ctx { throws, loop_base: None, in_try: false };
-    let flow = walk_block(body, &mut owed, &ctx, out);
+    let shared = RefCell::new(Shared::default());
+    let ctx = Ctx { throws, loop_base: None, in_try: false, shared: &shared, fate: &f.fate };
+    let mut found = Vec::new();
+    let flow = walk_block(body, &mut owed, &ctx, &mut found);
     // Fall-through off the end of the body: anything still owed leaks.
     if flow == Flow::FallsThrough {
-        report_all(&owed, out, body.span);
+        report_all(&owed, &mut found, body.span);
     }
+    // A test file reports the flow rules only.
+    out.extend(found.into_iter().filter(|d| leaks || !d.leak));
 }
 
 /// Whether a block/stmt sequence falls through to its continuation or leaves
@@ -143,7 +185,7 @@ fn walk_block(block: &Block, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnos
     for s in &block.stmts {
         match s {
             Stmt::Obligation(o) => apply(o, owed),
-            Stmt::Return(value) => {
+            Stmt::Return(value, _) => {
                 // The returned expression is evaluated first (its own
                 // branches/switches may gain, release, and leak); then the
                 // return leaves the fn with nothing allowed outstanding.
@@ -158,23 +200,76 @@ fn walk_block(block: &Block, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnos
             Stmt::Break | Stmt::Continue => {
                 // Leaves the loop: only obligations gained inside the loop leak.
                 report_since(owed, ctx.loop_base, out, stmt_span(s));
+                if matches!(s, Stmt::Break) {
+                    if let Some(frame) = ctx.shared.borrow_mut().breaks.last_mut() {
+                        frame.push(owed.clone());
+                    }
+                }
                 return Flow::Leaves;
             }
-            Stmt::Loop { body, .. } | Stmt::ForEach { body, .. } => {
+            Stmt::Loop { id, body } | Stmt::ForEach { id, body, .. } => {
                 // The loop body is its own path, entered with the current set
-                // as its loop base; its fall-through (loop end) does not change
-                // the enclosing set, and a `break value` carries no obligation.
+                // as its loop base; a `break value` carries no obligation.
                 let base = owed.clone();
                 let mut inner = owed.clone();
-                let inner_ctx = Ctx { throws: ctx.throws, loop_base: Some(&base), in_try: ctx.in_try };
+                let inner_ctx = ctx.with(Some(&base), ctx.in_try);
+                ctx.shared.borrow_mut().breaks.push(Vec::new());
                 let _ = walk_block(body, &mut inner, &inner_ctx, out);
+                let breaks = ctx.shared.borrow_mut().breaks.pop().unwrap_or_default();
+                // [linear-obligation] After the loop: the paths that leave it —
+                // a `for`'s top (where its iterable runs out, the entry set)
+                // and every `break` — joined, for what was owed before it (what
+                // a `break` still owed of its own was its leak). A value
+                // settled on some of them but not the others is the
+                // some-paths error, at the written loop.
+                let mut exits: Vec<Owed> = Vec::new();
+                if matches!(s, Stmt::ForEach { .. }) {
+                    exits.push(base.clone());
+                }
+                exits.extend(breaks.into_iter().map(|mut b| {
+                    b.retain(|k, _| base.contains_key(k));
+                    b
+                }));
+                if !exits.is_empty() {
+                    let span = ctx.fate.loop_spans.get(&id.0).copied().unwrap_or(body.span);
+                    *owed = join_paths(&base, exits, span, ctx, out);
+                }
             }
-            Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) => {
+            Stmt::Let { value, .. } | Stmt::Expr(value) => {
                 if walk_expr(value, owed, ctx, out) == Flow::Leaves {
                     return Flow::Leaves;
                 }
             }
-            Stmt::Alias { .. } | Stmt::Narrow { .. } | Stmt::Unpack { .. } => {}
+            Stmt::Assign { place, value } => {
+                if walk_expr(value, owed, ctx, out) == Flow::Leaves {
+                    return Flow::Leaves;
+                }
+                // [linear-obligation] Assigning over a local that still owes
+                // drops its value (a written assignment; the builder's own —
+                // a loop's result, a pick — never assign over an obligation).
+                // Reported once: the old obligation goes with the report, and
+                // the new value's `Gain` follows.
+                if place.steps.is_empty() {
+                    if let Some(at) = ctx.fate.assign_spans.get(&(value.span.start, value.span.end)) {
+                        let key = place_key(place);
+                        if owed.remove(&key).is_some() && !key.starts_with("__") {
+                            let x = written_name(&key);
+                            out.push(IrDiagnostic {
+                                span: *at,
+                                message: format!(
+                                    "assigning to `{x}` drops the linear value it still owns; move it onward or `discard({x})` first"
+                                ),
+                                discharge_type: None,
+                                leak: false,
+                            });
+                        }
+                    }
+                }
+            }
+            Stmt::Narrow { local, from, .. } => {
+                ctx.shared.borrow_mut().narrow_of.insert(local.0.clone(), place_key(from));
+            }
+            Stmt::Alias { .. } | Stmt::Unpack { .. } => {}
         }
     }
     if let Some(v) = &block.value {
@@ -193,31 +288,42 @@ fn walk_block(block: &Block, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnos
 fn walk_expr(e: &Expr, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnostic>) -> Flow {
     match &e.kind {
         ExprKind::Branch { arms, otherwise, .. } => {
-            let mut joined: Option<Owed> = None;
-            let mut any_fallthrough = false;
-            for (cond, body) in arms {
+            let mut falls: Vec<Owed> = Vec::new();
+            for (i, (cond, body)) in arms.iter().enumerate() {
                 // The condition is evaluated on the current path, before the
                 // fork — a `Never` or throwing call in it leaves here.
                 if walk_expr(cond, owed, ctx, out) == Flow::Leaves {
                     return Flow::Leaves;
                 }
                 let mut path = owed.clone();
+                // An earlier arm's positive arm-test failed to get here: its
+                // arms are proven absent on this path.
+                for (earlier, _) in &arms[..i] {
+                    if let Some((subject, tested)) = positive_arm_test(earlier) {
+                        discharge_arms(&mut path, &subject, &tested);
+                    }
+                }
                 // [ir-obligation] A negated arm-test `!(x is arm k)` guarding
                 // this arm proves `x` is not in arm k *inside* the arm.
                 if let Some((subject, tested)) = negative_arm_test(cond) {
                     discharge_arms(&mut path, &subject, &tested);
                 }
                 if walk_block(body, &mut path, ctx, out) == Flow::FallsThrough {
-                    any_fallthrough = true;
-                    joined = Some(join(joined, path));
+                    falls.push(path);
                 }
             }
             match otherwise {
                 Some(body) => {
+                    // Every arm's test failed: what a positive one tested is
+                    // proven absent in the `else`.
                     let mut path = owed.clone();
+                    for (cond, _) in arms {
+                        if let Some((subject, tested)) = positive_arm_test(cond) {
+                            discharge_arms(&mut path, &subject, &tested);
+                        }
+                    }
                     if walk_block(body, &mut path, ctx, out) == Flow::FallsThrough {
-                        any_fallthrough = true;
-                        joined = Some(join(joined, path));
+                        falls.push(path);
                     }
                 }
                 None => {
@@ -240,13 +346,17 @@ fn walk_expr(e: &Expr, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnostic>) 
                                 discharge_arms(&mut path, &subject, &tested);
                             }
                         }
-                        any_fallthrough = true;
-                        joined = Some(join(joined, path));
+                        falls.push(path);
                     }
                 }
             }
-            *owed = joined.unwrap_or_default();
-            if any_fallthrough { Flow::FallsThrough } else { Flow::Leaves }
+            if falls.is_empty() {
+                *owed = Owed::default();
+                return Flow::Leaves;
+            }
+            let base = owed.clone();
+            *owed = join_paths(&base, falls, e.span, ctx, out);
+            Flow::FallsThrough
         }
         ExprKind::Switch { subject, arms, .. } => {
             if walk_expr(subject, owed, ctx, out) == Flow::Leaves {
@@ -255,26 +365,31 @@ fn walk_expr(e: &Expr, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnostic>) 
             // [ir-obligation] A switch dispatches on its subject: the subject's
             // obligation is distributed to the per-arm narrows, so it leaves
             // the set on entry. A narrowed binding an arm drops is still caught.
+            let before = owed.clone();
             let mut base = owed.clone();
             if let ExprKind::Read { place, .. } = &subject.kind {
                 base.remove(&place_key(place));
             }
-            let mut joined: Option<Owed> = None;
-            let mut any_fallthrough = false;
+            let mut falls: Vec<Owed> = Vec::new();
             for arm in arms {
                 let mut path = base.clone();
                 if walk_block(&arm.body, &mut path, ctx, out) == Flow::FallsThrough {
-                    any_fallthrough = true;
-                    joined = Some(join(joined, path));
+                    falls.push(path);
                 }
             }
-            *owed = joined.unwrap_or_default();
-            if any_fallthrough { Flow::FallsThrough } else { Flow::Leaves }
+            if falls.is_empty() {
+                *owed = Owed::default();
+                return Flow::Leaves;
+            }
+            // The subject is owed on an arm's path while that arm's narrowing
+            // of it is.
+            *owed = join_paths(&before, falls, e.span, ctx, out);
+            Flow::FallsThrough
         }
         ExprKind::Try { body } => {
             // A `try` catches throws: inside it, a throwing call is not a fn
             // leave. The body's own value flows out.
-            let inner = Ctx { throws: ctx.throws, loop_base: ctx.loop_base, in_try: true };
+            let inner = ctx.with(ctx.loop_base, true);
             walk_block(body, owed, &inner, out)
         }
         // [ir-obligation] `assert!(subject is arm k)` proves, past this point,
@@ -466,6 +581,73 @@ fn join(a: Option<Owed>, b: Owed) -> Owed {
     }
 }
 
+/// [linear-obligation] The set after a fork whose `falls` paths come back
+/// together at `span`, from `base` before it: their union, except that a
+/// value `base` owed which some paths settled (moved, discharged) and others
+/// still owe — itself or through a narrowing of it — is the dual of the
+/// maybe-moved rule, reported once here and owed no longer (the checker's
+/// former `merge_fallthrough` rule, in its words).
+fn join_paths(base: &Owed, falls: Vec<Owed>, span: Span, ctx: &Ctx, out: &mut Vec<IrDiagnostic>) -> Owed {
+    let shared = ctx.shared.borrow();
+    // Whether `key` is (a narrowing, at any depth, of) `of`.
+    let descends = |key: &str, of: &str| {
+        let mut at = key;
+        for _ in 0..64 {
+            if at == of {
+                return true;
+            }
+            match shared.narrow_of.get(at) {
+                Some(next) => at = next,
+                None => return false,
+            }
+        }
+        false
+    };
+    let mut conflicts: Vec<Key> = Vec::new();
+    if falls.len() > 1 {
+        for k in base.keys() {
+            if k.starts_with("__") {
+                continue;
+            }
+            let owing = falls.iter().filter(|p| p.keys().any(|q| descends(q, k))).count();
+            if owing > 0 && owing < falls.len() {
+                conflicts.push(k.clone());
+            }
+        }
+    }
+    let mut joined: Option<Owed> = None;
+    for p in falls {
+        joined = Some(join(joined, p));
+    }
+    let mut joined = joined.unwrap_or_default();
+    let mut names: Vec<String> = Vec::new();
+    for k in &conflicts {
+        joined.retain(|q, _| !descends(q, k));
+        names.push(written_name(k).to_string());
+    }
+    names.sort();
+    names.dedup();
+    for name in names {
+        out.push(IrDiagnostic {
+            span,
+            message: format!(
+                "`{name}` owns a linear value that is consumed on some paths but not others; discharge or move it on every path"
+            ),
+            discharge_type: None,
+            leak: false,
+        });
+    }
+    joined
+}
+
+/// A local's name as written: the builder suffixes a rebinding (`x~2`).
+fn written_name(key: &str) -> &str {
+    match key.find('~') {
+        Some(i) => &key[..i],
+        None => key,
+    }
+}
+
 fn report_all(owed: &Owed, out: &mut Vec<IrDiagnostic>, _at: Span) {
     for (place, o) in owed {
         report_one(place, o, out, "when the path leaves; move it onward (pass, return, or store it) or discharge it");
@@ -514,7 +696,7 @@ fn report_one(place: &str, o: &Outstanding, out: &mut Vec<IrDiagnostic>, tail: &
         }
         _ => format!("{subject} still owns a linear value"),
     };
-    out.push(IrDiagnostic { span: o.span, message: format!("{value} {tail}"), discharge_type: o.ty_name.clone() });
+    out.push(IrDiagnostic { span: o.span, message: format!("{value} {tail}"), discharge_type: o.ty_name.clone(), leak: true });
 }
 
 /// If `cond` is a negated arm-test `!(subject is arm k)`, the subject's place
@@ -587,7 +769,7 @@ fn place_key(p: &Place) -> String {
 
 fn stmt_span(s: &Stmt) -> Span {
     match s {
-        Stmt::Return(Some(e)) | Stmt::Expr(e) | Stmt::Let { value: e, .. } | Stmt::Assign { value: e, .. } => e.span,
+        Stmt::Return(Some(e), _) | Stmt::Expr(e) | Stmt::Let { value: e, .. } | Stmt::Assign { value: e, .. } => e.span,
         _ => Span::default(),
     }
 }

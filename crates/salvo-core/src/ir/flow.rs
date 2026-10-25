@@ -90,6 +90,15 @@
 //!   something else, a loop value, a claim) inherits the local's state.
 //! * A lambda body is walked from the enclosing set (a read of a moved
 //!   capture is a use), as its own loop context; what it moves stays inside.
+//!
+//! [linear-state] In a handler member (or `init`) the pass also checks that
+//! an activation leaves its state whole (R8 piece 7, the checker's
+//! `check_state_whole` until then): at a `return` (after its value) and at
+//! the end of a body that falls off it, a state field holding obligations
+//! (`FateFacts::linear_state`) moved out of on the path, wholly or in part,
+//! is the error. An assignment over such a field while it is not moved out
+//! drops the obligations it holds, the ledger's "assigning drops" error for a
+//! field the ledger does not track.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -112,6 +121,10 @@ pub struct FlowDiagnostic {
     /// shares fate with, or of a root a move-mode binding took
     /// [fate-move-mode]; `moved_at` is then the event, or the binding.
     pub poison: Option<PoisonUse>,
+    /// [linear-state] Not a use: an exit from a handler member (`what` it
+    /// does, "return" or "end this member") that leaves the state field
+    /// `local` with a hole — moved out of, wholly or in part, on this path.
+    pub hole: Option<&'static str>,
 }
 
 /// [fate-poison] Why a read of a value that is not moved itself is a use of
@@ -142,6 +155,9 @@ impl FlowDiagnostic {
     /// the source of the file the diagnostic is in (a move is always in the
     /// same declaration as its use).
     pub fn render(&self, content: &str) -> String {
+        if self.hole.is_some() {
+            return self.message.clone();
+        }
         let (line, _) = salvo_syntax::span::line_col(content, self.moved_at.start);
         if let Some(p) = &self.poison {
             return poison_message(&self.local, p, &format!(" at line {line}"));
@@ -226,7 +242,10 @@ fn check_fn(f: &FnDecl, out: &mut Vec<FlowDiagnostic>) {
         w.decl_ty.insert(p.local.0.clone(), p.ty.clone());
     }
     let mut moved = Moved::default();
-    w.walk_block(body, &mut moved);
+    if w.walk_block(body, &mut moved) == Flow::FallsThrough {
+        // [linear-state] Falling off the end of a member ends the activation.
+        w.check_state_whole(f.fate.name_span, "end this member", &moved);
+    }
     out.append(&mut w.out);
 }
 
@@ -409,6 +428,11 @@ struct Walker<'f> {
     tests: HashMap<u32, String>,
     conds: HashMap<(u32, usize), Vec<String>>,
     switches: HashMap<u32, String>,
+    /// Inside a lambda body: its `return` ends the lambda, not the member.
+    lambdas: usize,
+    /// [linear-state] The holes reported, by exit and field: a loop's walks
+    /// reach an exit more than once.
+    holes: HashSet<(u32, u32, String)>,
 }
 
 impl<'f> Walker<'f> {
@@ -463,7 +487,7 @@ impl<'f> Walker<'f> {
             Some(p) => poison_message(&written, p, ""),
             None => format!("`{written}` cannot be used here: it was consumed (moved) earlier; reassign it before use"),
         };
-        self.out.push(FlowDiagnostic { span, message, local: written, moved_at: gone.span, part: None, poison });
+        self.out.push(FlowDiagnostic { span, message, local: written, moved_at: gone.span, part: None, poison, hole: None });
         true
     }
 
@@ -509,7 +533,7 @@ impl<'f> Walker<'f> {
             return;
         }
         let part = PartUse { place: show_place(&written, &path), moved: show_place(&written, &gone), whole: path.is_empty() };
-        self.out.push(FlowDiagnostic { span, message: part_message(&written, &part, ""), local: written, moved_at, part: Some(part), poison: None });
+        self.out.push(FlowDiagnostic { span, message: part_message(&written, &part, ""), local: written, moved_at, part: Some(part), poison: None, hole: None });
     }
 
     /// [fate-partial-move] A consuming read of a projection moves that
@@ -614,8 +638,8 @@ impl<'f> Walker<'f> {
     }
 
     /// [fate-partial-move] Assigning a place puts back every moved place
-    /// it covers (the checker's `revive_moved_places`): itself and anything
-    /// under it; the whole local covers everything.
+    /// it covers (as the checker's former `revive_moved_places` did):
+    /// itself and anything under it; the whole local covers everything.
     fn revive_parts(&self, local: &str, steps: &[Step], moved: &mut Moved) {
         let Some((root, path)) = self.place_of(local, steps, true) else { return };
         if let Some(list) = moved.parts.get_mut(&root) {
@@ -777,6 +801,10 @@ impl<'f> Walker<'f> {
                     self.revive_parts(&place.root.0, &place.steps, moved);
                 }
                 if place.steps.is_empty() {
+                    // [linear-state] [linear-obligation] Assigning over a
+                    // state field that still holds its obligations drops
+                    // them (the ledger owns every other local's case).
+                    self.check_state_drop(&place.root.0, value.span, moved);
                     // [fate-move-mode] A move-mode assignment takes its
                     // value's roots first.
                     let bound = self.fate.and_then(|f| f.assign_bound.get(&(value.span.start, value.span.end)));
@@ -794,9 +822,14 @@ impl<'f> Walker<'f> {
                 flow
             }
             Stmt::Expr(e) => self.walk_expr(e, moved),
-            Stmt::Return(value) => {
+            Stmt::Return(value, span) => {
                 if let Some(e) = value {
                     self.walk_expr(e, moved);
+                }
+                // [linear-state] A `return` ends the activation (the value
+                // is moved first: `return waiting` leaves the hole too).
+                if self.lambdas == 0 {
+                    self.check_state_whole(*span, "return", moved);
                 }
                 Flow::Leaves
             }
@@ -816,6 +849,45 @@ impl<'f> Walker<'f> {
             }
             Stmt::Obligation(_) => Flow::FallsThrough,
         }
+    }
+
+    /// [linear-state] An exit from a handler member at `span`: every state
+    /// field holding obligations must be whole on this path — not moved
+    /// out of, wholly or in part (the checker's former
+    /// `check_state_whole`). Reported once per exit and field.
+    fn check_state_whole(&mut self, span: Span, what: &'static str, moved: &Moved) {
+        let Some(fate) = self.fate else { return };
+        for name in &fate.linear_state {
+            if !moved.whole.contains_key(name) && !moved.parts.contains_key(name) {
+                continue;
+            }
+            if !self.holes.insert((span.start, span.end, name.clone())) {
+                continue;
+            }
+            let message = format!(
+                "cannot {what}: the state field `{name}` was moved out of and nothing was put back, so this \
+                 activation would leave the handler with a hole — assign it a value first (`{name} = …`), since \
+                 the obligations an actor holds must survive between activations"
+            );
+            self.out.push(FlowDiagnostic { span, message, local: name.clone(), moved_at: span, part: None, poison: None, hole: Some(what) });
+        }
+    }
+
+    /// [linear-state] A written assignment of the state field `local` (by
+    /// its value's span) while the field is not moved out on this path.
+    fn check_state_drop(&mut self, local: &str, value: Span, moved: &Moved) {
+        let Some(fate) = self.fate else { return };
+        if !fate.linear_state.iter().any(|n| n == local) || moved.whole.contains_key(local) {
+            return;
+        }
+        let Some(&span) = fate.assign_spans.get(&(value.start, value.end)) else { return };
+        if !self.holes.insert((span.start, span.end, local.to_string())) {
+            return;
+        }
+        let message = format!(
+            "assigning to `{local}` drops the linear value it still owns; move it onward or `discard({local})` first"
+        );
+        self.out.push(FlowDiagnostic { span, message, local: local.to_string(), moved_at: span, part: None, poison: None, hole: Some("assign") });
     }
 
     /// Whether `because` is a test of `local` itself, made where the
@@ -1049,7 +1121,9 @@ impl<'f> Walker<'f> {
                     inner.forget(&p.local.0);
                 }
                 let loops = std::mem::take(&mut self.loops);
+                self.lambdas += 1;
                 self.walk_block(body, &mut inner);
+                self.lambdas -= 1;
                 self.loops = loops;
                 for c in captures {
                     if c.consumed {
@@ -1099,7 +1173,7 @@ impl<'f> Walker<'f> {
 
 /// Moved on either path is moved; so is a place moved out on either
 /// [fate-partial-move] (union, the earlier path's move first, as the
-/// checker's `merge_fallthrough` joins `moved_places`).
+/// checker's `merge_fallthrough` joined its `moved_places`).
 fn join_into(acc: &mut Moved, other: Moved) {
     for (k, v) in other.whole {
         match acc.whole.get_mut(&k) {

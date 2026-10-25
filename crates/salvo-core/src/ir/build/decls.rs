@@ -344,6 +344,13 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
             _ => None,
         })
         .collect();
+    // [linear-state] The state fields that hold obligations: a member must
+    // leave each whole (`ir::flow`).
+    let linear_state: Vec<String> = state
+        .iter()
+        .filter(|f| crate::linear::ty_own_linear(ctx.symbols, &std::collections::HashSet::new(), &f.ty))
+        .map(|f| f.name.clone())
+        .collect();
     let member_fn = |f: &ast::FnDecl, errors: &mut Vec<String>| {
         let faces_n = crate::effects::handler_member_faces(&face_decls, f).len();
         let mut d = fn_decl(ctx, file_idx, id.clone(), None, f, FnKind::Member { faces: faces_n }, None, &[], errors);
@@ -387,6 +394,8 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
             errors.extend(lower.finish());
             block
         });
+        fate.name_span = f.name.span;
+        fate.linear_state = linear_state.clone();
         d.fate = fate;
         d
     };
@@ -550,7 +559,8 @@ fn fn_decl(
     } else {
         f.body.as_ref().map(|b| lower.fn_body(b, &ret))
     };
-    let fate = std::mem::take(&mut lower.fate);
+    let mut fate = std::mem::take(&mut lower.fate);
+    fate.name_span = f.name.span;
     errors.extend(lower.finish());
     // [ref-anchor] Handle parameters and the container each names.
     let ref_anchors: Vec<(usize, usize)> = f

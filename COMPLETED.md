@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2044 tests, complete: the toolchain tests are
+cargo test                  # 2045 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,93 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Linear flow errors are reported from the IR
+
+PIPELINE.md R8 piece 7 [linear-obligation] [linear-state] [linear-union-arm]
+[ir-linear-check] [ir-obligation]. The checker no longer reports any linear
+rule that depends on paths or moves. The IR's ledger (`ir::check`) reports a
+value consumed on some paths but not others, at the `if`, `when` or loop
+where the paths join, and an assignment over a local that still owes. The
+flow pass (`ir::flow`) reports a handler member that leaves a state field
+holding obligations moved out of, and an assignment over a live one. Gone
+from the checker: `owes_linear`, `check_state_whole`, the linear half of
+`merge_fallthrough` (and the `if`'s skip-path settling and the `when`'s
+all-arms-left settling), `linear_settled`, `pending_drops`,
+`undecided_binds_of`, `linear_fields_of`, and `moved_places` with
+`MovedPlace` and `revive_moved_places` (nothing read them any more).
+
+- **The classification.** Flow (moved): the some-paths join, the
+  assigning-drops rule, decomposition settling a container (the ledger had
+  it already), the union-arm settling by narrowing, and the state-whole
+  check. Declaration shape and typing (stay): `check_linear_field`,
+  `check_linear_opaque`, `check_linear_components`, the `linear struct`
+  discharger rule, generic instantiation, variadic positions, `copy`
+  refusal, `discard` outside a discharger, the store refusals
+  [linear-composite], `for` over a linear iterator, a lambda consuming or
+  mutating a linear capture, a ctor parameter moved out of handler state,
+  and the expression statement whose value is linear. That last one is
+  decided by the expression's type alone, with no path in it.
+- **What the IR needed.** `Stmt::Return` carries its span. `FnDecl::fate`
+  carries the written assignments' statement spans (by the value's span),
+  each written loop's span (by its id), the fn's name span, and in a member
+  the state fields that hold obligations. The ledger's walk joins a loop's
+  exits (a `for`'s top with the entry set, every `break`) instead of leaving
+  the outer set as it was, and a path owes a value while it owes a
+  narrowing of it. A failed positive arm test discharges its arms on later
+  arms and in the `else`, not only on the skip path. A written assignment
+  of an owed value gains it, with the local's declared type. A borrow-mode
+  binding with fate links gains nothing. A test file gets the flow rules but
+  not the path-exit leaks (`check_one_flow_only`).
+- **The differential.** A temporary hook in `check_program` built the IR
+  for every program the suite checks and compared the checker's three
+  diagnostics with the IR's, by file, start and message. Over 2,465
+  programs nothing differed; only 10 had any of the three, and 2 more mixed
+  them with other errors (gating is per program, so the IR was not built
+  for those). A 71-case corpus covered the shapes the suite did not. Same
+  diagnostics, spans and words, except 8 cases, where the IR is right:
+  - The checker reported 3 false errors. A value consumed before the only
+    `break` of a `while true` (it joined the loop's end state too). A
+    linear struct decomposed on one path and consumed on the other. A union
+    narrowed to `Err` and then reassigned, whose stale `linear_settled`
+    mark read as settled.
+  - The checker missed 4 leaks, which the IR's path-exit check already
+    caught under its own wording: a struct decomposed on one path only; one
+    half-decomposed before an `if` that moves the other half (after the
+    join both fields read as moved, so it took the struct for settled); and
+    a move-mode alias consumed in one arm, alone and next to a use after a
+    move.
+  - The checker accepted assigning over a full state queue: it declares a
+    state field as a parameter, which never owes. The flow pass reports it.
+  The cases are pinned in the new `linear_flow_tests`, each difference
+  noted on its case.
+- **Found and fixed along the way**, both older than this piece: the
+  ledger gained nothing at an assignment, so `h = open()` after `close(h)`
+  followed by nothing was an unreported leak. And a borrow-mode alias
+  (`let alias = h`) gained an obligation of its own, a false leak that a
+  checker error had hidden in `l6_linear_obligations`.
+- **The ownership-blind audit walk** now reports no errors at all on std
+  and an example. Its known false linear errors (about 20, then 17 after
+  piece 4) came from the checker's linear joins reading `narrowed = Never`
+  as settled, and those joins are gone. The audit test compares tables and
+  stays green.
+- **Not yet move-mode's.** The checker's consumption marking (`narrowed =
+  Never`, `consumed_ty`, `poison_derived`'s marking) still has three
+  readers besides move-mode: `fate_mutation_kind` skips a write through a
+  `Mut` handle that is already poisoned (and so records no mutation on the
+  handle's roots); `fate_mutation_fields_preserving` leaves consumed
+  variables out of `virtual_place_binds` (the Rust virtual-place
+  rendering); and `check_loop_body` re-walks a loop when the state changed.
+  The read and call paths' `consumed_ty` typing, and the join dropping a
+  consumed variable's place narrowings, are neutral by the audit. PIPELINE.md
+  §8 has the details.
+- **Tests:** `linear_flow_tests` (new, 71 cases in one program, real std):
+  the checker reports nothing, and the gate reports each case's pinned
+  diagnostics. `l6_linear_obligations` lost its two path-dependent
+  functions to `l6_path_exit_leaks`, which now pins them by position.
+  `an_unclosed_linear_arm_still_leaks` was made clean (gating is per
+  program) and expects the some-paths error. 2045 in all. Emitted code did
+  not change: no golden, snapshot or example output moved.
 
 ### 2026-10-20 — A derived route has its node in the deadlock graph
 
@@ -28794,7 +28881,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2044 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2045 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -30069,6 +30156,21 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A handler's state field is a parameter to the checker** (2026-10-20,
+  R8 piece 7). `LocalVar::is_param` is set for state fields, so any rule
+  that exempts kept parameters exempts state too: `owes_linear` never
+  reported an assignment over a full state queue. The IR knows state as
+  `FateFacts::linear_state`; check a new ownership rule on a state field
+  explicitly.
+
+- **The IR ledger keys obligations by local, and only bindings gain**
+  (2026-10-20, R8 piece 7). An `Assign` gained nothing until piece 7, so a
+  reassigned linear value could leak unreported, and a borrow-mode alias
+  gained one of its own. When a construct can bring an obligation into a
+  local, check what the annotator gains for it in `salvo ir`; a checker
+  error elsewhere in the test program hides the IR's mistakes (gating is
+  per program).
 
 - **A handler the IR derives is invisible to the deadlock graph** (2026-10-20,
   R8 piece 6). The graph reads AST `HandlerDecl`s plus the checker's tables,

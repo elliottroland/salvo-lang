@@ -233,7 +233,7 @@ fn walk_stmt(s: &Stmt, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMut(&Expr)) {
             walk_place(place, fs, fe);
             walk_expr(value, fs, fe);
         }
-        Stmt::Expr(e) | Stmt::Return(Some(e)) => walk_expr(e, fs, fe),
+        Stmt::Expr(e) | Stmt::Return(Some(e), _) => walk_expr(e, fs, fe),
         _ => {}
     }
 }
@@ -380,11 +380,11 @@ pub(crate) fn diverges(e: &Expr) -> bool {
         // Every arm of a choice ends in an escape (a `when` whose arms all
         // `return`).
         ExprKind::Switch { arms, .. } => {
-            let blk = |b: &Block| b.value.as_ref().map(|v| diverges(v)).unwrap_or_else(|| matches!(b.stmts.last(), Some(Stmt::Return(_) | Stmt::Break | Stmt::Continue)) || matches!(b.stmts.last(), Some(Stmt::Expr(x)) if diverges(x)));
+            let blk = |b: &Block| b.value.as_ref().map(|v| diverges(v)).unwrap_or_else(|| matches!(b.stmts.last(), Some(Stmt::Return(..) | Stmt::Break | Stmt::Continue)) || matches!(b.stmts.last(), Some(Stmt::Expr(x)) if diverges(x)));
             !arms.is_empty() && arms.iter().all(|a| blk(&a.body))
         }
         ExprKind::Branch { arms, otherwise, .. } => {
-            let blk = |b: &Block| b.value.as_ref().map(|v| diverges(v)).unwrap_or_else(|| matches!(b.stmts.last(), Some(Stmt::Return(_) | Stmt::Break | Stmt::Continue)) || matches!(b.stmts.last(), Some(Stmt::Expr(x)) if diverges(x)));
+            let blk = |b: &Block| b.value.as_ref().map(|v| diverges(v)).unwrap_or_else(|| matches!(b.stmts.last(), Some(Stmt::Return(..) | Stmt::Break | Stmt::Continue)) || matches!(b.stmts.last(), Some(Stmt::Expr(x)) if diverges(x)));
             arms.iter().all(|(_, b)| blk(b)) && otherwise.as_ref().map_or(arms.len() == 1 && matches!(arms[0].0.kind, ExprKind::Bool(true)), blk)
         }
         _ => false,
@@ -602,8 +602,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let code = self.expr_stmt(e, indent);
                 format!("{pad}{code};\n")
             }
-            Stmt::Return(None) if self.f.throws.is_some() => format!("{pad}return std::ops::ControlFlow::Continue(());\n"),
-            Stmt::Return(Some(e)) if self.f.throws.is_some() => {
+            Stmt::Return(None, _) if self.f.throws.is_some() => format!("{pad}return std::ops::ControlFlow::Continue(());\n"),
+            Stmt::Return(Some(e), _) if self.f.throws.is_some() => {
                 let ret = self.f.ret.clone().unwrap_or(Ty::Unknown);
                 if ret.is_none_ty() {
                     let code = self.expr_stmt(e, indent);
@@ -612,13 +612,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let code = self.value_into(e, &ret, indent);
                 format!("{pad}return std::ops::ControlFlow::Continue({code});\n")
             }
-            Stmt::Return(None) => format!("{pad}return;\n"),
-            Stmt::Return(Some(e)) if self.f.loc.is_some() => {
+            Stmt::Return(None, _) => format!("{pad}return;\n"),
+            Stmt::Return(Some(e), _) if self.f.loc.is_some() => {
                 let opt = self.f.loc.as_ref().is_some_and(|(_, o)| *o);
                 let code = self.loc_expr(e, opt, indent);
                 format!("{pad}return {code};\n")
             }
-            Stmt::Return(Some(e)) => {
+            Stmt::Return(Some(e), _) => {
                 let ret = self.f.ret.clone().unwrap_or(Ty::Unknown);
                 if ret.is_none_ty() || matches!(ret, Ty::Never) {
                     if matches!(e.kind, ExprKind::Unit | ExprKind::MakeNone) {

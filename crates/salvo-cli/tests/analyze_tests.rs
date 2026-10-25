@@ -1528,11 +1528,7 @@ fn close(x: Conn) -> None => !x { discard(x) }
          fn inspect(h: FileHandle) -> Int => h {\n    return h.fd\n}\n\n\
          fn run(f: () -> None) {\n    f()\n}\n\n\
          fn leak() {\n    let h = open_file(\"data.txt\")\n}\n\n\
-         fn maybe_leak(flag: Bool) {\n    let h = open_file(\"data.txt\")\n    \
-         if flag {\n        close_file(h)\n    }\n}\n\n\
          fn drop_result() {\n    open_file(\"data.txt\")\n}\n\n\
-         fn overwrite() {\n    let h = open_file(\"a.txt\")\n    h = open_file(\"b.txt\")\n    \
-         close_file(h)\n}\n\n\
          fn return_while_owing(flag: Bool) -> Int {\n    let h = open_file(\"data.txt\")\n    \
          if flag {\n        return 0\n    }\n    close_file(h)\n    return 1\n}\n\n\
          fn copy_refused() {\n    let h = open_file(\"data.txt\")\n    let c = copy(h)\n    \
@@ -1554,20 +1550,14 @@ fn close(x: Conn) -> None => !x { discard(x) }
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    // [ir-analyze] The pure path-exit leaks (`leak`, `return_while_owing`) are
-    // the IR flow analysis's job, which runs only on an otherwise-clean
-    // program; with the structural violations below present, they are not
-    // reported here — see `l6_path_exit_leaks` for them on a clean program.
-    assert!(
-        stderr.contains("`h` owns a linear value that is consumed on some paths but not others"),
-        "stderr: {stderr}"
-    );
+    // [ir-analyze] The path-dependent rules — the leaks (`leak`,
+    // `return_while_owing`), a value consumed on some paths only, an
+    // assignment over a live one — are the IR analysis's, which runs only on
+    // an otherwise-clean program; with the structural violations below
+    // present, they are not reported here — see `l6_path_exit_leaks` for them
+    // on a clean program.
     assert!(
         stderr.contains("this expression produces a linear value that is dropped immediately"),
-        "stderr: {stderr}"
-    );
-    assert!(
-        stderr.contains("assigning to `h` drops the linear value it still owns"),
         "stderr: {stderr}"
     );
     assert!(
@@ -1583,16 +1573,17 @@ fn close(x: Conn) -> None => !x { discard(x) }
     // the obligation, `close_box` discharges it by forwarding, and the
     // whole shape draws no error.
     assert!(!stderr.contains("Box2.item"), "stderr: {stderr}");
-    // Five structural violations here; the two path-exit leaks (`leak`,
-    // `return_while_owing`) are checked on a clean program in
-    // `l6_path_exit_leaks` [ir-analyze].
-    assert!(stderr.contains("5 errors"), "stderr: {stderr}");
+    // Three structural violations here; the path-dependent ones are checked
+    // on a clean program in `l6_path_exit_leaks` [ir-analyze].
+    assert!(stderr.contains("3 errors"), "stderr: {stderr}");
 }
 
-/// [ir-analyze] The pure path-exit linear leaks — a value owned at the end of
-/// a scope, and owned across an early `return` — on an otherwise-clean
-/// program, where the IR flow analysis runs. (In `l6_linear_obligations` the
-/// surrounding structural violations suppress it.)
+/// [ir-analyze] The path-dependent linear rules — a value owned at the end of
+/// a scope, owned across an early `return`, consumed on some paths but not
+/// others, overwritten while it still owes — on an otherwise-clean program,
+/// where the IR analysis runs (R8 piece 7: the last two were the checker's).
+/// (In `l6_linear_obligations` the surrounding structural violations
+/// suppress them.)
 #[test]
 fn l6_path_exit_leaks() {
     let dir = src_dir("l6_path_exit");
@@ -1619,6 +1610,19 @@ fn return_while_owing(flag: Bool) -> Int {
     close_file(h)
     return 1
 }
+
+fn maybe_leak(flag: Bool) {
+    let h = open_file(\"data.txt\")
+    if flag {
+        close_file(h)
+    }
+}
+
+fn overwrite() {
+    let h = open_file(\"a.txt\")
+    h = open_file(\"b.txt\")
+    close_file(h)
+}
 ",
     )
     .unwrap();
@@ -1628,6 +1632,17 @@ fn return_while_owing(flag: Bool) -> Int {
     // Both leaks, in the uniform IR wording.
     let leaks = stderr.matches("`h` still owns a linear value when the path leaves").count();
     assert!(leaks >= 2, "expected both path-exit leaks, stderr: {stderr}");
+    // [linear-obligation] The join and the assignment, at the `if` and the
+    // assignment statement.
+    assert!(
+        stderr.contains("`h` owns a linear value that is consumed on some paths but not others; discharge or move it on every path --> main.sv:27:5"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("assigning to `h` drops the linear value it still owns; move it onward or `discard(h)` first --> main.sv:34:5"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("4 errors"), "stderr: {stderr}");
 }
 
 // [linear-generics] Generic instantiation with a linear type is refused

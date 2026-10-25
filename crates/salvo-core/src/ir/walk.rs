@@ -78,8 +78,8 @@ fn stmt(s: &mut Stmt, f: &mut impl FnMut(&mut Expr)) {
             place(p, f);
             expr(value, f);
         }
-        Stmt::Expr(e) | Stmt::Return(Some(e)) => expr(e, f),
-        Stmt::Return(None) | Stmt::Break | Stmt::Continue => {}
+        Stmt::Expr(e) | Stmt::Return(Some(e), _) => expr(e, f),
+        Stmt::Return(None, _) | Stmt::Break | Stmt::Continue => {}
         Stmt::Obligation(o) => {
             for r in &mut o.refs {
                 place(&mut r.place, f);

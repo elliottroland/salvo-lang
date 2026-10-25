@@ -1223,8 +1223,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let code = self.expr(e, indent);
                 self.out.push_str(&format!("{pad}{code}\n"));
             }
-            Stmt::Return(None) => self.out.push_str(&format!("{pad}return\n")),
-            Stmt::Return(Some(e)) => {
+            Stmt::Return(None, _) => self.out.push_str(&format!("{pad}return\n")),
+            Stmt::Return(Some(e), _) => {
                 let code = self.expr(e, indent);
                 // [kt-none-unit] a `None`-returning fn returns bare.
                 if self.ret_is_unit && !matches!(e.kind, ExprKind::Unit) {
@@ -2520,7 +2520,7 @@ fn assigned_locals(b: &Block) -> HashSet<Local> {
                     out.insert(place.root.clone());
                     expr(value, out);
                 }
-                Stmt::Let { value, .. } | Stmt::Expr(value) | Stmt::Return(Some(value)) => expr(value, out),
+                Stmt::Let { value, .. } | Stmt::Expr(value) | Stmt::Return(Some(value), _) => expr(value, out),
                 Stmt::Loop { body, .. } => block(body, out),
                 Stmt::ForEach { body, .. } => block(body, out),
                 _ => {}

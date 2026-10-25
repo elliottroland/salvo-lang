@@ -602,20 +602,24 @@ fn a_linear_union_arm_settles_by_narrowing() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
+/// The `Ok` arm keeps the handle, the `Err` arm owes nothing: settled on one
+/// path only, which the IR ledger reports at the `when` (the program is
+/// otherwise clean, so the IR analysis runs) [linear-obligation].
 #[test]
 fn an_unclosed_linear_arm_still_leaks() {
     let errs = errors(&format!(
         "{LINES}{FALLIBLE}\n\
-         fn leak(flag: Bool, n: Str) -> None {{\n    \
+         fn leak(flag: Bool, n: Str) -> None\n=> !n {{\n    \
          let r = open(flag, n)\n    \
          when r {{\n        \
          is Ok {{ }}\n        \
          is Err {{ }}\n    \
          }}\n}}\n"
     ));
-    assert!(
-        errs.iter().any(|e| e.contains("linear")),
-        "expected a leak error, got {errs:?}"
+    assert_eq!(
+        errs,
+        vec!["`r` owns a linear value that is consumed on some paths but not others; discharge or move it on every path".to_string()],
+        "expected the some-paths error"
     );
 }
 

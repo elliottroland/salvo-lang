@@ -2303,11 +2303,6 @@ struct LocalVar {
     /// restored and joined), so the read types like the ownership-blind
     /// walk's. Meaningless while the value is live.
     consumed_ty: Option<Ty>,
-    /// [linear-union-arm] The obligation of a linear-union value was
-    /// discharged by narrowing to a non-linear arm on every path
-    /// reaching here (set per-branch by `with_narrows`, joined by
-    /// `merge_fallthrough`).
-    linear_settled: bool,
     /// Whether this variable is a parameter (or handler state field) of
     /// the enclosing fn: a parameter root is *owned* for move-mode
     /// bindings only when the fn's effective contract moves it
@@ -2348,14 +2343,6 @@ struct LocalVar {
     /// not a read: `let x = 1` followed only by `x = 2` never uses the
     /// value. Checked when the scope closes; a `_` prefix opts out.
     used: bool,
-    /// [fate-partial-move] Projections that have been **moved out** of
-    /// this variable. The variable stays usable. A read overlapping a moved
-    /// one (or of the whole value) is the IR flow pass's error
-    /// [flow-use-after-move], not the checker's; the record is read by the
-    /// linear decomposition rule and `check_state_whole`. Union-merged
-    /// across branches (moved on any path is moved), cleared per place by
-    /// reassignment.
-    moved_places: Vec<MovedPlace>,
     /// [fate-move-mode] The assignments of this path (place, `bind_seq`
     /// then), for `take_ownership_at_use`.
     assigned: AssignLog,
@@ -2371,17 +2358,6 @@ struct PlaceNarrow {
     path: Vec<Step>,
     narrowed: Ty,
     declared: Ty,
-}
-
-/// [fate-partial-move] One projection that has been **moved out** of a
-/// variable: the path out of the root. The root itself stays usable. A read
-/// overlapping it (or of the whole value) is the IR flow pass's error
-/// [flow-use-after-move] since R8 piece 3b; the checker keeps the record for
-/// what still reads it — a linear container settled by decomposition
-/// [linear-container] and a state field left with a hole [linear-state].
-#[derive(Clone, Debug, PartialEq)]
-struct MovedPlace {
-    path: Vec<Step>,
 }
 
 /// One fate link [fate-link]: the derived variable was bound from (a
@@ -2514,16 +2490,9 @@ impl PartialEq for AssignLog {
 #[derive(Clone, PartialEq)]
 struct VarState {
     narrowed: Ty,
-    /// [linear-union-arm] The path narrowed a linear union to a
-    /// non-linear arm, discharging the obligation — a flow fact, like
-    /// consumption, surviving the branch's narrow-restore.
-    linear_settled: bool,
     links: Vec<FateLink>,
     consumed_ty: Option<Ty>,
     place_narrows: Vec<PlaceNarrow>,
-    /// [fate-partial-move] Moved-out projections, union-merged across
-    /// branches: the dual of `place_narrows`, which intersects.
-    moved_places: Vec<MovedPlace>,
     assigned: AssignLog,
 }
 
@@ -2688,11 +2657,6 @@ struct Checker<'p, 'r> {
     /// from this id on were made after the binding, so it poisons none of
     /// them (`take_ownership_at_use`).
     poison_floor: Option<u32>,
-    /// [linear-obligation] "assigning drops the linear value" errors raised
-    /// while a binding that may still take ownership of the value was
-    /// undecided (span, message, the bindings): the binding taking ownership
-    /// had consumed it, so the error goes when one is decided.
-    pending_drops: Vec<(Span, String, Vec<Span>)>,
     /// Whether the binding `apply_binding_mode` last judged may take
     /// ownership, for `record_fate_bind` to log.
     bind_eligible: bool,
@@ -3109,7 +3073,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             bind_seq: 0,
             decided: HashSet::new(),
             poison_floor: None,
-            pending_drops: Vec::new(),
             bind_eligible: false,
             fate_log: HashMap::new(),
             parking_handlers,
@@ -8669,7 +8632,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     id,
                     links: Vec::new(),
                     consumed_ty: None,
-                    linear_settled: false,
                     is_param: true,
                     for_origin: None,
                     decl_span: p.name.span,
@@ -8677,7 +8639,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     is_handler_state: false,
                     widened: None,
                     place_narrows: Vec::new(),
-                    moved_places: Vec::new(),
                     assigned: AssignLog::default(),
                     used: true,
                 },
@@ -9243,7 +9204,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     id,
                     links: Vec::new(),
                     consumed_ty: None,
-                linear_settled: false,
                     is_param: true,
                     for_origin: None,
                     decl_span: p.name.span,
@@ -9251,7 +9211,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     is_handler_state: false,
                     widened: None,
                     place_narrows: Vec::new(),
-                    moved_places: Vec::new(),
                     assigned: AssignLog::default(),
                     used: false,
                 },
@@ -9274,7 +9233,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     id,
                     links: Vec::new(),
                     consumed_ty: None,
-                linear_settled: false,
                     is_param: true,
                     for_origin: None,
                     decl_span: imp.span,
@@ -9282,7 +9240,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     is_handler_state: false,
                     widened: None,
                     place_narrows: Vec::new(),
-                    moved_places: Vec::new(),
                     assigned: AssignLog::default(),
                     used: false,
                 },
@@ -9322,7 +9279,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     id,
                     links: Vec::new(),
                     consumed_ty: None,
-                linear_settled: false,
                     is_param: true,
                     for_origin: None,
                     decl_span: field.name.span,
@@ -9330,7 +9286,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     is_handler_state: true,
                     widened: None,
                     place_narrows: Vec::new(),
-                    moved_places: Vec::new(),
                     assigned: AssignLog::default(),
                     used: false,
                 },
@@ -9384,9 +9339,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // or the narrowing would be a lie (2026-09-25).
         self.check_declared_mut_fields(f);
         self.own_mut_paths = saved_mut_paths;
-        // [linear-state] A handler member must leave its state whole. (The
-        // linear-obligation leak check moved to the IR analysis [ir-analyze].)
-        self.check_state_whole(f.name.span, "end this member");
+        // [linear-state] A handler member must leave its state whole, and a
+        // linear obligation must not leak: both are the IR's (`ir::flow`,
+        // `ir::check`) [ir-analyze].
         self.locals.pop();
         // [fn-must-return] A fn with a non-`None` return type must return
         // on every path. Yield-based iterator fns are exempt: their body
@@ -9737,7 +9692,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                             id,
                             links: Vec::new(),
                             consumed_ty: None,
-                            linear_settled: false,
                             is_param: true,
                             for_origin: None,
                             decl_span: p.name.span,
@@ -9745,7 +9699,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                             is_handler_state: false,
                             widened: None,
                             place_narrows: Vec::new(),
-                            moved_places: Vec::new(),
                             assigned: AssignLog::default(),
                             used: true,
                         },
@@ -11319,7 +11272,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 id,
                 links,
                 consumed_ty: None,
-                linear_settled: false,
                 is_param,
                 for_origin,
                 decl_span: name.span,
@@ -11327,7 +11279,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 is_handler_state: false,
                 widened: None,
                 place_narrows: Vec::new(),
-                moved_places: Vec::new(),
                 assigned: AssignLog::default(),
                 used: false,
             },
@@ -11623,28 +11574,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         links
     }
 
-
-    /// [fate-partial-move] Assigning a place makes it whole again: drops
-    /// every moved-out record the assigned place *covers* (itself and
-    /// anything under it). Assigning the whole variable (`[]`) covers
-    /// everything, which is why plain reassignment revives a partially
-    /// moved value completely.
-    fn revive_moved_places(&mut self, place: &Place) {
-        let path = place.path.clone();
-        if let Some(var) = self.lookup_mut(&place.root) {
-            var.moved_places.retain(|m| {
-                let assigned = Place {
-                    root: String::new(),
-                    path: path.clone(),
-                };
-                let moved = Place {
-                    root: String::new(),
-                    path: m.path.clone(),
-                };
-                !assigned.is_prefix_of(&moved)
-            });
-        }
-    }
 
     /// [interp-to-str] Whether a type renders natively in an interpolation on
     /// *both* backends: the scalars and `Str`. Rust formats these with
@@ -12407,16 +12336,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             let file_idx = self.file_idx;
             let mut loop_origin = None;
             // [fate-partial-move] A binding that takes ownership of a
-            // *projection* leaves the rest of the root readable: record
-            // what left rather than consuming the whole variable.
+            // *projection* leaves the rest of the root readable (the IR flow
+            // pass records what left) rather than consuming the variable.
             let partial = l.path.as_deref().is_some_and(|p| !p.is_empty());
             if partial {
-                let path = l.path.clone().unwrap_or_default();
                 if let Some(var) = self.var_by_id_mut(l.root_id) {
                     loop_origin = var.for_origin;
-                    if !var.moved_places.iter().any(|m| m.path == path) {
-                        var.moved_places.push(MovedPlace { path });
-                    }
                 }
                 if let Some(origin) = loop_origin {
                     self.out.binding_modes.insert((file_idx, origin));
@@ -12470,18 +12395,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .filter(|l| !self.assigned_since(l.root_id, l.path.as_deref(), rec.seq))
                 .cloned()
                 .collect();
-            let dropped: Vec<(Span, String)> = self
-                .pending_drops
-                .iter()
-                .filter(|(_, _, binds)| binds.contains(&bind_span))
-                .map(|(span, msg, _)| (*span, msg.clone()))
-                .collect();
-            if !dropped.is_empty() {
-                self.pending_drops.retain(|(_, _, binds)| !binds.contains(&bind_span));
-                self.out
-                    .errors
-                    .retain(|e| !(e.file == file_idx && dropped.iter().any(|(s, m)| *s == e.span && *m == e.message)));
-            }
             let inherited: HashSet<(u32, Span)> = rec.links.iter().map(|l| (l.root_id, l.bind_span)).collect();
             for frame in &mut self.locals {
                 for var in frame.values_mut() {
@@ -12566,28 +12479,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.restore_narrows(&current);
         Some(out)
-    }
-
-    /// [fate-move-mode] The bindings, still undecided, that may take
-    /// ownership of the whole of `name`'s value: those of the live variables
-    /// linked to it.
-    fn undecided_binds_of(&self, name: &str) -> Vec<Span> {
-        let Some(root) = self.lookup(name).map(|v| v.id) else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        for frame in &self.locals {
-            for var in frame.values() {
-                for l in &var.links {
-                    let whole = l.path.as_deref().is_none_or(|p| p.is_empty());
-                    let eligible = self.bind_log.get(&l.bind_span).is_some_and(|recs| recs.iter().any(|r| r.eligible && r.var_id == var.id));
-                    if l.root_id == root && whole && eligible && !self.decided.contains(&l.bind_span) && !out.contains(&l.bind_span) {
-                        out.push(l.bind_span);
-                    }
-                }
-            }
-        }
-        out
     }
 
     /// [fate-poison] Records a binding's fate links for the IR flow pass,
@@ -13353,19 +13244,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             let file_idx = self.file_idx;
             let mut loop_origin = None;
             // [fate-partial-move] A *proper* projection leaves the root
-            // usable: record what left (the IR flow pass reports a read
-            // overlapping it, from the consuming projection read
-            // `moved_projections` makes). Only a whole-value move (or a
-            // derivation the analysis could not place) consumes the
-            // variable outright.
+            // usable (the IR flow pass records what left, from the consuming
+            // projection read `moved_projections` makes, and reports a read
+            // overlapping it). Only a whole-value move (or a derivation the
+            // analysis could not place) consumes the variable outright.
             let partial = l.path.as_deref().is_some_and(|p| !p.is_empty());
             if partial {
-                let path = l.path.clone().unwrap_or_default();
                 if let Some(var) = self.var_by_id_mut(l.root_id) {
                     loop_origin = var.for_origin;
-                    if !var.moved_places.iter().any(|m| m.path == path) {
-                        var.moved_places.push(MovedPlace { path });
-                    }
                 }
                 // Moving data out of a `for`-loop binding means the loop
                 // iterates by value [fate-move-mode].
@@ -14317,47 +14203,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         })
     }
 
-    /// [linear-group] The fields through which linearity reaches a value of
-    /// `ty`: each field whose type, under this instantiation, is itself
-    /// linear. Empty for a linear *leaf* (`linear struct FileHandle { fd:
-    /// Int }`) — its obligation is its own, not its fields'.
-    fn linear_fields_of(&self, ty: &Ty) -> Vec<String> {
-        let Ty::Named { name, args } = ty.strip_quals() else {
-            return Vec::new();
-        };
-        let Some(s) = self.symbols.structs.get(name.as_str()) else {
-            return Vec::new();
-        };
-        let subst: HashMap<String, Ty> = s
-            .generics
-            .iter()
-            .map(|g| g.name.clone())
-            .zip(args.iter().cloned())
-            .collect();
-        s.fields
-            .iter()
-            .filter(|f| {
-                // The field's type under the instantiation: a generic
-                // field substitutes; a concrete one stands as declared.
-                // [state-infer] An inferred field (iterator-struct state) has
-                // no written type and is never linear.
-                let Some(written) = &f.ty else { return false };
-                let field_linear = match written {
-                    ast::Type::Named { base, .. }
-                        if base.args.is_empty() && subst.contains_key(&base.name.name) =>
-                    {
-                        subst
-                            .get(&base.name.name)
-                            .is_some_and(|t| self.ty_own_linear(t))
-                    }
-                    other => self.ast_type_own_linear(other).is_some(),
-                };
-                field_linear
-            })
-            .map(|f| f.name.name.clone())
-            .collect()
-    }
-
     /// [linear-group] The **discharge set** of a linear type: every fn
     /// declared in the *same file* as the type whose effective contract
     /// consumes a parameter of it — **plus every consuming member of an
@@ -14822,7 +14667,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // obligation is the union's and narrowing settles it —
             // `Ok InputStream | Err Str` is exactly the fallible-open
             // shape phase 4 needs, and `T?` follows. The value-level
-            // rules live in `owes_linear`; nothing to refuse here.
+            // rules are the IR's ledger (`ir::check`); nothing to refuse here.
             ast::Type::Union { .. } | ast::Type::Nullable { .. } => {}
             ast::Type::QualifiedGroup { .. } | ast::Type::Fn { .. } => {}
             ast::Type::Spread { .. } => {}
@@ -14835,116 +14680,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 span,
                 format!("`{linear}` is linear, so it cannot go here: {reason}"),
             );
-        }
-    }
-
-    /// Whether a variable currently *owns* a live linear obligation
-    /// [linear-obligation]: its declared type is linear, it holds a live
-    /// value (not consumed), it is not an alias (derived variables carry
-    /// no obligation), and — for parameters — the fn's effective
-    /// contract moves it (a kept parameter leaves the obligation with
-    /// the caller). Only checked once inferred contracts exist (round
-    /// two onwards).
-    fn owes_linear(&self, name: &str, var: &LocalVar) -> bool {
-        if !var.links.is_empty() || matches!(var.narrowed, Ty::Never) {
-            return false;
-        }
-        if var.is_param && !self.param_owned(name) {
-            return false;
-        }
-        // [linear-union-arm] O-C2 (user decision 2026-09-12): a union value
-        // *is* the value — one handle, not a box holding one — so a written
-        // linear arm makes the un-narrowed union owe, and **narrowing
-        // decides**: narrowed to the linear arm, the value owes as that
-        // arm; narrowed to a non-linear arm, the obligation is discharged —
-        // an `Err Str` never held the handle. `T?` falls out (`None` owes
-        // nothing). The settling is a flow fact (`linear_settled`) so it
-        // survives the branch narrow-restore, and the live narrowed type
-        // covers the within-branch case.
-        if var.linear_settled {
-            return false;
-        }
-        // [linear-group] [linear-generics] **Decomposition settles a
-        // container** (user decision 2026-09-12): when every field through
-        // which linearity reaches this value has been moved out — `return
-        // box.item` in `unbox`, `end(t.source)` in a wrapper's close —
-        // nothing inside owes any more, and the shell dies freely. Only
-        // containers qualify: a linear *leaf* (no linear fields) owes as
-        // itself and settles only by discharge.
-        {
-            let ty = if matches!(var.narrowed, Ty::Unknown) {
-                &var.declared
-            } else {
-                &var.narrowed
-            };
-            let lf = self.linear_fields_of(ty);
-            if !lf.is_empty()
-                && lf.iter().all(|f| {
-                    var.moved_places
-                        .iter()
-                        .any(|m| matches!(m.path.first(), Some(crate::place::Step::Field(n)) if n == f))
-                })
-            {
-                return false;
-            }
-        }
-        if !matches!(var.narrowed, Ty::Unknown) {
-            return self.ty_own_linear(&var.narrowed);
-        }
-        self.ty_own_linear(&var.declared)
-    }
-
-    /// [linear-state] LC-4's second half (user decision 2026-09-15): an
-    /// activation must leave **every state field whole**. Taking an
-    /// obligation out of handler state is legal — draining a queue of parked
-    /// tokens is the point — but a member that returns with a field moved out
-    /// has left a hole a later activation would read, and no analysis can see
-    /// what the actor holds at an arbitrary future point. So the rule is
-    /// per activation, exactly as it is for a `Mut` parameter: put something
-    /// back (`waiting = Mut List()`), or do not move.
-    ///
-    /// Called at every exit from a member body, beside the linear-leak checks
-    /// it complements: that one asks whether a *value* still owes, this one
-    /// whether the *storage* is intact.
-    fn check_state_whole(&mut self, span: Span, what: &str) {
-        if self.own_handler.is_none() {
-            return;
-        }
-        let holes: Vec<String> = self
-            .locals
-            .iter()
-            .flat_map(|frame| {
-                frame
-                    .iter()
-                    .filter(|(_, var)| {
-                        var.is_handler_state
-                            // Only obligation-holding state: a `Copy` scalar
-                            // field is "moved" by every read that hands it
-                            // over, and copying it leaves no hole at all —
-                            // which is why [effect-state-store] exempts it.
-                            && self.ty_own_linear(&var.declared)
-                            && (matches!(var.narrowed, Ty::Never) || !var.moved_places.is_empty())
-                    })
-                    .map(|(name, _)| name.clone())
-            })
-            .collect();
-        for name in holes {
-            self.error(
-                span,
-                format!(
-                    "cannot {what}: the state field `{name}` was moved out of and \
-                     nothing was put back, so this activation would leave the \
-                     handler with a hole — assign it a value first (`{name} = …`), \
-                     since the obligations an actor holds must survive between \
-                     activations"
-                ),
-            );
-            if let Some(var) = self.lookup_mut(&name) {
-                // Reported once: treat it as whole again so an enclosing exit
-                // does not repeat it.
-                var.narrowed = Ty::Unknown;
-                var.moved_places.clear();
-            }
         }
     }
 
@@ -18162,21 +17897,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut saved_views: Vec<(String, Option<Ty>)> = Vec::new();
         for n in narrows {
             if n.place.is_root() {
-                // [linear-union-arm] Narrowing a linear union to a
-                // non-linear arm discharges the obligation: an `Err Str`
-                // never held the handle. A flow fact — it survives the
-                // restore below, and the branch join settles the variable
-                // only when every path did this (or consumed the value).
-                let settles = !self.ty_own_linear(&n.narrowed)
-                    && self
-                        .lookup(&n.place.root)
-                        .is_some_and(|v| self.ty_own_linear(&v.narrowed));
                 if let Some(var) = self.lookup_mut(&n.place.root) {
                     saved.push((n.place.root.clone(), var.narrowed.clone(), var.consumed_ty.clone()));
                     var.narrowed = n.narrowed.clone();
-                    if settles {
-                        var.linear_settled = true;
-                    }
                     if n.declared != var.declared {
                         saved_views.push((n.place.root.clone(), var.widened.clone()));
                         var.widened = Some(n.declared.clone());
@@ -18263,11 +17986,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                             name.clone(),
                             VarState {
                                 narrowed: var.narrowed.clone(),
-                                linear_settled: var.linear_settled,
                                 links: var.links.clone(),
                                 consumed_ty: var.consumed_ty.clone(),
                                 place_narrows: var.place_narrows.clone(),
-                                moved_places: var.moved_places.clone(),
                                 assigned: var.assigned.clone(),
                             },
                         )
@@ -18282,15 +18003,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             for (name, state) in saved {
                 if let Some(var) = frame.get_mut(name) {
                     var.narrowed = state.narrowed.clone();
-                    var.linear_settled = state.linear_settled;
                     var.links = state.links.clone();
                     var.consumed_ty = state.consumed_ty.clone();
                     var.place_narrows = state.place_narrows.clone();
-                    // [fate-partial-move] Restored like every other flow
-                    // fact: this resets to the *entry* state before the
-                    // next branch is checked, and the branches' exit
-                    // states are union-merged in `merge_fallthrough`.
-                    var.moved_places = state.moved_places.clone();
                     var.assigned = state.assigned.clone();
                 }
             }
@@ -18342,13 +18057,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// list (every branch exits) leaves the pre-branch state untouched —
     /// the consumption happened on paths that never reach the code after
     /// the construct.
-    fn merge_fallthrough(&mut self, fallthrough: &[NarrowSnapshot], span: Span) {
+    fn merge_fallthrough(&mut self, fallthrough: &[NarrowSnapshot]) {
         if fallthrough.is_empty() {
             return;
         }
         let normalized = self.take_ownership_on_paths(fallthrough);
         let fallthrough: &[NarrowSnapshot] = normalized.as_deref().unwrap_or(fallthrough);
-        let mut linear_conflicts: Vec<String> = Vec::new();
         for (frame_idx, frame_snap) in fallthrough[0].iter().enumerate() {
             for name in frame_snap.keys() {
                 let states: Vec<&VarState> = fallthrough
@@ -18359,41 +18073,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue;
                 }
                 let narrowed_states: Vec<&Ty> = states.iter().map(|s| &s.narrowed).collect();
-                // [linear-obligation] The linear rule is the dual of
-                // maybe-moved: an owned linear value consumed on *some*
-                // fall-through paths but not all is dropped on the
-                // remaining ones. [linear-union-arm] A path that narrowed
-                // the value to a **non-linear arm** owes nothing there —
-                // an `Err Str` never held the handle — so it counts as
-                // settled, exactly like a consuming path.
-                let all_settled;
-                {
-                    let settled = states
-                        .iter()
-                        .filter(|s| {
-                            matches!(s.narrowed, Ty::Never)
-                                || s.linear_settled
-                                || !self.ty_own_linear(&s.narrowed)
-                        })
-                        .count();
-                    all_settled = settled == states.len();
-                    if settled > 0 && settled < states.len() {
-                        let owes = self
-                            .locals
-                            .get(frame_idx)
-                            .and_then(|f| f.get(name))
-                            .is_some_and(|var| {
-                                // Live-ness differs per path; check the
-                                // rest of the ownership conditions.
-                                var.links.is_empty()
-                                    && (!var.is_param || self.param_owned(name))
-                                    && { self.ty_own_linear(&var.declared) }
-                            });
-                        if owes {
-                            linear_conflicts.push(name.clone());
-                        }
-                    }
-                }
+                // [linear-obligation] A value consumed on some fall-through
+                // paths but not all is the IR ledger's (`ir::check`).
                 let joined = join_narrowed(&narrowed_states);
                 // [flow-use-after-move] What a read of a consumed value
                 // answers joins the way the paths' types would.
@@ -18435,19 +18116,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .cloned()
                         .collect()
                 };
-                // [fate-partial-move] Moved places **union** across the
-                // join — the dual of `place_narrows`, and the same
-                // direction as consumption: moved on any path is moved,
-                // because the paths the compiler cannot distinguish must
-                // all be safe.
-                let mut moved_places: Vec<MovedPlace> = Vec::new();
-                for s in &states {
-                    for m in &s.moved_places {
-                        if !moved_places.iter().any(|e| e.path == m.path) {
-                            moved_places.push(m.clone());
-                        }
-                    }
-                }
                 let mut assigned = AssignLog::default();
                 for s in &states {
                     for a in &s.assigned.0 {
@@ -18459,29 +18127,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(var) = self.locals.get_mut(frame_idx).and_then(|f| f.get_mut(name)) {
                     var.narrowed = joined;
                     var.assigned = assigned;
-                    // [linear-union-arm] Settled on every path means the
-                    // obligation is gone after the join, whatever the
-                    // joined type says.
-                    if all_settled && states.iter().any(|s| s.linear_settled) {
-                        var.linear_settled = true;
-                    }
                     var.links = links;
                     var.consumed_ty = consumed_ty;
                     var.place_narrows = place_narrows;
-                    var.moved_places = moved_places;
                 }
             }
-        }
-        linear_conflicts.sort();
-        linear_conflicts.dedup();
-        for name in linear_conflicts {
-            self.error(
-                span,
-                format!(
-                    "`{name}` owns a linear value that is consumed on some \
-                     paths but not others; discharge or move it on every path"
-                ),
-            );
         }
     }
 
@@ -23812,7 +23462,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                             if let Some(var) = self.lookup_mut(&place.root) {
                                 var.assigned.0.push((Some(place.path.clone()), seq));
                             }
-                            self.revive_moved_places(&place);
                         }
                         ty
                         }
@@ -23852,25 +23501,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // [param-const] A parameter is a constant binding.
                     self.reject_param_assignment(&id.name, id.span, "assign to");
                     // [linear-obligation] Overwriting a variable that
-                    // still owns a linear value drops it.
-                    let owes = self
-                        .lookup(&id.name)
-                        .is_some_and(|var| self.owes_linear(&id.name, var));
-                    if owes {
-                        let message = format!(
-                            "assigning to `{}` drops the linear value it \
-                             still owns; move it onward or `discard({})` \
-                             first",
-                            id.name, id.name
-                        );
-                        // [fate-move-mode] Unless a binding of the value,
-                        // still undecided, takes ownership of it.
-                        let binds = self.undecided_binds_of(&id.name);
-                        if !binds.is_empty() {
-                            self.pending_drops.push((*span, message.clone(), binds));
-                        }
-                        self.error(*span, message);
-                    }
+                    // still owns a linear value drops it: the IR's ledger
+                    // reports it (`ir::check`; a state field, `ir::flow`).
                     let seq = self.bind_seq;
                     if let Some(var) = self.lookup_mut(&id.name) {
                         var.assigned.0.push((Some(Vec::new()), seq));
@@ -23939,9 +23571,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // The old value is gone: every fact about its
                         // parts falls with it [flow-place-invalidate].
                         var.place_narrows.clear();
-                        // [fate-partial-move] And the new value is whole,
-                        // so a partially moved variable revives completely.
-                        var.moved_places.clear();
                     }
                 }
                 Ty::none()
@@ -24262,8 +23891,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [linear-state] LC-4 (user decision 2026-09-15): a **state field**
         // holding an obligation may be moved out of — that is how a queue of
         // parked tokens is drained — provided the activation puts something
-        // back before it returns (`check_state_whole`, at every exit). The
-        // actor owns the obligation across activations; what is forbidden is
+        // back before it returns (the IR flow pass checks every exit,
+        // `ir::flow`). The actor owns the obligation across activations;
+        // what is forbidden is
         // leaving a hole in state a later activation would read. A
         // *constructor parameter* stays refused: it is the handler's own
         // record of how it was built, and nothing can restore it.
@@ -25015,7 +24645,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ..
             } => {
                 let saved = std::mem::replace(&mut self.value_expected, expected.cloned());
-                let t = self.check_if(branches, else_block.as_ref(), expr.span());
+                let t = self.check_if(branches, else_block.as_ref());
                 self.value_expected = saved;
                 t
             }
@@ -25037,10 +24667,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::WhenCond {
                 branches,
                 else_block,
-                span,
+                ..
             } => {
                 let saved = std::mem::replace(&mut self.value_expected, expected.cloned());
-                let t = self.check_if(branches, Some(else_block), *span);
+                let t = self.check_if(branches, Some(else_block));
                 self.value_expected = saved;
                 t
             }
@@ -25252,10 +24882,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                             self.fate_move(v, "return", *span);
                         }
                         // [ir-analyze] The linear-obligation leak check at a
-                        // return moved to the IR analysis.
-                        // [linear-state] …and no state field may be left
-                        // with a hole in it.
-                        self.check_state_whole(*span, "return");
+                        // return, and [linear-state] the state-whole check,
+                        // are the IR's.
                     }
                     None => {
                         if !expected.is_none_ty() && !expected.is_unknown() {
@@ -25264,8 +24892,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 format!("bare `return` in a function returning `{expected}`"),
                             );
                         }
-                        // [linear-state]
-                        self.check_state_whole(*span, "return");
                     }
                 }
                 Ty::Never
@@ -25600,7 +25226,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !break_states.is_empty() {
                     let mut states = vec![self.snapshot_narrows()];
                     states.extend(break_states);
-                    self.merge_fallthrough(&states, expr.span());
+                    self.merge_fallthrough(&states);
                 }
                 // `else` runs only when the loop never ran, i.e. the
                 // condition failed on first evaluation: else-narrows apply.
@@ -25822,7 +25448,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !break_states.is_empty() {
                     let mut states = vec![self.snapshot_narrows()];
                     states.extend(break_states);
-                    self.merge_fallthrough(&states, expr.span());
+                    self.merge_fallthrough(&states);
                 }
                 let (else_ty, else_tail) = match else_block {
                     Some(b) => {
@@ -28352,7 +27978,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         branches: &'p [(Expr, Block)],
         else_block: Option<&'p Block>,
-        span: Span,
     ) -> Ty {
         let mut acc_else: Vec<Narrow> = Vec::new();
         let mut branch_tys = Vec::new();
@@ -28403,37 +28028,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             None => {
                 // No `else`: the no-branch-taken path falls through with
-                // the current state. [linear-union-arm] With one linear
-                // exception: on this path every condition was false, so
-                // the else-narrows hold — and an else-narrow that lands a
-                // linear union on a non-linear arm (`if h is InputStream s
-                // { close(s) }`: here `h` is `None`) discharges the
-                // obligation on this path, exactly as the then-narrow
-                // does inside the branch. Only the settling is applied;
-                // the general narrowing stays out of the join as before.
-                let mut snap = self.snapshot_narrows();
-                for n in &acc_else {
-                    if !n.place.is_root() || self.ty_own_linear(&n.narrowed) {
-                        continue;
-                    }
-                    let owed = self
-                        .lookup(&n.place.root)
-                        .is_some_and(|v| self.ty_own_linear(&v.narrowed));
-                    if !owed {
-                        continue;
-                    }
-                    for frame in snap.iter_mut() {
-                        if let Some(state) = frame.get_mut(&n.place.root) {
-                            state.linear_settled = true;
-                        }
-                    }
-                }
-                fallthrough.push(snap);
+                // the current state. (What its else-narrows settle of a
+                // linear union [linear-union-arm] is the IR ledger's.)
+                fallthrough.push(self.snapshot_narrows());
                 branch_tys.push(Ty::none());
                 tails.push(None);
             }
         }
-        self.merge_fallthrough(&fallthrough, span);
+        self.merge_fallthrough(&fallthrough);
         // [is-narrow-guard] The guard idiom: every branch leaves the block
         // (`if e is None { return … }`), so whatever follows the `if` is on
         // the else-path and every condition's else-narrows hold there.
@@ -28682,21 +28284,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             tails.push(tail);
             remaining.retain(|arm| !matched.contains(arm));
         }
-        self.merge_fallthrough(&fallthrough, span);
-        // [linear-obligation] Every arm left (each `return`/`break`/diverging
-        // call checked the obligations live at it), so the code after this
-        // `when` is unreachable and nothing there owes — the end-of-frame check
-        // must not report the subject a branch consumed. `if`'s guard idiom
-        // reaches the same state through its else-narrows; a `when` has none,
-        // so it says so directly (found 2026-09-29: `when o { is Ok { return
-        // close(o) } is Err { return … } }` reported `o` as leaked).
-        if remaining.is_empty() && !branches.is_empty() && fallthrough.is_empty() {
-            for frame in self.locals.iter_mut() {
-                for var in frame.values_mut() {
-                    var.linear_settled = true;
-                }
-            }
-        }
+        self.merge_fallthrough(&fallthrough);
         if !unresolved_check {
             // [lsp-completion] The arms left to write, before the runtime-arm
             // rewrite collapses literals: spelled as the check would be.

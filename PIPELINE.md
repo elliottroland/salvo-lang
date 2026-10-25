@@ -1253,3 +1253,74 @@ log current so the work can resume after a context reset). Newest last.
     (`fate_binds` computed there), after which the checker's own
     `reset_assigned`/`check_loop_body` joins can go. Deadlock onto the IR is
     step 8's link stage now, not an R8 piece.
+- **R8 piece 7 (linearity's checker half onto the IR): done** (committed
+  "Report linear flow errors from the IR"). The checker reports no linear
+  rule that depends on paths or moves; the IR does.
+  - **The classification** (every linear diagnostic in check.rs):
+
+    | rule | kind | owner now |
+    |---|---|---|
+    | consumed on some paths but not others (`merge_fallthrough`'s linear join, `linear_settled`, the `if` skip-path and `when` all-arms-left settling) | flow | `ir::check`, at each join (`join_paths`) |
+    | assigning drops a value that still owes (`owes_linear`, `pending_drops`) | flow | `ir::check` (a state field: `ir::flow`) |
+    | decomposition settles a container (`owes_linear`'s `moved_places` test) | flow | `ir::check` (it had it: `pending_fields`) |
+    | a member leaves a state field with a hole (`check_state_whole`) | flow | `ir::flow` |
+    | path-exit leaks (scope exit, `return`, `break`/`continue`, throw) | flow | `ir::check` (since IR_CHECKER) |
+    | a linear value in statement position | typing: the expression's type alone | checker |
+    | `check_linear_field`, `check_linear_opaque`, `check_linear_components`, no discharger, instantiation ban, variadic positions, `copy`, `discard` outside a discharger, store refusals, `for` over a linear iterator, a lambda consuming or mutating a linear capture, a ctor parameter moved out of state | declaration shape / typing / static move site | checker |
+
+  - **Built:** `Stmt::Return` carries its span; `FnDecl::fate` carries the
+    written assignments' statement spans, the written loops' spans, the
+    name span and a member's obligation-holding state fields. The ledger
+    joins a loop's exits (a `for`'s top, every `break`), counts a narrowing
+    of a value as owing it at a join, discharges a failed positive arm test
+    on later arms and the `else`, gains a written assignment of an owed
+    value (the local's declared type), and gains nothing for a borrow-mode
+    binding with fate links. A test file gets the flow rules, not the
+    leaks. Gone from the checker: `owes_linear`, `check_state_whole`,
+    `linear_settled`, `pending_drops`, `undecided_binds_of`,
+    `linear_fields_of`, and `moved_places` (`MovedPlace`,
+    `revive_moved_places`), which nothing read any more.
+  - **The differential, retired:** a temporary hook in `check_program`
+    compared the checker's three diagnostics with the IR's on every
+    program the suite checks (2,465, nothing differed; only 10 had any,
+    and 2 more mixed them with other errors) and on a 71-case corpus.
+    Equal but for 8 cases where the IR is right: 3 checker false errors
+    (a consumption before a `while true`'s only `break`; decomposed on one
+    path and consumed on the other; `linear_settled` surviving a
+    reassignment), 4 checker misses the IR's leak already caught (the
+    checker's join ignored decomposition, and after it took a struct whose
+    two halves left on different paths for settled; a move-mode alias
+    consumed in one arm), and an assignment over a full state queue (the
+    checker declares a state field as a parameter, which never owes). The
+    corpus is `linear_flow_tests`, each difference noted on its case.
+  - **Found, older than this piece, fixed:** the ledger gained nothing at
+    an assignment (a reassigned linear value could leak unreported), and a
+    borrow-mode alias owed an obligation of its own (a false leak a checker
+    error had hidden).
+  - **The ownership-blind walk's false linear errors in std are gone**: it
+    reports no errors at all now (they came from the linear joins reading
+    `narrowed = Never` as settled).
+  - **Move-mode is not unblocked yet.** The checker's consumption marking
+    (`narrowed = Never`, `consumed_ty`, `poison_derived`'s marking) has
+    three readers besides move-mode (`take_ownership_at_use` undoing a
+    poison that came through links the binding drops):
+    1. `fate_mutation_kind`: a write through a `Mut` handle already
+       poisoned returns early, so the mutation is not recorded on the
+       handle's roots (`record_param_mutation`, `fate_mutations`) — a
+       contract input;
+    2. `fate_mutation_fields_preserving`: a consumed derived variable is
+       left out of `virtual_place_binds` (the Rust virtual-place rendering)
+       — an emission input;
+    3. `check_loop_body`: a loop is re-walked when the state changed, which
+       consumption and poisoning change (move-mode needs the re-walk too).
+    The read and call paths' `consumed_ty` typing and the join's dropping
+    of a consumed variable's place narrowings are neutral by the audit
+    (nothing reads a consumed value in an accepted program). So the
+    next piece first gives 1 and 2 a flow-pass answer (or proves them
+    unreachable on an accepted program), then moves move-mode into the
+    flow pass with the links, and deletes the marking with
+    `reset_assigned`/`check_loop_body`'s ownership use.
+  - **What is left of R8**: those readers, then move-mode into the IR flow
+    pass with the links (`fate_binds` computed there); lambda capture
+    moves, handler-storage moves and lends validation (static move-site
+    rules, still the checker's).
