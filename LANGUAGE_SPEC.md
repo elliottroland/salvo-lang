@@ -8183,18 +8183,19 @@ between endpoints and delivers what arrives into the scheduler.
   typing only on error paths: since R8 piece 2 a consumed value reads as the
   type it had before the move (`LocalVar::consumed_ty`), with no checker
   diagnostic — the use is the IR flow pass's [flow-use-after-move], every
-  consumed read included since R8 piece 3a; a partially moved value and a
-  poisoned one read as `Ty::Unknown` after their diagnostic, which only
-  suppresses cascades [type-unknown-lenient]. `check_program_ownership_blind` switches
+  consumed read included since R8 piece 3a and every read of a partially
+  moved value since piece 3b (a read of one types as if nothing had
+  moved); a poisoned value reads as `Ty::Unknown` after its diagnostic,
+  which only suppresses cascades [type-unknown-lenient]. `check_program_ownership_blind` switches
   those off; `ownership_never_changes_the_typing_of_an_accepted_program`
   checks every example (and std) both ways and requires identical types,
   representations, callees, coercions and union tests. (A dependent
   qualifier's roots are variable numbers, which the two walks number
   differently in std's `heap.sv`; compared by the path they name.)
 * [flow-use-after-move] **The IR's use-after-move pass** (`ir::flow`,
-  03-generate-02-flow; PIPELINE.md R8 pieces 1–3a, 2026-10-20) **is the
+  03-generate-02-flow; PIPELINE.md R8 pieces 1–3b, 2026-10-20) **is the
   only use-after-move diagnostic** — the checker reports no consumed read at
-  all: `ir::analyze` runs it per declaration
+  all, and no read of a place moved out [fate-partial-move]: `ir::analyze` runs it per declaration
   next to the linear check (`ir::check`), over the user's modules and their
   test files, so every gate reports it once the checker is clean — `salvo
   analyze` and the LSP (`analysis.rs`), compile/run/build/test
@@ -8246,17 +8247,39 @@ between endpoints and delivers what arrives into the scheduler.
     first read of the root inside the lowered projection,
     `mark_root_move`); on a `Call` of a local, a `once` fn's call [once-fn].
     It is flow-only: no emitter reads it, and `salvo ir` does not show it.
+  * **Partial moves** (R8 piece 3b) [fate-partial-move]: per path the pass
+    also keeps, per local (its storage, through whole narrowings), the
+    places moved *out of* it — a `Read { consume: true }` of a projection
+    (not `moved`), at its path in place terms ([`crate::place::Step`]: a
+    field, a tuple position, `[?]` for an index), composed through
+    narrowings of projections and, for the move, through bindings of them.
+    A read of the whole local is a use of every such place; a read of a
+    projection is a use when the place, or a shorter projection of it
+    (`n.a` of `n.a.b`, as the checker checked a field read's base), overlaps
+    one (`Place::overlaps`). Assigning a projection puts back what it covers
+    *before* the value is read (the checker's order), assigning the whole
+    local puts back everything after it, and a fresh binding starts whole;
+    a join unions the places, and the `if`/`when`/loop revivals of what an
+    arm assigns do not touch them (`reset_assigned` never did). The two
+    messages name the move's line: "`p` cannot be used as a whole here:
+    `p.tags` was moved out of it at line 3, so part of the value is gone;
+    move the remaining parts individually, or `copy` at the site that moved
+    `p.tags`", and "`p.tags` cannot be used here: `p.tags` was moved out of
+    `p` at line 3, and this reads the same data; `copy` at the site that
+    moved it to keep this readable". A wholly moved local reports the
+    consumed-read message instead.
   * **Still the checker's**: poison and BoundAway [fate-poison]
-    [fate-move-mode] (their two-site messages), and partial moves
-    [fate-partial-move] (`check_moved_place`).
-  * `tests/flow_tests.rs` pins every case's reads over a corpus (62
+    [fate-move-mode] (their two-site messages).
+  * `tests/flow_tests.rs` pins every case's reads over a corpus (95
     programs: fn values moved then called, passed or lent, `once` fns called
-    twice, in a loop, after being passed on, roots a projection took, near
-    misses), checks that the checker reports nothing on it and that the gate
-    (`ir::analyze`) reports what the pass finds, and finds nothing on any
-    example or on std. Until piece 3a it was a differential against the
-    checker's own diagnostic, switched back on for the test; that agreed on
-    the final corpus and went with the diagnostic.
+    twice, in a loop, after being passed on, roots a projection took, fields
+    moved then read whole, again, disjointly, nested, by index, after
+    reassignment, in branches and loops, near misses), checks that the
+    checker reports nothing on it and that the gate (`ir::analyze`) reports
+    what the pass finds, and finds nothing on any example or on std. Until
+    pieces 3a and 3b it was a differential against the checker's own
+    diagnostics; they agreed on the final corpus and went with them (one
+    difference, a fix: [deduce-same-call] for projections).
 * [deduce-consume] Deduction clauses are enforced flow-sensitively at call
   sites on bare identifier arguments: a callee's contract (default or written)
   decides whether the caller's argument is consumed, so `return list` in a
@@ -8347,7 +8370,9 @@ between endpoints and delivers what arrives into the scheduler.
   [flow-use-after-move]: the IR reads a call's arguments in order, and the
   move of an earlier argument (a bare variable since R8 piece 2, a fn value
   and a root a projection move took wholly since piece 3a, through the
-  `moved` flag) is in its set by the time the later one is read. The
+  `moved` flag, and a projection moved out since piece 3b —
+  `eat_two(p.tags, p.tags)`, which the checker accepted and rustc refused
+  with E0382) is in its set by the time the later one is read. The
   checker has no sibling-argument scan any more.
 
 ## Shared fate
@@ -8500,7 +8525,14 @@ between endpoints and delivers what arrives into the scheduler.
 * [fate-partial-move] **Moving one part leaves the rest** (L5's move half,
   2026-09-10). A move of a projection (a consuming call, a move-mode
   binding, a store) records the path as *moved out* of its root; the root
-  stays live, and its `moved_places` are flow state like any other:
+  stays live, and its `moved_places` are flow state like any other. Since
+  R8 piece 3b (2026-10-20) the uses below are the IR flow pass's
+  diagnostics [flow-use-after-move], built to agree with the checker's
+  former `check_moved_place`; the checker still records `moved_places`
+  (and the move: `moved_projections`, which the IR reads as a consuming
+  projection read) for what reads them — a linear container settled by
+  decomposition [linear-container] and a state field left with a hole
+  [linear-state]:
   * a read of a **disjoint** projection iterators — `eat(p.tags)` then
     `p.name` is legal;
   * a read **overlapping** a moved place is an error naming the field
@@ -8515,7 +8547,15 @@ between endpoints and delivers what arrives into the scheduler.
   * merging is **union** — moved on any path is moved — and survives loop
     back edges, so a read early in a body errors when a later statement
     moved the field in the previous iteration. (`place_narrows`, the
-    narrowing dual, intersects instead.)
+    narrowing dual, intersects instead.) Reassigning the whole variable in
+    one arm of an `if` does not put the parts back after the join when the
+    other path still has them moved;
+  * mirrored as the checker had them (R8 piece 3b findings): a read of
+    `n.a.name` after moving `n.a.tags` is refused, because the read's
+    shorter projection `n.a` overlaps (over-strict; rustc accepts it); and
+    an assignment puts its place back before its value is read, so `p.tags
+    = f(p.tags)` after moving `p.tags` is accepted and leaves `p.tags` moved
+    (unsound: rustc reports the read, E0382) — ROADMAP 0o.
   * A **kept parameter still refuses the move outright**: the caller keeps
     the value, so nothing may be taken from it. This is Rust's rule for a
     borrowed parameter (E0507), and it is why partial moves need no

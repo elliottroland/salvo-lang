@@ -1676,9 +1676,10 @@ pub fn platform_keeps_param(f: &ast::FnDecl, p: &ast::Param) -> bool {
 
 thread_local! {
     /// [ownership-audit] Set while `check_program_ownership_blind` runs: the
-    /// walk leaves a consumed value's type as it was and never reads a
-    /// partial move as `Unknown`, so its typing tables can be compared with
-    /// a normal walk's (PIPELINE.md step 7, piece 2).
+    /// walk leaves a consumed value's type as it was, so its typing tables
+    /// can be compared with a normal walk's (PIPELINE.md step 7, piece 2).
+    /// (A read of a partially moved value types as itself in every walk
+    /// since R8 piece 3b: the use is the IR flow pass's.)
     static OWNERSHIP_BLIND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
@@ -2515,10 +2516,12 @@ struct LocalVar {
     /// value. Checked when the scope closes; a `_` prefix opts out.
     used: bool,
     /// [fate-partial-move] Projections that have been **moved out** of
-    /// this variable. The variable stays usable: a read of a disjoint
-    /// projection passes, a read overlapping a moved one (or of the whole
-    /// value) is an error naming what left. Union-merged across branches
-    /// (moved on any path is moved), cleared per place by reassignment.
+    /// this variable. The variable stays usable. A read overlapping a moved
+    /// one (or of the whole value) is the IR flow pass's error
+    /// [flow-use-after-move], not the checker's; the record is read by the
+    /// linear decomposition rule and `check_state_whole`. Union-merged
+    /// across branches (moved on any path is moved), cleared per place by
+    /// reassignment.
     moved_places: Vec<MovedPlace>,
 }
 
@@ -2535,37 +2538,14 @@ struct PlaceNarrow {
 }
 
 /// [fate-partial-move] One projection that has been **moved out** of a
-/// variable: the path out of the root, and where it left. The root itself
-/// stays usable — reading a *disjoint* projection is fine, reading this one
-/// (or a place overlapping it, or the whole value) is an error.
+/// variable: the path out of the root. The root itself stays usable. A read
+/// overlapping it (or of the whole value) is the IR flow pass's error
+/// [flow-use-after-move] since R8 piece 3b; the checker keeps the record for
+/// what still reads it — a linear container settled by decomposition
+/// [linear-container] and a state field left with a hole [linear-state].
 #[derive(Clone, Debug, PartialEq)]
 struct MovedPlace {
     path: Vec<Step>,
-    span: Span,
-}
-
-impl MovedPlace {
-    /// Whether a use of `path` is blocked by this move: the two paths
-    /// overlap ([`Place::overlaps`]), so the use could read storage that
-    /// has left. A use of the *whole* variable (`[]`) is a prefix of every
-    /// moved path and so is always blocked.
-    fn blocks(&self, path: &[Step]) -> bool {
-        let as_place = |p: &[Step]| Place {
-            root: String::new(),
-            path: p.to_vec(),
-        };
-        as_place(&self.path).overlaps(&as_place(path))
-    }
-
-    /// How the moved projection reads in a diagnostic: `.tags`, or "it"
-    /// for the whole value.
-    fn describe(&self) -> String {
-        if self.path.is_empty() {
-            "it".to_string()
-        } else {
-            self.path.iter().map(|p| p.to_string()).collect()
-        }
-    }
 }
 
 /// One fate link [fate-link]: the derived variable was bound from (a
@@ -2967,15 +2947,6 @@ struct Checker<'p, 'r> {
     /// unused-variable warning there is the compiler's own business, not
     /// the user's, so std is exempt.
     is_std: bool,
-    /// [fate-partial-move] Whether the expression being checked is an
-    /// assignment *target*: writing a place puts data back, so it is not a
-    /// read of moved-out storage and must not be reported as one.
-    assign_target: bool,
-    /// [fate-partial-move] Nesting depth of *projection bases* being
-    /// checked: inside `p.name`, the `p` read is not a use of the whole
-    /// value, so the whole-value partial-move check is suppressed there
-    /// and the enclosing projection does the precise check instead.
-    projection_base: usize,
     /// Type parameters of the current fn that opted into linearity with
     /// `<T canbe linear>` [linear-generics]: `T`-typed values are treated
     /// as linear in the body, and callers may instantiate them with
@@ -3286,8 +3257,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             own_written: Vec::new(),
             lambda_ctx: Vec::new(),
             lambda_links: HashMap::new(),
-            assign_target: false,
-            projection_base: 0,
             is_std,
             own_linear_generics: HashSet::new(),
             own_derived_return: None,
@@ -11798,52 +11767,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [fate-partial-move] Reports a read of a place that overlaps
-    /// something already moved out of its root. A *disjoint* projection
-    /// passes: after `eat(p.tags)`, `p.name` is still there. The whole
-    /// value never passes — a variable missing a part cannot be handed on.
-    ///
-    /// Returns whether an error was reported, so callers can stop rather
-    /// than cascade [type-unknown-lenient].
-    fn check_moved_place(&mut self, place: &Place, span: Span) -> bool {
-        if self.assign_target || ownership_blind() {
-            return false;
-        }
-        let Some(var) = self.lookup(&place.root) else {
-            return false;
-        };
-        // A wholly consumed variable is the other machinery's business
-        // [deduce-consume]: one mistake, one diagnostic.
-        if matches!(var.narrowed, Ty::Never) {
-            return false;
-        }
-        let Some(hit) = var
-            .moved_places
-            .iter()
-            .find(|m| m.blocks(&place.path))
-            .cloned()
-        else {
-            return false;
-        };
-        let root = place.root.clone();
-        let what = hit.describe();
-        let message = if place.path.is_empty() {
-            format!(
-                "`{root}` cannot be used as a whole here: `{root}{what}` was moved \
-                 out of it, so part of the value is gone; move the remaining parts \
-                 individually, or `copy` at the site that moved `{root}{what}`"
-            )
-        } else {
-            format!(
-                "`{place}` cannot be used here: `{root}{what}` was moved out of \
-                 `{root}`, and this reads the same data; `copy` at the site that \
-                 moved it to keep this readable"
-            )
-        };
-        self.error(span, message);
-        true
-    }
-
     /// [interp-to-str] Whether a type renders natively in an interpolation on
     /// *both* backends: the scalars and `Str`. Rust formats these with
     /// `Display` and Kotlin with `toString`, and the text agrees — which is
@@ -12569,10 +12492,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     loop_origin = var.for_origin;
                     var.poison = None;
                     if !var.moved_places.iter().any(|m| m.path == path) {
-                        var.moved_places.push(MovedPlace {
-                            path,
-                            span: bind_span,
-                        });
+                        var.moved_places.push(MovedPlace { path });
                     }
                 }
                 if let Some(origin) = loop_origin {
@@ -13284,9 +13204,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             let file_idx = self.file_idx;
             let mut loop_origin = None;
             // [fate-partial-move] A *proper* projection leaves the root
-            // usable: record what left, and reads of disjoint projections
-            // keep working. Only a whole-value move (or a derivation the
-            // analysis could not place) consumes the variable outright.
+            // usable: record what left (the IR flow pass reports a read
+            // overlapping it, from the consuming projection read
+            // `moved_projections` makes). Only a whole-value move (or a
+            // derivation the analysis could not place) consumes the
+            // variable outright.
             let partial = l.path.as_deref().is_some_and(|p| !p.is_empty());
             if partial {
                 let path = l.path.clone().unwrap_or_default();
@@ -13294,7 +13216,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     loop_origin = var.for_origin;
                     var.poison = None;
                     if !var.moved_places.iter().any(|m| m.path == path) {
-                        var.moved_places.push(MovedPlace { path, span });
+                        var.moved_places.push(MovedPlace { path });
                     }
                 }
                 // Moving data out of a `for`-loop binding means the loop
@@ -23673,10 +23595,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                  write to nothing",
                             );
                         }
-                        // [fate-partial-move] A target is written, not read.
-                        let saved_target = std::mem::replace(&mut self.assign_target, true);
                         let ty = self.check_expr(other, None);
-                        self.assign_target = saved_target;
                         // A target that is not a place has been reported:
                         // what it would mutate is nothing, so no permission
                         // or fate check applies (one mistake, one
@@ -24369,15 +24288,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let poison = var.poison.clone();
                     let links = var.links.clone();
                     let var_id = var.id;
-                    // [fate-partial-move] A whole-value use of a variable
-                    // something was moved out of: the value is incomplete,
-                    // so it cannot be handed on. Suppressed for projection
-                    // bases, which do their own precise check.
-                    if self.projection_base == 0
-                        && self.check_moved_place(&Place::root(id.name.clone()), id.span)
-                    {
-                        return Ty::Unknown;
-                    }
                     // [flow-use-after-move] A value consumed (moved) reads
                     // as the type it had: the IR flow pass reports the use,
                     // once, and typing goes on as if ownership were not
@@ -24601,16 +24511,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.fn_value_by_name(&name.name, name.span, Some(Selector::Module(module)), expected)
             }
             Expr::Field { base, field, span } => {
-                // [fate-partial-move] The `p` in `p.name` is not a use of
-                // the whole value; the place check below is the precise one.
-                self.projection_base += 1;
                 let base_ty = self.check_expr(base, None);
-                self.projection_base -= 1;
-                if let Some(place) = Place::of_expr(expr) {
-                    if self.check_moved_place(&place, *span) {
-                        return Ty::Unknown;
-                    }
-                }
                 // A predicate-qualifier field override refines the type
                 // [qual-field-override];
                 // the backend casts + asserts at the access site.
@@ -24645,15 +24546,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.field_ty_or_error(&base_ty, field)
             }
             Expr::TupleIndex { base, index, span } => {
-                // [fate-partial-move] A projection base, not a whole use.
-                self.projection_base += 1;
                 let base_ty = self.check_expr(base, None);
-                self.projection_base -= 1;
-                if let Some(place) = Place::of_expr(expr) {
-                    if self.check_moved_place(&place, *span) {
-                        return Ty::Unknown;
-                    }
-                }
                 // [flow-place] A narrowed element place reads at its
                 // narrowed type, exactly as a field does.
                 if let Some(place) = Place::of_expr(expr) {
@@ -24683,16 +24576,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.check_call(callee, type_args, args, named, exp.as_ref(), *span)
             }
             Expr::Index { base, index, span } => {
-                // [fate-partial-move] A projection base, not a whole use.
-                self.projection_base += 1;
                 let base_ty = self.check_expr(base, None);
-                self.projection_base -= 1;
-                if let Some(place) = Place::of_expr(expr) {
-                    if self.check_moved_place(&place, *span) {
-                        self.check_expr(index, Some(&Ty::named("Int")));
-                        return Ty::Unknown;
-                    }
-                }
                 self.check_expr(index, Some(&Ty::named("Int")));
                 match base_ty.strip_quals() {
                     Ty::Array(elem) => (**elem).clone(),

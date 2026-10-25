@@ -573,7 +573,7 @@ reading the second runs `h()` first; `construct_handler` mirrors this) — bind
 every argument up to the last one read, in order, if evaluation order is to
 hold.
 
-### 0o — Open defect: the checker's consumed-read rule accepts three moved reads (found 2026-10-20)
+### 0o — Open defect: the checker's consumed-read and partial-move rules (mirrored in the flow pass) accept moved reads (found 2026-10-20)
 
 Found mirroring the checker's join and loop rules onto the IR (R8 piece 1,
 [flow-use-after-move]; PIPELINE.md §8). Each program below checks clean, and
@@ -639,6 +639,26 @@ type. `crates/salvo-core/tests/flow_tests.rs` pins every case today
 (`continue_skips`, `break_moves`, `assign_then_consume_in_arm`,
 `assign_then_consume_in_loop`, `when_assign_in_leaving_arm`,
 `narrowed_scalar`). Its expectations change when the rules do.
+
+Two more, from mirroring the checker's partial moves (R8 piece 3b,
+[fate-partial-move]; with `p: Mut Rec`, `n: Nest { a: Rec, other }`, `Rec {
+name: Str, tags: Mut List<Str> }`, `eatl(xs: Mut List<Str>) => !xs`):
+
+```
+fn back(p: Mut Rec) -> None => !p {  // unsound: the target is put back
+    eatl(p.tags)                     // before the value is read, so the
+    p.tags = relist(p.tags)          // moved read passes (rustc: E0382),
+    takep(p)                         // and `takep(p)` is refused instead
+}
+fn sibling(n: Nest) -> Int => !n {   // over-strict: `n.a`, the shorter
+    eatl(n.a.tags)                   // projection of the read, overlaps
+    return look(n.a.name)            // the moved `n.a.tags`; rustc accepts
+}
+```
+
+The fix, in the pass: read an assignment's value before putting its place
+back, and check only the read's own place (`part_reassign_from_itself`,
+`part_nested_sibling` in `flow_tests`).
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 

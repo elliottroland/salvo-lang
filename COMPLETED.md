@@ -138,6 +138,59 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — Partial moves are reported from the IR
+
+PIPELINE.md R8 piece 3b [fate-partial-move] [flow-use-after-move]. The IR
+flow pass now tracks partial moves, and the checker's partial-move
+diagnostic (`check_moved_place`, with its two messages) is gone. Per path,
+beside the wholly moved locals, the pass keeps the places moved out of each
+local, keyed by its storage. A move is a consuming projection read (`Read {
+consume: true }` with steps, not `moved`), which the checker's
+`moved_projections` and move-mode bindings already produced, so the builder
+and emitted code did not change. Paths are in the checker's place terms
+(`crate::place::Step`: field, tuple position, `[?]` for an index). They are
+composed through narrowings of projections and, for a move, through any
+binding of one, since the checker's move follows the fate link to the root.
+A read of the whole local, or of a projection overlapping a moved place, is
+the use. The messages are the checker's two shapes, now with the move's
+line: "`p` cannot be used as a whole here: `p.tags` was moved out of it at
+line 3, …" and "`p.tags` cannot be used here: `p.tags` was moved out of `p`
+at line 3, …". The rules were mirrored as the checker had them. A read also
+checks each shorter projection of itself, as the checker checked a field
+read's base. Assigning a projection puts back what it covers before the
+value is read, and assigning the whole local puts back everything after it.
+Joins union the places. The revivals after a branch or a loop
+(`reset_assigned`) leave them alone. The loop re-walk also fires when the
+places changed.
+
+The checker keeps `moved_places` (now just a path), because two other rules
+still read it: a linear container settled by decomposition, and
+`check_state_whole`'s hole in handler state. The pieces that existed only for
+the diagnostic went: `assign_target`, the `projection_base` counter,
+`MovedPlace::blocks`/`describe`/`span`, and the early `Ty::Unknown` returns.
+A read of a partially moved value now types as itself.
+
+`flow_tests` grew 33 `part_…` cases: a field moved then the whole read,
+passed, returned, stored or captured; the same field again; a disjoint
+field; nested places both ways; an index; a tuple position; reassignment of
+the field and of the root (in an arm and in a loop too); branches, `when`,
+loops, a `for` binding; narrowed roots and fields; a move-mode binding; Copy
+and immutable fields. The checker's messages were dumped on that corpus
+before removal, and the pass matched them read for read, in the same words
+plus the line, with one difference, a fix: `eatl2(p.tags, p.tags)`. The checker moved a
+call's projection arguments only after reading them all, so it accepted
+this, and the Rust output (`eatl2(p.tags, p.tags)`, both raw places) is an
+E0382. The pass reads in order and reports the second argument
+[deduce-same-call]. There are 95 cases. Two mirrored rules are wrong and are
+recorded in ROADMAP 0o. The first is unsound: `p.tags = relist(p.tags)`
+after moving `p.tags` passes the read and leaves the field moved. The second
+is over-strict: `n.a.name` after moving `n.a.tags` is refused because `n.a`
+overlaps. Tests that asserted the old messages changed. deduce_tests'
+`disjoint_errors` runs `ir::analyze` on a clean program and asserts the
+line. `s2_move_mode_ancestors_are_consumed` (analyze_tests) mixed checker
+errors with the partial move, so it was split in two, since a checker error
+hides the flow pass's diagnostics.
+
 ### 2026-10-20 — Every move the checker made is carried into the IR
 
 PIPELINE.md R8 piece 3a [flow-use-after-move]. The checker no longer reports
@@ -29736,6 +29789,23 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **The checker checked a field read's base, so the flow pass checks every
+  shorter projection** (2026-10-20, R8 piece 3b): the IR reads `n.a.b` as
+  one place, while the checker checked `n.a` (the inner `Field`) and then
+  `n.a.b`, and the `p` of `p.name` only through the `projection_base`
+  counter's suppression. Mirroring that needs the prefixes `1..=len` of the
+  read's path, never the empty one unless the read is of the whole local.
+  And an assignment target was revived *before* its value was checked: a
+  `Stmt::Assign` must put the place back first. Both are 0o findings, kept
+  so the corpus agreed.
+- **A partial move's root is the IR place's storage, not the checker's
+  fate root.** The checker's move follows a fate link to the root; the IR's
+  `Let` of a projection is a fresh local. They agree on the corpus, examples
+  and std because a derived move makes its binding move-mode (the binding
+  takes the value, and its own partial moves then record on it); the fate
+  links themselves are the next piece. `PartOf::view` keeps an `Alias`
+  (virtual place bind), which the checker treats as a variable of its own,
+  out of the *use* composition while the *move* composes through it.
 - **A projection the checker could not place is not a place in the IR**
   (2026-10-20): `projection_move` takes a root wholly only when the link
   path is `None`, which in practice means an unwrap (`o ?: unreachable!()`,

@@ -1,19 +1,24 @@
 //! [flow-use-after-move] The IR's use-after-move pass (`ir::flow`, PIPELINE.md
-//! R8), the only use-after-move diagnostic since piece 3a: over a corpus of
-//! small programs, the checker reports nothing (a consumed read is never its
-//! error), the gate (`ir::analyze`) reports what the pass finds over the IR
-//! built from the checker's tables, and each case's reads are pinned.
+//! R8), the only use-after-move diagnostic since piece 3a and the only
+//! partial-move one since piece 3b [fate-partial-move]: over a corpus of
+//! small programs, the checker reports nothing (a consumed read, or a read of
+//! a place moved out, is never its error), the gate (`ir::analyze`) reports
+//! what the pass finds over the IR built from the checker's tables, and each
+//! case's reads are pinned.
 //!
 //! Until piece 3a this was a differential: the checker's own "consumed
 //! (moved) by …" diagnostic, switched back on for the test, had to report
 //! the same reads (by start offset, its same-call variant included). It
 //! agreed on the final corpus — every fn-value, `once`-call and
 //! projection-root case included — and was removed with the diagnostic; the
-//! pinned expectations are those reads. The checker still owns the
-//! consumption marking (`narrowed = Never`) its linear and poison machinery
-//! read, so a case whose expectation changes must say whether the pass's rule
-//! changed (ROADMAP 0o's unsound join/loop rules, say) or the checker's
-//! marking did.
+//! pinned expectations are those reads. The partial-move cases (`part_…`,
+//! piece 3b) were compared the same way with the checker's two
+//! `check_moved_place` messages before they were removed: same reads, same
+//! messages, one difference (`part_same_call`, noted there). The checker
+//! still owns the consumption marking (`narrowed = Never`) and the
+//! `moved_places` record its linear and poison machinery read, so a case
+//! whose expectation changes must say whether the pass's rule changed
+//! (ROADMAP 0o's unsound join/loop rules, say) or the checker's marking did.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -66,6 +71,43 @@ struct Bag {
 
 struct FnBox {
     run: () -> Int
+}
+
+struct Rec canbe Mut {
+    name: Str,
+    tags: Mut List<Str>
+}
+
+struct Nest {
+    a: Rec,
+    other: Mut List<Str>
+}
+
+struct Holder {
+    r: Rec
+}
+
+struct Cnt {
+    n: Int,
+    tags: Mut List<Str>
+}
+
+struct OptRec {
+    inner: Rec?
+}
+
+fn newrec() [] -> Rec {
+    return Rec { name: \"a\", tags: Mut List<Str>() }
+}
+
+fn takep(p: Rec) [] -> None => !p {
+}
+
+fn relist(xs: Mut List<Str>) [] -> Mut List<Str> => !xs {
+    return xs
+}
+
+fn eatl2(a: Mut List<Str>, b: Mut List<Str>) [] -> None => !a, !b {
 }
 
 ";
@@ -170,6 +212,49 @@ const CASES: &[(&str, &str)] = &[
     // Near misses: reassigned, or moved only on a path that leaves.
     ("projection_root_reassigned", "fn f() [] -> Int {\n    let o: Mut List<Str>? = Mut List<Str>()\n    eatl(o ?: unreachable!())\n    o = None\n    return peek(o)\n}\n"),
     ("projection_root_arm_exits", "fn f(o: Mut List<Str>?, c: Bool) [] -> Int => !o {\n    if c {\n        eatl(o ?: unreachable!())\n        return 1\n    }\n    return peek(o)\n}\n"),
+    // [R8 piece 3b] [fate-partial-move] Partial moves: a projection of
+    // mutable data moved out of its root. The whole value is then a use, and
+    // so is an overlapping place; a disjoint one is not.
+    ("part_whole_call", "fn f() [] -> None {\n    let p = newrec()\n    eatl(p.tags)\n    takep(p)\n}\n"),
+    ("part_same_field", "fn f() [] -> Int {\n    let p = newrec()\n    eatl(p.tags)\n    return peek(p.tags)\n}\n"),
+    ("part_twice", "fn f() [] -> None {\n    let p = newrec()\n    eatl(p.tags)\n    eatl(p.tags)\n}\n"),
+    ("part_disjoint", "fn f() [] -> Int {\n    let p = newrec()\n    eatl(p.tags)\n    return look(p.name)\n}\n"),
+    ("part_param", "fn f(p: Rec) [] -> None => !p {\n    eatl(p.tags)\n    takep(p)\n}\n"),
+    // Nested places: a prefix either way overlaps.
+    ("part_nested_prefix", "fn f(n: Nest) [] -> Int => !n {\n    eatl(n.a.tags)\n    return peek(n.a)\n}\n"),
+    ("part_nested_sibling", "fn f(n: Nest) [] -> Int => !n {\n    eatl(n.a.tags)\n    return look(n.a.name)\n}\n"),
+    ("part_nested_disjoint", "fn f(n: Nest) [] -> Int => !n {\n    eatl(n.other)\n    return peek(n.a.tags)\n}\n"),
+    ("part_nested_under", "fn f(n: Nest) [] -> Int => !n {\n    takep(n.a)\n    return peek(n.a.tags)\n}\n"),
+    // An index may alias any element; a tuple position only itself.
+    ("part_index", "fn f() [] -> Int {\n    let xs = array_of(Mut List<Str>(), Mut List<Str>())\n    eatl(xs[0])\n    return peek(xs[1])\n}\n"),
+    ("part_index_whole", "fn f() [] -> Int {\n    let xs = array_of(Mut List<Str>(), Mut List<Str>())\n    eatl(xs[0])\n    return peek(xs)\n}\n"),
+    ("part_tuple", "fn f(t: (Mut List<Str>, Mut List<Str>)) [] -> Int => !t {\n    eatl(t.0)\n    return peek(t.1) + peek(t)\n}\n"),
+    // Reassigning the place, or the root, puts the data back.
+    ("part_reassign_field", "fn f() [] -> Int {\n    let p = Mut Rec { name: mk(), tags: Mut List<Str>() }\n    eatl(p.tags)\n    p.tags = Mut List<Str>()\n    return peek(p.tags) + peek(p)\n}\n"),
+    ("part_reassign_root", "fn f() [] -> None {\n    let p = newrec()\n    eatl(p.tags)\n    p = newrec()\n    takep(p)\n}\n"),
+    ("part_reassign_from_itself", "fn f() [] -> None {\n    let p = Mut Rec { name: mk(), tags: Mut List<Str>() }\n    eatl(p.tags)\n    p.tags = relist(p.tags)\n    takep(p)\n}\n"),
+    // Branches and loops: moved on any path is moved.
+    ("part_in_arm", "fn f(c: Bool) [] -> Int {\n    let p = newrec()\n    if c {\n        eatl(p.tags)\n    }\n    return peek(p.tags)\n}\n"),
+    ("part_arm_exits", "fn f(c: Bool) [] -> Int {\n    let p = newrec()\n    if c {\n        eatl(p.tags)\n        return 0\n    }\n    return peek(p)\n}\n"),
+    ("part_when_arm", "fn f(v: Int | Bool) [] -> Int {\n    let p = newrec()\n    when v {\n        is Int {\n            eatl(p.tags)\n        }\n        is Bool {\n        }\n    }\n    return peek(p)\n}\n"),
+    ("part_arm_reassigns", "fn f(c: Bool) [] -> Int {\n    let p = newrec()\n    eatl(p.tags)\n    if c {\n        p = newrec()\n    }\n    return peek(p)\n}\n"),
+    ("part_in_loop", "fn f(c: Bool) [] -> Int {\n    let p = newrec()\n    while c {\n        eatl(p.tags)\n    }\n    return peek(p.tags)\n}\n"),
+    ("part_loop_reassign", "fn f(c: Bool) [] -> Int {\n    let p = Mut Rec { name: mk(), tags: Mut List<Str>() }\n    while c {\n        eatl(p.tags)\n        p.tags = Mut List<Str>()\n    }\n    return peek(p)\n}\n"),
+    ("part_loop_reassign_root", "fn f(c: Bool) [] -> Int {\n    let p = newrec()\n    while c {\n        eatl(p.tags)\n        p = newrec()\n    }\n    return peek(p)\n}\n"),
+    ("part_for_binding", "fn f(rs: List<Rec>) [] -> Int => !rs {\n    for r in rs {\n        eatl(r.tags)\n    }\n    return 0\n}\n"),
+    // A partially moved value handed on whole: returned, stored, captured.
+    ("part_returned", "fn f() [] -> Rec {\n    let p = newrec()\n    eatl(p.tags)\n    return p\n}\n"),
+    ("part_stored", "fn f() [] -> Int {\n    let p = newrec()\n    eatl(p.tags)\n    let h = Holder { r: p }\n    return 0\n}\n"),
+    ("part_lambda_reads", "fn f() [] -> Int {\n    let p = newrec()\n    eatl(p.tags)\n    let g = () -> peek(p)\n    return g()\n}\n"),
+    ("part_same_call", "fn f() [] -> None {\n    let p = newrec()\n    eatl2(p.tags, p.tags)\n}\n"),
+    ("part_then_whole_moved", "fn f() [] -> Int {\n    let p = newrec()\n    eatl(p.tags)\n    takep(p)\n    return look(p.name)\n}\n"),
+    // Through a move-mode binding of the field, and through narrowings.
+    ("part_move_mode_binding", "fn f() [] -> Int {\n    let p = newrec()\n    let t = p.tags\n    eatl(t)\n    return look(p.name) + peek(p.tags)\n}\n"),
+    ("part_narrowed_root", "fn f(p: Rec?) [] -> None => !p {\n    if p is Rec {\n        eatl(p.tags)\n        takep(p)\n    }\n}\n"),
+    ("part_narrowed_field", "fn f(o: OptRec) [] -> Int => !o {\n    if o.inner is Rec {\n        eatl(o.inner.tags)\n    }\n    return peek(o.inner)\n}\n"),
+    // Near misses: a Copy scalar field, and immutable data, never move.
+    ("part_copy_scalar", "fn f(c: Cnt) [] -> Int => !c {\n    take(c.n)\n    take(c.n)\n    return c.n + peek(c)\n}\n"),
+    ("part_immutable_field", "fn f() [] -> Int {\n    let p = newrec()\n    eat(p.name)\n    takep(p)\n    return 0\n}\n"),
 ];
 
 fn program(cases: &[(&str, &str)]) -> Program {
@@ -228,7 +313,11 @@ fn the_gate_reports_what_the_flow_pass_finds() {
         let file = user[module.file_name.as_str()];
         for decl in &module.decls {
             for d in salvo_core::ir::flow::check_one(decl) {
-                assert!(d.message.contains(&format!("`{}` cannot be used here", d.local)), "{}", d.message);
+                assert!(
+                    d.message.contains(&format!("`{}` cannot be used", d.local)) || d.message.contains(&format!("moved out of `{}`", d.local)),
+                    "{}",
+                    d.message
+                );
                 flow.entry(file).or_default().insert(d.span.start);
                 total += 1;
             }
@@ -242,7 +331,10 @@ fn the_gate_reports_what_the_flow_pass_finds() {
     for d in salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &normal) {
         assert!(d.is_error(), "{}", d.message);
         assert!(
-            d.message.contains("cannot be used here: it was consumed (moved) at line "),
+            d.message.contains("cannot be used here: it was consumed (moved) at line ")
+                || d.message.contains("cannot be used as a whole here: `")
+                    && d.message.contains("` was moved out of it at line ")
+                || d.message.contains("cannot be used here: `") && d.message.contains("` at line "),
             "the gate names the move: {}",
             d.message
         );
@@ -321,6 +413,50 @@ fn the_flow_pass_reports_these_reads() {
         ("projection_root_in_arm", &[(5, 17)]),
         ("projection_root_reassigned", &[]),
         ("projection_root_arm_exits", &[]),
+        ("part_whole_call", &[(4, 11)]),
+        ("part_same_field", &[(4, 17)]),
+        ("part_twice", &[(4, 10)]),
+        ("part_disjoint", &[]),
+        ("part_param", &[(3, 11)]),
+        ("part_nested_prefix", &[(3, 17)]),
+        // The checker checks a field read's base too, so `n.a` of
+        // `n.a.name` overlaps the moved `n.a.tags` (over-strict, mirrored).
+        ("part_nested_sibling", &[(3, 17)]),
+        ("part_nested_disjoint", &[]),
+        ("part_nested_under", &[(3, 17)]),
+        ("part_index", &[(4, 17)]),
+        ("part_index_whole", &[(4, 17)]),
+        ("part_tuple", &[(3, 29)]),
+        ("part_reassign_field", &[]),
+        ("part_reassign_root", &[]),
+        // The target is put back before the value is read, so the value's
+        // read of the moved field is not a use and its move stays (mirrored:
+        // rustc reports the read, E0382, not `takep(p)`).
+        ("part_reassign_from_itself", &[(5, 11)]),
+        ("part_in_arm", &[(6, 17)]),
+        ("part_arm_exits", &[]),
+        ("part_when_arm", &[(10, 17)]),
+        // Reassigning in one arm does not put the parts back after the join:
+        // the other path still has `p.tags` moved.
+        ("part_arm_reassigns", &[(7, 17)]),
+        ("part_in_loop", &[(4, 14), (6, 17)]),
+        ("part_loop_reassign", &[]),
+        ("part_loop_reassign_root", &[]),
+        ("part_for_binding", &[]),
+        ("part_returned", &[(4, 12)]),
+        ("part_stored", &[(4, 25)]),
+        ("part_lambda_reads", &[(4, 24)]),
+        // The one difference from the checker, which accepted this and
+        // failed rustc (E0382): it moved a call's projection arguments after
+        // reading them all [deduce-same-call].
+        ("part_same_call", &[(3, 19)]),
+        // A whole use of a partially moved value, which then moves it.
+        ("part_then_whole_moved", &[(4, 11), (5, 17)]),
+        ("part_move_mode_binding", &[(5, 32)]),
+        ("part_narrowed_root", &[(4, 15)]),
+        ("part_narrowed_field", &[(5, 17)]),
+        ("part_copy_scalar", &[]),
+        ("part_immutable_field", &[]),
     ];
     assert_eq!(expected.len(), CASES.len(), "one expectation per case");
     let program = program(CASES);
@@ -409,3 +545,4 @@ fn the_flow_pass_accepts_every_example_and_std() {
     }
     assert!(found.is_empty(), "{} false positive(s):\n{}", found.len(), found.join("\n"));
 }
+

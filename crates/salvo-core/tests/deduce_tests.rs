@@ -1035,10 +1035,14 @@ fn disjoint_errors(body: &str) -> Vec<String> {
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
     // Errors only: an unused-variable *warning* [unused-var] is a different
-    // severity and these tests are about legality.
-    checked
-        .errors
-        .iter()
+    // severity and these tests are about legality. [fate-partial-move] As the
+    // gates do, the IR analyses (a partial move's use among them, the flow
+    // pass's since R8 piece 3b) run on a program the checker accepts.
+    let mut all = checked.errors.clone();
+    if !all.iter().any(|e| e.is_error()) {
+        all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
+    }
+    all.iter()
         .filter(|e| e.is_error())
         .map(|e| e.message.clone())
         .collect()
@@ -1209,7 +1213,8 @@ fn a_move_mode_binding_of_a_field_leaves_its_siblings() {
 }
 
 /// [fate-partial-move] Reading the moved field back is the error, and it
-/// names the field rather than the variable.
+/// names the field rather than the variable, and the move's line (the IR
+/// flow pass's diagnostic since R8 piece 3b [flow-use-after-move]).
 #[test]
 fn reading_a_moved_field_back_is_an_error() {
     let errs = disjoint_errors(
@@ -1220,7 +1225,7 @@ fn reading_a_moved_field_back_is_an_error() {
     assert!(
         errs.iter()
             .any(|e| e.contains("`p.tags` cannot be used here")
-                && e.contains("was moved out of `p`")),
+                && e.contains("was moved out of `p` at line ")),
         "expected the partial-move error, got: {errs:?}"
     );
 }
@@ -1236,7 +1241,7 @@ fn the_whole_value_cannot_be_used_after_a_partial_move() {
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("`p` cannot be used as a whole here")),
+            .any(|e| e.contains("`p` cannot be used as a whole here: `p.tags` was moved out of it at line ")),
         "expected the whole-value refusal, got: {errs:?}"
     );
 }

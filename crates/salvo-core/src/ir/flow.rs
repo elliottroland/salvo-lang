@@ -1,8 +1,21 @@
 //! [flow-use-after-move] The IR's use-after-move pass (03-generate-02-flow,
-//! PIPELINE.md R8): per path, the set of wholly moved locals; a later read
-//! of one is the error. It is the only use-after-move diagnostic (since
-//! piece 3a the checker reports no consumed read): `ir::analyze` runs it per
-//! declaration, and `tests/flow_tests.rs` pins it.
+//! PIPELINE.md R8): per path, the set of wholly moved locals, and the places
+//! moved *out of* each local [fate-partial-move]; a later read of either is
+//! the error. It is the only use-after-move diagnostic (since piece 3a the
+//! checker reports no consumed read, and since piece 3b no partial-move
+//! use): `ir::analyze` runs it per declaration, and `tests/flow_tests.rs`
+//! pins it.
+//!
+//! [fate-partial-move] A `Read { consume: true }` of a projection (not
+//! `moved`) moves that place out of its root's storage — composed through
+//! narrowings of projections, and for the move through any binding of one —
+//! and leaves the root usable. A read of the whole local is a use of it; a
+//! read of a projection is a use when it, or a shorter projection of it,
+//! overlaps a moved place ([`crate::place::Place::overlaps`]). Assigning a
+//! projection puts back what it covers, before its value is read; assigning
+//! the whole local puts back everything; joins union the places, and the
+//! revivals after a branch or a loop leave them alone — the checker's
+//! `moved_places` rules (`revive_moved_places`, `merge_fallthrough`).
 //!
 //! What moves a local: a `Read { consume: true }` of the whole local (no
 //! steps) whose declared type does not move for free
@@ -58,6 +71,20 @@ pub struct FlowDiagnostic {
     pub local: String,
     /// The move this read comes after.
     pub moved_at: Span,
+    /// [fate-partial-move] A read of a value something was moved *out of*,
+    /// rather than of a value moved wholly.
+    pub part: Option<PartUse>,
+}
+
+/// [fate-partial-move] What a use of a partially moved value read, and
+/// what had left: `place` is the place read (`p` for the whole value,
+/// `p.tags` for an overlapping one), `moved` the place moved out (`p.tags`),
+/// both as written.
+pub struct PartUse {
+    pub place: String,
+    pub moved: String,
+    /// Whether the read is of the whole value (the place is the root).
+    pub whole: bool,
 }
 
 impl FlowDiagnostic {
@@ -66,9 +93,32 @@ impl FlowDiagnostic {
     /// same declaration as its use).
     pub fn render(&self, content: &str) -> String {
         let (line, _) = salvo_syntax::span::line_col(content, self.moved_at.start);
+        match &self.part {
+            None => format!(
+                "`{}` cannot be used here: it was consumed (moved) at line {line}; reassign it before use, or `copy` it where it is moved",
+                self.local
+            ),
+            Some(p) => part_message(&self.local, p, &format!(" at line {line}")),
+        }
+    }
+}
+
+/// [fate-partial-move] The two shapes of a partial-move use: the whole
+/// value (move the rest individually, or `copy` at the move) and a place
+/// overlapping the moved one. `at` names the move (" at line 3"), or is
+/// empty.
+fn part_message(root: &str, p: &PartUse, at: &str) -> String {
+    let moved = &p.moved;
+    if p.whole {
         format!(
-            "`{}` cannot be used here: it was consumed (moved) at line {line}; reassign it before use, or `copy` it where it is moved",
-            self.local
+            "`{root}` cannot be used as a whole here: `{moved}` was moved out of it{at}, so part of the value is gone; \
+             move the remaining parts individually, or `copy` at the site that moved `{moved}`"
+        )
+    } else {
+        format!(
+            "`{}` cannot be used here: `{moved}` was moved out of `{root}`{at}, and this reads the same data; \
+             `copy` at the site that moved it to keep this readable",
+            p.place
         )
     }
 }
@@ -105,18 +155,86 @@ fn check_fn(f: &FnDecl, out: &mut Vec<FlowDiagnostic>) {
     for p in &f.params {
         w.decl_ty.insert(p.local.0.clone(), p.ty.clone());
     }
-    let mut moved = Moved::new();
+    let mut moved = Moved::default();
     w.walk_block(body, &mut moved);
     out.append(&mut w.out);
 }
 
-/// The wholly moved locals on one path, each with the span of its move.
-type Moved = BTreeMap<String, Span>;
+/// A projection path out of a local, in the checker's terms
+/// ([`crate::place::Step`]: a field, a tuple position, an element at an
+/// unknown index), so overlap is [`crate::place::Place::overlaps`].
+type Path = Vec<crate::place::Step>;
+
+/// The flow state on one path: the wholly moved locals, each with the span
+/// of its move; and [fate-partial-move] the places moved *out of* each
+/// local (keyed by its storage), in the order they left, each with the span
+/// of its move.
+#[derive(Clone, Default, PartialEq)]
+struct Moved {
+    whole: BTreeMap<String, Span>,
+    parts: BTreeMap<String, Vec<(Path, Span)>>,
+}
+
+impl Moved {
+    /// [fate-partial-move] `path` moved out of `root` at `span`; a place
+    /// already moved keeps its first move.
+    fn add_part(&mut self, root: &str, path: Path, span: Span) {
+        let list = self.parts.entry(root.to_string()).or_default();
+        if !list.iter().any(|(p, _)| *p == path) {
+            list.push((path, span));
+        }
+    }
+
+    /// A fresh binding of `local`: nothing moved, wholly or in part.
+    fn forget(&mut self, local: &str) {
+        self.whole.remove(local);
+        self.parts.remove(local);
+    }
+}
+
+/// An IR projection step in the checker's place terms.
+fn place_step(s: &Step) -> crate::place::Step {
+    match s {
+        Step::Field(f) => crate::place::Step::Field(f.clone()),
+        Step::Tuple(i) => crate::place::Step::Index(*i),
+        Step::Index(_) => crate::place::Step::Element,
+    }
+}
+
+/// Whether `a` is a (may-alias) prefix of `b` — [`crate::place::Place::is_prefix_of`].
+fn is_prefix(a: &[crate::place::Step], b: &[crate::place::Step]) -> bool {
+    let place = |p: &[crate::place::Step]| crate::place::Place { root: String::new(), path: p.to_vec() };
+    place(a).is_prefix_of(&place(b))
+}
+
+/// Whether two paths out of one root may name the same storage.
+fn overlaps(a: &[crate::place::Step], b: &[crate::place::Step]) -> bool {
+    is_prefix(a, b) || is_prefix(b, a)
+}
+
+/// A place as written: `p`, `p.tags`, `xs[?]`.
+fn show_place(root: &str, path: &[crate::place::Step]) -> String {
+    let mut out = root.to_string();
+    for s in path {
+        out.push_str(&s.to_string());
+    }
+    out
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Flow {
     FallsThrough,
     Leaves,
+}
+
+/// A binding of a projection: the local it is part of, and the path.
+#[derive(Clone)]
+struct PartOf {
+    root: String,
+    path: Path,
+    /// A narrowing (`Narrow`): to the checker, a read through it reads the
+    /// place itself. An `Alias` is a variable of its own there.
+    view: bool,
 }
 
 #[derive(Default)]
@@ -130,8 +248,10 @@ struct Walker {
     /// A narrowing binding or alias of a whole local → that local.
     alias_of: HashMap<String, String>,
     /// A narrowing binding or alias of a *projection* → the projection's
-    /// root: reading it reads the root.
-    part_of: HashMap<String, String>,
+    /// root: reading it reads the root. With the projection's path, and
+    /// whether it is a narrowing (`Narrow`, the checker's same place) rather
+    /// than a binding the checker keeps as a variable of its own (`Alias`).
+    part_of: HashMap<String, PartOf>,
     /// Per enclosing loop (innermost last): the sets at its `break`s.
     breaks: Vec<Vec<Moved>>,
     /// What each test node, each branch arm's condition and each switch
@@ -162,32 +282,109 @@ impl Walker {
     fn moved_use(&self, local: &str, moved: &Moved) -> Option<(String, Span)> {
         let mut at = local;
         for _ in 0..64 {
-            if let Some(span) = moved.get(at) {
+            if let Some(span) = moved.whole.get(at) {
                 return Some((at.to_string(), *span));
             }
             match self.part_of.get(at) {
-                Some(root) => at = root,
+                Some(p) => at = &p.root,
                 None => return None,
             }
         }
         None
     }
 
-    fn report_use(&mut self, local: &str, span: Span, moved: &Moved) {
-        let Some((name, moved_at)) = self.moved_use(local, moved) else { return };
+    /// Reports a use of a wholly moved local; whether it did.
+    fn report_use(&mut self, local: &str, span: Span, moved: &Moved) -> bool {
+        let Some((name, moved_at)) = self.moved_use(local, moved) else { return false };
         let written = written_name(self.storage(&name)).to_string();
         if written.starts_with("__") {
-            return;
+            return false;
         }
         if !self.reported.insert((span.start, span.end)) {
-            return;
+            return true;
         }
         self.out.push(FlowDiagnostic {
             span,
             message: format!("`{written}` cannot be used here: it was consumed (moved) earlier; reassign it before use"),
             local: written,
             moved_at,
+            part: None,
         });
+        true
+    }
+
+    /// [fate-partial-move] The storage a place rooted at `local` is part of,
+    /// and the whole path out of it: through whole narrowings and aliases,
+    /// and through narrowings of projections — and, when `moves`, through
+    /// every binding of a projection (the checker's move follows the fate
+    /// link to its root; a read of such a binding reads a variable of its
+    /// own, which nothing moves out of).
+    fn place_of(&self, local: &str, steps: &[Step], moves: bool) -> Option<(String, Path)> {
+        let mut at = self.storage(local).to_string();
+        let mut path: Path = steps.iter().map(place_step).collect();
+        for _ in 0..64 {
+            match self.part_of.get(&at) {
+                Some(p) if p.view || moves => {
+                    let mut full = p.path.clone();
+                    full.extend(path);
+                    path = full;
+                    at = self.storage(&p.root).to_string();
+                }
+                Some(_) => return None,
+                None => break,
+            }
+        }
+        Some((at, path))
+    }
+
+    /// [fate-partial-move] A read of `steps` out of `local` where something
+    /// was moved out of its storage: the checker's `check_moved_place`, at
+    /// each projection of the read from the innermost (`n.a` of `n.a.b`
+    /// first, as the checker checks a field read's base), the whole value
+    /// only when the read is of it. A wholly moved local is the other
+    /// diagnostic's (`report_use`).
+    fn report_part_use(&mut self, local: &str, steps: &[Step], span: Span, moved: &Moved) {
+        let Some((root, path)) = self.place_of(local, steps, false) else { return };
+        let Some(parts) = moved.parts.get(&root) else { return };
+        let written = written_name(&root).to_string();
+        if written.starts_with("__") {
+            return;
+        }
+        let lens: Vec<usize> = if path.is_empty() { vec![0] } else { (1..=path.len()).collect() };
+        for len in lens {
+            let read = &path[..len];
+            let Some((gone, moved_at)) = parts.iter().find(|(p, _)| overlaps(p, read)).cloned() else { continue };
+            if !self.reported.insert((span.start, span.end)) {
+                return;
+            }
+            let part = PartUse { place: show_place(&written, read), moved: show_place(&written, &gone), whole: read.is_empty() };
+            self.out.push(FlowDiagnostic { span, message: part_message(&written, &part, ""), local: written, moved_at, part: Some(part) });
+            return;
+        }
+    }
+
+    /// [fate-partial-move] A consuming read of a projection moves that
+    /// place out of its root's storage; the root stays usable.
+    fn mark_part_moved(&mut self, local: &str, steps: &[Step], span: Span, moved: &mut Moved) {
+        if let Some((root, path)) = self.place_of(local, steps, true) {
+            if path.is_empty() {
+                return;
+            }
+            moved.add_part(&root, path, span);
+        }
+    }
+
+    /// [fate-partial-move] Assigning a place puts back every moved place
+    /// it covers (the checker's `revive_moved_places`): itself and anything
+    /// under it; the whole local covers everything.
+    fn revive_parts(&self, local: &str, steps: &[Step], moved: &mut Moved) {
+        let Some((root, path)) = self.place_of(local, steps, true) else { return };
+        if let Some(list) = moved.parts.get_mut(&root) {
+            list.retain(|(p, _)| !is_prefix(&path, p));
+            if list.is_empty() {
+                moved.parts.remove(&root);
+            }
+        }
     }
 
     /// Every local naming the same storage as `local`.
@@ -215,7 +412,7 @@ impl Walker {
     /// a move the checker made (`moved` on a read or a call).
     fn mark_moved_whole(&mut self, local: &str, span: Span, moved: &mut Moved) {
         for l in self.group(local) {
-            moved.entry(l).or_insert(span);
+            moved.whole.entry(l).or_insert(span);
         }
     }
 
@@ -225,16 +422,18 @@ impl Walker {
         let mut at = self.storage(local);
         for _ in 0..64 {
             match self.part_of.get(at) {
-                Some(root) => at = self.storage(root),
+                Some(p) => at = self.storage(&p.root),
                 None => break,
             }
         }
         at.to_string()
     }
 
+    /// Revives a wholly moved local (its partial moves are not touched:
+    /// the checker's `reset_assigned` leaves `moved_places` alone).
     fn revive(&self, local: &str, moved: &mut Moved) {
         for l in self.group(local) {
-            moved.remove(&l);
+            moved.whole.remove(&l);
         }
     }
 
@@ -270,33 +469,40 @@ impl Walker {
                 self.decl_ty.insert(local.0.clone(), ty.clone());
                 self.alias_of.remove(&local.0);
                 self.part_of.remove(&local.0);
-                moved.remove(&local.0);
+                moved.forget(&local.0);
                 flow
             }
             Stmt::Alias { local, ty, place, .. } => {
                 self.walk_steps(place, moved);
-                self.bind_view(&local.0, ty, place, false, moved);
+                self.bind_view(&local.0, ty, place, false, false, moved);
                 Flow::FallsThrough
             }
             Stmt::Narrow { local, ty, from, because, .. } => {
                 self.walk_steps(from, moved);
                 let fresh = from.steps.is_empty() && self.tested_here(because, &from.root.0);
-                self.bind_view(&local.0, ty, from, fresh, moved);
+                self.bind_view(&local.0, ty, from, fresh, true, moved);
                 Flow::FallsThrough
             }
             Stmt::Unpack { locals, from, .. } => {
                 self.walk_steps(from, moved);
                 for (l, t) in locals {
                     self.decl_ty.insert(l.0.clone(), t.clone());
-                    moved.remove(&l.0);
+                    moved.forget(&l.0);
                 }
                 Flow::FallsThrough
             }
             Stmt::Assign { place, value } => {
                 self.walk_steps(place, moved);
+                // [fate-partial-move] The checker puts a projection back
+                // when it checks the target, before the value: what the value
+                // moves out of the place stays moved (`p.tags = f(p.tags)`).
+                if !place.steps.is_empty() {
+                    self.revive_parts(&place.root.0, &place.steps, moved);
+                }
                 let flow = self.walk_expr(value, moved);
                 if place.steps.is_empty() {
                     self.revive(&place.root.0, moved);
+                    self.revive_parts(&place.root.0, &[], moved);
                 }
                 flow
             }
@@ -350,23 +556,24 @@ impl Walker {
     }
 
     /// A narrowing binding or alias `local` of `place`.
-    fn bind_view(&mut self, local: &str, ty: &Ty, place: &Place, fresh: bool, moved: &mut Moved) {
-        moved.remove(local);
+    fn bind_view(&mut self, local: &str, ty: &Ty, place: &Place, fresh: bool, view: bool, moved: &mut Moved) {
+        moved.forget(local);
         if place.steps.is_empty() {
             let root = place.root.0.clone();
             let declared = self.decl_ty.get(self.storage(&root)).cloned().unwrap_or_else(|| ty.clone());
             self.decl_ty.insert(local.to_string(), declared);
             self.part_of.remove(local);
             if !fresh {
-                if let Some(span) = moved.get(self.storage(&root)).copied() {
-                    moved.insert(local.to_string(), span);
+                if let Some(span) = moved.whole.get(self.storage(&root)).copied() {
+                    moved.whole.insert(local.to_string(), span);
                 }
             }
             self.alias_of.insert(local.to_string(), root);
         } else {
             self.decl_ty.insert(local.to_string(), ty.clone());
             self.alias_of.remove(local);
-            self.part_of.insert(local.to_string(), place.root.0.clone());
+            let path = place.steps.iter().map(place_step).collect();
+            self.part_of.insert(local.to_string(), PartOf { root: place.root.0.clone(), path, view });
         }
     }
 
@@ -388,13 +595,15 @@ impl Walker {
         let entry = moved.clone();
         let mut end = entry.clone();
         if let Some(b) = binding {
-            end.remove(b);
+            end.forget(b);
         }
         self.walk_block(body, &mut end);
-        if !end.keys().eq(entry.keys()) {
+        // [fate-partial-move] A changed set of moved places changes the
+        // checker's snapshot too.
+        if !end.whole.keys().eq(entry.whole.keys()) || end.parts != entry.parts {
             let mut again = end.clone();
             if let Some(b) = binding {
-                again.remove(b);
+                again.forget(b);
             }
             self.walk_block(body, &mut again);
             end = again;
@@ -409,7 +618,7 @@ impl Walker {
             self.revive(&name, &mut end);
         }
         if let Some(b) = binding {
-            end.remove(b);
+            end.forget(b);
         }
         *moved = end;
     }
@@ -418,7 +627,9 @@ impl Walker {
         match &e.kind {
             ExprKind::Read { place, consume, moved: checker_moved } => {
                 self.walk_steps(place, moved);
-                self.report_use(&place.root.0, e.span, moved);
+                if !self.report_use(&place.root.0, e.span, moved) {
+                    self.report_part_use(&place.root.0, &place.steps, e.span, moved);
+                }
                 if *checker_moved {
                     // The checker consumed the root here: a fn value, or a
                     // projection whose move took its root wholly.
@@ -426,6 +637,10 @@ impl Walker {
                     self.mark_moved_whole(&root, e.span, moved);
                 } else if *consume && place.steps.is_empty() {
                     self.mark_moved(&place.root.0, &e.ty, e.span, moved);
+                } else if *consume {
+                    // [fate-partial-move] A projection moved out of its root:
+                    // the checker records the place, not the variable.
+                    self.mark_part_moved(&place.root.0, &place.steps, e.span, moved);
                 }
                 Flow::FallsThrough
             }
@@ -517,7 +732,7 @@ impl Walker {
                 let mut inner = moved.clone();
                 for p in params {
                     self.decl_ty.insert(p.local.0.clone(), p.ty.clone());
-                    inner.remove(&p.local.0);
+                    inner.forget(&p.local.0);
                 }
                 let loops = std::mem::take(&mut self.breaks);
                 self.walk_block(body, &mut inner);
@@ -532,7 +747,7 @@ impl Walker {
             ExprKind::Try { body } => self.walk_block(body, moved),
             ExprKind::WaitFor { local, token_ty, body } => {
                 self.decl_ty.insert(local.0.clone(), token_ty.clone());
-                moved.remove(&local.0);
+                moved.forget(&local.0);
                 self.walk_block(body, moved);
                 Flow::FallsThrough
             }
@@ -578,10 +793,17 @@ impl Walker {
     }
 }
 
-/// Moved on either path is moved.
+/// Moved on either path is moved; so is a place moved out on either
+/// [fate-partial-move] (union, the earlier path's move first, as the
+/// checker's `merge_fallthrough` joins `moved_places`).
 fn join_into(acc: &mut Moved, other: Moved) {
-    for (k, v) in other {
-        acc.entry(k).or_insert(v);
+    for (k, v) in other.whole {
+        acc.whole.entry(k).or_insert(v);
+    }
+    for (root, list) in other.parts {
+        for (path, span) in list {
+            acc.add_part(&root, path, span);
+        }
     }
 }
 

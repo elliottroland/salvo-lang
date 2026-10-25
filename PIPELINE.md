@@ -1002,3 +1002,37 @@ log current so the work can resume after a context reset). Newest last.
     moves; state stores; lends validation; the 0o unsound join/loop rules
     (in the pass, each fixed rule changing its case's pinned expectation);
     then move-mode and the re-walk loop's deletion.
+- **R8 piece 3b: done** (committed "Report partial moves from the IR").
+  `ir::flow` keeps, per path beside the wholly moved locals, the places moved
+  out of each local (by storage, in `crate::place::Step` terms, composed
+  through narrowings of projections and, for the move, through any binding
+  of one); a move is a consuming projection read (`consume`, not `moved` —
+  `moved_projections` and move-mode bindings already made them, so the
+  builder and emitted code did not change). The checker's rules, mirrored: a
+  whole read is a use of every moved place, a projection read a use when it
+  or a shorter projection of it overlaps one; assigning a projection puts
+  back what it covers before its value is read, the whole local everything;
+  joins union, `reset_assigned` leaves the places alone, a changed set
+  re-walks a loop. Messages: the checker's two shapes with the move's line
+  (`FlowDiagnostic::part`, `PartUse`). Then `check_moved_place` went with
+  `assign_target`, `projection_base`, `MovedPlace::{blocks, describe,
+  span}`; `moved_places` stays (now a path only) for the linear
+  decomposition rule and `check_state_whole`.
+  - **The differential:** 33 `part_…` cases; the checker's messages, dumped
+    before removal, equal the pass's read for read and word for word but the
+    line, except `part_same_call` (`eatl2(p.tags, p.tags)`): the checker
+    moved a call's projection arguments after reading them all and accepted
+    it, an E0382 in Rust; the pass reports it [deduce-same-call], a fix. 95
+    cases.
+  - **Found (ROADMAP 0o):** unsound — `p.tags = relist(p.tags)` after
+    moving `p.tags` passes the read (the target is revived first) and leaves
+    the field moved; over-strict — `n.a.name` after moving `n.a.tags` is
+    refused (the base `n.a` overlaps). Reassigning the root in one arm does
+    not put parts back after the join (correct: the other path has them
+    moved). `s2_move_mode_ancestors_are_consumed` (analyze_tests) was split
+    (gating is per program); deduce_tests' partial-move tests go through
+    `ir::analyze`.
+  - **Piece 3 next**, in order: poison/BoundAway (fate links); lambda
+    capture moves; state stores; lends validation; the 0o unsound rules (in
+    the pass, each fixed rule changing its case's pinned expectation); then
+    move-mode and the re-walk loop's deletion.

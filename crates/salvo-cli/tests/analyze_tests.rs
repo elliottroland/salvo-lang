@@ -1134,7 +1134,9 @@ fn s2_move_mode_pipelines_stay_clean() {
 // error; and a projection of *mutable* data in a moved position leaves the
 // root usable but records the moved place, so reading *that* projection back
 // is the error (closing the 2026-09-02 parity divergence — L5 made the
-// diagnostic name the field rather than the whole variable).
+// diagnostic name the field rather than the whole variable). The parity probe
+// is its own program since R8 piece 3b: its error is the IR flow pass's, and a
+// checker error anywhere hides those.
 #[test]
 fn s2_move_mode_ancestors_are_consumed() {
     let dir = src_dir("s2_negative");
@@ -1146,8 +1148,6 @@ fn s2_move_mode_ancestors_are_consumed() {
          fn consume_list(v: List<Int>) -> None => !v {\n}\n\n\
          fn chain() -> Int {\n    let xs = List(1, 2)\n    let a = xs\n    let b = a\n    \
          consume_list(b)\n    return size(xs)\n}\n\n\
-         fn parity_probe() -> Int {\n    let h = Holder {tags: Mut List(1)}\n    \
-         let w = wrap(h.tags)\n    add(h.tags, 9)\n    return size(w.item)\n}\n\n\
          fn kept_leak(h: Holder) -> Wrapper => h {\n    return wrap(h.tags)\n}\n\n\
          fn kept_remedy(h: Holder) -> Wrapper => h {\n    return wrap(copy(h.tags))\n}\n\n\
          fn kept_binding(v: Str) -> Str => v {\n    let w = v\n    return w\n}\n",
@@ -1163,19 +1163,6 @@ fn s2_move_mode_ancestors_are_consumed() {
             .contains("`xs` cannot be used here: `a` was bound from it and later moves the value"),
         "stderr: {stderr}"
     );
-    // The parity probe is rejected: `wrap(h.tags)` moved mutable data
-    // out of `h`, so the later `add(h.tags, 9)` cannot observe an alias
-    // on one backend and a clone on the other. Since L5 the diagnostic
-    // names the *field* that left rather than the whole variable — `h`
-    // itself stays usable, and reading `h.tags` back is what fails
-    // [fate-partial-move].
-    assert!(
-        stderr.contains(
-            "`h.tags` cannot be used here: `h.tags` was moved out of `h`, \
-             and this reads the same data"
-        ),
-        "stderr: {stderr}"
-    );
     // A kept parameter's mutable data cannot be moved out; `copy` is the
     // remedy (kept_remedy is clean).
     assert!(
@@ -1188,7 +1175,35 @@ fn s2_move_mode_ancestors_are_consumed() {
         stderr.contains("cannot return `w`: it was bound from `v`"),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains("4 errors"), "stderr: {stderr}");
+    assert!(stderr.contains("3 errors"), "stderr: {stderr}");
+
+    // The parity probe is rejected: `wrap(h.tags)` moved mutable data out
+    // of `h`, so the later `add(h.tags, 9)` cannot observe an alias on one
+    // backend and a clone on the other. Since L5 the diagnostic names the
+    // *field* that left rather than the whole variable — `h` itself stays
+    // usable, and reading `h.tags` back is what fails [fate-partial-move] —
+    // and since R8 piece 3b the line it left at.
+    let dir = src_dir("s2_negative_parity");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Holder {\n    tags: Mut List<Int>\n}\n\n\
+         struct Wrapper {\n    item: Mut List<Int>\n}\n\n\
+         fn wrap(list: Mut List<Int>) -> Wrapper => !list {\n    return Wrapper {item: list}\n}\n\n\
+         fn parity_probe() -> Int {\n    let h = Holder {tags: Mut List(1)}\n    \
+         let w = wrap(h.tags)\n    add(h.tags, 9)\n    return size(w.item)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains(
+            "`h.tags` cannot be used here: `h.tags` was moved out of `h` at line 15, \
+             and this reads the same data"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }
 
 // [deduce-same-call] L3: arguments are evaluated left to right, so a
