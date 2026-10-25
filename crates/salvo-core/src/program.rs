@@ -128,6 +128,17 @@ impl<'p> Symbols<'p> {
         self.key_of(decl).unwrap_or(name)
     }
 
+    /// [type-identity] Hands [`Symbols::ref_key`] the program's written keys
+    /// when a caller already has them (`resolve::written_keys` over a
+    /// resolution of the same program), so the first clashing or undeclared
+    /// name asked about does not resolve the program a second time
+    /// (PIPELINE.md §6, prerequisite 5). A no-op once they are known.
+    pub fn seed_ref_keys(&self, keys: &HashMap<usize, String>) {
+        if self.ref_keys.get().is_none() {
+            let _ = self.ref_keys.set(keys.clone());
+        }
+    }
+
     /// [type-identity] The key of the declaration a written type reference
     /// of the collected program names, in the scope of the file that wrote
     /// it: what a reading of a declaration's own field and parameter types

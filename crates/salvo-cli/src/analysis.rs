@@ -263,9 +263,11 @@ pub fn analyze_std() -> Analysis {
     };
     let symbols = Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
-    let overloads = overload_index(&resolution);
-    let completions = completion_index(&resolution);
-    let type_completions = type_completion_index(&resolution);
+    // [lsp-std-source] Every std file is a view here.
+    let viewable = vec![true; program.files.len()];
+    let overloads = overload_index(&resolution, &viewable);
+    let completions = completion_index(&resolution, &viewable);
+    let type_completions = type_completion_index(&resolution, &viewable);
     let mut checked = salvo_core::check_program(&program, &resolution, &symbols);
     // The std library's own diagnostics are not published (the copies are
     // read-only); drain them so `checked` matches the shape other analyses have.
@@ -456,11 +458,21 @@ fn analyze_project(
     // parse errors are the actionable signal there.
     let (checked, overloads, completions, type_completions) = {
         let t = salvo_core::timing::phase("resolve");
+        let t2 = salvo_core::timing::phase("  resolve: symbols");
         let symbols = Symbols::collect(&program);
+        drop(t2);
+        let t2 = salvo_core::timing::phase("  resolve: scopes");
         let resolution = salvo_core::resolve(&program);
-        let overloads = overload_index(&resolution);
-        let completions = completion_index(&resolution);
-        let type_completions = type_completion_index(&resolution);
+        drop(t2);
+        let t2 = salvo_core::timing::phase("  resolve: lsp indexes");
+        // [lsp-index-viewable] Only for the files a view of this analysis can
+        // show: an embedded std file is opened through `analyze_std`'s own
+        // analysis, never this one (`doc_view`), so its entries stay empty.
+        let viewable: Vec<bool> = program.files.iter().map(|f| !f.is_std || f.is_shadow).collect();
+        let overloads = overload_index(&resolution, &viewable);
+        let completions = completion_index(&resolution, &viewable);
+        let type_completions = type_completion_index(&resolution, &viewable);
+        drop(t2);
         drop(t);
         // `check_program` folds resolution errors into its own.
         let t = salvo_core::timing::phase("check");
@@ -524,11 +536,15 @@ fn std_cache_applies(program: &Program, cache: &salvo_core::StdCache) -> bool {
 
 /// [lsp-completion] The per-file index of type-like names, generated ones
 /// (`__…`) left out.
-fn type_completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<(String, TypeKind)>> {
+fn type_completion_index(resolution: &salvo_core::Resolution<'_>, viewable: &[bool]) -> Vec<Vec<(String, TypeKind)>> {
     resolution
         .scopes
         .iter()
-        .map(|scope| {
+        .enumerate()
+        .map(|(file, scope)| {
+            if !viewable[file] {
+                return Vec::new();
+            }
             let mut out: Vec<(String, TypeKind)> = Vec::new();
             let mut add = |name: &str, kind: TypeKind| {
                 if !name.starts_with("__") {
@@ -562,7 +578,7 @@ fn type_completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<(St
 /// their `FnKey`; effect members carry their owning effect's name (so
 /// completion offers them only where that effect is available) and a
 /// precomputed signature.
-fn completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<CompletionFn>> {
+fn completion_index(resolution: &salvo_core::Resolution<'_>, viewable: &[bool]) -> Vec<Vec<CompletionFn>> {
     use salvo_syntax::ast::Type;
     // The receiver a first parameter implies: its base type name, or `None`
     // when it is one of the fn's own type parameters (any receiver fits).
@@ -595,8 +611,12 @@ fn completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<Completi
     resolution
         .scopes
         .iter()
-        .map(|scope| {
+        .enumerate()
+        .map(|(file, scope)| {
             let mut out: Vec<CompletionFn> = Vec::new();
+            if !viewable[file] {
+                return out;
+            }
             for (name, entries) in &scope.fns {
                 if name.starts_with("__") {
                     continue;
@@ -617,8 +637,14 @@ fn completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<Completi
             // to — offered only where the owning effect is available, which
             // the completion handler gates on. Their signature is rendered
             // here since a member has no `FnKey`.
+            let in_scope_set: std::collections::HashSet<(usize, usize)> = scope
+                .effect_members
+                .values()
+                .flatten()
+                .map(|(so, sd)| (*so as *const _ as usize, *sd as *const _ as usize))
+                .collect();
             let in_scope = |o: &salvo_syntax::ast::EffectDecl, d: &salvo_syntax::ast::FnDecl| {
-                scope.effect_members.values().flatten().any(|(so, sd)| std::ptr::eq(*so, o) && std::ptr::eq(*sd, d))
+                in_scope_set.contains(&(o as *const _ as usize, d as *const _ as usize))
             };
             let reached = every_member
                 .iter()
@@ -655,10 +681,14 @@ fn completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<Completi
 ///
 /// Only names with two or more entries are kept — the common case is one, and
 /// storing it would double the index for nothing.
-fn overload_index(resolution: &salvo_core::Resolution<'_>) -> Vec<HashMap<String, Vec<DefSite>>> {
+fn overload_index(resolution: &salvo_core::Resolution<'_>, viewable: &[bool]) -> Vec<HashMap<String, Vec<DefSite>>> {
     let mut out = Vec::with_capacity(resolution.scopes.len());
-    for scope in &resolution.scopes {
+    for (file, scope) in resolution.scopes.iter().enumerate() {
         let mut per_file: HashMap<String, Vec<DefSite>> = HashMap::new();
+        if !viewable[file] {
+            out.push(per_file);
+            continue;
+        }
         for (name, entries) in &scope.fns {
             let sites: Vec<DefSite> = entries
                 .iter()

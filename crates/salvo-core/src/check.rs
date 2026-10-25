@@ -1923,7 +1923,9 @@ fn check_program_walk<'p>(
     // [deduce-default] Every fn's contract is a function of its signature
     // (user decision 2026-10-11), so it is known before any body is walked
     // (PIPELINE.md step 2): the first walk is a real one.
+    let t = crate::timing::phase("check: contracts");
     let contracts = crate::deduce::contracts(program, cache);
+    drop(t);
 
     let ctx = WalkCtx {
         program,
@@ -2018,12 +2020,18 @@ fn check_once<'p>(
     // reset just below (`type_ref_keys` …) are recomputed over the merged
     // program — cheap, no body walk — so overwriting std's copies of them is
     // correct.
+    let t = crate::timing::phase("  check: seed");
     let mut out = match cache {
         Some(cache) => cache.seeded(),
         None => Checked::default(),
     };
+    drop(t);
+    let t = crate::timing::phase("  check: written keys");
     out.type_ref_keys = crate::resolve::written_keys(program, resolution, symbols);
+    symbols.seed_ref_keys(&out.type_ref_keys);
     out.type_ref_span_keys = crate::resolve::written_keys_by_span(program, resolution, symbols);
+    drop(t);
+    let t = crate::timing::phase("  check: visible keys");
     for (file, scope) in resolution.scopes.iter().enumerate() {
         let names = scope
             .handlers
@@ -2045,6 +2053,8 @@ fn check_once<'p>(
             }
         }
     }
+    drop(t);
+    let t = crate::timing::phase("  check: protocol hashes");
     out.errors.extend(resolution.errors.iter().cloned());
     // [protocol-hash] One hash per actor effect, over its canonical form.
     for (name, effect) in &symbols.effects {
@@ -2058,7 +2068,10 @@ fn check_once<'p>(
     // replayed here so they land with everything else.
     out.errors.extend(refinements.errors.iter().cloned());
     out.refinements = refinements.clone();
+    drop(t);
+    let t = crate::timing::phase("  check: platform closure");
     out.platform_closure_all = crate::abi::platform_closure_all(program, symbols);
+    drop(t);
     let files: Vec<usize> = (0..program.files.len())
         .filter(|f| !cache.is_some_and(|c| *f < c.std_files))
         .collect();

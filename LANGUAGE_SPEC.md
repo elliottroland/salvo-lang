@@ -11740,11 +11740,16 @@ replaced the working document TESTING.md).
     stdout (line/col 1-based, start/end byte offsets); text mode
     renders to stderr with a summary line.
   * [phase-timings] With `SALVO_TIMINGS` set, each pipeline phase prints its
-    wall-clock time to stderr (`timing: resolve  16.0ms`): parse, expand,
-    resolve, the checking walk with its sub-steps (`check: interfaces`, with
-    its two steps `interfaces: facts` and `interfaces: headers`
-    [interface-pass], then `check: bodies`) and the deduction pass, and the
-    IR analysis (`salvo_core::timing`; 2026-10-20, PIPELINE.md step 1).
+    wall-clock time to stderr (`timing: resolve  16.0ms`): parse, expand
+    (with comptime's own resolution and its stamping), resolve (symbols,
+    scopes, the language server's indexes), the checking walk with its
+    sub-steps (the std seed, written keys, visible keys, protocol hashes,
+    the platform closure, `check: interfaces`, with its two steps
+    `interfaces: facts` and `interfaces: headers` [interface-pass], then
+    `check: bodies`) and the deduction pass, and the IR analysis
+    (`salvo_core::timing`; 2026-10-20, PIPELINE.md step 1).
+    `tools/lsp-timing.py` drives the language server through a few edits
+    and prints the same timings for each edit's analysis.
 * [cli-run] `salvo run [--backend NAME|*] [--src DIR] [--main FILE]
   [--target DIR] [--clean-target before|both]` (backend, src and main from the
   manifest when omitted [manifest]) compiles and then runs the
@@ -12016,6 +12021,12 @@ replaced the working document TESTING.md).
   one edit run the pipeline once (completion's patched probe buffer is its own
   entry). Every document notification drops them. The standalone std analysis
   is built once per server.
+* [lsp-index-viewable] **The indexes behind hover overloads and completion
+  are built only for files a view can show** (2026-10-20, PIPELINE.md step
+  8): a project's files and std shadows. An embedded std file is viewed
+  through the standalone std analysis, which builds them for every file, so
+  a project analysis leaves std's entries empty (it was 17ms of every edit's
+  ~85ms, debug, `examples/cluster`).
 * [lsp-hover-iter-fn] An `iter fn`'s minter and generated `next` both hover as
   the `iter fn` written (`iter fn upto(n: Int) -> Emitted Int | Finished`),
   with its docs and without the `next` overload set.

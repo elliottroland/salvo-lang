@@ -1550,3 +1550,47 @@ log current so the work can resume after a context reset). Newest last.
     the body walk's locals. R8's leftovers (the three static move-site
     rules; fate links computed in the IR) wait: the first is the user's
     call, and the second needs IR-side `is` bindings.
+
+- **Step 8, measured first (2026-10-20).** `tools/lsp-timing.py` drives
+  `salvo lsp` through body edits with `SALVO_TIMINGS=1`. One edit of
+  `examples/cluster` (373 lines, one project file, the std cache in force;
+  debug at opt-level 1) cost **~85ms**: parse 11 (every `ParseCache` hit
+  clones its AST, std's ~65 included), expand 17 (comptime resolves the whole
+  program for its scoped names: 13), resolve 28 (scopes 11; the language
+  server's overload and completion indexes 17, built for every std file),
+  check 28 (the std seed's clone 4, written keys 4, protocol hashes **10.6**:
+  the first `Symbols::ref_key` of an undeclared name resolved the whole
+  program a second time, §6 prerequisite 5; interfaces 0.6, bodies 4,
+  deduce 3), IR 2.5. **What the step names — the edited declaration's body
+  re-walked and the rest reused — would save at most the walk's ~5ms of
+  85.** The cost is the program-wide front half over std, recomputed on
+  every edit. So step 8 is reordered, H's per-file level first, std as the
+  unit that never changes:
+  1. the indexes for viewable files only, `ref_key` seeded with the written
+     keys the check computes anyway, finer phase timings, the driver
+     (piece 1);
+  2. std's front half shared across analyses: its parsed and expanded
+     modules kept by the server and shared by every analysis's `Program`
+     (no clone; stable addresses, which also ends the `StdCache`'s
+     `written_types` rows keyed by the addresses of a dropped program),
+     comptime run for the project's files only, std's written keys from the
+     cache (ROADMAP §5 item 4's first half);
+  3. the per-file checker rows (generalizing `StdCache` to every unchanged
+     file) for multi-file projects, with its prerequisites: `written_types`
+     keyed by something stable, `carried_identities` by file, `task_mints`
+     keyed, `DefSite` targets remapped after an edit shifts them;
+  4. per declaration, only if the numbers after 2–3 call for it.
+- **Step 8, piece 1: done** (committed "Build less of every language-server
+  analysis"). [lsp-index-viewable]: the overload, completion and
+  type-completion indexes skip embedded std files (a project analysis's
+  views never show one; `analyze_std` builds them for its own), and the
+  completion index's in-scope test is a set, not a scan. `Symbols::
+  seed_ref_keys`: `check_once` hands `ref_key` the written keys it has just
+  computed. New phases: `expand: comptime scopes` (`comptime: resolve`,
+  `comptime: names`), `expand: comptime stamps`, `resolve: symbols /
+  scopes / lsp indexes`, `check: contracts`, `check: seed`, `written keys`,
+  `visible keys`, `protocol hashes`, `platform closure`. The same edit:
+  **~85ms → ~62ms** (indexes 17 → 0.5, protocol hashes 10.6 → 0.5). Left,
+  per edit: parse 11, comptime's resolve 13, resolve 11, seed 4.6, written
+  keys 4.5, bodies 4.5, deduce 3, IR 2.6. `salvo analyze` gains the
+  protocol-hash part too. Next: piece 2.

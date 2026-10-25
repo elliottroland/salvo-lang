@@ -138,6 +138,31 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — A language-server edit builds less of the program
+
+PIPELINE.md step 8 began by measuring what an edit costs the language server
+(`tools/lsp-timing.py`, new: it drives `salvo lsp` through edits with
+`SALVO_TIMINGS=1`). One body edit of `examples/cluster` with the std cache in
+force cost ~85ms (debug), and the checker's body walk, which the step planned
+to cache per declaration, was ~5ms of it. The rest was program-wide work over
+std on every edit. Step 8 was reordered from that (the plan is in PIPELINE.md
+§8): std's front half first, the per-file checker rows second, per
+declaration only if the numbers then call for it. This first piece removes
+two costs outright:
+
+- [lsp-index-viewable]: the overload and completion indexes were built for
+  every file, std's ~65 included, though a project analysis's views never
+  show an embedded std file (17ms; now 0.5). The completion index's
+  "already in scope" test became a set lookup.
+- `Symbols::ref_key` answered its first clashing or undeclared name by
+  resolving the whole program again (§6's "hidden program walk"): the
+  protocol hashes asked about `Int` and paid 10.6ms. `check_once` now seeds
+  it with the written keys it computes anyway (`Symbols::seed_ref_keys`), so
+  `salvo analyze` and every compile save it too.
+
+The edit now costs ~62ms. [phase-timings] gained the sub-phases that found
+them. No behavior changed; no test changed.
+
 ### 2026-10-20 — Every declaration's interface is checked before any body
 
 PIPELINE.md §7 step 7, piece 3 [interface-pass] [implicit-param]

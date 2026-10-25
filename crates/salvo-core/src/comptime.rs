@@ -147,7 +147,10 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
             }
         }
     }
+    let t = crate::timing::phase("  expand: comptime scopes");
     let scoped = scoped_names(files, modules);
+    drop(t);
+    let _stamp = crate::timing::phase("  expand: comptime stamps");
     let world = World {
         scoped,
         here: std::cell::Cell::new(0),
@@ -1207,7 +1210,10 @@ fn scoped_names(files: &[SourceFile], modules: &[Module]) -> Vec<FileNames> {
             module_of.insert(addr, file.module.clone());
         }
     }
+    let t = crate::timing::phase("    comptime: resolve");
     let resolution = crate::resolve::resolve_sources(files, modules);
+    drop(t);
+    let _t = crate::timing::phase("    comptime: names");
     let of = |addr: usize| module_of.get(&addr).cloned();
     resolution
         .scopes
