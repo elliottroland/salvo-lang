@@ -10,29 +10,34 @@
 //! `moved`) moves that place out of its root's storage — composed through
 //! narrowings of projections, and for the move through any binding of one —
 //! and leaves the root usable. A read of the whole local is a use of it; a
-//! read of a projection is a use when it, or a shorter projection of it,
-//! overlaps a moved place ([`crate::place::Place::overlaps`]). Assigning a
-//! projection puts back what it covers, before its value is read; assigning
-//! the whole local puts back everything; joins union the places, and the
-//! revivals after a branch or a loop leave them alone — the checker's
-//! `moved_places` rules (`revive_moved_places`, `merge_fallthrough`).
+//! read of a projection is a use when its place overlaps a moved one (is
+//! under it or contains it — a sibling is not, at any depth;
+//! [`crate::place::Place::overlaps`]). Assigning a projection puts back
+//! what it covers once its value is read (a read of the moved place in the
+//! value is a use, `p.tags = f(p.tags)`); assigning the whole local puts
+//! back everything; joins union the places.
 //!
 //! What moves a local: a `Read { consume: true }` of the whole local (no
-//! steps) whose declared type does not move for free
-//! ([`crate::types::moves_for_free`]: a Copy scalar is copied); a `Read {
-//! moved: true }` — a move the checker made that emission does not (a fn
-//! value given to a consuming parameter, a projection taking its root) —
-//! of the place's root, whatever its type; a `Call { target:
+//! steps) whose value does not move for free
+//! ([`crate::types::moves_for_free`] of the read's own type, or of the
+//! declared type: a Copy scalar, a union narrowed to one included, is
+//! copied [copy-scalar-free]); a `Read { moved: true }` — a move the
+//! checker made that emission does not (a fn value given to a consuming
+//! parameter, a projection taking its root) —
+//! of the place's root, whatever its type (but a whole read whose own type
+//! is a Copy scalar: the checker marks a narrowed union by its declared
+//! type); a `Call { target:
 //! FnRef::Local(l), moved: true }` of `l` (a `once` fn called), after its
 //! arguments; and a lambda `Capture { consumed: true }`, at the lambda. What
 //! uses one: any read of a place rooted at it, consumed or not, at any depth
 //! of steps, and a call of it. What revives one: an assignment of the whole
 //! local, and a fresh `Let` of it.
 //!
-//! The joins and the loops **mirror the checker's rules exactly**, including
-//! where those rules are unsound (PIPELINE.md §8, R8 piece 1): they were
-//! built to agree with the checker's, so its version could be switched off;
-//! tightening them (ROADMAP 0o) is a later, separate change.
+//! The joins and the loops are **dataflow over paths** (R8 piece 5, ROADMAP
+//! 0o): until then they mirrored the checker's rules, unsound corners
+//! included, so its diagnostics could be switched off; the pass's rules
+//! are now its own, and the checker's joins only feed its own linear and
+//! move-mode machinery.
 //!
 //! [fate-poison] [fate-move-mode] **Poisoned reads** (R8 piece 3c). Per path
 //! the pass also keeps the fate links of every borrow-mode binding — the
@@ -64,17 +69,18 @@
 //! * The walk is sequential over every statement of a block, including the
 //!   dead ones after a `return`/`break`/`continue` (the checker walks them
 //!   too). A block *leaves* when any of its statements does.
-//! * A `Branch`/`Switch` forks the set per arm; the arms that fall through
+//! * A `Branch`/`Switch` forks the state per arm; the arms that fall through
 //!   are joined by union (moved on any path is moved); when every arm leaves
-//!   the set is the one before the arms. Then every local *assigned* inside
-//!   an arm is revived — for a `Branch` (an `if`), only in the arms that fall
-//!   through; for a `Switch` (a `when`), in every arm (the checker's
-//!   `reset_assigned`).
-//! * A loop body is walked once from the entry set; when its end set differs,
-//!   once more from that end set (the back edge). The set after the loop is
-//!   the last walk's end set joined with every `break`'s, and then every local
-//!   assigned anywhere in the body is revived. A `continue` contributes
-//!   nothing to the next iteration.
+//!   the set is the one before the arms. An assignment revives its local on
+//!   the path it runs on, so an arm that assigns and then moves leaves it
+//!   moved, and an arm that assigns and leaves revives nothing after it.
+//! * A loop's top-of-iteration state is the entry state joined with every
+//!   back edge — the body's end state when the body falls through (a body
+//!   that always leaves has none), and every `continue`'s — and the body is
+//!   walked again until that state stops changing. The state after a
+//!   `Loop` is its `break`s' joined (none: it never falls through, only
+//!   `return`s leave it); after a `ForEach`, the top state's joined with
+//!   them, since it also leaves at the top.
 //! * A narrowing binding of a whole local (`Narrow`, `Alias`) is the same
 //!   storage: moving it moves the local. A narrowing justified by a test *of
 //!   that local* where it is made (a `Test`, an arm whose condition tests
@@ -366,15 +372,26 @@ struct PartOf {
     view: bool,
 }
 
+/// The states a loop body leaves by: each `break`'s (the loop's exits) and
+/// each `continue`'s (its back edge, with the body's end).
+#[derive(Default)]
+struct LoopExits {
+    breaks: Vec<Moved>,
+    continues: Vec<Moved>,
+}
+
+/// A cap on a loop's fixpoint: the state only grows (a join is a union),
+/// so it settles long before; the cap only bounds a bug.
+const MAX_LOOP_WALKS: usize = 32;
+
 #[derive(Default)]
 struct Walker<'f> {
     /// [fate-poison] The fn's flow-only facts.
     fate: Option<&'f FateFacts>,
     out: Vec<FlowDiagnostic>,
-    /// Reported use spans: a read reached by both loop walks reports once.
+    /// Reported use spans: a read reached by several loop walks reports once.
     reported: HashSet<(u32, u32)>,
-    /// Each local's declared type: a narrowing binding has its local's, as
-    /// the checker judges a move by the variable's declared type.
+    /// Each local's declared type: a narrowing binding has its local's.
     decl_ty: HashMap<String, Ty>,
     /// A narrowing binding or alias of a whole local → that local.
     alias_of: HashMap<String, String>,
@@ -383,8 +400,9 @@ struct Walker<'f> {
     /// whether it is a narrowing (`Narrow`, the checker's same place) rather
     /// than a binding the checker keeps as a variable of its own (`Alias`).
     part_of: HashMap<String, PartOf>,
-    /// Per enclosing loop (innermost last): the sets at its `break`s.
-    breaks: Vec<Vec<Moved>>,
+    /// Per enclosing loop (innermost last): the sets at its `break`s and
+    /// its `continue`s, on the walk in progress.
+    loops: Vec<LoopExits>,
     /// What each test node, each branch arm's condition and each switch
     /// tests: the storage of the whole locals it reads as its subject — so a
     /// narrowing can tell a test of *its* local from an enclosing arm's.
@@ -474,10 +492,10 @@ impl<'f> Walker<'f> {
     }
 
     /// [fate-partial-move] A read of `steps` out of `local` where something
-    /// was moved out of its storage: the checker's `check_moved_place`, at
-    /// each projection of the read from the innermost (`n.a` of `n.a.b`
-    /// first, as the checker checks a field read's base), the whole value
-    /// only when the read is of it. A wholly moved local is the other
+    /// was moved out of its storage: a use when the place read overlaps a
+    /// moved one — it is under it, or contains it (the whole value
+    /// included). A sibling of a moved place is not a use, at any depth
+    /// (`n.a.name` after `n.a.tags`). A wholly moved local is the other
     /// diagnostic's (`report_use`).
     fn report_part_use(&mut self, local: &str, steps: &[Step], span: Span, moved: &Moved) {
         let Some((root, path)) = self.place_of(local, steps, false) else { return };
@@ -486,17 +504,12 @@ impl<'f> Walker<'f> {
         if written.starts_with("__") {
             return;
         }
-        let lens: Vec<usize> = if path.is_empty() { vec![0] } else { (1..=path.len()).collect() };
-        for len in lens {
-            let read = &path[..len];
-            let Some((gone, moved_at)) = parts.iter().find(|(p, _)| overlaps(p, read)).cloned() else { continue };
-            if !self.reported.insert((span.start, span.end)) {
-                return;
-            }
-            let part = PartUse { place: show_place(&written, read), moved: show_place(&written, &gone), whole: read.is_empty() };
-            self.out.push(FlowDiagnostic { span, message: part_message(&written, &part, ""), local: written, moved_at, part: Some(part), poison: None });
+        let Some((gone, moved_at)) = parts.iter().find(|(p, _)| overlaps(p, &path)).cloned() else { return };
+        if !self.reported.insert((span.start, span.end)) {
             return;
         }
+        let part = PartUse { place: show_place(&written, &path), moved: show_place(&written, &gone), whole: path.is_empty() };
+        self.out.push(FlowDiagnostic { span, message: part_message(&written, &part, ""), local: written, moved_at, part: Some(part), poison: None });
     }
 
     /// [fate-partial-move] A consuming read of a projection moves that
@@ -624,11 +637,13 @@ impl<'f> Walker<'f> {
         out
     }
 
-    /// `local` is moved at `span` by a consuming read, unless its declared
-    /// type moves for free.
+    /// `local` is moved at `span` by a consuming read, unless the value
+    /// moves for free [copy-scalar-free] — judged by the read's own type,
+    /// so a union narrowed to a Copy scalar is copied (and by the local's
+    /// declared type, which a narrowing shares).
     fn mark_moved(&mut self, local: &str, read_ty: &Ty, span: Span, moved: &mut Moved) {
-        let ty = self.decl_ty.get(self.storage(local)).unwrap_or(read_ty);
-        if crate::types::moves_for_free(ty) {
+        let declared = self.decl_ty.get(self.storage(local));
+        if crate::types::moves_for_free(read_ty) || declared.is_some_and(crate::types::moves_for_free) {
             return;
         }
         self.mark_moved_whole(local, span, moved);
@@ -677,8 +692,8 @@ impl<'f> Walker<'f> {
         at.to_string()
     }
 
-    /// Revives a wholly moved local (its partial moves are not touched:
-    /// the checker's `reset_assigned` leaves `moved_places` alone).
+    /// Revives a wholly moved local (its partial moves are the caller's:
+    /// `revive_parts`).
     fn revive(&self, local: &str, moved: &mut Moved) {
         for l in self.group(local) {
             moved.whole.remove(&l);
@@ -702,15 +717,12 @@ impl<'f> Walker<'f> {
 
     fn walk_stmt(&mut self, s: &Stmt, moved: &mut Moved) -> Flow {
         match s {
-            Stmt::Loop { body, .. } => {
-                self.walk_loop(body, None, moved);
-                Flow::FallsThrough
-            }
+            Stmt::Loop { body, .. } => self.walk_loop(body, None, false, moved),
             Stmt::ForEach { id, local, ty, iterable, body } => {
                 let flow = self.walk_expr(iterable, moved);
                 self.decl_ty.insert(local.0.clone(), ty.clone());
                 let links = self.bind_links(*id);
-                self.walk_loop(body, Some((&local.0, links)), moved);
+                self.walk_loop(body, Some((&local.0, links)), true, moved);
                 flow
             }
             Stmt::Let { id, local, ty, value } => {
@@ -756,13 +768,14 @@ impl<'f> Walker<'f> {
                 // the target first).
                 let events = self.mutations_at(value.span, true);
                 self.apply_mutations(&events, value.span, moved);
-                // [fate-partial-move] The checker puts a projection back
-                // when it checks the target, before the value: what the value
-                // moves out of the place stays moved (`p.tags = f(p.tags)`).
+                let flow = self.walk_expr(value, moved);
+                // [fate-partial-move] A projection is put back once its new
+                // value is in: the value's read of the moved place is a use
+                // (`p.tags = f(p.tags)`), and whatever the value moved out of
+                // the place is replaced.
                 if !place.steps.is_empty() {
                     self.revive_parts(&place.root.0, &place.steps, moved);
                 }
-                let flow = self.walk_expr(value, moved);
                 if place.steps.is_empty() {
                     // [fate-move-mode] A move-mode assignment takes its
                     // value's roots first.
@@ -788,12 +801,19 @@ impl<'f> Walker<'f> {
                 Flow::Leaves
             }
             Stmt::Break => {
-                if let Some(frame) = self.breaks.last_mut() {
-                    frame.push(moved.clone());
+                if let Some(frame) = self.loops.last_mut() {
+                    frame.breaks.push(moved.clone());
                 }
                 Flow::Leaves
             }
-            Stmt::Continue => Flow::Leaves,
+            // A `continue` takes its state to the top of the next
+            // iteration: the loop's back edge.
+            Stmt::Continue => {
+                if let Some(frame) = self.loops.last_mut() {
+                    frame.continues.push(moved.clone());
+                }
+                Flow::Leaves
+            }
             Stmt::Obligation(_) => Flow::FallsThrough,
         }
     }
@@ -860,43 +880,54 @@ impl<'f> Walker<'f> {
         }
     }
 
-    /// A loop body, the checker's way: once from the entry set, and once
-    /// more from the end set when the body changed it; after the loop, the
-    /// end set joined with every `break`'s, then everything the body assigns
-    /// revived. `binding` is a `for` binding, fresh on every iteration.
-    fn walk_loop(&mut self, body: &Block, binding: Option<(&str, Option<&Vec<FlowLink>>)>, moved: &mut Moved) {
-        self.breaks.push(Vec::new());
-        let entry = moved.clone();
-        let mut end = entry.clone();
-        if let Some((b, links)) = binding {
-            end.forget(b);
-            end.set_links(b, links);
-        }
-        self.walk_block(body, &mut end);
-        // [fate-partial-move] A changed set of moved places changes the
-        // checker's snapshot too, and so do [fate-link] changed links.
-        if !end.whole.keys().eq(entry.whole.keys()) || end.parts != entry.parts || end.links != entry.links {
-            let mut again = end.clone();
+    /// A loop body, as dataflow: the state at the top of an iteration is
+    /// the entry state joined with every back edge — the body's end when it
+    /// falls through, and every `continue`'s — walked again until it stops
+    /// changing. A body that always leaves has no back edge from its end.
+    /// After the loop: the `break`s joined, and for a `for` (which also
+    /// leaves at the top, when the iterable runs out) the top state first;
+    /// an unconditional `Loop` with no `break` never falls through.
+    /// `binding` is a `for` binding, fresh on every iteration.
+    fn walk_loop(&mut self, body: &Block, binding: Option<(&str, Option<&Vec<FlowLink>>)>, exits_at_top: bool, moved: &mut Moved) -> Flow {
+        let mut head = moved.clone();
+        let mut breaks = Vec::new();
+        for _ in 0..MAX_LOOP_WALKS {
+            let mut path = head.clone();
             if let Some((b, links)) = binding {
-                again.forget(b);
-                again.set_links(b, links);
+                path.forget(b);
+                path.set_links(b, links);
             }
-            self.walk_block(body, &mut again);
-            end = again;
+            self.loops.push(LoopExits::default());
+            let flow = self.walk_block(body, &mut path);
+            let exits = self.loops.pop().unwrap_or_default();
+            breaks = exits.breaks;
+            let mut next = head.clone();
+            if flow == Flow::FallsThrough {
+                join_into(&mut next, path);
+            }
+            for c in exits.continues {
+                join_into(&mut next, c);
+            }
+            if next == head {
+                break;
+            }
+            head = next;
         }
-        let breaks = self.breaks.pop().unwrap_or_default();
-        for b in breaks {
-            join_into(&mut end, b);
+        let mut out: Vec<Moved> = Vec::new();
+        if exits_at_top {
+            out.push(head.clone());
         }
-        let mut assigned = Vec::new();
-        assigned_in_block(body, &mut assigned);
-        for name in assigned {
-            self.revive(&name, &mut end);
+        out.extend(breaks);
+        if out.is_empty() {
+            // Only a `return` (or a throw) leaves: nothing follows the loop.
+            *moved = head;
+            return Flow::Leaves;
         }
+        self.join(out, moved);
         if let Some((b, _)) = binding {
-            end.forget(b);
+            moved.forget(b);
         }
-        *moved = end;
+        Flow::FallsThrough
     }
 
     fn walk_expr(&mut self, e: &Expr, moved: &mut Moved) -> Flow {
@@ -915,9 +946,12 @@ impl<'f> Walker<'f> {
                 if !self.report_use(&place.root.0, e.span, moved) {
                     self.report_part_use(&place.root.0, &place.steps, e.span, moved);
                 }
-                if *checker_moved {
+                if *checker_moved && !(place.steps.is_empty() && crate::types::moves_for_free(&e.ty)) {
                     // The checker consumed the root here: a fn value, or a
-                    // projection whose move took its root wholly.
+                    // projection whose move took its root wholly. (It also
+                    // marks a narrowed Copy scalar, judging by the declared
+                    // union; the value's own type says it is a copy
+                    // [copy-scalar-free].)
                     let root = self.root_of(&place.root.0);
                     self.mark_moved_whole(&root, e.span, moved);
                 } else if *consume && place.steps.is_empty() {
@@ -966,13 +1000,11 @@ impl<'f> Walker<'f> {
                     return self.walk_block(&arms[0].1, moved);
                 }
                 let mut falls: Vec<Moved> = Vec::new();
-                let mut revived: Vec<&Block> = Vec::new();
                 for (cond, body) in arms {
                     self.walk_expr(cond, moved);
                     let mut path = moved.clone();
                     if self.walk_block(body, &mut path) == Flow::FallsThrough {
                         falls.push(path);
-                        revived.push(body);
                     }
                 }
                 match otherwise {
@@ -980,7 +1012,6 @@ impl<'f> Walker<'f> {
                         let mut path = moved.clone();
                         if self.walk_block(body, &mut path) == Flow::FallsThrough {
                             falls.push(path);
-                            revived.push(body);
                         }
                     }
                     None => {
@@ -990,8 +1021,9 @@ impl<'f> Walker<'f> {
                     }
                 }
                 let flow = if falls.is_empty() { Flow::Leaves } else { Flow::FallsThrough };
+                // An assignment in an arm revived its local on that path
+                // only: the join says the rest.
                 self.join(falls, moved);
-                self.revive_assigned(&revived, moved);
                 flow
             }
             ExprKind::Switch { id, subject, arms } => {
@@ -1008,9 +1040,6 @@ impl<'f> Walker<'f> {
                 }
                 let flow = if falls.is_empty() { Flow::Leaves } else { Flow::FallsThrough };
                 self.join(falls, moved);
-                // A `when` resets what *any* arm assigns, leaving or not.
-                let all: Vec<&Block> = arms.iter().map(|a| &a.body).collect();
-                self.revive_assigned(&all, moved);
                 flow
             }
             ExprKind::Lambda { params, body, captures, .. } => {
@@ -1019,9 +1048,9 @@ impl<'f> Walker<'f> {
                     self.decl_ty.insert(p.local.0.clone(), p.ty.clone());
                     inner.forget(&p.local.0);
                 }
-                let loops = std::mem::take(&mut self.breaks);
+                let loops = std::mem::take(&mut self.loops);
                 self.walk_block(body, &mut inner);
-                self.breaks = loops;
+                self.loops = loops;
                 for c in captures {
                     if c.consumed {
                         self.mark_moved_whole(&c.local.0, e.span, moved);
@@ -1066,16 +1095,6 @@ impl<'f> Walker<'f> {
         }
         *moved = acc;
     }
-
-    fn revive_assigned(&self, blocks: &[&Block], moved: &mut Moved) {
-        let mut assigned = Vec::new();
-        for b in blocks {
-            assigned_in_block(b, &mut assigned);
-        }
-        for name in assigned {
-            self.revive(&name, moved);
-        }
-    }
 }
 
 /// Moved on either path is moved; so is a place moved out on either
@@ -1117,53 +1136,6 @@ fn written_name(local: &str) -> &str {
     match local.find('~') {
         Some(i) => &local[..i],
         None => local,
-    }
-}
-
-/// Every whole local assigned anywhere inside `block`, lambdas included —
-/// what the checker's `collect_assigned` resets after a branch or a loop.
-fn assigned_in_block(block: &Block, out: &mut Vec<String>) {
-    for s in &block.stmts {
-        match s {
-            Stmt::Assign { place, value } => {
-                if place.steps.is_empty() {
-                    out.push(place.root.0.clone());
-                }
-                assigned_in_expr(value, out);
-            }
-            Stmt::Loop { body, .. } => assigned_in_block(body, out),
-            Stmt::ForEach { iterable, body, .. } => {
-                assigned_in_expr(iterable, out);
-                assigned_in_block(body, out);
-            }
-            Stmt::Let { value, .. } | Stmt::Expr(value) | Stmt::Return(Some(value)) => assigned_in_expr(value, out),
-            _ => {}
-        }
-    }
-    if let Some(v) = &block.value {
-        assigned_in_expr(v, out);
-    }
-}
-
-fn assigned_in_expr(e: &Expr, out: &mut Vec<String>) {
-    match &e.kind {
-        ExprKind::Branch { arms, otherwise, .. } => {
-            for (c, b) in arms {
-                assigned_in_expr(c, out);
-                assigned_in_block(b, out);
-            }
-            if let Some(b) = otherwise {
-                assigned_in_block(b, out);
-            }
-        }
-        ExprKind::Switch { subject, arms, .. } => {
-            assigned_in_expr(subject, out);
-            for a in arms {
-                assigned_in_block(&a.body, out);
-            }
-        }
-        ExprKind::Lambda { body, .. } | ExprKind::Try { body } | ExprKind::WaitFor { body, .. } => assigned_in_block(body, out),
-        _ => each_operand(e, &mut |sub| assigned_in_expr(sub, out)),
     }
 }
 

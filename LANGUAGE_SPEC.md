@@ -8206,10 +8206,12 @@ between endpoints and delivers what arrives into the scheduler.
   first: a checker error anywhere hides the flow pass's diagnostics until it
   is fixed.
   * Per path it keeps the set of wholly moved locals: a `Read { consume:
-    true }` of a whole local whose declared type does not move for free
+    true }` of a whole local whose value does not move for free — judged by
+    the read's own type, so a union narrowed to a Copy scalar is copied
     [copy-scalar-free]; a `Read { moved: true }`, which moves the root of
     its place (through narrowings and bindings of projections) whatever its
-    type; a `Call { target: FnRef::Local(l), moved: true }`, which moves `l`
+    type, except a whole read whose own type is a Copy scalar (the checker
+    marks a narrowed union by its declared type); a `Call { target: FnRef::Local(l), moved: true }`, which moves `l`
     after the arguments; and a lambda's consumed `Capture`. Any read of a
     place rooted at a moved local is the error, and so is a call of one
     (`FnRef::Local`, as a call target or a fn value),
@@ -8232,13 +8234,19 @@ between endpoints and delivers what arrives into the scheduler.
     size(w))`, `Spec { ...base, name: "${base.name}" }`), the builder
     evaluates every non-moving component first, in order, into a temporary
     (`__part`), then the moves (`hoist_past_stores`).
-  * Joins and loops **mirror the checker's rules as they are**, unsound
-    corners included (ROADMAP 0o): an `if`'s non-leaving arms and every arm
-    of a `when` revive what they assign after the join; a loop body is
-    walked once more from its end state when it changed (the end state is
-    taken even when the body always leaves); the set after it joins the
-    `break`s and revives what the body assigns; a `continue` carries nothing
-    to the next iteration.
+  * **Joins and loops are dataflow over paths** (R8 piece 5, 2026-10-20;
+    until then they mirrored the checker's rules, ROADMAP 0o): each arm of
+    an `if` or a `when` starts from the state before it, and the arms that
+    fall through are joined by union (moved, partly moved, poisoned or
+    linked on any path is so after it); an assignment revives its local on
+    its own path only, so an arm that assigns and then moves leaves it
+    moved, and one that assigns and leaves revives nothing after the join.
+    A loop's top-of-iteration state is the entry state joined with every
+    back edge — the body's end when the body falls through (a body that
+    always leaves has none: `while c { eat(s); break }` and a top-level
+    `break s` are fine) and every `continue`'s — walked until it stops
+    changing. After a loop come its `break`s, joined; a `for` also leaves at
+    the top; an unconditional loop with no `break` never falls through.
   * **The IR's `moved` flag** (R8 piece 3a) carries the checker's moves
     that emission does not make, from `Checked::flow_moves`: on a `Read`, an
     identifier a call's contract consumed — a **fn value**, which
@@ -8255,13 +8263,16 @@ between endpoints and delivers what arrives into the scheduler.
     field, a tuple position, `[?]` for an index), composed through
     narrowings of projections and, for the move, through bindings of them.
     A read of the whole local is a use of every such place; a read of a
-    projection is a use when the place, or a shorter projection of it
-    (`n.a` of `n.a.b`, as the checker checked a field read's base), overlaps
-    one (`Place::overlaps`). Assigning a projection puts back what it covers
-    *before* the value is read (the checker's order), assigning the whole
-    local puts back everything after it, and a fresh binding starts whole;
-    a join unions the places, and the `if`/`when`/loop revivals of what an
-    arm assigns do not touch them (`reset_assigned` never did). The two
+    projection is a use when its own place overlaps one (`Place::overlaps`:
+    it is under the moved place or contains it), so a sibling at any depth
+    is not (`n.a.name` after moving `n.a.tags`; until R8 piece 5 the
+    checker's check of a field read's base was mirrored and refused it).
+    Assigning a projection puts back what it covers *after* the value is
+    read, so `p.tags = relist(p.tags)` with `p.tags` moved reports the read
+    (rustc's E0382; until piece 5 the place was put back first, the read
+    passed and the field stayed moved); assigning the whole local puts back
+    everything after it, and a fresh binding starts whole; a join unions
+    the places. The two
     messages name the move's line: "`p` cannot be used as a whole here:
     `p.tags` was moved out of it at line 3, so part of the value is gone;
     move the remaining parts individually, or `copy` at the site that moved
@@ -8300,7 +8311,7 @@ between endpoints and delivers what arrives into the scheduler.
     checker still poisons (it marks the value consumed, which its own joins
     and linear rules read) and records the links and the mutations; it
     reports none of it.
-  * `tests/flow_tests.rs` pins every case's reads over a corpus (142
+  * `tests/flow_tests.rs` pins every case's reads over a corpus (148
     programs: fn values moved then called, passed or lent, `once` fns called
     twice, in a loop, after being passed on, roots a projection took, fields
     moved then read whole, again, disjointly, nested, by index, after
@@ -8309,13 +8320,18 @@ between endpoints and delivers what arrives into the scheduler.
     narrowing; move-mode bindings then their roots read, and bindings whose
     mode a later use decides after their root was reassigned, through a
     destructure used in one arm, along a chain; all in branches and loops,
-    and near misses), checks that the checker reports nothing on it
+    and near misses; and ROADMAP 0o's repros, each case saying what it
+    reported while the checker's rules were mirrored), checks that the checker reports nothing on it
     and that the gate (`ir::analyze`) reports what the pass finds, and finds
     nothing on any example or on std. Until pieces 3a, 3b and 3c it was a
     differential against the checker's own diagnostics; they agreed on the
     final corpus and went with them (two differences, fixes:
     [deduce-same-call] for projections, and for a value derived from an
-    earlier argument's root).
+    earlier argument's root). Piece 5's fixes are pinned end to end too:
+    `the_gates_refuse_what_the_flow_pass_let_through` (salvo-cli's
+    analyze_tests: the unsound repros refused by `analyze` and by `compile`
+    on both backends) and `…_compiles_and_runs_what_the_flow_pass_now_accepts`
+    on both backends (the over-strict ones, one program, one output).
 * [deduce-consume] Deduction clauses are enforced flow-sensitively at call
   sites on bare identifier arguments: a callee's contract (default or written)
   decides whether the caller's argument is consumed, so `return list` in a
@@ -8606,26 +8622,27 @@ between endpoints and delivers what arrives into the scheduler.
   * a read of a **disjoint** projection iterators — `eat(p.tags)` then
     `p.name` is legal;
   * a read **overlapping** a moved place is an error naming the field
-    that left (same path, a prefix either way, or a computed index);
+    that left (same path, a prefix either way, or a computed index); a
+    sibling is disjoint at any depth — `n.a.name` after moving `n.a.tags`
+    is legal (refused until R8 piece 5, which mirrored the checker's check
+    of a field read's base);
   * a use of the **whole value** is always refused: a struct missing a
     part cannot be passed, returned or stored. The diagnostic says so
     separately from the read case, because the remedy differs (move the
     remaining parts individually, or `copy` at the move site);
-  * an **assignment** to the place puts it back, dropping every moved
-    record the assigned place covers; whole-variable reassignment revives
-    everything, exactly as it revives a consumed variable;
+  * an **assignment** to the place puts it back once its value is read,
+    dropping every moved record the assigned place covers — so the value
+    may not read the moved place: `p.tags = f(p.tags)` after moving
+    `p.tags` is an error at the read (accepted until R8 piece 5, which put
+    the place back first, and failed rustc with E0382); whole-variable
+    reassignment revives everything, exactly as it revives a consumed
+    variable;
   * merging is **union** — moved on any path is moved — and survives loop
     back edges, so a read early in a body errors when a later statement
     moved the field in the previous iteration. (`place_narrows`, the
     narrowing dual, intersects instead.) Reassigning the whole variable in
     one arm of an `if` does not put the parts back after the join when the
     other path still has them moved;
-  * mirrored as the checker had them (R8 piece 3b findings): a read of
-    `n.a.name` after moving `n.a.tags` is refused, because the read's
-    shorter projection `n.a` overlaps (over-strict; rustc accepts it); and
-    an assignment puts its place back before its value is read, so `p.tags
-    = f(p.tags)` after moving `p.tags` is accepted and leaves `p.tags` moved
-    (unsound: rustc reports the read, E0382) — ROADMAP 0o.
   * A **kept parameter still refuses the move outright**: the caller keeps
     the value, so nothing may be taken from it. This is Rust's rule for a
     borrowed parameter (E0507), and it is why partial moves need no
@@ -8638,7 +8655,9 @@ between endpoints and delivers what arrives into the scheduler.
   * On the Rust backend a moved projection emits as a real **partial
     move** of the field (the existing `moved_projections` rendering), and
     a revival emits as rustc's reinitialization of a moved field; both are
-    accepted by borrowck [rs-borrows].
+    accepted by borrowck [rs-borrows]. Not through an index: `eatl(xs[0].tags)`
+    of an owned `xs: Rec[]` emits a move out of an index, E0507 (an open
+    defect, ROADMAP 0q).
 * [fate-lambda] Lambdas are ordinary values under shared fate (decision
   L4a, 2026-09-02): a lambda's relationship to the variables it
   captures is classified from its body, and the contract binds at

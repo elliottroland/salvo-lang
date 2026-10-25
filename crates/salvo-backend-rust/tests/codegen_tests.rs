@@ -18164,3 +18164,95 @@ fn rustc_compiles_and_runs_handler_parameter_defaults() {
     let files = generate(&[("main.sv", HANDLER_PARAM_DEFAULT_DEMO)]);
     run_rust_files(&files, "handler-param-default", HANDLER_PARAM_DEFAULT_OUTPUT);
 }
+
+/// [flow-use-after-move] [copy-scalar-free] [fate-partial-move] What the IR
+/// flow pass refused until R8 piece 5 (ROADMAP 0o's over-strict rules), and
+/// rustc accepts: a loop body that always leaves (no back edge, so neither
+/// `eat(s)` before a `break` nor a top-level `break s` is a second
+/// iteration's use), a union narrowed to `Int` moved twice (a copy), and a
+/// sibling of a moved field under the same parent. The same program and
+/// expected output as the Kotlin backend's
+/// `kotlinc_compiles_and_runs_what_the_flow_pass_now_accepts`.
+const FLOW_ACCEPTS_DEMO: &str = r#"
+struct Rec {
+    name: Str,
+    tags: Mut List<Str>
+}
+
+struct Nest {
+    a: Rec,
+    other: Mut List<Str>
+}
+
+fn eat(s: Str) -> None => !s {
+}
+
+fn eatl(xs: Mut List<Str>) -> Int => !xs {
+    return size(xs)
+}
+
+fn look(s: Str) -> Int {
+    return size(s)
+}
+
+fn take<T>(v: T) -> None => !v {
+}
+
+// A body that always leaves has no back edge.
+fn drain(c: Bool, s: Str) -> Int => !s {
+    let n = 0
+    while c {
+        n = look(s)
+        eat(s)
+        break
+    }
+    return n
+}
+
+// A union narrowed to a Copy scalar moves for free.
+fn count(v: Int | Bool) -> Int => !v {
+    let n = 0
+    if v is Int {
+        take(v)
+        take(v)
+        n = v
+    }
+    take(v)
+    return n
+}
+
+// A sibling of a moved field, under the same parent, is still there.
+fn sibling(n: Nest) -> Int => !n {
+    let k = eatl(n.a.tags)
+    return k + look(n.a.name)
+}
+
+// A top-level `break` of a local moves it out of a body that always leaves.
+fn first(c: Bool) -> Int {
+    let s = "ab${1}"
+    let r = while c {
+        break s
+    }
+    if r is Str {
+        return look(r)
+    }
+    return 0
+}
+
+fn main() [use] {
+    use StdConsole()
+    println("${drain(true, "abc${1}")} ${drain(false, "x")}")
+    println("${count(7)} ${count(true)}")
+    println("${first(true)} ${first(false)}")
+    let t = Mut List<Str>()
+    add(t, "a")
+    add(t, "b")
+    println("${sibling(Nest { a: Rec { name: "four", tags: t }, other: Mut List<Str>() })}")
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_what_the_flow_pass_now_accepts() {
+    let files = generate(&[("main.sv", FLOW_ACCEPTS_DEMO)]);
+    run_rust_files(&files, "flow-accepts", "4 0\n7 0\n3 0\n6\n");
+}

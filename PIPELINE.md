@@ -1176,3 +1176,32 @@ log current so the work can resume after a context reset). Newest last.
     pass with the links (`fate_binds` computed there rather than by the
     checker); and deadlock onto the IR (the link stage), with the derived
     route's router node per §7 and a test of a cycle through a route.
+- **R8 piece 5 (ROADMAP 0o in the flow pass): done** (committed "Track
+  moves path by path in the IR flow pass"). The pass's joins and loops are
+  dataflow over paths, its own rules now: an assignment revives on its own
+  path (the `reset_assigned` mirror went, and with it the poison revival:
+  `t = xs; add(xs, …)` in an arm leaves `t` poisoned at the join); a loop's
+  top state is the entry joined with the body's end (when it falls through)
+  and every `continue`'s, walked to a fixpoint (cap 32); after it, the
+  `break`s (and a `for`'s top state); a `Loop` with no `break` never falls
+  through; a projection is put back after its value is read. Over-strict
+  rules dropped, each checked with `salvo run --backend '*'`: a body that
+  always leaves has no back edge (`while c { eat(s); break }`, a top-level
+  `break s` — the pass's refusal, not the checker's typing); a whole read
+  whose own type is a Copy scalar is a copy whatever the `moved` flag says
+  (the checker sets it by the declared union); a projection read is checked
+  at its own place only (`n.a.name` after `n.a.tags`). The checker's joins
+  were not touched (its linear rules and move-mode read them). Tests: 148
+  `flow_tests` cases (eight expectations changed, six new), a gate test in
+  salvo-cli's analyze_tests for the unsound repros, a KotlinCase and a
+  `run_rust_files` test for the over-strict ones; std and every example
+  stay clean. Found: a move out of an indexed element fails rustc (E0507),
+  older than this, ROADMAP 0q.
+  - **What is left of R8**: lambda capture moves, handler-storage moves and
+    lends validation (static move-site rules, still the checker's);
+    linearity's checker half (its joins, the assigning-drops rule,
+    decomposition), after which move-mode can move to the flow pass with
+    the links (`fate_binds` computed there), and the checker's own
+    `reset_assigned`/`check_loop_body` joins can go with it; and deadlock
+    onto the IR (the link stage), with the derived route's router node per
+    §7 and a test of a cycle through a route.

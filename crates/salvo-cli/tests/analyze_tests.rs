@@ -387,6 +387,128 @@ fn every_gate_reports_a_use_after_move() {
     );
 }
 
+// [flow-use-after-move] [fate-partial-move] [fate-poison] ROADMAP 0o's
+// unsound rules, fixed in the IR flow pass (R8 piece 5): each of these
+// checked clean before and failed rustc with E0382 (or, `linked`, printed 0
+// on Rust and 1 on Kotlin). Every gate that emits now refuses them, at the
+// read: an `if` arm that assigns and then moves (`arm`), a `when` arm that
+// assigns and leaves (`leaving`), a move before `continue` read at the top
+// of the next iteration (`skips`, at the read and at the move itself), a
+// value linked and poisoned in an arm (`linked`), and a field's new value
+// reading the moved field (`back`).
+#[test]
+fn the_gates_refuse_what_the_flow_pass_let_through() {
+    let dir = src_dir("flow_0o");
+    fs::write(dir.join("main.sv"), r#"struct Rec canbe Mut {
+    name: Str,
+    tags: Mut List<Str>
+}
+
+fn eat(s: Str) -> None => !s {
+}
+
+fn look(s: Str) -> Int {
+    return size(s)
+}
+
+fn mk() -> Str {
+    return "a${1}"
+}
+
+fn eatl(xs: Mut List<Str>) -> None => !xs {
+}
+
+fn relist(xs: Mut List<Str>) -> Mut List<Str> => !xs {
+    return xs
+}
+
+fn takep(p: Rec) -> None => !p {
+}
+
+fn arm(c: Bool) -> Int {
+    let s = mk()
+    if c {
+        s = mk()
+        eat(s)
+    }
+    return look(s)
+}
+
+fn leaving(v: Int | Bool) -> Int {
+    let s = mk()
+    eat(s)
+    when v {
+        is Int {
+            s = mk()
+            return look(s)
+        }
+        is Bool {
+        }
+    }
+    return look(s)
+}
+
+fn skips(d: Bool) -> Int {
+    let s = mk()
+    let n = 0
+    let i = 0
+    while i < 2 {
+        i = i + 1
+        n = n + look(s)
+        if d {
+            eat(s)
+            continue
+        }
+    }
+    return n
+}
+
+fn linked(c: Bool) -> Int {
+    let xs = Mut List<Str>()
+    let t = Mut List<Str>()
+    if c {
+        t = xs
+        add(xs, "a")
+    }
+    return size(t)
+}
+
+fn back(p: Mut Rec) -> None => !p {
+    eatl(p.tags)
+    p.tags = relist(p.tags)
+    takep(p)
+}
+
+fn main() {
+}
+"#).unwrap();
+    let wanted = [
+        "`s` cannot be used here: it was consumed (moved) at line 31; reassign it before use, or `copy` it where it is moved --> main.sv:33:17",
+        "`s` cannot be used here: it was consumed (moved) at line 38; reassign it before use, or `copy` it where it is moved --> main.sv:47:17",
+        "`s` cannot be used here: it was consumed (moved) at line 58; reassign it before use, or `copy` it where it is moved --> main.sv:56:22",
+        "`s` cannot be used here: it was consumed (moved) at line 58; reassign it before use, or `copy` it where it is moved --> main.sv:58:17",
+        "`t` cannot be used here: it was bound from `xs` and shares its fate, and `xs` was mutated at line 70 after the binding; bind it with `copy(...)` to keep an independent value, or reassign it before use --> main.sv:72:17",
+        "`p.tags` cannot be used here: `p.tags` was moved out of `p` at line 76, and this reads the same data; `copy` at the site that moved it to keep this readable --> main.sv:77:21",
+    ];
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "stderr: {stderr}");
+    for w in wanted {
+        assert!(stderr.contains(w), "missing `{w}` in: {stderr}");
+    }
+    assert!(stderr.contains(&format!("{} errors", wanted.len())), "stderr: {stderr}");
+    for backend in ["rust", "kotlin"] {
+        let target = dir.join(format!("out_{backend}"));
+        let out = salvo(&["compile", "--backend", backend, "--src", dir.to_str().unwrap(), "--target", target.to_str().unwrap()]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{backend} compiled a use after a move: {stderr}");
+        for w in wanted {
+            let message = w.split(" --> ").next().unwrap();
+            assert!(stderr.contains(message), "{backend}: missing `{message}` in: {stderr}");
+        }
+    }
+}
+
 // [deduce-consume] A *declared* consuming parameter is enforced like an
 // inferred one used to be (second checking round): a callee that consumes
 // its parameter moves it, so the caller's argument is consumed with the

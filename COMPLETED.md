@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2039 tests, complete: the toolchain tests are
+cargo test                  # 2041 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,86 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — The flow pass tracks moves path by path
+
+PIPELINE.md R8 piece 5, ROADMAP 0o [flow-use-after-move]
+[fate-partial-move] [fate-poison] [copy-scalar-free]. The IR flow pass had
+mirrored the checker's join, loop and revival rules exactly, so the
+checker's diagnostics could be switched off one by one (pieces 1–3c). Its
+rules are now its own, and they are dataflow over paths. Only the pass
+changed: the checker reports none of these diagnostics any more, and its
+joins (`reset_assigned`, `check_loop_body`'s second walk of a changed loop
+body) still feed its linear rules and move-mode, which were left alone.
+
+The unsound rules, each of which checked clean and failed rustc with E0382
+(or printed different output on the two backends):
+
+- **Revival is per path.** An assignment revives its local on the path it
+  runs on, and the join of the arms says the rest. The checker's
+  `reset_assigned`, which revived every variable assigned in a fall-through
+  `if` arm, or in any `when` arm, *after* the join, is no longer mirrored.
+  So an `if` arm that assigns `s` and then moves it leaves `s` moved, and a
+  `when` arm that assigns and returns revives nothing after the `when`. The
+  same removal fixes the poison revival: an arm that links `t = xs` and then
+  mutates `xs` leaves `t` poisoned at the join, where the program used to
+  print 0 on Rust and 1 on Kotlin.
+- **`continue` feeds the back edge.** A loop's top-of-iteration state is the
+  entry state joined with the body's end state (when the body falls
+  through) and with every `continue`'s state. The body is walked again until
+  that state stops changing, with a cap of 32 walks that only bounds a bug,
+  since a join only grows. The old rule was one more walk from the end
+  state, with `continue` states dropped. A move before `continue` is now
+  moved at the top of the next iteration.
+- **A field is put back after its new value is read.** In `p.tags =
+  relist(p.tags)` after moving `p.tags`, the read on the right is the use.
+  The old order (put back first, then read the value) let the read through
+  and left the field moved, so `takep(p)` was refused instead.
+
+The over-strict rules. Each fix was checked for emission with `salvo run
+--backend '*'` in `tmp/`, and each is now an e2e test on both backends:
+
+- **A body that always leaves has no back edge.** `while c { eat(s); break
+  }` no longer reports `eat(s)`, and a top-level `break s` of a non-Copy
+  local (`let r = while c { break s }`) is accepted. The refusal was the
+  pass's own (its re-walk from the body's end), not the checker's typing.
+  An unconditional `Loop` with no `break` (only `return`s) now never falls
+  through.
+- **A narrowed Copy scalar moves for free**, judged by the read's own
+  type: `v: Int | Bool`, `if v is Int { take(v); take(v) }`. The checker
+  still records the move in `flow_moves`, which sets the IR's `moved` flag,
+  because it judges by the declared union. The pass now ignores that flag
+  on a whole read whose own type is a Copy scalar. The Rust output copies
+  the `i32` out of the union (`match &v { U1(__v) => *__v, … }`).
+- **Only the place read is checked against what moved out.** `n.a.name`
+  after moving `n.a.tags` is a sibling and is fine; `n.a` still overlaps.
+  The pass used to mirror the checker's check of a field read's base,
+  which tested every shorter projection of the read. rustc accepts the
+  partial move followed by `&n.a.name`.
+
+Found: moving a field out of an indexed element (`eatl(xs[0].tags)` with an
+owned `xs: Rec[]`) checks clean and fails rustc with E0507. The same is
+true of a whole element, `eatl(xs[0])`. This is older than this change and
+is now ROADMAP 0q. The new sibling rule lets `xs[1].name` through after
+such a move, but the move itself is what rustc refuses. Also fixed: a spec
+bug in docs/language's Deductions-and-Ownership page, which still said
+consumption "holds uniformly across all types", a rule [copy-scalar-free]
+reversed on 2026-10-20. The page now states the per-path rules too.
+
+Std and every example still produce no flow diagnostic
+(`the_flow_pass_accepts_every_example_and_std`). Tests: `flow_tests` pins
+148 cases. The eight whose expectation changed (`continue_skips`,
+`break_moves`, `assign_then_consume_in_arm`,
+`assign_then_consume_in_loop`, `when_assign_in_leaving_arm`,
+`narrowed_scalar`, `part_nested_sibling`, `part_reassign_from_itself`)
+each say what they reported before. Six are new: `narrowed_scalar_twice`,
+`when_assign_every_arm`, `continue_after_assign`, `break_top_level`,
+`loop_only_returns` and `poison_arm_revival`. Also new are salvo-cli's
+`the_gates_refuse_what_the_flow_pass_let_through` (0o's five unsound
+repros, refused at the read by `analyze` and by `compile` on both
+backends) and `…_compiles_and_runs_what_the_flow_pass_now_accepts` on
+both backends (a KotlinCase, and a `run_rust_files` test: the over-strict
+programs, one program with one output). Emitted code did not change.
 
 ### 2026-10-20 — A binding's mode is decided at its first moving use, and every body is walked once
 
@@ -28669,7 +28749,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2039 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2041 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -29974,15 +30054,23 @@ snapshot diffs.
   and that error hides every flow diagnostic. Split them, or make them
   clean.
 
-- **The checker checked a field read's base, so the flow pass checks every
-  shorter projection** (2026-10-20, R8 piece 3b): the IR reads `n.a.b` as
-  one place, while the checker checked `n.a` (the inner `Field`) and then
-  `n.a.b`, and the `p` of `p.name` only through the `projection_base`
-  counter's suppression. Mirroring that needs the prefixes `1..=len` of the
-  read's path, never the empty one unless the read is of the whole local.
-  And an assignment target was revived *before* its value was checked: a
-  `Stmt::Assign` must put the place back first. Both are 0o findings, kept
-  so the corpus agreed.
+- **The checker checked a field read's base; the flow pass no longer does**
+  (2026-10-20, R8 pieces 3b and 5): the IR reads `n.a.b` as one place,
+  while the checker checked `n.a` (the inner `Field`) and then `n.a.b`.
+  Piece 3b mirrored that (the prefixes `1..=len` of the read's path), and
+  put an assignment's place back *before* its value was read, so the corpus
+  agreed; both were 0o findings, and piece 5 dropped them: only the read's
+  own place is checked, and the place goes back after the value.
+- **A join is only as good as the paths it is given** (2026-10-20, R8
+  piece 5): the checker's `reset_assigned` revived after the join what an
+  arm assigned, because its loop and branch state was not per path; with
+  per-path state an assignment revives where it runs and nothing needs
+  resetting. Two things the old shape hid: `continue` is a back edge (its
+  state goes to the loop's top, not nowhere), and a body that always leaves
+  has none (its end state must not be taken as one). And the IR's `moved`
+  flag is the checker's verdict, made by the declared type: a whole read
+  whose own type is a Copy scalar (a narrowed union) is a copy whatever the
+  flag says.
 - **A partial move's root is the IR place's storage, not the checker's
   fate root.** The checker's move follows a fate link to the root; the IR's
   `Let` of a projection is a fresh local. They agree on the corpus, examples

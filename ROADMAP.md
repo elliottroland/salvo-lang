@@ -573,113 +573,38 @@ reading the second runs `h()` first; `construct_handler` mirrors this) — bind
 every argument up to the last one read, in order, if evaluation order is to
 hold.
 
-### 0o — Open defect: the checker's consumed-read, partial-move and poison rules (mirrored in the flow pass) accept moved reads (found 2026-10-20)
+### 0o — ✅ The flow pass's mirrored join, loop and revival rules (fixed 2026-10-20, COMPLETED.md)
 
-Found mirroring the checker's join and loop rules onto the IR (R8 piece 1,
-[flow-use-after-move]; PIPELINE.md §8). Each program below checks clean, and
-its Rust output fails rustc with E0382 ("borrow of moved value: `s`"); Kotlin
-runs it. A [backend-never-wrong] violation. `eat(s: Str) => !s`, `look(s:
-Str) -> Int`, `mk() -> Str`:
+Fixed in the IR flow pass (R8 piece 5): paths, joins and loop back edges are
+dataflow now, `continue` included; the record and what was left is in
+COMPLETED.md's decision log.
 
-```
-fn arm(c: Bool) -> Int {             // reset_assigned after an `if`
-    let s = mk()
-    if c {
-        s = mk()
-        eat(s)
-    }
-    return look(s)
-}
-fn leaving(v: Int | Bool) -> Int {   // a `when` resets a leaving arm's
-    let s = mk()                     // assignments too
-    eat(s)
-    when v {
-        is Int {
-            s = mk()
-            return look(s)
-        }
-        is Bool {
-        }
-    }
-    return look(s)
-}
-fn skips(d: Bool) -> Int {           // `continue` never feeds the back edge
-    let s = mk()
-    let n = 0
-    let i = 0
-    while i < 2 {
-        i = i + 1
-        n = n + look(s)
-        if d {
-            eat(s)
-            continue
-        }
-    }
-    return n
-}
-```
+### 0q — Open defect: moving a field out of an indexed element fails rustc (found 2026-10-20)
 
-The causes: `reset_assigned` puts a variable assigned anywhere in a
-fall-through arm (every arm, for `when`) back to its declared type *after*
-the join, whatever the arm did with it next; and `check_loop_body` re-walks
-from the body's fall-through end state, while `continue` states are dropped.
-Fix it in the flow pass, not the checker: since R8 piece 2 the pass is the
-gate's use-after-move diagnostic and, since piece 3a, the checker reports no
-consumed read at all (it still marks the move, which its linear machinery
-reads; `flow_tests` pins each case's reads, so a fixed rule changes the
-pinned expectation of its case, with the reason). Its rules then become: an assignment revives a variable on its
-own path only, so the join already says the right thing and the reset goes;
-and the back edge joins the end state with every `continue` state. Two
-over-strict rules to drop with them: the end state of a body that always
-leaves (`while c { eat(s); break }` reports `eat(s)`; a top-level `break s`
-of a non-Copy local is refused outright), and a narrowed Copy scalar being
-consumed because the checker judges by the declared type (`v: Int | Bool`,
-`if v is Int { take(v) }`), where [copy-scalar-free] says the argument's own
-type. `crates/salvo-core/tests/flow_tests.rs` pins every case today
-(`continue_skips`, `break_moves`, `assign_then_consume_in_arm`,
-`assign_then_consume_in_loop`, `when_assign_in_leaving_arm`,
-`narrowed_scalar`). Its expectations change when the rules do.
-
-Two more, from mirroring the checker's partial moves (R8 piece 3b,
-[fate-partial-move]; with `p: Mut Rec`, `n: Nest { a: Rec, other }`, `Rec {
-name: Str, tags: Mut List<Str> }`, `eatl(xs: Mut List<Str>) => !xs`):
+`eatl(xs[0].tags)` with an owned `xs: Rec[]` (`=> !xs`) checks clean and the
+Rust output is `crate::eatl(xs[(0i32) as usize].tags)`: E0507, "cannot move
+out of index of `Vec<Rec>`". Kotlin runs it. A [backend-never-wrong]
+violation, older than R8 piece 5 (the flow pass records the move as the
+partial move `xs[?].tags` [fate-partial-move], and rightly lets a sibling
+read like `xs[1].name` through; the move itself is what rustc refuses). The
+fix is the emitter's (a `std::mem::take`/`replace` of the element's field,
+or a whole-element move) or the checker's (refuse a move out of an index,
+as rustc does), and which one is a language question (DECISION). The
+whole element fails the same way: `eatl(xs[0])` of a local
+`array_of(Mut List<Str>(), Mut List<Str>())` is E0507 too.
 
 ```
-fn back(p: Mut Rec) -> None => !p {  // unsound: the target is put back
-    eatl(p.tags)                     // before the value is read, so the
-    p.tags = relist(p.tags)          // moved read passes (rustc: E0382),
-    takep(p)                         // and `takep(p)` is refused instead
+struct Rec {
+    name: Str,
+    tags: Mut List<Str>
 }
-fn sibling(n: Nest) -> Int => !n {   // over-strict: `n.a`, the shorter
-    eatl(n.a.tags)                   // projection of the read, overlaps
-    return look(n.a.name)            // the moved `n.a.tags`; rustc accepts
+fn eatl(xs: Mut List<Str>) -> Int => !xs {
+    return size(xs)
 }
-```
-
-The fix, in the pass: read an assignment's value before putting its place
-back, and check only the read's own place (`part_reassign_from_itself`,
-`part_nested_sibling` in `flow_tests`).
-
-One more, from mirroring the checker's poison (R8 piece 3c, [fate-poison]):
-the `if` revival reaches a *poisoned* value too, so an arm that links a local
-and then ends its root's value is accepted, and the two backends disagree.
-`salvo run --backend '*'` prints `0` on Rust (the assignment clones) and `1`
-on Kotlin (it aliases):
-
-```
-fn arm(c: Bool) -> Int {             // `t = xs` links `t`, `add` poisons it,
-    let xs = Mut List<Str>()         // and `reset_assigned` revives `t`
-    let t = Mut List<Str>()          // after the join because the arm
-    if c {                           // assigned it
-        t = xs
-        add(xs, "a")
-    }
-    return size(t)
+fn idx(xs: Rec[]) -> Int => !xs {
+    return eatl(xs[0].tags)
 }
 ```
-
-The fix is the arm rule above (an assignment revives on its own path only);
-the poison then reaches the join like a move does.
 
 ### 0p — Open defect: a statically decided `is` test with a binding loses the binding (found 2026-10-20)
 

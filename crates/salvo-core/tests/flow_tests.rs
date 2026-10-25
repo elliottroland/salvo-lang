@@ -22,8 +22,9 @@
 //! checker still owns the consumption marking (`narrowed = Never`), the
 //! fate links (`fate_binds`), the mutation events (`fate_mutations`) and
 //! the `moved_places` record its linear machinery reads, so a case whose
-//! expectation changes must say whether the pass's rule changed (ROADMAP
-//! 0o's unsound join/loop rules, say) or the checker's tables did.
+//! expectation changes must say whether the pass's rule changed (as ROADMAP
+//! 0o's join, loop and revival rules did in R8 piece 5, each such case
+//! saying what it reported before) or the checker's tables did.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -158,8 +159,11 @@ const CASES: &[(&str, &str)] = &[
     // Copy scalars never move, a generic `T` bound to one included.
     ("copy_scalar", "fn f() [] -> Int {\n    let n = 1\n    take(n)\n    take(n)\n    return n\n}\n"),
     ("generic_param", "fn g<T>(v: T) [] -> None => !v {\n    take(v)\n    take(v)\n}\n"),
-    // A narrowed union's move is judged by its declared type.
+    // A narrowed union's move is judged by the value's own type
+    // [copy-scalar-free]: narrowed to `Int`, it is a copy (ROADMAP 0o,
+    // over-strict until R8 piece 5).
     ("narrowed_scalar", "fn f(v: Int | Bool) [] -> None => !v {\n    if v is Int {\n        take(v)\n    }\n    take(v)\n}\n"),
+    ("narrowed_scalar_twice", "fn f(v: Int | Bool) [] -> Int => !v {\n    if v is Int {\n        take(v)\n        take(v)\n        return v\n    }\n    return 0\n}\n"),
     ("narrowed_consume", "fn f(v: Str?) [] -> Int => !v {\n    if v is Str {\n        eat(v)\n    }\n    if v is Str {\n        return look(v)\n    }\n    return 0\n}\n"),
     ("narrowed_after_guard", "fn f(v: Str?) [] -> Int => !v {\n    if v is None {\n        return 0\n    }\n    eat(v)\n    return look(v)\n}\n"),
     // A narrowing that persists from a guard is the variable's: a move
@@ -172,22 +176,33 @@ const CASES: &[(&str, &str)] = &[
     ("lambda_reads_moved", "fn f() [] -> Int {\n    let s = mk()\n    eat(s)\n    let g = () -> look(s)\n    return g()\n}\n"),
     ("for_each", "fn f() [] -> Int {\n    let s = mk()\n    let xs = List(\"a\", \"b\")\n    for x in xs {\n        eat(copy(x))\n        eat(s)\n    }\n    return look(s)\n}\n"),
     ("interpolate", "fn f() [] -> Str {\n    let s = mk()\n    eat(s)\n    return \"${s}!\"\n}\n"),
-    // The checker's rules where they are not what they seem (findings,
-    // PIPELINE.md §8): mirrored, not fixed.
-    // `continue` carries nothing to the next iteration: accepted, though
-    // the second iteration reads a moved `s`.
+    // Paths, joins and back edges as dataflow (R8 piece 5, ROADMAP 0o: until
+    // then the pass mirrored the checker's rules, each marked below with
+    // what it did).
+    // `continue` takes its state to the next iteration: the second
+    // iteration reads a moved `s` (accepted until piece 5; rustc E0382).
     ("continue_skips", "fn f(c: Bool, d: Bool) [] -> Int {\n    let s = mk()\n    let n = 0\n    while c {\n        n = n + look(s)\n        if d {\n            eat(s)\n            continue\n        }\n    }\n    return n\n}\n"),
-    // The back edge is taken from the body's end even when the body always
-    // breaks: `eat(s)` is reported as a second-iteration use.
+    // A body that always breaks has no back edge: `eat(s)` is not a
+    // second-iteration use (it was reported until piece 5); the read after
+    // the loop is.
     ("break_moves", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    while c {\n        eat(s)\n        break\n    }\n    return look(s)\n}\n"),
-    // An arm that assigns `s` revives it after the `if`, even though the arm
-    // then moved it: accepted.
+    // An arm that assigns `s` revives it on that path only, and the arm
+    // then moved it (accepted until piece 5, when the checker's
+    // `reset_assigned` was mirrored; rustc E0382).
     ("assign_then_consume_in_arm", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    if c {\n        s = mk()\n        eat(s)\n    }\n    return look(s)\n}\n"),
     // The same in a loop body.
     ("assign_then_consume_in_loop", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    while c {\n        s = mk()\n        eat(s)\n    }\n    return look(s)\n}\n"),
-    // A `when` revives what *any* arm assigns, an arm that leaves included:
-    // accepted, though the `Bool` path reaches the read with `s` moved.
+    // A `when` arm that assigns and leaves revives nothing after it: the
+    // `Bool` path reaches the read with `s` moved (accepted until piece 5).
     ("when_assign_in_leaving_arm", "fn f(v: Int | Bool) [] -> Int {\n    let s = mk()\n    eat(s)\n    when v {\n        is Int {\n            s = mk()\n            return look(s)\n        }\n        is Bool {\n        }\n    }\n    return look(s)\n}\n"),
+    // Near misses: every falling-through arm assigns; a `continue` after
+    // the assignment; a top-level `break s` (refused until piece 5: the
+    // body's end was taken as a back edge).
+    ("when_assign_every_arm", "fn f(v: Int | Bool) [] -> Int {\n    let s = mk()\n    eat(s)\n    when v {\n        is Int {\n            s = mk()\n        }\n        is Bool {\n            s = mk()\n        }\n    }\n    return look(s)\n}\n"),
+    ("continue_after_assign", "fn f(c: Bool, d: Bool) [] -> Int {\n    let s = mk()\n    let n = 0\n    while c {\n        n = n + look(s)\n        if d {\n            eat(s)\n            s = mk()\n            continue\n        }\n    }\n    return n + look(s)\n}\n"),
+    ("break_top_level", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    let r = while c {\n        break s\n    }\n    return 0\n}\n"),
+    // A loop that only `return`s never falls through.
+    ("loop_only_returns", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    if c {\n        while true {\n            eat(s)\n            return 0\n        }\n    }\n    return look(s)\n}\n"),
     ("else_if_chain", "fn f(a: Bool, b: Bool) [] -> Int {\n    let s = mk()\n    if a {\n        return 0\n    } elif b {\n        eat(s)\n    } else {\n        return 1\n    }\n    return look(s)\n}\n"),
     // An inner loop's move is the outer loop's next-iteration use.
     ("nested_loops", "fn f(c: Bool, d: Bool) [] -> Int {\n    let s = mk()\n    let n = 0\n    while c {\n        n = n + look(s)\n        while d {\n            n = n + 1\n        }\n        if d {\n            eat(s)\n        }\n    }\n    return n\n}\n"),
@@ -297,6 +312,10 @@ const CASES: &[(&str, &str)] = &[
     ("poison_in_arm", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    let t = s\n    if c {\n        eat(s)\n    }\n    return look(t)\n}\n"),
     ("poison_arm_exits", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    let t = s\n    if c {\n        eat(s)\n        return 0\n    }\n    return look(t)\n}\n"),
     ("poison_when_arm", "fn f(v: Int | Bool) [] -> Int {\n    let s = mk()\n    let t = s\n    when v {\n        is Int {\n            s = mk()\n        }\n        is Bool {\n        }\n    }\n    return look(t)\n}\n"),
+    // An arm that links `t` and then mutates its root: the poison reaches
+    // the join (until R8 piece 5 the arm's assignment revived `t` after
+    // it, and the backends disagreed: 0 on Rust, 1 on Kotlin).
+    ("poison_arm_revival", "fn f(c: Bool) [] -> Int {\n    let xs = Mut List<Str>()\n    let t = Mut List<Str>()\n    if c {\n        t = xs\n        add(xs, \"a\")\n    }\n    return size(t)\n}\n"),
     ("bound_away_one_arm", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    let t = s\n    if c {\n        eat(t)\n    } else {\n        eat(s)\n    }\n    return look(t)\n}\n"),
     ("poison_in_loop", "fn f(c: Bool) [] -> Int {\n    let s = mk()\n    let t = s\n    let n = 0\n    while c {\n        n = n + look(t)\n        s = mk()\n    }\n    return n + look(t)\n}\n"),
     ("poison_loop_mutated", "fn f(c: Bool) [] -> Int {\n    let xs = Mut List<Str>()\n    let ys = xs\n    let n = 0\n    while c {\n        n = n + size(ys)\n        add(xs, \"a\")\n    }\n    return n\n}\n"),
@@ -467,7 +486,8 @@ fn the_flow_pass_reports_these_reads() {
         ("lambda_mutates_int", &[]),
         ("copy_scalar", &[]),
         ("generic_param", &[(3, 10)]),
-        ("narrowed_scalar", &[(5, 10)]),
+        ("narrowed_scalar", &[]),
+        ("narrowed_scalar_twice", &[]),
         ("narrowed_consume", &[(5, 8)]),
         ("narrowed_after_guard", &[(6, 17)]),
         ("narrowed_kept_in_arm", &[(7, 21)]),
@@ -477,11 +497,15 @@ fn the_flow_pass_reports_these_reads() {
         ("lambda_reads_moved", &[(4, 24)]),
         ("for_each", &[(6, 13), (8, 17)]),
         ("interpolate", &[(4, 15)]),
-        ("continue_skips", &[]),
-        ("break_moves", &[(4, 13), (7, 17)]),
-        ("assign_then_consume_in_arm", &[]),
-        ("assign_then_consume_in_loop", &[]),
-        ("when_assign_in_leaving_arm", &[]),
+        ("continue_skips", &[(5, 22), (7, 17)]),
+        ("break_moves", &[(7, 17)]),
+        ("assign_then_consume_in_arm", &[(7, 17)]),
+        ("assign_then_consume_in_loop", &[(7, 17)]),
+        ("when_assign_in_leaving_arm", &[(12, 17)]),
+        ("when_assign_every_arm", &[]),
+        ("continue_after_assign", &[]),
+        ("break_top_level", &[]),
+        ("loop_only_returns", &[]),
         ("else_if_chain", &[(10, 17)]),
         ("nested_loops", &[(5, 22), (10, 17)]),
         ("moved_in_condition", &[(8, 21)]),
@@ -517,9 +541,10 @@ fn the_flow_pass_reports_these_reads() {
         ("part_disjoint", &[]),
         ("part_param", &[(3, 11)]),
         ("part_nested_prefix", &[(3, 17)]),
-        // The checker checks a field read's base too, so `n.a` of
-        // `n.a.name` overlaps the moved `n.a.tags` (over-strict, mirrored).
-        ("part_nested_sibling", &[(3, 17)]),
+        // Only the place read counts: `n.a.name` is a sibling of the moved
+        // `n.a.tags` (until R8 piece 5 the checker's base check was
+        // mirrored, and `n.a` overlapped it).
+        ("part_nested_sibling", &[]),
         ("part_nested_disjoint", &[]),
         ("part_nested_under", &[(3, 17)]),
         ("part_index", &[(4, 17)]),
@@ -527,10 +552,11 @@ fn the_flow_pass_reports_these_reads() {
         ("part_tuple", &[(3, 29)]),
         ("part_reassign_field", &[]),
         ("part_reassign_root", &[]),
-        // The target is put back before the value is read, so the value's
-        // read of the moved field is not a use and its move stays (mirrored:
-        // rustc reports the read, E0382, not `takep(p)`).
-        ("part_reassign_from_itself", &[(5, 11)]),
+        // The value is read before the target is put back: its read of the
+        // moved field is the use (rustc's E0382), and `takep(p)` is then
+        // whole (until R8 piece 5 the checker's order was mirrored and
+        // `takep(p)` reported instead).
+        ("part_reassign_from_itself", &[(4, 21)]),
         ("part_in_arm", &[(6, 17)]),
         ("part_arm_exits", &[]),
         ("part_when_arm", &[(10, 17)]),
@@ -575,6 +601,7 @@ fn the_flow_pass_reports_these_reads() {
         ("poison_in_arm", &[(7, 17)]),
         ("poison_arm_exits", &[]),
         ("poison_when_arm", &[(11, 17)]),
+        ("poison_arm_revival", &[(8, 17)]),
         // `t` takes `s` at its binding (it is moved later): reading `s` is
         // the binding's use; `look(t)` after `eat(t)` on one path is a
         // plain use-after-move.
