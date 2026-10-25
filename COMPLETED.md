@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2032 tests, complete: the toolchain tests are
+cargo test                  # 2033 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,19 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A fn's effects are recorded with the signatures
+
+PIPELINE.md §7 step 7, piece 1. The survey of the checker's staging found
+that `fn_effects` — a fn's expanded effect list — was written as `check_fn`
+reached each fn, while a body naming a fn *as a value* built its `Ty::Fn`
+from the table: a fn declared later read no effects. `apply(shout)` with
+`shout` below `main` checked clean, ran on Kotlin, and crashed the Rust
+emitter (index out of bounds on the missing effect argument). The pre-pass
+(`collect_implicit_signatures`) now records `fn_effects` and `decl_effects`
+for every fn. Test: `LATE_FN_VALUE` on both backends. Also removed: the
+`inferred: Option<…>` of `WalkCtx`/`Checker`, `Some` on every path since
+step 2, and the ~25 `inferred.is_some()`/`is_none()` gates that tested it.
 
 ### 2026-10-20 — `use any group`, and routes derived per protocol in the IR
 
@@ -28306,7 +28319,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2032 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2033 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

@@ -1949,7 +1949,7 @@ fn check_program_rounds<'p>(
         program,
         resolution,
         symbols,
-        inferred: Some(&contracts),
+        inferred: &contracts,
         refinements: &refinements,
         cache,
     };
@@ -2033,7 +2033,7 @@ struct WalkCtx<'a, 'p> {
     program: &'p Program,
     resolution: &'a Resolution<'p>,
     symbols: &'a Symbols<'p>,
-    inferred: Option<&'a HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
+    inferred: &'a HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>,
     refinements: &'a crate::refine::Refinements,
     cache: Option<&'a StdCache>,
 }
@@ -2624,9 +2624,10 @@ struct Checker<'p, 'r> {
     /// The whole-program resolution (for import suggestions on
     /// unresolved names [diag-import-suggest]).
     resolution: &'r Resolution<'p>,
-    /// Round one's inferred deduction facts, enforced at call sites for
-    /// fns without a written list [deduce-consume]. `None` in round one.
-    inferred: Option<&'r HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
+    /// The signature contracts, enforced at call sites for
+    /// fns without a written list [deduce-consume], from their signatures
+    /// (`deduce::contracts`), known before any body is walked.
+    inferred: &'r HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>,
     /// [qual-refn] Refinements applying per (file, callee), resolved once
     /// for the whole program.
     refinements: &'r crate::refine::Refinements,
@@ -3067,6 +3068,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // the claim silently failed to reach the caller (found
                     // 2026-09-22, the same defect one table over).
                     self.check_reapplied_deductions(f);
+                    // [fn-effects] The fn's effect list, expanded, for the
+                    // same reason: a fn named as a *value* by a body the walk
+                    // reaches first builds its `Ty::Fn` from this table, and
+                    // a callee declared later read no effects — the checker
+                    // passed `apply(shout)` and the Rust emitter crashed on
+                    // the missing effect argument (found 2026-10-20,
+                    // PIPELINE.md step 7).
+                    let (effects, _, _) = self.check_effect_list(f);
+                    let tys: Vec<Ty> = effects.into_iter().map(|a| a.ty).collect();
+                    self.out.decl_effects.insert(self.key(f.name.span), tys.clone());
+                    if let Some(key) = self.own_fn {
+                        self.out.fn_effects.insert(key, tys);
+                    }
                     self.generics = saved;
                     self.own_fn = None;
                 }
@@ -3121,7 +3135,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         scope: &'r ModuleScope<'p>,
         resolution: &'r Resolution<'p>,
         symbols: &'r Symbols<'p>,
-        inferred: Option<&'r HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
+        inferred: &'r HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>,
         refinements: &'r crate::refine::Refinements,
         out: &'r mut Checked,
         move_candidates: &'r mut HashSet<Key>,
@@ -4652,7 +4666,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             q.name.name == "linear"
                 && s.fields.iter().any(|f| f.ty.as_ref().is_some_and(|t| type_mentions_generic(t, &id.name)))
         });
-        if (s.linear || conditional) && self.inferred.is_some() {
+        if s.linear || conditional {
             let set = self.discharge_set(self.symbols.key_or(s, &s.name.name));
             if set.is_empty() {
                 let what = if s.linear {
@@ -7446,32 +7460,30 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [linear-generics] The instantiation ban applies here as at any
         // call: an unopted generic cannot bind a linear type.
-        if self.inferred.is_some() {
-            let opted: HashSet<&str> = decl
-                .generic_canbe
-                .iter()
-                .filter(|(_, q)| q.name.name == "linear")
-                .map(|(id, _)| id.name.as_str())
-                .collect();
-            for g in &decl.generics {
-                if opted.contains(g.name.as_str()) {
-                    continue;
-                }
-                if let Some(bound) = value.binding.get(&g.name) {
-                    if self.ty_own_linear(bound) {
-                        self.error(
-                            name_span,
-                            format!(
-                                "cannot instantiate generic parameter \
-                                 `{}` of `{name}` with linear type \
-                                 `{bound}`: `{name}` does not declare \
-                                 `<{} canbe linear>`, so it does not \
-                                 honor the use obligation",
-                                g.name, g.name
-                            ),
-                        );
-                        break;
-                    }
+        let opted: HashSet<&str> = decl
+            .generic_canbe
+            .iter()
+            .filter(|(_, q)| q.name.name == "linear")
+            .map(|(id, _)| id.name.as_str())
+            .collect();
+        for g in &decl.generics {
+            if opted.contains(g.name.as_str()) {
+                continue;
+            }
+            if let Some(bound) = value.binding.get(&g.name) {
+                if self.ty_own_linear(bound) {
+                    self.error(
+                        name_span,
+                        format!(
+                            "cannot instantiate generic parameter \
+                             `{}` of `{name}` with linear type \
+                             `{bound}`: `{name}` does not declare \
+                             `<{} canbe linear>`, so it does not \
+                             honor the use obligation",
+                            g.name, g.name
+                        ),
+                    );
+                    break;
                 }
             }
         }
@@ -9093,7 +9105,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 || extra_params.iter().any(|p| p.name.name == id.name);
             // A source that names no parameter was reported by the
             // per-occurrence loop above; only the kept rule is left here.
-            if is_param && self.inferred.is_some() {
+            if is_param {
                 let kept = match &f.deductions {
                     Some(list) => crate::deduce::from_written(f, list, &HashSet::new(), |_, _| {})
                         .iter()
@@ -12412,8 +12424,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// parameter ancestor keeps borrow-mode, so the S1 error re-derives
     /// at the move site [fate-derived-readonly].
     fn apply_binding_mode(&mut self, binding_name: &str, links: Vec<FateLink>) -> Vec<FateLink> {
-        // Round one is strict S1: candidates are being collected.
-        if self.inferred.is_none() || links.is_empty() {
+        if links.is_empty() {
             return links;
         }
         // [readonly-return] A value reached through a derived-return
@@ -12568,17 +12579,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             .lookup(name)
             .is_some_and(|v| self.ty_own_linear(&v.declared));
         if is_linear {
-            if self.inferred.is_some() {
-                self.error(
-                    span,
-                    format!(
-                        "a lambda cannot consume `{name}`: it holds a linear \
-                         value, and the closure would inherit an obligation to \
-                         be called exactly once (not supported yet); pass the \
-                         value explicitly instead"
-                    ),
-                );
-            }
+            self.error(
+                span,
+                format!(
+                    "a lambda cannot consume `{name}`: it holds a linear \
+                     value, and the closure would inherit an obligation to \
+                     be called exactly once (not supported yet); pass the \
+                     value explicitly instead"
+                ),
+            );
             return true;
         }
         // Mark every enclosing lambda `once` (an outer lambda re-creating
@@ -12712,7 +12721,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         decl: &FnDecl,
     ) -> Option<Vec<crate::deduce::ParamDeduction>> {
         if let Some(k) = key {
-            if let Some(found) = self.inferred.and_then(|table| table.get(&k).cloned()) {
+            if let Some(found) = self.inferred.get(&k).cloned() {
                 return Some(found);
             }
         }
@@ -13052,9 +13061,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             if !kept || arg_once {
-                if self.inferred.is_none() {
-                    continue;
-                }
                 let state = self.lookup(&id.name).map(|var| (var.id, var.links.clone()));
                 let Some((var_id, links)) = state else {
                     continue;
@@ -13165,9 +13171,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let links = self.links_for_value(expr, span);
         if links.is_empty() {
-            return Vec::new();
-        }
-        if self.inferred.is_none() {
             return Vec::new();
         }
         // A lambda cannot consume data out of a capture [fate-lambda].
@@ -14231,9 +14234,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// since discharger status attaches to the *member declaration*
     /// [linear-discard].
     fn discharge_set(&self, type_name: &str) -> Vec<String> {
-        let empty = std::collections::HashMap::new();
-        let deductions = self.inferred.unwrap_or(&empty);
-        crate::linear::discharge_set(self.symbols, self.resolution, self.scope, deductions, type_name)
+        crate::linear::discharge_set(self.symbols, self.resolution, self.scope, self.inferred, type_name)
     }
 
     /// [linear-group] The declaration-site check for the *opaque* form,
@@ -14242,7 +14243,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the remedy spelled with an `intrinsic fn`, since an opaque type's
     /// discharger cannot have a body either.
     fn check_linear_opaque(&mut self, t: &'p ast::TypeDecl) {
-        if !t.linear || self.inferred.is_none() {
+        if !t.linear {
             return;
         }
         if !self.discharge_set(self.symbols.key_or(t, &t.name.name)).is_empty() {
@@ -14707,9 +14708,6 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the caller). Only checked once inferred contracts exist (round
     /// two onwards).
     fn owes_linear(&self, name: &str, var: &LocalVar) -> bool {
-        if self.inferred.is_none() {
-            return false;
-        }
         if !var.links.is_empty() || matches!(var.narrowed, Ty::Never) {
             return false;
         }
@@ -14771,7 +14769,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// it complements: that one asks whether a *value* still owes, this one
     /// whether the *storage* is intact.
     fn check_state_whole(&mut self, span: Span, what: &str) {
-        if self.own_handler.is_none() || self.inferred.is_none() {
+        if self.own_handler.is_none() {
             return;
         }
         let holes: Vec<String> = self
@@ -18239,8 +18237,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .is_some_and(|var| {
                                 // Live-ness differs per path; check the
                                 // rest of the ownership conditions.
-                                self.inferred.is_some()
-                                    && var.links.is_empty()
+                                var.links.is_empty()
                                     && (!var.is_param || self.param_owned(name))
                                     && { self.ty_own_linear(&var.declared) }
                             });
@@ -23820,15 +23817,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let ty = self.check_expr(e, None);
                 // [linear-obligation] A linear value in statement
                 // position is dropped on the spot.
-                if self.inferred.is_some() {
-                    if self.ty_own_linear(&ty) {
-                        self.error(
-                            e.span(),
-                            "this expression produces a linear value that is \
-                             dropped immediately; bind it, move it onward, or \
-                             pass it to `discard`",
-                        );
-                    }
+                if self.ty_own_linear(&ty) {
+                    self.error(
+                        e.span(),
+                        "this expression produces a linear value that is \
+                         dropped immediately; bind it, move it onward, or \
+                         pass it to `discard`",
+                    );
                 }
                 ty
             }
@@ -26234,7 +26229,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [iter-drive-in-place] A pass the fn keeps is the caller's: it
             // advances where it lives, and its discharge stays the owner's.
             let in_place = iterable.is_some_and(|e| self.drives_in_place(e));
-            if !in_place && self.inferred.is_some() && self.ty_own_linear(stripped) {
+            if !in_place && self.ty_own_linear(stripped) {
                 let hint = self.linear_discharge_hint(stripped);
                 self.error(
                     span,
@@ -26459,7 +26454,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // A minted iterator is the loop's own value, never a place the caller
         // keeps.
         let in_place = mint.is_none() && self.drives_in_place(iterable);
-        if mint.is_none() && !in_place && self.inferred.is_some() && self.ty_own_linear(subject) {
+        if mint.is_none() && !in_place && self.ty_own_linear(subject) {
             self.error(
                 span,
                 format!(
@@ -26883,18 +26878,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .var_by_id(cap.var_id)
                     .is_some_and(|v| self.ty_own_linear(&v.declared));
                 if is_linear {
-                    if self.inferred.is_some() {
-                        self.error(
-                            span,
-                            format!(
-                                "this lambda captures and mutates `{}`, which \
-                                 holds a linear value: the closure would swallow \
-                                 its obligation; restructure so the value is \
-                                 passed explicitly",
-                                cap.name
-                            ),
-                        );
-                    }
+                    self.error(
+                        span,
+                        format!(
+                            "this lambda captures and mutates `{}`, which \
+                             holds a linear value: the closure would swallow \
+                             its obligation; restructure so the value is \
+                             passed explicitly",
+                            cap.name
+                        ),
+                    );
                     continue;
                 }
                 let is_kept_param = self.var_by_id(cap.var_id).is_some_and(|v| v.is_param)
@@ -26907,18 +26900,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // by the capture; there is no such inference now, so the
                     // move must be declared with `=> !p`, or the capture made
                     // over a `copy`.)
-                    if self.inferred.is_some() {
-                        self.error(
-                            span,
-                            format!(
-                                "this lambda captures and mutates `{}`, which is a kept \
-                                 parameter (the caller keeps it): capture \
-                                 `copy({})` instead, or declare the move with \
-                                 `=> !{}`",
-                                cap.name, cap.name, cap.name
-                            ),
-                        );
-                    }
+                    self.error(
+                        span,
+                        format!(
+                            "this lambda captures and mutates `{}`, which is a kept \
+                             parameter (the caller keeps it): capture \
+                             `copy({})` instead, or declare the move with \
+                             `=> !{}`",
+                            cap.name, cap.name, cap.name
+                        ),
+                    );
                     continue;
                 }
                 // Consume the original: the closure owns the value now.
@@ -31674,7 +31665,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
         }
-        if self.inferred.is_some() && !runtime_kept {
+        if !runtime_kept {
             let facts: Option<Vec<crate::deduce::ParamDeduction>> =
                 self.effective_contract(best_key, decl);
             for (i, arg) in args.iter().enumerate() {
@@ -31810,24 +31801,22 @@ impl<'p, 'r> Checker<'p, 'r> {
         // substitution, so it is checked here rather than in
         // `validate_type`. Before the implicits are resolved, so a key refused
         // here silences its constructor's missing `hash`/`eq` (one mistake).
-        if self.inferred.is_some() {
-            if let Some(ret) = decl.return_type.as_ref() {
-                if !subst.is_empty() {
-                    let lowered = self.lower_type_subst(ret, &subst, 0);
-                    // [col-sorted-list] A constructor's `as Q` lives beside the
-                    // return type, not in it, so `sort`'s `Sorted` claim would
-                    // be invisible here — and `sort(List(unorderable))` is
-                    // exactly the inferred case this block exists for.
-                    let lowered = match &decl.constructs {
-                        Some(cref) => lowered.qualify(vec![crate::types::Qual {
-                            effect: false,
-                            name: cref.name.name.clone(),
-                            args: Vec::new(),
-                        }]),
-                        None => lowered,
-                    };
-                    self.check_key_eligibility_ty(&lowered, span, 0);
-                }
+        if let Some(ret) = decl.return_type.as_ref() {
+            if !subst.is_empty() {
+                let lowered = self.lower_type_subst(ret, &subst, 0);
+                // [col-sorted-list] A constructor's `as Q` lives beside the
+                // return type, not in it, so `sort`'s `Sorted` claim would
+                // be invisible here — and `sort(List(unorderable))` is
+                // exactly the inferred case this block exists for.
+                let lowered = match &decl.constructs {
+                    Some(cref) => lowered.qualify(vec![crate::types::Qual {
+                        effect: false,
+                        name: cref.name.name.clone(),
+                        args: Vec::new(),
+                    }]),
+                    None => lowered,
+                };
+                self.check_key_eligibility_ty(&lowered, span, 0);
             }
         }
         self.resolve_implicits(decl, best_key, &mut subst, &callee_generics, named, span);
@@ -31838,92 +31827,90 @@ impl<'p, 'r> Checker<'p, 'r> {
         // generic (deliberately dropping is its purpose); `copy` refuses
         // with its own message (duplicating an obligation is
         // meaningless).
-        if self.inferred.is_some() {
-            let opted: HashSet<&str> = decl
-                .generic_canbe
+        let opted: HashSet<&str> = decl
+            .generic_canbe
+            .iter()
+            .filter(|(_, q)| q.name.name == "linear")
+            .map(|(id, _)| id.name.as_str())
+            .collect();
+        // Sorted, so which of several offending type arguments is
+        // reported does not depend on hash order.
+        let mut instantiations: Vec<(&String, &Ty)> = subst.iter().collect();
+        instantiations.sort_by(|a, b| a.0.cmp(b.0));
+        for (var_name, ty) in instantiations {
+            if !callee_generics.contains(var_name) {
+                continue;
+            }
+            if !self.ty_own_linear(ty) {
+                continue;
+            }
+            // [linear-composite] The callee takes a bare `T` and puts
+            // a `T` *inside* a composite — `add(list: Mut List<T>,
+            // elem: T)` is the shape — so this call is the store, and
+            // the opt-in does not help: no container can carry the
+            // obligation yet. A signature that only *reads* a
+            // composite of `T` (`size(list: List<T>) -> Int`) stores
+            // nothing and stays legal.
+            let takes_bare = decl
+                .params
                 .iter()
-                .filter(|(_, q)| q.name.name == "linear")
-                .map(|(id, _)| id.name.as_str())
-                .collect();
-            // Sorted, so which of several offending type arguments is
-            // reported does not depend on hash order.
-            let mut instantiations: Vec<(&String, &Ty)> = subst.iter().collect();
-            instantiations.sort_by(|a, b| a.0.cmp(b.0));
-            for (var_name, ty) in instantiations {
-                if !callee_generics.contains(var_name) {
-                    continue;
-                }
-                if !self.ty_own_linear(ty) {
-                    continue;
-                }
-                // [linear-composite] The callee takes a bare `T` and puts
-                // a `T` *inside* a composite — `add(list: Mut List<T>,
-                // elem: T)` is the shape — so this call is the store, and
-                // the opt-in does not help: no container can carry the
-                // obligation yet. A signature that only *reads* a
-                // composite of `T` (`size(list: List<T>) -> Int`) stores
-                // nothing and stays legal.
-                let takes_bare = decl
-                    .params
+                .any(|p| !p.variadic && Self::type_is_bare_var(&p.ty, var_name));
+            let stores = if takes_bare {
+                decl.params
                     .iter()
-                    .any(|p| !p.variadic && Self::type_is_bare_var(&p.ty, var_name));
-                let stores = if takes_bare {
-                    decl.params
-                        .iter()
-                        .map(|p| &p.ty)
-                        .chain(decl.return_type.as_ref())
-                        .find(|t| self.var_in_composite(t, var_name))
-                        .map(|t| format!("{t}"))
-                } else {
-                    None
-                };
-                if let Some(composite) = stores {
-                    let linear = format!("{ty}");
-                    // A type-named constructor shows its readable type
-                    // (`Mut List`), not its canonical key (`Mut_List`).
-                    let shown = decl
-                        .type_name
-                        .as_ref()
-                        .map(|t| format!("{t}"))
-                        .unwrap_or_else(|| name.to_string());
-                    self.refuse_linear_composite(
-                        span,
-                        &linear,
-                        format!(
-                            "stored in the `{composite}` of `{shown}` (type argument \
-                             `{var_name}`)"
-                        ),
-                    );
-                    break;
-                }
-                // [linear-generics] `<T canbe linear>` admits linear
-                // instantiation: the callee's body honors the obligation
-                // (for an `intrinsic fn`, the backend's lowering does).
-                if opted.contains(var_name.as_str()) {
-                    continue;
-                }
-                if decl.intrinsic && decl.name.name == "copy" {
-                    self.error(
-                        span,
-                        format!(
-                            "cannot `copy` a value of linear type `{ty}`: \
-                             that would duplicate its obligation; every \
-                             linear value has exactly one owner"
-                        ),
-                    );
-                } else {
-                    self.error(
-                        span,
-                        format!(
-                            "cannot instantiate generic parameter `{var_name}` \
-                             of `{name}` with linear type `{ty}`: `{name}` does \
-                             not declare `<{var_name} canbe linear>`, so it does \
-                             not honor the use obligation"
-                        ),
-                    );
-                }
+                    .map(|p| &p.ty)
+                    .chain(decl.return_type.as_ref())
+                    .find(|t| self.var_in_composite(t, var_name))
+                    .map(|t| format!("{t}"))
+            } else {
+                None
+            };
+            if let Some(composite) = stores {
+                let linear = format!("{ty}");
+                // A type-named constructor shows its readable type
+                // (`Mut List`), not its canonical key (`Mut_List`).
+                let shown = decl
+                    .type_name
+                    .as_ref()
+                    .map(|t| format!("{t}"))
+                    .unwrap_or_else(|| name.to_string());
+                self.refuse_linear_composite(
+                    span,
+                    &linear,
+                    format!(
+                        "stored in the `{composite}` of `{shown}` (type argument \
+                         `{var_name}`)"
+                    ),
+                );
                 break;
             }
+            // [linear-generics] `<T canbe linear>` admits linear
+            // instantiation: the callee's body honors the obligation
+            // (for an `intrinsic fn`, the backend's lowering does).
+            if opted.contains(var_name.as_str()) {
+                continue;
+            }
+            if decl.intrinsic && decl.name.name == "copy" {
+                self.error(
+                    span,
+                    format!(
+                        "cannot `copy` a value of linear type `{ty}`: \
+                         that would duplicate its obligation; every \
+                         linear value has exactly one owner"
+                    ),
+                );
+            } else {
+                self.error(
+                    span,
+                    format!(
+                        "cannot instantiate generic parameter `{var_name}` \
+                         of `{name}` with linear type `{ty}`: `{name}` does \
+                         not declare `<{var_name} canbe linear>`, so it does \
+                         not honor the use obligation"
+                    ),
+                );
+            }
+            break;
         }
         // [deduce-consume] Deduction lists are a contract, enforced
         // flow-sensitively on bare identifier arguments: parameters *not*
@@ -31935,25 +31922,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `remove_first(list: NonEmpty Mut List<T>) -> [list: Mut]`
         // leaves the argument un-`NonEmpty` and a second call fails
         // overload resolution. Written lists are enforced directly;
-        // unannotated fns are enforced through round one's *inferred*
-        // facts (`self.inferred`), so `return list` in a callee consumes
+        // unannotated fns are enforced through their signature contracts
+        // (`self.inferred`), so `return list` in a callee consumes
         // the caller's argument just like an explicit `[]`.
         let contract: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
             // Shape errors on written lists are reported by the deduce
             // pass; the mapping here is silent.
             Some(_) => self.effective_contract(best.key, decl),
-            None => match self.inferred {
-                Some(table) => best.key.and_then(|key| table.get(&key).cloned()),
-                // Round one has no inferred facts yet: fall back to the
-                // optimistic contract (everything kept with its declared
-                // qualifiers). It enforces no moves and no qualifier
-                // removal — its only effect is the kept-`Mut` *mutation*
-                // events, which S2's mode inference needs to see in
-                // round one so mutation-driven move-mode candidates are
-                // recorded before round two declares the bindings
-                // [fate-move-mode].
-                None => Some(crate::deduce::optimistic(decl)),
-            },
+            None => best.key.and_then(|key| self.inferred.get(&key).cloned()),
         };
         // [elem-distinct] Two mutable element handles of one container in
         // one call — `attack(at(es, i)!, at(es, j)!)`, or two bound
@@ -32036,20 +32012,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // by the flow analysis, so a linear value passed
                     // there would leave its obligation unresolvable
                     // (physically moved, statically still owed).
-                    if self.inferred.is_some() {
-                        let ty = self
-                            .out
-                            .ty_of(self.file_idx, arg.span())
-                            .cloned()
-                            .unwrap_or(Ty::Unknown);
-                        if self.ty_own_linear(&ty) {
-                            self.error(
-                                arg.span(),
-                                "a linear value cannot be passed in a variadic \
-                                 position (variadic arguments are not tracked); \
-                                 add it to the collection individually instead",
-                            );
-                        }
+                    let ty = self
+                        .out
+                        .ty_of(self.file_idx, arg.span())
+                        .cloned()
+                        .unwrap_or(Ty::Unknown);
+                    if self.ty_own_linear(&ty) {
+                        self.error(
+                            arg.span(),
+                            "a linear value cannot be passed in a variadic \
+                             position (variadic arguments are not tracked); \
+                             add it to the collection individually instead",
+                        );
                     }
                     continue;
                 }
@@ -33276,33 +33250,31 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `log<T>(x: T)` binding `T` to a linear type would swallow the
         // obligation — no handler body is checked under a worst-case
         // linear `T` unless the member opts in with `<T canbe linear>`.
-        if self.inferred.is_some() {
-            let opted: HashSet<&str> = member
-                .generic_canbe
-                .iter()
-                .filter(|(_, q)| q.name.name == "linear")
-                .map(|(id, _)| id.name.as_str())
-                .collect();
-            let mut names: Vec<&String> = member.generics.iter().map(|g| &g.name).collect();
-            names.sort();
-            for var_name in names {
-                if opted.contains(var_name.as_str()) {
-                    continue;
-                }
-                if let Some(bound) = subst.get(var_name) {
-                    if self.ty_own_linear(bound) {
-                        self.error(
-                            span,
-                            format!(
-                                "cannot instantiate generic parameter `{var_name}` of \
-                                 effect member `{}` with linear type `{bound}`: the \
-                                 member does not declare `<{var_name} canbe linear>`, \
-                                 so its handlers do not honor the use obligation",
-                                member.name.name
-                            ),
-                        );
-                        break;
-                    }
+        let opted: HashSet<&str> = member
+            .generic_canbe
+            .iter()
+            .filter(|(_, q)| q.name.name == "linear")
+            .map(|(id, _)| id.name.as_str())
+            .collect();
+        let mut names: Vec<&String> = member.generics.iter().map(|g| &g.name).collect();
+        names.sort();
+        for var_name in names {
+            if opted.contains(var_name.as_str()) {
+                continue;
+            }
+            if let Some(bound) = subst.get(var_name) {
+                if self.ty_own_linear(bound) {
+                    self.error(
+                        span,
+                        format!(
+                            "cannot instantiate generic parameter `{var_name}` of \
+                             effect member `{}` with linear type `{bound}`: the \
+                             member does not declare `<{var_name} canbe linear>`, \
+                             so its handlers do not honor the use obligation",
+                            member.name.name
+                        ),
+                    );
+                    break;
                 }
             }
         }

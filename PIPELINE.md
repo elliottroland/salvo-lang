@@ -596,7 +596,13 @@ docs and records, and leaves the suite green. Steps 1–2 need no open decision.
    member signatures; route stubs derived per effect in the IR.
 7. **The phase split**: 02-resolve-03-interfaces as its own pass; bodies
    reading interfaces only; ownership out of the body walk into
-   03-generate-02-flow, after the audit (§3 "Open").
+   03-generate-02-flow, after the audit (§3 "Open"). **Do not forget**: the
+   deadlock graph reads the AST, so the IR-derived `__Route_X` (step 6,
+   piece 5) has no router node; when deadlock moves to 03-generate-03-link
+   over the IR (here or in step 8), give every routed protocol its router
+   servant node back, with its selector dependency's edges, and add a test
+   of a cycle through a route (ROADMAP "A derived route has no deadlock
+   node").
 8. **Caching (H)**: per file, then per declaration with early cutoff; the
    language server recomputes the edited declaration and what read its
    interface.
@@ -742,3 +748,41 @@ log current so the work can resume after a context reset). Newest last.
   prerequisite is still refused (`check.rs` ~15780 sees the implied
   dependency today, so the refusal fires; with the rewrite gone it would
   not). Comptime after interfaces and route stubs in the IR follow it.
+
+- **Step 7, the plan (surveyed 2026-10-20, after step 6).** Today:
+  `walk_signatures` is only `collect_implicit_signatures` (implicits and
+  `+Q` established claims; diagnostics dropped); `check_fn`'s first ~450
+  lines are signature work done *during* the body walk, in walk order —
+  `check_effect_list` → `decl_effects`/`fn_effects`, `handler_deps`,
+  `effect_prereqs`, `infer_lends` → `fn_lends`. **Order bug suspected**:
+  `fn_effects` is read by other bodies (check.rs ~6250 building a fn key's
+  `Ty::Fn`, ~7421 `fn_value_by_name`) with `unwrap_or_default`, so a fn
+  value naming a later-declared effectful fn reads no effects. The re-walk
+  (`check_program_rounds`, MAX_ROUNDS 4) exists only for move-mode
+  candidates and re-derives whole files. `WalkCtx.inferred` is always
+  `Some`, so the ~21 `inferred.is_none()` gates are dead. Ownership
+  feedback into typing, by audit (reading): signature-level (a callee's
+  contract dropping `NonEmpty`, `invalidate_place_narrows`,
+  `strip_dependent_claims`) — stays in typing; body-flow (a consumed value
+  reads `Ty::Unknown`, `narrowed = Never` doubling as "consumed", a partial
+  move reading Unknown) — error paths only, so it changes which later
+  diagnostics appear, not what an accepted program means. Pieces, each one
+  commit:
+  1. signature facts into the pre-pass (`fn_effects`, `decl_effects`,
+     `handler_deps`, `effect_prereqs`, `fn_lends`), with a test of a fn
+     value naming a later-declared effectful fn; dead `inferred` gates
+     removed;
+  2. the audit made evidence: an ownership-blind walk whose typing tables
+     must equal the normal walk's on every clean corpus/example program;
+  3. 02-resolve-03 as its own pass with its own diagnostics (the signature
+     half of `check_fn`, handler/effect headers), `check_fn` keeping only
+     the body;
+  4. bodies read interface tables only;
+  5. typing state split from ownership state (`fate_mutation_root` split;
+     a consumed marker apart from `narrowed`);
+  6. ownership as a per-body flow pass replaying recorded events, move-mode
+     as a local fixpoint, the re-walk loop deleted — **user call needed**:
+     keep the Unknown cascade suppression after an ownership error, or not;
+  7. the flow pass onto the IR (03-generate-02-flow) — **user call
+     needed**: ownership errors only on type-clean programs — plus the
+     deadlock router node (§7 note).

@@ -11707,6 +11707,36 @@ fn main() [use, spawn] -> None {
 }
 "##;
 
+/// [fn-effects] [fn-value] A fn named as a value before its declaration:
+/// its effects are recorded with the signatures, so the reference reads them
+/// (PIPELINE.md step 7). Before, `apply(shout)` read no effects for `shout`,
+/// and the Rust emitter crashed on the missing effect argument. Same program,
+/// same output on both backends.
+const LATE_FN_VALUE: &str = r##"
+fn apply(f: (s: Str) [Console] -> None) [Console] -> None {
+    f("hi")
+}
+
+fn main() [use] {
+    use StdConsole()
+    apply(shout)
+}
+
+fn shout(s: Str) [Console] -> None {
+    println("${s}!")
+}
+"##;
+
+#[test]
+fn rustc_compiles_and_runs_a_fn_value_declared_later() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", LATE_FN_VALUE)]);
+    run_rust_files(&files, "late-fn-value", "hi!\n");
+}
+
 #[test]
 fn rustc_compiles_and_runs_a_mixed_handler_with_dependencies() {
     if !rustc_available() {

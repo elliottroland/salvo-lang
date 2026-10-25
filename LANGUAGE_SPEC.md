@@ -8516,6 +8516,12 @@ between endpoints and delivers what arrives into the scheduler.
   and they mean **a requirement the caller of the value supplies**, not a
   capability the value carries (user decision 2026-09-04). The effects are
   *threaded into* the call on both backends; nothing is captured.
+  * **A named fn's effects are part of its signature**, recorded with the
+    implicits before any body is checked (2026-10-20, PIPELINE.md step 7):
+    `apply(shout)` above `fn shout(s: Str) [Console]` builds the value's
+    type from `shout`'s list wherever `shout` is declared. Before, a fn
+    declared later than the reference read no effects, and the Rust emitter
+    crashed on the missing effect argument.
   * A lambda body performs the effects **its type declares**, not whatever
     its enclosing scope happens to have. Lexical leakage is what made a fn
     value's capabilities invisible in its type — the same objection as

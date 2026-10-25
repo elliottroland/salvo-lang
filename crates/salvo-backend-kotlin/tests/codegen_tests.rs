@@ -5690,6 +5690,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_monitor,
     kotlinc_compiles_and_runs_a_mixed_handler,
     kotlinc_compiles_and_runs_a_mixed_handler_with_dependencies,
+    kotlinc_compiles_and_runs_a_fn_value_declared_later,
     kotlinc_compiles_and_runs_a_deferring_mixed_handler,
     kotlinc_compiles_and_runs_a_parking_mixed_handler,
     kotlinc_compiles_and_runs_a_servant_sibling_chain,
@@ -15203,6 +15204,30 @@ fn main() [use, spawn] -> None {
     println("main drew ${next()}")
 }
 "##;
+
+/// [fn-effects] [fn-value] A fn named as a value before its declaration:
+/// its effects are recorded with the signatures, so the reference reads them
+/// (PIPELINE.md step 7). Before, `apply(shout)` read no effects for `shout`,
+/// and the Rust emitter crashed on the missing effect argument. Same program,
+/// same output on both backends.
+const LATE_FN_VALUE: &str = r##"
+fn apply(f: (s: Str) [Console] -> None) [Console] -> None {
+    f("hi")
+}
+
+fn main() [use] {
+    use StdConsole()
+    apply(shout)
+}
+
+fn shout(s: Str) [Console] -> None {
+    println("${s}!")
+}
+"##;
+
+fn kotlinc_compiles_and_runs_a_fn_value_declared_later() -> KotlinCase {
+    kotlin_case(generate_files(&[("main.sv", LATE_FN_VALUE)]), "late-fn-value", "hi!\n")
+}
 
 fn kotlinc_compiles_and_runs_a_mixed_handler_with_dependencies() -> KotlinCase {
     let files = generate_files(&[("main.sv", MIXED_DEPS)]);
