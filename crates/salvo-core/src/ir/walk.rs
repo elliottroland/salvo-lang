@@ -94,6 +94,12 @@ fn all(xs: &mut [Expr], f: &mut impl FnMut(&mut Expr)) {
     }
 }
 
+/// Calls `f` on every expression inside `e`, `e` included, each after its
+/// children (so in evaluation order).
+pub fn expr_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
+    expr(e, f);
+}
+
 fn expr(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
     match &mut e.kind {
         ExprKind::Int(_)

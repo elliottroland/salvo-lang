@@ -122,8 +122,8 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                 .enumerate()
                 .filter(|(_, x)| x.send)
                 .map(|(index, x)| {
-                    let reads: Vec<Expr> = x.params.iter().map(|p| Expr { ty: p.ty.clone(), span: x.span, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: true } }).collect();
-                    let to = Expr { ty: addr_ty.clone(), span: x.span, kind: ExprKind::Read { place: Place { root: addr.clone(), steps: Vec::new() }, consume: false } };
+                    let reads: Vec<Expr> = x.params.iter().map(|p| Expr { ty: p.ty.clone(), span: x.span, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: true, moved: false } }).collect();
+                    let to = Expr { ty: addr_ty.clone(), span: x.span, kind: ExprKind::Read { place: Place { root: addr.clone(), steps: Vec::new() }, consume: false, moved: false } };
                     let send = Expr { ty: Ty::none(), span: x.span, kind: ExprKind::Send { addr: Box::new(to), member: MemberRef { interface: i.id.clone(), index }, args: reads } };
                     FnDecl {
                         id: DeclId { module: m.path.clone(), item: GENERATED_BASE + 1_000_000 + index, sub: 0 },
@@ -198,7 +198,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
         let selector = Ty::Named { name: "RouteSelector".into(), args: vec![face.clone()] };
         let pick_ty = Ty::Named { name: "RoutePick".into(), args: vec![face.clone()] };
         let long = Ty::named("Long");
-        let read = |l: &str, ty: &Ty, steps: Vec<Step>, consume: bool| Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: Local(l.into()), steps }, consume } };
+        let read = |l: &str, ty: &Ty, steps: Vec<Step>, consume: bool| Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: Local(l.into()), steps }, consume, moved: false } };
         let keys = ctx.checked.route_keys.get(effect.as_str());
         let mut members: Vec<FnDecl> = Vec::new();
         for (index, x) in iface.members.iter().enumerate().filter(|(_, x)| x.send) {
@@ -206,13 +206,13 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
             let mut args = vec![read("__dep0", &selector, Vec::new(), false), read("group", &group_ty, Vec::new(), false), read("seen", &long, Vec::new(), false)];
             let target = match key_param {
                 Some(p) => {
-                    args.push(Expr { ty: long.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(key_hash.clone().unwrap_or_else(|| ifaces[ii].id.clone())), type_args: vec![p.ty.clone()], args: vec![read(&p.local.0, &p.ty, Vec::new(), false)] } });
+                    args.push(Expr { ty: long.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(key_hash.clone().unwrap_or_else(|| ifaces[ii].id.clone())), type_args: vec![p.ty.clone()], args: vec![read(&p.local.0, &p.ty, Vec::new(), false)], moved: false } });
                     pick_keyed.clone()
                 }
                 None => pick_plain.clone(),
             };
             let Some(target) = target else { continue };
-            let pick = Expr { ty: pick_ty.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: vec![face.clone()], args } };
+            let pick = Expr { ty: pick_ty.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: vec![face.clone()], args, moved: false } };
             let to = read("__pick", &addr_of(face.clone()), vec![Step::Field("to".into())], false);
             let forward: Vec<Expr> = x.params.iter().map(|p| read(&p.local.0, &p.ty, Vec::new(), true)).collect();
             let stmts = vec![
@@ -341,12 +341,12 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                 let fid = next_id(&m.path);
                 let enum_ty = Ty::Named { name: ekey, args: Vec::new() };
                 let (handler_l, msg_l) = (Local("__handler".into()), Local("__msg".into()));
-                let read = |l: &Local, ty: &Ty| Expr { ty: ty.clone(), span: h.span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false } };
+                let read = |l: &Local, ty: &Ty| Expr { ty: ty.clone(), span: h.span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false, moved: false } };
                 let sw_id = NodeId(1);
                 let mut arms = Vec::new();
                 for (vi, (_, member, fields)) in variants.iter().enumerate() {
                     let locals: Vec<(Local, Ty)> = fields.iter().map(|(n, t)| (Local(n.clone()), t.clone())).collect();
-                    let args: Vec<Expr> = locals.iter().map(|(l, t)| Expr { ty: t.clone(), span: h.span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: true } }).collect();
+                    let args: Vec<Expr> = locals.iter().map(|(l, t)| Expr { ty: t.clone(), span: h.span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: true, moved: false } }).collect();
                     let target = match (face, member) {
                         (Some(i), Some(name)) => {
                             let iface = &ifaces[i];

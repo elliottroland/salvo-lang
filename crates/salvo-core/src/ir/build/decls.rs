@@ -54,10 +54,10 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                     let sl = Local(format!("__module_use{i}_{j}"));
                     let rename = |e: Expr| -> Expr {
                         match e.kind {
-                            ExprKind::Read { place, consume } if Some(&place.root) == orig_inst.as_ref() => Expr { ty: e.ty, span: e.span, kind: ExprKind::Read { place: Place { root: inst_local.clone(), steps: place.steps }, consume } },
+                            ExprKind::Read { place, consume, moved } if Some(&place.root) == orig_inst.as_ref() => Expr { ty: e.ty, span: e.span, kind: ExprKind::Read { place: Place { root: inst_local.clone(), steps: place.steps }, consume, moved } },
                             ExprKind::Handle { instance } => {
                                 let inner = match instance.kind {
-                                    ExprKind::Read { place, consume } if Some(&place.root) == orig_inst.as_ref() => Expr { ty: instance.ty, span: instance.span, kind: ExprKind::Read { place: Place { root: inst_local.clone(), steps: place.steps }, consume } },
+                                    ExprKind::Read { place, consume, moved } if Some(&place.root) == orig_inst.as_ref() => Expr { ty: instance.ty, span: instance.span, kind: ExprKind::Read { place: Place { root: inst_local.clone(), steps: place.steps }, consume, moved } },
                                     other => Expr { ty: instance.ty, span: instance.span, kind: other },
                                 };
                                 Expr { ty: e.ty, span: e.span, kind: ExprKind::Handle { instance: Box::new(inner) } }

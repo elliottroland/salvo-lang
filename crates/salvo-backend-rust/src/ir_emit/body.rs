@@ -466,7 +466,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 assigned.insert(place.root.0.clone());
             }
         }, &mut |e| match &e.kind {
-            ExprKind::Read { place, consume: true } => {
+            ExprKind::Read { place, consume: true, .. } => {
                 consumed.insert(place.root.0.clone());
             }
             ExprKind::Lambda { captures, .. } => {
@@ -755,7 +755,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn borrow_local(&mut self, local: &Local, ty: &Ty, value: &Expr, indent: usize) -> Option<String> {
-        let ExprKind::Read { place, consume } = &value.kind else { return None };
+        let ExprKind::Read { place, consume, .. } = &value.kind else { return None };
         // A consuming read of a borrowed root cannot move: it borrows too.
         if *consume && !matches!(self.f.kinds.get(&place.root.0), Some(Kind::Ref | Kind::RefMut)) {
             return None;
@@ -795,7 +795,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// The lent, non-place arguments of a call whose result keeps a borrow,
     /// as `let`s before it.
     fn hoist_borrowed_temps(&mut self, e: &Expr, indent: usize) -> (String, Expr) {
-        let ExprKind::Call { target: FnRef::Decl(id), type_args, args } = &e.kind else { return (String::new(), e.clone()) };
+        let ExprKind::Call { target: FnRef::Decl(id), type_args, args, .. } = &e.kind else { return (String::new(), e.clone()) };
         if !self.s.holds_proj(&e.ty) {
             return (String::new(), e.clone());
         }
@@ -811,12 +811,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 pre.push_str(&format!("{}let mut {t} = {v};\n", Self::pad(indent)));
                 self.f.kinds.insert(t.clone(), Kind::Owned);
                 self.f.tys.insert(t.clone(), a.ty.clone());
-                new_args.push(Expr { ty: a.ty.clone(), span: a.span, kind: ExprKind::Read { place: Place { root: Local(t), steps: Vec::new() }, consume: false } });
+                new_args.push(Expr { ty: a.ty.clone(), span: a.span, kind: ExprKind::Read { place: Place { root: Local(t), steps: Vec::new() }, consume: false, moved: false } });
             } else {
                 new_args.push(a.clone());
             }
         }
-        (pre, Expr { ty: e.ty.clone(), span: e.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: type_args.clone(), args: new_args } })
+        (pre, Expr { ty: e.ty.clone(), span: e.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: type_args.clone(), args: new_args, moved: false } })
     }
 
     fn annotatable(&self, t: &Ty) -> bool {
@@ -1170,7 +1170,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::Str(s) => format!("String::from(\"{}\")", escape_string(s)),
             ExprKind::Unit => "()".to_string(),
             ExprKind::MakeNone => "None".to_string(),
-            ExprKind::Read { place, consume } => {
+            ExprKind::Read { place, consume, .. } => {
                 let saved = std::mem::replace(&mut self.f.place_mut, is_proj(&e.ty) && is_mut_borrow(&e.ty));
                 let (text, kind) = self.place_text(place, indent);
                 self.f.place_mut = saved;
@@ -1199,7 +1199,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     format!("{text}.clone()")
                 }
             }
-            ExprKind::Call { target, type_args, args } => self.call(e, target, type_args, args, indent),
+            ExprKind::Call { target, type_args, args, .. } => self.call(e, target, type_args, args, indent),
             ExprKind::MemberCall { instance, member, args, .. } => {
                 let inst = self.raw(instance, indent);
                 let Some(m) = self.member_decl(member) else {
@@ -2783,7 +2783,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         }
         if let ExprKind::FnValue(FnRef::Local(l)) = &a.kind {
-            let read = Expr { ty: a.ty.clone(), span: a.span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false } };
+            let read = Expr { ty: a.ty.clone(), span: a.span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false, moved: false } };
             return self.fn_arg(&read, slot, pos, indent);
         }
         match &a.kind {
@@ -3077,13 +3077,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             self.f.kinds.insert(n.clone(), k);
             self.f.tys.insert(n.clone(), t.clone());
-            args.push(Expr { ty: t, span: e.span, kind: ExprKind::Read { place: Place { root: Local(n.clone()), steps: Vec::new() }, consume: *m == PassMode::Moved } });
+            args.push(Expr { ty: t, span: e.span, kind: ExprKind::Read { place: Place { root: Local(n.clone()), steps: Vec::new() }, consume: *m == PassMode::Moved, moved: false } });
         }
         let want = match super::decls::subst_ty(slot, &self.f.call_subst).strip_quals() {
             Ty::Fn { ret: r, .. } if !super::body::foreign_var(r, &self.f.generics) || self.f.call_subst.is_empty() => (**r).clone(),
             _ => (*ret).clone(),
         };
-        let call = Expr { ty: want, span: e.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: Vec::new(), args } };
+        let call = Expr { ty: want, span: e.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: Vec::new(), args, moved: false } };
         // [rs-throw-controlflow] Into a slot that may throw, the forwarding
         // closure answers the callee's `ControlFlow`: a throw leaves the
         // closure (not the enclosing fn), and a value is `Continue`.
@@ -3472,7 +3472,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // value is then wrapped into it, and a copy of the wrap alone
             // leaves rustc nothing to name the union's other arms by.
             if matches!(args[0].kind, ExprKind::Branch { .. } | ExprKind::Switch { .. }) && !matches!(args[0].ty, Ty::Union(_)) {
-                let wrap = |v: Expr| Expr { ty: e.ty.clone(), span: v.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: type_args.to_vec(), args: vec![v] } };
+                let wrap = |v: Expr| Expr { ty: e.ty.clone(), span: v.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: type_args.to_vec(), args: vec![v], moved: false } };
                 if let Some(pushed) = copy_into_tails(&args[0], &wrap, &e.ty) {
                     return self.raw(&pushed, indent);
                 }

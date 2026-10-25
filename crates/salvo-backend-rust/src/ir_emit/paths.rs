@@ -749,7 +749,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 };
                 Some(Mint { pre, prefix, pt, code, opt: e.ty.strip_quals().has_none_arm() })
             }
-            ExprKind::Call { target: target @ FnRef::Local(l), type_args, args } => {
+            ExprKind::Call { target: target @ FnRef::Local(l), type_args, args, .. } => {
                 let ty = self.s.unalias(&self.f.tys.get(&l.0).cloned().unwrap_or(Ty::Unknown));
                 if !self.s.fn_ty_lends_mut(&ty) {
                     return None;

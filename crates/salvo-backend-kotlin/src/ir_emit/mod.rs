@@ -1363,7 +1363,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
                 code
             }
-            ExprKind::Call { target, type_args, args } => self.call(e, target, type_args, args, indent),
+            ExprKind::Call { target, type_args, args, .. } => self.call(e, target, type_args, args, indent),
             // [actor-dispatch] A member of a handler instance, called directly.
             ExprKind::HandlerCall { instance, member, args } => {
                 let inst = self.expr(instance, indent);
@@ -1572,9 +1572,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                             let args: Vec<Expr> = names
                                 .iter()
                                 .zip(&params)
-                                .map(|(n, t)| Expr { ty: t.clone(), span: e.span, kind: ExprKind::Read { place: Place { root: Local(n.clone()), steps: Vec::new() }, consume: false } })
+                                .map(|(n, t)| Expr { ty: t.clone(), span: e.span, kind: ExprKind::Read { place: Place { root: Local(n.clone()), steps: Vec::new() }, consume: false, moved: false } })
                                 .collect();
-                            let call = Expr { ty: ret, span: e.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: Vec::new(), args } };
+                            let call = Expr { ty: ret, span: e.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: Vec::new(), args, moved: false } };
                             let body = self.expr(&call, indent);
                             return format!("{{ {} -> {body} }}", names.join(", "));
                         }

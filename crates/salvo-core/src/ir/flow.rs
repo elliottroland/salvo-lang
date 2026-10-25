@@ -1,20 +1,25 @@
 //! [flow-use-after-move] The IR's use-after-move pass (03-generate-02-flow,
-//! PIPELINE.md R8 piece 1): per path, the set of wholly moved locals; a later
-//! read of one is the error. Run by tests only for now — the checker's own
-//! consumed-read diagnostic is still the one a build reports — and checked
-//! against it by `tests/flow_tests.rs`.
+//! PIPELINE.md R8): per path, the set of wholly moved locals; a later read
+//! of one is the error. It is the only use-after-move diagnostic (since
+//! piece 3a the checker reports no consumed read): `ir::analyze` runs it per
+//! declaration, and `tests/flow_tests.rs` pins it.
 //!
 //! What moves a local: a `Read { consume: true }` of the whole local (no
 //! steps) whose declared type does not move for free
-//! ([`crate::types::moves_for_free`]: a Copy scalar is copied), and a lambda
-//! `Capture { consumed: true }`, at the lambda. What uses one: any read of a
-//! place rooted at it, consumed or not, at any depth of steps. What revives
-//! one: an assignment of the whole local, and a fresh `Let` of it.
+//! ([`crate::types::moves_for_free`]: a Copy scalar is copied); a `Read {
+//! moved: true }` — a move the checker made that emission does not (a fn
+//! value given to a consuming parameter, a projection taking its root) —
+//! of the place's root, whatever its type; a `Call { target:
+//! FnRef::Local(l), moved: true }` of `l` (a `once` fn called), after its
+//! arguments; and a lambda `Capture { consumed: true }`, at the lambda. What
+//! uses one: any read of a place rooted at it, consumed or not, at any depth
+//! of steps, and a call of it. What revives one: an assignment of the whole
+//! local, and a fresh `Let` of it.
 //!
 //! The joins and the loops **mirror the checker's rules exactly**, including
-//! where those rules are unsound (PIPELINE.md §8, R8 piece 1): the point of
-//! this piece is that the two agree, so the checker's version can be switched
-//! off; tightening the rules is a later, separate change.
+//! where those rules are unsound (PIPELINE.md §8, R8 piece 1): they were
+//! built to agree with the checker's, so its version could be switched off;
+//! tightening them (ROADMAP 0o) is a later, separate change.
 //!
 //! * The walk is sequential over every statement of a block, including the
 //!   dead ones after a `return`/`break`/`continue` (the checker walks them
@@ -196,27 +201,35 @@ impl Walker {
         out
     }
 
-    /// `local` is moved at `span`, unless its declared type moves for free
-    /// — or is a fn type: a fn value's use after a move is still the
-    /// checker's diagnostic (the IR lends fn-typed parameters whatever their
-    /// contract, so it cannot see every such move; R8 piece 3).
+    /// `local` is moved at `span` by a consuming read, unless its declared
+    /// type moves for free.
     fn mark_moved(&mut self, local: &str, read_ty: &Ty, span: Span, moved: &mut Moved) {
         let ty = self.decl_ty.get(self.storage(local)).unwrap_or(read_ty);
-        if crate::types::moves_for_free(ty) || matches!(ty.strip_quals(), Ty::Fn { .. }) {
+        if crate::types::moves_for_free(ty) {
             return;
         }
+        self.mark_moved_whole(local, span, moved);
+    }
+
+    /// `local` is moved at `span`, whatever its type: a consumed capture, or
+    /// a move the checker made (`moved` on a read or a call).
+    fn mark_moved_whole(&mut self, local: &str, span: Span, moved: &mut Moved) {
         for l in self.group(local) {
             moved.entry(l).or_insert(span);
         }
     }
 
-    fn mark_moved_capture(&mut self, local: &str, span: Span, moved: &mut Moved) {
-        if self.decl_ty.get(self.storage(local)).is_some_and(|t| matches!(t.strip_quals(), Ty::Fn { .. })) {
-            return;
+    /// The local a place rooted at `local` is part of: through narrowings,
+    /// aliases and bindings of projections, to the whole local underneath.
+    fn root_of(&self, local: &str) -> String {
+        let mut at = self.storage(local);
+        for _ in 0..64 {
+            match self.part_of.get(at) {
+                Some(root) => at = self.storage(root),
+                None => break,
+            }
         }
-        for l in self.group(local) {
-            moved.entry(l).or_insert(span);
-        }
+        at.to_string()
     }
 
     fn revive(&self, local: &str, moved: &mut Moved) {
@@ -403,12 +416,40 @@ impl Walker {
 
     fn walk_expr(&mut self, e: &Expr, moved: &mut Moved) -> Flow {
         match &e.kind {
-            ExprKind::Read { place, consume } => {
+            ExprKind::Read { place, consume, moved: checker_moved } => {
                 self.walk_steps(place, moved);
                 self.report_use(&place.root.0, e.span, moved);
-                if *consume && place.steps.is_empty() {
+                if *checker_moved {
+                    // The checker consumed the root here: a fn value, or a
+                    // projection whose move took its root wholly.
+                    let root = self.root_of(&place.root.0);
+                    self.mark_moved_whole(&root, e.span, moved);
+                } else if *consume && place.steps.is_empty() {
                     self.mark_moved(&place.root.0, &e.ty, e.span, moved);
                 }
+                Flow::FallsThrough
+            }
+            // [once-fn] A call of a local is a use of it; a call the checker
+            // recorded as consuming it (a `once` fn) is its move, after the
+            // arguments.
+            ExprKind::Call { target: FnRef::Local(l), args, moved: consumes, .. } => {
+                self.report_use(&l.0, e.span, moved);
+                let mut flow = Flow::FallsThrough;
+                for a in args {
+                    if self.walk_expr(a, moved) == Flow::Leaves {
+                        flow = Flow::Leaves;
+                    }
+                }
+                if *consumes {
+                    self.mark_moved_whole(&l.0, e.span, moved);
+                }
+                if e.ty == Ty::Never {
+                    flow = Flow::Leaves;
+                }
+                flow
+            }
+            ExprKind::FnValue(FnRef::Local(l)) => {
+                self.report_use(&l.0, e.span, moved);
                 Flow::FallsThrough
             }
             ExprKind::Branch { id, arms, otherwise } => {
@@ -483,7 +524,7 @@ impl Walker {
                 self.breaks = loops;
                 for c in captures {
                     if c.consumed {
-                        self.mark_moved_capture(&c.local.0, e.span, moved);
+                        self.mark_moved_whole(&c.local.0, e.span, moved);
                     }
                 }
                 Flow::FallsThrough

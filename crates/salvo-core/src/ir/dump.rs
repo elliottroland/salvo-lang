@@ -457,11 +457,11 @@ impl<'a> Dumper<'a> {
             ExprKind::MakeNone => {
                 let _ = write!(self.out, "none[{}]", e.ty);
             }
-            ExprKind::Read { place, consume } => {
+            ExprKind::Read { place, consume, .. } => {
                 self.out.push_str(if *consume { "!read " } else { "read " });
                 self.place(place, indent);
             }
-            ExprKind::Call { target, type_args, args } => {
+            ExprKind::Call { target, type_args, args, .. } => {
                 self.out.push_str("call ");
                 self.fn_ref(target);
                 self.type_args(type_args);

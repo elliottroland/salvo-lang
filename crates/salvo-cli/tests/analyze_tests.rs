@@ -1597,10 +1597,7 @@ fn l7b_once_fns() {
          fn run_twice_bad(f: once () -> None) {\n    f()\n    f()\n}\n\n\
          fn run_in_loop_bad(f: once () -> None) {\n    for i in List(1, 2) {\n        f()\n    }\n}\n\n\
          fn run_maybe(f: once () -> None, flag: Bool) {\n    if flag {\n        f()\n    }\n}\n\n\
-         fn run_plain(f: () -> None) {\n    f()\n    f()\n}\n\n\
          fn consume_list(v: List<Int>) -> None => !v {\n}\n\n\
-         fn once_where_plain_bad() {\n    let xs = List(1, 2)\n    \
-         let g = () -> { consume_list(xs) }\n    run_plain(g)\n}\n\n\
          fn once_where_once_ok() {\n    let xs = List(1, 2)\n    \
          let g = () -> { consume_list(xs) }\n    run_once(g)\n}\n\n\
          fn plain_where_once_ok() {\n    let n = 5\n    \
@@ -1612,27 +1609,16 @@ fn l7b_once_fns() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    // Second call and loop back-edge call: consumed by the first call.
-    assert_eq!(
-        stderr
-            .matches(
-                "`f` cannot be used here: it was consumed (moved) by a call \
-                 (a `once` function is callable at most once)"
-            )
-            .count(),
-        2,
-        "stderr: {stderr}"
-    );
-    // A `once` lambda cannot go where a plain fn is expected.
-    assert!(
-        stderr.contains("no matching overload for `run_plain(once () -> "),
-        "stderr: {stderr}"
-    );
-    // Passing a `once` value on consumes it (escape rule).
-    assert!(
-        stderr.contains("`f` cannot be used here: it was consumed (moved) by an earlier call"),
-        "stderr: {stderr}"
-    );
+    // [flow-use-after-move] The uses are the IR flow pass's, naming the
+    // move: the second call (moved by the first, line 6), the loop's back
+    // edge (line 12), and a call after passing the value on (the escape
+    // rule, line 38).
+    for line in [6, 12, 38] {
+        assert!(
+            stderr.contains(&format!("`f` cannot be used here: it was consumed (moved) at line {line};")),
+            "line {line}, stderr: {stderr}"
+        );
+    }
     // [once-fn] D6 (user decision 2026-09-12): `once` is valid on any
     // type now, so `not_a_fn(x: once Int)` draws no error.
     assert!(
@@ -1640,7 +1626,27 @@ fn l7b_once_fns() {
         "stderr: {stderr}"
     );
     // run_maybe, once_where_once_ok, plain_where_once_ok, not_a_fn are clean.
-    assert!(stderr.contains("4 errors"), "stderr: {stderr}");
+    assert!(stderr.contains("3 errors"), "stderr: {stderr}");
+
+    // A `once` lambda cannot go where a plain fn is expected — a checker
+    // error, so in a program of its own (a checker error hides the flow
+    // pass's diagnostics).
+    fs::write(
+        dir.join("main.sv"),
+        "fn run_plain(f: () -> None) {\n    f()\n    f()\n}\n\n\
+         fn consume_list(v: List<Int>) -> None => !v {\n}\n\n\
+         fn once_where_plain_bad() {\n    let xs = List(1, 2)\n    \
+         let g = () -> { consume_list(xs) }\n    run_plain(g)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("no matching overload for `run_plain(once () -> "),
+        "stderr: {stderr}"
+    );
+    assert!(!stderr.contains("cannot be used here"), "stderr: {stderr}");
 }
 
 // [readonly-return] L7c: `-> proj(p) T?` marks a derived

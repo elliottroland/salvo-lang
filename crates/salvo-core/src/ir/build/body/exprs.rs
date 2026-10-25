@@ -11,6 +11,41 @@ use super::Lower;
 use crate::ir::build::{apply_coercion, erase, unsupported};
 use crate::ir::*;
 
+/// [flow-use-after-move] [fate-partial-move] A projection whose move took
+/// its root wholly (`Checked::flow_moves`, keyed by the projection — an
+/// unwrap the analysis could not place, say): mark the first read of the
+/// root inside the lowered expression `moved`, so the flow pass sees the
+/// root consumed there. A place read already carries the flag (`read`).
+fn mark_root_move(e: &AExpr, built: &mut Expr) {
+    if matches!(built.kind, ExprKind::Read { moved: true, .. }) {
+        return;
+    }
+    let mut at = e;
+    let root = loop {
+        match at {
+            AExpr::Ident(id) => break id.name.clone(),
+            AExpr::Field { base, .. } | AExpr::TupleIndex { base, .. } | AExpr::Index { base, .. } => at = base,
+            other => match other.presence_unwrapped() {
+                Some(inner) => at = inner,
+                None => return,
+            },
+        }
+    };
+    let mut done = false;
+    crate::ir::walk::expr_mut(built, &mut |x| {
+        if done {
+            return;
+        }
+        if let ExprKind::Read { place, moved, .. } = &mut x.kind {
+            let name = place.root.0.split('~').next().unwrap_or_default();
+            if name == root {
+                *moved = true;
+                done = true;
+            }
+        }
+    });
+}
+
 /// [fn-param-default] Every name a default expression's `Ident`s mention —
 /// the earlier parameters it may read. Used to decide, once per call, which
 /// filled parameters are worth binding to a local before lowering the
@@ -36,7 +71,10 @@ fn mentioned_idents(expr: &AExpr) -> std::collections::HashSet<String> {
 impl<'a, 'p> Lower<'a, 'p> {
     /// An expression, with the slot's coercion applied [ir-coerce].
     pub fn expr(&mut self, e: &AExpr) -> Expr {
-        let raw = self.expr_raw(e);
+        let mut raw = self.expr_raw(e);
+        if !matches!(e, AExpr::Ident(_)) && self.ctx.checked.flow_moves.contains(&self.key(e.span())) {
+            mark_root_move(e, &mut raw);
+        }
         match self.ctx.checked.coerce.get(&self.key(e.span())) {
             Some(c) => apply_coercion(c, raw, e.span()),
             None => raw,
@@ -201,7 +239,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let Some(place) = self.place_of(operand) else {
                     return unsupported(ty, span, "inc/dec of a non-place");
                 };
-                let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: place.clone(), consume: false } };
+                let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: place.clone(), consume: false, moved: false } };
                 let one = Expr { ty: ty.clone(), span, kind: if matches!(ty.strip_quals(), Ty::Named { name, .. } if name == "Long") { ExprKind::Long(1) } else { ExprKind::Int(1) } };
                 let value = Expr { ty: ty.clone(), span, kind: ExprKind::Op { op: if *down { Op::Sub } else { Op::Add }, args: vec![read.clone(), one] } };
                 let assign = Stmt::Assign { place: place.clone(), value };
@@ -211,7 +249,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let old = self.fresh("__old");
                     let id = self.id();
                     let bind = Stmt::Let { id, local: old.clone(), ty: ty.clone(), value: read };
-                    let out = Expr { ty, span, kind: ExprKind::Read { place: Place { root: old, steps: Vec::new() }, consume: true } };
+                    let out = Expr { ty, span, kind: ExprKind::Read { place: Place { root: old, steps: Vec::new() }, consume: true, moved: false } };
                     self.block_expr(vec![bind, assign], out, span)
                 }
             }
@@ -267,7 +305,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::Placeholder { .. } => match self.placeholder.clone() {
                 Some(local) => {
                     let ty = self.ty_of(span);
-                    Expr { ty, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume: false } }
+                    Expr { ty, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume: false, moved: false } }
                 }
                 None => unsupported(self.ty_of(span), span, "placeholder outside `?:`"),
             },
@@ -366,7 +404,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let mut args: Vec<Expr> = Vec::new();
         for t in &declared {
             match taken.iter().position(|x| x == t) {
-                Some(i) => args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: Local(format!("__fx{i}")), steps: Vec::new() }, consume: false } }),
+                Some(i) => args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: Local(format!("__fx{i}")), steps: Vec::new() }, consume: false, moved: false } }),
                 None => {
                     self.error(span, format!("a fn needs effect `{t}`, which the fn type it is passed as does not declare"));
                     return unsupported(ty, span, "fn value adapter");
@@ -376,10 +414,10 @@ impl<'a, 'p> Lower<'a, 'p> {
         for (i, t) in params.iter().enumerate() {
             let l = Local(format!("__a{i}"));
             ps.push(Param { local: l.clone(), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span });
-            args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: false } });
+            args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: false, moved: false } });
         }
         args.extend(self.implicit_list(&nested, &[], span));
-        let call = Expr { ty: ret.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args } };
+        let call = Expr { ty: ret.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args, moved: false } };
         Expr { ty, span, kind: ExprKind::Lambda { params: ps, ret, body: Block { stmts: Vec::new(), value: Some(Box::new(call)), span }, captures: Vec::new() } }
     }
 
@@ -414,7 +452,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let id = self.id();
                     let bt = b.ty.clone();
                     let stmts = vec![Stmt::Let { id, local: tmp.clone(), ty: bt, value: b }];
-                    let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp, steps: vec![Step::Field(field.name.clone())] }, consume: true } };
+                    let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp, steps: vec![Step::Field(field.name.clone())] }, consume: true, moved: false } };
                     self.block_expr(stmts, read, span)
                 }
                 AExpr::TupleIndex { base, index, .. } => {
@@ -423,7 +461,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let id = self.id();
                     let bt = b.ty.clone();
                     let stmts = vec![Stmt::Let { id, local: tmp.clone(), ty: bt, value: b }];
-                    let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp, steps: vec![Step::Tuple(*index)] }, consume: true } };
+                    let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp, steps: vec![Step::Tuple(*index)] }, consume: true, moved: false } };
                     self.block_expr(stmts, read, span)
                 }
                 AExpr::Index { base, index, .. } => {
@@ -433,7 +471,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let id = self.id();
                     let bt = b.ty.clone();
                     let stmts = vec![Stmt::Let { id, local: tmp.clone(), ty: bt, value: b }];
-                    let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp, steps: vec![Step::Index(Box::new(i))] }, consume: true } };
+                    let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp, steps: vec![Step::Index(Box::new(i))] }, consume: true, moved: false } };
                     self.block_expr(stmts, read, span)
                 }
                 _ => unsupported(ty, span, "read of a non-place"),
@@ -449,6 +487,10 @@ impl<'a, 'p> Lower<'a, 'p> {
             || self.ctx.checked.moved_reads.contains(&key)
             || self.ctx.checked.state_takes.contains(&key)
             || self.ctx.checked.moved_projections.contains(&key);
+        // [flow-use-after-move] A move the checker made that this read does
+        // not make for emission (a fn value consumed by a call's contract, a
+        // projection taking its root): flow-only.
+        let moved = self.ctx.checked.flow_moves.contains(&key);
         // [qual-field-override] A field a qualifier of the subject refines
         // is read through a narrowing binding justified by the claim.
         if let (AExpr::Field { base, field, .. }, Some(over)) = (e, self.ctx.checked.field_casts.get(&key).map(erase)) {
@@ -464,7 +506,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let local = self.fresh("__claimed");
                 let id = self.id();
                 self.pending.push(Stmt::Narrow { id, local: local.clone(), ty: over.clone(), from: place, from_ty: declared, because: Justification::Claim });
-                return Expr { ty: over, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume } };
+                return Expr { ty: over, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume, moved } };
             }
         }
         // [ir-narrow] A projection the flow narrowed (`p.inner` after a test
@@ -481,11 +523,11 @@ impl<'a, 'p> Lower<'a, 'p> {
                     };
                     let id = self.id();
                     self.pending.push(Stmt::Narrow { id, local: local.clone(), ty: ty.clone(), from: place, from_ty: declared, because });
-                    return Expr { ty, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume } };
+                    return Expr { ty, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume, moved } };
                 }
             }
         }
-        Expr { ty, span, kind: ExprKind::Read { place, consume } }
+        Expr { ty, span, kind: ExprKind::Read { place, consume, moved } }
     }
 
     /// Statements followed by a value, as a `Branch` with one always-true arm
@@ -524,7 +566,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     }
 
     pub(crate) fn block_value(&mut self, stmts: Vec<Stmt>, result: Local, ty: Ty, span: Span) -> Expr {
-        let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: result, steps: Vec::new() }, consume: true } };
+        let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: result, steps: Vec::new() }, consume: true, moved: false } };
         self.block_expr(stmts, read, span)
     }
 
@@ -568,7 +610,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let str_ty = Ty::named("Str");
         let info = self.ctx.checked.interp_info(self.key(span));
         if let Some(local) = info.implicit.cloned() {
-            return Some(Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Local(Local(local)), type_args: Vec::new(), args: vec![value] } });
+            return Some(Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Local(Local(local)), type_args: Vec::new(), args: vec![value], moved: false } });
         }
         // [interp-union] A union is the text of the arm it holds: a switch on
         // the value, each arm calling its own `to_str`.
@@ -579,7 +621,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let at = Span::new(span.end, span.end);
             let mut args = vec![value];
             args.extend(self.implicit_args_at(at));
-            return Some(Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args: Vec::new(), args } });
+            return Some(Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args: Vec::new(), args, moved: false } });
         }
         self.native_text(value, span)
     }
@@ -591,7 +633,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             return Some(value);
         }
         let id = self.intrinsic_fn("to_str", &[value.ty.clone()])?;
-        Some(Expr { ty: Ty::named("Str"), span, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args: vec![value] } })
+        Some(Expr { ty: Ty::named("Str"), span, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args: vec![value], moved: false } })
     }
 
     /// [interp-union] `${u}` for a union `u`: the union's own `to_str`, given
@@ -617,7 +659,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 ArmText::Native if matches!(arm_ty.strip_quals(), Ty::Named { name, .. } if name == "Str") => {
                     // A `Str` is its own text.
                     let p = Param { local: Local("__s".into()), ty: arm_ty.clone(), mode: PassMode::Lent, variadic: false, check: None, span };
-                    let read = Expr { ty: arm_ty.clone(), span, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: false } };
+                    let read = Expr { ty: arm_ty.clone(), span, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: false, moved: false } };
                     Expr { ty: fn_ty, span, kind: ExprKind::Lambda { params: vec![p], ret: str_ty.clone(), body: Block { stmts: Vec::new(), value: Some(Box::new(read)), span }, captures: Vec::new() } }
                 }
                 ArmText::Native => match self.intrinsic_fn("to_str", &[arm_ty.clone()]) {
@@ -822,7 +864,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let mut args = vec![l, r];
                 args.extend(self.implicit_args_at(span));
                 let call_ty = if equality { Ty::named("Bool") } else { Ty::named("Int") };
-                let call = Expr { ty: call_ty, span, kind: ExprKind::Call { target, type_args: Vec::new(), args } };
+                let call = Expr { ty: call_ty, span, kind: ExprKind::Call { target, type_args: Vec::new(), args, moved: false } };
                 match op {
                     BinaryOp::Eq => call,
                     BinaryOp::NotEq => Expr { ty, span, kind: ExprKind::Op { op: Op::Not, args: vec![call] } },
@@ -856,7 +898,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let test = Expr {
             ty: bool_ty.clone(),
             span,
-            kind: ExprKind::Test { id: tid, subject: Box::new(Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false } }), test: arm_test(&ac.test) },
+            kind: ExprKind::Test { id: tid, subject: Box::new(Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false, moved: false } }), test: arm_test(&ac.test) },
         };
         // The present arm: narrow the subject to the arm and compare with the
         // value by the host's `==` (the arm is a basic type).
@@ -871,7 +913,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             because: Justification::Cond { branch: tid, arm: 0 },
         };
         let value = self.promoted(value_ast);
-        let read_arm = Expr { ty: ac.arm_ty.clone(), span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: false } };
+        let read_arm = Expr { ty: ac.arm_ty.clone(), span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: false, moved: false } };
         let cmp = Expr { ty: bool_ty.clone(), span, kind: ExprKind::Op { op: Op::Eq, args: vec![read_arm, value] } };
         let present = Block { stmts: vec![narrow], value: Some(Box::new(cmp)), span };
         // `test && present`, as a branch (the narrow holds only in the arm).
@@ -933,9 +975,9 @@ impl<'a, 'p> Lower<'a, 'p> {
                             _ => (Vec::new(), Ty::Unknown),
                         };
                         let ps: Vec<Param> = params.iter().enumerate().map(|(i, t)| Param { local: Local(format!("__i{i}")), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span: at }).collect();
-                        let mut args: Vec<Expr> = ps.iter().map(|p| Expr { ty: p.ty.clone(), span: at, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: false } }).collect();
+                        let mut args: Vec<Expr> = ps.iter().map(|p| Expr { ty: p.ty.clone(), span: at, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: false, moved: false } }).collect();
                         args.extend(self.implicit_list(nested, &[], at));
-                        let call = Expr { ty: ret.clone(), span: at, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args } };
+                        let call = Expr { ty: ret.clone(), span: at, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args, moved: false } };
                         out.push(Expr { ty: want, span: at, kind: ExprKind::Lambda { params: ps, ret, body: Block { stmts: Vec::new(), value: Some(Box::new(call)), span: at }, captures: Vec::new() } });
                     }
                 }
@@ -959,7 +1001,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             .or_else(|| self.effect_env.iter().rev().find(|(t, _)| base_of(t) == base_of(&want)))
             .map(|(t, l)| (t.clone(), l.clone()));
         match found {
-            Some((t, l)) => Expr { ty: t, span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: false } },
+            Some((t, l)) => Expr { ty: t, span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: false, moved: false } },
             None => {
                 self.error(span, format!("no instance of `{want}` in scope"));
                 unsupported(want, span, "effect instance")
@@ -981,7 +1023,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             };
             let a: Vec<Expr> = args.iter().map(|x| self.expr(x)).collect();
             return match self.qual_fn_ref(&q, &subject, &member) {
-                Some(target) => Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: Vec::new(), args: a } },
+                Some(target) => Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: Vec::new(), args: a, moved: false } },
                 None => unsupported(ty, span, format!("`{q}.{member}`")),
             };
         }
@@ -1073,7 +1115,9 @@ impl<'a, 'p> Lower<'a, 'p> {
             let rest: Vec<Expr> = all_args.iter().map(|x| self.expr(x)).collect();
             let rest = self.mark_consumed_by_contract(rest, &key);
             a.extend(rest);
-            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Local(local), type_args: Vec::new(), args: a } };
+            // [once-fn] [flow-use-after-move] A `once` local's call is its move.
+            let moved = self.ctx.checked.flow_moves.contains(&key);
+            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Local(local), type_args: Vec::new(), args: a, moved } };
         }
         if let Some(k) = info.call_fn.copied() {
             let decl = self.ctx.fn_by_key(k);
@@ -1091,7 +1135,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             lowered.extend(args_lowered);
             lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), named, span));
             let type_args = self.type_args_of(span);
-            let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args, args: lowered } };
+            let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args, args: lowered, moved: false } };
             return if prelude.is_empty() { call } else { self.block_expr(prelude, call, span) };
         }
         // A computed callee: a lambda or fn value expression.
@@ -1100,7 +1144,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let id = self.id();
         let tt = target.ty.clone();
         let a: Vec<Expr> = all_args.iter().map(|x| self.expr(x)).collect();
-        let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Local(tmp.clone()), type_args: Vec::new(), args: a } };
+        let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Local(tmp.clone()), type_args: Vec::new(), args: a, moved: false } };
         self.block_expr(vec![Stmt::Let { id, local: tmp, ty: tt, value: target }], call, span)
     }
 
@@ -1245,12 +1289,12 @@ impl<'a, 'p> Lower<'a, 'p> {
                         let id = self.id();
                         let local = self.bind_owned(&p.name.name, ty.clone(), mode != PassMode::Lent);
                         prelude.push(Stmt::Let { id, local: local.clone(), ty: ty.clone(), value: x });
-                        out.push(Expr { ty, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume: false } });
+                        out.push(Expr { ty, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume: false, moved: false } });
                     } else {
                         let ty = out[i].ty.clone();
                         let id = self.id();
                         let local = self.bind_owned(&p.name.name, ty.clone(), mode != PassMode::Lent);
-                        let moved = std::mem::replace(&mut out[i], Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false } });
+                        let moved = std::mem::replace(&mut out[i], Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false, moved: false } });
                         prelude.push(Stmt::Let { id, local, ty, value: moved });
                     }
                 }
@@ -1346,7 +1390,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let tmp = self.fresh("__part");
             let id = self.id();
             let (ty, at) = (c.ty.clone(), c.span);
-            let value = std::mem::replace(c, Expr { ty: ty.clone(), span: at, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: true } });
+            let value = std::mem::replace(c, Expr { ty: ty.clone(), span: at, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: true, moved: false } });
             stmts.push(Stmt::Let { id, local: tmp, ty, value });
         }
         true
@@ -1420,7 +1464,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 all.push(written.remove(pos));
             } else if let Some(src) = spread_locals.last() {
                 let fty = match &fd.ty { Some(t) => self.ctx.written_ty(self.file_idx, t), None => self.ctx.ty_of(self.file_idx, fd.name.span).unwrap_or(Ty::Unknown) };
-                all.push((name.clone(), Expr { ty: fty, span, kind: ExprKind::Read { place: Place { root: src.clone(), steps: vec![Step::Field(name.clone())] }, consume: true } }));
+                all.push((name.clone(), Expr { ty: fty, span, kind: ExprKind::Read { place: Place { root: src.clone(), steps: vec![Step::Field(name.clone())] }, consume: true, moved: false } }));
             } else if let Some(d) = &fd.default {
                 // [default-predicate] tested where it is applied.
                 let slot = fd.ty.as_ref().and_then(|t| self.ctx.written_ty_unerased(t));
@@ -1529,7 +1573,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let ty = self.ty_of(b.span);
                 let local = self.bind(&b.name, ty.clone());
                 let id = self.id();
-                self.pending_after_test.push(Stmt::Let { id, local, ty: ty.clone(), value: Expr { ty, span, kind: ExprKind::Read { place, consume: false } } });
+                self.pending_after_test.push(Stmt::Let { id, local, ty: ty.clone(), value: Expr { ty, span, kind: ExprKind::Read { place, consume: false, moved: false } } });
             }
             return acc.unwrap_or(Expr { ty: bool_ty, span, kind: ExprKind::Bool(true) });
         }
@@ -1548,7 +1592,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let lid = self.id();
             let sty = s.ty.clone();
             self.pending.push(Stmt::Let { id: lid, local: tmp.clone(), ty: sty.clone(), value: s });
-            s = Expr { ty: sty, span: subject.span(), kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false } };
+            s = Expr { ty: sty, span: subject.span(), kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false, moved: false } };
             place = Some(Place { root: tmp, steps: Vec::new() });
         }
         if !self.in_condition {
@@ -1579,7 +1623,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         if let AExpr::Ident(id) = subject {
             if let Some(b) = self.lookup(&id.name).cloned() {
                 let ty = self.ctx.checked.repr_ty.get(&self.key(span)).map(erase).unwrap_or(b.ty.clone());
-                return Expr { ty, span, kind: ExprKind::Read { place: Place { root: b.local, steps: Vec::new() }, consume: false } };
+                return Expr { ty, span, kind: ExprKind::Read { place: Place { root: b.local, steps: Vec::new() }, consume: false, moved: false } };
             }
         }
         // A projection, read as stored too (its declared type), unless an
@@ -1590,7 +1634,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     return alias;
                 }
                 if let Some(declared) = self.ctx.checked.repr_ty.get(&self.key(span)).map(erase) {
-                    return Expr { ty: declared, span, kind: ExprKind::Read { place, consume: false } };
+                    return Expr { ty: declared, span, kind: ExprKind::Read { place, consume: false, moved: false } };
                 }
             }
         }
@@ -1619,7 +1663,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 (Step::Tuple(x), Step::Tuple(y)) => x == y,
                 _ => false,
             });
-            same.then(|| Expr { ty: t.clone(), span: Span::default(), kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false } })
+            same.then(|| Expr { ty: t.clone(), span: Span::default(), kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false, moved: false } })
         })
     }
 
@@ -1678,7 +1722,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         if let Some(at) = check.implicits_at {
             args.extend(self.implicit_args_at(at));
         }
-        Expr { ty: bool_ty, span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: Vec::new(), args } }
+        Expr { ty: bool_ty, span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: Vec::new(), args, moved: false } }
     }
 
     /// [qual-depend] A predicate check's slot value: the place it names,
@@ -1688,7 +1732,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         match self.lookup(parts[0]).cloned() {
             Some(b) => {
                 let steps = parts[1..].iter().map(|s| Step::Field(s.to_string())).collect();
-                Expr { ty, span, kind: ExprKind::Read { place: Place { root: b.local, steps }, consume: false } }
+                Expr { ty, span, kind: ExprKind::Read { place: Place { root: b.local, steps }, consume: false, moved: false } }
             }
             // [qual-value-args] a literal argument, as spelled.
             None => match literal_arg(&a.path) {
@@ -1793,7 +1837,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let read = |consume: bool| Expr {
             ty: vty.clone(),
             span,
-            kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume },
+            kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume, moved: false },
         };
         for q in &checks {
             let args = q
@@ -1882,7 +1926,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let mut arms = Vec::new();
         for check in &checks {
             let read = |this: &mut Self| match &tmp {
-                Some((local, ty)) => Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false } },
+                Some((local, ty)) => Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false, moved: false } },
                 None => this.expr(subject),
             };
             let subj = read(self);
@@ -2068,7 +2112,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 span,
                 kind: ExprKind::Switch {
                     id,
-                    subject: Box::new(Expr { ty: subj_ty, span, kind: ExprKind::Read { place: Place { root: safe, steps: Vec::new() }, consume: false } }),
+                    subject: Box::new(Expr { ty: subj_ty, span, kind: ExprKind::Read { place: Place { root: safe, steps: Vec::new() }, consume: false, moved: false } }),
                     arms: vec![
                         SwitchArm { test: ArmTest::None, body: absent },
                         SwitchArm { test: ArmTest::Else, body: present },
@@ -2092,11 +2136,11 @@ impl<'a, 'p> Lower<'a, 'p> {
             from_ty: subj_ty.clone(),
             because: Justification::Arm { switch: id, arm: 1 },
         };
-        let rest_read = Expr { ty: rest.clone(), span, kind: ExprKind::Read { place: Place { root: rest_local, steps: Vec::new() }, consume: true } };
+        let rest_read = Expr { ty: rest.clone(), span, kind: ExprKind::Read { place: Place { root: rest_local, steps: Vec::new() }, consume: true, moved: false } };
         let rest_value = self.rewrap_into(rest_read, &ty, span);
         let absent = Block { stmts: vec![rest_narrow], value: Some(Box::new(rest_value)), span };
         // Test the subject's first value arm directly (arm 0).
-        let test = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id: self.id(), subject: Box::new(Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: safe.clone(), steps: Vec::new() }, consume: false } }), test: ArmTest::Arm(0) } };
+        let test = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id: self.id(), subject: Box::new(Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: safe.clone(), steps: Vec::new() }, consume: false, moved: false } }), test: ArmTest::Arm(0) } };
         let br = Expr {
             ty: ty.clone(),
             span,
@@ -2152,7 +2196,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     _ => None,
                 }
                 .unwrap_or_else(|| self.ty_of(span));
-                Expr { ty: fty, span, kind: ExprKind::Read { place: Place { root: nav.clone(), steps: vec![Step::Field(field.name.clone())] }, consume: false } }
+                Expr { ty: fty, span, kind: ExprKind::Read { place: Place { root: nav.clone(), steps: vec![Step::Field(field.name.clone())] }, consume: false, moved: false } }
             }
             ast::SafeAccess::Call { args, .. } => self.safe_call(nav, inner, args, span),
         }
@@ -2166,7 +2210,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     fn safe_call(&mut self, nav: &Local, inner: &Ty, args: &[AExpr], span: Span) -> Expr {
         let key = self.key(span);
         let ty = self.ty_of(span);
-        let recv = Expr { ty: inner.clone(), span, kind: ExprKind::Read { place: Place { root: nav.clone(), steps: Vec::new() }, consume: false } };
+        let recv = Expr { ty: inner.clone(), span, kind: ExprKind::Read { place: Place { root: nav.clone(), steps: Vec::new() }, consume: false, moved: false } };
         let info = self.ctx.checked.call_info(key);
         // Effect-member dot call.
         if let Some(mc) = info.member_call.cloned() {
@@ -2194,7 +2238,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             call_args.push(recv);
             call_args.extend(args.iter().map(|a| self.expr(a)));
             let type_args = self.type_args_of(span);
-            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args, args: call_args } };
+            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args, args: call_args, moved: false } };
         }
         unsupported(ty, span, "safe-nav call")
     }
@@ -2278,7 +2322,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 span,
                 kind: ExprKind::Switch {
                     id,
-                    subject: Box::new(Expr { ty: subj_ty, span, kind: ExprKind::Read { place: Place { root: tmp, steps: Vec::new() }, consume: false } }),
+                    subject: Box::new(Expr { ty: subj_ty, span, kind: ExprKind::Read { place: Place { root: tmp, steps: Vec::new() }, consume: false, moved: false } }),
                     arms: vec![
                         SwitchArm { test: ArmTest::None, body: absent },
                         SwitchArm { test: ArmTest::Else, body: present },
@@ -2301,10 +2345,10 @@ impl<'a, 'p> Lower<'a, 'p> {
             from_ty: subj_ty.clone(),
             because: Justification::Arm { switch: id, arm: 1 },
         };
-        let rest_read = Expr { ty: rest.clone(), span, kind: ExprKind::Read { place: Place { root: rest_local, steps: Vec::new() }, consume: true } };
+        let rest_read = Expr { ty: rest.clone(), span, kind: ExprKind::Read { place: Place { root: rest_local, steps: Vec::new() }, consume: true, moved: false } };
         let rest_value = self.rewrap_into(rest_read, &ty, span);
         let absent = Block { stmts: vec![rest_narrow], value: Some(Box::new(rest_value)), span };
-        let test = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id: self.id(), subject: Box::new(Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false } }), test: ArmTest::Arm(0) } };
+        let test = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id: self.id(), subject: Box::new(Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false, moved: false } }), test: ArmTest::Arm(0) } };
         let br = Expr {
             ty: ty.clone(),
             span,
@@ -2346,7 +2390,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let nar = self.fresh("__picked");
         let nid = self.id();
         let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: picked_ty.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Cond { branch: id, arm: 0 } };
-        let read_picked = Expr { ty: picked_ty.clone(), span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: true } };
+        let read_picked = Expr { ty: picked_ty.clone(), span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: true, moved: false } };
         let value = match &widen {
             Some(c) => apply_coercion(c, read_picked, span),
             None => read_picked,
@@ -2373,7 +2417,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // of `Test` nodes — one per picked value arm, plus a `None` test when
         // the pick keeps the `None` arm. Testing the picked side directly
         // handles any mix of value arms and `None`.
-        let read_tmp = || Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false } };
+        let read_tmp = || Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false, moved: false } };
         let mut tests: Vec<Expr> = Vec::new();
         if let Some(p) = &pick {
             for arm in &p.value_arms {
@@ -2516,7 +2560,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let local = self.bind(&name.name, subj_ty.clone());
                 let lid = self.id();
                 let bind = Stmt::Let { id: lid, local: local.clone(), ty: subj_ty.clone(), value: s };
-                let read = Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false } };
+                let read = Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false, moved: false } };
                 (vec![bind], read, Some(Place { root: local, steps: Vec::new() }))
             }
             None => {
@@ -2637,7 +2681,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             if let (Some(v), Some((res, _))) = (arm.value.take(), &result) {
                 arm.stmts.push(Stmt::Assign { place: Place { root: res.clone(), steps: Vec::new() }, value: *v });
             }
-            let not_ran = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Op { op: Op::Not, args: vec![Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Read { place: Place { root: r, steps: Vec::new() }, consume: false } }] } };
+            let not_ran = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Op { op: Op::Not, args: vec![Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Read { place: Place { root: r, steps: Vec::new() }, consume: false, moved: false } }] } };
             let id = self.id();
             out.push(Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Branch { id, arms: vec![(not_ran, arm)], otherwise: None } }));
         }
@@ -2702,7 +2746,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                         let (target, ret, effects) = self.pass_member_full(m, &subject_ty);
                         let mut args: Vec<Expr> = effects.iter().map(|t| self.effect_instance(t, span)).collect();
                         args.push(subject);
-                        Expr { ty: ret, span, kind: ExprKind::Call { target, type_args: Vec::new(), args } }
+                        Expr { ty: ret, span, kind: ExprKind::Call { target, type_args: Vec::new(), args, moved: false } }
                     }
                     None => subject,
                 };
@@ -2736,8 +2780,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let pass_ty = pass_tys.iter().find(|(l, _)| *l == pass).map(|(_, t)| t.clone()).unwrap_or(Ty::Unknown);
                     let (next_target, _, effects) = self.pass_member_full(&d.next, &pass_ty);
                     let mut args: Vec<Expr> = effects.iter().map(|t| self.effect_instance(t, span)).collect();
-                    args.push(Expr { ty: pass_ty, span, kind: ExprKind::Read { place: Place { root: pass.clone(), steps: Vec::new() }, consume: false } });
-                    Expr { ty: step_ty.clone(), span, kind: ExprKind::Call { target: next_target, type_args: Vec::new(), args } }
+                    args.push(Expr { ty: pass_ty, span, kind: ExprKind::Read { place: Place { root: pass.clone(), steps: Vec::new() }, consume: false, moved: false } });
+                    Expr { ty: step_ty.clone(), span, kind: ExprKind::Call { target: next_target, type_args: Vec::new(), args, moved: false } }
                 };
                 stmts.push(Stmt::Let { id: sid, local: step.clone(), ty: step_ty.clone(), value: step_value });
                 let swid = self.id();
@@ -2745,7 +2789,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let nid = self.id();
                 let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: elem_ty.clone(), from: Place { root: step.clone(), steps: Vec::new() }, from_ty: step_ty.clone(), because: Justification::Arm { switch: swid, arm: 0 } };
                 let mut arm_stmts = vec![narrow];
-                bind_pattern(self, Expr { ty: elem_ty.clone(), span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: true } }, &mut arm_stmts);
+                bind_pattern(self, Expr { ty: elem_ty.clone(), span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: true, moved: false } }, &mut arm_stmts);
                 if let Some(r) = &ran {
                     arm_stmts.push(Stmt::Assign { place: Place { root: r.clone(), steps: Vec::new() }, value: Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) } });
                 }
@@ -2761,7 +2805,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     span,
                     kind: ExprKind::Switch {
                         id: swid,
-                        subject: Box::new(Expr { ty: step_ty, span, kind: ExprKind::Read { place: Place { root: step, steps: Vec::new() }, consume: false } }),
+                        subject: Box::new(Expr { ty: step_ty, span, kind: ExprKind::Read { place: Place { root: step, steps: Vec::new() }, consume: false, moved: false } }),
                         arms: vec![
                             SwitchArm { test: ArmTest::Arm(d.emitted_arm), body: Block { stmts: arm_stmts, value: None, span: body.span } },
                             SwitchArm { test: ArmTest::Else, body: Block { stmts: vec![Stmt::Break], value: None, span } },
@@ -2804,7 +2848,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             if let (Some(v), Some((res, _))) = (arm.value.take(), &result) {
                 arm.stmts.push(Stmt::Assign { place: Place { root: res.clone(), steps: Vec::new() }, value: *v });
             }
-            let not_ran = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Op { op: Op::Not, args: vec![Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Read { place: Place { root: r, steps: Vec::new() }, consume: false } }] } };
+            let not_ran = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Op { op: Op::Not, args: vec![Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Read { place: Place { root: r, steps: Vec::new() }, consume: false, moved: false } }] } };
             let id = self.id();
             out.push(Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Branch { id, arms: vec![(not_ran, arm)], otherwise: None } }));
         }
@@ -2850,14 +2894,14 @@ impl<'a, 'p> Lower<'a, 'p> {
                 Ty::Tuple(elems) => {
                     for (i, et) in elems.iter().enumerate() {
                         if let Some(eff) = handle_effect(et) {
-                            let read = Expr { ty: et.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: vec![Step::Tuple(i)] }, consume: false } };
+                            let read = Expr { ty: et.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: vec![Step::Tuple(i)] }, consume: false, moved: false } };
                             carried.push((eff, read));
                         }
                     }
                 }
                 other => {
                     if let Some(eff) = handle_effect(other) {
-                        let read = Expr { ty: vty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false } };
+                        let read = Expr { ty: vty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false, moved: false } };
                         carried.push((eff, read));
                     }
                 }
@@ -2911,11 +2955,11 @@ impl<'a, 'p> Lower<'a, 'p> {
         // projection is a copy).
         let pick = |w: &Ty| -> Expr {
             if single {
-                return Expr { ty: base_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false } };
+                return Expr { ty: base_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false, moved: false } };
             }
             let idx = have.iter().position(|h| handle_carries(h, w)).unwrap_or(0);
             let et = have.get(idx).cloned().unwrap_or_else(|| Ty::Named { name: "Addr".into(), args: vec![w.clone()] });
-            Expr { ty: et, span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: vec![Step::Tuple(idx)] }, consume: false } }
+            Expr { ty: et, span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: vec![Step::Tuple(idx)] }, consume: false, moved: false } }
         };
         let reads: Vec<Expr> = want.iter().map(&pick).collect();
         let value = match reads.len() {
@@ -2947,7 +2991,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let elem = Expr {
                     ty: effect.clone(),
                     span,
-                    kind: ExprKind::Read { place: Place { root: base.clone(), steps: vec![Step::Tuple(i)] }, consume: false },
+                    kind: ExprKind::Read { place: Place { root: base.clone(), steps: vec![Step::Tuple(i)] }, consume: false, moved: false },
                 };
                 let inst = Expr { ty: effect.clone(), span, kind: ExprKind::AddrInstance { addr: Box::new(elem) } };
                 let local = self.fresh("__use");
@@ -3002,7 +3046,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         for f in faces {
             let h = self.fresh("__handle");
             let hid = self.id();
-            let read = Expr { ty: handler_ty.clone(), span, kind: ExprKind::Read { place: Place { root: inst.clone(), steps: Vec::new() }, consume: false } };
+            let read = Expr { ty: handler_ty.clone(), span, kind: ExprKind::Read { place: Place { root: inst.clone(), steps: Vec::new() }, consume: false, moved: false } };
             let value = if threadsafe { Expr { ty: f.clone(), ..read } } else { Expr { ty: f.clone(), span, kind: ExprKind::Handle { instance: Box::new(read) } } };
             out.push(Stmt::Let { id: hid, local: h.clone(), ty: f.clone(), value });
             self.effect_env.push((f.clone(), h.clone()));
@@ -3029,7 +3073,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.pending.extend(stmts);
         let reads: Vec<Expr> = bound
             .iter()
-            .map(|(f, l)| Expr { ty: f.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false } })
+            .map(|(f, l)| Expr { ty: f.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false, moved: false } })
             .collect();
         match reads.len() {
             0 => unsupported(ty, span, "use expression with no handle"),
@@ -3109,7 +3153,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let id = self.id();
                     let local = self.fresh(&format!("__{}", p.name.name));
                     self.scopes.last_mut().unwrap().insert(p.name.name.clone(), super::Bound { local: local.clone(), ty: ty.clone(), owned: true });
-                    let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false } };
+                    let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false, moved: false } };
                     let moved = std::mem::replace(&mut fields[at].1, read);
                     self.pending.push(Stmt::Let { id, local, ty, value: moved });
                 }

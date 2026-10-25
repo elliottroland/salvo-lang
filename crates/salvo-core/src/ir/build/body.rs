@@ -162,7 +162,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             _ => {}
         }
-        if let ExprKind::Read { place, consume } = &mut e.kind {
+        if let ExprKind::Read { place, consume, .. } = &mut e.kind {
             if place.steps.is_empty() {
                 let owned = self.scopes.iter().rev().find_map(|s| s.values().find(|b| b.local == place.root)).map(|b| b.owned).unwrap_or(true);
                 if owned {
@@ -176,7 +176,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// the checker proved every ancestor owned, so the whole of a local or
     /// a field path out of one is moved.
     pub(crate) fn consume_bound(&self, e: &mut Expr) {
-        if let ExprKind::Read { place, consume } = &mut e.kind {
+        if let ExprKind::Read { place, consume, .. } = &mut e.kind {
             if place.steps.iter().all(|s| matches!(s, Step::Field(_))) {
                 let owned = self.scopes.iter().rev().find_map(|s| s.values().find(|b| b.local == place.root)).map(|b| b.owned).unwrap_or(true);
                 if owned {
@@ -383,7 +383,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             Pattern::Ident(id) => {
                 let local = self.bind(&id.name, ty.clone());
                 let nid = self.id();
-                out.push(Stmt::Let { id: nid, local, ty: ty.clone(), value: Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root, steps: Vec::new() }, consume: true } } });
+                out.push(Stmt::Let { id: nid, local, ty: ty.clone(), value: Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root, steps: Vec::new() }, consume: true, moved: false } } });
             }
             Pattern::Tuple { elems, .. } => {
                 let elem_tys: Vec<Ty> = match ty.strip_quals() {
@@ -400,13 +400,13 @@ impl<'a, 'p> Lower<'a, 'p> {
                                 id: nid,
                                 local,
                                 ty: ety.clone(),
-                                value: Expr { ty: ety, span: id_.span, kind: ExprKind::Read { place: Place { root: root.clone(), steps: vec![Step::Tuple(i)] }, consume: true } },
+                                value: Expr { ty: ety, span: id_.span, kind: ExprKind::Read { place: Place { root: root.clone(), steps: vec![Step::Tuple(i)] }, consume: true, moved: false } },
                             });
                         }
                         nested => {
                             let tmp = self.fresh("__elem");
                             let nid = self.id();
-                            out.push(Stmt::Let { id: nid, local: tmp.clone(), ty: ety.clone(), value: Expr { ty: ety.clone(), span, kind: ExprKind::Read { place: Place { root: root.clone(), steps: vec![Step::Tuple(i)] }, consume: true } } });
+                            out.push(Stmt::Let { id: nid, local: tmp.clone(), ty: ety.clone(), value: Expr { ty: ety.clone(), span, kind: ExprKind::Read { place: Place { root: root.clone(), steps: vec![Step::Tuple(i)] }, consume: true, moved: false } } });
                             out.extend(self.destructure(nested, tmp, &ety, span));
                         }
                     }
@@ -431,7 +431,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                         id: nid,
                         local,
                         ty: fty.clone(),
-                        value: Expr { ty: fty, span: f.span, kind: ExprKind::Read { place: Place { root: root.clone(), steps: vec![Step::Field(f.field.name.clone())] }, consume: true } },
+                        value: Expr { ty: fty, span: f.span, kind: ExprKind::Read { place: Place { root: root.clone(), steps: vec![Step::Field(f.field.name.clone())] }, consume: true, moved: false } },
                     });
                 }
             }

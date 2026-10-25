@@ -494,8 +494,15 @@ pub enum ExprKind {
     /// The absent arm of an optional.
     MakeNone,
     /// [ir-read] a read of a place; `consume` ends the value's life here.
-    Read { place: Place, consume: bool },
-    Call { target: FnRef, type_args: Vec<Ty>, args: Vec<Expr> },
+    /// [flow-use-after-move] `moved`: the checker consumed the place's root
+    /// wholly here, which the flow pass takes as the move whatever
+    /// `consume` says — a fn value handed to a consuming parameter (which
+    /// `param_mode` lends), a projection whose move took its root. Flow-only:
+    /// no emitter reads it.
+    Read { place: Place, consume: bool, moved: bool },
+    /// [flow-use-after-move] `moved`: the call consumes its `FnRef::Local`
+    /// target (a `once` fn called [once-fn]) — flow-only, like `Read`'s.
+    Call { target: FnRef, type_args: Vec<Ty>, args: Vec<Expr>, moved: bool },
     /// A call of an interface member through an instance [effect-dispatch].
     MemberCall { instance: Box<Expr>, member: MemberRef, type_args: Vec<Ty>, args: Vec<Expr> },
     /// [ir-op] the host's operator on basic types [type-basic]: arithmetic,

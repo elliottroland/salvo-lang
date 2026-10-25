@@ -1,28 +1,19 @@
 //! [flow-use-after-move] The IR's use-after-move pass (`ir::flow`, PIPELINE.md
-//! R8), the gate's use-after-move diagnostic since piece 2, against the
-//! checker's consumption machinery [deduce-consume]: over a corpus of small
-//! programs, the reads the checker reports as "cannot be used here: it was
-//! consumed (moved) by …" when its own diagnostic is switched back on
-//! (`check_program_reporting_consumed_reads`, a test-only mode) must be the
-//! reads the flow pass reports over the IR built from the normal walk's
-//! tables — which is what the gates build it from. The normal walk itself
-//! reports nothing on the corpus: a consumed read is no longer its error.
+//! R8), the only use-after-move diagnostic since piece 3a: over a corpus of
+//! small programs, the checker reports nothing (a consumed read is never its
+//! error), the gate (`ir::analyze`) reports what the pass finds over the IR
+//! built from the checker's tables, and each case's reads are pinned.
 //!
-//! The differential is kept, rather than only pinned expectations, because
-//! the checker still owns the consumption marking (`narrowed = Never`) its
-//! linear and poison machinery read: until those move to the IR (piece 3 and
-//! on) the two must agree on what is moved where. A deliberate divergence —
-//! ROADMAP 0o's unsound join/loop rules fixed in the pass — goes into
-//! `KNOWN` with its reason, and the pinned test below changes with it.
-//!
-//! Positions are compared by the read's start offset: the checker reports a
-//! moved base at the identifier (`b` in `b.s`), the IR at the whole read,
-//! which starts there. The checker's same-call variant ("consumed (moved)
-//! by an earlier argument of this call") counts: it fires on the later
-//! argument, which for a bare name is exactly the read the flow pass reports.
-//!
-//! `KNOWN` lists the differences that are understood, each with its reason;
-//! anything else is a failure, in either direction.
+//! Until piece 3a this was a differential: the checker's own "consumed
+//! (moved) by …" diagnostic, switched back on for the test, had to report
+//! the same reads (by start offset, its same-call variant included). It
+//! agreed on the final corpus — every fn-value, `once`-call and
+//! projection-root case included — and was removed with the diagnostic; the
+//! pinned expectations are those reads. The checker still owns the
+//! consumption marking (`narrowed = Never`) its linear and poison machinery
+//! read, so a case whose expectation changes must say whether the pass's rule
+//! changed (ROADMAP 0o's unsound join/loop rules, say) or the checker's
+//! marking did.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -49,6 +40,32 @@ fn mk() [] -> Str {
 }
 
 fn take<T>(v: T) [] -> None => !v {
+}
+
+fn peek<T>(v: T) [] -> Int {
+    return 0
+}
+
+fn keep(g: () -> Int) [] -> None => !g {
+}
+
+fn call(g: () -> Int) [] -> Int {
+    return g()
+}
+
+fn run_once(g: once () -> Int) [] -> Int {
+    return g()
+}
+
+fn eatl(xs: Mut List<Str>) [] -> None => !xs {
+}
+
+struct Bag {
+    items: Mut List<Str>
+}
+
+struct FnBox {
+    run: () -> Int
 }
 
 ";
@@ -122,14 +139,38 @@ const CASES: &[(&str, &str)] = &[
     // builder's block expression: the body is not changed, so not re-walked.
     ("break_in_always_arm", "fn f() [] -> Int {\n    let s = mk()\n    let _r = while true {\n        if true {\n            break s\n        }\n    }\n    return look(s)\n}\n"),
     ("spread_reads_base", "fn f() [] -> Int {\n    let b = Box { s: mk() }\n    let b2 = Box { ...b, s: \"${b.s}!\" }\n    return look(b2.s)\n}\n"),
+    // [R8 piece 3a] Fn values: a consuming parameter takes one though
+    // `param_mode` lends it (the IR's `moved` flag carries the move).
+    ("fn_moved_then_called", "fn f(g: () -> Int) [] -> Int => !g {\n    keep(g)\n    return g()\n}\n"),
+    ("fn_moved_then_passed", "fn f(g: () -> Int) [] -> None => !g {\n    keep(g)\n    keep(g)\n}\n"),
+    ("fn_moved_then_lent", "fn f(g: () -> Int) [] -> Int => !g {\n    keep(g)\n    return call(g)\n}\n"),
+    ("fn_lambda_moved", "fn f() [] -> Int {\n    let g = () -> 1\n    keep(g)\n    return g()\n}\n"),
+    ("fn_stored", "fn f(g: () -> Int) [] -> Int => !g {\n    let b = FnBox { run: g }\n    return g()\n}\n"),
+    ("fn_returned_in_arm", "fn f(g: () -> Int, c: Bool) [] -> () -> Int => !g {\n    if c {\n        return g\n    }\n    keep(g)\n    return () -> 0\n}\n"),
+    ("fn_moved_in_loop", "fn f(g: () -> Int, c: Bool) [] -> None => !g {\n    while c {\n        keep(g)\n    }\n}\n"),
+    ("fn_same_call", "fn both(a: () -> Int, b: () -> Int) [] -> None => !a, !b {\n}\n\nfn f(g: () -> Int) [] -> None => !g {\n    both(g, g)\n}\n"),
+    // Near misses: a lent fn value, called or lent twice, stays usable.
+    ("fn_lent_twice", "fn f(g: () -> Int) [] -> Int {\n    let n = call(g)\n    return n + call(g) + g() + g()\n}\n"),
+    ("fn_moved_after_reassign", "fn f() [] -> Int {\n    let g = () -> 1\n    keep(g)\n    g = () -> 2\n    return g()\n}\n"),
+    // `once` fns: a call is the move.
+    ("once_called_twice", "fn f(g: once () -> Int) [] -> Int {\n    let n = g()\n    return n + g()\n}\n"),
+    ("once_in_loop", "fn f(g: once () -> Int) [] -> None {\n    for i in List(1, 2) {\n        g()\n    }\n}\n"),
+    ("once_passed_then_called", "fn f(g: once () -> Int) [] -> Int {\n    let n = run_once(g)\n    return n + g()\n}\n"),
+    ("once_called_then_passed", "fn f(g: once () -> Int) [] -> Int {\n    let n = g()\n    return n + run_once(g)\n}\n"),
+    // Near misses: at most once.
+    ("once_maybe", "fn f(g: once () -> Int, c: Bool) [] -> Int {\n    if c {\n        return g()\n    }\n    return 0\n}\n"),
+    ("once_each_arm", "fn f(g: once () -> Int, c: Bool) [] -> Int {\n    if c {\n        return g()\n    } else {\n        return g() + 1\n    }\n}\n"),
+    ("plain_called_twice", "fn f(g: () -> Int) [] -> Int {\n    return g() + g()\n}\n"),
+    // Projection roots: a move of mutable data the analysis could not place
+    // (an unwrap) takes the root wholly.
+    ("projection_root_unwrap", "fn f(o: Mut List<Str>?) [] -> Int => !o {\n    eatl(o ?: unreachable!())\n    return peek(o)\n}\n"),
+    ("projection_root_field", "fn f(o: Bag?) [] -> Int => !o {\n    eatl((o ?: unreachable!()).items)\n    return peek(o)\n}\n"),
+    ("projection_root_same_call", "fn eat_both(a: Mut List<Str>, b: Mut List<Str>?) [] -> None => !a, !b {\n}\n\nfn f(o: Mut List<Str>?) [] -> None => !o {\n    eat_both(o ?: unreachable!(), o)\n}\n"),
+    ("projection_root_in_arm", "fn f(o: Mut List<Str>?, c: Bool) [] -> Int => !o {\n    if c {\n        eatl(o ?: unreachable!())\n    }\n    return peek(o)\n}\n"),
+    // Near misses: reassigned, or moved only on a path that leaves.
+    ("projection_root_reassigned", "fn f() [] -> Int {\n    let o: Mut List<Str>? = Mut List<Str>()\n    eatl(o ?: unreachable!())\n    o = None\n    return peek(o)\n}\n"),
+    ("projection_root_arm_exits", "fn f(o: Mut List<Str>?, c: Bool) [] -> Int => !o {\n    if c {\n        eatl(o ?: unreachable!())\n        return 1\n    }\n    return peek(o)\n}\n"),
 ];
-
-/// Understood differences: `(case, side, line, column)` where `side` is the
-/// one that reports the read, and line/column are within the case's source.
-/// Empty since piece 2: the IR carries the moves it used to read plainly (a
-/// literal store, a spread, a `use` argument, a `break` value) through the
-/// checker's `moved_reads`.
-const KNOWN: &[(&str, &str, u32, u32)] = &[];
 
 fn program(cases: &[(&str, &str)]) -> Program {
     let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
@@ -158,34 +199,17 @@ fn case_line_col(content: &str, offset: u32) -> (u32, u32) {
     (line - HELPERS.lines().count() as u32, col)
 }
 
-/// The checker's consumed-read message (its same-call variant included).
-const CONSUMED_READ: &str = "it was consumed (moved) by";
-
 #[test]
-fn the_flow_pass_reports_the_reads_the_checker_reports() {
+fn the_gate_reports_what_the_flow_pass_finds() {
     let program = program(CASES);
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
     let user: HashMap<&str, usize> =
         program.files.iter().enumerate().filter(|(_, f)| !f.is_std).map(|(i, f)| (f.name.as_str(), i)).collect();
 
-    // (a) The checker with its consumed-read diagnostic switched back on:
-    // those errors; nothing else may be an error.
-    let reporting = salvo_core::check_program_reporting_consumed_reads(&program, &resolution, &symbols);
-    let mut checker: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
-    let mut unexpected = Vec::new();
-    for d in reporting.errors.iter().filter(|d| d.is_error() && !program.files[d.file].is_std) {
-        if d.message.contains(CONSUMED_READ) {
-            checker.entry(d.file).or_default().insert(d.span.start);
-        } else {
-            unexpected.push(d.render(&program.files));
-        }
-    }
-    assert!(unexpected.is_empty(), "the corpus must only have consumed-read errors:\n{}", unexpected.join("\n"));
-
-    // (b) The checker as the gates run it: no error in the corpus at all (a
-    // consumed read is the flow pass's), then the IR of the corpus modules
-    // and the flow pass over it.
+    // (a) The checker as the gates run it: no error in the corpus at all (a
+    // consumed read is never the checker's), then the IR of the corpus
+    // modules and the flow pass over it.
     let normal = salvo_core::check_program(&program, &resolution, &symbols);
     let errors: Vec<String> = normal
         .errors
@@ -212,7 +236,7 @@ fn the_flow_pass_reports_the_reads_the_checker_reports() {
     }
     assert_eq!(salvo_core::ir::flow::check(&ir).len(), total, "`check` is `check_one` over every decl");
 
-    // (c) The gate (`ir::analyze`) reports exactly those reads, naming the
+    // (b) The gate (`ir::analyze`) reports exactly those reads, naming the
     // move.
     let mut gate: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
     for d in salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &normal) {
@@ -225,36 +249,13 @@ fn the_flow_pass_reports_the_reads_the_checker_reports() {
         gate.entry(d.file).or_default().insert(d.span.start);
     }
     assert_eq!(gate, flow, "`ir::analyze` reports what the flow pass finds");
-
-    // Compare per case, modulo the known differences.
-    let mut mismatches = Vec::new();
-    let mut known_seen = BTreeSet::new();
-    for (name, _) in CASES {
-        let file = user[format!("{name}.sv").as_str()];
-        let content = &program.files[file].content;
-        let empty = BTreeSet::new();
-        let c = checker.get(&file).unwrap_or(&empty);
-        let f = flow.get(&file).unwrap_or(&empty);
-        for (side, only) in [("checker", c.difference(f)), ("flow", f.difference(c))] {
-            for &at in only {
-                let (line, col) = case_line_col(content, at);
-                if KNOWN.contains(&(name, side, line, col)) {
-                    known_seen.insert((*name, side, line, col));
-                } else {
-                    mismatches.push(format!("{name}: only the {side} reports {line}:{col}"));
-                }
-            }
-        }
-    }
-    assert!(mismatches.is_empty(), "the checker and the flow pass disagree:\n{}", mismatches.join("\n"));
-    let stale: Vec<_> = KNOWN.iter().filter(|k| !known_seen.contains(*k)).collect();
-    assert!(stale.is_empty(), "known differences that no longer occur (remove them): {stale:?}");
+    assert!(CASES.iter().all(|(name, _)| user.contains_key(format!("{name}.sv").as_str())));
 }
 
-/// What the corpus expects each side to agree on, spelled out per case, so a
-/// change to either side's rules shows up as the case that moved rather than
-/// as a quietly re-agreeing pair: the reads (line, column within the case)
-/// the flow pass reports.
+/// What the flow pass reports on each case (line, column within the case):
+/// the reads the checker reported with its own diagnostic switched back on,
+/// for as long as it had one (the differential, retired with it in R8 piece
+/// 3a), so a change to the pass's rules shows up as the case that moved.
 #[test]
 fn the_flow_pass_reports_these_reads() {
     let expected: &[(&str, &[(u32, u32)])] = &[
@@ -297,6 +298,29 @@ fn the_flow_pass_reports_these_reads() {
         ("tuple_reads_before_store", &[]),
         ("spread_reads_base", &[]),
         ("break_in_always_arm", &[(8, 17)]),
+        ("fn_moved_then_called", &[(3, 12)]),
+        ("fn_moved_then_passed", &[(3, 10)]),
+        ("fn_moved_then_lent", &[(3, 17)]),
+        ("fn_lambda_moved", &[(4, 12)]),
+        ("fn_stored", &[(3, 12)]),
+        ("fn_returned_in_arm", &[]),
+        ("fn_moved_in_loop", &[(3, 14)]),
+        ("fn_same_call", &[(5, 13)]),
+        ("fn_lent_twice", &[]),
+        ("fn_moved_after_reassign", &[]),
+        ("once_called_twice", &[(3, 16)]),
+        ("once_in_loop", &[(3, 9)]),
+        ("once_passed_then_called", &[(3, 16)]),
+        ("once_called_then_passed", &[(3, 25)]),
+        ("once_maybe", &[]),
+        ("once_each_arm", &[]),
+        ("plain_called_twice", &[]),
+        ("projection_root_unwrap", &[(3, 17)]),
+        ("projection_root_field", &[(3, 17)]),
+        ("projection_root_same_call", &[(5, 35)]),
+        ("projection_root_in_arm", &[(5, 17)]),
+        ("projection_root_reassigned", &[]),
+        ("projection_root_arm_exits", &[]),
     ];
     assert_eq!(expected.len(), CASES.len(), "one expectation per case");
     let program = program(CASES);

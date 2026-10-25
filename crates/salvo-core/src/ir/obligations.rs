@@ -217,7 +217,7 @@ impl Annotator<'_, '_> {
     /// construction produces an owned value.
     fn value_is_borrow(&self, value: &Expr) -> bool {
         match &value.kind {
-            ExprKind::Read { place, consume: false } => value.ty.is_proj() || self.borrowed.contains(&place.root.0),
+            ExprKind::Read { place, consume: false, .. } => value.ty.is_proj() || self.borrowed.contains(&place.root.0),
             _ => false,
         }
     }
@@ -256,7 +256,7 @@ impl Annotator<'_, '_> {
     }
 
     fn collect_consumes(&self, e: &Expr, out: &mut Vec<ObligationRef>) {
-        if let ExprKind::Read { place, consume: true } = &e.kind {
+        if let ExprKind::Read { place, consume: true, .. } = &e.kind {
             if self.is_linear(&e.ty) {
                 out.push(self.ref_of(place.clone(), &e.ty));
             }

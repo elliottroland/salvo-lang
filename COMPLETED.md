@@ -138,6 +138,42 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — Every move the checker made is carried into the IR
+
+PIPELINE.md R8 piece 3a [flow-use-after-move]. The checker no longer reports
+a consumed read at all; the IR flow pass reports every one. Piece 2 left
+three moves with the checker because the IR could not see them: a fn value
+handed to a consuming parameter (`param_mode` lends fn-typed parameters
+whatever their contract, so the read was a plain one and the pass skipped
+fn-typed locals), a root a projection move took wholly (the IR marked the
+projection, not the root), and a call of a `once` local (the IR's call of a
+local has no read). The IR's `Read` and `Call` now carry a second flag,
+`moved`, beside `consume`: the checker consumed the place's root, or the
+call consumed its local target, here. It is flow-only. No emitter reads it,
+`salvo ir` does not show it, and emitted code did not change. It is set from
+a new `Checked::flow_moves`, filled where the checker marks the move: both
+contract copies (an identifier argument), `projection_move` (keyed by the
+projection) and the `once` call. An unwrap lowers to a block, not a place
+read, so the builder marks the first read of the root inside the lowered
+projection (`mark_root_move`). The pass takes `consume || moved` as the
+move (`moved` whatever the type, of the place's root through narrowings and
+projection bindings), counts a call of a local as a use, and no longer skips
+fn values.
+
+Then the checker's diagnostic went: the read path's and the callable path's
+no-poison variant, `LocalVar::consumed_by` with the event names it carried
+(and `fate_move`'s `moved_by` argument), both copies of the same-call scan,
+and the test-only `check_program_reporting_consumed_reads`. The poison and
+BoundAway messages and `check_moved_place`'s partial moves stay for later
+pieces. `flow_tests` grew 23 cases (fn values moved then called, passed,
+lent, stored, moved in a loop or twice in one call; `once` fns called twice,
+in a loop, after and before being passed on; roots an unwrap took; near
+misses). They agreed with the switched-back checker before it was removed,
+so the differential retired with it and the pinned expectations are those
+reads; 62 cases. `l7b_once_fns` (analyze_tests) mixed an overload error with
+the `once` errors and was split in two, since a checker error hides the flow
+pass's diagnostics; it asserts the moves' lines now.
+
 ### 2026-10-20 — Use-after-move is reported from the IR
 
 PIPELINE.md R8 piece 2 [flow-use-after-move]. The IR flow pass is now the
@@ -29699,6 +29735,14 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A projection the checker could not place is not a place in the IR**
+  (2026-10-20): `projection_move` takes a root wholly only when the link
+  path is `None`, which in practice means an unwrap (`o ?: unreachable!()`,
+  or a field of one); an index (`xs[0]`) is a *partial* move with path
+  `[?]`. The IR lowers an unwrap to a block (`let __safe = o; switch …`), so
+  a flag set where `read()` sees the key never lands: the builder looks for
+  the root's read inside the lowered expression (`mark_root_move`).
 
 - **A literal moves what it stores after reading every component**
   (2026-10-20): the checker runs `fate_move` for a tuple's or a struct

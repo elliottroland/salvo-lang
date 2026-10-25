@@ -962,3 +962,43 @@ log current so the work can resume after a context reset). Newest last.
     moves; state stores; lends validation; the 0o unsound join/loop rules
     (in the pass, with a `KNOWN` entry per fixed rule); then move-mode and
     the re-walk loop's deletion.
+- **R8 piece 3a: done** (committed "Carry every move the checker made into
+  the IR"). The IR's `Read` and `Call` carry a second, flow-only flag,
+  `moved` (false at every builder and emitter construction site; no emitter
+  reads it, the dump does not show it), set from a new
+  `Checked::flow_moves`: an identifier a call's contract consumed (both
+  contract copies: `apply_call_contract` and the named call — a fn value,
+  which `param_mode` lends whatever the contract, or a `once` value passed
+  on), a projection whose move took its root wholly (`projection_move`,
+  keyed by the projection; the builder's `mark_root_move` marks the first
+  read of the root inside the lowered expression, since an unwrap lowers
+  to a block, not a place read), and a `once` local's call (keyed by the
+  call, on the IR's `Call`). The flow pass treats `consume || moved` as the
+  move — `moved` whatever the type, of the place's root through
+  narrowings and projection bindings — makes a call of a local (and a fn
+  value of one) a use, and no longer skips fn-typed locals or captures.
+  Then the checker's consumed-read diagnostic went entirely: the read
+  path's no-poison variant, the callable path's, the `consumed_by` field
+  (and `fate_move`'s `moved_by` argument), `CONSUMED_BY_ONCE_CALL` /
+  `CONSUMED_BY_PROJECTION`, both copies of the same-call scan
+  (`consumed_here`; `projection_move` returns nothing now), and the
+  test-only switch `check_program_reporting_consumed_reads`. Poison/BoundAway
+  and `check_moved_place` stay.
+  - **The differential, retired:** 23 new cases (fn values moved then
+    called, passed, lent, stored, in a loop, in one call twice; `once` called
+    twice, in a loop, after being passed on and before; roots an unwrap
+    took, in an arm and in one call; near misses) agreed with the
+    switched-back checker before it was removed; the pinned expectations
+    are those reads, and `the_gate_reports_what_the_flow_pass_finds` keeps
+    "the checker reports nothing, the gate reports the pass". 62 cases.
+    Emitted code did not change.
+  - **Found:** an index projection (`xs[0]`) is a *partial* move (path
+    `[?]`), not a root taken wholly; only an unwrap (`o ?: unreachable!()`)
+    or a derivation through one reaches `CONSUMED_BY_PROJECTION`'s case. The
+    `l7b_once_fns` analyze test mixed a checker error with the `once`
+    errors and was split in two (gating is per program).
+  - **Piece 3 next**, in order: partial moves (`moved_places`,
+    `check_moved_place`); poison/BoundAway (fate links); lambda capture
+    moves; state stores; lends validation; the 0o unsound join/loop rules
+    (in the pass, each fixed rule changing its case's pinned expectation);
+    then move-mode and the re-walk loop's deletion.
