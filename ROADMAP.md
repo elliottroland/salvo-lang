@@ -1943,6 +1943,33 @@ it would save only the cheap transcription and inherit every coupling of the
 
 ## Recorded, not scheduled
 
+- **What a language-server edit still costs** (PIPELINE.md step 8, measured
+  2026-10-20, debug, `tools/lsp-timing.py`; ~28–39ms on `examples/cluster`,
+  ~40ms on `modules/aws`), largest first:
+  1. std's scopes, rebuilt every analysis (~10–13ms: a `core.*` base per core
+     module, pass 1, and the address maps over std). Sharing them needs the
+     scopes to outlive the `Program` they borrow (`ModuleScope<'p>`), e.g. kept
+     by the `StdFront` beside the modules they point into; gate on no project
+     module under `core.` (a project `core.x` is implicitly visible to std's
+     own files, which the `StdCache` gate does not check either). Part of §5
+     item 4.
+  2. The std seed: `check_once` clones std's whole `Checked` (~5ms) to add the
+     project's rows. Needs a layered `Checked` (std's rows read through), or
+     a cache that hands its rows out without copying.
+  3. `ddb.sv`'s platform boundary (~10ms when walked): `boundary_plan` recurses
+     through DynamoDB's nested types for every platform fn, unmemoized (the
+     per-file cache hides it unless `ddb.sv` is edited).
+  4. A module comptime stamps into is a new module every analysis, so its file
+     is always walked (`modules/aws`'s `aws.sv`); a stamped module equal to the
+     last one could keep its `Arc`.
+  5. The per-file cache's insert clones every cached row (~1.6ms on aws).
+- **Per-declaration checker caching** (PIPELINE.md §7 step 8's second level):
+  measured not worth building yet — it saves at most the edited file's own
+  walk (~6ms on cluster, ~4ms on aws) and needs rows partitioned by
+  declaration inside a file (stamps and route stubs sit past the file's end),
+  spans relative to their declaration and stable declaration ids. Revisit when
+  single files grow large or the costs above are gone.
+
 - **`std/args`, the features deferred** (from the CLI design record,
   2026-10-20): a `--no-x` form for a defaulted `Bool` (AP-11); `--version`
   (Q17 (c): until asked for; a manifest version or a `Version("1.2")`

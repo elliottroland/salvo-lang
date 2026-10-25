@@ -1020,13 +1020,43 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
     }
 
     // Pass 2: build one scope per file.
+    //
+    // [mod-visibility] The `core.*` part of a scope depends only on which core
+    // module (if any) the file is in: added at `Level::Core` into an empty
+    // scope, with no diagnostic (core-core collisions were reported
+    // globally). So it is built once per such module and cloned into each
+    // file's scope (PIPELINE.md step 8: building it per file was most of
+    // resolution). Should building it ever report something, every file
+    // builds its own, so each diagnostic stays with its file.
+    type CoreBase<'p> = (ModuleScope<'p>, HashMap<(NameKind, &'p str, Option<String>), (Level, &'p ModulePath)>);
+    let mut core_bases: HashMap<Option<&ModulePath>, Option<CoreBase<'_>>> = HashMap::new();
     let mut scopes = Vec::with_capacity(program.files.len());
     for (file_idx, (file, ast)) in program.files.iter().zip(program.modules).enumerate() {
         if !scoped(file_idx) {
             scopes.push(ModuleScope::default());
             continue;
         }
-        let mut scope = ModuleScope::default();
+        let own_core = core_modules.iter().copied().find(|m| **m == file.module);
+        let base = core_bases.entry(own_core).or_insert_with(|| {
+            let mut scope = ModuleScope::default();
+            let mut provenance = HashMap::new();
+            let mut base_errors: Vec<FileDiagnostic> = Vec::new();
+            let mut ctx = AddCtx {
+                file_idx,
+                provenance: &mut provenance,
+                errors: &mut base_errors,
+                attached: &attached,
+            };
+            for m in &core_modules {
+                if Some(*m) == own_core {
+                    continue;
+                }
+                if let Some(items) = by_module.get(*m) {
+                    add_items(&mut scope, items, m, None, Level::Core, None, &mut ctx);
+                }
+            }
+            base_errors.is_empty().then_some((scope, provenance))
+        });
         // Provenance of every non-fn scope entry [mod-collision]:
         // (level, module) per (kind, visible name), driving the
         // override-vs-collision decision below.
@@ -1034,8 +1064,9 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
         // modules may each declare a `NonEmpty` so long as their subjects
         // differ, so visibility has to be tracked per declaration rather than
         // per name (see `non_fn_names`).
-        let mut provenance: HashMap<(NameKind, &str, Option<String>), (Level, &ModulePath)> =
-            HashMap::new();
+        let shared = base.clone();
+        let has_core = shared.is_some();
+        let (mut scope, mut provenance) = shared.unwrap_or_default();
         let mut ctx = AddCtx {
             file_idx,
             provenance: &mut provenance,
@@ -1051,7 +1082,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
         // matches, so a `refn` inside a core module reported "matches more
         // than one `add` in scope" and no std module could carry a refinement
         // at all [qual-refn-match].
-        for m in &core_modules {
+        for m in core_modules.iter().filter(|_| !has_core) {
             if **m == file.module {
                 continue;
             }

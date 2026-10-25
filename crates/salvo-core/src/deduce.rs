@@ -180,7 +180,7 @@ pub(crate) fn infer<'p>(
     // two modules may each declare an effect of one name.
     let effects: HashMap<String, &EffectDecl> =
         symbols.effects.iter().map(|(k, e)| (k.to_string(), *e)).collect();
-    let effect_calls = checked.effect_calls.clone();
+    let effect_calls = &checked.effect_calls;
     // [proj-field] Which struct fields are borrows: storing into one
     // lends the value, so the parameter it came from stays kept. By symbol
     // key [type-identity], which is what the literal's checked type names.
@@ -197,7 +197,7 @@ pub(crate) fn infer<'p>(
             (!names.is_empty()).then(|| (k.to_string(), names))
         })
         .collect();
-    let expr_ty = checked.expr_ty.clone();
+    let expr_ty = &checked.expr_ty;
 
     // [deduce-default] The contract of every fn is a function of its
     // signature alone (user decision 2026-10-11): the per-parameter default
@@ -244,11 +244,11 @@ pub(crate) fn infer<'p>(
             &states,
             &provenance,
             &effects,
-            &effect_calls,
+            effect_calls,
             &no_state,
             &checked.refinements,
             &proj_fields,
-            &expr_ty,
+            expr_ty,
         );
         let contract = &states[&f.key];
         validate_contract(f.key.file, f.decl, contract, &inferred, &mut errors);
@@ -260,6 +260,11 @@ pub(crate) fn infer<'p>(
     // than the body delivers is the same bug there. They carry no `FnKey`
     // (not top-level items), so they are validated here.
     for (file_idx, ast) in program.modules.iter().enumerate() {
+        // [std-cache] As for fns: std's handler members were validated when
+        // the cache was checked.
+        if skip_below.is_some_and(|n| file_idx < n) {
+            continue;
+        }
         for (item_idx, item) in ast.items.iter().enumerate() {
             let Item::Handler(h) = item else { continue };
             for m in &h.fns {
@@ -285,11 +290,11 @@ pub(crate) fn infer<'p>(
                     &states,
                     &provenance,
                     &effects,
-                    &effect_calls,
+                    effect_calls,
                     &state_names,
                     &checked.refinements,
                     &proj_fields,
-                    &expr_ty,
+                    expr_ty,
                 );
                 validate_contract(file_idx, m, &contract, &inferred, &mut errors);
             }

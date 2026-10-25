@@ -138,6 +138,33 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — Step 8 ends at the per-file level
+
+With std's front half shared (piece 2) and unchanged files' rows reused
+(piece 3), one body edit costs the language server ~28–39ms on
+`examples/cluster` (from ~85) and ~40ms on `modules/aws` (from ~57), debug.
+The per-declaration level the step named would save at most the edited
+file's own walk, ~4–6ms, and needs rows partitioned by declaration, relative
+spans and stable declaration ids first; it was measured and not built
+(ROADMAP, "Recorded, not scheduled"). Three costs found while measuring went
+instead:
+
+- `deduce::infer` cloned the whole `expr_ty` and `effect_calls` tables, std's
+  rows included, only to read them (3.5ms per check → 0.4). It also
+  re-validated std's handler members under the std cache, whose own check
+  had done it; they are skipped as std's fns already were.
+- Resolution's pass 2 built the `core.*` part of every file's scope from
+  scratch. It depends only on which core module the file is in, so it is
+  built once per such module and cloned [mod-visibility]. Exact by
+  construction: adding at `Level::Core` into an empty scope reports nothing,
+  and if it ever did, every file would build its own. Pass 2 on cluster
+  ~7.4ms → ~4.6, for every compile too.
+
+What is left of an edit's cost is listed in PIPELINE.md §8 (piece 4) and
+ROADMAP: std's scopes per analysis, the std seed's clone, `ddb.sv`'s
+platform-boundary recursion, a stamped module walked every time, and the
+cache's insert.
+
 ### 2026-10-20 — A language-server edit re-checks only the files it changed
 
 PIPELINE.md step 8, piece 3 [lsp-check-cache]. With std's front shared, a

@@ -1804,3 +1804,40 @@ log current so the work can resume after a context reset). Newest last.
     boundary recursion (`boundary_plan` through DynamoDB's nested types for
     every platform fn), and a stamped module that comes out equal to the
     last one.
+- **Step 8, piece 4: measured; per declaration not built** (committed
+  "Stop copying the checker's tables to validate deductions"). After pieces
+  1–3, one body edit costs (debug, `tools/lsp-timing.py`, medians of runs
+  of four edits): `examples/cluster` **~28–39ms** (from ~85 before step 8):
+  parse 1–2, expand 1–1.5, resolve 10–15 (std's scopes), check 13–17 (the
+  std seed's clone ~5, interfaces 0.8, bodies ~5.5), IR ~3;
+  `modules/aws` **~40ms** (from ~57): parse 2, expand 3.5, resolve 17
+  (scopes 13), check 15–17 (seed 5, interfaces 3, bodies 1.3, cache insert
+  1.6), IR 3. A per-declaration level (the edited file's other declarations'
+  rows reused) can save at most the edited file's own walk: ~6ms on
+  cluster, ~4ms on aws, while needing what the per-file level did not:
+  rows partitioned by declaration inside a file (stamps and route stubs sit
+  past the file's end, §8 step 5), spans relative to their declaration, and
+  stable declaration ids. **Not built**; recorded in ROADMAP with these
+  numbers, for when files grow or the larger costs are gone.
+  - **Built instead, three costs found while measuring:** `deduce::infer`
+    cloned the whole `expr_ty` and `effect_calls` (std's rows included) to
+    hold them across loops that never write them (3.5ms → 0.4); it also
+    re-validated every std handler member's contract under the std cache,
+    which the cache's own check had done (now skipped like std's fns); and
+    pass 2 of resolution built every file's `core.*` part from scratch —
+    it depends only on which core module the file is in, so it is built
+    once per such module and cloned (exact by construction: adding at
+    `Level::Core` into an empty scope reports nothing; should it ever,
+    every file builds its own). Pass 2 on cluster: ~7.4ms → ~4.6.
+  - **Left, largest first** (ROADMAP): std's scopes rebuilt every analysis
+    (~10–13ms: 24 core bases plus pass 1 and the address maps over std;
+    sharing them across analyses needs the scopes to outlive the program
+    that borrows them, ROADMAP §5 item 4); the std seed's clone of std's
+    `Checked` (~5ms, needs a layered `Checked` or a cache that hands rows
+    out without copying); `ddb.sv`'s platform-boundary recursion (10ms when
+    walked, `boundary_plan` per platform fn through DynamoDB's nested types,
+    unmemoized); a stamped module is walked every time even when it comes
+    out the same; the cache's insert clones every cached row (1.6ms).
+  - **Step 8 is complete as re-scoped.** Every step of §7 is built. Open:
+    R8's leftovers (the user's call, §8 piece 9), comptime step B (waits on
+    ROADMAP §2c's DECISION), ROADMAP 0r, and the costs above.
