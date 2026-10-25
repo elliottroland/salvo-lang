@@ -606,13 +606,14 @@ docs and records, and leaves the suite green. Steps 1–2 need no open decision.
    member signatures; route stubs derived per effect in the IR.
 7. **The phase split**: 02-resolve-03-interfaces as its own pass; bodies
    reading interfaces only; ownership out of the body walk into
-   03-generate-02-flow, after the audit (§3 "Open"). **Do not forget**: the
+   03-generate-02-flow, after the audit (§3 "Open"). ~~**Do not forget**: the
    deadlock graph reads the AST, so the IR-derived `__Route_X` (step 6,
-   piece 5) has no router node; when deadlock moves to 03-generate-03-link
-   over the IR (here or in step 8), give every routed protocol its router
-   servant node back, with its selector dependency's edges, and add a test
-   of a cycle through a route (ROADMAP "A derived route has no deadlock
-   node").
+   piece 5) has no router node~~ — **done** (R8 piece 6, §8): the graph,
+   still on the checker's tables, builds every routed protocol's router
+   servant node from `route_uses`, with its selector dependency's edges,
+   and `route_deadlock_tests` has a cycle through a route. When deadlock
+   moves to 03-generate-03-link over the IR (step 8), the route is an
+   ordinary `face_any` impl there and the synthesis goes.
 8. **Caching (H)**: per file, then per declaration with early cutoff; the
    language server recomputes the edited declaration and what read its
    interface.
@@ -1205,3 +1206,50 @@ log current so the work can resume after a context reset). Newest last.
     `reset_assigned`/`check_loop_body` joins can go with it; and deadlock
     onto the IR (the link stage), with the derived route's router node per
     §7 and a test of a cycle through a route.
+- **R8 piece 6 (the derived route's deadlock node): done** (committed "Give
+  a derived route its node in the deadlock graph"). **Choice: (a), the
+  graph stays on the checker's tables and synthesizes the router node from
+  `Checked::route_uses`**, not (b), the graph reading the IR. Why:
+  - (b) changes when deadlock reports: the IR exists only for a program
+    that type-checks (gating is per program), so a cycle would vanish
+    whenever an unrelated error is present, and the graph's AST inputs
+    (`handler_is_stateful`, the mixed and monitor classification,
+    `parking_handlers`, task mints) have no IR summary yet. Every existing
+    result would have to be re-proved for a node that, as measured below,
+    reports nothing.
+  - (a) is one more servant node built by the code an `of any X` handler
+    already goes through: from `X`'s first `use any` site, a forward to `X`
+    (back-pressure: the route neither gates nor waits) and its
+    `RouteSelector<X>` dependency's occupancy edges (to the mixed servants
+    and priced shareable handlers of `RouteSelector`); its own face skipped.
+  - **What the old node did, measured** (the compiler at `1130e3cd^` built
+    in `tmp/oldwt`, its graph dumped): `__Route_X's servant` had exactly
+    those two kinds of out-edge and **no in-edge** — callers' sends land on
+    `X`, and nothing else targets a servant of an actor face — so it never
+    sat on a cycle. Its job was the near miss: keeping the forward off `X`,
+    which would otherwise read as `X → X`. Every route program tried
+    reports the same before and after the move to the IR. Deadlock onto
+    the IR stays the 03-generate-03-link plan, for when the graph's inputs
+    are per-declaration summaries.
+  - **Built:** the three servant kinds (mixed, `of any X`, route) share
+    `deadlock::Servant`; the route's node is a back-pressure forward to `X`
+    plus its `RouteSelector<X>` dependency (the `use_deps` type at `X`'s
+    first `use any`) as occupancy edges; `deadlock::edges` lists the graph
+    for tests. `route_deadlock_tests` (3, real std): a gate cycle through a
+    routed protocol, the near miss (no `Ping → Ping`), and a program's own
+    stateful selector with an actor dependency — each diagnostic and each
+    route edge equal to the old compiler's. The old compiler's extra stubs
+    (every protocol a routing module spelled in `ActorGroup<…>`, e.g.
+    cluster's `Lookup` and `Search`) had nodes too; the IR derives only
+    routed ones, which reports nothing different since such nodes have no
+    in-edge.
+  - **Found:** a cycle closing *through* a router is never seen
+    (`Pong → route → Watching's lock → Pong` is silent), as old as `of any
+    E`; ROADMAP "A router's node has no in-edges", with the repro.
+  - **What is left of R8**: lambda capture moves, handler-storage moves and
+    lends validation (static move-site rules, still the checker's);
+    linearity's checker half (its joins, the assigning-drops rule,
+    decomposition); then move-mode into the IR flow pass with the links
+    (`fate_binds` computed there), after which the checker's own
+    `reset_assigned`/`check_loop_body` joins can go. Deadlock onto the IR is
+    step 8's link stage now, not an R8 piece.

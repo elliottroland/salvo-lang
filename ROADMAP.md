@@ -2109,13 +2109,18 @@ several are "revisit only if a customer appears".
   refinements (per-pool firing, naming who is parked, a many-shot form); FC-7 host
   bridging; and the `[waitfor]` spawn-placement diagnostic still states a hazard
   the pump rule removed.
-- **A derived route has no deadlock node** (2026-10-20, PIPELINE R7): the
-  AST route stub was a handler `of any E`, so it got a router servant node;
-  the IR-derived `__Route_E` is not in the AST the graph reads, so its
-  forwards (and its selector's calls, e.g. `Elected`'s `leader()`) count
-  only as its callers' declared effects. No test exercises a cycle through
-  a route; when the graph moves onto the IR (step 7/8's link stage) the
-  route gets its node back.
+- **A router's node has no in-edges** (found 2026-10-20, PIPELINE R8 piece
+  6; as old as `of any E`): callers' sends and dependencies on `any E` land
+  on `E`, never on a router's servant node (a written `of any E` handler's,
+  or the derived `__Route_E`'s), so a cycle that closes through the router
+  is not reported. Repro (`route_deadlock_tests`'
+  `a_routes_selector_dependency_is_an_occupancy_edge`, with `Pinging`
+  sending nothing): `Ponging [any Ping] of Pong` sends into the route, whose
+  selector `Watching [Pong] of RouteSelector<E>` (stateful) sends `poke()`
+  to `Pong` — `Pong → route → Watching's lock → Pong`, a back-pressure
+  cycle through the route's capacity-1 mailbox, silent. The likely fix: an
+  edge into `any E` also lands on every router of `E`; it changes what
+  programs with routers report, so it is its own piece.
 - **Multi-effect and mixed-handler leftovers**: a same-named member across two
   faces still needs `@Effect` at the call even where the parameters distinguish it
   ([effect-at] keys on the name); a dependent multi-face handler is untested;

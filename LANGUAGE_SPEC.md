@@ -4608,7 +4608,9 @@ Conventions:
     to members and holds no protocol state of its own, and the emitters
     give an actor effect the lock adapter exactly when a router of it
     exists. It is also a servant node of its own in the deadlock graph, so
-    its forwards do not read as `E → E`.
+    its forwards do not read as `E → E` — a written router from its AST
+    handler, a route `use any` binds [route-stub] from the checker's
+    `route_uses` (2026-10-20), with the same edges.
   * **A fn type carries no strength** (it cannot say `any`): an inherited
     requirement [fn-effects] is the strong one unless
     the function taking the value writes `[any E]` itself, which weakens it
@@ -7015,6 +7017,14 @@ docs/language/ remains the source of truth for everything that does.
     *outward* [effect-intercept], so the chain ends at the innermost instance.
     An edge from a handler's **own-effect dependency** is therefore dropped,
     while an `Addr` of its own protocol (a genuine peer mesh) still counts.
+  * **A router is a servant node** [effect-any]: a handler `of any E`, and
+    the route a `use any` binds [route-stub] (derived in the IR, so its node
+    is built from the checker's `route_uses`, 2026-10-20), forwards from
+    `H's servant`, not from `E`, with its dependencies' edges as a mixed
+    servant's; callers' edges land on `E`. Nothing points at a router's
+    node, so it is on no cycle: what it keeps is the forward off `E`, and a
+    cycle that closes through the router is not seen (ROADMAP "A router's
+    node has no in-edges").
   * **Sound, not precise, and stated so.** The graph is over actor *types*,
     not instances, so a chain of same-protocol workers is a self-loop here and
     acyclic in the running program; and a handler's *declared dependencies*
@@ -7871,6 +7881,16 @@ between endpoints and delivers what arrives into the scheduler.
     (`route.rs`) and its synthetic imports.
   * **`spawn` of a route is not a thing** (R7): the addr would bind a strong
     `E` under `use addr` (ROADMAP ⑥).
+  * **Its deadlock node** [actor-deadlock-cycle] [effect-any] (2026-10-20,
+    PIPELINE R8 piece 6): the derived route is no AST handler, so the graph
+    builds its node from `route_uses` — `__Route_E's servant`, as a written
+    `of any E` router gets one: a back-pressure forward to `E` (a route
+    neither gates nor waits) and its `RouteSelector<E>` dependency's
+    occupancy edges, to the mixed servants and priced shareable handlers of
+    `RouteSelector` in the program, each anchored at `E`'s first `use any`.
+    Callers' sends land on `E`, so nothing points at the node and it closes
+    no cycle (a recorded gap, ROADMAP); what it keeps is the forward off
+    `E`, where it would read as `E → E`.
   * **`RouteSelector<E>`** is the policy, in two phases (user decision
     2026-10-03, option B): `changed(view: RouteView<E>)` runs when the view
     has moved since the selector last saw it, and the selector keeps what it

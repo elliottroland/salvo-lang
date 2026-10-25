@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2041 tests, complete: the toolchain tests are
+cargo test                  # 2044 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,51 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A derived route has its node in the deadlock graph
+
+PIPELINE.md R8 piece 6 [actor-deadlock-cycle] [route-stub] [effect-any].
+When routes moved into the IR (`__Route_X`, step 6 piece 5), the deadlock
+graph lost the router servant node the AST stub (`__Route_X of any X`) had
+got, since the graph reads AST handlers. The node is back, built from the
+checker's `route_uses`: per routed protocol, `__Route_X's servant` with a
+back-pressure forward to `X` and the occupancy edges of its
+`RouteSelector<X>` dependency (the type the `use any` site recorded in
+`use_deps`), anchored at `X`'s first `use any`. The three servant kinds (a
+mixed handler's, an `of any X` router's, a route's) now share one builder,
+`deadlock::Servant`, so they cannot drift apart.
+
+- **The choice: the graph stays on the checker's tables** (option a), not
+  the IR (option b). Reading the IR would change when deadlock reports: the
+  IR exists only for a program with no checker error (gating is per
+  program), so a cycle would disappear whenever an unrelated error is
+  present. The graph's other inputs (`handler_is_stateful`, the mixed and
+  monitor classification, `parking_handlers`, task mints) have no IR
+  summary yet either. Moving deadlock to 03-generate-03-link stays the
+  plan, once those inputs are per-declaration summaries.
+- **What the old node did, measured.** The compiler at `1130e3cd^` was
+  built in a scratch worktree, and its graph and the new one were dumped
+  for the new tests' programs and for `examples/cluster`. The route's edges
+  are identical. The old compiler also made stubs (and nodes) for every
+  protocol a routing module spelled in `ActorGroup<…>` (`Lookup` and
+  `Search` in cluster); the IR derives routes only for what is routed.
+  **Nothing has an edge into a router's node**: callers' sends land on `X`,
+  and only mixed servants and priced shareable handlers are targeted. So
+  the node never sat on a cycle, before or now. Its one effect is the near
+  miss: it keeps the forward off `X`, where it would read as `X → X`.
+  Every diagnostic is the same as before the move to the IR.
+- **Found:** a cycle that closes *through* a router is never reported
+  (`Pong → route → selector's lock → Pong`, silent). Recorded in ROADMAP
+  ("A router's node has no in-edges") with its repro. It is as old as
+  `of any E`, and fixing it changes what programs with routers report.
+- **Tests:** `route_deadlock_tests` (new binary, real std): a gate cycle
+  through a routed protocol, refused word for word as before, line
+  included; the near miss, silent, with no `Ping → Ping`; and a selector of
+  the program's own (stateful, depending on `Pong`) giving the route an
+  occupancy edge to `Watching's lock` next to std's `Elected's lock`.
+  Each test pins the route's out-edges, and that nothing points at its
+  node, through `deadlock::edges` (new, for tests). Their expectations are
+  the old compiler's output. Emitted code did not change.
 
 ### 2026-10-20 — The flow pass tracks moves path by path
 
@@ -28749,7 +28794,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2041 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2044 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -30024,6 +30069,15 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A handler the IR derives is invisible to the deadlock graph** (2026-10-20,
+  R8 piece 6). The graph reads AST `HandlerDecl`s plus the checker's tables,
+  so an impl that exists only in the IR (`__Route_X`, `__Stub_X`) gets no
+  node unless `deadlock.rs` builds one from a checker table, as it now does
+  for routes from `route_uses`. A new derived handler with sends or
+  dependencies needs the same. And a node nothing points at can never show
+  up in a diagnostic, so test it through `deadlock::edges`, not through
+  messages.
 
 - **A move-mode binding decided at a use must act as of the binding**
   (2026-10-20, R8 piece 4). The second walk applied it at the binding, so

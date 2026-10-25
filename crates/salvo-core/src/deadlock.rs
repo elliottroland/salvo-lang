@@ -168,6 +168,19 @@ pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked)
     }
 }
 
+/// [actor-deadlock-cycle] For tests: the graph's edges as `from → to (Kind,
+/// handler)` lines, sorted, so a test can pin a node that closes no cycle
+/// (a route's, [route-stub]), which no diagnostic would show.
+pub fn edges(program: &Program, symbols: &Symbols<'_>, out: &Checked) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for (from, tos) in build(program, symbols, out) {
+        for (to, e) in tos {
+            lines.push(format!("{from} → {to} ({:?}, {})", e.kind, e.handler));
+        }
+    }
+    lines
+}
+
 /// The graph, keyed effect → effect. At most one edge per pair is kept — the
 /// strongest one, at its first site — because the diagnostic names a cycle,
 /// not every way of writing it.
@@ -321,74 +334,39 @@ fn build(
             // is what a binding of `E` may be.
             let router = h.of_any.iter().any(|any| *any);
             if mixed || router {
-                let from = servant_node(&h.name.name);
                 let gate = out
                     .actor_gates
                     .iter()
                     .find(|(handler, _)| *handler == h.name.name)
                     .map(|(_, key)| *key);
                 let blocks = waits_of.get(h.name.name.as_str()).copied();
-                let mut targets: Vec<(String, usize, Span)> = Vec::new();
-                let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
                 let own_faces: Vec<&str> = h.of.iter().filter_map(base_name).collect();
-                for (key, dep_span) in deps_of(out, symbols, h) {
-                    let name = crate::typekey::plain(&key);
-                    if own_faces.contains(&name) {
-                        continue;
-                    }
-                    if is_actor(&key) {
-                        targets.push((name.to_string(), file_idx, dep_span));
-                        continue;
-                    }
-                    for mh in mixed_of.get(name).into_iter().flatten() {
-                        occupancies.push((servant_node(mh), file_idx, dep_span));
-                    }
-                    for mh in monitor_of.get(name).into_iter().flatten() {
-                        occupancies.push((monitor_node(mh), file_idx, dep_span));
-                    }
-                }
-                for (target, file, span) in occupancies {
-                    let edge = Edge { kind: EdgeKind::Occupancy, handler: h.name.name.clone(), file, span };
-                    let slot = graph.entry(from.clone()).or_default();
-                    match slot.get(&target) {
-                        Some(existing) if existing.kind <= edge.kind => {}
-                        _ => {
-                            slot.insert(target, edge);
-                        }
-                    }
-                }
+                let deps: Vec<(String, usize, Span)> = deps_of(out, symbols, h)
+                    .into_iter()
+                    .map(|(key, span)| (key, file_idx, span))
+                    .collect();
+                let mut sends: Vec<(String, usize, Span)> = Vec::new();
                 for (handler, target, (file, span)) in &out.actor_sends {
-                    if *handler == h.name.name && is_actor(target) {
-                        targets.push((target.clone(), *file, *span));
+                    if *handler == h.name.name {
+                        sends.push((target.clone(), *file, *span));
                     }
                 }
                 for task in tasks_reached(out, &h.name.name) {
                     for (owner, target, (file, span)) in &out.task_sends {
-                        if *owner == task && is_actor(target) {
-                            targets.push((target.clone(), *file, *span));
+                        if *owner == task {
+                            sends.push((target.clone(), *file, *span));
                         }
                     }
                 }
-                for (target, file, span) in targets {
-                    let (kind, file, span) = match (gate, blocks) {
-                        (Some((gfile, gspan)), _) => (EdgeKind::Wait, gfile, gspan),
-                        (None, Some((bfile, bspan))) => (EdgeKind::Block, bfile, bspan),
-                        (None, None) => (EdgeKind::BackPressure, file, span),
-                    };
-                    let edge = Edge {
-                        kind,
-                        handler: h.name.name.clone(),
-                        file,
-                        span,
-                    };
-                    let slot = graph.entry(from.clone()).or_default();
-                    match slot.get(target.as_str()) {
-                        Some(existing) if existing.kind <= edge.kind => {}
-                        _ => {
-                            slot.insert(target.clone(), edge);
-                        }
-                    }
-                }
+                let servant = Servant {
+                    handler: &h.name.name,
+                    own_faces: &own_faces,
+                    deps,
+                    sends,
+                    gate,
+                    blocks,
+                };
+                servant.add_to(&mut graph, &is_actor, &mixed_of, &monitor_of);
                 continue;
             }
             if served.is_empty() {
@@ -508,6 +486,47 @@ fn build(
                 }
             }
         }
+    }
+    // [route-stub] [effect-any] Every protocol a `use any` routes has a
+    // route the IR derives (`ir::build::actors`, `__Route_X`), which is no
+    // AST handler — so its node is built here, as the one an `of any X`
+    // router gets above: a servant of its own, forwarding to `X`
+    // (back-pressure, since a route neither gates nor waits) and depending
+    // on the `RouteSelector<X>` the `use any` found, whose mixed servants
+    // and priced shareable handlers are occupancy edges. Its sites are the
+    // protocol's first `use any`, in source order. Nothing points at the
+    // node — callers' sends land on `X`, which is what a binding of `any X`
+    // may be — so it closes no cycle; what it keeps is the forward off `X`,
+    // where it would read as `X → X`.
+    let mut routed: BTreeMap<&str, (usize, Span)> = BTreeMap::new();
+    for ((file, span), effect) in &out.route_uses {
+        let slot = routed.entry(effect.as_str()).or_insert((*file, *span));
+        if (*file, span.start) < (slot.0, slot.1.start) {
+            *slot = (*file, *span);
+        }
+    }
+    for (effect, (file, span)) in routed {
+        let handler = crate::ir::build::actors::route_name(effect);
+        let own_faces = [crate::typekey::plain(effect)];
+        let deps: Vec<(String, usize, Span)> = out
+            .use_deps
+            .get(&(file, span))
+            .into_iter()
+            .flatten()
+            .filter_map(|t| match t.strip_quals() {
+                crate::types::Ty::Named { name, .. } => Some((name.clone(), file, span)),
+                _ => None,
+            })
+            .collect();
+        let servant = Servant {
+            handler: &handler,
+            own_faces: &own_faces,
+            deps,
+            sends: vec![(effect.to_string(), file, span)],
+            gate: None,
+            blocks: None,
+        };
+        servant.add_to(&mut graph, &is_actor, &mixed_of, &monitor_of);
     }
     // [effect-handle] [monitor-handler] The shareable plain handlers worth a
     // node (option (b), user decision 2026-09-20): occupancy edges out to
@@ -748,6 +767,86 @@ fn report(
                  has capacity reserved and never blocks"
             ),
         )),
+    }
+}
+
+/// [mixed-handler] [effect-any] [route-stub] A servant node's inputs: a mixed
+/// handler's servant, an `of any X` router, or a derived route. One shape,
+/// so the three cannot drift apart.
+struct Servant<'a> {
+    /// The handler, which names the node and the edges.
+    handler: &'a str,
+    /// The faces it wears, plain: a dependency on one of them binds outward
+    /// (interception), so it closes no cycle.
+    own_faces: &'a [&'a str],
+    /// Its dependencies, by effect key, with their sites.
+    deps: Vec<(String, usize, Span)>,
+    /// What it sends to (its own sends, then its tasks'), by effect key.
+    sends: Vec<(String, usize, Span)>,
+    /// A gate in a member: its sends are waits.
+    gate: Option<(usize, Span)>,
+    /// A wait in a member: its sends are blocks.
+    blocks: Option<(usize, Span)>,
+}
+
+impl Servant<'_> {
+    /// The node's out-edges: an actor dependency is a target like a held
+    /// addr; a plain one with mixed or wait-capable shareable handlers is an
+    /// occupancy edge to each, exactly as from an actor handler; and every
+    /// send to an actor effect is a target, of the kind the gate or wait
+    /// makes it.
+    fn add_to(
+        self,
+        graph: &mut BTreeMap<String, BTreeMap<String, Edge>>,
+        is_actor: &dyn Fn(&str) -> bool,
+        mixed_of: &BTreeMap<String, Vec<String>>,
+        monitor_of: &BTreeMap<String, Vec<String>>,
+    ) {
+        let from = servant_node(self.handler);
+        let mut targets: Vec<(String, usize, Span)> = Vec::new();
+        let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
+        for (key, file, dep_span) in self.deps {
+            let name = crate::typekey::plain(&key);
+            if self.own_faces.contains(&name) {
+                continue;
+            }
+            if is_actor(&key) {
+                targets.push((name.to_string(), file, dep_span));
+                continue;
+            }
+            for mh in mixed_of.get(name).into_iter().flatten() {
+                occupancies.push((servant_node(mh), file, dep_span));
+            }
+            for mh in monitor_of.get(name).into_iter().flatten() {
+                occupancies.push((monitor_node(mh), file, dep_span));
+            }
+        }
+        for (target, file, span) in occupancies {
+            let edge = Edge { kind: EdgeKind::Occupancy, handler: self.handler.to_string(), file, span };
+            let slot = graph.entry(from.clone()).or_default();
+            match slot.get(&target) {
+                Some(existing) if existing.kind <= edge.kind => {}
+                _ => {
+                    slot.insert(target, edge);
+                }
+            }
+        }
+        targets.extend(self.sends.into_iter().filter(|(target, _, _)| is_actor(target)));
+        for (target, file, span) in targets {
+            let (kind, file, span) = match (self.gate, self.blocks) {
+                (Some((gfile, gspan)), _) => (EdgeKind::Wait, gfile, gspan),
+                (None, Some((bfile, bspan))) => (EdgeKind::Block, bfile, bspan),
+                (None, None) => (EdgeKind::BackPressure, file, span),
+            };
+            let edge = Edge { kind, handler: self.handler.to_string(), file, span };
+            let slot = graph.entry(from.clone()).or_default();
+            match slot.get(target.as_str()) {
+                Some(existing) if existing.kind <= edge.kind => {}
+                _ => {
+                    slot.insert(target, edge);
+                }
+            }
+        }
     }
 }
 
