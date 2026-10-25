@@ -18,7 +18,7 @@ pub struct DocScope<'a> {
     /// That file's text, for rendering source fragments (field defaults).
     pub source: &'a str,
     /// Every module in the program, for type references.
-    pub modules: &'a [Module],
+    pub modules: &'a [std::sync::Arc<Module>],
     /// Renders a definition site as a markdown link target, or `None`
     /// when it has no addressable location (the embedded std).
     pub link: &'a dyn Fn(usize, Span) -> Option<String>,
@@ -152,7 +152,7 @@ pub fn fn_scope<'a>(
     decl: &FnDecl,
     file: usize,
     source: &'a str,
-    modules: &'a [Module],
+    modules: &'a [std::sync::Arc<Module>],
     link: &'a dyn Fn(usize, Span) -> Option<String>,
 ) -> DocScope<'a> {
     let mut locals: Vec<(String, Span)> = decl
@@ -175,7 +175,7 @@ pub fn struct_scope<'a>(
     decl: &StructDecl,
     file: usize,
     source: &'a str,
-    modules: &'a [Module],
+    modules: &'a [std::sync::Arc<Module>],
     link: &'a dyn Fn(usize, Span) -> Option<String>,
 ) -> DocScope<'a> {
     let mut locals: Vec<(String, Span)> = decl

@@ -119,7 +119,7 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -518,7 +518,7 @@ fn std_errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);

@@ -8,6 +8,8 @@
 //! derived in the IR (R7). Every driver needs both, so [`expand`] is the one call
 //! that does both, and a driver caching parses calls the halves.
 
+use std::sync::Arc;
+
 use salvo_syntax::ast::{Item, Module};
 
 use crate::diag::FileDiagnostic;
@@ -113,13 +115,33 @@ pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Ve
     (found, diags)
 }
 
+/// [lsp-std-front] A module an expansion may rewrite: an owned one, or one a
+/// `Program` holds, which is rewritten in place when the program owns it
+/// alone and copied first when it is shared (a language server's parse
+/// cache keeps the parsed module; `Arc::make_mut`).
+pub trait ModuleSlot: std::borrow::Borrow<Module> {
+    fn module_mut(&mut self) -> &mut Module;
+}
+
+impl ModuleSlot for Module {
+    fn module_mut(&mut self) -> &mut Module {
+        self
+    }
+}
+
+impl ModuleSlot for Arc<Module> {
+    fn module_mut(&mut self) -> &mut Module {
+        Arc::make_mut(self)
+    }
+}
+
 /// Expands every file ([`expand_file`]) and then the program
 /// ([`expand_program`]); `modules` must be aligned with `files`.
-pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
+pub fn expand<M: ModuleSlot>(files: &[SourceFile], modules: &mut [M]) -> Expansion {
     let mut per_file = Vec::with_capacity(files.len());
     let mut diagnostics = Vec::new();
     for (file_idx, (file, module)) in files.iter().zip(modules.iter_mut()).enumerate() {
-        let (tests, diags) = expand_file(file, module);
+        let (tests, diags) = expand_file(file, module.module_mut());
         diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic::from_parse(file_idx, d)));
         per_file.push(tests);
     }
@@ -132,7 +154,33 @@ pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
 /// The expansions that read more than one file, over modules each already
 /// through [`expand_file`] (whose tests come in [per_file], aligned with
 /// `files`): comptime stamping.
-pub fn expand_program(files: &[SourceFile], modules: &mut [Module], per_file: Vec<Vec<FileTest>>) -> Expansion {
+pub fn expand_program<M: ModuleSlot>(files: &[SourceFile], modules: &mut [M], per_file: Vec<Vec<FileTest>>) -> Expansion {
+    // [comptime-instantiate] After the per-module expansions (the struct-body
+    // hoist has put every `by` declaration at module level): every `by` site
+    // stamps its compfn, and no compfn survives.
+    let comptime = crate::comptime::expand_comptime(files, modules);
+    program_expansion(per_file, comptime)
+}
+
+/// [lsp-std-front] What [`expand_program`] does, over a program whose leading
+/// files are a std that `prefix` recorded the expansion of
+/// (`comptime::expand_comptime_prefix`), already expanded: only the files
+/// after it are stamped. The std files' own expansion output is the
+/// prefix's, which the caller adds; this one reports the rest. The caller
+/// checks `prefix.admits` first.
+pub fn expand_program_after(
+    files: &[SourceFile],
+    modules: &mut [Arc<Module>],
+    per_file: Vec<Vec<FileTest>>,
+    prefix: &crate::comptime::StdComptime,
+) -> Expansion {
+    let comptime = crate::comptime::expand_comptime_after(files, modules, prefix);
+    program_expansion(per_file, comptime)
+}
+
+/// The program expansion's report: the tests of every file, aligned with the
+/// files, and the comptime expansion's output.
+pub fn program_expansion(per_file: Vec<Vec<FileTest>>, comptime: crate::comptime::ComptimeOutput) -> Expansion {
     let mut out = Expansion::default();
     for (file_idx, tests) in per_file.into_iter().enumerate() {
         out.tests.extend(tests.into_iter().map(|t| TestCase {
@@ -143,10 +191,6 @@ pub fn expand_program(files: &[SourceFile], modules: &mut [Module], per_file: Ve
             kind: t.kind,
         }));
     }
-    // [comptime-instantiate] After the per-module expansions (the struct-body
-    // hoist has put every `by` declaration at module level): every `by` site
-    // stamps its compfn, and no compfn survives.
-    let comptime = crate::comptime::expand_comptime(files, modules);
     for (file_idx, d) in comptime.diagnostics {
         out.diagnostics.push(FileDiagnostic {
             file: file_idx,

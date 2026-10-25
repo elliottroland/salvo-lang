@@ -42,7 +42,7 @@ fn messages(src: &str) -> Vec<String> {
     }
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);

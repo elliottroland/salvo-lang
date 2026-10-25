@@ -22,7 +22,7 @@ fn example_program(dir: &Path) -> Program {
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    Program { files: sources.files, modules, companions: sources.companions }
+    Program { files: sources.files, modules: Program::share(modules), companions: sources.companions }
 }
 
 #[test]
@@ -87,7 +87,7 @@ export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    let program = Program { files: sources.files, modules, companions: sources.companions };
+    let program = Program { files: sources.files, modules: Program::share(modules), companions: sources.companions };
     // Dumps rather than erroring (the leak is an IR-reliant check, not a type
     // error): returns `Ok` with the IR text.
     let (text, _errors) = salvo_core::ir::dump_program(&program, false, None).expect("dump should succeed despite the leak");

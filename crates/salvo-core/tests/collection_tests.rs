@@ -77,7 +77,7 @@ fn checked(src: &str) -> salvo_core::Checked {
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -403,7 +403,7 @@ fn lit_checked(src: &str) -> salvo_core::Checked {
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -819,7 +819,7 @@ fn sorted_messages(src: &str) -> Vec<String> {
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -954,7 +954,7 @@ fn the_generated_constructors_and_converters_type_correctly() {
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);

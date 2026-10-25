@@ -37,7 +37,7 @@ fn diags(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
     let mut out: Vec<FileDiagnostic> = expansion.diagnostics;
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let resolution = resolve(&program);

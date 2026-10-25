@@ -886,7 +886,7 @@ fn assemble(
 
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: sources.companions,
     };
     // [platform-root] Platform declarations need a platform root for every
@@ -1685,7 +1685,7 @@ fn run_test_pass(
         is_test: true,
         dependency: None,
     });
-    program.modules.push(ast);
+    program.modules.push(std::sync::Arc::new(ast));
     let emitted = backend.emit(program, target, Some(harness_module));
     program.files.pop();
     program.modules.pop();

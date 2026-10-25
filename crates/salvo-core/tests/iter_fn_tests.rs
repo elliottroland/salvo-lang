@@ -88,7 +88,7 @@ fn errors(src: &str) -> Vec<String> {
     );
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -561,7 +561,7 @@ fn an_unexpanded_iter_fn_is_a_loud_resolution_error() {
     }
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let resolution = resolve(&program);

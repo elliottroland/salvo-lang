@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2046 tests, complete: the toolchain tests are
+cargo test                  # 2048 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,58 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — The language server parses and expands std once
+
+PIPELINE.md step 8, piece 2 [lsp-std-front]. Every analysis the language
+server made re-parsed std through the parse cache (a clone of ~65 ASTs),
+re-ran the comptime expansion over it, and resolved the whole unstamped
+program again for comptime's scoped names. Now std's front half is built once,
+with the std cache, and shared:
+
+- **Shared modules.** `Program::modules` is `Vec<Arc<Module>>`. An expansion
+  rewrites through `expand::ModuleSlot` (`Arc::make_mut`: a module the
+  program owns alone is not copied), and comptime does not touch a module
+  with nothing to stamp, so a parse-cache hit, now an `Arc`, stays shared.
+  Every driver and test builds its program with `Program::share`.
+- **The front** (`analysis::StdFront`, replacing `build_std_cache`): std
+  parsed and expanded on its own, its modules kept, its expansion output
+  kept, and the `StdCache` checked over a program holding the same `Arc`s.
+  The cache keeps the modules as well. Until now its address-keyed rows
+  (`written_types`, `type_ref_keys`) were keyed by the nodes of a program
+  dropped right after the check, so a later allocation at one of those
+  addresses could have read a std row. Never observed; no longer possible.
+- **Comptime over a prefix.** `expand_comptime_prefix` records what a
+  project's expansion needs of std: std's tables from before stamping, the
+  names std's stamping asked the world about, and the `by` paths it matched.
+  `expand_comptime_after` stamps only the files after std, with a world that
+  reads std's tables first. It resolves scopes only for those files, with
+  `resolve_scopes_where`, which also skips the program-wide diagnostics
+  comptime never read (for `salvo analyze` and compiles too).
+- **The gate**, measured rather than assumed. std's expansion *is*
+  project-dependent: a project module named `auto` makes std's `by auto`
+  sites name two modules (ROADMAP 0s, a defect of its own). Every question
+  std's stamping asks is keyed by a name or matches a `by` path, so
+  `StdComptime::admits` refuses a project that declares an asked name or has
+  a matching module path, and that project is expanded whole as before.
+- **std's written keys from the cache** (`check_once`, when the program
+  shares the cache's modules): the project's keys are computed and merged
+  into std's by-span entries, which merge exactly.
+- **Tests.** `std_front_expansion_is_project_independent`: std expanded inside
+  every example and two written programs equals std expanded alone, and
+  differs for the program with a module `auto`.
+  `std_front_matches_an_analysis_without_it`: diagnostics, IR diagnostics,
+  comptime hovers and arms, and the project rows of `expr_ty`, `fn_refs`,
+  `def_refs`, `field_refs`, `call_fn` and `local_decls`, the overloads and
+  completions are the same with and without the front. The front stands in
+  exactly where the gate says, and the written keys equal a full
+  recomputation.
+
+One `examples/cluster` edit (debug) went from ~62ms to ~45ms: parse 11 → 2,
+expand 16 → 1.5, written keys 4.2 → 0.2. The later phases measure up to a
+third slower, the seed's clone included, which reads no AST. A busy loop
+before each analysis removed that, so it is the core's clock ramping up from
+idle, not work (see the gotcha). 2048 tests.
 
 ### 2026-10-20 — A language-server edit builds less of the program
 
@@ -29172,7 +29224,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2046 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2048 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -30447,6 +30499,22 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Removing the start of a short burst slows what follows** (2026-10-20,
+  step 8 piece 2). With std's parse and expansion gone from a
+  language-server edit, every later phase measured 10–35% slower, even a
+  hash-map clone that reads no AST. A 25ms busy loop before the analysis
+  brought them back: the core clocks up while it works, and the analysis
+  now starts from idle with less work ahead of resolution. Compare totals
+  per edit, and when a phase you did not touch slows down, warm the core
+  before you go looking for a cause in code. `salvo analyze` (one cold
+  burst, no idle wait) is the control.
+
+- **"Pure function of std" has to be tested, not argued** (2026-10-20, step
+  8 piece 2). std's comptime expansion matched `by` paths against every
+  module of the program, so a project module `auto` changed it. The test
+  that expands std inside each example and compares module for module found
+  it; the gate keys on exactly what the expansion asks.
 
 - **A last-writer-wins table hides a wrong writer until the order
   changes** (2026-10-20, step 7 piece 3). `def_refs` (by span) and

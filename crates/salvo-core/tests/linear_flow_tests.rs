@@ -209,7 +209,7 @@ fn program() -> Program {
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    Program { files: sources.files, modules, companions: sources.companions }
+    Program { files: sources.files, modules: Program::share(modules), companions: sources.companions }
 }
 
 fn kind(message: &str) -> &'static str {

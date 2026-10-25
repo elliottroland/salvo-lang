@@ -29,7 +29,7 @@ fn checked(src: &str) -> (Program, salvo_core::Checked) {
         modules.push(ast);
     }
     let _expansion = salvo_core::expand(&sources.files, &mut modules);
-    let program = Program { files: sources.files, modules, companions: Vec::new() };
+    let program = Program { files: sources.files, modules: Program::share(modules), companions: Vec::new() };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let out = check_program(&program, &resolution, &symbols);

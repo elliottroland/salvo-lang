@@ -1594,3 +1594,62 @@ log current so the work can resume after a context reset). Newest last.
   per edit: parse 11, comptime's resolve 13, resolve 11, seed 4.6, written
   keys 4.5, bodies 4.5, deduce 3, IR 2.6. `salvo analyze` gains the
   protocol-hash part too. Next: piece 2.
+- **Step 8, piece 2: done** (committed "Share the standard library's parsed
+  modules across language-server analyses"). [lsp-std-front].
+  - **Built.** `Program::modules` is `Vec<Arc<Module>>`; an expansion
+    rewrites a module through `expand::ModuleSlot` (`Arc::make_mut`, no copy
+    when the program owns it alone), and comptime leaves a module with
+    nothing to stamp untouched (`stamps_anything`), so a `ParseCache` hit (an
+    `Arc` now, not a clone) stays shared. `analysis::StdFront` replaces
+    `build_std_cache`: std parsed and expanded once, its modules kept, the
+    `StdCache` checked over a program sharing them; the cache holds the
+    modules too (`StdCache::modules`), so its address-keyed rows can no
+    longer outlive the nodes they are keyed by. `comptime::
+    expand_comptime_prefix` records std's `StdComptime`: its tables as they
+    were before stamping (the world's `base`), every name std's stamping
+    looked a declaration up by, and every `by` path it matched module paths
+    against. `analyze_project` takes std's modules from the front when
+    `std_front_applies` (the leading files are the front's, by name, module
+    and content; unshadowed; nothing after std but a shadow) and
+    `StdComptime::admits` (no later file declares a struct, `type`, group,
+    qualifier or comptime fn under an asked name, and no later module path
+    matches a std `by` path); parses the rest; and runs
+    `expand_program_after` → `comptime::expand_comptime_after`, which stamps
+    the later files only. Else everything runs as before (std reparsed).
+  - **Item 4 done.** `check_once`, when `StdCache::shares_modules`: std's
+    `type_ref_keys` are the seed's, the project's are computed
+    (`resolve::written_keys_from`), and the by-span keys are merged with
+    std's gathered ones (`resolve::SpanKeys`, kept in the cache) by the rule
+    gathering them together applies — an entry agrees only if every
+    reference at that span agrees, so the parts merge exactly. Asserted by
+    the soundness test against a full recomputation.
+  - **Deviations.** (1) The gate needed its comptime half: std's expansion
+    does depend on the project. A project module `auto` makes std's `by
+    auto` sites name two modules (ROADMAP 0s, a defect of its own, found by
+    the test). (2) Comptime resolves with `resolve::resolve_scopes_where`,
+    which builds scopes for the stamped files only *and* skips the
+    program-wide diagnostics and reference tables (duplicates, overload
+    duplicates, the attached-export rule, `type_ref_files`, stamp scopes):
+    filtering pass 2 alone left comptime's resolve at 7.4ms, most of it
+    those checks over std. Comptime reads only the scopes, so `salvo
+    analyze` and every compile save it too. (3) The soundness tests compare
+    through `analyze_project_with(…, front_half)`, the same analysis with
+    the front's cache but without its front half, so they isolate this
+    piece from the `StdCache`.
+  - **Numbers** (`tools/lsp-timing.py … examples/cluster …`, debug, five
+    runs of six edits each way; medians): per edit **~62ms → ~45ms**
+    (run medians 58–66 before, 41–48 after). parse 10.9 →
+    1.8; expand 15.6 → 1.5 (comptime's resolve 11.9 → 1.0, stamps 1.2 → 0);
+    written keys 4.2 → 0.2. The phases after expand measure 10–35% *slower*
+    (resolve 11.1 → ~15, seed 4.4 → ~5.1, bodies 4.6 → ~5.6), the seed's
+    clone included, which reads no AST: a 25ms busy loop before each
+    analysis (no memory touched; an experiment, not kept) brings them back to the before numbers
+    (resolve 11.3, seed 4.6, bodies 4.8; ~36ms per edit). It is the core's
+    clock ramping up from idle, now that an edit's first ~25ms of work is
+    gone, not added work; `salvo analyze` times as before.
+  - **Left per edit:** resolve's scopes ~11 (std's ~65 files' scopes, every
+    edit), the seed's clone of std's `Checked` 4.5, bodies 4.5, deduce 3,
+    IR 5. **Next: piece 3** (the per-file checker rows, with the
+    prerequisites listed in "Step 8, measured first"); std's scopes per
+    analysis are the largest single cost left, and sharing them is part of
+    ROADMAP §5 item 4 (Option B).

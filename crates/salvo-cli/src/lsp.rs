@@ -271,7 +271,7 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
         connection: &connection,
         dirty: false,
         parse_cache: std::cell::RefCell::new(crate::analysis::ParseCache::new()),
-        std_cache: std::cell::RefCell::new(None),
+        std_front: std::cell::RefCell::new(None),
         analyses: std::cell::RefCell::new(Vec::new()),
         std_analysis: std::cell::RefCell::new(None),
         snippets,
@@ -421,10 +421,11 @@ struct Server<'c> {
     /// request handlers analyse through `&self`; the server loop is
     /// single-threaded, so there is never contention.
     parse_cache: std::cell::RefCell<crate::analysis::ParseCache>,
-    /// [std-cache] The embedded std checked on its own, built on the first
-    /// analysis and reused by every later one whose program starts with that
-    /// std unshadowed. A `RefCell` for the same reason as `parse_cache`.
-    std_cache: std::cell::RefCell<Option<salvo_core::StdCache>>,
+    /// [std-cache] [lsp-std-front] The embedded std parsed, expanded and
+    /// checked on its own, built on the first analysis and reused by every
+    /// later one whose program starts with that std unshadowed. A `RefCell`
+    /// for the same reason as `parse_cache`.
+    std_front: std::cell::RefCell<Option<crate::analysis::StdFront>>,
     /// [lsp-analysis-reuse] The analyses made since the last document event,
     /// by (project root, hash of the overlay analysed): a hover, a completion
     /// and a go-to-definition between two edits answer from one analysis
@@ -631,16 +632,17 @@ impl Server<'_> {
         Ok(())
     }
 
-    /// [std-cache] The server's std cache, checked on first use. The returned
-    /// borrow is shared, so hold it only across one analysis.
-    fn std_cache(&self) -> std::cell::Ref<'_, salvo_core::StdCache> {
+    /// [std-cache] [lsp-std-front] The server's std front, built on first
+    /// use. The returned borrow is shared, so hold it only across one
+    /// analysis.
+    fn std_front(&self) -> std::cell::Ref<'_, crate::analysis::StdFront> {
         {
-            let mut std_cache = self.std_cache.borrow_mut();
-            if std_cache.is_none() {
-                *std_cache = Some(crate::analysis::build_std_cache(""));
+            let mut std_front = self.std_front.borrow_mut();
+            if std_front.is_none() {
+                *std_front = Some(crate::analysis::build_std_front(""));
             }
         }
-        std::cell::Ref::map(self.std_cache.borrow(), |c| c.as_ref().expect("built above"))
+        std::cell::Ref::map(self.std_front.borrow(), |c| c.as_ref().expect("built above"))
     }
 
     /// [manifest-discovery] The analysis a document belongs to: its
@@ -682,7 +684,7 @@ impl Server<'_> {
     }
 
     fn fresh_analysis(&self, path: &Path, overlay: &HashMap<PathBuf, String>) -> Option<Analysis> {
-        let std_cache = self.std_cache();
+        let std_front = self.std_front();
         // [lsp-slow-dump] Time the pass so a runaway (the 100%-CPU report) can
         // be caught in the act: an analysis slower than the threshold dumps the
         // exact buffer it was given to a single fixed file, overwritten each
@@ -695,7 +697,7 @@ impl Server<'_> {
             &self.root,
             overlay,
             &mut self.parse_cache.borrow_mut(),
-            &std_cache,
+            &std_front,
         );
         let elapsed = started.elapsed();
         if elapsed >= slow_dump_threshold() {

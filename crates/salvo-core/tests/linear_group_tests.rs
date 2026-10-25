@@ -58,7 +58,7 @@ fn errors(src: &str) -> Vec<String> {
     let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -117,7 +117,7 @@ fn errors_in_files(main_src: &str, other_src: &str) -> Vec<String> {
     let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -1040,7 +1040,7 @@ fn errors_with_std_module(token_src: &str, main_src: &str) -> Vec<String> {
     let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);

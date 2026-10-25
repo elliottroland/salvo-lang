@@ -51,7 +51,7 @@ fn diags_with_std(std_files: &[(&str, &str)], files: &[(&str, &str)]) -> Vec<Str
     let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let resolution = resolve(&program);

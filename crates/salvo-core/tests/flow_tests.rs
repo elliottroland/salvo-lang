@@ -400,7 +400,7 @@ fn program(cases: &[(&str, &str)]) -> Program {
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    Program { files: sources.files, modules, companions: sources.companions }
+    Program { files: sources.files, modules: Program::share(modules), companions: sources.companions }
 }
 
 /// A position within a case's own source, 1-based.
@@ -765,7 +765,7 @@ fn example_program(dir: &Path) -> Program {
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    Program { files: sources.files, modules, companions: sources.companions }
+    Program { files: sources.files, modules: Program::share(modules), companions: sources.companions }
 }
 
 /// No false positives: over the IR of every example and of std (built from

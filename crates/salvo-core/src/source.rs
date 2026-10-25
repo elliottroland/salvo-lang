@@ -754,7 +754,7 @@ impl SourceSet {
 /// little.
 pub fn dependencies_with_reached_platform(
     files: &[SourceFile],
-    modules: &[salvo_syntax::ast::Module],
+    modules: &[std::sync::Arc<salvo_syntax::ast::Module>],
     companions: &[CompanionFile],
 ) -> std::collections::HashSet<String> {
     use salvo_syntax::ast::Item;

@@ -27,7 +27,7 @@ fn build_program(extra: &[(&str, &str)]) -> Option<Program> {
     if expansion.diagnostics.iter().any(|d| d.is_error()) {
         return None;
     }
-    Some(Program { files: sources.files, modules, companions: sources.companions })
+    Some(Program { files: sources.files, modules: Program::share(modules), companions: sources.companions })
 }
 
 /// Every `const NAME: &str = r#"…"#;` in a test file.

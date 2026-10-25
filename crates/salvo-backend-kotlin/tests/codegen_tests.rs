@@ -124,7 +124,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
     assert!(errors.is_empty(), "expansion errors: {errors:?}");
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: sources.companions,
     };
     let files = salvo_backend_kotlin::emit_program(&program)
@@ -187,7 +187,7 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
     assert!(errors.is_empty(), "expansion errors: {errors:?}");
     Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: sources.companions,
     }
 }
@@ -16467,7 +16467,7 @@ fn emit_example(example: &str) -> Vec<salvo_backend_kotlin::EmittedFile> {
     assert!(errors.is_empty(), "expansion errors: {errors:?}");
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: sources.companions,
     };
     salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {

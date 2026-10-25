@@ -285,7 +285,7 @@ fn stamp_scope<'p>(site: &ModuleScope<'p>, template: &ModuleScope<'p>) -> Module
 /// modules differ (a template of the stamping module sees nothing more).
 #[allow(clippy::type_complexity)]
 fn stamp_scopes<'p>(
-    program: Sources<'p>,
+    program: Sources<'_, 'p>,
     scopes: &[ModuleScope<'p>],
 ) -> (Vec<ModuleScope<'p>>, HashMap<usize, usize>, HashMap<usize, usize>) {
     use salvo_syntax::visit::{self as v, Visitor};
@@ -596,16 +596,44 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
 
 /// The files and their ASTs, aligned: what resolution reads of a program.
 #[derive(Clone, Copy)]
-struct Sources<'p> {
+struct Sources<'s, 'p> {
     files: &'p [crate::source::SourceFile],
-    modules: &'p [salvo_syntax::ast::Module],
+    modules: &'s [&'p salvo_syntax::ast::Module],
 }
 
 /// [comptime-instantiate] [type-identity] Resolution over files and ASTs not
 /// (yet) a `Program`: the comptime expansion resolves the unstamped program
 /// to look its names up through each file's scope.
-pub fn resolve_sources<'p>(files: &'p [crate::source::SourceFile], modules: &'p [salvo_syntax::ast::Module]) -> Resolution<'p> {
-    let program = Sources { files, modules };
+pub fn resolve_sources<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
+    files: &'p [crate::source::SourceFile],
+    modules: &'p [M],
+) -> Resolution<'p> {
+    resolve_impl(files, modules, &|_| true, false)
+}
+
+/// [lsp-std-front] The scopes of the files `scoped` accepts, and nothing
+/// else: every other file's scope is left empty, and of the rest of a
+/// `Resolution` only what building a scope reads is computed (no
+/// program-wide diagnostics, no reference tables). Every file still
+/// contributes its declarations, so a scope that is built is the one
+/// [`resolve_sources`] builds. What the comptime expansion looks names up
+/// by, for the files it stamps.
+pub fn resolve_scopes_where<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
+    files: &'p [crate::source::SourceFile],
+    modules: &'p [M],
+    scoped: &dyn Fn(usize) -> bool,
+) -> Resolution<'p> {
+    resolve_impl(files, modules, scoped, true)
+}
+
+fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
+    files: &'p [crate::source::SourceFile],
+    modules: &'p [M],
+    scoped: &dyn Fn(usize) -> bool,
+    scopes_only: bool,
+) -> Resolution<'p> {
+    let modules: Vec<&'p salvo_syntax::ast::Module> = modules.iter().map(|m| m.borrow()).collect();
+    let program = Sources { files, modules: &modules };
     // Pass 1: collect each module's own declarations (all files of the
     // module contribute).
     let mut by_module: HashMap<&ModulePath, ModuleItems<'_>> = HashMap::new();
@@ -742,7 +770,7 @@ pub fn resolve_sources<'p>(files: &'p [crate::source::SourceFile], modules: &'p 
     // same-kind same-name collision between two implicitly visible
     // `core.*` modules (which would otherwise resolve by hash-map
     // ordering). Fns are exempt — same-name fns form overload sets.
-    {
+    if !scopes_only {
         let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();
         sorted_modules.sort_by_key(|m| m.to_string());
         // Keyed by kind, name **and subject** — see `non_fn_names`.
@@ -791,7 +819,7 @@ pub fn resolve_sources<'p>(files: &'p [crate::source::SourceFile], modules: &'p 
     // candidates whose parameters are identical [fn-overload-return] (user
     // decision 2026-10-20, the CLI design record round 2). Reported at the second
     // declaration (user decision 2026-09-07).
-    {
+    if !scopes_only {
         let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();
         sorted_modules.sort_by_key(|m| m.to_string());
         for module in sorted_modules {
@@ -953,7 +981,7 @@ pub fn resolve_sources<'p>(files: &'p [crate::source::SourceFile], modules: &'p 
     }
 
     // [fn-attached] The detached-fulfilment export rule (see the note above).
-    {
+    if !scopes_only {
         let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();
         sorted_modules.sort_by_key(|m| m.to_string());
         for module in sorted_modules {
@@ -994,6 +1022,10 @@ pub fn resolve_sources<'p>(files: &'p [crate::source::SourceFile], modules: &'p 
     // Pass 2: build one scope per file.
     let mut scopes = Vec::with_capacity(program.files.len());
     for (file_idx, (file, ast)) in program.files.iter().zip(program.modules).enumerate() {
+        if !scoped(file_idx) {
+            scopes.push(ModuleScope::default());
+            continue;
+        }
         let mut scope = ModuleScope::default();
         // Provenance of every non-fn scope entry [mod-collision]:
         // (level, module) per (kind, visible name), driving the
@@ -1137,6 +1169,21 @@ pub fn resolve_sources<'p>(files: &'p [crate::source::SourceFile], modules: &'p 
         }
     }
 
+    if scopes_only {
+        return Resolution {
+            scopes,
+            handler_files,
+            type_ref_files: HashMap::new(),
+            decl_files,
+            declared_in,
+            private_in,
+            attached,
+            errors,
+            stamp_scopes: Vec::new(),
+            fn_stamp_scope: HashMap::new(),
+            type_ref_stamp: HashMap::new(),
+        };
+    }
     let (stamp_scopes, fn_stamp_scope, type_ref_stamp) = stamp_scopes(program, &scopes);
     Resolution {
         scopes,
@@ -2154,7 +2201,7 @@ pub fn type_ref_files(program: &Program) -> HashMap<usize, usize> {
     type_ref_files_in(&program.modules)
 }
 
-fn type_ref_files_in(modules: &[salvo_syntax::ast::Module]) -> HashMap<usize, usize> {
+fn type_ref_files_in<M: std::borrow::Borrow<salvo_syntax::ast::Module>>(modules: &[M]) -> HashMap<usize, usize> {
     let mut out = HashMap::new();
     for_each_type_ref(modules, &mut |file, t| {
         out.insert(t as *const salvo_syntax::ast::TypeRef as usize, file);
@@ -2185,8 +2232,18 @@ pub fn written_keys<'p>(
     resolution: &Resolution<'p>,
     symbols: &crate::program::Symbols<'p>,
 ) -> HashMap<usize, String> {
+    written_keys_from(program, resolution, symbols, 0)
+}
+
+/// [lsp-std-front] [`written_keys`] of the files from `first` on.
+pub fn written_keys_from<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &crate::program::Symbols<'p>,
+    first: usize,
+) -> HashMap<usize, String> {
     let mut out = HashMap::new();
-    for_each_type_ref(&program.modules, &mut |file, t| {
+    for_each_type_ref_from(&program.modules, first, &mut |file, t| {
         let name = t.name.name.as_str();
         if let Some(key) = key_in(symbols, resolution.scope_for_ref(file, t), name) {
             if key != name {
@@ -2206,27 +2263,68 @@ pub fn written_keys_by_span<'p>(
     resolution: &Resolution<'p>,
     symbols: &crate::program::Symbols<'p>,
 ) -> HashMap<(u32, u32, String), String> {
-    let mut out: HashMap<(u32, u32, String), Option<String>> = HashMap::new();
-    for_each_type_ref(&program.modules, &mut |file, t| {
+    let mut raw = SpanKeys::new();
+    span_keys_from(program, resolution, symbols, 0, &mut raw);
+    span_keys_final(raw)
+}
+
+/// [lsp-std-front] What [`written_keys_by_span`] gathers before it keeps
+/// only the agreed entries that differ from the written name: every
+/// (span, written name) with the one key all its references resolve to, or
+/// `None` where two disagree. Gathering is order-free (a disagreement
+/// anywhere is final), so the files may be gathered in parts — std's once,
+/// a project's per analysis — and merged (`check_once`).
+pub type SpanKeys = HashMap<(u32, u32, String), Option<String>>;
+
+/// [lsp-std-front] Gathers the references of the files from `first` on into
+/// `out`.
+pub fn span_keys_from<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &crate::program::Symbols<'p>,
+    first: usize,
+    out: &mut SpanKeys,
+) {
+    for_each_type_ref_from(&program.modules, first, &mut |file, t| {
         let name = t.name.name.as_str();
         let key = key_in(symbols, resolution.scope_for_ref(file, t), name).unwrap_or(name).to_string();
-        let at = (t.name.span.start, t.name.span.end, name.to_string());
-        match out.get(&at) {
-            None => {
-                out.insert(at, Some(key));
-            }
-            Some(Some(k)) if *k == key => {}
-            Some(_) => {
-                out.insert(at, None);
-            }
-        }
+        span_keys_add(out, (t.name.span.start, t.name.span.end, name.to_string()), Some(key));
     });
-    out.into_iter()
+}
+
+fn span_keys_add(out: &mut SpanKeys, at: (u32, u32, String), key: Option<String>) {
+    match out.get(&at) {
+        None => {
+            out.insert(at, key);
+        }
+        Some(Some(k)) if Some(k) == key.as_ref() => {}
+        Some(_) => {
+            out.insert(at, None);
+        }
+    }
+}
+
+/// [lsp-std-front] The agreed entries that differ from the written name.
+pub fn span_keys_final(raw: SpanKeys) -> HashMap<(u32, u32, String), String> {
+    raw.into_iter()
         .filter_map(|(at, k)| k.filter(|k| *k != at.2).map(|k| (at, k)))
         .collect()
 }
 
-fn for_each_type_ref(modules: &[salvo_syntax::ast::Module], f: &mut dyn FnMut(usize, &salvo_syntax::ast::TypeRef)) {
+fn for_each_type_ref<M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
+    modules: &[M],
+    f: &mut dyn FnMut(usize, &salvo_syntax::ast::TypeRef),
+) {
+    for_each_type_ref_from(modules, 0, f)
+}
+
+/// [`for_each_type_ref`] over the files from `first` on, by their index in
+/// `modules`.
+fn for_each_type_ref_from<M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
+    modules: &[M],
+    first: usize,
+    f: &mut dyn FnMut(usize, &salvo_syntax::ast::TypeRef),
+) {
     use salvo_syntax::visit::{self as v, Visitor};
     struct Collect<'m> {
         file: usize,
@@ -2238,7 +2336,8 @@ fn for_each_type_ref(modules: &[salvo_syntax::ast::Module], f: &mut dyn FnMut(us
         }
     }
     let out = f;
-    for (file, ast) in modules.iter().enumerate() {
+    for (file, ast) in modules.iter().enumerate().skip(first) {
+        let ast: &salvo_syntax::ast::Module = ast.borrow();
         let mut c = Collect { file, f: &mut *out };
         for u in &ast.uses {
             v::walk_expr(&mut c, &u.handler);

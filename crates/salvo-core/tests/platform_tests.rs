@@ -46,7 +46,7 @@ fn check_files(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
     let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);

@@ -666,6 +666,23 @@ an error"): check the inferring minters in dependency order (a minter whose
 initializer names an iterator struct with an inferred field after that
 struct's minter), and report a cycle. Only tests write the inferred form.
 
+### 0s — Open defect: a project module named `auto` breaks std's `by auto` (found 2026-10-20, DECISION)
+
+A `by` path is matched against every module path of the program
+[obligation-by], std's own `by` sites included, so a project with a module
+`auto` (`src/auto.sv`) makes every `by auto` in std name two modules. Repro:
+`auto.sv` with `export fn helper() [] -> Int { return 1 }`, `main.sv` with
+`import auto` and a `main` calling it; `salvo analyze` reports
+"`by auto` names 2 modules — `core.auto`, `auto`" at `std/fs/path.sv:13`,
+`std/net.sv:85` and the other std `by auto` sites, and std's stamps fall
+back. The same holds for a project `comptime fn` named like a std `by`
+path. Found by `std_front_expansion_is_project_independent`; the language
+server's std front refuses such a project and expands it whole, so it shows
+exactly what `salvo analyze` shows (PIPELINE.md §8, step 8 piece 2). The
+call is the user's: the likely fix is that a `by` path resolves among the
+modules the stamping file can see (std sees no project module), which would
+also let the front's comptime gate drop its `by`-path half.
+
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
 **What it is.** When a message makes an actor runnable, the scheduler unparks
@@ -1883,7 +1900,7 @@ it would save only the cheap transcription and inherit every coupling of the
      `salvo_core::StdCache` wraps the `Checked` of a std-only program;
      `check_project` seeds a round from it and skips std files in both the
      per-file walk and the deduction fixpoint. The language server builds it
-     once per session (`analysis::build_std_cache`) and reuses it, gated
+     once per session (`analysis::build_std_cache`, since 2026-10-20 part of `build_std_front`) and reuses it, gated
      (`std_cache_applies`) on the merged program's leading files being that std
      unshadowed and the project not being `std = true` (A4) — else a full
      `check_program`. **Measured 7.4×: `analyze` of the demo fell from ~449ms
@@ -1902,6 +1919,18 @@ it would save only the cheap transcription and inherit every coupling of the
    fixed) and needs a path-based parallel to the `FnKey`-keyed tables. Not
    worth it over A until cross-run persistence or workspace scale demands it;
    recorded so A's seam is designed without foreclosing it.
+   - ✅ **A first step is built** (2026-10-20, COMPLETED.md;
+     [lsp-std-front]): the language server parses and expands std once, and
+     every analysis's `Program` shares those modules (`Arc<Module>`) — no
+     parse, clone or comptime expansion of std per edit, and std's written
+     keys come from the cache. std's files are still in every `Program`, and
+     resolution still builds their scopes per analysis (~10ms of an edit);
+     the rest of Option B stays future.
+   - **Unverified concern** (2026-10-20): the cache's gate does not look at
+     a project module under `core.` that is no std module (`src/core/x.sv`):
+     `core.*` is implicitly visible in every file, std's included, so such a
+     module could change what std's own names resolve to while the cache
+     stands in for std's check. Not reproduced.
 
 5. **(Follow-on, for `salvo build` — not the LSP.)** Once step 3's annotation
    guarantee holds, std's *IR* is a pure function of std's sources too, which

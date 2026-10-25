@@ -29,7 +29,7 @@ fn diags(src: &str) -> Vec<FileDiagnostic> {
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     let mut out: Vec<FileDiagnostic> = expansion.diagnostics;
-    let program = Program { files: sources.files, modules, companions: Vec::new() };
+    let program = Program { files: sources.files, modules: Program::share(modules), companions: Vec::new() };
     let resolution = resolve(&program);
     let symbols = Symbols::collect(&program);
     out.extend(resolution.errors.clone());

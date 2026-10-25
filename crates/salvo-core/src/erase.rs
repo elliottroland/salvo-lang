@@ -284,7 +284,7 @@ pub fn erase_effect_generics(program: &Program, erased: &Erased) -> Program {
         .iter()
         .enumerate()
         .map(|(module_idx, m)| {
-            let mut m = m.clone();
+            let mut m = Module::clone(m);
             for item in &mut m.items {
                 match item {
                     Item::Effect(e) if erased.effects.contains(&e.name.name) => e.generics.clear(),
@@ -305,7 +305,7 @@ pub fn erase_effect_generics(program: &Program, erased: &Erased) -> Program {
         .collect();
     Program {
         files: program.files.clone(),
-        modules,
+        modules: Program::share(modules),
         companions: program.companions.clone(),
     }
 }

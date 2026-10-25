@@ -58,12 +58,38 @@ pub struct StdCache {
     /// sorted), so they transfer without remapping in the common case the
     /// language server gates on (no std shadow, project not `std = true`).
     checked: Checked,
+    /// [lsp-std-front] The modules the check ran over, kept alive: the
+    /// address-keyed rows above (`written_types`, `type_ref_keys`) are keyed
+    /// by their nodes' addresses, which no other allocation can take while
+    /// the cache holds them, and a program sharing these very modules
+    /// (`shares_modules`) has std's written keys already.
+    modules: Vec<std::sync::Arc<Module>>,
+    /// [lsp-std-front] std's references by span, before the agreed ones are
+    /// kept (`resolve::SpanKeys`): what a project's references are merged
+    /// into.
+    span_keys: crate::resolve::SpanKeys,
 }
 
 impl StdCache {
-    /// Wraps the `Checked` of a std-only program (every row a std row).
-    pub fn new(checked: Checked, std_files: usize) -> Self {
-        StdCache { std_files, checked }
+    /// Wraps the `Checked` of a std-only program (every row a std row):
+    /// `checked` is `check_program` over `program`, resolved and collected
+    /// as `resolution` and `symbols`.
+    pub fn new<'p>(program: &'p Program, resolution: &Resolution<'p>, symbols: &Symbols<'p>, checked: Checked) -> Self {
+        let mut span_keys = crate::resolve::SpanKeys::new();
+        crate::resolve::span_keys_from(program, resolution, symbols, 0, &mut span_keys);
+        StdCache {
+            std_files: program.files.len(),
+            checked,
+            modules: program.modules.clone(),
+            span_keys,
+        }
+    }
+
+    /// [lsp-std-front] Whether `program`'s std files hold the very modules
+    /// the cache was checked over (a language server's std front).
+    fn shares_modules(&self, program: &Program) -> bool {
+        self.modules.len() <= program.modules.len()
+            && self.modules.iter().zip(&program.modules).all(|(a, b)| std::sync::Arc::ptr_eq(a, b))
     }
 
     /// Seeds a fresh round's `Checked` with std's rows: the round starts from
@@ -2027,9 +2053,39 @@ fn check_once<'p>(
     };
     drop(t);
     let t = crate::timing::phase("  check: written keys");
-    out.type_ref_keys = crate::resolve::written_keys(program, resolution, symbols);
+    match cache.filter(|c| c.shares_modules(program)) {
+        // [lsp-std-front] std's modules are the cache's own, so the seed's
+        // keys are std's references' keys at these very addresses (a std
+        // reference resolves in a std scope, and std's declarations keep
+        // their keys in front of any project's): only the project's are
+        // computed, and merged into std's by-span entries as gathering
+        // them together would.
+        Some(c) => {
+            out.type_ref_keys.extend(crate::resolve::written_keys_from(program, resolution, symbols, c.std_files));
+            let mut part = crate::resolve::SpanKeys::new();
+            crate::resolve::span_keys_from(program, resolution, symbols, c.std_files, &mut part);
+            for (at, key) in part {
+                // Agreed only if std's references there agree too.
+                let merged = match c.span_keys.get(&at) {
+                    Some(std_key) => key.filter(|k| std_key.as_ref() == Some(k)),
+                    None => key,
+                };
+                match merged.filter(|k| *k != at.2) {
+                    Some(k) => {
+                        out.type_ref_span_keys.insert(at, k);
+                    }
+                    None => {
+                        out.type_ref_span_keys.remove(&at);
+                    }
+                }
+            }
+        }
+        None => {
+            out.type_ref_keys = crate::resolve::written_keys(program, resolution, symbols);
+            out.type_ref_span_keys = crate::resolve::written_keys_by_span(program, resolution, symbols);
+        }
+    }
     symbols.seed_ref_keys(&out.type_ref_keys);
-    out.type_ref_span_keys = crate::resolve::written_keys_by_span(program, resolution, symbols);
     drop(t);
     let t = crate::timing::phase("  check: visible keys");
     for (file, scope) in resolution.scopes.iter().enumerate() {

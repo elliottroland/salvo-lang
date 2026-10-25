@@ -34,7 +34,7 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
     assert!(errors.is_empty(), "expansion errors: {errors:?}");
     Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: sources.companions,
     }
 }
@@ -13274,7 +13274,7 @@ fn emit_example(example: &str) -> Vec<salvo_backend_rust::EmittedFile> {
     assert!(errors.is_empty(), "expansion errors: {errors:?}");
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: sources.companions,
     };
     salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {

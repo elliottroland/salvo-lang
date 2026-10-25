@@ -50,7 +50,7 @@ fn messages(src: &str) -> Vec<String> {
         assert!(parse_errors.is_empty(), "parse errors in {}: {parse_errors:?}", file.name);
         modules.push(ast);
     }
-    let program = Program { files: sources.files, modules, companions: Vec::new() };
+    let program = Program { files: sources.files, modules: Program::share(modules), companions: Vec::new() };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);

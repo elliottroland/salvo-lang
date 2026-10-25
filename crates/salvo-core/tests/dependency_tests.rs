@@ -207,7 +207,7 @@ fn module_selectors_are_recorded_with_their_resolved_module() {
     let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
-        modules,
+        modules: Program::share(modules),
         companions: Vec::new(),
     };
     let resolution = resolve(&program);

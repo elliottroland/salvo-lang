@@ -39,7 +39,7 @@ fn errors(files: &[(&str, &str)], annex: Option<&str>) -> Vec<String> {
         modules.push(ast);
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
-    let program = Program { files: sources.files, modules, companions: Vec::new() };
+    let program = Program { files: sources.files, modules: Program::share(modules), companions: Vec::new() };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);

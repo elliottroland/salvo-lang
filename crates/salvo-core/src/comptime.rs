@@ -73,37 +73,173 @@ pub struct ComptimeOutput {
     pub when_arms: Vec<CompWhenArms>,
 }
 
+/// [comptime-instantiate] What the world looks declarations up in: every
+/// comptime fn, and every struct, `type`, `params` group and qualifier by
+/// name, as the files declared them **before** any was stamped (stamping
+/// removes the generic compfns). Names are flat here — the resolver's
+/// visibility rules run later on what this produces — and a collision between
+/// two modules' same-named types is the resolver's error, not a reason to
+/// stamp nothing.
+#[derive(Default)]
+struct Tables {
+    compfns: Vec<CompFnDecl>,
+    structs: HashMap<String, Vec<(ModulePath, StructDecl)>>,
+    types: HashMap<String, Vec<(ModulePath, TypeDecl)>>,
+    groups: HashMap<String, Vec<(ModulePath, ParamsDecl)>>,
+    /// [comptime-qualifier] Every qualifier, by name: a head tests for the
+    /// comptime ones, and an arm's constructor reads an ordinary one's
+    /// generics [comptime-arm].
+    quals: HashMap<String, Vec<(ModulePath, QualifierDecl)>>,
+}
+
+/// [lsp-std-front] The comptime expansion of the embedded std on its own,
+/// kept so a language server can expand a project over std's already
+/// expanded modules ([`expand_comptime_after`]): std's tables as they were
+/// before std was stamped, and what std's stamping asked the world, so
+/// [`StdComptime::admits`] can tell whether a project could have changed a
+/// single answer.
+pub struct StdComptime {
+    /// How many leading files of a program the std is.
+    files: usize,
+    tables: std::sync::Arc<Tables>,
+    /// Every name std's stamping looked a declaration up by (struct, `type`,
+    /// group, qualifier, comptime fn), found or not.
+    queried: std::collections::HashSet<String>,
+    /// Every `by` path std's stamping matched module paths against.
+    by_paths: Vec<Vec<String>>,
+}
+
+impl StdComptime {
+    /// How many leading files of a program the std is.
+    pub fn files(&self) -> usize {
+        self.files
+    }
+
+    /// [lsp-std-front] Whether stamping std inside `files` gives what
+    /// stamping it alone gave: every question std's stamping asks the world
+    /// is keyed by a name or matches a `by` path against module paths, so the
+    /// answers are the same when no file after std (a copy of a std file
+    /// aside, which the expansion skips) declares a struct, `type`, group,
+    /// qualifier or comptime fn under a name std asked about, or has a
+    /// module path a std `by` path matches. A project that fails it is
+    /// expanded whole, as without the front.
+    pub fn admits<M: std::borrow::Borrow<Module>>(&self, files: &[SourceFile], modules: &[M]) -> bool {
+        for idx in self.files..files.len() {
+            if shadow_copy(files, idx) {
+                continue;
+            }
+            let module = &files[idx].module;
+            if self.by_paths.iter().any(|p| module.matches_suffix(&p.iter().map(|s| s.as_str()).collect::<Vec<_>>())) {
+                return false;
+            }
+            for item in &modules[idx].borrow().items {
+                let name = match item {
+                    Item::Fn(f) if f.compfn.is_some() => &f.name.name,
+                    Item::Struct(s) => &s.name.name,
+                    Item::Type(t) => &t.name.name,
+                    Item::Params(g) => &g.name.name,
+                    Item::Qualifier(q) => &q.name.name,
+                    _ => continue,
+                };
+                if self.queried.contains(name) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+}
+
+/// [std-shadow] The repository root opened as a workspace loads `std/` a
+/// second time as user files (`std.core.auto` beside the embedded
+/// `core.auto`, ROADMAP §4). A copy — same content, module ending in the std
+/// module's path — is not a second candidate for `by auto`.
+fn shadow_copy(files: &[SourceFile], idx: usize) -> bool {
+    let f = &files[idx];
+    !f.is_std
+        && files.iter().any(|g| {
+            g.is_std
+                && g.content == f.content
+                && f.module.matches_suffix(&g.module.0.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+                && f.module.0.len() > g.module.0.len()
+        })
+}
+
+/// [lsp-std-front] Whether the per-file stamping has anything to do in a
+/// module: a comptime fn, a `fn … by`, or a `by` clause. One that has none is
+/// left exactly as it is, so it is not even made mutable (a shared module
+/// stays shared).
+fn stamps_anything(module: &Module) -> bool {
+    module.items.iter().any(|item| match item {
+        Item::Fn(f) => f.compfn.is_some() || f.by.is_some(),
+        Item::Struct(s) => s.obligations.iter().any(|o| o.by.is_some()),
+        Item::Type(t) => t.obligations.iter().any(|o| o.by.is_some()),
+        _ => false,
+    })
+}
+
 /// Runs the expansion. `modules` is aligned with `files`.
-pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> ComptimeOutput {
+pub fn expand_comptime<M: crate::expand::ModuleSlot>(files: &[SourceFile], modules: &mut [M]) -> ComptimeOutput {
+    run(files, modules, None, false).0
+}
+
+/// [lsp-std-front] Runs the expansion over a std on its own (`files` is the
+/// embedded std, nothing else), and keeps what [`expand_comptime_after`]
+/// needs to expand a project over the result.
+pub fn expand_comptime_prefix<M: crate::expand::ModuleSlot>(
+    files: &[SourceFile],
+    modules: &mut [M],
+) -> (ComptimeOutput, StdComptime) {
+    let (out, ran) = run(files, modules, None, true);
+    let prefix = StdComptime {
+        files: files.len(),
+        tables: std::sync::Arc::new(ran.tables),
+        queried: ran.queried.unwrap_or_default(),
+        by_paths: ran.by_paths.unwrap_or_default(),
+    };
+    (out, prefix)
+}
+
+/// [lsp-std-front] Runs the expansion over a program whose leading
+/// `prefix.files()` files are the std `prefix` was recorded from, already
+/// expanded: the world reads std's tables from the prefix, scopes are
+/// resolved for the later files only, and only the later files are stamped.
+/// The std files' own output (diagnostics, hovers, `[when]` arms) is the
+/// prefix's, not repeated here. Sound when `prefix.admits(files, modules)`.
+pub fn expand_comptime_after(
+    files: &[SourceFile],
+    modules: &mut [std::sync::Arc<Module>],
+    prefix: &StdComptime,
+) -> ComptimeOutput {
+    run(files, modules, Some((prefix.tables.clone(), prefix.files)), false).0
+}
+
+/// What a run leaves besides its output: its own tables, and what it was
+/// asked to record.
+struct Ran {
+    tables: Tables,
+    queried: Option<std::collections::HashSet<String>>,
+    by_paths: Option<Vec<Vec<String>>>,
+}
+
+/// The expansion: the files from `start` on (every file without a `base`)
+/// are collected into the world's tables, scoped and stamped; `base` holds
+/// the tables of the files before `start`.
+fn run<M: crate::expand::ModuleSlot>(
+    files: &[SourceFile],
+    modules: &mut [M],
+    base: Option<(std::sync::Arc<Tables>, usize)>,
+    record: bool,
+) -> (ComptimeOutput, Ran) {
     let mut out = Vec::new();
     let mut hovers: Vec<CompHover> = Vec::new();
     let mut when_arms: Vec<CompWhenArms> = Vec::new();
+    let start = base.as_ref().map_or(0, |(_, n)| *n);
 
-    // Program-wide tables. Names are flat here — the resolver's visibility
-    // rules run later on what this produces — and a collision between two
-    // modules' same-named types is the resolver's error, not a reason to
-    // stamp nothing.
-    let mut compfns: Vec<CompFnDecl> = Vec::new();
-    let mut structs: HashMap<String, Vec<(ModulePath, StructDecl)>> = HashMap::new();
-    let mut types: HashMap<String, Vec<(ModulePath, TypeDecl)>> = HashMap::new();
-    let mut groups: HashMap<String, Vec<(ModulePath, ParamsDecl)>> = HashMap::new();
-    let mut comptime_quals: HashMap<String, Vec<(ModulePath, QualifierDecl)>> = HashMap::new();
-    // [std-shadow] The repository root opened as a workspace loads `std/` a
-    // second time as user files (`std.core.auto` beside the embedded
-    // `core.auto`, ROADMAP §4). A copy — same content, module ending in the
-    // std module's path — is not a second candidate for `by auto`.
-    let shadow_copy = |idx: usize| -> bool {
-        let f = &files[idx];
-        !f.is_std
-            && files.iter().any(|g| {
-                g.is_std
-                    && g.content == f.content
-                    && f.module.matches_suffix(&g.module.0.iter().map(|s| s.as_str()).collect::<Vec<_>>())
-                    && f.module.0.len() > g.module.0.len()
-            })
-    };
-    for (idx, (file, module)) in files.iter().zip(modules.iter()).enumerate() {
-        if shadow_copy(idx) {
+    let mut tables = Tables::default();
+    for idx in start..files.len() {
+        let (file, module) = (&files[idx], modules[idx].borrow());
+        if shadow_copy(files, idx) {
             continue;
         }
         for item in &module.items {
@@ -121,7 +257,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                         fallback_body(&mut decl);
                         decl.compfn = compfn;
                     }
-                    compfns.push(CompFnDecl {
+                    tables.compfns.push(CompFnDecl {
                         module: file.module.clone(),
                         file: idx,
                         decl,
@@ -130,46 +266,50 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                 // [type-identity] Every declaration of a name, by module: one
                 // stamped in a module reads that module's own first.
                 Item::Struct(s) => {
-                    structs.entry(s.name.name.clone()).or_default().push((file.module.clone(), s.clone()));
+                    tables.structs.entry(s.name.name.clone()).or_default().push((file.module.clone(), s.clone()));
                 }
                 Item::Type(t) => {
-                    types.entry(t.name.name.clone()).or_default().push((file.module.clone(), t.clone()));
+                    tables.types.entry(t.name.name.clone()).or_default().push((file.module.clone(), t.clone()));
                 }
                 Item::Params(g) => {
-                    groups.entry(g.name.name.clone()).or_default().push((file.module.clone(), g.clone()));
+                    tables.groups.entry(g.name.name.clone()).or_default().push((file.module.clone(), g.clone()));
                 }
                 // [comptime-qualifier] Comptime qualifiers, which a head tests
                 // for (`[if field is Short]`).
                 Item::Qualifier(q) => {
-                    comptime_quals.entry(q.name.name.clone()).or_default().push((file.module.clone(), q.clone()));
+                    tables.quals.entry(q.name.name.clone()).or_default().push((file.module.clone(), q.clone()));
                 }
                 _ => {}
             }
         }
     }
     let t = crate::timing::phase("  expand: comptime scopes");
-    let scoped = scoped_names(files, modules);
+    let scoped = scoped_names(files, modules, start);
     drop(t);
     let _stamp = crate::timing::phase("  expand: comptime stamps");
     let world = World {
         scoped,
         here: std::cell::Cell::new(0),
-        comptime_quals,
-        compfns,
-        structs,
-        types,
+        base: base.map(|(tables, _)| tables),
+        tables,
+        queried: record.then(Default::default),
+        by_paths: record.then(Default::default),
         own: std::cell::RefCell::new(ModulePath(Vec::new())),
         imports: std::cell::RefCell::new(Vec::new()),
-        groups,
         module_paths: files
             .iter()
             .enumerate()
-            .filter(|(i, _)| !shadow_copy(*i))
+            .filter(|(i, _)| !shadow_copy(files, *i))
             .map(|(_, f)| f.module.clone())
             .collect(),
     };
 
-    for (file_idx, (file, module)) in files.iter().zip(modules.iter_mut()).enumerate() {
+    for file_idx in start..files.len() {
+        if !stamps_anything(modules[file_idx].borrow()) {
+            continue;
+        }
+        let file = &files[file_idx];
+        let module = modules[file_idx].module_mut();
         *world.own.borrow_mut() = file.module.clone();
         world.here.set(file_idx);
         *world.imports.borrow_mut() = module
@@ -405,7 +545,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                     .remove(&f.name.span.start)
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|r| world.structs.contains_key(&r.name) || world.types.contains_key(&r.name))
+                    .filter(|r| world.declares_type(&r.name))
                     .collect();
                 if errs.is_empty() {
                     f.body = body;
@@ -434,11 +574,20 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
         module.items.extend(generated);
         out.extend(diags.into_iter().map(|d| (file_idx, d)));
     }
-    ComptimeOutput {
-        diagnostics: out,
-        hovers,
-        when_arms,
-    }
+    let World { tables, queried, by_paths, .. } = world;
+    let ran = Ran {
+        tables,
+        queried: queried.map(|q| q.into_inner()),
+        by_paths: by_paths.map(|p| p.into_inner()),
+    };
+    (
+        ComptimeOutput {
+            diagnostics: out,
+            hovers,
+            when_arms,
+        },
+        ran,
+    )
 }
 
 /// [comptime-fields] Walks a comptime fn's written body and records, for
@@ -1195,11 +1344,13 @@ struct FileNames {
 /// keeps of it what the expansion looks names up by: per file, which module's
 /// declaration each name means. The expansion still runs before the
 /// program's own resolution (PIPELINE.md step 6), so this is a second,
-/// read-only one, over what the files declare before stamping.
-fn scoped_names(files: &[SourceFile], modules: &[Module]) -> Vec<FileNames> {
+/// read-only one, over what the files declare before stamping. Only the
+/// files from `start` on are stamped, so only their scopes are built
+/// [lsp-std-front]; the files before keep an empty entry.
+fn scoped_names<M: std::borrow::Borrow<Module>>(files: &[SourceFile], modules: &[M], start: usize) -> Vec<FileNames> {
     let mut module_of: HashMap<usize, ModulePath> = HashMap::new();
     for (file, module) in files.iter().zip(modules) {
-        for item in &module.items {
+        for item in &module.borrow().items {
             let addr = match item {
                 Item::Struct(s) => s as *const StructDecl as usize,
                 Item::Type(t) => t as *const TypeDecl as usize,
@@ -1211,7 +1362,7 @@ fn scoped_names(files: &[SourceFile], modules: &[Module]) -> Vec<FileNames> {
         }
     }
     let t = crate::timing::phase("    comptime: resolve");
-    let resolution = crate::resolve::resolve_sources(files, modules);
+    let resolution = crate::resolve::resolve_scopes_where(files, modules, &|i| i >= start);
     drop(t);
     let _t = crate::timing::phase("    comptime: names");
     let of = |addr: usize| module_of.get(&addr).cloned();
@@ -1241,9 +1392,16 @@ struct World {
     /// being expanded.
     scoped: Vec<FileNames>,
     here: std::cell::Cell<usize>,
-    compfns: Vec<CompFnDecl>,
-    structs: HashMap<String, Vec<(ModulePath, StructDecl)>>,
-    types: HashMap<String, Vec<(ModulePath, TypeDecl)>>,
+    /// [lsp-std-front] The tables of the files before the ones stamped (an
+    /// already expanded std), which come first in every lookup, as their
+    /// files come first in the program.
+    base: Option<std::sync::Arc<Tables>>,
+    tables: Tables,
+    /// [lsp-std-front] When recording (`expand_comptime_prefix`): every name
+    /// a declaration was looked up by, and every `by` path matched against
+    /// the module paths.
+    queried: Option<std::cell::RefCell<std::collections::HashSet<String>>>,
+    by_paths: Option<std::cell::RefCell<Vec<Vec<String>>>>,
     /// [type-identity] The module being expanded: its own declaration of a
     /// name is the one meant.
     own: std::cell::RefCell<ModulePath>,
@@ -1252,23 +1410,58 @@ struct World {
     /// is the one it can mean (the checker then requires the name to be
     /// visible at all).
     imports: std::cell::RefCell<Vec<Vec<String>>>,
-    groups: HashMap<String, Vec<(ModulePath, ParamsDecl)>>,
-    /// [comptime-qualifier] Every qualifier, by name: a head tests for the
-    /// comptime ones, and an arm's constructor reads an ordinary one's
-    /// generics [comptime-arm].
-    comptime_quals: HashMap<String, Vec<(ModulePath, QualifierDecl)>>,
     module_paths: Vec<ModulePath>,
 }
 
 impl World {
+    /// [lsp-std-front] Records a name a declaration is looked up by.
+    fn ask(&self, name: &str) {
+        if let Some(q) = &self.queried {
+            q.borrow_mut().insert(name.to_string());
+        }
+    }
+
+    /// Every declaration of `name` in one of the tables, the base's first.
+    fn entries<'s, D>(
+        &'s self,
+        name: &str,
+        table: impl Fn(&'s Tables) -> &'s HashMap<String, Vec<(ModulePath, D)>>,
+    ) -> Vec<&'s (ModulePath, D)> {
+        self.ask(name);
+        let mut out = Vec::new();
+        if let Some(base) = &self.base {
+            out.extend(table(base).get(name).into_iter().flatten());
+        }
+        out.extend(table(&self.tables).get(name).into_iter().flatten());
+        out
+    }
+
+    fn structs_of(&self, name: &str) -> Vec<&(ModulePath, StructDecl)> {
+        self.entries(name, |t| &t.structs)
+    }
+
+    fn types_of(&self, name: &str) -> Vec<&(ModulePath, TypeDecl)> {
+        self.entries(name, |t| &t.types)
+    }
+
+    /// Whether any file declares a struct or a `type` named `name`.
+    fn declares_type(&self, name: &str) -> bool {
+        !self.structs_of(name).is_empty() || !self.types_of(name).is_empty()
+    }
+
+    /// Every comptime fn, the base's first.
+    fn compfns(&self) -> impl Iterator<Item = &CompFnDecl> {
+        self.base.iter().flat_map(|b| b.compfns.iter()).chain(self.tables.compfns.iter())
+    }
+
     /// [type-identity] [comptime-root-visible] Which of a name's
     /// declarations the file being expanded means: its own module's, else
     /// one from a module it imports (the module itself, or the item by
     /// name), else one from `core` (implicitly visible), else the first.
-    fn pick_decl<'a, D>(&self, name: &str, all: &'a [(ModulePath, D)]) -> Option<&'a (ModulePath, D)> {
+    fn pick_decl<'a, D>(&self, name: &str, all: &[&'a (ModulePath, D)]) -> Option<&'a (ModulePath, D)> {
         let own = self.own.borrow();
         if let Some(d) = all.iter().find(|(m, _)| *m == *own) {
-            return Some(d);
+            return Some(*d);
         }
         let imports = self.imports.borrow();
         let imported = |m: &ModulePath| {
@@ -1283,18 +1476,22 @@ impl World {
             .find(|(m, _)| imported(m))
             .or_else(|| all.iter().find(|(m, _)| m.0.first().is_some_and(|s| s == "core")))
             .or_else(|| all.first())
+            .copied()
     }
 
     /// [struct-opaque] Whether `name` is an opaque struct whose fields the
     /// module being expanded may not see: declared elsewhere, and this is not
     /// its `*.test.sv` annex (module `m.test`).
     fn opaque_here(&self, name: &str) -> bool {
-        let Some(all) = self.structs.get(name) else { return false };
+        let all = self.structs_of(name);
+        if all.is_empty() {
+            return false;
+        }
         let own = self.own.borrow().clone();
         let here = self.names_here();
         let other = here.is_some_and(|h| h.types.contains_key(name));
         let visible = here.and_then(|h| h.structs.get(name)).filter(|_| !other);
-        let Some((module, decl)) = self.scoped_decl(name, all, visible, other) else {
+        let Some((module, decl)) = self.scoped_decl(name, &all, visible, other) else {
             return false;
         };
         if !decl.opaque || *module == own {
@@ -1318,12 +1515,12 @@ impl World {
     fn scoped_decl<'a, D>(
         &self,
         name: &str,
-        all: &'a [(ModulePath, D)],
+        all: &[&'a (ModulePath, D)],
         visible: Option<&ModulePath>,
         other_kind: bool,
     ) -> Option<&'a (ModulePath, D)> {
         match visible {
-            Some(m) => all.iter().find(|(dm, _)| dm == m),
+            Some(m) => all.iter().find(|(dm, _)| dm == m).copied(),
             // The name is visible here as the other kind of type: this
             // kind's declaration elsewhere is not what it means.
             None if other_kind => None,
@@ -1334,26 +1531,26 @@ impl World {
     /// A `type` the file sees outranks a struct of the same name, as in the
     /// checker, which expands an alias before it reads a nominal.
     fn struct_named(&self, name: &str) -> Option<&StructDecl> {
-        let all = self.structs.get(name)?;
+        let all = self.structs_of(name);
         let here = self.names_here();
         let other = here.is_some_and(|h| h.types.contains_key(name));
         let visible = here.and_then(|h| h.structs.get(name)).filter(|_| !other);
-        self.scoped_decl(name, all, visible, other).map(|(_, d)| d)
+        self.scoped_decl(name, &all, visible, other).map(|(_, d)| d)
     }
 
     fn type_named(&self, name: &str) -> Option<&TypeDecl> {
-        let all = self.types.get(name)?;
+        let all = self.types_of(name);
         let here = self.names_here();
         let visible = here.and_then(|h| h.types.get(name));
         let other = visible.is_none() && here.is_some_and(|h| h.structs.contains_key(name));
-        self.scoped_decl(name, all, visible, other).map(|(_, d)| d)
+        self.scoped_decl(name, &all, visible, other).map(|(_, d)| d)
     }
 
     /// [type-identity] The `params` group a clause names, in its file.
     fn group_named(&self, name: &str) -> Option<&ParamsDecl> {
-        let all = self.groups.get(name)?;
+        let all = self.entries(name, |t| &t.groups);
         let visible = self.names_here().and_then(|h| h.groups.get(name));
-        self.scoped_decl(name, all, visible, false).map(|(_, d)| d)
+        self.scoped_decl(name, &all, visible, false).map(|(_, d)| d)
     }
 
     /// [comptime-qualifier] The comptime qualifier `name` means here.
@@ -1363,9 +1560,9 @@ impl World {
 
     /// The qualifier `name` means here, comptime or not.
     fn qual_named(&self, name: &str) -> Option<&QualifierDecl> {
-        let all = self.comptime_quals.get(name)?;
+        let all = self.entries(name, |t| &t.quals);
         let visible = self.names_here().and_then(|h| h.quals.get(name));
-        self.scoped_decl(name, all, visible, false).map(|(_, d)| d)
+        self.scoped_decl(name, &all, visible, false).map(|(_, d)| d)
     }
 
     /// [comptime-docs] The doc comment of the declaration a type names — a
@@ -1482,8 +1679,8 @@ impl World {
     /// named directly (the function form).
     /// The module a picked comptime fn lives in, beside it.
     fn compfn_of(&self, decl: &FnDecl) -> Option<&CompFnDecl> {
-        self.compfns
-            .iter()
+        self.ask(&decl.name.name);
+        self.compfns()
             .find(|c| std::ptr::eq(&c.decl, decl) || (c.decl.name.span == decl.name.span && c.decl.name.name == decl.name.name))
     }
 
@@ -1510,6 +1707,13 @@ impl World {
         diags: &mut Vec<Diagnostic>,
     ) -> Option<FnDecl> {
         let path: Vec<&str> = by.path.iter().map(|p| p.name.as_str()).collect();
+        if let Some(paths) = &self.by_paths {
+            paths.borrow_mut().push(path.iter().map(|s| s.to_string()).collect());
+        }
+        self.ask(member);
+        if let [only] = path.as_slice() {
+            self.ask(only);
+        }
         // The module reading: any unambiguous suffix of the path [mod-suffix],
         // so `by auto` reaches `core.auto` as `size@list` reaches `core.list`.
         let modules: Vec<&ModulePath> = self
@@ -1522,8 +1726,7 @@ impl World {
         // The function reading: a comptime fn of that name, of the target's
         // kind, in any module — or in the module the `@` selector names.
         let fn_candidates: Vec<&CompFnDecl> = if path.len() == 1 {
-            self.compfns
-                .iter()
+            self.compfns()
                 .filter(|c| c.decl.name.name == path[0])
                 .filter(|c| c.decl.compfn.as_ref().and_then(|c| c.bound.as_ref()).is_some_and(|(k, _)| *k == kind))
                 .filter(|c| match &by.at {
@@ -1581,8 +1784,7 @@ impl World {
                 return None;
             };
             let mut candidates: Vec<&FnDecl> = self
-                .compfns
-                .iter()
+                .compfns()
                 .filter(|c| &c.module == *module && c.decl.name.name == member)
                 .map(|c| &c.decl)
                 .collect();
@@ -2416,7 +2618,7 @@ impl<'w> Expander<'w> {
                 return Some(self.type_binders[i].1.clone());
             }
         }
-        if self.world.structs.contains_key(&ct.root.name) || self.world.types.contains_key(&ct.root.name) {
+        if self.world.declares_type(&ct.root.name) {
             let mut t = World::simple_named(&ct.root.name, ct.span);
             if let Type::Named { base, .. } = &mut t {
                 base.args = ct.args.clone();
@@ -2640,16 +2842,8 @@ impl<'w> Expander<'w> {
                 generics.push("*".to_string());
                 generics.extend(allowed.iter().cloned());
                 generics.extend(self.type_binders.iter().map(|(n, ..)| n.clone()));
-                let declared = self
-                    .world
-                    .structs
-                    .get(name)
-                    .is_some_and(|all| all.iter().any(|(_, s)| !s.comptime))
-                    || self
-                        .world
-                        .types
-                        .get(name)
-                        .is_some_and(|all| all.iter().any(|(_, t)| !t.comptime));
+                let declared = self.world.structs_of(name).iter().any(|(_, s)| !s.comptime)
+                    || self.world.types_of(name).iter().any(|(_, t)| !t.comptime);
                 let mut ok = true;
                 if !(declared || name == "None" || generics.iter().any(|g| g == name)) {
                     if TypeKindWord::parse(name).is_some() {
@@ -2809,8 +3003,7 @@ impl<'w> Expander<'w> {
         let mut ok = true;
         for (i, b) in binders.iter().enumerate() {
             let name = b.name.as_str();
-            let hides = self.world.structs.contains_key(name)
-                || self.world.types.contains_key(name)
+            let hides = self.world.declares_type(name)
                 || self.generics().iter().any(|g| g == name)
                 || self.type_binders.iter().any(|(n, ..)| n == name)
                 || binders[..i].iter().any(|o| o.name == name);
@@ -3101,7 +3294,7 @@ impl<'w> Expander<'w> {
                         return Some(self.world.docs_of(&target.ty).is_none());
                     }
                 }
-                if self.world.structs.contains_key(&binder.name) || self.world.types.contains_key(&binder.name) {
+                if self.world.declares_type(&binder.name) {
                     return Some(self.world.docs_of(&World::simple_named(&binder.name, binder.span)).is_none());
                 }
                 self.error(*span, format!("`{}` is neither a binder nor a type [comptime-docs]", binder.name));
@@ -3707,7 +3900,7 @@ impl MutVisitor for Expander<'_> {
                     return;
                 }
                 if root.name.starts_with(|c: char| c.is_uppercase())
-                    && (self.world.structs.contains_key(&root.name) || self.world.types.contains_key(&root.name))
+                    && self.world.declares_type(&root.name)
                 {
                     if field.name == "name" {
                         let name = root.name.clone();

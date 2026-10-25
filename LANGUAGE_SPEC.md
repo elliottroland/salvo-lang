@@ -12027,6 +12027,27 @@ replaced the working document TESTING.md).
   through the standalone std analysis, which builds them for every file, so
   a project analysis leaves std's entries empty (it was 17ms of every edit's
   ~85ms, debug, `examples/cluster`).
+* [lsp-std-front] **std's front half is shared across analyses** (2026-10-20,
+  PIPELINE.md step 8): the server parses, expands and checks the embedded std
+  once (`analysis::StdFront`, with the `StdCache` check), and every analysis
+  whose leading files are exactly that std, unshadowed, with nothing after it
+  std but a shadow, takes std's expanded modules from it: the same
+  `Arc<Module>`s (`Program::modules` is shared), so std is neither parsed,
+  cloned nor expanded again, and the cache's address-keyed rows are keyed by
+  the addresses the analysis sees (the cache keeps the modules alive). Only
+  the files after std are parsed and comptime-expanded: the world reads
+  std's tables as they were before std was stamped, scopes are built for the
+  stamped files only, and std's own expansion output (diagnostics, hovers,
+  `[when]` arms) is the front's. The comptime gate: std's stamping asks the
+  world only by name or by matching a `by` path against module paths, so the
+  front stands in unless a later file declares a struct, `type`, group,
+  qualifier or comptime fn under a name std asked about, or has a module path
+  a std `by` path matches (a project module `auto` makes std's `by auto`
+  sites name two modules); such a program is expanded whole, std reparsed.
+  With std's modules shared, `check_once` takes std's written keys from the
+  cache and computes the project's, merging the by-span keys as gathering
+  them together would. An analysis through the front reports what one
+  without it reports (`std_front_matches_an_analysis_without_it`).
 * [lsp-hover-iter-fn] An `iter fn`'s minter and generated `next` both hover as
   the `iter fn` written (`iter fn upto(n: Int) -> Emitted Int | Finished`),
   with its docs and without the `next` overload set.
