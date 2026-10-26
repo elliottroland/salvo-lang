@@ -2216,18 +2216,15 @@ several are "revisit only if a customer appears".
   refinements (per-pool firing, naming who is parked, a many-shot form); FC-7 host
   bridging; and the `[waitfor]` spawn-placement diagnostic still states a hazard
   the pump rule removed.
-- **A router's node has no in-edges** (found 2026-10-20, PIPELINE R8 piece
-  6; as old as `of any E`): callers' sends and dependencies on `any E` land
-  on `E`, never on a router's servant node (a written `of any E` handler's,
-  or the derived `__Route_E`'s), so a cycle that closes through the router
-  is not reported. Repro (`route_deadlock_tests`'
-  `a_routes_selector_dependency_is_an_occupancy_edge`, with `Pinging`
-  sending nothing): `Ponging [any Ping] of Pong` sends into the route, whose
-  selector `Watching [Pong] of RouteSelector<E>` (stateful) sends `poke()`
-  to `Pong` — `Pong → route → Watching's lock → Pong`, a back-pressure
-  cycle through the route's capacity-1 mailbox, silent. The likely fix: an
-  edge into `any E` also lands on every router of `E`; it changes what
-  programs with routers report, so it is its own piece.
+- **Router in-edge leftovers** (found 2026-10-26, with the router in-edges):
+  the occupancy report's wording explains a *mixed handler's* façade ("a
+  sync member of a mixed handler parks its caller until the servant
+  answers") even when the occupied node is a router or a priced shareable
+  handler's lock, where what happens is that the caller runs the member on
+  its own thread under the lock; and a *spawned* written router behind an
+  `eff[E]` gets no in-edges (sends through an `eff[E]` land on `E` alone —
+  the addr cannot say `any`, [effect-any]'s recorded gap), so a cycle
+  through one is not seen.
 - **Multi-effect and mixed-handler leftovers**: a same-named member across two
   faces still needs `@Effect` at the call even where the parameters distinguish it
   ([effect-at] keys on the name); a dependent multi-face handler is untested;

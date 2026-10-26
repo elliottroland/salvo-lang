@@ -4618,7 +4618,8 @@ Conventions:
     exists. It is also a servant node of its own in the deadlock graph, so
     its forwards do not read as `E → E` — a written router from its AST
     handler, a route `use any` binds [route-stub] from the checker's
-    `route_uses` (2026-10-20), with the same edges.
+    `route_uses` (2026-10-20), with the same edges — and every dependency
+    on `any E` points at it (router in-edges, [actor-deadlock-cycle]).
   * **A fn type carries no strength** (it cannot say `any`): an inherited
     requirement [fn-effects] is the strong one unless
     the function taking the value writes `[any E]` itself, which weakens it
@@ -7120,12 +7121,37 @@ docs/language/ remains the source of truth for everything that does.
     while an `Addr` of its own protocol (a genuine peer mesh) still counts.
   * **A router is a servant node** [effect-any]: a handler `of any E`, and
     the route a `use any` binds [route-stub] (derived in the IR, so its node
-    is built from the checker's `route_uses`, 2026-10-20), forwards from
-    `H's servant`, not from `E`, with its dependencies' edges as a mixed
-    servant's; callers' edges land on `E`. Nothing points at a router's
-    node, so it is on no cycle: what it keeps is the forward off `E`, and a
-    cycle that closes through the router is not seen (ROADMAP "A router's
-    node has no in-edges").
+    is built from the checker's `route_uses`, 2026-10-20), is `H's servant`,
+    not `E`, with its dependencies' edges as a mixed servant's.
+  * **Router in-edges** [effect-any] (2026-10-26): a dependency declared
+    `[any E]` (not on a face of the declarer's own — interception) is an
+    edge into `E` **and** into the node of every router of `E` in the
+    program — each written `of any E` handler's, and `__Route_E`'s when `E`
+    is routed — since a binding of `any E` may be any of them, over types.
+    A router binds shareable, so its member runs on the caller's thread,
+    and the edge's kind is what the caller does there:
+    * an **occupancy** edge into a router that holds a lock (it is
+      stateful, [effect-handle]) or waits (a member's `waitfor`) — a caller
+      inside it serves nothing of its mailbox until the lock is free and
+      the member returns, as in a priced shareable handler
+      [monitor-handler]. The derived route always is one: it keeps the view
+      version it last saw, and it waits while its selector picks no member;
+    * the **caller's own edge** — the kind its edge into `E` has — into a
+      bare router (stateless, no wait): its member is the caller's code.
+
+    A router's **forward to `E` is no edge**: every edge into the router
+    comes with the same edge into `E`, so a cycle through the forward
+    re-spells one through that edge — reported twice, and as an occupancy
+    error where the router locks, which the lock does not make it. What
+    leaves a router's node is what it does besides forwarding: its
+    selector's and other dependencies' edges, and its sends to other
+    protocols. So `Pong → __Route_Ping → Watching's lock → Pong` — a
+    `Pong` actor calling into the route, whose stateful selector pokes
+    `Pong` — is an occupancy error, anchored at the dependency on `any
+    Ping`. A strong `[E]` and an `eff[E]` send land on `E` alone: a strong
+    requirement refuses a router's binding, and a route cannot be spawned;
+    a *spawned* written router behind an `eff[E]` (the gap [effect-any]
+    records) is not modelled.
   * **Sound, not precise, and stated so.** The graph is over actor *types*,
     not instances, so a chain of same-protocol workers is a self-loop here and
     acyclic in the running program; and a handler's *declared dependencies*
@@ -7985,13 +8011,13 @@ between endpoints and delivers what arrives into the scheduler.
   * **Its deadlock node** [actor-deadlock-cycle] [effect-any] (2026-10-20,
     PIPELINE R8 piece 6): the derived route is no AST handler, so the graph
     builds its node from `route_uses` — `__Route_E's servant`, as a written
-    `of any E` router gets one: a back-pressure forward to `E` (a route
-    neither gates nor waits) and its `RouteSelector<E>` dependency's
+    `of any E` router gets one: its `RouteSelector<E>` dependency's
     occupancy edges, to the mixed servants and priced shareable handlers of
     `RouteSelector` in the program, each anchored at `E`'s first `use any`.
-    Callers' sends land on `E`, so nothing points at the node and it closes
-    no cycle (a recorded gap, ROADMAP); what it keeps is the forward off
-    `E`, where it would read as `E → E`.
+    Every dependency on `any E` points at it, as occupancy (the route locks
+    and waits), and its forward to `E` is no edge — the router in-edges of
+    [actor-deadlock-cycle] (2026-10-26), which closed the gap of a cycle
+    through the route going unseen.
   * **`RouteSelector<E>`** is the policy, in two phases (user decision
     2026-10-03, option B): `changed(view: RouteView<E>)` runs when the view
     has moved since the selector last saw it, and the selector keeps what it

@@ -1924,3 +1924,9 @@ log current so the work can resume after a context reset). Newest last.
   generic type is still refused. Left: the signature/body split itself (§5)
   on step 8's stable ids and relative spans; a group member with type
   parameters of its own loses them in `member_decl` (none exists yet).
+- **router in-edges: done (committed "Report deadlock cycles that close
+  through a router").** A dependency on `any E` lands on `E` and on every
+  router of `E` (written `of any E` and `__Route_E`): occupancy into one that
+  locks or waits (the route always), the caller's own kind into a bare one;
+  a router's forward to `E` is no edge. The R8 piece 6 repro reports;
+  no example, `modules/aws` or std test reports anything new.

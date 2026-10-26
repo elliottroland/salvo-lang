@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2063 tests, complete: the toolchain tests are
+cargo test                  # 2066 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,60 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-26 — A cycle through a router is reported
+
+Engineering under the occupancy decisions (SH-4, 2026-09-19; option (b),
+2026-09-20), no new user decision; ROADMAP's "A router's node has no
+in-edges" is closed. The rule, in [actor-deadlock-cycle] ("Router
+in-edges"):
+
+- **A dependency on `any E` lands on every router of `E`** as well as on
+  `E`: each written `of any E` handler's servant node and, when `E` is
+  routed, `__Route_E`'s. Over types, like every edge: a binding of `any E`
+  may be any of them. A strong `[E]` and an `eff[E]` send still land on `E`
+  alone — a strong requirement refuses a router's binding, and a route
+  cannot be spawned.
+- **The kind follows what the caller does there.** A router binds
+  shareable, so its member runs on the caller's thread. Into a router that
+  locks (stateful, by `handler_is_stateful`) or waits (`waits_of`), the edge
+  is an **occupancy** edge, as into a priced shareable handler's lock; the
+  derived route always is one (its `seen` state, and the wait while the
+  selector picks no member). Into a bare router the edge is the caller's
+  own, of the kind its edge into `E` has, since the member is the caller's
+  code. Keyed on the Salvo fact (statefulness), not on the Kotlin
+  emitter's habit of wrapping every router `use` in a lock.
+- **A router's forward to `E` is no edge any more.** With in-edges, every
+  path `X → router → E` duplicates the caller's own `X → E`: kept, the gate
+  cycle `Ping → Pong → Ping` came out a second time through the route, and
+  a back-pressure cycle through a locking router came out as an occupancy
+  error, which the lock does not make it. What leaves a router's node is
+  what it does besides forwarding: its selector's and other dependencies'
+  edges, and its sends to other protocols (`Servant::forwards`).
+- **The repro reports, as an error**: `Pong → __Route_Ping's servant →
+  Watching's lock → Pong` holds occupancy edges, so it is the occupancy
+  report, anchored at `Ponging`'s `[any Ping]`. It is a real wedge: `Pong`'s
+  activation is inside the route when `Watching.changed` pokes `Pong`'s own
+  capacity-1 mailbox.
+- **Built:** `deadlock::deps_of` says which dependencies were written `any
+  E` (by the written entry's span — an alias may not hold `any`);
+  `routers_of` is built once, after the wait fixpoint; the actor-handler
+  loop, `Servant::add_to` and the shareable-handler loop each send an `any`
+  dependency through `router_targets`.
+- **What it changed on existing programs: nothing.** No `.sv` in std,
+  `examples/` or `modules/aws` declares a handler dependency on `any E`
+  (only fns and `main` use routes), and a dropped forward could only remove
+  a cycle that no in-edge could reach. `salvo analyze` on all 16 examples
+  and `modules/aws`: no diagnostics; `salvo test --src lib`: 150/150.
+- **Tests:** `route_deadlock_tests` 3 → 6: the repro (and its near miss,
+  a selector that pokes nothing, silent); a bare written router (the
+  caller's back-pressure edge in, a warning); a stateful written router (an
+  occupancy edge in, an error); the three existing tests now pin the
+  route's in-edge, no forward, and — for the selector test — the second
+  cycle next to the warning.
+- **Left** (ROADMAP "Router in-edge leftovers"): the occupancy report still
+  explains a mixed handler's façade when the occupied node is a router or a
+  lock; a spawned written router behind an `eff[E]` gets no in-edges.
 
 ### 2026-10-14 — The scheduler bench is in the current language
 
@@ -1024,6 +1078,7 @@ mixed handler's, an `of any X` router's, a route's) now share one builder,
   (`Pong → route → selector's lock → Pong`, silent). Recorded in ROADMAP
   ("A router's node has no in-edges") with its repro. It is as old as
   `of any E`, and fixing it changes what programs with routers report.
+  (Fixed 2026-10-26: "A cycle through a router is reported".)
 - **Tests:** `route_deadlock_tests` (new binary, real std): a gate cycle
   through a routed protocol, refused word for word as before, line
   included; the near miss, silent, with no `Ping → Ping`; and a selector of
@@ -29644,7 +29699,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2063 under `cargo test` on 2026-10-14; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2066 under `cargo test` on 2026-10-26; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -30936,6 +30991,14 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A forwarder's forward re-spells its callers' edges** (2026-10-26,
+  router in-edges). Once a dependency on `any E` points at the router as
+  well as at `E`, the router's own edge to `E` adds a second path for every
+  cycle through `X → E` — a duplicate report, and an upgraded one when the
+  edge into the router is occupancy. In a type-level graph, a node that
+  stands *in front of* another must not also edge into it; give it only
+  what it does besides forwarding.
 
 - **A stamp's capture-avoiding rename cannot use the scoped suffix**
   (2026-10-14, stamped signatures). Renaming a template local that a declared

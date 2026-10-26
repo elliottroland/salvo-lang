@@ -169,8 +169,8 @@ pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked)
 }
 
 /// [actor-deadlock-cycle] For tests: the graph's edges as `from → to (Kind,
-/// handler)` lines, sorted, so a test can pin a node that closes no cycle
-/// (a route's, [route-stub]), which no diagnostic would show.
+/// handler)` lines, sorted, so a test can pin a node's edges (a route's,
+/// [route-stub]) where no diagnostic would show them.
 pub fn edges(program: &Program, symbols: &Symbols<'_>, out: &Checked) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for (from, tos) in build(program, symbols, out) {
@@ -291,6 +291,48 @@ fn build(
             break;
         }
     }
+    // [actor-deadlock-cycle] [effect-any] [route-stub] The routers of each
+    // actor effect — every written `of any E` face, and the route a `use
+    // any` derives for a routed protocol — which is where an edge into
+    // `any E` lands besides `E` (a binding of `any E` may be any of them).
+    // A router binds shareable, so its member runs on the caller's thread:
+    // under its lock when it is stateful (the derived route always is: it
+    // keeps the view version it last saw) and there for as long as it waits
+    // (a member's `waitfor`; the route waits for a member to exist), and a
+    // caller doing either occupies, as in a priced shareable handler
+    // [monitor-handler]. A bare router's member is the caller's own code, so
+    // the edge into it is the caller's edge, of the kind its edge to `E` has.
+    let mut routed: BTreeMap<&str, (usize, Span)> = BTreeMap::new();
+    for ((file, span), effect) in &out.route_uses {
+        let slot = routed.entry(effect.as_str()).or_insert((*file, *span));
+        if (*file, span.start) < (slot.0, slot.1.start) {
+            *slot = (*file, *span);
+        }
+    }
+    let mut routers_of: BTreeMap<String, Vec<Router>> = BTreeMap::new();
+    for ast in program.modules.iter() {
+        for item in &ast.items {
+            let Item::Handler(h) = item else { continue };
+            let occupies = crate::handler_is_stateful(
+                h,
+                out.parking_handlers.contains(h.name.name.as_str()),
+            ) || waits_of.contains_key(h.name.name.as_str());
+            for (of, any) in h.of.iter().zip(h.of_any.iter()) {
+                let Some(name) = base_name(of).filter(|n| *any && is_actor(n)) else { continue };
+                routers_of
+                    .entry(name.to_string())
+                    .or_default()
+                    .push(Router { node: servant_node(&h.name.name), occupies });
+            }
+        }
+    }
+    for effect in routed.keys() {
+        let handler = crate::ir::build::actors::route_name(effect);
+        routers_of
+            .entry(crate::typekey::plain(effect).to_string())
+            .or_default()
+            .push(Router { node: servant_node(&handler), occupies: true });
+    }
     // Every handler of an actor effect: the protocol it serves, whether any
     // of its members gates, and what it can send to.
     for (file_idx, ast) in program.modules.iter().enumerate() {
@@ -327,11 +369,13 @@ fn build(
                     .iter()
                     .all(|of| base_name(of).is_some_and(is_plain));
             // [effect-any] A router `of any E` is a servant too: it is not a
-            // member of `E` but a forwarder in front of them, so its sends
-            // to `E` leave from a node of its own — otherwise every router
-            // would read as `E → E`, a cycle the type-level graph cannot
-            // tell from a real one. Callers' edges still land on `E`, which
-            // is what a binding of `E` may be.
+            // member of `E` but a forwarder in front of them, so it is a node
+            // of its own, and what leaves it is what it does *besides*
+            // forwarding. Its forward to `E` is no edge: every edge into the
+            // router (a caller's dependency on `any E`, `routers_of`) comes
+            // with the same edge into `E`, so a cycle through the forward
+            // would re-spell the cycle through that edge — reported twice,
+            // and as an occupancy where the router locks.
             let router = h.of_any.iter().any(|any| *any);
             if mixed || router {
                 let gate = out
@@ -341,9 +385,16 @@ fn build(
                     .map(|(_, key)| *key);
                 let blocks = waits_of.get(h.name.name.as_str()).copied();
                 let own_faces: Vec<&str> = h.of.iter().filter_map(base_name).collect();
-                let deps: Vec<(String, usize, Span)> = deps_of(out, symbols, h)
+                let forwards: Vec<&str> = h
+                    .of
+                    .iter()
+                    .zip(h.of_any.iter())
+                    .filter(|(_, any)| **any)
+                    .filter_map(|(of, _)| base_name(of))
+                    .collect();
+                let deps: Vec<(String, usize, Span, bool)> = deps_of(out, symbols, h)
                     .into_iter()
-                    .map(|(key, span)| (key, file_idx, span))
+                    .map(|(key, span, any)| (key, file_idx, span, any))
                     .collect();
                 let mut sends: Vec<(String, usize, Span)> = Vec::new();
                 for (handler, target, (file, span)) in &out.actor_sends {
@@ -361,12 +412,13 @@ fn build(
                 let servant = Servant {
                     handler: &h.name.name,
                     own_faces: &own_faces,
+                    forwards: &forwards,
                     deps,
                     sends,
                     gate,
                     blocks,
                 };
-                servant.add_to(&mut graph, &is_actor, &mixed_of, &monitor_of);
+                servant.add_to(&mut graph, &is_actor, &mixed_of, &monitor_of, &routers_of);
                 continue;
             }
             if served.is_empty() {
@@ -396,7 +448,7 @@ fn build(
             // per mixed handler of the effect, since the graph cannot know
             // which one a binding will choose [actor-deadlock-cycle].
             let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
-            for (key, dep_span) in deps_of(out, symbols, h) {
+            for (key, dep_span, any) in deps_of(out, symbols, h) {
                 let name = crate::typekey::plain(&key);
                 if !is_actor(&key) {
                     if let Some(mixed_handlers) = mixed_of.get(name) {
@@ -422,6 +474,11 @@ fn build(
                     continue;
                 }
                 targets.push((name.to_string(), file_idx, dep_span));
+                // [effect-any] And on every router of the protocol, when the
+                // dependency is the weak one a router may be bound for.
+                if any {
+                    router_targets(&routers_of, name, "", file_idx, dep_span, &mut occupancies, &mut targets);
+                }
             }
             // Sends through an addr the handler holds: the peer half of the
             // graph, and the only place an own-protocol edge survives.
@@ -490,43 +547,36 @@ fn build(
     // [route-stub] [effect-any] Every protocol a `use any` routes has a
     // route the IR derives (`ir::build::actors`, `__Route_X`), which is no
     // AST handler — so its node is built here, as the one an `of any X`
-    // router gets above: a servant of its own, forwarding to `X`
-    // (back-pressure, since a route neither gates nor waits) and depending
-    // on the `RouteSelector<X>` the `use any` found, whose mixed servants
-    // and priced shareable handlers are occupancy edges. Its sites are the
-    // protocol's first `use any`, in source order. Nothing points at the
-    // node — callers' sends land on `X`, which is what a binding of `any X`
-    // may be — so it closes no cycle; what it keeps is the forward off `X`,
-    // where it would read as `X → X`.
-    let mut routed: BTreeMap<&str, (usize, Span)> = BTreeMap::new();
-    for ((file, span), effect) in &out.route_uses {
-        let slot = routed.entry(effect.as_str()).or_insert((*file, *span));
-        if (*file, span.start) < (slot.0, slot.1.start) {
-            *slot = (*file, *span);
-        }
-    }
+    // router gets above: a servant of its own, depending on the
+    // `RouteSelector<X>` the `use any` found, whose mixed servants and
+    // priced shareable handlers are occupancy edges. Its sites are the
+    // protocol's first `use any`, in source order (`routed`, above). Its
+    // forward to `X` is no edge, as a written router's is not; what points
+    // at it is every dependency on `any X` (`routers_of`), as occupancy:
+    // the route locks.
     for (effect, (file, span)) in routed {
         let handler = crate::ir::build::actors::route_name(effect);
         let own_faces = [crate::typekey::plain(effect)];
-        let deps: Vec<(String, usize, Span)> = out
+        let deps: Vec<(String, usize, Span, bool)> = out
             .use_deps
             .get(&(file, span))
             .into_iter()
             .flatten()
             .filter_map(|t| match t.strip_quals() {
-                crate::types::Ty::Named { name, .. } => Some((name.clone(), file, span)),
+                crate::types::Ty::Named { name, .. } => Some((name.clone(), file, span, false)),
                 _ => None,
             })
             .collect();
         let servant = Servant {
             handler: &handler,
             own_faces: &own_faces,
+            forwards: &own_faces,
             deps,
-            sends: vec![(effect.to_string(), file, span)],
+            sends: Vec::new(),
             gate: None,
             blocks: None,
         };
-        servant.add_to(&mut graph, &is_actor, &mixed_of, &monitor_of);
+        servant.add_to(&mut graph, &is_actor, &mixed_of, &monitor_of, &routers_of);
     }
     // [effect-handle] [monitor-handler] The shareable plain handlers worth a
     // node (option (b), user decision 2026-09-20): occupancy edges out to
@@ -542,7 +592,7 @@ fn build(
         let blocks = waits_of.get(h.name.name.as_str()).copied();
         let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
         let mut targets: Vec<(String, usize, Span)> = Vec::new();
-        for (key, dep_span) in deps_of(out, symbols, h) {
+        for (key, dep_span, any) in deps_of(out, symbols, h) {
             let name = crate::typekey::plain(&key);
             if own_faces.contains(&name) {
                 continue;
@@ -563,6 +613,9 @@ fn build(
                 continue;
             }
             targets.push((name.to_string(), file_idx, dep_span));
+            if any {
+                router_targets(&routers_of, name, &from, file_idx, dep_span, &mut occupancies, &mut targets);
+            }
         }
         for task in tasks_reached(out, &h.name.name) {
             for (owner, target, (file, span)) in &out.task_sends {
@@ -779,8 +832,13 @@ struct Servant<'a> {
     /// The faces it wears, plain: a dependency on one of them binds outward
     /// (interception), so it closes no cycle.
     own_faces: &'a [&'a str],
-    /// Its dependencies, by effect key, with their sites.
-    deps: Vec<(String, usize, Span)>,
+    /// [effect-any] The faces it routes (`of any E`, or the route's `E`):
+    /// a send to one is its forward, which is no edge — every edge into the
+    /// router comes with the same edge into `E`.
+    forwards: &'a [&'a str],
+    /// Its dependencies, by effect key, with their sites and whether each
+    /// is `any E`.
+    deps: Vec<(String, usize, Span, bool)>,
     /// What it sends to (its own sends, then its tasks'), by effect key.
     sends: Vec<(String, usize, Span)>,
     /// A gate in a member: its sends are waits.
@@ -793,25 +851,30 @@ impl Servant<'_> {
     /// The node's out-edges: an actor dependency is a target like a held
     /// addr; a plain one with mixed or wait-capable shareable handlers is an
     /// occupancy edge to each, exactly as from an actor handler; and every
-    /// send to an actor effect is a target, of the kind the gate or wait
-    /// makes it.
+    /// send to an actor effect but a router's forward is a target, of the
+    /// kind the gate or wait makes it; a dependency on `any E` lands on
+    /// `E`'s routers too.
     fn add_to(
         self,
         graph: &mut BTreeMap<String, BTreeMap<String, Edge>>,
         is_actor: &dyn Fn(&str) -> bool,
         mixed_of: &BTreeMap<String, Vec<String>>,
         monitor_of: &BTreeMap<String, Vec<String>>,
+        routers_of: &BTreeMap<String, Vec<Router>>,
     ) {
         let from = servant_node(self.handler);
         let mut targets: Vec<(String, usize, Span)> = Vec::new();
         let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
-        for (key, file, dep_span) in self.deps {
+        for (key, file, dep_span, any) in self.deps {
             let name = crate::typekey::plain(&key);
             if self.own_faces.contains(&name) {
                 continue;
             }
             if is_actor(&key) {
                 targets.push((name.to_string(), file, dep_span));
+                if any {
+                    router_targets(routers_of, name, &from, file, dep_span, &mut occupancies, &mut targets);
+                }
                 continue;
             }
             for mh in mixed_of.get(name).into_iter().flatten() {
@@ -831,7 +894,9 @@ impl Servant<'_> {
                 }
             }
         }
-        targets.extend(self.sends.into_iter().filter(|(target, _, _)| is_actor(target)));
+        targets.extend(self.sends.into_iter().filter(|(target, _, _)| {
+            is_actor(target) && !self.forwards.contains(&crate::typekey::plain(target))
+        }));
         for (target, file, span) in targets {
             let (kind, file, span) = match (self.gate, self.blocks) {
                 (Some((gfile, gspan)), _) => (EdgeKind::Wait, gfile, gspan),
@@ -875,15 +940,62 @@ fn base_name(ty: &ast::Type) -> Option<&str> {
 
 /// [effect-handler-deps] [effect-prereq] A handler's dependencies as the
 /// checker expanded them (aliases flattened, its faces' prerequisites added),
-/// by effect key, with the span each came from.
-fn deps_of(out: &Checked, symbols: &Symbols<'_>, h: &ast::HandlerDecl) -> Vec<(String, Span)> {
+/// by effect key, with the span each came from and whether it was written
+/// `any E` [effect-any] — an entry's span is its written type's, and an
+/// alias may not hold `any`, so the written `any` entries name them all.
+fn deps_of(out: &Checked, symbols: &Symbols<'_>, h: &ast::HandlerDecl) -> Vec<(String, Span, bool)> {
+    let any_spans: Vec<Span> = h
+        .effects
+        .iter()
+        .flatten()
+        .filter_map(|e| match e {
+            ast::EffectRef::AnyEffect(r) => Some(r.span),
+            _ => None,
+        })
+        .collect();
     out.handler_deps
         .get(symbols.key_or(h, &h.name.name))
         .into_iter()
         .flatten()
         .filter_map(|(t, span)| match t.strip_quals() {
-            crate::types::Ty::Named { name, .. } => Some((name.clone(), *span)),
+            crate::types::Ty::Named { name, .. } => Some((name.clone(), *span, any_spans.contains(span))),
             _ => None,
         })
         .collect()
+}
+
+/// [actor-deadlock-cycle] [effect-any] A router of an actor effect, as an
+/// edge into `any E` reaches it: its node, and whether a caller **occupies**
+/// in it — the router holds a lock (it is stateful; the derived route always
+/// is) or waits — rather than running it as its own bare code.
+#[derive(Clone)]
+struct Router {
+    node: String,
+    occupies: bool,
+}
+
+/// [actor-deadlock-cycle] [effect-any] Where a dependency on `any E` lands
+/// besides `E`: every router of `E` but the depending node itself, split
+/// into the occupancy edges and the caller-kind targets. An edge into a
+/// strong `[E]` lands on `E` alone — a strong requirement refuses a
+/// router's binding.
+fn router_targets(
+    routers_of: &BTreeMap<String, Vec<Router>>,
+    effect: &str,
+    from: &str,
+    file: usize,
+    span: Span,
+    occupancies: &mut Vec<(String, usize, Span)>,
+    targets: &mut Vec<(String, usize, Span)>,
+) {
+    for r in routers_of.get(effect).into_iter().flatten() {
+        if r.node == from {
+            continue;
+        }
+        if r.occupies {
+            occupancies.push((r.node.clone(), file, span));
+        } else {
+            targets.push((r.node.clone(), file, span));
+        }
+    }
 }
