@@ -2951,9 +2951,14 @@ Conventions:
   *scope* [fn-overload-scope], then the most specific *signature*
   [fn-overload-rank] — and no single winner is an error
   [fn-overload-ambiguous]. Nothing else takes part — not effects, not
-  deductions, not implicit parameters — except the return type, which
-  decides among candidates whose parameter types are identical
-  [fn-overload-return].
+  deductions, not implicit parameters (beyond [implicit-fit]'s shape test) —
+  except the return type, which decides among candidates whose parameter
+  types are identical [fn-overload-return].
+  * **An implicit position is decided by the same rule** (user decision
+    2026-10-14), with the wanted fn type in place of an argument list
+    [implicit-resolve]: so is an interpolation's `to_str`, a comparison's
+    `cmp`/`eq`, a keyed collection's identity slot and an iterator's
+    `next`.
   * The checker records the winner per call site (`call_fn`). In unchecked
     contexts (no recorded winner) emitters narrow same-arity candidates by
     the checked argument types' base names; an ambiguous dispatch is a
@@ -2991,7 +2996,15 @@ Conventions:
     than compete: a fn-typed local, parameter or implicit **is** the function
     the caller chose, an effect member takes the name before any fn does
     [effect-member-overload], and a rename introduces a fresh name. `@` is the
-    way to reach a fn a local shadows [fn-overload-at].
+    way to reach a fn a local shadows [fn-overload-at]. For an implicit
+    position the same two shadow: the override written at the call
+    [implicit-override] and the enclosing fn's implicit [implicit-forward].
+  * **Implicit positions too** (user decision 2026-10-14): until then an
+    implicit kept the old ladder — only the most specific rung with a fitting
+    candidate, on the reasoning that an implicit has no call site to annotate
+    — so a module's own `to_str(List<T>)` silently replaced std's at every
+    `${…}` in it. It now competes and is ambiguous, with the override naming
+    the place (`to_str = to_str@main`) or a `rename fn` as the remedy.
 * [fn-overload-rank] **Then the most specific signature**, compared **per
   argument slot** (`types::spec_cmp`, `rank_cmp`):
   1. a **type variable** says the least, structurally (`List<Int>` beats
@@ -3041,6 +3054,10 @@ Conventions:
   implicit. Checked by the parameters' shape only, since the answer type may
   not be known at ranking; a lone candidate keeps its own diagnostic about
   the implicit.
+  * The same test runs among the candidates for an **implicit position**
+    [implicit-resolve], by shape and without recursion: it is the one regard
+    a call's selection pays a candidate's implicits, so an implicit's pays it
+    too.
 * [fn-overload-ambiguous] **No single most specific candidate is an error**,
   never a pick. The diagnostic names the candidates and the remedies:
   narrowing an argument, or `rename fn <new> = f(...)`.
@@ -3154,9 +3171,13 @@ Conventions:
     effects [fn-effects];
   * by name, the linear-generics ban on what a generic binds.
   Selection stays each one's own: by name, [fn-value-select]'s `@`, rung and
-  ambiguity; an implicit, [implicit-resolve]'s canonical and rung. The IR
-  passes a function with implicits of its own as a lambda filling them,
-  whichever way it was chosen (`Checked::fn_value_implicits` for a name).
+  ambiguity; an implicit, a call's rule [implicit-resolve]. Either way the
+  fit compares the declaration's type and contract only
+  (`Checker::fn_value_fit`), and only the chosen one's own implicits are then
+  filled (user decision 2026-10-14): one that cannot be is an error naming
+  the chain, not a reason to choose another. The IR passes a function with
+  implicits of its own as a lambda filling them, whichever way it was chosen
+  (`Checked::fn_value_implicits` for a name).
   * Before, the two built the type separately and disagreed. An implicit
     read the return as written, so `validate(o) -> +Valid Range` did not fill
     `?validate: (o: Range) -> Valid Range` though it could be passed by name;
@@ -3639,10 +3660,17 @@ Conventions:
      [implicit-override];
   2. an implicit parameter of the **enclosing** fn with the same name and a
      matching type [implicit-forward];
-  3. the *unique* visible fn of that name whose signature matches the
-     parameter's type, after the call's type arguments are substituted in —
-     the overload query the language already runs [fn-overload], only
-     against a type instead of an argument list;
+  3. the visible fn of that name **a call would choose** with the
+     parameter's type — after the call's type arguments are substituted in —
+     in place of an argument list (user decision 2026-10-14): every visible
+     overload competes [fn-overload-scope]; each is fitted by the type
+     (below) *without* filling its own implicits; [implicit-fit] drops one
+     whose implicit nothing could fill, by shape; the most specific
+     signature wins [fn-overload-rank], and among identical parameter types
+     the result type has already decided, since it is part of the fit
+     [fn-overload-return]; no single winner is the ambiguity
+     [fn-overload-ambiguous]. *Then* the winner's own implicits are filled,
+     by this same rule [implicit-recursive];
   4. otherwise an error naming both remedies (declare one, or pass one).
   * **So Salvo needs no qualified-name syntax for defaults.** Koka spells
     them `Str/cmp` because it does not overload on argument types; here the
@@ -3651,8 +3679,8 @@ Conventions:
   * Parameters are contravariant and the result covariant, as for any fn
     value [fn-contract] — and the **contract** has to fit too: a fn that
     consumes an argument cannot fill a position that keeps it. A candidate
-    that itself needs implicits fits when they can be filled in turn
-    [implicit-recursive].
+    that itself needs implicits fits by its type alone; its implicits are
+    filled once it is chosen [implicit-recursive].
   * **A near-miss is reported as one.** The contract is not part of how a
     type *prints*, so two types that differ only there render identically;
     a diagnostic that showed them would read "expects `(Int, Int) -> Int`,
@@ -3664,8 +3692,22 @@ Conventions:
     is written** — no global coherence, and two call sites may legitimately
     resolve differently. That is what `use` and handlers already do; the
     locality is deliberate.
-  * Ambiguity is an error, never a guess: two matching declarations of the
-    name report both and name the override as the remedy.
+  * Ambiguity is an error, never a guess: the candidates no rule could
+    separate are listed with their modules, and the remedies are the ones an
+    implicit has — the override naming the place (`to_str = to_str@main`;
+    at an interpolation, `${to_str@main(…)}`; at an operator, `cmp@main(a,
+    b)`) or `rename fn`. A module's own same-signature overload beside std's
+    is such an ambiguity, as at a call.
+  * Before 2026-10-14 this step differed from a call in three ways: it kept
+    only the most specific *rung* with a fitting candidate (the scope
+    ladder a call stopped walking 2026-09-26); it did not rank, so two
+    fitting candidates on one rung were ambiguous even where one was more
+    specific (`cmp(Int, Int)` beside `cmp<T>`); and a candidate whose own
+    implicits could not be filled was dropped for another (the near miss),
+    which is also what made the search exponential: every fitting candidate
+    filled its implicits before one was chosen (the record of that problem is
+    in COMPLETED.md's 2026-10-14 entry). The census of every program the suite
+    checks found 6 resolutions that changed, all in tests.
 * [implicit-forward] Inside a generic fn, an implicit parameter of the same
   name and type is passed on automatically. It is the only thing that *can*
   fill an inner call there: nothing about an opaque `T` is knowable
@@ -3683,12 +3725,17 @@ Conventions:
   candidate's generics bound as its fit bound them. The fill is recorded as
   `ImplicitArg::Resolved::nested`, and both backends' adapters pass it after
   the fn's explicit arguments.
-  * A candidate whose implicits cannot be filled is a *near miss*: another
-    candidate that resolves fully wins; if none does, the error names the
-    chain (`eq for List<Foo> needs implicits of its own, and no eq …`).
+  * **Only the chosen candidate's implicits are filled** (user decision
+    2026-10-14): the candidate is chosen first, by the call's rule
+    [implicit-resolve], and a failure among its own implicits is an error
+    naming the chain (`` `?to_str: (List<Foo>) -> Str` for `to_str` resolves
+    to a `to_str` that cannot be completed: `to_str` for `(List<Foo>) -> Str`
+    needs implicits of its own, and no `to_str` fits `?to_str: (Foo) -> Str`
+    … ``) — never a reason to take another candidate. With one candidate
+    filled per level, a resolution's cost is linear in its depth.
   * **Depth cap 8** (`resolution of eq for … nests more than 8 levels deep;
-    pass eq = … explicitly`) and a chain that needs itself is refused at once
-    as a cycle.
+    pass eq = … explicitly`), kept (user, 2026-10-14), and a chain that needs
+    itself is refused at once as a cycle.
   * std's `List` and tuple `eq`/`cmp`/`hash`/`to_str` are Salvo on it
     (`std.core.compare`, `std.core.basic`); the host's structural comparisons are
     gone. A tuple takes one implicit per part, of one name at different types
@@ -4849,8 +4896,13 @@ Conventions:
     fulfilment must `export` too — otherwise the capability would be
     unreachable wherever the type is usable [mod-export]. A *private* type
     demands nothing: there is no importer to hide it from.
-  * **It is the default selection for an implicit parameter** of the same name
-    and shape [implicit-resolve].
+  * **It is a candidate for an implicit parameter** of its name wherever the
+    type is usable, because it travels with the type, and it wins the way any
+    candidate does: by being the most specific [implicit-resolve]. A visible
+    fn of the same signature beside it is an ambiguity, as at a call (there
+    is no canonical preference in either: the last one, a rung carve-out,
+    went with the scope ladder on 2026-09-26, and the implicit resolver's
+    canonical flag was no longer read after that — removed 2026-10-14).
   * **The selector still reads it**: `cmp@Person` at a call names the `cmp`
     declared on `Person`, and so does `cmp = cmp@Person` in value position
     [implicit-override] [fn-overload-at]. Only the *declaration* spelling

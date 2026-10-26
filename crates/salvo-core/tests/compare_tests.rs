@@ -614,8 +614,8 @@ export struct Person {
             r#"
 import people.Person
 
-// This module's own `cmp` for the same shape: today's ladder would take it
-// silently, because `Own` outranks `Import`.
+// This module's own `cmp` for the same shape: the old scope ladder took it
+// silently, because `Own` outranked `Import`.
 fn cmp(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
@@ -644,6 +644,16 @@ fn go(a: Person, b: Person) [] -> Person => !a, !b {
                 && e.contains("cmp@people")
                 && e.contains("cmp@main")),
         "expected the call ambiguity to name both places, got: {errs:?}"
+    );
+    // [implicit-resolve] And so is the *implicit* at `min_of(a, b)`, which the
+    // scope ladder used to give to this module's `cmp` in silence (user
+    // decision 2026-10-14: an implicit is chosen as a call is).
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("`cmp` is ambiguous for `min_of` at `?cmp: (Person, Person) -> Int`")
+                && e.contains("`cmp = cmp@main`")
+                && e.contains("`cmp = cmp@people`")),
+        "expected the implicit ambiguity to name both places, got: {errs:?}"
     );
 }
 

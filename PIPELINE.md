@@ -1952,4 +1952,21 @@ log current so the work can resume after a context reset). Newest last.
 - **0t: done** (committed "Refuse a --src inside a project's source root").
   `--src` is the source root [manifest-src]: one strictly inside the found
   project's root, or around it, is refused naming the root; `--src lib/std`
-  no longer loads std twice. IMPLICIT_RECURSE.md's decision stays open.
+  no longer loads std twice. The implicit-resolution decision it left open was
+  made the next entry.
+- **Implicit resolution follows call resolution (user decision 2026-10-14):
+  done** (committed "Resolve implicits the way calls are resolved"). One
+  resolver (`resolve_implicit_fn_in`): fit every visible overload by the
+  wanted fn type without filling its own implicits (`fn_value_fit`), the
+  template fallback [comptime-hygiene], [implicit-fit]'s shape drop, the most
+  specific signature, then fill only the winner (`ImplicitMiss::Unfilled`
+  on failure, no fallback). By-name fitting uses `fn_value_fit` too, and the
+  interpolation's first-declared `to_str` fallback is gone. **Census**
+  (temporary `SALVO_IMPLICIT_CENSUS` switch, both rules side by side, now
+  deleted): `cargo test` logged 6 differences in 5 tests, every example,
+  `modules/aws`, `bench/*` and `demo/` none; no program rewritten, no
+  generated code changed; classes (a) 1 test, (b) none, (c) 3 tests, (d)
+  none. Doubled std (pre-0t `--src lib/std` on a tree copy): >120 s killed →
+  0.67 s. IMPLICIT_RECURSE.md retired into COMPLETED.md. Found: ROADMAP 0w
+  (by-name selection still by rung) and 0x (a written override is checked
+  invariantly — a DECISION, since every by-name fn value is; not fixed).

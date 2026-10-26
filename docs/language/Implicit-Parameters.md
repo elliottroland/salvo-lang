@@ -130,9 +130,15 @@ function — there is nothing to register.
   error says which to add. This is the same colouring effects have, for the
   same reason.
 - **Resolution is local.** Which default a call gets depends on what is
-  visible where the call is written, exactly as with `use` and handlers. Two
-  matching declarations make the call ambiguous, which is an error naming the
-  override as the remedy.
+  visible where the call is written, exactly as with `use` and handlers.
+- **Resolution is a call's.** Every visible function of the name that fits
+  the implicit's type competes, wherever it was declared, and the most
+  specific signature wins — `cmp(Int, Int)` over a generic `cmp<T>`, as in a
+  call. Two that no rule separates make the call ambiguous, an error naming
+  both and the remedies: pass the one you mean (`cmp = cmp@main`), or
+  `rename` one. Only then are the chosen function's own implicits filled, by
+  the same rule; if they cannot be, that is the error, and no other
+  candidate is tried instead.
 - **An implicitly resolved function is effect-free.** A fn type without an
   effect list means "performs nothing", and an effectful function does not
   fit there — so resolution can never quietly add an effect to a caller.

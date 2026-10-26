@@ -457,10 +457,13 @@ fn an_override_with_the_wrong_contract_is_explained() {
     );
 }
 
-/// Ambiguity says how many matched and offers the override, rather than
-/// guessing.
+/// [implicit-resolve] [fn-overload-rank] An implicit is chosen as a call is
+/// (user decision 2026-10-14): of a generic `cmp<T>` and a concrete `cmp(Int,
+/// Int)`, both fitting `(Int, Int) -> Int`, the more specific wins. Under the
+/// old rule — the most specific *scope*, then "two hits are ambiguous" — this
+/// was an ambiguity.
 #[test]
-fn an_ambiguous_implicit_says_so() {
+fn a_more_specific_candidate_wins_at_an_implicit() {
     let errs = errors(
         "fn cmp<T>(a: T, b: T) -> Int { return 0 }\n\
          fn cmp(a: Int, b: Int) -> Int { return 0 }\n\
@@ -471,9 +474,31 @@ fn an_ambiguous_implicit_says_so() {
          return pick(1, 2)\n\
          }\n",
     );
+    assert!(errs.is_empty(), "expected the concrete `cmp` to win, got: {errs:?}");
+}
+
+/// [implicit-resolve] [fn-overload-ambiguous] No single most specific
+/// candidate is an ambiguity naming the candidates and the remedies an
+/// implicit has — the override naming the place, or `rename fn` — rather than
+/// a guess.
+#[test]
+fn an_ambiguous_implicit_says_so() {
+    let errs = errors(
+        "fn cmp(a: Int | Bool, b: Int) -> Int { return 0 }\n\
+         fn cmp(a: Int, b: Int | Bool) -> Int { return 0 }\n\
+         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> Int => !a, !b {\n\
+         return cmp(a, b)\n\
+         }\n\
+         fn probe() -> Int {\n\
+         return pick(1, 2)\n\
+         }\n",
+    );
     assert!(
-        errs.iter()
-            .any(|e| e.contains("is ambiguous for") && e.contains("declarations match")),
+        errs.iter().any(|e| e.contains("`cmp` is ambiguous for `pick` at `?cmp: (Int, Int) -> Int`")
+            && e.contains("`cmp(Int | Bool, Int)` from `main`")
+            && e.contains("`cmp(Int, Int | Bool)` from `main`")
+            && e.contains("none is more specific")
+            && e.contains("rename fn <new> = cmp(...)")),
         "expected the ambiguity error, got: {errs:?}"
     );
 }

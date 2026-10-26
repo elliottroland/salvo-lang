@@ -3005,7 +3005,8 @@ fn a_src_that_is_the_root_or_has_no_manifest_still_works() {
 /// [manifest-src] `--src lib/std` finds `lib/salvo.toml` and is refused at
 /// once, naming `lib`. Before the rule it loaded std twice (the tree's files
 /// as `core.*`, `time`, … beside the embedded `std.*`) and did not finish
-/// (ROADMAP 0t, IMPLICIT_RECURSE.md); the deadline guards against that.
+/// (ROADMAP 0t; COMPLETED.md's 2026-10-14 implicit-resolution entry); the
+/// deadline guards against that.
 #[test]
 fn src_lib_std_is_refused_promptly() {
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
@@ -3034,4 +3035,135 @@ fn src_lib_std_is_refused_promptly() {
         ),
         "{stderr}"
     );
+}
+
+/// [implicit-resolve] [fn-overload-ambiguous] A module's own same-signature
+/// overload beside std's is ambiguous at an implicit position, as it is at a
+/// call (user decision 2026-10-14) — it no longer replaces std's by being on a
+/// nearer rung. The errors name the candidates and the remedies: at an
+/// interpolation, the selected call; at a call's implicit, the written
+/// override; and `rename fn` at both.
+#[test]
+fn a_same_signature_overload_beside_std_is_ambiguous_at_an_implicit() {
+    let dir = src_dir("implicit_same_signature");
+    fs::write(
+        dir.join("main.sv"),
+        "fn to_str<T>(list: List<T>, ?to_str: (x: T) -> Str) [] -> Str => list { return \"mine\" }\n\
+         \n\
+         fn render<T>(x: T, ?to_str: (x: T) -> Str) [] -> Str => x { return to_str(x) }\n\
+         \n\
+         fn main() [use] {\n    use StdConsole()\n    println(\"${List(1, 2)}\")\n    println(render(List(1, 2)))\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("the text form of `NonEmpty List<Int>` is ambiguous: `to_str(List<T>)` from `main`, `to_str(List<T>)` from `std.core.list` all fit and none is more specific")
+            && stderr.contains("`${to_str@main(…)}` or `${to_str@std.core.list(…)}`")
+            && stderr.contains("--> main.sv:7:16"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("`to_str` is ambiguous for `render` at `?to_str: (NonEmpty List<Int>) -> Str`")
+            && stderr.contains("`to_str = to_str@main` or `to_str = to_str@std.core.list`")
+            && stderr.contains("rename fn <new> = to_str(...)")
+            && stderr.contains("--> main.sv:8:13"),
+        "{stderr}"
+    );
+}
+
+/// [implicit-recursive] The winner's own implicits are filled after it is
+/// chosen, and a failure there is an error naming the chain — no other
+/// candidate stands in (user decision 2026-10-14). With a catch-all
+/// `to_str<T>` beside std's, a list nested past the depth cap used to fall
+/// back to the catch-all at the top and print `?`; now std's `List` overload
+/// wins at every level, and the cap is the error. The plain chain, with no
+/// catch-all, names each link down to the type with no text form.
+#[test]
+fn an_unfillable_winner_is_an_error_naming_the_chain() {
+    let dir = src_dir("implicit_unfillable_winner");
+    fs::write(
+        dir.join("main.sv"),
+        "fn to_str<T>(x: T) [] -> Str => x { return \"?\" }\n\
+         \n\
+         fn main() [use] {\n    use StdConsole()\n    \
+         let deep = List(List(List(List(List(List(List(List(List(List(List(1)))))))))))\n    \
+         println(\"${deep}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("resolves to a `to_str` that cannot be completed")
+            && stderr.contains("nests more than 8 levels deep; pass `to_str = …` explicitly"),
+        "{stderr}"
+    );
+
+    let dir = src_dir("implicit_unfillable_chain");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Foo { n: Int }\n\
+         \n\
+         fn main() [use] {\n    use StdConsole()\n    println(\"${List(List(Foo { n: 1 }))}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("`?to_str: (NonEmpty List<Foo>) -> Str` for `to_str` resolves to a `to_str` that cannot be completed: `to_str` for `(NonEmpty List<Foo>) -> Str` needs implicits of its own, and no `to_str` fits `?to_str: (Foo) -> Str`"),
+        "{stderr}"
+    );
+}
+
+/// [implicit-recursive] The user's doubled-std recipe — a copy of `lib/std`
+/// with its own `std = true` manifest inside it — finishes promptly. Before
+/// 2026-10-14 an implicit tried every candidate's own implicits before
+/// choosing, and the old route to a std loaded twice (`--src lib/std`, before
+/// [manifest-src] refused it) never finished: each nested `to_str`/`eq`/`hash`
+/// had two candidates per level. Now only the winner's are filled, so the
+/// width is one by construction.
+#[test]
+fn a_doubled_std_analysis_finishes_promptly() {
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
+    let dir = src_dir("doubled_std");
+    let copy = dir.join("std");
+    fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_dir() {
+                if entry.file_name() != "platform" {
+                    copy_tree(&path, &to.join(entry.file_name()));
+                }
+            } else {
+                fs::copy(&path, to.join(entry.file_name())).unwrap();
+            }
+        }
+    }
+    copy_tree(&repo.join("lib/std"), &copy);
+    fs::write(copy.join("salvo.toml"), "[project]\nname = \"std\"\nversion = \"0.1.0\"\nstd = true\n").unwrap();
+    // The diagnostics go to a file: a std checked against another std reports
+    // hundreds of errors, more than a pipe holds while nothing reads it.
+    let log = dir.join("stderr.txt");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_salvo"))
+        .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
+        .args(["analyze", "--src", copy.to_str().unwrap()])
+        .stdout(std::process::Stdio::null())
+        .stderr(fs::File::create(&log).unwrap())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while child.try_wait().unwrap().is_none() {
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("`salvo analyze` of a doubled std did not finish within 60s");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let stderr = fs::read_to_string(&log).unwrap();
+    assert!(stderr.contains("analyzed "), "{stderr}");
 }

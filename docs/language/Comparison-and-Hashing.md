@@ -68,7 +68,8 @@ Both declare `cmp` *on* `Person`, and either way it is an ordinary function:
 anything else. What attachment adds is that it **travels with the type** — a
 module that imports `Person` gets its `cmp` too, so "orderable" arrives with the
 type instead of depending on which of its file's names you happened to import —
-and that an implicit `?cmp` resolves to it by default.
+and so an implicit `?cmp` for `Person` finds it wherever `Person` is used, where
+it wins as the most specific candidate.
 
 The obligation form is also a check: `: Ordered<self>` says at the declaration
 that a matching `cmp` exists, rather than failing at some distant use.
@@ -89,7 +90,8 @@ let younger = min_of(ada, bob, cmp = cmp@Person)
 ```
 
 You need the selector exactly when two `cmp`s fit: ambiguity is always refused
-rather than resolved by scope (see [Functions](Functions.md)).
+rather than resolved by scope, at a call and where an implicit is filled alike
+(see [Functions](Functions.md)).
 
 For the everyday case — compare the fields, in order — you do not write the
 bodies at all. `by auto` **stamps** them from the standard library's

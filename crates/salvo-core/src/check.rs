@@ -1214,8 +1214,12 @@ enum ImplicitMiss {
     Unknown,
     /// One is, and here is why it does not fit.
     NearMiss(String),
-    /// Several match, so choosing would be a guess.
-    Ambiguous(usize),
+    /// Several fit and none is more specific [fn-overload-ambiguous]: the
+    /// candidates, as shown in the diagnostic.
+    Ambiguous(Vec<(String, String)>),
+    /// [implicit-recursive] One was chosen, and its own implicits cannot be
+    /// filled: the chain, worded.
+    Unfilled(String),
 }
 
 /// [op-order] [op-equality] What a comparison operator resolved to, for the
@@ -6532,11 +6536,26 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// implicits filled in turn [implicit-recursive]; failing that, every
     /// parameter, for a position that passes the implicits itself. Its
     /// generics bind from `want`, and the contract has to fit as well as the
-    /// types [fn-contract]. A miss is ranked for the diagnostic: 2 for the
-    /// wrong number of parameters, 1 for types that do not match, 0 for what
-    /// a printed type cannot show (a contract, an implicit that cannot be
-    /// filled).
+    /// types [fn-contract]. The fit is [`Self::fn_value_fit`], which is what
+    /// selection compares; the fill happens here, for the one selected. A
+    /// miss is ranked for the diagnostic: 2 for the wrong number of
+    /// parameters, 1 for types that do not match, 0 for what a printed type
+    /// cannot show (a contract, an implicit that cannot be filled).
     fn fn_value_at(&mut self, key: FnKey, decl: &'p FnDecl, want: &Ty) -> Result<FnValueAt, (u8, String)> {
+        let fit = self.fn_value_fit(key, decl, want)?;
+        let mut nested = Vec::new();
+        if fit.fills && !self.resolve_as_call {
+            nested = self.try_nested(key, decl, &fit.binding, &fit.generics, want).map_err(|reason| (0, reason))?;
+        }
+        Ok(FnValueAt { ty: fit.ty, nested, binding: fit.binding })
+    }
+
+    /// [fn-value] [implicit-resolve] Whether a declared function **fits** the
+    /// fn type `want` — by its type and its contract alone, its own implicits
+    /// *not* filled: a candidate is chosen without regard to them, exactly as
+    /// a call's are (user decision 2026-10-14), and only the winner's are
+    /// filled [implicit-recursive]. Misses ranked as [`Self::fn_value_at`]'s.
+    fn fn_value_fit(&mut self, key: FnKey, decl: &'p FnDecl, want: &Ty) -> Result<FnFit, (u8, String)> {
         let name = decl.name.name.clone();
         let Ty::Fn { params: want_params, ret: want_ret, .. } = want.strip_quals().clone() else {
             return Err((2, format!("the position for `{name}` is not a function type")));
@@ -6591,17 +6610,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 miss(0, reason, &mut best);
                 continue;
             }
-            let mut nested = Vec::new();
-            if fills && !self.resolve_as_call {
-                match self.try_nested(key, decl, &binding, &generics, want) {
-                    Ok(n) => nested = n,
-                    Err(reason) => {
-                        miss(0, reason, &mut best);
-                        continue;
-                    }
-                }
-            }
-            return Ok(FnValueAt { ty: candidate, nested, binding });
+            return Ok(FnFit {
+                ty: candidate,
+                binding,
+                generics,
+                fills,
+                passes_own: has_imps && !fills,
+                patterns: have.clone(),
+                variadic: decl.params.iter().any(|p| p.variadic),
+            });
         }
         Err(best.unwrap_or_else(|| (2, format!("`{name}` does not fit `{want}`"))))
     }
@@ -7200,11 +7217,30 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 imp.name, imp.name, callee_name
                             ),
                         ),
-                        ImplicitMiss::Ambiguous(n) => self.error(
+                        // [fn-overload-ambiguous] The candidates, and the remedies
+                        // an implicit has: the override naming the place, or a
+                        // rename.
+                        ImplicitMiss::Ambiguous(cands) => {
+                            let text = Self::implicit_ambiguity(
+                                &imp.name,
+                                &cands,
+                                Some(&format!("`{} = {}@{{m}}`", imp.name, imp.name)),
+                            );
+                            self.error(
+                                span,
+                                format!(
+                                    "`{}` is ambiguous for `{}` at `?{}: {want}`: {text}",
+                                    imp.name, callee_name, imp.name
+                                ),
+                            )
+                        }
+                        // [implicit-recursive] The winner's own implicits cannot be
+                        // filled: the chain, and no other candidate stands in.
+                        ImplicitMiss::Unfilled(reason) => self.error(
                             span,
                             format!(
-                                "`{}` is ambiguous for `{}`: {n} declarations match \
-                                 `?{}: {want}`, so the choice would be a guess — {remedy}",
+                                "`?{}: {want}` for `{}` resolves to a `{}` that cannot be \
+                                 completed: {reason}",
                                 imp.name, callee_name, imp.name
                             ),
                         ),
@@ -7215,22 +7251,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         None
     }
 
-    /// The fn a name resolves to at a required fn type [implicit-resolve]:
-    /// a *unique* visible overload whose signature matches. Ambiguity is an
-    /// error rather than a guess, exactly as for an ordinary overloaded call
-    /// [fn-overload].
-    ///
-    /// `at` restricts the candidates to one selector — a type
-    /// (`cmp@Person`, an `@`-scoped canonical [fn-attached]) or a module
-    /// (`@core.list` [fn-overload-at]) — which is what makes an identity a
-    /// type carries resolve to the fn it names and no other [cmp-carry].
-    /// The identity that comes back is the *declaration's own*: its
-    /// `@`-scoping when it has one, and its bare name otherwise.
-    /// [implicit-recursive] Fills the implicits of a candidate that already
-    /// fits its position, each in turn and by the same rules, with the
-    /// candidate's generics bound as the fit bound them. `Err` carries the
-    /// first refusal, worded as the chain, and leaves no diagnostic behind: a
-    /// candidate that cannot be filled is a near miss [implicit-resolve].
+    /// [implicit-recursive] Fills the implicits of the candidate chosen for a
+    /// position, each in turn and by the same rules, with the candidate's
+    /// generics bound as the fit bound them. `Err` carries the first refusal,
+    /// worded as the chain, and leaves no diagnostic behind: the caller
+    /// reports it as the chosen candidate's failure, since no other candidate
+    /// stands in (user decision 2026-10-14).
     fn try_nested(
         &mut self,
         key: FnKey,
@@ -7322,6 +7348,25 @@ impl<'p, 'r> Checker<'p, 'r> {
             .unwrap_or_default()
     }
 
+    /// [implicit-resolve] The fn a name resolves to at a required fn type —
+    /// **the rule a call follows** (user decision 2026-10-14), with the
+    /// wanted fn type in place of an argument list. Every visible overload
+    /// competes: each is fitted by the type (parameters contravariant, result
+    /// covariant, contract included) without its own implicits filled, a
+    /// candidate whose implicit nothing could fill drops out as at a call
+    /// [implicit-fit], and the most specific signature wins
+    /// [fn-overload-rank]; no single winner is an ambiguity naming the
+    /// candidates [fn-overload-ambiguous]. Then — and only for the winner —
+    /// its own implicits are filled, by this same rule [implicit-recursive]: a
+    /// failure there is an error naming the chain, never a fallback to another
+    /// candidate.
+    ///
+    /// `at` restricts the candidates to one selector — a type (`cmp@Person`,
+    /// an `@`-scoped canonical [fn-attached]) or a module (`@core.list`
+    /// [fn-overload-at]) — which is what makes an identity a type carries
+    /// resolve to the fn it names and no other [cmp-carry]. The identity that
+    /// comes back is the *declaration's own*: its `@`-scoping when it has one,
+    /// and its bare name otherwise.
     fn resolve_implicit_fn_in(
         &mut self,
         name: &str,
@@ -7329,14 +7374,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         module: Option<&str>,
         want: &Ty,
     ) -> Result<(FnKey, FnId), ImplicitMiss> {
-        let Ty::Fn {
-            params: want_params,
-            ret: want_ret,
-            ..
-        } = want.strip_quals()
-        else {
+        if !matches!(want.strip_quals(), Ty::Fn { .. }) {
             return Err(ImplicitMiss::Unknown);
-        };
+        }
         // [fn-rename] Only the overloads that still answer to this name —
         // or, for an identity, the ones its declaring module declares.
         let pool = match module {
@@ -7356,16 +7396,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         if entries.is_empty() {
             return Err(ImplicitMiss::Unknown);
         }
-        // [fn-attached] Which types this position is *about*, so a candidate
-        // `@`-scoped to one of them is recognised as the canonical: the base
-        // names mentioned by the wanted fn type's parameters and result.
-        let mut want_types: HashSet<String> = HashSet::new();
-        for t in want_params.iter().chain(std::iter::once(&**want_ret)) {
-            collect_base_names(t, &mut want_types);
-        }
-        // Each hit with the type it is the canonical of, when it is one.
-        let mut hits: Vec<(FnKey, crate::resolve::Rung, Option<String>, String, FnId, Vec<ImplicitArg>)> =
-            Vec::new();
         // The best explanation of a candidate that did not fit, for the
         // diagnostic when nothing does. Ranked, because the *interesting*
         // near-miss is the one a printed type cannot show: a candidate whose
@@ -7377,79 +7407,161 @@ impl<'p, 'r> Checker<'p, 'r> {
                 *near = Some((rank, reason));
             }
         };
+        // 1. Every visible overload that fits the position by its type
+        // [fn-value]. One declaration is one candidate [fn-overload-scope]: a
+        // fn reachable both as an implicitly available name and as a member of
+        // this file's own module is one function, not an ambiguity.
+        let mut hits: Vec<(crate::resolve::FnEntry<'p>, FnFit)> = Vec::new();
         for entry in entries {
-            let decl = entry.decl;
-            // [fn-value] The rule a function passed by name follows; only
-            // the selection below is the implicit's own.
-            match self.fn_value_at(entry.key, decl, want) {
-                Ok(value) => {
-                    let canonical = self
-                        .attached_to(entry.key, decl)
-                        .filter(|t| want_types.contains(t));
-                    // [cmp-carry] The identity of the declaration itself, which is
-                    // what a result type publishes: `@`-scoped when it is, and the
-                    // bare name otherwise — a bare name means "the `cmp` of that
-                    // name visible where the type is used", which is
-                    // [implicit-resolve]'s locality, narrowed for canonicals by
-                    // [fn-attached]'s travelling rule.
-                    let identity = self.identity_of(entry.key, decl);
-                    hits.push((
-                        entry.key,
-                        entry.rung,
-                        canonical,
-                        entry.module.to_string(),
-                        identity,
-                        value.nested,
-                    ));
-                }
+            if hits.iter().any(|(e, _)| e.key == entry.key) {
+                continue;
+            }
+            match self.fn_value_fit(entry.key, entry.decl, want) {
+                Ok(fit) => hits.push((entry, fit)),
                 Err((rank, reason)) => note(rank, reason, &mut near),
             }
         }
-        // One declaration is one candidate here too [fn-overload-scope]: a fn
-        // reachable both as an implicitly available name and as a member of this
-        // file's own module is one function, not an ambiguity. Deduped before
-        // the canonical rule below, which counts *alternatives*.
-        {
-            let mut seen: Vec<FnKey> = Vec::new();
-            hits.retain(|(key, ..)| {
-                if seen.contains(key) {
-                    false
+        // [comptime-hygiene] A stamped body's fallback, as at a call: the
+        // template's own fns compete only when nothing the stamping site sees
+        // fits.
+        if hits.iter().any(|(e, _)| e.rung != crate::resolve::Rung::Template) {
+            hits.retain(|(e, _)| e.rung != crate::resolve::Rung::Template);
+        }
+        // 2. [implicit-fit] Among several, a candidate whose own implicit
+        // nothing here could fill — by shape, as at a call — does not fit.
+        if hits.len() > 1 {
+            let mut unfillable: Option<String> = None;
+            let mut kept = Vec::with_capacity(hits.len());
+            for (entry, fit) in hits.drain(..) {
+                let missing = if fit.passes_own {
+                    None
                 } else {
-                    seen.push(*key);
-                    true
+                    self.unfillable_implicit(entry.key, &entry.decl.generics, &fit.binding, &[])
+                };
+                match missing {
+                    Some(m) => {
+                        unfillable.get_or_insert_with(|| {
+                            format!(
+                                "the `{name}` from `{}` that fits by type needs `{m}`, which nothing in \
+                                 scope fills [implicit-fit]",
+                                entry.module
+                            )
+                        });
+                    }
+                    None => kept.push((entry, fit)),
                 }
-            });
+            }
+            if kept.is_empty() {
+                return Err(ImplicitMiss::NearMiss(unfillable.unwrap_or_default()));
+            }
+            hits = kept;
         }
-        // [fn-attached] A canonical is the **default selection** for a
-        // position of its own name and shape (user decision 2026-09-21). What
-        // used to stand here as well — "a second fitting candidate beside a
-        // canonical is an error" — was the carve-out of [fn-overload-scope]'s
-        // Own-beats-Import silence, and that silence is gone (user decision
-        // 2026-09-26): ambiguity is refused everywhere now, so the carve-out has
-        // nothing left to carve. The ladder below still applies *here*, because
-        // an implicit has no written call site to annotate — and because two
-        // same-named types (a program's own `ListYield` beside std's) have no
-        // distinguishing selector at all.
-        // [fn-overload-scope] Like a call, the most specific *scope* that has
-        // a fitting candidate wins before ambiguity is declared: a program
-        // declaring its own pass under a name std also uses (`ListYield` plus
-        // its `next`) resolves to its own `next` rather than colliding with
-        // core's — the same ladder every named call already walks.
-        if let Some(top) = hits.iter().map(|(_, rung, _, _, _, _)| *rung).max() {
-            hits.retain(|(_, rung, _, _, _, _)| *rung == top);
-        }
-        match hits.len() {
-            0 => Err(match near {
+        if hits.is_empty() {
+            return Err(match near {
                 Some((_, reason)) => ImplicitMiss::NearMiss(reason),
                 None => ImplicitMiss::Unknown,
-            }),
-            1 => {
-                let hit = hits.remove(0);
-                self.last_nested = hit.5;
-                Ok((hit.0, hit.4))
-            }
-            n => Err(ImplicitMiss::Ambiguous(n)),
+            });
         }
+        // 3. The most specific signature [fn-overload-rank]. Candidates whose
+        // declared parameter types are identical are one alternative
+        // [fn-overload-return]; each already fits the position's result, so
+        // two in one alternative are the return type failing to decide.
+        let mut classes: Vec<(Vec<String>, Vec<usize>)> = Vec::new();
+        for (i, (entry, fit)) in hits.iter().enumerate() {
+            let generics: Vec<&str> = entry.decl.generics.iter().map(|g| g.name.as_str()).collect();
+            let params: Vec<ast::Param> = if fit.passes_own {
+                entry.decl.params.clone()
+            } else {
+                entry.decl.params.iter().filter(|p| !p.implicit).cloned().collect()
+            };
+            let sig = crate::refine::param_type_signature(&params, &generics);
+            match classes.iter_mut().find(|(s, _)| *s == sig) {
+                Some((_, members)) => members.push(i),
+                None => classes.push((sig, vec![i])),
+            }
+        }
+        let ranks: Vec<crate::types::RankedCandidate> = classes
+            .iter()
+            .map(|(_, c)| crate::types::RankedCandidate {
+                patterns: hits[c[0]].1.patterns.clone(),
+                variadic: hits[c[0]].1.variadic,
+            })
+            .collect();
+        let winner = match crate::types::most_specific(&ranks) {
+            Some(ci) if classes[ci].1.len() == 1 => classes[ci].1[0],
+            Some(ci) => return Err(ImplicitMiss::Ambiguous(self.shown_candidates(name, &hits, &classes[ci].1))),
+            None => {
+                // [type-unknown-lenient] One mistake, one diagnostic.
+                if ty_mentions_unknown(want) {
+                    0
+                } else {
+                    let all: Vec<usize> = (0..hits.len()).collect();
+                    return Err(ImplicitMiss::Ambiguous(self.shown_candidates(name, &hits, &all)));
+                }
+            }
+        };
+        let (entry, fit) = hits.swap_remove(winner);
+        // [cmp-carry] The identity of the declaration itself, which is what a
+        // result type publishes: `@`-scoped when it is, and the bare name
+        // otherwise — a bare name means "the `cmp` of that name visible where
+        // the type is used", which is [implicit-resolve]'s locality.
+        let identity = self.identity_of(entry.key, entry.decl);
+        // 4. [implicit-recursive] Only now the winner's own implicits, by the
+        // same rule; failing that is the error, not another candidate.
+        let mut nested = Vec::new();
+        if fit.fills && !self.resolve_as_call {
+            match self.try_nested(entry.key, entry.decl, &fit.binding, &fit.generics, want) {
+                Ok(n) => nested = n,
+                Err(reason) => return Err(ImplicitMiss::Unfilled(reason)),
+            }
+        }
+        self.last_nested = nested;
+        Ok((entry.key, identity))
+    }
+
+    /// [fn-overload-ambiguous] The candidates an implicit position could not
+    /// choose among, as a diagnostic shows them: `` `name(Params)` from `module` ``.
+    fn shown_candidates(
+        &self,
+        name: &str,
+        hits: &[(crate::resolve::FnEntry<'p>, FnFit)],
+        which: &[usize],
+    ) -> Vec<(String, String)> {
+        let mut shown: Vec<(String, String)> = which
+            .iter()
+            .map(|&i| {
+                let (entry, fit) = &hits[i];
+                let ps: Vec<String> = fit.patterns.iter().map(|p| p.to_string()).collect();
+                (format!("`{name}({})` from `{}`", ps.join(", "), entry.module), entry.module.to_string())
+            })
+            .collect();
+        shown.sort();
+        shown.dedup();
+        shown
+    }
+
+    /// [fn-overload-ambiguous] [implicit-resolve] How an implicit position no
+    /// candidate wins is reported: the candidates, then the remedies an
+    /// implicit has — the written override naming the place (`name =
+    /// name@module`, where the position can be written: `site_override`), or
+    /// `rename fn`.
+    fn implicit_ambiguity(name: &str, cands: &[(String, String)], site_override: Option<&str>) -> String {
+        let shown: Vec<&str> = cands.iter().map(|(s, _)| s.as_str()).collect();
+        let mut modules: Vec<&str> = cands.iter().map(|(_, m)| m.as_str()).collect();
+        modules.sort();
+        modules.dedup();
+        let pick = match site_override {
+            Some(form) if modules.len() > 1 => {
+                let forms: Vec<String> = modules.iter().map(|m| form.replace("{m}", m)).collect();
+                format!("Name the one you mean — {} — or give", forms.join(" or "))
+            }
+            _ => "Give".to_string(),
+        };
+        format!(
+            "{} all fit and none is more specific. {pick} one its own name with \
+             `rename fn <new> = {name}(...)` [fn-overload-ambiguous]",
+            shown.join(", "),
+        )
     }
 
     /// [cmp-binder] The identity of a value written for an implicit parameter
@@ -7619,7 +7731,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let fitting: Vec<crate::resolve::FnEntry<'p>> = pool
                     .iter()
                     .copied()
-                    .filter(|e| self.fn_value_at(e.key, e.decl, want).is_ok())
+                    // [implicit-resolve] By type and contract, its own
+                    // implicits not filled: they are the winner's to fill.
+                    .filter(|e| self.fn_value_fit(e.key, e.decl, want).is_ok())
                     .collect();
                 if fitting.is_empty() {
                     // None of them fits — which is a *mismatch*, not an
@@ -7630,7 +7744,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .iter()
                         .map(|e| {
                             let ty = self.fn_value_ty(e.key, e.decl);
-                            match self.fn_value_at(e.key, e.decl, want) {
+                            match self.fn_value_fit(e.key, e.decl, want) {
                                 Err((_, reason)) => format!("`{ty}` ({reason})"),
                                 Ok(_) => format!("`{ty}`"),
                             }
@@ -7698,7 +7812,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         // be. With none, or where it does not fit (the mismatch is reported
         // where the value is used), it is the declaration's own type.
         let want = expected.filter(|t| matches!(t.strip_quals(), Ty::Fn { .. })).cloned();
-        let fitted = want.as_ref().and_then(|w| self.fn_value_at(entry.key, decl, w).ok());
+        let fitted = match want.as_ref() {
+            Some(w) => match self.fn_value_at(entry.key, decl, w) {
+                Ok(v) => Some(v),
+                // [implicit-recursive] It fits, and its own implicits cannot be
+                // filled: the chain is the error, as for an implicit.
+                Err((_, reason)) if self.fn_value_fit(entry.key, decl, w).is_ok() => {
+                    self.error(name_span, format!("`{name}` fits `{w}` here, but cannot be completed: {reason}"));
+                    return Ty::Unknown;
+                }
+                Err(_) => None,
+            },
+            None => None,
+        };
         let Some(value) = fitted else {
             return self.fn_value_ty(entry.key, decl);
         };
@@ -7915,22 +8041,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// 1. **`@module` first.** A call that names a module means that
     ///    module's overloads and no others; naming a module with no fitting
     ///    overload is an error rather than a silent fallback.
-    /// 2. **The most specific *scope* wins.** Functions arrive from ever
-    ///    more specific places — `std.core`, then this file's imports, then this
-    ///    module — and only the most specific rung that has a fitting
-    ///    candidate competes. That is what makes a module's own `map` mean
-    ///    *its* `map`, whatever std declares.
-    /// 3. **Then the most specific *signature*.** A partial order
+    /// 2. **Every fitting candidate competes**, whatever rung it arrived on
+    ///    [fn-overload-scope] (user decision 2026-09-26): scope says what is
+    ///    visible, never which one a call means.
+    /// 3. **The most specific *signature*.** A partial order
     ///    [fn-overload-rank]: no single most specific candidate is an
     ///    ambiguity error naming the remedies, never a pick.
     ///
-    /// Scope beats signature, so a broad overload in this module hides a
-    /// precise one in `std.core` — deliberately, because the alternative is a
-    /// rule nobody can predict without knowing std's surface. When that
-    /// happens the call gets a **warning** naming the discarded candidate,
-    /// and writing `@module` on the call silences it (either module: naming
-    /// this one confirms the choice, naming the other takes the precise
-    /// overload).
+    /// An implicit position is chosen by the same rule, with the wanted fn
+    /// type in place of the arguments (`resolve_implicit_fn_in`, user decision
+    /// 2026-10-14).
     fn select_overload(
         &mut self,
         name: &str,
@@ -12164,25 +12284,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             let implicits = self.implicits_of_text_form(expr, key, ty);
             return Some(ArmText::Fn { key, implicits });
         }
-        // [interp-to-str] A `to_str` with implicits of its own — a
-        // collection's, over its element's `to_str` [platform-value-type].
-        for entry in self.overloads_of("to_str") {
-            let decl = entry.decl;
-            let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
-            let implicits = self.out.implicit_params.get(&entry.key).cloned().unwrap_or_default();
-            if fixed.len() != 1 || implicits.is_empty() {
-                continue;
-            }
-            let saved = self.enter_generics(&decl.generics);
-            let pattern = self.lower_type(&fixed[0].ty);
-            self.generics = saved;
-            let mut subst: HashMap<String, Ty> = HashMap::new();
-            if !unify(&pattern, ty.strip_quals(), &mut subst) {
-                continue;
-            }
-            let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
-            let filled = self.fill_implicit_list(&implicits, "to_str", &mut subst, &generics, &[], expr.span()).unwrap_or_default();
-            return Some(ArmText::Fn { key: entry.key, implicits: filled });
+        // [implicit-resolve] [fn-overload-ambiguous] Several fit and none is
+        // more specific: refused as at a call, with an interpolation's remedies.
+        // (Reported here, so the value reads as handled: one mistake, one
+        // diagnostic.) There is no other `to_str` to fall back on: the one
+        // resolution chose is the one, as for a call (user decision
+        // 2026-10-14; the first-declared `to_str` with implicits used to
+        // stand in when resolution found none).
+        if let Err(ImplicitMiss::Ambiguous(cands)) = resolved {
+            let text = Self::implicit_ambiguity("to_str", &cands, Some("`${to_str@{m}(…)}`"));
+            self.error(expr.span(), format!("the text form of `{ty}` is ambiguous: {text}"));
+            return Some(ArmText::Native);
         }
         None
     }
@@ -13840,10 +13952,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ImplicitMiss::NearMiss(reason) => {
                         format!("no `{member}` fits `({lb}, {rb})`: {reason}")
                     }
-                    ImplicitMiss::Ambiguous(n) => format!(
-                        "`{member}` is ambiguous for `{lb}`: {n} declarations fit, so the \
-                         choice would be a guess"
+                    ImplicitMiss::Ambiguous(cands) if cands.iter().all(|(s, _)| s.is_empty()) => format!(
+                        "`{member}` is ambiguous for `{lb}`: {} declarations fit, so the \
+                         choice would be a guess",
+                        cands.len()
                     ),
+                    // [fn-overload-ambiguous] The remedies an operator has: call
+                    // the one meant (`eq@mod(a, b)`), or rename one.
+                    ImplicitMiss::Ambiguous(cands) => format!(
+                        "`{member}` is ambiguous for `{lb}`: {}",
+                        Self::implicit_ambiguity(member, &cands, Some(&format!("`{member}@{{m}}(a, b)`")))
+                    ),
+                    ImplicitMiss::Unfilled(reason) => {
+                        format!("the `{member}` it resolves to cannot be completed: {reason}")
+                    }
                 };
                 self.error(
                     span,
@@ -29423,39 +29545,6 @@ fn ty_mentions_vars(ty: &Ty, vars: &HashSet<String>) -> bool {
 /// argument like this fits *every* candidate, so overload ranking must not
 /// turn one un-inferred value into a second diagnostic
 /// [fn-overload-rank].
-/// [fn-attached] Every **named** base type a type mentions, however deeply:
-/// what decides whether an `@`-scoped fn is the canonical *for this position*.
-/// A `(Person, Person) -> Int` position is about `Person`, and a
-/// `(List<Point>, List<Point>) -> Int` one is about `Point` as well as `List`,
-/// so a canonical of either is recognised — the nesting is deliberate, since a
-/// container's own canonical is written on the container.
-fn collect_base_names(ty: &Ty, out: &mut HashSet<String>) {
-    match ty {
-        Ty::Named { name, args } => {
-            out.insert(name.clone());
-            for a in args {
-                collect_base_names(a, out);
-            }
-        }
-        Ty::Qualified { quals, base } => {
-            collect_base_names(base, out);
-            for q in quals {
-                for a in &q.args {
-                    collect_base_names(a, out);
-                }
-            }
-        }
-        Ty::Union(arms) => arms.iter().for_each(|a| collect_base_names(a, out)),
-        Ty::Tuple(elems) => elems.iter().for_each(|e| collect_base_names(e, out)),
-        Ty::Array(elem) => collect_base_names(elem, out),
-        Ty::Fn { params, ret, .. } => {
-            params.iter().for_each(|p| collect_base_names(p, out));
-            collect_base_names(ret, out);
-        }
-        _ => {}
-    }
-}
-
 fn ty_mentions_unknown(ty: &Ty) -> bool {
     match ty {
         Ty::Unknown => true,
@@ -33788,4 +33877,21 @@ struct FnValueAt {
     ty: Ty,
     nested: Vec<ImplicitArg>,
     binding: HashMap<String, Ty>,
+}
+
+/// [fn-value] [implicit-resolve] A declaration that fits a fn type, before
+/// its own implicits are filled: what selection compares.
+struct FnFit {
+    ty: Ty,
+    binding: HashMap<String, Ty>,
+    generics: HashSet<String>,
+    /// The explicit shape fitted, so the candidate's own implicits are
+    /// filled where it is used [implicit-recursive].
+    fills: bool,
+    /// The full shape fitted: the position passes the implicits itself.
+    passes_own: bool,
+    /// The fitted shape's declared parameter types, for the ranking
+    /// [fn-overload-rank].
+    patterns: Vec<Ty>,
+    variadic: bool,
 }

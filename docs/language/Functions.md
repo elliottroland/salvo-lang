@@ -134,16 +134,17 @@ apply(tag, "x")      // the `Str` overload: it is what `(Str) -> Str` needs
 let f = tag          // ERROR: nothing here says which `tag` — annotate, or rename
 ```
 
-**Filling an implicit parameter** is the same query against a type rather than an argument list, so it obeys the ladder and the ranking too — and a renamed overload no longer fills an implicit of its old name:
+**Filling an implicit parameter** is the same query against a type rather than an argument list, so it follows the same rule — every visible overload that fits competes, the most specific signature wins, and no single winner is an error — and a renamed overload no longer fills an implicit of its old name:
 
 ```
-params Yield<It, T> {
-    fn next(it: Mut It) -> Emitted T | Finished => it: Mut
-}
+fn to_str<T>(x: T) -> Str => x { return "?" }    // a catch-all of your own
 
-// `map(p, f)` fills `next` with whichever `next` fits `p` — yours, if you
-// declared one for an iterator of your own, since this module beats core.
+"${List(1, 2)}"           // [1, 2]: std's `to_str(List<T>)`, then its `to_str(Int)`,
+                          // are each more specific than `T`
+"${List(Foo { n: 1 })}"   // [?]: yours fills only what nothing more specific takes
 ```
+
+A `to_str(List<T>)` of your own beside std's is therefore ambiguous at `"${xs}"`, just as two `size(List<T>)`s are at a call: write `to_str = to_str@main` where the implicit is filled (or `${to_str@main(xs)}`), or rename one. The chosen function's own implicits are filled after it is chosen; if they cannot be, that is the error, and no other candidate is tried instead.
 
 Beyond the declaration itself, two things hang off the arrow: effects and deductions.
 

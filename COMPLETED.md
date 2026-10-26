@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2070 tests, complete: the toolchain tests are
+cargo test                  # 2075 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -141,6 +141,152 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — Implicit resolution follows call resolution
+
+User decision: an implicit position is filled by exactly a call's rule, with
+the wanted fn type in place of an argument list; the depth cap stays (user:
+"keep the depth cap for now"). After the written override [implicit-override]
+and the enclosing fn's implicit [implicit-forward], which shadow as a local
+does for a call, **every visible overload competes**: each is fitted by the
+type — parameters contravariant, result covariant, contract included — with
+its own implicits *not* filled (`Checker::fn_value_fit`, split out of
+`fn_value_at`); a stamped body's template fns compete only when nothing else
+fits [comptime-hygiene]; [implicit-fit]'s shape test drops, among several, a
+candidate whose implicit nothing could fill; the most specific signature
+wins (`types::most_specific` over parameter classes, [fn-overload-rank]);
+identical parameter types with more than one fitting result are the
+ambiguity, since the result is part of the fit [fn-overload-return]; no
+single winner is the ambiguity error [fn-overload-ambiguous]. **Then** the
+winner's own implicits are filled, recursively by the same rule, and a
+failure there is an error naming the chain (`ImplicitMiss::Unfilled`), never
+a fallback to another candidate. One resolver serves every implicit-like
+position: a call's implicits, interpolation's `to_str` [interp-to-str], the
+comparison operators [op-order] [op-equality], keyed collections' identity
+slots (`keyed_canonically`, `record_carried_identities`, `written_declaration`),
+the iterator protocol's members, and a by-name fn value's own implicits
+[fn-value].
+
+What it replaced differed from a call in three ways: it kept only the most
+specific *visibility rung* with a fitting candidate (the ladder calls left
+2026-09-26, kept for implicits "because an implicit has no call site to
+annotate"); it did not rank by signature, so two fits on one rung were
+ambiguous; and a candidate whose own implicits could not be filled was
+dropped and another could win (the near miss).
+
+- **Census** (a temporary `SALVO_IMPLICIT_CENSUS` switch ran both rules side
+  by side, the old one live, and logged every resolution whose result or
+  nested fill differed; PIPELINE.md §8 has the run): over the whole
+  `cargo test` (every program the suite checks, std's own tests and the e2e
+  programs included) **6 resolutions in 5 tests** changed, and `salvo
+  analyze` of every example, `modules/aws/salvo`, `bench/*/salvo` and `demo/`
+  changed **none**. By class: (a) rung shadowing — `compare_tests::
+  ambiguity_around_a_canonical_is_an_error_on_every_rung`, a module's
+  `cmp(Person, Person)` beside the one declared on the imported `Person`: the
+  call was already ambiguous, the implicit at `min_of(a, b)` took the
+  module's by rung and is ambiguous now too (the test asserts both); (b) the
+  near-miss fallback — none; (c) previously ambiguous, now resolving —
+  `implicit_tests::an_ambiguous_implicit_says_so` (`cmp<T>` beside `cmp(Int,
+  Int)`: the concrete one wins; the test is now
+  `a_more_specific_candidate_wins_at_an_implicit`, and the ambiguity test uses
+  two unrankable `cmp`s), and `hash`/`eq` at an un-inferred `?` in the two
+  empty-literal tests, now [type-unknown-lenient] (the literal's own error is
+  the one diagnostic); (d) cases for extending the rule — **none**. No
+  program, std file, example, `modules/aws` or bench file had to be
+  rewritten; no generated code, snapshot or ABI mirror changed.
+  Interpolation's fallback — the first-declared `to_str` with implicits whose
+  parameter unified, taken when resolution failed — never fired in the
+  census and is deleted; an interpolation's ambiguity is now reported there,
+  with `${to_str@m(…)}` as the remedy.
+- **Canonicals [fn-attached]**: calls have no canonical rule (the last one,
+  a carve-out of the scope ladder, went 2026-09-26), and the implicit
+  resolver's `canonical` flag had been computed and never read since then;
+  it and `collect_base_names` are removed. A canonical needs no preference:
+  it travels with its type, so it is a candidate wherever the type is usable,
+  and it wins by being the most specific; a same-signature fn beside it is
+  ambiguous, as at a call. The worry recorded in ROADMAP §5 — "two same-named
+  types have no distinguishing selector" — did not arise: types are keyed, so
+  a program's own `ListYield`'s `next` fits only its own type.
+- **The cost**: with one candidate filled per level the width is 1 by
+  construction. The pre-0t route to a doubled std (`salvo analyze --src
+  lib/std` on a copy of the tree at `7e460b54^` with this change applied)
+  ran past 120 s and was killed under the old rule, and finishes in 0.67 s
+  under the new one (264 errors: std twice is ambiguous everywhere, nearly
+  all as *calls* — "ambiguous call to `get(proj T[], Int)`: … from
+  `core.array`, … from `std.core.array`"). The user's recipe for the test (a
+  copy of `lib/std` with its own `std = true` manifest inside it) turned out
+  not to double std — its files are `core.*`, which is not implicitly
+  visible — and finished in 0.67 s under both rules (261 errors before, 264
+  after); it is the deadline test anyway
+  (`a_doubled_std_analysis_finishes_promptly`).
+- Diagnostics: an implicit's ambiguity lists the candidates with their
+  modules and the remedies it has — `to_str = to_str@main` at a call, `${to_
+  str@main(…)}` at an interpolation, `cmp@main(a, b)` at an operator — and
+  `rename fn` (`Checker::implicit_ambiguity`). A by-name fn value that fits
+  but cannot be completed is an error at the name. The chain message nests
+  one "resolves to a `to_str` that cannot be completed: …" per level, which
+  is long at the depth cap; left as it is.
+- Docs: `[implicit-resolve]` step 3, `[implicit-recursive]` (the near-miss
+  paragraph replaced by "only the chosen candidate's implicits are filled";
+  the cap kept), `[fn-overload]`, `[fn-overload-scope]`, `[implicit-fit]`,
+  `[fn-value]`, `[fn-attached]`; Functions.md, Implicit-Parameters.md,
+  Comparison-and-Hashing.md, and a stale sentence in Modules.md ("Functions
+  do not compete at all: overloads from a bulk import simply sit lower on the
+  scope ladder" — wrong for calls since 2026-09-26). `select_overload`'s doc
+  comment still described scope beating signature; fixed.
+- Found on the way: **a function passed by name is still chosen by rung**
+  (ROADMAP 0w, with a repro): `apply(tag, 1)` takes a module's `tag<T>` over
+  an imported `tag(Int)` where `tag(1)` ranks them. Not an implicit position,
+  so left for its own change. And **a written override is checked
+  invariantly** where resolution is contravariant (ROADMAP 0x, a
+  **DECISION**): `to_str = render_row` with `render_row(List<Int>)` is
+  refused at `(NonEmpty List<Int>) -> Str`. Not plain conformance — every
+  by-name fn value is checked that way, and the backends pass a written
+  value without the adapter a resolved one gets — so recorded with options
+  rather than fixed; the remedy today is a lambda.
+
+Tests (5 new): the user's program as a compile-and-run case on both backends
+(`implicits_chosen_as_calls_are`: a module catch-all `to_str<T>` beside
+std's — `"${List(1, 2)}"` and `to_str(xs)` print `[1, 2]`, `"${List(Foo { n:
+1 })}"` prints `[?]`, `to_str(xs, to_str = to_str@main)` prints `[?, ?]`, and
+the enclosing-implicit case `show(xsss, to_str = hex)` prints `[[[#1, #2],
+[#3]], [[#4]]]`); `a_same_signature_overload_beside_std_is_ambiguous_at_an_implicit`
+(interpolation and a call's implicit, each naming its remedies);
+`an_unfillable_winner_is_an_error_naming_the_chain` (a catch-all beside a
+list nested past the cap used to print `?`, now the cap error; and the plain
+chain to a struct with no `to_str`); `a_more_specific_candidate_wins_at_an_implicit`;
+`a_doubled_std_analysis_finishes_promptly`.
+
+**Design record** (IMPLICIT_RECURSE.md, retired with this entry). On
+2026-10-14 the language server was found pegging a core: a `sample` put 3499
+of 3580 samples in `record_text_form → interp_text_form → fill_implicit_list
+⇄ resolve_implicit_fn_at`, each level lowering every candidate's type
+(`fn_value_ty → lower_type → expand_slots`, cloning slot tables). The
+mechanism: an interpolation resolves `?to_str` for the value's type, std's
+collection `to_str`s take a `?to_str` of their own for the element, and the
+resolver iterated every overload of the name and, for each fitting one,
+filled its implicits recursively *before* choosing — with nothing memoized —
+so `w` fitting-and-recursing candidates per level and depth `d` cost on the
+order of `w^d`; the cycle guard never fired (each level wants a different
+type) and only the depth cap (8) bounded it. From std alone the width was 1
+(one `to_str(List<T>, ?to_str)` per level; nine hypotheses — deep concrete
+lists, nested maps, open element types, unions of containers, two
+same-shape user overloads, `by auto` keys, a growing nested want — all
+stayed at ~0.5 s and flat in depth, and every committed project analysed in
+0.47–0.56 s); the stuck buffer was an unsaved editor state, and the server
+now dumps any analysis over 2 s ([lsp-slow-dump], LSP_DEBUG.md §0). The
+real width-2 reproduction was `--src lib/std` loading std twice (ROADMAP 0t,
+refused since by [manifest-src]). The options put to the user: **(A)** pure
+performance — memoize `(name, at, want)` per pass, behaviour unchanged, with
+the subtlety that a failure caused by the cap must not be cached; **(B)** the
+depth cap as a language-visible contract, which cheap depth might let rise;
+**(C)** narrow `[implicit-recursive]`'s width — refuse an ambiguous nested
+implicit before recursing, cap the width, or move element rendering off
+implicits. The user's choice was none of them as posed: make the implicit
+rule a call's, which chooses before filling and so is width 1 by
+construction (C's effect, for the reason calls already had), keep the cap
+(B left as it is), and **no memoization is needed** (A unnecessary: the
+remaining cost is linear in depth).
+
 ### 2026-10-14 — `--src` is the source root: one inside a project's root is refused
 
 User decision (ROADMAP 0t, option (b)): `--src` keeps a single meaning, the
@@ -178,8 +324,9 @@ lib/std` is refused in milliseconds, naming `lib`.
 - Nothing in the repository passed a `--src` inside a project's root: every
   CLI test, the bench scripts (`bench/*/salvo`) and the docs already named
   the root, so no test, tool or doc had to change.
-- IMPLICIT_RECURSE.md's decision (A memoize, B the depth cap as a contract,
-  C a width rule) stays open: the duplicate std was a real width-2
+- The implicit-resolution decision (A memoize, B the depth cap as a contract,
+  C a width rule) stayed open here, and was made the same day (the entry
+  above): the duplicate std was a real width-2
   reproduction of the blowup it could not build from std alone, and only the
   user-facing route to it is closed.
 
@@ -29768,7 +29915,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2070 under `cargo test` on 2026-10-26; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2075 under `cargo test` on 2026-10-26; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -31060,6 +31207,30 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A piped stderr nobody reads blocks the child** (2026-10-14, the
+  doubled-std test). A deadline test that spawns `salvo` with
+  `Stdio::piped()` and polls `try_wait` deadlocks once the child writes more
+  than the pipe holds (~64 KiB): a std checked against a second std reports
+  hundreds of errors, so the "hang" was the test's. Send the output to a
+  file (or read it on a thread) when it can be large.
+
+- **Asking whether a rule *changes* anything is cheapest at its own seam**
+  (2026-10-14, the implicit census). Running the new resolver beside the
+  old one inside `resolve_implicit_fn_in` (errors truncated, `last_nested`
+  saved, inner levels following the rule under test) and logging only the
+  differences covered every program the suite checks in one ordinary
+  `cargo test` — with the old result returned, no generated code changed, so
+  no toolchain stamp missed — instead of diffing diagnostics and IR per
+  program.
+
+- **A copy of `lib/std` rooted at its own `std = true` manifest is not std
+  twice** (2026-10-14). Its files are modules `core.*`, and only
+  `std.core.*` modules are implicitly visible, so each file of the copy sees
+  the *embedded* `std.core` rather than its own siblings (its intrinsic
+  types' obligations find no `cmp`/`eq`/`hash` — 261 errors under the old
+  rule, 264 under the new, 0.7 s either way). The doubling that hung was
+  `--src lib/std` under `lib/salvo.toml` before [manifest-src] refused it.
 
 - **A forwarder's forward re-spells its callers' edges** (2026-10-26,
   router in-edges). Once a dependency on `any E` points at the router as

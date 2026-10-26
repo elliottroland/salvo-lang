@@ -16959,6 +16959,43 @@ fn rustc_compiles_and_runs_a_union_interpolates_by_the_text_of_its_arm() {
     run_rust_files(&files, "union-fix", UNION_TEXT_OUTPUT);
 }
 
+/// [implicit-resolve] [implicit-recursive] [implicit-forward] An implicit is
+/// chosen as a call is (user decision 2026-10-14): beside a module's catch-all
+/// `to_str<T>`, std's `to_str(List<T>)` and `to_str(Int)` are more specific
+/// and win, the catch-all fills only what nothing more specific takes (the
+/// element `Foo`), a written override names it for the elements, and an
+/// enclosing fn's implicit still shadows every candidate at each level.
+const IMPLICIT_CALL_RULE_DEMO: &str = r##"
+fn to_str<T>(x: T) [] -> Str => x { return "?" }
+
+struct Foo { n: Int }
+
+fn hex(n: Int) [] -> Str => n { return "#${n}" }
+
+fn show(xsss: NonEmpty List<NonEmpty List<NonEmpty List<Int>>>, ?to_str: (x: Int) -> Str) [Console] -> None => xsss {
+    println("${xsss}")
+}
+
+fn main() [use] {
+    use StdConsole()
+    let xs = List(1, 2)
+    println("${List(1, 2)}")
+    println(to_str(xs))
+    println("${List(Foo { n: 1 })}")
+    println("${to_str(xs, to_str = to_str@main)}")
+    let xsss = List(List(List(1, 2), List(3)), List(List(4)))
+    show(xsss, to_str = hex)
+}
+"##;
+
+const IMPLICIT_CALL_RULE_OUTPUT: &str = "[1, 2]\n[1, 2]\n[?]\n[?, ?]\n[[[#1, #2], [#3]], [[#4]]]\n";
+
+#[test]
+fn rustc_compiles_and_runs_implicits_chosen_as_calls_are() {
+    let files = generate(&[("main.sv", IMPLICIT_CALL_RULE_DEMO)]);
+    run_rust_files(&files, "implicit-call-rule", IMPLICIT_CALL_RULE_OUTPUT);
+}
+
 /// [rs-path] A handle bound from a lending effect member outlives a read of the container: the member answers a path.
 const LEND_HANDLE_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }

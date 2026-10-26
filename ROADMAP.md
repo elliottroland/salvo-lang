@@ -732,11 +732,72 @@ Parked (user, 2026-10-14): the user expects to move away from state structs and 
 
 ### 0t — Closed 2026-10-14: a `--src` inside a project's source root is refused
 
-Record in COMPLETED.md ("`--src` is the source root", [manifest-src]). What
-it leaves open is IMPLICIT_RECURSE.md's **DECISION** (A memoize, B the depth
-cap as a contract, C a width rule), which now has a real width-2
-reproduction (std loaded twice under `--src lib/std`) though that route is
-refused.
+Record in COMPLETED.md ("`--src` is the source root", [manifest-src]). The
+implicit-resolution cost it reproduced was decided 2026-10-14 (implicits
+resolved as calls are; COMPLETED.md).
+
+### 0w — Open defect: a function passed by name is chosen by rung (found 2026-10-14)
+
+[fn-value-select] says a function passed by name is selected "through the same
+three steps a call uses", but `fn_value_by_name` keeps only the most specific
+rung with a candidate and does not rank, so it chooses where a call would rank
+or refuse. Repro (`lib.sv`: `export fn tag(v: Int) [] -> Str => v { return
+"int" }`):
+
+```
+import lib.tag
+fn tag<T>(v: T) [] -> Str => v { return "any" }
+fn apply(f: (x: Int) -> Str, x: Int) [] -> Str => f { return f(x) }
+fn main() [use] {
+    use StdConsole()
+    println(tag(1))          // int — the call ranks `tag(Int)` above `tag<T>`
+    println(apply(tag, 1))   // any — by name, this module's rung wins
+}
+```
+
+The fix is the implicit resolver's selection (`resolve_implicit_fn_in`'s
+ranking over `fn_value_fit`), with by-name's own `@` and no-expectation rules
+kept; a census like the 2026-10-14 one (COMPLETED.md) should show what moves.
+Not done with the implicit change because by-name selection is not an implicit
+position, and the user scoped that change to those.
+
+### 0x — Open defect: a written override is checked invariantly (found 2026-10-14, DECISION)
+
+[implicit-resolve]'s candidate test is parameter-contravariant (`fn_value_fits`):
+a resolved `size(List<T>)` fills `(Mut List<Int>) -> Int`. A **written**
+override is not — `fill_one_implicit` checks it with `is_subtype`, which
+compares fn parameters invariantly on purpose ("a backend renders a
+parameter's convention from its declared type"). Repro:
+
+```
+fn to_str<T>(x: T) [] -> Str => x { return "?" }
+fn render_row(xs: List<Int>) [] -> Str => xs { return to_str(xs, to_str = to_str@main) }
+fn main() [use] {
+    use StdConsole()
+    let xss = List(List(1, 2), List(3))
+    println(to_str(xss, to_str = render_row))
+    // error: `to_str` does not fit here: expects `(NonEmpty List<Int>) -> Str`,
+    // found `(List<Int>) -> Str`
+}
+```
+
+Not fixed as plain conformance, because the override is not the odd one out:
+**every** function passed by name is checked the same way — `apply(render_row,
+List(1, 2))` with `apply(f: (xs: NonEmpty List<Int>) -> Str, …)` is "no
+matching overload" too — so only resolution is contravariant. The question
+for the user: should a written fn value (an override, and a by-name argument)
+fit contravariantly as a resolved one does? The cost is in the backends: a
+resolved fill is passed through an adapter built from the resolved
+declaration's own parameter modes [implicit-intrinsic], while a written
+value is passed as written, so a `List<Int>` fn where a `Mut List<Int>` is
+expected would need the same adapter on Rust (`&Vec` against `&mut Vec`);
+a difference only in an erased claim (`NonEmpty`) needs none. Options: (a)
+contravariant everywhere a written fn value meets a fn type, with the
+adapter wherever the rendered convention differs; (b) contravariant only in
+erased qualifiers [qual-erasure] (this repro), invariant where the rendering
+differs; (c) leave it, the remedy being a lambda (`to_str = xs ->
+render_row(xs)`). Recommendation: (b) first — it is the case that costs no
+backend work and is the one met so far.
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
@@ -1433,15 +1494,17 @@ log for the round itself).
   send [actor-self-send] and would then mean two things. Recommendation: leave
   it until a real program reads badly — the trigger is narrow enough that the
   evidence may never arrive.
-- **Implicit resolution still resolves by rung**, deliberately: an implicit has no
-  written call site to annotate, and two same-named types have no distinguishing
-  selector at all. If that is to change it needs a spelling first.
 - **The rest of the resolution-by-position rules.** The round covered calls and
-  refinements. A pass over the spec should list every remaining
+  refinements, and implicit resolution followed on 2026-10-14 (it is a call's
+  rule now, COMPLETED.md). A pass over the spec should list every remaining
   resolution-by-position rule and decide each — separating *silent winners* from
   *designed shadowing* (a later `use` shadowing an earlier handler is interception
   semantics [effect-intercept], and a fn-typed local shadowing a name outright is
-  the caller's explicit choice).
+  the caller's explicit choice). Known still to walk the rung ladder, found
+  2026-10-14: **a function passed by name** (defect 0w); a `replyto`/mint's `send fn` target (`free_send_target`); a written
+  identity's fallback when resolution cannot decide (`written_declaration`);
+  and which candidate *leads* the arguments' expected types at a call (the top
+  rung, [fn-overload-rank]'s "lead", a hint only).
 
 ### 6 — Recursive implicit resolution (decided 2026-09-28, not built)
 
@@ -1459,9 +1522,11 @@ larger.
 COMPLETED.md's comptime entry holds the argument):
 
 1. A candidate whose own implicits cannot be filled is **an error naming the
-   chain** (`cmp for (Int, Foo) needs cmp for Foo: none in scope`) unless
-   another candidate resolves fully, in which case that one wins — never a
-   silent non-candidate (SFINAE).
+   chain** (`cmp for (Int, Foo) needs cmp for Foo: none in scope`) — never a
+   silent non-candidate (SFINAE). (The "unless another candidate resolves
+   fully, in which case that one wins" of 2026-09-28 is superseded: since
+   2026-10-14 the candidate is chosen first, by a call's rule, and only its
+   implicits are filled.)
 2. **Depth cap 8**, worded "resolution of `cmp` for `<type>` nests more than 8
    levels deep; pass `cmp = …` explicitly"; a chain that needs itself is refused
    at once as a cycle, with the chain printed.
