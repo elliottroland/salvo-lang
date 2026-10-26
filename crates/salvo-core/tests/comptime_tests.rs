@@ -748,7 +748,7 @@ fn a_stamped_fn_refuses_a_subject_when_over_its_range() {
              return 0\n}}\n"
         )
     };
-    let main = "struct P { x: Int, s: Str }\n\nfn tag(p: P) [] -> Int => p by tags\n";
+    let main = "import tags\n\nstruct P { x: Int, s: Str }\n\nfn tag(p: P) [] -> Int => p by tags\n";
     for (body, what) in [
         ("[when f.type] { is Int {} is Str {} }", "`[when f.type]` cannot be checked here"),
         ("[when f.type] { is Int {} is * {} }", "`[when f.type]` cannot be checked here"),

@@ -666,22 +666,31 @@ an error"): check the inferring minters in dependency order (a minter whose
 initializer names an iterator struct with an inferred field after that
 struct's minter), and report a cycle. Only tests write the inferred form.
 
-### 0s — Open defect: a project module named `auto` breaks std's `by auto` (found 2026-10-20, DECISION)
+### 0s — Open defect: a project module named `auto` breaks std's `by auto` (found 2026-10-20; decided 2026-10-14; parts 1 and 3 done 2026-10-14)
 
-A `by` path is matched against every module path of the program
-[obligation-by], std's own `by` sites included, so a project with a module
-`auto` (`src/auto.sv`) makes every `by auto` in std name two modules. Repro:
-`auto.sv` with `export fn helper() [] -> Int { return 1 }`, `main.sv` with
-`import auto` and a `main` calling it; `salvo analyze` reports
-"`by auto` names 2 modules — `core.auto`, `auto`" at `std/fs/path.sv:13`,
-`std/net.sv:85` and the other std `by auto` sites, and std's stamps fall
-back. The same holds for a project `comptime fn` named like a std `by`
-path. Found by `std_front_expansion_is_project_independent`; the language
-server's std front refuses such a project and expands it whole, so it shows
-exactly what `salvo analyze` shows (PIPELINE.md §8, step 8 piece 2). The
-call is the user's: the likely fix is that a `by` path resolves among the
-modules the stamping file can see (std sees no project module), which would
-also let the front's comptime gate drop its `by`-path half.
+**Decided (user, 2026-10-14):** std is a fixed point the program works
+around. (1) A `by` path — its module reading and its comptime-fn reading —
+names only modules the stamping file can see (its own module, what it
+imports, what is implicitly visible); so std, which sees only std, is
+expanded the same whatever the project. (2) The `std.` prefix (§9's TF-8
+item) is taken next, so the rule is about the `std` namespace: no project
+module can be implicitly visible to std (today a project `core.x` is).
+(3) Diagnostics located in the embedded std are not shown unless the tree is
+`std = true`.
+
+**Done (2026-10-14, COMPLETED.md decision log):** (1) [obligation-by], with
+std's name fallback limited to std's declarations [comptime-instantiate];
+(3) [diag-std-hidden]. The repro (`auto.sv` with `export fn helper() [] ->
+Int { return 1 }`, `main.sv` importing it) analyzes clean, and the std
+front's gate (`StdComptime::admits`) refuses only a project module under
+`core`, the one dependency left: such a module is implicitly visible to std,
+and can still make std's `by auto` name two modules (constructed in
+`errors_in_the_embedded_std_are_one_line`).
+
+**Next: the `std.` prefix (§9 TF-8 item).** It needs the open TF-8 calls
+first (whether `core` becomes `std.core`, the tree's layout). Once no
+project module is implicitly visible to std, "std sees only std" is a rule
+about the `std` namespace and the front's comptime gate can go entirely.
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 

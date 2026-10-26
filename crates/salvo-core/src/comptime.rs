@@ -95,18 +95,11 @@ struct Tables {
 /// [lsp-std-front] The comptime expansion of the embedded std on its own,
 /// kept so a language server can expand a project over std's already
 /// expanded modules ([`expand_comptime_after`]): std's tables as they were
-/// before std was stamped, and what std's stamping asked the world, so
-/// [`StdComptime::admits`] can tell whether a project could have changed a
-/// single answer.
+/// before std was stamped.
 pub struct StdComptime {
     /// How many leading files of a program the std is.
     files: usize,
     tables: std::sync::Arc<Tables>,
-    /// Every name std's stamping looked a declaration up by (struct, `type`,
-    /// group, qualifier, comptime fn), found or not.
-    queried: std::collections::HashSet<String>,
-    /// Every `by` path std's stamping matched module paths against.
-    by_paths: Vec<Vec<String>>,
 }
 
 impl StdComptime {
@@ -116,37 +109,16 @@ impl StdComptime {
     }
 
     /// [lsp-std-front] Whether stamping std inside `files` gives what
-    /// stamping it alone gave: every question std's stamping asks the world
-    /// is keyed by a name or matches a `by` path against module paths, so the
-    /// answers are the same when no file after std (a copy of a std file
-    /// aside, which the expansion skips) declares a struct, `type`, group,
-    /// qualifier or comptime fn under a name std asked about, or has a
-    /// module path a std `by` path matches. A project that fails it is
-    /// expanded whole, as without the front.
-    pub fn admits<M: std::borrow::Borrow<Module>>(&self, files: &[SourceFile], modules: &[M]) -> bool {
-        for idx in self.files..files.len() {
-            if shadow_copy(files, idx) {
-                continue;
-            }
-            let module = &files[idx].module;
-            if self.by_paths.iter().any(|p| module.matches_suffix(&p.iter().map(|s| s.as_str()).collect::<Vec<_>>())) {
-                return false;
-            }
-            for item in &modules[idx].borrow().items {
-                let name = match item {
-                    Item::Fn(f) if f.compfn.is_some() => &f.name.name,
-                    Item::Struct(s) => &s.name.name,
-                    Item::Type(t) => &t.name.name,
-                    Item::Params(g) => &g.name.name,
-                    Item::Qualifier(q) => &q.name.name,
-                    _ => continue,
-                };
-                if self.queried.contains(name) {
-                    return false;
-                }
-            }
-        }
-        true
+    /// stamping it alone gave. std sees only std [obligation-by]: a `by`
+    /// path names only the modules its file can see, and a name std's scope
+    /// does not see falls back to std's declarations alone. What a project
+    /// can still reach std through is a module under `core`, which every
+    /// file sees implicitly (until std's modules take the `std.` prefix,
+    /// ROADMAP 0s): a program with one (a copy of a std file aside, which
+    /// the expansion skips) is expanded whole, as without the front.
+    pub fn admits(&self, files: &[SourceFile]) -> bool {
+        (self.files..files.len())
+            .all(|idx| shadow_copy(files, idx) || files[idx].module.0.first().is_none_or(|s| s != "core"))
     }
 }
 
@@ -180,7 +152,7 @@ fn stamps_anything(module: &Module) -> bool {
 
 /// Runs the expansion. `modules` is aligned with `files`.
 pub fn expand_comptime<M: crate::expand::ModuleSlot>(files: &[SourceFile], modules: &mut [M]) -> ComptimeOutput {
-    run(files, modules, None, false).0
+    run(files, modules, None).0
 }
 
 /// [lsp-std-front] Runs the expansion over a std on its own (`files` is the
@@ -190,12 +162,10 @@ pub fn expand_comptime_prefix<M: crate::expand::ModuleSlot>(
     files: &[SourceFile],
     modules: &mut [M],
 ) -> (ComptimeOutput, StdComptime) {
-    let (out, ran) = run(files, modules, None, true);
+    let (out, tables) = run(files, modules, None);
     let prefix = StdComptime {
         files: files.len(),
-        tables: std::sync::Arc::new(ran.tables),
-        queried: ran.queried.unwrap_or_default(),
-        by_paths: ran.by_paths.unwrap_or_default(),
+        tables: std::sync::Arc::new(tables),
     };
     (out, prefix)
 }
@@ -205,32 +175,24 @@ pub fn expand_comptime_prefix<M: crate::expand::ModuleSlot>(
 /// expanded: the world reads std's tables from the prefix, scopes are
 /// resolved for the later files only, and only the later files are stamped.
 /// The std files' own output (diagnostics, hovers, `[when]` arms) is the
-/// prefix's, not repeated here. Sound when `prefix.admits(files, modules)`.
+/// prefix's, not repeated here. Sound when `prefix.admits(files)`.
 pub fn expand_comptime_after(
     files: &[SourceFile],
     modules: &mut [std::sync::Arc<Module>],
     prefix: &StdComptime,
 ) -> ComptimeOutput {
-    run(files, modules, Some((prefix.tables.clone(), prefix.files)), false).0
-}
-
-/// What a run leaves besides its output: its own tables, and what it was
-/// asked to record.
-struct Ran {
-    tables: Tables,
-    queried: Option<std::collections::HashSet<String>>,
-    by_paths: Option<Vec<Vec<String>>>,
+    run(files, modules, Some((prefix.tables.clone(), prefix.files))).0
 }
 
 /// The expansion: the files from `start` on (every file without a `base`)
 /// are collected into the world's tables, scoped and stamped; `base` holds
-/// the tables of the files before `start`.
+/// the tables of the files before `start`. Returns the run's own tables
+/// beside its output.
 fn run<M: crate::expand::ModuleSlot>(
     files: &[SourceFile],
     modules: &mut [M],
     base: Option<(std::sync::Arc<Tables>, usize)>,
-    record: bool,
-) -> (ComptimeOutput, Ran) {
+) -> (ComptimeOutput, Tables) {
     let mut out = Vec::new();
     let mut hovers: Vec<CompHover> = Vec::new();
     let mut when_arms: Vec<CompWhenArms> = Vec::new();
@@ -292,8 +254,8 @@ fn run<M: crate::expand::ModuleSlot>(
         here: std::cell::Cell::new(0),
         base: base.map(|(tables, _)| tables),
         tables,
-        queried: record.then(Default::default),
-        by_paths: record.then(Default::default),
+        std_here: std::cell::Cell::new(false),
+        std_modules: files.iter().filter(|f| f.is_std).map(|f| f.module.clone()).collect(),
         own: std::cell::RefCell::new(ModulePath(Vec::new())),
         imports: std::cell::RefCell::new(Vec::new()),
         module_paths: files
@@ -312,6 +274,7 @@ fn run<M: crate::expand::ModuleSlot>(
         let module = modules[file_idx].module_mut();
         *world.own.borrow_mut() = file.module.clone();
         world.here.set(file_idx);
+        world.std_here.set(file.is_std);
         *world.imports.borrow_mut() = module
             .items
             .iter()
@@ -574,19 +537,14 @@ fn run<M: crate::expand::ModuleSlot>(
         module.items.extend(generated);
         out.extend(diags.into_iter().map(|d| (file_idx, d)));
     }
-    let World { tables, queried, by_paths, .. } = world;
-    let ran = Ran {
-        tables,
-        queried: queried.map(|q| q.into_inner()),
-        by_paths: by_paths.map(|p| p.into_inner()),
-    };
+    let World { tables, .. } = world;
     (
         ComptimeOutput {
             diagnostics: out,
             hovers,
             when_arms,
         },
-        ran,
+        tables,
     )
 }
 
@@ -1338,6 +1296,9 @@ struct FileNames {
     types: HashMap<String, ModulePath>,
     groups: HashMap<String, ModulePath>,
     quals: HashMap<String, ModulePath>,
+    /// [obligation-by] The modules the file can see (`ModuleScope::modules`):
+    /// what its `by` paths name.
+    modules: Vec<ModulePath>,
 }
 
 /// [comptime-instantiate] [type-identity] Resolves the unstamped program, and
@@ -1383,6 +1344,7 @@ fn scoped_names<M: std::borrow::Borrow<Module>>(files: &[SourceFile], modules: &
                 .iter()
                 .filter_map(|(n, ds)| Some((n.to_string(), of(*ds.first()? as *const QualifierDecl as usize)?)))
                 .collect(),
+            modules: s.modules.iter().map(|m| (*m).clone()).collect(),
         })
         .collect()
 }
@@ -1397,11 +1359,12 @@ struct World {
     /// files come first in the program.
     base: Option<std::sync::Arc<Tables>>,
     tables: Tables,
-    /// [lsp-std-front] When recording (`expand_comptime_prefix`): every name
-    /// a declaration was looked up by, and every `by` path matched against
-    /// the module paths.
-    queried: Option<std::cell::RefCell<std::collections::HashSet<String>>>,
-    by_paths: Option<std::cell::RefCell<Vec<Vec<String>>>>,
+    /// [obligation-by] Whether the file being expanded is std's: std sees
+    /// only std, so a name its scope does not see falls back to std's
+    /// declarations alone.
+    std_here: std::cell::Cell<bool>,
+    /// Every module a std file declares.
+    std_modules: std::collections::HashSet<ModulePath>,
     /// [type-identity] The module being expanded: its own declaration of a
     /// name is the one meant.
     own: std::cell::RefCell<ModulePath>,
@@ -1414,20 +1377,12 @@ struct World {
 }
 
 impl World {
-    /// [lsp-std-front] Records a name a declaration is looked up by.
-    fn ask(&self, name: &str) {
-        if let Some(q) = &self.queried {
-            q.borrow_mut().insert(name.to_string());
-        }
-    }
-
     /// Every declaration of `name` in one of the tables, the base's first.
     fn entries<'s, D>(
         &'s self,
         name: &str,
         table: impl Fn(&'s Tables) -> &'s HashMap<String, Vec<(ModulePath, D)>>,
     ) -> Vec<&'s (ModulePath, D)> {
-        self.ask(name);
         let mut out = Vec::new();
         if let Some(base) = &self.base {
             out.extend(table(base).get(name).into_iter().flatten());
@@ -1444,9 +1399,11 @@ impl World {
         self.entries(name, |t| &t.types)
     }
 
-    /// Whether any file declares a struct or a `type` named `name`.
+    /// Whether any file declares a struct or a `type` named `name` (only a
+    /// std file's, when std is being expanded: std sees only std).
     fn declares_type(&self, name: &str) -> bool {
-        !self.structs_of(name).is_empty() || !self.types_of(name).is_empty()
+        let seen = |m: &ModulePath| !self.std_here.get() || self.std_modules.contains(m);
+        self.structs_of(name).iter().any(|(m, _)| seen(m)) || self.types_of(name).iter().any(|(m, _)| seen(m))
     }
 
     /// Every comptime fn, the base's first.
@@ -1454,11 +1411,25 @@ impl World {
         self.base.iter().flat_map(|b| b.compfns.iter()).chain(self.tables.compfns.iter())
     }
 
+    /// [obligation-by] Whether the file being expanded can see `module`: its
+    /// own, an imported one, or one implicitly visible.
+    fn sees_module(&self, module: &ModulePath) -> bool {
+        self.names_here().is_some_and(|h| h.modules.contains(module))
+    }
+
     /// [type-identity] [comptime-root-visible] Which of a name's
     /// declarations the file being expanded means: its own module's, else
     /// one from a module it imports (the module itself, or the item by
     /// name), else one from `core` (implicitly visible), else the first.
+    /// [obligation-by] A std file considers std's declarations only.
     fn pick_decl<'a, D>(&self, name: &str, all: &[&'a (ModulePath, D)]) -> Option<&'a (ModulePath, D)> {
+        let std_only: Vec<&'a (ModulePath, D)>;
+        let all = if self.std_here.get() {
+            std_only = all.iter().copied().filter(|(m, _)| self.std_modules.contains(m)).collect();
+            &std_only[..]
+        } else {
+            all
+        };
         let own = self.own.borrow();
         if let Some(d) = all.iter().find(|(m, _)| *m == *own) {
             return Some(*d);
@@ -1679,7 +1650,6 @@ impl World {
     /// named directly (the function form).
     /// The module a picked comptime fn lives in, beside it.
     fn compfn_of(&self, decl: &FnDecl) -> Option<&CompFnDecl> {
-        self.ask(&decl.name.name);
         self.compfns()
             .find(|c| std::ptr::eq(&c.decl, decl) || (c.decl.name.span == decl.name.span && c.decl.name.name == decl.name.name))
     }
@@ -1707,27 +1677,25 @@ impl World {
         diags: &mut Vec<Diagnostic>,
     ) -> Option<FnDecl> {
         let path: Vec<&str> = by.path.iter().map(|p| p.name.as_str()).collect();
-        if let Some(paths) = &self.by_paths {
-            paths.borrow_mut().push(path.iter().map(|s| s.to_string()).collect());
-        }
-        self.ask(member);
-        if let [only] = path.as_slice() {
-            self.ask(only);
-        }
         // The module reading: any unambiguous suffix of the path [mod-suffix],
-        // so `by auto` reaches `core.auto` as `size@list` reaches `core.list`.
+        // so `by auto` reaches `core.auto` as `size@list` reaches `core.list`
+        // — among the modules the stamping file can see [obligation-by]: its
+        // own, what it imports, what is implicitly visible. A project module
+        // `auto` is no second candidate for std's `by auto`, nor for a file
+        // that does not import it.
         let modules: Vec<&ModulePath> = self
             .module_paths
             .iter()
-            .filter(|m| m.matches_suffix(&path))
+            .filter(|m| m.matches_suffix(&path) && self.sees_module(m))
             .collect();
         let mut seen = std::collections::HashSet::new();
         let modules: Vec<&ModulePath> = modules.into_iter().filter(|m| seen.insert(m.to_string())).collect();
         // The function reading: a comptime fn of that name, of the target's
-        // kind, in any module — or in the module the `@` selector names.
+        // kind, in a module the file can see — or in the module the `@`
+        // selector names.
         let fn_candidates: Vec<&CompFnDecl> = if path.len() == 1 {
             self.compfns()
-                .filter(|c| c.decl.name.name == path[0])
+                .filter(|c| c.decl.name.name == path[0] && self.sees_module(&c.module))
                 .filter(|c| c.decl.compfn.as_ref().and_then(|c| c.bound.as_ref()).is_some_and(|(k, _)| *k == kind))
                 .filter(|c| match &by.at {
                     Some(ByAt::Fn(sel)) => {
@@ -1778,7 +1746,7 @@ impl World {
             }
             let Some(module) = modules.first() else {
                 diags.push(Diagnostic::error(
-                    format!("`by @{}` names no module [obligation-by]", by.text()),
+                    format!("`by @{}` names no module this file can see{} [obligation-by]", by.text(), self.unseen(&path)),
                     by.span,
                 ));
                 return None;
@@ -1848,13 +1816,40 @@ impl World {
         }
         diags.push(Diagnostic::error(
             format!(
-                "`by {}` names neither a module nor a `comptime fn` — nothing to stamp \
-                 `{member}` from [obligation-by] [fn-by]",
-                by.text()
+                "`by {}` names neither a module nor a `comptime fn` this file can see — \
+                 nothing to stamp `{member}` from{} [obligation-by] [fn-by]",
+                by.text(),
+                self.unseen(&path)
             ),
             by.span,
         ));
         None
+    }
+
+    /// [obligation-by] For a `by` path that names nothing the file can see:
+    /// the imports that would make it name something, as the end of the
+    /// message (empty when there are none).
+    fn unseen(&self, path: &[&str]) -> String {
+        let mut found: Vec<String> = self
+            .module_paths
+            .iter()
+            .filter(|m| m.matches_suffix(path) && !self.sees_module(m))
+            .map(|m| m.to_string())
+            .collect();
+        if let [only] = path {
+            found.extend(
+                self.compfns()
+                    .filter(|c| c.decl.name.name == *only && !self.sees_module(&c.module))
+                    .map(|c| c.module.to_string()),
+            );
+        }
+        found.sort();
+        found.dedup();
+        if found.is_empty() {
+            return String::new();
+        }
+        let imports: Vec<String> = found.iter().map(|m| format!("`import {m}`")).collect();
+        format!("; `{}` is not imported here: add {}", found.join("`, `"), imports.join(" or "))
     }
 
     fn classify(&self, ty: &Type, generics: &[String], depth: u32) -> TypeKindWord {

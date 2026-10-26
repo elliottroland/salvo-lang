@@ -499,16 +499,22 @@ fn analyze(src: Option<PathBuf>, format: Format) -> ExitCode {
     let program = &analysis.program;
     let diagnostics = &analysis.diagnostics;
 
-    let errors = diagnostics.iter().filter(|d| d.is_error()).count();
-    let warnings = diagnostics.len() - errors;
+    // [diag-std-hidden] Errors located in the embedded std are not listed;
+    // one line, counted as one error, says there were some.
+    let std_line = (analysis.std_errors > 0).then(|| salvo_core::diag::std_errors_line(analysis.std_errors));
+    let errors = diagnostics.iter().filter(|d| d.is_error()).count() + usize::from(std_line.is_some());
+    let warnings = diagnostics.iter().filter(|d| !d.is_error()).count();
     match format {
         Format::Text => {
             for diag in diagnostics {
                 eprintln!("{}", diag.render(&program.files));
             }
+            if let Some(line) = &std_line {
+                eprintln!("{line}");
+            }
             let user = program.files.iter().filter(|f| !f.is_std).count();
             let std_count = program.files.len() - user;
-            let status = if diagnostics.is_empty() {
+            let status = if errors + warnings == 0 {
                 "no errors".to_string()
             } else {
                 format!(
@@ -522,7 +528,14 @@ fn analyze(src: Option<PathBuf>, format: Format) -> ExitCode {
                 program.files.len()
             );
         }
-        Format::Json => println!("{}", diagnostics_json(diagnostics, program)),
+        Format::Json => {
+            println!("{}", diagnostics_json(diagnostics, program));
+            // [diag-std-hidden] Not an object of the array: it has no
+            // position to give.
+            if let Some(line) = &std_line {
+                eprintln!("{line}");
+            }
+        }
     }
     if errors > 0 {
         ExitCode::FAILURE
@@ -558,8 +571,8 @@ fn facts_command(src: Option<PathBuf>, module: Option<String>) -> ExitCode {
         }
     };
     print!("{}", salvo_core::facts::dump(&program, &checked, &wanted));
-    for d in checked.errors.iter().filter(|d| d.is_error() && wanted(d.file)) {
-        eprintln!("{}", d.render(&program.files));
+    for line in salvo_core::diag::render_shown(checked.errors.iter().filter(|d| d.is_error() && wanted(d.file)), &program.files) {
+        eprintln!("{line}");
     }
     ExitCode::SUCCESS
 }
@@ -592,9 +605,13 @@ fn ir_command(src: Option<PathBuf>, all: bool, module: Option<String>) -> ExitCo
         .iter()
         .filter(|d| d.is_error() && !analysis.ir_reliant.contains(&(d.file, d.span)))
         .collect();
-    if !blocking.is_empty() {
+    if !blocking.is_empty() || analysis.std_errors > 0 {
         for diag in &blocking {
             eprintln!("{}", diag.render(&program.files));
+        }
+        // [diag-std-hidden]
+        if analysis.std_errors > 0 {
+            eprintln!("{}", salvo_core::diag::std_errors_line(analysis.std_errors));
         }
         return ExitCode::FAILURE;
     }
@@ -786,22 +803,36 @@ fn assemble(
     // which files are test annexes [test-file].
     let mut modules = Vec::with_capacity(sources.files.len());
     let mut error_count = 0usize;
+    // [diag-std-hidden] Errors located in the embedded std are counted, not
+    // shown; one line says there were some.
+    let mut std_errors = 0usize;
     for file in &sources.files {
         let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
+        let hidden = salvo_core::diag::hidden_std_file(file);
         for diag in &diagnostics {
-            eprintln!("{}", diag.render(&file.name, &file.content));
+            if !hidden {
+                eprintln!("{}", diag.render(&file.name, &file.content));
+            }
             if diag.is_error() {
                 error_count += 1;
+                std_errors += usize::from(hidden);
             }
         }
         modules.push(module);
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     for diag in &expansion.diagnostics {
-        eprintln!("{}", diag.render(&sources.files));
+        let hidden = salvo_core::diag::hidden_std_file(&sources.files[diag.file]);
+        if !hidden {
+            eprintln!("{}", diag.render(&sources.files));
+        }
         if diag.is_error() {
             error_count += 1;
+            std_errors += usize::from(hidden);
         }
+    }
+    if std_errors > 0 {
+        eprintln!("{}", salvo_core::diag::std_errors_line(std_errors));
     }
     if error_count > 0 {
         eprintln!(
@@ -898,8 +929,8 @@ fn assemble(
             backends.push(backend.name());
         }
         let missing = salvo_core::platform_root_required(&program, project, &backends);
-        for diag in &missing {
-            eprintln!("{}", diag.render(&program.files));
+        for line in salvo_core::diag::render_shown(&missing, &program.files) {
+            eprintln!("{line}");
         }
         if !missing.is_empty() {
             return Err(ExitCode::FAILURE);

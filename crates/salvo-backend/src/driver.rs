@@ -14,7 +14,8 @@ use salvo_core::{Checked, ModulePath, PlatformEffect, Program, Resolution, Symbo
 /// warnings. Only
 /// *errors* stop emission [diag-structured]; on that path every
 /// diagnostic is rendered, warnings included, so nothing is lost while the
-/// author fixes the errors.
+/// author fixes the errors — except what is located in the embedded std
+/// [diag-std-hidden].
 pub fn check_for_emission(
     program: &Program,
 ) -> Result<(Program, salvo_core::Erased, Checked, Vec<String>), Vec<String>> {
@@ -26,18 +27,16 @@ pub fn check_for_emission(
     // and gate emission like any other error: a program with any error
     // emits nothing, and lists both kinds.
     let ir_diags = salvo_core::ir::analyze::analyze(program, &symbols, &resolution, &checked);
+    // [diag-std-hidden] What is located in the embedded std is not shown;
+    // a hidden error still refuses emission, under one line saying so.
+    let files = &program.files;
     if checked.errors.iter().any(|d| d.is_error()) {
-        return Err(checked.errors.iter().chain(&ir_diags).map(|d| d.render(&program.files)).collect());
+        return Err(salvo_core::diag::render_shown(checked.errors.iter().chain(&ir_diags), files));
     }
     if ir_diags.iter().any(|d| d.is_error()) {
-        return Err(ir_diags.iter().map(|d| d.render(&program.files)).collect());
+        return Err(salvo_core::diag::render_shown(&ir_diags, files));
     }
-    let warnings: Vec<String> = checked
-        .errors
-        .iter()
-        .filter(|d| !d.is_error())
-        .map(|d| d.render(&program.files))
-        .collect();
+    let warnings: Vec<String> = salvo_core::diag::render_shown(checked.errors.iter().filter(|d| !d.is_error()), files);
     let erased = salvo_core::erased_generics(program);
     let erased_program = salvo_core::erase_effect_generics(program, &erased);
     Ok((erased_program, erased, checked, warnings))
@@ -140,12 +139,8 @@ pub fn check_for_skeletons<'p>(
     let resolution = salvo_core::resolve(program);
     let checked = salvo_core::check_program(program, &resolution, &symbols);
     if checked.errors.iter().any(|d| d.is_error()) {
-        return Err(checked
-            .errors
-            .iter()
-            .filter(|d| d.is_error())
-            .map(|d| d.render(&program.files))
-            .collect());
+        // [diag-std-hidden]
+        return Err(salvo_core::diag::render_shown(checked.errors.iter().filter(|d| d.is_error()), &program.files));
     }
     Ok((symbols, resolution, checked))
 }

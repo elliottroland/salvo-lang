@@ -816,14 +816,30 @@ impl Server<'_> {
                     });
                 }
             }
+            // [diag-std-hidden] The analysis left out what is located in the
+            // embedded std; errors there show as one line on the document,
+            // naming no std position.
+            if analysis.std_errors > 0 {
+                if let Some(uri) = self.doc_uris.get(&doc) {
+                    by_uri.entry(uri.clone()).or_default().push(Diagnostic {
+                        range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        message: salvo_core::diag::std_errors_line(analysis.std_errors)
+                            .trim_start_matches("error: ")
+                            .to_string(),
+                        source: Some("salvo".to_string()),
+                        ..Diagnostic::default()
+                    });
+                }
+            }
             for diag in &analysis.diagnostics {
                 let file = &analysis.program.files[diag.file];
                 if file.is_std && !file.is_shadow {
-                    // Embedded std has no on-disk URI; it should be clean.
+                    // Embedded std has no on-disk URI, and its diagnostics
+                    // were dropped from the analysis [diag-std-hidden].
                     // [std-shadow] A shadowing file is on disk — the standard
                     // library being developed — so its diagnostics go to the
                     // editor like any file's.
-                    eprintln!("salvo lsp: diagnostic in std: {}", diag.message);
                     continue;
                 }
                 // Open documents keep the URI the client opened them under

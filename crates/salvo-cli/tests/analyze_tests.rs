@@ -100,6 +100,36 @@ fn json_output_is_empty_array_for_clean_program() {
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[]");
 }
 
+// [diag-std-hidden] A program whose only errors are located in the embedded
+// std: a project module under `core` (implicitly visible to std, until the
+// `std.` prefix) makes std's own `by auto` sites name two modules. Neither
+// `analyze` nor a build lists a std position; each says so in one line and
+// fails.
+#[test]
+fn errors_in_the_embedded_std_are_one_line() {
+    let dir = src_dir("std_hidden");
+    fs::create_dir_all(dir.join("core/extra")).unwrap();
+    fs::write(dir.join("core/extra/auto.sv"), "export fn helper() [] -> Int {\n    return 1\n}\n").unwrap();
+    fs::write(dir.join("main.sv"), "fn main() [] {\n    let _x = helper()\n}\n").unwrap();
+    let line = "the standard library does not check with this program";
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "stderr: {stderr}");
+    assert!(stderr.contains(line), "stderr: {stderr}");
+    assert!(!stderr.contains("--> std/"), "a std position was shown: {stderr}");
+    assert!(stderr.contains("1 error, 0 warnings"), "stderr: {stderr}");
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap(), "--format", "json"]);
+    assert!(!out.status.success());
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[]");
+    assert!(String::from_utf8_lossy(&out.stderr).contains(line));
+    let target = dir.with_file_name("analyze_std_hidden_out");
+    let out = salvo(&["compile", "--backend", "rust", "--src", dir.to_str().unwrap(), "--target", target.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "stderr: {stderr}");
+    assert!(stderr.contains(line), "stderr: {stderr}");
+    assert!(!stderr.contains("--> std/"), "a std position was shown: {stderr}");
+}
+
 // Parse errors are reported with location; exit is nonzero.
 #[test]
 fn parse_errors_are_reported() {

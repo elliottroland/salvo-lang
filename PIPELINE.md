@@ -1841,3 +1841,23 @@ log current so the work can resume after a context reset). Newest last.
   - **Step 8 is complete as re-scoped.** Every step of §7 is built. Open:
     R8's leftovers (the user's call, §8 piece 9), comptime step B (waits on
     ROADMAP §2c's DECISION), ROADMAP 0r, and the costs above.
+- **After step 8 (user, 2026-10-14): the doc stays open** as the working
+  doc while ROADMAP 0s and R8's leftovers are dealt with. 0s first, decided:
+  a `by` path names only modules the stamping file can see; std's
+  diagnostics are hidden unless `std = true`; then the `std.` prefix (TF-8),
+  so that "std sees only std" is a rule about the `std` namespace and the
+  std front's comptime gate can go entirely. Piece 0s-1 (visibility-limited
+  `by`, hidden std diagnostics) is next; the prefix needs the open TF-8
+  calls first (whether `core` becomes `std.core`, the tree's layout).
+- **0s, piece 1: done** (committed "Let a by clause name only the modules
+  its file can see"). Built: the resolver records each file's visible
+  modules (`ModuleScope::modules`); a `by` path's module and comptime-fn
+  readings consider only those [obligation-by]; a std file's name fallback
+  considers std's declarations only; `StdComptime::admits` refuses only a
+  project module under `core` and is asked before parsing (the queried-name
+  and `by`-path bookkeeping and the std reparse are gone); diagnostics
+  located in the embedded std are hidden from analyze, the language server
+  and every build path, with one unattributed line when hidden errors remain
+  [diag-std-hidden]. The repro analyzes clean and passes the front's gate.
+  Left: the `std.` prefix (TF-8), after which the gate can go; it needs the
+  open TF-8 calls first.

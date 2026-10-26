@@ -151,6 +151,12 @@ pub struct ModuleScope<'p> {
     /// imports record the alias). Drives module reachability
     /// [mod-used-only] and generated backend imports.
     pub name_origins: HashMap<&'p str, Vec<&'p ModulePath>>,
+    /// [obligation-by] Every module this file can see: its own, `core.*`, a
+    /// test annex's tested module and implicit ones, and each import's
+    /// (whole or by item) — every module whose declarations the scope took
+    /// in, whether or not any name of it survived. A `by` path names only
+    /// these.
+    pub modules: Vec<&'p ModulePath>,
     /// Visible name -> where its declaration's identifier is written
     /// [lsp-definition]. Non-fn declarations and effect members; fns are
     /// resolved through the checker's `fn_refs` (overload-precise).
@@ -1531,6 +1537,9 @@ fn add_items<'p>(
     import_span: Option<Span>,
     ctx: &mut AddCtx<'_, 'p>,
 ) {
+    if !scope.modules.contains(&module) {
+        scope.modules.push(module);
+    }
     // An unaliased import of a namespace struct also brings its dot-named
     // members: `import a.b.Environment` makes `Environment.Id` visible
     // [name-dot-import]. Aliased imports rename exactly one name, so

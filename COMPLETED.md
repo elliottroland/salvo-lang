@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2049 tests, complete: the toolchain tests are
+cargo test                  # 2052 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,73 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-14 — A `by` clause names only the modules its file can see
+
+ROADMAP 0s, piece 1; user decisions 2026-10-14 ("std is a fixed point the
+program works around"). A project module `auto` made every `by auto` in std
+name two modules (`core.auto`, `auto`): std's stamps fell back and
+`salvo analyze` listed the ambiguity at `std/fs/path.sv:13`, `std/net.sv:85`
+and every other std site. The language server's std front refused such a
+project, so it showed the same.
+
+- **Visibility** [obligation-by]. The resolver records, per file, every
+  module whose declarations it added to the scope (`ModuleScope::modules`:
+  the own module, `core.*`, a test annex's tested module and `test`/`throw`,
+  each import whole or by item); the comptime expansion keeps it in
+  `FileNames`. A `by` path's module reading matches suffixes [mod-suffix]
+  among those modules only, and its comptime-fn reading considers only
+  comptime fns declared in them. The ambiguity diagnostics are unchanged and
+  fire only for a clash the file can see: a project file importing its own
+  `auto` and writing `by auto` is still told "names 2 modules", and `by
+  core.auto` settles it. A path that names nothing visible but would name an
+  unimported module or comptime fn says which import to add.
+- **std sees only std.** In a std file, `pick_decl`'s fallback ladder (a
+  name the scope does not see, [comptime-hygiene]) considers std's
+  declarations only, as does the root test of an expanded-in-place fn. What
+  a project can still reach std's expansion through is a module under
+  `core`, implicitly visible until the `std.` prefix (next).
+- **The std front's gate** [lsp-std-front] shrank to that: `admits` refuses
+  only a program with a project module under `core` (a shadow copy aside).
+  The queried-name and `by`-path bookkeeping is gone, and the gate is asked
+  before anything is parsed, so the refused path no longer parses the
+  project's files and then std again. (Deviation, deliberate: a `std = true`
+  tree's own `core.*` files are refused too, not only non-std ones; a std
+  tree never reaches this gate anyway, since `std_front_applies` turns it
+  away, and refusing is the sound side.)
+- **std's diagnostics are hidden** [diag-std-hidden]: a diagnostic located
+  in an embedded std file (`is_std && !is_shadow`) is dropped from
+  `salvo analyze`, the language server's `Analysis::diagnostics`, the
+  compile, run, test and build paths (`check_for_emission`,
+  `check_for_skeletons`, the CLI's parse and expansion report), `salvo ir`,
+  `salvo facts` and the platform-root check. A `std = true` tree's files are
+  `is_shadow`, so they keep theirs. **The one deviation from "hide"**,
+  chosen so a build never fails silently: when hidden errors remain, one
+  line naming no std position says so — "error: the standard library does
+  not check with this program (N errors in std; this is a compiler bug)".
+  `analyze` counts it as one error (stderr in JSON mode), the language
+  server shows it at the start of the document analysed.
+- **What it broke.** Two tests: `a_by_name_that_is_both_a_module_and_a_fn_is_ambiguous`
+  wrote `by tag` without importing module `tag` (it gets `import tag`, and
+  now also shows that without the import `by tag` is the fn), and
+  `a_stamped_fn_refuses_a_subject_when_over_its_range` stamped `by tags`
+  without importing it. No example, corpus file, std file or other inline
+  program relied on an unimported `by` module; two doc snippets
+  (Compile-Time-Functions.md: `by decode`, "your own module") now show the
+  import.
+- **Tests.** `a_by_path_names_only_the_modules_its_file_can_see`
+  (compare_tests), `std_diagnostics_are_hidden_unless_the_tree_is_std`
+  (`diag.rs`), `errors_in_the_embedded_std_are_one_line` (analyze_tests: a
+  project module `core.extra.auto` makes std's `by auto` ambiguous, so the
+  only errors are std's; `analyze` text and JSON, and `compile`), and
+  `std_front_expansion_is_project_independent` /
+  `std_front_matches_an_analysis_without_it` over the repro (module `auto`),
+  a project `comptime fn auto` (both admitted, std expanded alike) and the
+  `core.extra.auto` program (refused).
+
+Left open (ROADMAP 0s): the `std.` prefix (§9 TF-8), after which no project
+module is implicitly visible to std and the front's comptime gate can go.
+2052 tests.
 
 ### 2026-10-20 — Step 8 ends at the per-file level
 
@@ -29308,7 +29375,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2049 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2052 under `cargo test` on 2026-10-14; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -30583,6 +30650,14 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A name lookup "by name" leaks across programs** (2026-10-14, ROADMAP
+  0s). A `by` path matched against every module of the program let a
+  project's file names decide std's expansion; the std front's gate then had
+  to record every name std asked about to stay sound. Asking only what the
+  file can see (`ModuleScope::modules`) removed the leak and the
+  bookkeeping together. When a lookup is not through a scope, ask whose
+  declarations it can reach.
 
 - **A file's rows can hold another file's positions** (2026-10-20, step 8
   piece 3). Three writers keyed rows by the walking file and the declaring

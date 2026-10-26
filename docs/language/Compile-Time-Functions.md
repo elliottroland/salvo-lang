@@ -36,6 +36,15 @@ shows what it stamps, from where. A struct with
 no clause has no `cmp` and cannot be compared, and one with no `to_str` does
 not interpolate.
 
+**`X` names only what the file can see**: its own module, the modules it
+imports (whole, or an item of them), and what is implicitly visible (`core`,
+and in a test file the module it tests). A derive module of your own is
+imported like any other — `import derive` beside `by derive` — and a module
+you do not import is no reading of a `by` at all, so a project module that
+happens to be called `auto` does not touch the standard library's `by auto`,
+nor a file of yours that does not import it. A file that does import it has
+two `auto`s in sight and is told so; `by core.auto` settles it.
+
 The clause works on a **named union** too, written after the alias:
 
 ```
@@ -69,6 +78,8 @@ A clause names its type itself, so its members need not take one. A decoder
 returns the type and takes something else:
 
 ```
+import decode
+
 params FromStrs<T> {
     fn from_strs(args: List<Str>) -> T
 }
@@ -639,7 +650,7 @@ with it.
 
 `core.auto` is not special. A module of your own holding `comptime fn cmp<struct
 T>(…)`, `eq` and `hash` — comparing an `id` field only, say — is reached by
-`by ids`, for every entity in a program. A comptime fn is like an `intrinsic fn` in
+`import ids` and `by ids`, for every entity in a program. A comptime fn is like an `intrinsic fn` in
 what it writes down (its effect list, deductions and return type), and one that
 a `params` member is fulfilled by must be effect-free, since an implicit
 parameter may resolve to it.

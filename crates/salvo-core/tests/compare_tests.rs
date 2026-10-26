@@ -1598,7 +1598,9 @@ struct Reading : Ordered<self> {
 /// [obligation-by] A name that is both a module and a `comptime fn` is refused
 /// as ambiguous rather than defaulted, and each reading has a spelling: `by
 /// @tag` for the module (a module stands right of `@`), `by tag@<module>` for
-/// the function (user decisions 2026-09-29).
+/// the function (user decisions 2026-09-29). Only a module the file can see is
+/// a reading at all (user decision 2026-10-14): without `import tag` the
+/// module is not one, and `by tag` is the fn.
 #[test]
 fn a_by_name_that_is_both_a_module_and_a_fn_is_ambiguous() {
     let files: &[(&str, &str)] = &[
@@ -1613,6 +1615,8 @@ export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {
         (
             "main.sv",
             r#"
+import tag
+
 comptime fn tag<T is Struct>(a: T, b: T) [] -> Int => a, b {
     return 1
 }
@@ -1639,6 +1643,34 @@ struct P : Tagged<self> by tag {
     assert!(module_form.is_empty(), "unexpected errors: {module_form:?} for {module_src}");
     let fn_form = errors_in(&[files[0], ("main.sv", &files[1].1.replace("by tag {", "by tag@main {"))]);
     assert!(fn_form.is_empty(), "unexpected errors: {fn_form:?}");
+    // Not imported, the module is no reading: `by tag` is the fn.
+    let unimported = errors_in(&[files[0], ("main.sv", &files[1].1.replace("import tag\n", ""))]);
+    assert!(unimported.is_empty(), "unexpected errors: {unimported:?}");
+}
+
+/// [obligation-by] [mod-suffix] A `by` path names only the modules its file
+/// can see (user decision 2026-10-14, ROADMAP 0s): a project module `auto` is
+/// no second reading of `by auto` in a file that does not import it — std's
+/// own sites included — and is one in a file that does, where more of the
+/// path settles it.
+#[test]
+fn a_by_path_names_only_the_modules_its_file_can_see() {
+    let auto = ("auto.sv", "export fn helper() [] -> Int {\n    return 1\n}\n");
+    let point = "struct P : Ordered<self> by auto {\n    x: Int\n}\n";
+    let alone = errors_in(&[auto, ("main.sv", point)]);
+    assert!(alone.is_empty(), "`auto` is not imported here: {alone:?}");
+    let imported = format!("import auto\n\n{point}\nfn main() [] {{\n    let x = helper()\n}}\n");
+    let errs = errors_in(&[auto, ("main.sv", &imported)]);
+    assert!(
+        errs.iter().any(|e| e.contains("`by auto` names 2 modules") && e.contains("`core.auto`") && e.contains("`auto`")),
+        "the file's own ambiguity: {errs:?}"
+    );
+    let settled = errors_in(&[auto, ("main.sv", &imported.replace("by auto", "by core.auto"))]);
+    assert!(settled.is_empty(), "`by core.auto` settles it: {settled:?}");
+    // A module the file does not see is named in the help, with the import.
+    let derive = ("derive.sv", "export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {\n    return 0\n}\n");
+    let errs = errors_in(&[derive, ("main.sv", "struct P : Ordered<self> by derive {\n    x: Int\n}\n")]);
+    assert!(errs.iter().any(|e| e.contains("add `import derive`")), "{errs:?}");
 }
 
 // ===== [obligation-by] obligations on an `intrinsic type` (GB Step 0) =====

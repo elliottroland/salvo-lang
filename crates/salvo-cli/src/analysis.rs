@@ -108,8 +108,13 @@ pub struct Analysis {
     pub project: Option<salvo_core::Project>,
     pub program: Program,
     /// Parse + resolution + type diagnostics [diag-structured], in file
-    /// order (checker diagnostics after parse diagnostics).
+    /// order (checker diagnostics after parse diagnostics). [diag-std-hidden]
+    /// None located in the embedded std: those are counted in `std_errors`.
     pub diagnostics: Vec<FileDiagnostic>,
+    /// [diag-std-hidden] How many errors located in the embedded std were
+    /// dropped from `diagnostics`: a nonzero count is shown as one line
+    /// (`salvo_core::diag::std_errors_line`), and fails the analysis.
+    pub std_errors: usize,
     /// Checker side tables (for hover etc.). Checking always runs, even
     /// with parse errors: broken files participate with their recovered
     /// ASTs but contribute no resolution/checker diagnostics of their own
@@ -268,8 +273,8 @@ pub fn build_std_front(native_ext: &str) -> StdFront {
 /// `files`: they are exactly the embedded std it was built from (names,
 /// modules and contents), unshadowed, and nothing after them is std except
 /// a shadowing file — so not a `std = true` project, whose files are all
-/// std. The comptime half of the gate (`StdComptime::admits`) needs the
-/// project parsed, and is asked after.
+/// std. The comptime half of the gate (`StdComptime::admits`, no project
+/// module under `core`) is asked beside it.
 fn std_front_applies(files: &[salvo_core::SourceFile], front: &StdFront) -> bool {
     let n = front.files.len();
     n <= files.len()
@@ -331,6 +336,7 @@ pub fn analyze_std() -> Analysis {
         project: None,
         program,
         diagnostics: Vec::new(),
+        std_errors: 0,
         checked: Some(checked),
         io_errors: Vec::new(),
         overloads,
@@ -475,7 +481,9 @@ fn analyze_project_with(
     let mut diagnostics: Vec<FileDiagnostic> = Vec::new();
     let mut ir_reliant: std::collections::HashSet<(usize, salvo_syntax::Span)> = std::collections::HashSet::new();
     let mut live: std::collections::HashSet<u64> = std::collections::HashSet::new();
-    let front = std_front.filter(|front| front_half && std_front_applies(&sources.files, front));
+    let front = std_front.filter(|front| {
+        front_half && std_front_applies(&sources.files, front) && front.comptime.admits(&sources.files)
+    });
     let t = salvo_core::timing::phase("parse");
     let mut parse = |idx: usize, cache: &mut Option<&mut ParseCache>, diagnostics: &mut Vec<FileDiagnostic>| {
         let file = &sources.files[idx];
@@ -507,16 +515,6 @@ fn analyze_project_with(
         let (module, tests) = parse(idx, &mut cache, &mut project_diagnostics);
         modules.push(module);
         per_file_tests.push(tests);
-    }
-    // [lsp-std-front] The comptime half of the gate: a project declaring a
-    // name std's stamping asked about is expanded whole, std reparsed.
-    let front = front.filter(|front| front.comptime.admits(&sources.files, &modules));
-    if front.is_none() && first > 0 {
-        for idx in 0..first {
-            let (module, tests) = parse(idx, &mut cache, &mut diagnostics);
-            modules[idx] = module;
-            per_file_tests[idx] = tests;
-        }
     }
     diagnostics.append(&mut project_diagnostics);
     if let Some(cache) = cache {
@@ -620,12 +618,15 @@ fn analyze_project_with(
         diagnostics.extend(salvo_core::platform_root_required(&program, project.as_ref(), &backends));
         (Some(checked), overloads, completions, type_completions)
     };
+    // [diag-std-hidden] What is located in the embedded std is not shown.
+    let std_errors = salvo_core::diag::hide_std_diagnostics(&mut diagnostics, &program.files);
 
     Ok(Analysis {
         root,
         project,
         program,
         diagnostics,
+        std_errors,
         checked,
         io_errors,
         overloads,
@@ -1083,8 +1084,10 @@ mod tests {
     /// [lsp-std-front] The programs the front's soundness tests run over:
     /// every example, and a few written here for what the examples lack — a
     /// project of several modules with its own `by auto` and comptime fns and
-    /// errors in both, and one whose module path a std `by` path matches
-    /// (`auto`), which the comptime gate must refuse.
+    /// errors in both; a project module `auto` and a project `comptime fn
+    /// auto`, which std's `by auto` must not see; and a project module under
+    /// `core` that std's `by auto` does see, which the comptime gate must
+    /// refuse.
     fn front_programs() -> Vec<(PathBuf, bool)> {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut out: Vec<(PathBuf, bool)> = Vec::new();
@@ -1102,7 +1105,9 @@ mod tests {
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(&root).unwrap();
             for (file, text) in files {
-                std::fs::write(root.join(file), text).unwrap();
+                let path = root.join(file);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, text).unwrap();
             }
             root
         };
@@ -1126,6 +1131,9 @@ mod tests {
             ),
             true,
         ));
+        // [obligation-by] std sees only std: a project module `auto`, and a
+        // project `comptime fn auto`, are no second reading of std's `by
+        // auto` (ROADMAP 0s), so std expands alike and the front stands in.
         out.push((
             scratch(
                 "auto_module",
@@ -1133,6 +1141,29 @@ mod tests {
                     ("auto.sv", "export fn helper() [] -> Int {\n    return 1\n}\n"),
                     ("main.sv", "import auto\n\nfn main() [] {\n    let x = helper()\n}\n"),
                 ],
+            ),
+            true,
+        ));
+        out.push((
+            scratch(
+                "auto_fn",
+                &[
+                    (
+                        "derive.sv",
+                        "export comptime fn auto<T is Struct>(value: T) [] -> Int => value {\n    return 0\n}\n",
+                    ),
+                    ("main.sv", "import derive\n\nfn main() [] {\n    let x = 1\n}\n"),
+                ],
+            ),
+            true,
+        ));
+        // What a project can still reach std through: a module under `core`,
+        // which std sees implicitly (until the `std.` prefix). Here it makes
+        // std's own `by auto` name two modules, so the gate must refuse it.
+        out.push((
+            scratch(
+                "core_module",
+                &[("core/extra/auto.sv", "export fn helper() [] -> Int {\n    return 1\n}\n"), ("main.sv", "fn main() [] {\n    let x = helper()\n}\n")],
             ),
             false,
         ));
@@ -1174,8 +1205,9 @@ mod tests {
                     );
                 }
             } else {
-                // The gate's reason to exist: a project module `auto` makes
-                // std's own `by auto` sites name two modules.
+                // The gate's reason to exist: a project module under `core`
+                // (here `core.extra.auto`) makes std's own `by auto` sites
+                // name two modules.
                 assert!(
                     same.iter().any(|s| !s),
                     "{}: the gate refuses this program, but std expanded alike in it",

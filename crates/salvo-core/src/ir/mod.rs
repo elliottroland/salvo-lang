@@ -33,9 +33,9 @@ pub fn dump_program(
     let checked = crate::check_program(program, &resolution, &symbols);
     if checked.errors.iter().any(|d| d.is_error()) {
         // [ir-analyze] With the IR's diagnostics on the declarations the
-        // errors leave clean, as a build lists them.
+        // errors leave clean, as a build lists them. [diag-std-hidden]
         let ir = analyze::analyze(program, &symbols, &resolution, &checked);
-        return Err(checked.errors.iter().chain(&ir).map(|d| d.render(&program.files)).collect());
+        return Err(crate::diag::render_shown(checked.errors.iter().chain(&ir), &program.files));
     }
     let reachable = crate::reachable_modules(program, &resolution, &checked);
     let wanted: std::collections::HashSet<&crate::ModulePath> = program

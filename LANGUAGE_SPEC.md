@@ -4887,6 +4887,21 @@ Conventions:
   **declared on the type** [fn-attached]: it travels with it, `cmp@Point`
   names it, `?cmp` resolves to it by default, and it carries the type's own
   `export`.
+  * **`X` names only what the stamping file can see** (user decision
+    2026-10-14, ROADMAP 0s): both readings consider the modules visible from
+    the file the clause is written in — its own module, the modules it
+    imports (whole, or an item of them), and the implicitly visible ones
+    (`core.*`; in a test annex the tested module and `test`/`throw`) — and
+    the comptime fns declared in them. A module the file does not see is no
+    candidate, so a project module `auto` is no second reading of std's own
+    `by auto` (std sees only std; it reported "`by auto` names 2 modules" at
+    every std site before) nor of a project file that does not import it. A
+    file that imports it has its own ambiguity, reported as before; `by
+    core.auto` settles it. A path that names nothing visible but would name
+    an unimported module or comptime fn says which import to add.
+    `ModuleScope::modules` (every module whose declarations the resolver
+    added to the file's scope) is the set; the expansion keeps it per file
+    (`FileNames::modules`).
   * **Nothing applies on its own.** A struct with no `cmp` cannot be compared,
     and a struct with no `to_str` does not interpolate; the clause is the one
     line that opts in, and the diagnostic at a bare `${p}` names it.
@@ -5433,7 +5448,13 @@ Conventions:
     stamps the declaration it is written on and the group its own file sees.
     A name the file does not see falls back to the old program-wide ladder
     (own module, an imported one, `core`, the first), which a template's own
-    names still need [comptime-hygiene].
+    names still need [comptime-hygiene]. **In a std file the ladder considers
+    std's declarations only** (user decision 2026-10-14, ROADMAP 0s): std
+    sees only std, so a project declaration never fills a gap in std's
+    expansion. (So does the test for which names an expanded-in-place fn's
+    roots are.) What a project can still reach std through is a module under
+    `core`, implicitly visible to std until std's modules take the `std.`
+    prefix.
   * **Spans**: every node of a stamped body is given a synthetic span **past
     the end of the file**, one fresh region per unrolled copy, so the checker's
     span-keyed side tables never see two copies as one node. The `Stamp` on
@@ -9968,7 +9989,8 @@ between endpoints and delivers what arrives into the scheduler.
     std module's path, the copy is skipped [std-shadow].
   * `ModulePath::matches_suffix` / `text_matches_suffix` in `salvo-core` are
     the one predicate; the selector sites in the checker and the comptime
-    expansion read it.
+    expansion read it. A `by` path matches among the modules its file can see
+    only [obligation-by] (2026-10-14).
 * [mod-std-internal] **`runtime` is std's own module** (2026-10-02; user
   decisions of 2026-10-01, runtime E8): `std/runtime.sv`, and any
   module under `std/runtime/`, may be imported by std's files and by no
@@ -11726,7 +11748,7 @@ replaced the working document TESTING.md).
 * [cli-analyze] `salvo analyze [--src DIR] [--format text|json]` (`--src` from the manifest when omitted [manifest])
   runs the front half of the pipeline — parse,
   resolve, type-check — and reports every diagnostic without generating
-  code. Exit code is nonzero iff any diagnostic is an error.
+  code (std's aside [diag-std-hidden]). Exit code is nonzero iff any diagnostic is an error.
   * Analysis is **unconditionally** backend-neutral: nothing
     backend-specific remains to load, so there is no `--backend` option.
   * Resolve/check always run, even with parse errors — a broken file
@@ -11754,6 +11776,30 @@ replaced the working document TESTING.md).
     (`salvo_core::timing`; 2026-10-20, PIPELINE.md step 1).
     `tools/lsp-timing.py` drives the language server through a few edits
     and prints the same timings for each edit's analysis.
+* [diag-std-hidden] **Diagnostics located in the embedded standard library
+  are not shown** (user decision 2026-10-14, ROADMAP 0s): std is a fixed
+  point the program works around, so a std position is never the program's
+  to fix. A diagnostic in an embedded std file (`is_std && !is_shadow`) is
+  dropped from what `salvo analyze`, the language server
+  (`Analysis::diagnostics`) and the compile, run, test, build, `ir`, `facts`
+  and platform paths show (`salvo_backend::driver::check_for_emission`,
+  `check_for_skeletons`, `ir::dump_program`, the CLI's parse and expansion
+  report). A `std = true` tree's files are `is_shadow` (`mark_std_tree`, and
+  a shadowing file [std-shadow]), so the standard library being developed
+  shows its own.
+  * **The one deviation from "hide"**: a hidden *error* still refuses
+    emission and fails `analyze`, and so a build never fails silently, one
+    line not attributed to a std position says so — "error: the standard
+    library does not check with this program (N errors in std; this is a
+    compiler bug)" (`salvo_core::diag::std_errors_line`). `analyze` counts it
+    as one error (in JSON mode it goes to stderr, beside an array without
+    it); the language server shows it at the start of the document analysed.
+    Hidden warnings say nothing.
+  * One construction reaches it today: a project module under `core`, which
+    std sees implicitly (until the `std.` prefix), can make std's `by auto`
+    name two modules (`errors_in_the_embedded_std_are_one_line`).
+  * `salvo_core::diag::{hidden_std_file, hide_std_diagnostics,
+    render_shown}` are the one filter.
 * [cli-run] `salvo run [--backend NAME|*] [--src DIR] [--main FILE]
   [--target DIR] [--clean-target before|both]` (backend, src and main from the
   manifest when omitted [manifest]) compiles and then runs the
@@ -12042,12 +12088,17 @@ replaced the working document TESTING.md).
   the files after std are parsed and comptime-expanded: the world reads
   std's tables as they were before std was stamped, scopes are built for the
   stamped files only, and std's own expansion output (diagnostics, hovers,
-  `[when]` arms) is the front's. The comptime gate: std's stamping asks the
-  world only by name or by matching a `by` path against module paths, so the
-  front stands in unless a later file declares a struct, `type`, group,
-  qualifier or comptime fn under a name std asked about, or has a module path
-  a std `by` path matches (a project module `auto` makes std's `by auto`
-  sites name two modules); such a program is expanded whole, std reparsed.
+  `[when]` arms) is the front's. The comptime gate: std sees only std
+  [obligation-by] [comptime-instantiate] — a `by` path names only the modules
+  its file can see, and a name std's scope does not see falls back to std's
+  declarations alone — so the one way a project reaches std's expansion is a
+  module under `core`, which std sees implicitly. A program with a project
+  module under `core` (`StdComptime::admits`) is expanded whole, std
+  reparsed; asked with the rest of the gate, before anything is parsed.
+  (Until 2026-10-14 the gate recorded every name std's stamping asked about
+  and every `by` path it matched, and refused a project declaring one or
+  having a module path one matched — a project module `auto` was refused,
+  and std expanded with errors inside it.)
   With std's modules shared, `check_once` takes std's written keys from the
   cache and computes the project's, merging the by-span keys as gathering
   them together would. An analysis through the front reports what one
