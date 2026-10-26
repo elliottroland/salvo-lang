@@ -7,25 +7,61 @@ use std::process::Command;
 
 use salvo_core::{Program, SourceSet};
 
+/// std, read and parsed once per test binary: hundreds of tests build a
+/// program over it, and reading the tree (~90ms: a manifest, a directory
+/// walk, ~230 files) and parsing it cost more than many of the tests. A
+/// parse is a pure function of the text, and the parsed modules are shared
+/// as every driver shares them (`Arc`s an expansion copies before it
+/// rewrites one).
+struct StdFront {
+    files: Vec<salvo_core::source::SourceFile>,
+    companions: Vec<salvo_core::source::CompanionFile>,
+    modules: Vec<std::sync::Arc<salvo_syntax::ast::Module>>,
+}
+
+fn std_front() -> &'static StdFront {
+    static STD: std::sync::OnceLock<StdFront> = std::sync::OnceLock::new();
+    STD.get_or_init(|| {
+        let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
+        let mut sources = SourceSet::default();
+        let errors = sources.add_dir(&std_dir, "rs", true, false);
+        assert!(errors.is_empty(), "failed to read std: {errors:?}");
+        let mut modules = Vec::new();
+        for file in &sources.files {
+            modules.push(parse_or_panic(file));
+        }
+        StdFront {
+            files: sources.files,
+            companions: sources.companions,
+            modules: Program::share(modules),
+        }
+    })
+}
+
+fn parse_or_panic(file: &salvo_core::source::SourceFile) -> salvo_syntax::ast::Module {
+    let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(
+        errors.is_empty(),
+        "parse errors in {}: {errors:?}",
+        file.name
+    );
+    module
+}
+
 fn build_program(extra: &[(&str, &str)]) -> Program {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "rs", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
+    let std = std_front();
+    let mut sources = SourceSet {
+        files: std.files.clone(),
+        companions: std.companions.clone(),
+        ..Default::default()
+    };
+    let mut modules = std.modules.clone();
     for (name, content) in extra {
         let module = SourceSet::classify(Path::new(name)).unwrap();
         sources.add(*name, module, content.to_string(), false);
-    }
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-        assert!(
-            errors.is_empty(),
-            "parse errors in {}: {errors:?}",
-            file.name
-        );
-        modules.push(module);
+        let file = sources.files.last().unwrap();
+        modules.push(std::sync::Arc::new(parse_or_panic(file)));
     }
     // The drivers' pre-resolution expansions [route-stub] — what `salvo
     // compile` runs before checking.
@@ -34,7 +70,7 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
     assert!(errors.is_empty(), "expansion errors: {errors:?}");
     Program {
         files: sources.files,
-        modules: Program::share(modules),
+        modules,
         companions: sources.companions,
     }
 }

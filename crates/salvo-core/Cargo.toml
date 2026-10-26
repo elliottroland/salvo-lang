@@ -18,3 +18,4 @@ serde = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+salvo-testkit = { workspace = true }

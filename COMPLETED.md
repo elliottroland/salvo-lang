@@ -63,13 +63,14 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 cargo build                 # workspace build, no warnings
 cargo test                  # 2061 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
-                            # recompiled — ~15s warm, minutes cold
+                            # recompiled — ~86s warm (2026-10-14; budget ~15s,
+                            # ROADMAP §0h), minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
                             # FULL: every test, nothing taken from the cache
-                            # (~1m40), with per-test timings; the pre-commit /
+                            # (~6m20), with per-test timings; the pre-commit /
                             # handover check (fall back to `cargo test` if
                             # nextest is not installed)
-SALVO_SKIP_E2E=1 cargo test # inner loop: ~13s, by skipping every test that shells
+SALVO_SKIP_E2E=1 cargo test # inner loop: ~75s, by skipping every test that shells
                             # out to kotlinc/rustc. Those tests still report as
                             # *passing*, so this is never the pre-submit check.
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -139,6 +140,54 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-14 — The corpus codegen tests are stamped
+
+Engineering, no user decision. A warm `cargo test` had grown to ~2m36 (warm
+nextest ~2m18) against the ~15s budget. Measured with nextest's per-test
+timings, `salvo-core`'s `every_kotlin_codegen_program_builds` and
+`every_rust_codegen_program_builds` were 63s and 70s of it, the same warm or
+cold: they run no toolchain, so nothing stamped them. Each reads every
+`const NAME: &str = r#"…"#` program out of a backend's `codegen_tests.rs`
+(195 and 221), and for each one, in one serial loop, read and parsed std
+from disk, expanded, checked, and built the IR (193 and 217 build; the rest
+are programs their tests expect refused). Per program ~0.25s: check ~60%,
+read + parse + expand ~30% (`add_dir` over `lib/` alone ~95ms), IR ~5%.
+
+What changed:
+
+- **Stamps** (`corpus_tests.rs`). A program's outcome is a pure function of
+  its text, std's files and the compiler, and the compiler is the test
+  binary, so each program's stamp is keyed by its text, a digest of every
+  file std's `SourceSet` holds, and `salvo_testkit::self_fingerprint()`, with
+  the outcome ("built" or "refused") as a part: a stamped program still
+  counts towards the `built > 30` sanity bound. A program with failures is
+  never stamped. Editing a codegen test re-checks only that program; a std
+  edit or a `salvo-core`/`salvo-syntax` rebuild re-checks all of them, which
+  is right, since either can change any outcome. `SALVO_E2E_FRESH=1` ignores
+  the stamps; `SALVO_SKIP_E2E` does not skip these (they are not toolchain
+  tests). `salvo_testkit::fingerprint` is new: the stamps' digest, public,
+  so std is hashed once rather than once per program.
+- **A pool of threads** over the programs that miss, and std read and parsed
+  once per test binary, its modules shared as `Arc`s the way every driver
+  shares them (an expansion copies a module before it rewrites one).
+- **The same std front in both backends' `codegen_tests.rs`**
+  (`build_program`, used by ~300 tests each): read and parsed once per
+  process instead of per program. It helps `cargo test`, where a binary is
+  one process; under nextest only the multi-program tests (the Kotlin
+  shards: ~16s → ~13s each) gain.
+
+What it checks is unchanged: the same programs, the same pipeline, the same
+two assertions; the counts match (193 and 217 built, with and without
+stamps).
+
+Measured (10 cores; each warm number is the second of two runs): warm
+`cargo test` 156s → 86s; warm `cargo nextest run` 138s → 79–87s; the corpus
+tests 63s/70s → 0.13s warm, ~15s after a compiler rebuild, 22s/24s inside the
+fresh suite. Fresh `SALVO_E2E_FRESH=1 cargo nextest run`: 2061/2061 in 6m20.
+`SALVO_SKIP_E2E=1 cargo test`: ~75s. Still over budget; what is left is the
+compiler running inside the tests, listed by binary in ROADMAP §0h. No test
+was added or removed (2061).
 
 ### 2026-10-14 — A stamped member has the signature it is declared with
 
@@ -29561,6 +29610,16 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
+The IR corpus tests (`salvo-core/tests/corpus_tests.rs` [ir-build]: every
+inline program of both backends' codegen tests, ~410, must build to IR with
+no error and no `Unsupported` node) run no toolchain but are stamped the same
+way since 2026-10-14: per program, keyed by its text, a digest of std's files
+and the test binary's fingerprint (the compiler is linked into it), with the
+outcome ("built" or "refused") in the key. A run with nothing changed checks
+nothing (~0.1s); a `salvo-core` rebuild or a std edit re-checks all of them on
+a pool of threads (~15s; ~22s inside a fresh suite); `SALVO_E2E_FRESH=1`
+forces them; `SALVO_SKIP_E2E` does not skip them.
+
 - `salvo-core`: 815 - 7 stamped-signature tests
   (`tests/stamp_signature_tests.rs` [obligation-by] [fn-by]
   [comptime-generic], 2026-10-14: a clause member's names and defaults are
@@ -33097,6 +33156,16 @@ snapshot diffs.
   stamps miss on every rebuild: correct, if less rewarding. Fingerprint a
   binary by length and mtime, not by content — hashing tens of megabytes in
   a debug build cost more than the tests it saved (+12s, measured).
+- **The slowest tests in the suite ran no toolchain** (2026-10-14).
+  `corpus_tests.rs`'s two tests took 60–70s each, warm or cold, because
+  "content-cached" had only ever meant the toolchain tests: they checked
+  ~410 programs against all of std one after another (~0.25s each: ~60%
+  checking, ~30% reading and parsing std again, which alone was ~95ms of
+  directory walk and manifest per program). An in-process compiler test is
+  cached the CLI tests' way, with the test binary in the key — the compiler
+  is linked into it — and everything it reads at run time (std's files)
+  hashed beside it. When the warm suite drifts, read nextest's per-test
+  timings before assuming the toolchain is the cost.
 - **The availability *probe* was one of the most expensive things in the
   suite.** Each of 39 Kotlin tests ran `kotlinc -version` as its guard, and
   that starts a JVM: 1.4s a time, against 2.4s for the compile it was

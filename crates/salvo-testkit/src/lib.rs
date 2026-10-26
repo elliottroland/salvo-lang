@@ -1,5 +1,7 @@
 //! Shared scaffolding for the tests that shell out to a target toolchain
-//! (`kotlinc`, `rustc`, the `salvo` binary itself).
+//! (`kotlinc`, `rustc`, the `salvo` binary itself), and for the in-process
+//! tests expensive enough to be stamped the same way, keyed by their own
+//! test binary (`salvo-core`'s `corpus_tests.rs`).
 //!
 //! Those tests are the slow part of the suite by two orders of magnitude —
 //! a `kotlinc` invocation costs seconds where a checker test costs
@@ -345,6 +347,14 @@ fn digest(parts: &[&[u8]]) -> String {
         fnv = fnv.wrapping_add(part.len() as u64);
     }
     format!("{:016x}{:016x}", sip.finish(), fnv)
+}
+
+/// The same 128-bit digest the stamps are keyed by, for a caller that has
+/// a large input shared by many stamps (a whole source tree) and wants to
+/// hash it once and pass the digest as one part, rather than re-hashing it
+/// for every stamp.
+pub fn fingerprint(parts: &[&[u8]]) -> String {
+    digest(parts)
 }
 
 /// Asks whether this exact verification has already passed.

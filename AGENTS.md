@@ -149,11 +149,17 @@ runner, where cross-binary scheduling wins and the timings matter):
 
 | command | what it does | wall time |
 |---|---|---|
-| `SALVO_SKIP_E2E=1 cargo test` | skips every toolchain test | ~13s |
-| `cargo test` | runs everything; skips only *re-verifying* unchanged generated code | ~15s warm, minutes cold |
-| `SALVO_E2E_FRESH=1 cargo nextest run` | runs everything, ignoring the cache | ~6m (2026-10-05, 1,689 tests) |
+| `SALVO_SKIP_E2E=1 cargo test` | skips every toolchain test | ~75s (2026-10-14) |
+| `cargo test` | runs everything; skips only *re-verifying* unchanged generated code | ~86s warm (2026-10-14; budget ~15s), minutes cold |
+| `cargo nextest run` | the same, one process per test, with per-test timings | ~80–87s warm (2026-10-14) |
+| `SALVO_E2E_FRESH=1 cargo nextest run` | runs everything, ignoring the cache | ~6m20 (2026-10-14, 2,061 tests) |
 
-(Measured 2026-09-21 at `[profile.dev] opt-level = 1`; a full rebuild is
+The warm numbers are over budget: what is left is the compiler running
+inside the tests (every program a test builds re-checks all of std), not
+toolchain work — ROADMAP §0h lists it by binary and names the levers.
+
+(Speeds measured 2026-10-14 at `[profile.dev] opt-level = 1`, on 10 cores;
+the build figures 2026-09-21: a full rebuild is
 ~2m49 one-off, incremental builds ~8–12s. A run right after a **relink** —
 e.g. after touching `salvo-core` — additionally pays a serialized per-binary
 first-execution stall from macOS Gatekeeper: ~2.5s per freshly linked binary
@@ -163,10 +169,11 @@ run after a relink.)
 
 - **Always run `cargo build` and `cargo test` before presenting changes**, and
   a **warm** `cargo nextest run --no-fail-fast` before a commit (user decision
-  2026-10-05; ~1m when little changed, up to ~5m after an emitter or std
-  change). The stamps already rerun every toolchain test whose generated code,
-  expected output or toolchain changed, and every CLI test after a compiler
-  rebuild.
+  2026-10-05; ~1m20 when little changed, measured 2026-10-14, up to ~5m after
+  an emitter or std change). The stamps already rerun every toolchain test
+  whose generated code, expected output or toolchain changed, every CLI test
+  after a compiler rebuild, and every corpus program after a `salvo-core`
+  rebuild or a std edit (`corpus_tests.rs`, keyed by its own test binary).
 - **The fresh run (`SALVO_E2E_FRESH=1`) is for what stamps cannot see**, and
   only then: a change to `salvo-testkit` or a stamp key; a toolchain, JDK or
   host-dependency upgrade (`[dependencies]` artifacts and crates are not in
@@ -181,7 +188,8 @@ run after a relink.)
   point.
 - **Watch the clock and flag drift** (user decision 2026-09-12). Test runs
   are `time`d; the table above is the budget. When a run overshoots it
-  noticeably — warm runs past ~20s, fresh runs past ~7 minutes — or a
+  noticeably — warm runs past ~20s (today's ~86s is the known excess,
+  ROADMAP §0h; flag anything past ~100s), fresh runs past ~7 minutes — or a
   command looks hung, say so to the user rather than silently waiting or
   retrying: slow runs so far have meant something diagnosable (doctest
   passes, JVM probes, stale-object pileup, AMFI kills — see COMPLETED.md's

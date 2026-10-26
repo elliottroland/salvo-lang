@@ -489,6 +489,28 @@ keyed by generated content rather than by the `salvo` binary, so a cached run
 is a sound pre-commit check. `-XX:TieredStopAtLevel=1` for kotlinc was tried
 and rejected (358s against 371s; slower on the large batches).
 
+**The warm run** (measured 2026-10-14, after the corpus tests were stamped):
+`cargo test` ~86s and `cargo nextest run` ~80–87s warm, against the ~15s
+budget. What is left is not toolchain work but the compiler running inside
+the tests: every program a test builds re-checks all of std (~0.15–0.3s
+each, 1,000+ programs), and nothing caches it. By binary under `cargo test`:
+the Rust codegen tests 18s, the Kotlin codegen tests 16s (its four
+compile-and-run shards ~13s each under nextest, building ~50 cases each
+before any stamp is consulted), `hygiene_tests` 7s (the `nm` pass over every
+artifact), `salvo-cli`'s unit tests 6s (`std_front_expansion_is_project_independent`
+7.6s), `platform_tests` 5s (`the_checked_in_host_projects_are_current_and_compile`
+~8–10s), `analyze_tests` 5s, `ir_linear_tests` 4s
+(`ir_linear_check_has_no_false_positives` ~5–6s), `flow_tests` 4s,
+`golden_tests` 3s, `carry_tests` 3s, `lsp_tests` 3s. The levers, none cheap:
+(a) a std check shared across a test binary's programs (the language
+server's `StdFront`/`CheckCache` already do this, and
+`check_cache_matches_an_uncached_analysis_across_edits` checks they agree),
+which would cut most of every in-process test; (b) a shard-level stamp for
+the Kotlin compile-and-run shards, keyed by the test binary, `lib/`, every
+example's tree *and its resolved dependencies* (`aws = "0.1.0"`), and the
+kotlinc version, which would make their warm cost ~0 but needs that input
+list to be complete.
+
 ### 0i — Leftovers of deterministic names (2026-10-05)
 
 - Rust calls a platform fn's wrapper by its module path
@@ -665,6 +687,30 @@ Swapping the two `iter fn`s reports it. The fix (R5 option b's "a cycle is
 an error"): check the inferring minters in dependency order (a minter whose
 initializer names an iterator struct with an inferred field after that
 struct's minter), and report a cycle. Only tests write the inferred form.
+
+Parked (user, 2026-10-14): the user expects to move away from state structs and `iter fn`s altogether.
+
+### 0u — Open defect: a declared parameter named like a function the template's body calls captures it (found 2026-10-14)
+
+Since a stamped member takes its declaration's signature (COMPLETED.md,
+2026-10-14, commit b0fee346), the template's parameters are renamed to the
+declared names in the body, and a body *local* a declared name would capture
+is renamed apart (`rename_capturing_locals`) — but a declared name equal to a
+*function* the template's body calls is not: the body's calls then name the
+parameter. A type error inside the stamp, never wrong code. Repro:
+
+```
+struct P : Ordered<self> {
+    x: Int
+    fn cmp(cmp: P, b: P) -> Int by auto
+}
+```
+
+reports "in `cmp` from `auto` for `P.x: Int`: `cmp` is not callable: its type
+is `P`", because `std.core.auto`'s `cmp` template calls `cmp(…)` on each
+field. The fix is in the same rename: a declared parameter named like a
+callee the body resolves through scope is renamed apart in the body (or the
+callee is qualified), as a capturing local already is.
 
 ### 0t — Leftovers of the `std.` prefix (found 2026-10-14)
 
