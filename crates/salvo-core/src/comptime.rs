@@ -2232,6 +2232,32 @@ impl<'w> Stamper<'w> {
         if let Some(b) = &mut inst.body {
             if !renames.is_empty() {
                 rename_capturing_locals(b, &renames);
+                // [fn-by] A declared name the body also uses for something
+                // outside it — a function it calls, or names as a value —
+                // would capture that use once the parameters are renamed:
+                // the declared names are the contract (named arguments use
+                // them), and a local shadows a name [call-resolve], so the
+                // declaration has to change. One error at the parameter, and
+                // nothing stamped.
+                if let Some((name, called)) = hidden_free_name(b, &renames) {
+                    let used = if called {
+                        format!("the function `{name}` that `{}`'s `{}` calls in its body", self.by.text(), self.template.name.name)
+                    } else {
+                        format!("the name `{name}` that `{}`'s `{}` uses in its body", self.by.text(), self.template.name.name)
+                    };
+                    let message = match declared {
+                        Declared::Written => {
+                            format!("parameter `{name}` hides {used}: name the parameter differently [fn-by]")
+                        }
+                        Declared::Member { group } => format!(
+                            "`{group}<self>`'s `fn {}` names its parameter `{name}`, which hides {used}: \
+                             name the group member's parameter differently [fn-by]",
+                            f.name.name
+                        ),
+                    };
+                    let span = f.params.iter().find(|p| p.name.name == name).map(|p| at(p.name.span)).unwrap_or(site);
+                    return Err(vec![Diagnostic::error(message, span)]);
+                }
                 let mut r = RenameParams { renames: &renames };
                 visit_mut::walk_block(&mut r, b);
             }
@@ -2356,6 +2382,43 @@ fn rename_capturing_locals(body: &mut Block, renames: &HashMap<String, String>) 
     if !apart.is_empty() {
         visit_mut::walk_block(&mut RenameLocals { renames: &apart }, body);
     }
+}
+
+/// [fn-by] The first name a stamped body uses that one of the declared
+/// parameter names would capture: a bare identifier spelled like a declared
+/// name that is no template parameter (those are renamed) and no local (those
+/// were renamed apart, [`rename_capturing_locals`]) — so a function the body
+/// calls, or a name it reads from outside. Whether it is a call's callee
+/// comes with it.
+fn hidden_free_name(body: &mut Block, renames: &HashMap<String, String>) -> Option<(String, bool)> {
+    struct Find<'a> {
+        renames: &'a HashMap<String, String>,
+        callees: Vec<Span>,
+        found: Option<(String, bool)>,
+    }
+    impl MutVisitor for Find<'_> {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if self.found.is_some() {
+                return;
+            }
+            match expr {
+                Expr::Call { callee, .. } => {
+                    if let Expr::Ident(id) = &**callee {
+                        self.callees.push(id.span);
+                    }
+                }
+                Expr::Ident(id) => {
+                    if !self.renames.contains_key(&id.name) && self.renames.values().any(|n| *n == id.name) {
+                        self.found = Some((id.name.clone(), self.callees.contains(&id.span)));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut find = Find { renames, callees: Vec::new(), found: None };
+    visit_mut::walk_block(&mut find, body);
+    find.found
 }
 
 impl MutVisitor for RenameParams<'_> {

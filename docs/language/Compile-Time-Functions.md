@@ -94,6 +94,19 @@ Person) -> Long by auto` reads `h` where `std.core.auto`'s `hash` reads
 `value`. A clause is exactly this, once per member, with the group's
 signature as the declaration.
 
+A parameter name must not be one the body uses for something else. `fn
+cmp(cmp: Person, b: Person) -> Int by auto` would make `std.core.auto`'s
+per-field `cmp(…)` calls read the parameter, so it is an error at the
+parameter, and nothing is stamped:
+
+```
+error: parameter `cmp` hides the function `cmp` that `auto`'s `cmp` calls
+       in its body: name the parameter differently [fn-by]
+```
+
+When the name comes from a group's member, the same error is reported at
+the clause and names the member.
+
 A clause names its type itself, so its members need not take one. A decoder
 returns the type and takes something else:
 

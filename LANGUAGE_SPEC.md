@@ -5037,6 +5037,20 @@ Conventions:
     written `h` in diagnostics but not refused as shadowing the parameter
     [var-no-shadow]. Named arguments use the declared names, so they name
     only a declared default [fn-param-default].
+  * **A declared parameter name the body uses for something outside it is
+    an error at the parameter** (2026-10-14, ROADMAP 0u): `fn cmp(cmp: P, b:
+    P) -> Int by auto` would capture `std.core.auto`'s calls `cmp(a.x, b.x)`
+    once its parameter is renamed to `cmp`. The declared names are the
+    contract (named arguments use them) and a local shadows a name
+    [call-resolve], so neither is bent: a bare name in the expanded body that
+    equals a declared parameter name, and is neither a template parameter nor
+    a body local, is reported — "parameter `cmp` hides the function `cmp`
+    that `auto`'s `cmp` calls in its body: name the parameter differently"
+    (or "the name … uses" for a non-call use, such as a fn passed by name) —
+    and nothing is stamped for the member. Through a clause the group
+    member's parameter is the one named, at the clause [obligation-by]. A
+    dot-form call (`a.cmp(b)`) and a scoped one (`cmp@std.core.compare`) are
+    not captured and not reported.
   * **An obligation clause is this, once per member** [obligation-by]; a
     written declaration at a generic type is refused for now
     [comptime-generic].

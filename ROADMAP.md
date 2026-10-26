@@ -690,28 +690,6 @@ struct's minter), and report a cycle. Only tests write the inferred form.
 
 Parked (user, 2026-10-14): the user expects to move away from state structs and `iter fn`s altogether.
 
-### 0u — Open defect: a declared parameter named like a function the template's body calls captures it (found 2026-10-14)
-
-Since a stamped member takes its declaration's signature (COMPLETED.md,
-2026-10-14, commit b0fee346), the template's parameters are renamed to the
-declared names in the body, and a body *local* a declared name would capture
-is renamed apart (`rename_capturing_locals`) — but a declared name equal to a
-*function* the template's body calls is not: the body's calls then name the
-parameter. A type error inside the stamp, never wrong code. Repro:
-
-```
-struct P : Ordered<self> {
-    x: Int
-    fn cmp(cmp: P, b: P) -> Int by auto
-}
-```
-
-reports "in `cmp` from `auto` for `P.x: Int`: `cmp` is not callable: its type
-is `P`", because `std.core.auto`'s `cmp` template calls `cmp(…)` on each
-field. The fix is in the same rename: a declared parameter named like a
-callee the body resolves through scope is renamed apart in the body (or the
-callee is qualified), as a capturing local already is.
-
 ### 0t — Leftovers of the `std.` prefix (found 2026-10-14)
 
 The prefix itself is done (COMPLETED.md, 2026-10-14 "The standard library's

@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2061 tests, complete: the toolchain tests are
+cargo test                  # 2063 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,36 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-14 — A declared parameter that hides a stamped body's callee is named
+
+Engineering under the 2026-10-14 decision (ROADMAP 0u, closed). Since a
+stamped member takes its declaration's signature, the template's parameters
+are renamed to the declared names in the body, and a body local a declared
+name would capture is renamed apart. A declared name equal to a *function*
+the body calls was not: `fn cmp(cmp: P, b: P) -> Int by auto` turned
+`std.core.auto`'s per-field `cmp(a.x, b.x)` into a call of the parameter, and
+the stamp reported "in `cmp` from `auto` for `P.x: Int`: `cmp` is not
+callable: its type is `P`". The declared names stay the contract (named
+arguments use them) and [call-resolve]'s "a local shadows a name" stays, so
+the declaration is what has to change, and the stamp now says so:
+`stamp_into` looks, after `rename_capturing_locals` and before the
+parameters are renamed, for a bare name in the expanded body that equals a
+declared name and is no template parameter (`hidden_free_name`). One error
+at the declared parameter, "parameter `cmp` hides the function `cmp` that
+`auto`'s `cmp` calls in its body: name the parameter differently [fn-by]"
+("the name … uses" for a non-call use, a fn passed by name), and nothing is
+stamped for the member. Through a clause the group member's parameter is
+named, at the clause. A dot-form call (`a.cmp(b)`) is not captured by a
+local (checked) and is not reported; a scoped one cannot be. In the clause
+form the checker's "no visible `cmp` matches" for the unstamped member is
+still raised, but `salvo analyze` drops the checker's errors in a file whose
+expansion reported one (`parse_broken`), so one diagnostic is shown.
+`stamp_signature_tests.rs`' harness now gives the expansion's errors a line,
+as it gave the checker's. Spec: a sub-bullet under [fn-by];
+`docs/language/Compile-Time-Functions.md` shows the error. Tests (+2, 2063):
+the repro at the parameter, with a renamed parameter stamping; the clause
+form through a test group `Ranked<T>`, with a renamed member stamping.
 
 ### 2026-10-14 — The corpus codegen tests are stamped
 
@@ -29602,7 +29632,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2061 under `cargo test` on 2026-10-14; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2063 under `cargo test` on 2026-10-14; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -29620,12 +29650,14 @@ nothing (~0.1s); a `salvo-core` rebuild or a std edit re-checks all of them on
 a pool of threads (~15s; ~22s inside a fresh suite); `SALVO_E2E_FRESH=1`
 forces them; `SALVO_SKIP_E2E` does not skip them.
 
-- `salvo-core`: 815 - 7 stamped-signature tests
+- `salvo-core`: 817 - 9 stamped-signature tests
   (`tests/stamp_signature_tests.rs` [obligation-by] [fn-by]
   [comptime-generic], 2026-10-14: a clause member's names and defaults are
   the group's, a written declaration's names and clause its own, the declared
   contract governs callers and the body, a generic target, and a clause
-  building the same IR as its per-member `fn … by auto` spelling); 4 identity and key-bar tests (`tests/carry_tests.rs`
+  building the same IR as its per-member `fn … by auto` spelling; a declared
+  or group-member parameter that hides the body's callee, named at the
+  parameter or the clause); 4 identity and key-bar tests (`tests/carry_tests.rs`
   [cmp-carry] [col-key-eligible]: two modules' same-named identities refused
   under one binder and printed with their modules, an identity resolved in
   its declaring module from a file importing the other or neither, a written

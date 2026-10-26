@@ -29,7 +29,16 @@ fn program(files: &[(&str, &str)]) -> (Program, Vec<String>) {
         modules.push(module);
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
-    let errors = expansion.diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
+    let errors = expansion
+        .diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| {
+            let file = &sources.files[d.file];
+            let line = file.content[..(d.span.start as usize).min(file.content.len())].matches('\n').count() + 1;
+            if file.name == "main.sv" { format!("{line}: {}", d.message) } else { format!("{}:{line}: {}", file.name, d.message) }
+        })
+        .collect();
     let program = Program { files: sources.files, modules: Program::share(modules), companions: sources.companions };
     (program, errors)
 }
@@ -328,4 +337,65 @@ fn probe(p: P, q: P) [] -> Str {
     let b = fn_items(&ir(&[("main.sv", per_member)]));
     assert_eq!(a.len(), 5, "{a:#?}");
     assert_eq!(a, b);
+}
+
+/// [fn-by] A declared parameter named like a function the template's body
+/// calls would capture those calls once the parameters are renamed (ROADMAP
+/// 0u): `std.core.auto`'s `cmp` calls `cmp(…)` per field. The declared names
+/// are the contract and a local shadows a name [call-resolve], so it is one
+/// error at the parameter — not the stamped body's "`cmp` is not callable" —
+/// and nothing is stamped for the member.
+#[test]
+fn a_declared_parameter_that_hides_the_bodys_callee_is_named_at_the_parameter() {
+    let src = r#"
+struct P : Ordered<self> {
+    x: Int
+    fn cmp(cmp: P, b: P) -> Int by auto
+}
+"#;
+    let errs = errors(src);
+    assert_eq!(errs.len(), 1, "{errs:?}");
+    assert!(
+        errs[0].starts_with("4: parameter `cmp` hides the function `cmp` that `auto`'s `cmp` calls in its body")
+            && errs[0].ends_with("[fn-by]"),
+        "{errs:?}"
+    );
+    // Any other name stamps, the declared one included.
+    let renamed = src.replace("cmp(cmp: P", "cmp(first: P");
+    assert!(errors(&renamed).is_empty(), "{:?}", errors(&renamed));
+    let dump = ir(&[("main.sv", &renamed)]);
+    assert!(dump.contains("fn main::cmp(lent first: P, lent b: P)") && dump.contains("first.x"), "{dump}");
+}
+
+/// [obligation-by] [fn-by] The same capture through a clause: the group's
+/// member names the parameter, so the error lands at the clause and names the
+/// group member; nothing is stamped for it.
+#[test]
+fn a_group_member_parameter_that_hides_the_bodys_callee_is_named_at_the_clause() {
+    let src = r#"
+export params Ranked<T> {
+    fn cmp(cmp: T, other: T) -> Int
+}
+
+struct Q : Ranked<self> by auto { y: Int }
+"#;
+    let errs = errors(src);
+    // The checker's "no visible `cmp`" for the unstamped member is in the
+    // same file, and `salvo analyze` drops the checker's errors in a file
+    // whose parse or expansion reported one (`parse_broken`, [cli-analyze]):
+    // the stamp's is the one diagnostic shown.
+    let (_, expansion) = program(&[("main.sv", src)]);
+    assert_eq!(expansion.len(), 1, "{expansion:?}");
+    assert!(!errs.iter().any(|e| e.contains("not callable")), "{errs:?}");
+    assert!(
+        expansion[0].starts_with(
+            "6: `Ranked<self>`'s `fn cmp` names its parameter `cmp`, which hides the function `cmp` \
+             that `auto`'s `cmp` calls in its body"
+        ),
+        "{expansion:?}"
+    );
+    let renamed = src.replace("cmp(cmp: T", "cmp(one: T");
+    assert!(errors(&renamed).is_empty(), "{:?}", errors(&renamed));
+    let dump = ir(&[("main.sv", &renamed)]);
+    assert!(dump.contains("fn main::cmp(lent one: Q, lent other: Q)") && dump.contains("one.y"), "{dump}");
 }
