@@ -601,6 +601,46 @@ Fixed in the IR flow pass (R8 piece 5): paths, joins and loop back edges are
 dataflow now, `continue` included; the record and what was left is in
 COMPLETED.md's decision log.
 
+### 0v — Open defect: the Rust emitter types a re-pointed borrow from its first binding (found 2026-10-14)
+
+A local bound to one held view and then reassigned to another of a different
+source passes the checker (its links follow the assignment [fate-link]) and
+runs on Kotlin, but the Rust emitter gives the variable the type of its
+*first* binding, so rustc refuses the program — a [backend-never-wrong]
+violation (a toolchain error where there should be either a Salvo
+diagnostic or working code). Repro, `salvo run --backend '*'`: Kotlin prints
+`1`; Rust fails with E0308 at `return out` ("expected `Vec<&'a String>`,
+found `Vec<String>`"):
+
+```
+fn pick(ws: List<Str>, keep: (Str) -> Bool) [] -> Mut List<proj Str> holds proj(ws) => ws, keep {
+    let local = List("x", "y")
+    let out = filter(local, keep)
+    println_count(size(out))
+    out = filter(ws, keep)
+    return out
+}
+
+fn println_count(n: Int) [] -> None {
+    return None
+}
+
+fn main() [use] -> None {
+    use StdConsole
+    let ws = List("ab", "c")
+    let got = pick(ws, s -> size(s) > 1)
+    println("${size(got)}")
+}
+```
+
+The first `filter(local, …)` is emitted as an owned `Vec<String>` (its source
+is a local that dies with the call), the second as a borrow
+`Vec<&'a String>`. The fix is in the emitter: a variable whose bindings
+differ in ownership needs one Rust type that covers both (the borrowed one,
+or an owned copy at the borrowing assignment), or the checker's facts must
+say so. Found while weighing PIPELINE.md's fate-link option A (rejected for
+option C); that option would have refused the program instead.
+
 ### 0q — Open defect: moving a field out of an indexed element fails rustc (found 2026-10-20)
 
 `eatl(xs[0].tags)` with an owned `xs: Rec[]` (`=> !xs`) checks clean and the
@@ -690,18 +730,13 @@ struct's minter), and report a cycle. Only tests write the inferred form.
 
 Parked (user, 2026-10-14): the user expects to move away from state structs and `iter fn`s altogether.
 
-### 0t — Leftovers of the `std.` prefix (found 2026-10-14)
+### 0t — Closed 2026-10-14: a `--src` inside a project's source root is refused
 
-The prefix itself is done (COMPLETED.md, 2026-10-14 "The standard library's
-modules are under `std`", which closed 0s). Left:
-
-- **A `std = true` tree checked from below its source root.** `salvo test --src
-  lib/std` finds `lib/salvo.toml` (std = true) but the flag's source root
-  makes the modules `core.list`, `time`, … — std files outside the reserved
-  root, which neither shadow the embedded copy nor collide with it, so the
-  analysis is a page of noise. The reverse rule (a `std = true` tree's
-  modules must be under `std`, or `--src` must not move a std tree's root)
-  would turn that into one error. Not decided; `--src lib` is the spelling.
+Record in COMPLETED.md ("`--src` is the source root", [manifest-src]). What
+it leaves open is IMPLICIT_RECURSE.md's **DECISION** (A memoize, B the depth
+cap as a contract, C a width rule), which now has a real width-2
+reproduction (std loaded twice under `--src lib/std`) though that route is
+refused.
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 

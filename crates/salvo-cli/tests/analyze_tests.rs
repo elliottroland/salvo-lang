@@ -2895,3 +2895,143 @@ fn a_clause_stamps_its_own_declaration_beside_a_same_named_struct() {
     assert!(stderr.contains(": 0 errors") || stderr.contains("no errors"), "{stderr}");
 }
 
+
+/// [manifest-src] The project of these tests: `[build] src = "src"`, with
+/// `src/main.sv` importing `app.util` — which only resolves when `src/` is
+/// the source root.
+fn src_root_project(test: &str) -> PathBuf {
+    let dir = src_dir(test).canonicalize().unwrap();
+    fs::create_dir_all(dir.join("src/app")).unwrap();
+    fs::write(dir.join("salvo.toml"), "[project]\nname = \"p\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\n").unwrap();
+    fs::write(dir.join("src/main.sv"), "import app.util\n\nfn main() [] -> None {\n    return f()\n}\n").unwrap();
+    fs::write(dir.join("src/app/util.sv"), "export fn f() [] -> None {\n    return None\n}\n").unwrap();
+    dir
+}
+
+/// [manifest-src] `--src` is the source root: one strictly inside the found
+/// project's root would re-root `app/util.sv` as `util` (and break the
+/// project's own `import app.util`), so every command taking `--src` refuses
+/// it with one error naming the root to pass.
+#[test]
+fn a_src_inside_the_projects_source_root_is_refused() {
+    let dir = src_root_project("src_inside_root");
+    let inner = dir.join("src/app");
+    let root = dir.join("src");
+    let expected = format!(
+        "error: `{}` is inside the project's source root `{}` (from `{}`): pass `--src {}`, or \
+         no `--src`; scope a command to one module with `--module` where it has one [manifest-src]",
+        inner.display(),
+        root.display(),
+        dir.join("salvo.toml").display(),
+        root.display()
+    );
+    let inner = inner.to_str().unwrap();
+    let target = dir.join(".out");
+    let target = target.to_str().unwrap();
+    for args in [
+        &["analyze", "--src", inner][..],
+        &["test", "--src", inner],
+        &["ir", "--src", inner],
+        &["facts", "--src", inner],
+        &["run", "--src", inner],
+        &["compile", "--backend", "rust", "--src", inner, "--target", target],
+        &["build", "--src", inner],
+        &["platform", "generate", "--backend", "rust", "--src", inner],
+    ] {
+        let out = salvo(args);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{args:?}: {stderr}");
+        assert_eq!(stderr.trim(), expected, "{args:?}");
+    }
+}
+
+/// [manifest-src] The mirror case: a `--src` that contains the found
+/// project's root without being it (the manifest's own directory, with
+/// `[build] src = "src"`) would re-root `src/main.sv` as `src.main`; it is
+/// refused the same way. A relative `--src` is answered in relative paths.
+#[test]
+fn a_src_around_the_projects_source_root_is_refused() {
+    let dir = src_root_project("src_around_root");
+    let out = Command::new(env!("CARGO_BIN_EXE_salvo"))
+        .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
+        .current_dir(dir.parent().unwrap())
+        .args(["analyze", "--src", "analyze_src_around_root"])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert_eq!(
+        stderr.trim(),
+        "error: `analyze_src_around_root` contains the project's source root \
+         `analyze_src_around_root/src` (from `analyze_src_around_root/salvo.toml`): pass \
+         `--src analyze_src_around_root/src`, or no `--src`; scope a command to one module \
+         with `--module` where it has one [manifest-src]"
+    );
+}
+
+/// [manifest-src] What still works: `--src` equal to the root (spelled with
+/// a `..`, compared canonically), no `--src` at all, a `--src` beside the
+/// root (neither inside nor around it), and any `--src` with no manifest
+/// found.
+#[test]
+fn a_src_that_is_the_root_or_has_no_manifest_still_works() {
+    let dir = src_root_project("src_is_root");
+    let spelled = dir.join("src/app/..");
+    let out = salvo(&["analyze", "--src", spelled.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success() && stderr.contains("(2 user,"), "{stderr}");
+    let out = Command::new(env!("CARGO_BIN_EXE_salvo"))
+        .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
+        .current_dir(&dir)
+        .arg("analyze")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success() && stderr.contains("(2 user,"), "{stderr}");
+    fs::create_dir_all(dir.join("other")).unwrap();
+    fs::write(dir.join("other/lone.sv"), CLEAN).unwrap();
+    let out = salvo(&["analyze", "--src", dir.join("other").to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success() && stderr.contains("(1 user,"), "beside the root: {stderr}");
+
+    let bare = src_dir("src_no_manifest");
+    fs::create_dir_all(bare.join("app")).unwrap();
+    fs::write(bare.join("app/main.sv"), CLEAN).unwrap();
+    let out = salvo(&["analyze", "--src", bare.join("app").to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success() && stderr.contains("no errors"), "{stderr}");
+}
+
+/// [manifest-src] `--src lib/std` finds `lib/salvo.toml` and is refused at
+/// once, naming `lib`. Before the rule it loaded std twice (the tree's files
+/// as `core.*`, `time`, … beside the embedded `std.*`) and did not finish
+/// (ROADMAP 0t, IMPLICIT_RECURSE.md); the deadline guards against that.
+#[test]
+fn src_lib_std_is_refused_promptly() {
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_salvo"))
+        .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
+        .current_dir(&repo)
+        .args(["analyze", "--src", "lib/std"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while child.try_wait().unwrap().is_none() {
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("`salvo analyze --src lib/std` did not finish within 60s");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let out = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(
+        stderr.contains(
+            "`lib/std` is inside the project's source root `lib` (from `lib/salvo.toml`): pass `--src lib`"
+        ),
+        "{stderr}"
+    );
+}

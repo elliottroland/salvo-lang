@@ -99,6 +99,13 @@ Status: **mechanism reproduced; CPU blowup NOT reproducible from std.** Measured
 against a prebuilt `target/debug/salvo` on `tmp/recurse/salvo` (scratch,
 gitignored) to avoid cargo contention.
 
+**Update 2026-10-14: a real width-2 reproduction exists** — `salvo analyze
+--src lib/std` loaded every std declaration twice (the embedded `std.*` and
+the tree's own `core.*`, both implicitly visible), gave each nested
+`to_str`/`eq`/`hash` two candidates per level, and did not finish (ROADMAP 0t,
+recorded in COMPLETED.md); that user-facing route is now refused
+[manifest-src], but this document's decision (A, B or C) is still open.
+
 What reproduces the *exact recursive chain* from the sample — a generic,
 unresolvable element so every level recurses and the leaf fails:
 

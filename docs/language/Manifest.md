@@ -46,6 +46,17 @@ and every `examples/*/`) is several programs, and the editor analyses each
 document under its own. A file with no manifest above it is analysed under the
 editor's workspace root, and told so when that workspace does hold projects.
 
+`--src` on the command line **is** the source root, so it is either the
+project's root or a directory with no manifest above it. A `--src` inside the
+found project's root — `--src lib/std`, or `--src src/app` under `[build] src
+= "src"` — is refused with one error naming the root to pass, because the
+modules under it would take new paths (`src/app/util.sv` would become `util`,
+and the project's own `import app.util` would break). So is a `--src` around
+the root: the manifest's own directory, when `[build] src` names a
+subdirectory, would make `salvo/main.sv` the module `salvo.main`. To look at
+one module, `salvo ir` and `salvo facts` take `--module`, and `salvo test`
+takes a filter.
+
 `[project] std = true` marks the standard library's own tree, so its files are
 std to the checker and replace the copy built into the compiler. Only such a
 tree declares modules under the reserved `std` root ([Modules](Modules.md)):
@@ -212,7 +223,8 @@ A table of `name = "version"`. Each entry names a directory
 
 * **CLI flag → manifest → default.** A `--backend`/`--src`/`--target`/`--out`
   flag always wins; the manifest fills what no flag set; a built-in default
-  fills the rest.
+  fills the rest. A `--src` still has to be the project's source root when a
+  manifest is found from it (see above).
 * **Per-backend over shared.** A `[<backend>]` `target`/`out`/`platform`
   overrides the `[build]` one, for that backend only.
 * **`backend = "*"` fans out.** Every command runs once per backend. For

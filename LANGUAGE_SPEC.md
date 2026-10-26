@@ -10869,6 +10869,33 @@ replaced the working document TESTING.md).
   as its own program. A document with no manifest above it is analysed under
   the workspace root, as before, and — in a workspace that does hold projects
   — carries an information diagnostic saying so.
+* [manifest-src] **`--src` names the source root, nothing else** (user
+  decision 2026-10-14, ROADMAP 0t option (b)). A module's path is its path
+  under the root, so a `--src` that lies **strictly inside** the found
+  project's source root would re-root every module under it (with `[build]
+  src = "S"`, `--src S/app` made `S/app/util.sv` module `util`, breaking the
+  project's own `import app.util`; `--src lib/std` made std's files `core.*`,
+  `time`, … beside the embedded `std.*`, and the analysis did not finish).
+  Every command taking `--src` (`run`, `compile`, `build`, `test`, `analyze`,
+  `ir`, `facts`, `platform generate`) refuses it before loading anything,
+  with one error naming the root: "`tmp/p/src/app` is inside the project's
+  source root `tmp/p/src` (from `tmp/p/salvo.toml`): pass `--src tmp/p/src`,
+  or no `--src`; scope a command to one module with `--module` where it has
+  one". The mirror case is refused the same way: a `--src` that **contains**
+  the root without being it (the manifest's own directory under `[build] src
+  = "salvo"`, which would make `salvo/main.sv` module `salvo.main`) — the
+  manifest is found at or above `--src`, so its root below `--src` is the
+  project's and the flag can only be mis-rooting it.
+  * Compared canonically (`--src S/app/..` is `S`). The paths in the message
+    are spelled as `--src` was: relative to the working directory, or
+    absolute when `--src` is.
+  * Unchanged: a `--src` beside the root (neither inside nor around it); a
+    `--src` with no manifest found; `--main` alone (its directory is the
+    source root, as before); the
+    language server, which takes each document's root from its manifest
+    [manifest-discovery] and never has a `--src`.
+  * Narrowing to one module is `--module` on `ir`/`facts` [cli-ir] and the
+    id `FILTER` on `test` [test-filter]; `analyze` has none yet.
 * [protocol-lock] **`salvo.lock` beside the manifest locks the protocol hash of
   every actor effect the project declares** (the network round's N-9, 2026-09-26,
   shaped 2026-09-29): `version = "…"` and `[protocols] Effect = "hash"`, for the

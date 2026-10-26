@@ -1088,7 +1088,10 @@ mod tests {
     /// `std.core`, the one way a project could have been implicitly visible to
     /// std — refused as a module under the reserved root, and not visible
     /// [std-root]. The `bool` says whether the program is free of that error.
-    fn front_programs() -> Vec<(PathBuf, bool)> {
+    /// `test` names the caller's own scratch directory: nextest runs the two
+    /// callers in parallel processes, and a shared one raced (one deleting
+    /// what the other was writing; EINVAL, 2026-10-14).
+    fn front_programs(test: &str) -> Vec<(PathBuf, bool)> {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut out: Vec<(PathBuf, bool)> = Vec::new();
         let mut examples: Vec<PathBuf> = std::fs::read_dir(repo.join("examples"))
@@ -1101,7 +1104,7 @@ mod tests {
         assert!(examples.len() >= 10, "expected the examples: {examples:?}");
         out.extend(examples.into_iter().map(|p| (p, true)));
         let scratch = |name: &str, files: &[(&str, &str)]| -> PathBuf {
-            let root = repo.join("tmp/std_front_test").join(name);
+            let root = repo.join("tmp/std_front_test").join(test).join(name);
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(&root).unwrap();
             for (file, text) in files {
@@ -1191,7 +1194,7 @@ mod tests {
         let front = build_std_front("");
         let n = front.files.len();
         let alone: Vec<String> = front.modules.iter().map(|m| format!("{m:?}")).collect();
-        for (dir, clean) in front_programs() {
+        for (dir, clean) in front_programs("project_independent") {
             let full = front_analysis(&dir, None, false);
             assert!(std_front_applies(&full.program.files, &front), "{}: std did not load as the front's", dir.display());
             let same: Vec<bool> = (0..n).map(|i| format!("{:?}", full.program.modules[i]) == alone[i]).collect();
@@ -1281,7 +1284,7 @@ mod tests {
     fn std_front_matches_an_analysis_without_it() {
         let front = build_std_front("");
         let n = front.files.len();
-        for (dir, _) in front_programs() {
+        for (dir, _) in front_programs("matches_without") {
             let without = front_analysis(&dir, Some(&front), false);
             let with = front_analysis(&dir, Some(&front), true);
             assert!(std_cache_applies(&with.program, &front.cache), "{}: the std cache did not apply", dir.display());

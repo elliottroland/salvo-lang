@@ -1930,3 +1930,26 @@ log current so the work can resume after a context reset). Newest last.
   locks or waits (the route always), the caller's own kind into a bare one;
   a router's forward to `E` is no edge. The R8 piece 6 repro reports;
   no example, `modules/aws` or std test reports anything new.
+- **Fate links stay the checker's (user, 2026-10-14: option C).** Moving
+  them into the IR was weighed and rejected. Besides feeding the IR, about
+  20 checker rules read the flow-tracked links during type-checking, two of
+  them typing rules: which value a dependent claim (`KeyOf`, `Idx`,
+  `SpanOf`, `NotSame`) is about, which decides claim-dependent overloads
+  (the total `get(m, k)` returns `V`, the partial one `V?`), and whether an
+  iterator variable's elements are borrowed or handed over. Option A (a
+  monotone per-variable derivation in the checker, precise links in the IR)
+  would have refused correct programs that re-point a borrowed variable, for
+  tidiness and ~5 of 38 loop re-walks on `examples/cluster`; B kept two link
+  computations nothing keeps equal; deferring the overload choice to the IR
+  would interleave typing and flow again, since the chosen overload's result
+  type types the rest of the body. **The lesson for later evolutions:**
+  Salvo's claims are types, so the flow facts a claim's identity needs
+  reach typing; a pass split that moves flow out of the checker has to
+  leave those facts (or redesign claims to name the variable written rather
+  than its ultimate root). Found on the way: ROADMAP 0v (the Rust emitter
+  types a re-pointed borrow from its first binding). R8 is now closed:
+  nothing of it is left to build.
+- **0t: done** (committed "Refuse a --src inside a project's source root").
+  `--src` is the source root [manifest-src]: one strictly inside the found
+  project's root, or around it, is refused naming the root; `--src lib/std`
+  no longer loads std twice. IMPLICIT_RECURSE.md's decision stays open.

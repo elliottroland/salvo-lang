@@ -2179,6 +2179,9 @@ fn resolve_inputs(
         .or_else(|| main_file.as_ref().and_then(|m| m.parent().map(Path::to_path_buf)))
         .unwrap_or_else(|| PathBuf::from("."));
     let project = salvo_core::Project::find(&start)?;
+    if let (Some(p), Some(s)) = (&project, &src) {
+        check_src_is_the_root(p, s)?;
+    }
     let (src, main_file) = match (&project, src, main_file) {
         // Neither flag: the manifest supplies both (or `main` stays open).
         (Some(p), None, None) => (Some(p.src()), p.main()),
@@ -2219,6 +2222,70 @@ fn resolve_inputs(
         backends,
         host,
     })
+}
+
+/// [manifest-src] `--src` names the source root, nothing else (user decision
+/// 2026-10-14): module paths are paths under the root, so a `--src` strictly
+/// inside the found project's root would re-root every module under it
+/// (`app/util.sv` becoming `util`, the std tree's files becoming `core.*`
+/// beside the embedded `std.*`), and one that contains the root without
+/// being it would re-root them the other way (`salvo.main`). Both are
+/// refused, naming the root to pass. A `--src` beside the root (neither
+/// inside nor around it) is left alone, as is a `--src` with no manifest.
+fn check_src_is_the_root(project: &salvo_core::Project, src: &Path) -> Result<(), String> {
+    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| absolute(p));
+    let given = canonical(src);
+    let root = canonical(&project.src());
+    if given == root {
+        return Ok(());
+    }
+    let relation = if given.starts_with(&root) {
+        "is inside"
+    } else if root.starts_with(&given) {
+        "contains"
+    } else {
+        return Ok(());
+    };
+    let manifest = project.dir.join(salvo_core::MANIFEST_FILE);
+    // Spelled as the user spelled `--src`: relative to the working
+    // directory, unless they gave an absolute path.
+    let shown = |p: &Path| if src.is_absolute() { p.display().to_string() } else { relative_to_cwd(p) };
+    let root_shown = shown(&root);
+    Err(format!(
+        "`{}` {relation} the project's source root `{root_shown}` (from `{}`): pass \
+         `--src {root_shown}`, or no `--src`; scope a command to one module with \
+         `--module` where it has one [manifest-src]",
+        src.display(),
+        shown(&canonical(&manifest)),
+    ))
+}
+
+/// A path as the user would type it from the working directory: relative
+/// when it shares a prefix with it, absolute otherwise.
+fn relative_to_cwd(path: &Path) -> String {
+    let Ok(cwd) = std::env::current_dir().and_then(|d| d.canonicalize()) else {
+        return path.display().to_string();
+    };
+    let common = cwd
+        .components()
+        .zip(path.components())
+        .take_while(|(a, b)| a == b)
+        .count();
+    if common <= 1 {
+        return path.display().to_string();
+    }
+    let mut rel = PathBuf::new();
+    for _ in common..cwd.components().count() {
+        rel.push("..");
+    }
+    for c in path.components().skip(common) {
+        rel.push(c.as_os_str());
+    }
+    if rel.as_os_str().is_empty() {
+        ".".to_string()
+    } else {
+        rel.display().to_string()
+    }
 }
 
 /// The output directory for one backend: the flag, else — for `compile`,

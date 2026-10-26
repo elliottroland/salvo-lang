@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2066 tests, complete: the toolchain tests are
+cargo test                  # 2070 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,75 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-14 — `--src` is the source root: one inside a project's root is refused
+
+User decision (ROADMAP 0t, option (b)): `--src` keeps a single meaning, the
+source root. A `--src` strictly inside the found manifest's source root
+re-rooted every module path under it — with `[build] src = "S"`, `--src
+S/app` made `S/app/util.sv` module `util` and broke the project's own
+imports; `--src lib/std` made the std tree's files `core.*`, `time`, …
+beside the embedded `std.*`, both implicitly visible, and the analysis did
+not finish. Now every command that takes `--src` (`run`, `compile`, `build`,
+`test`, `analyze`, `ir`, `facts`, `platform generate`; all go through
+`resolve_inputs`) refuses it before loading anything, with one error:
+"`tmp/p/src/app` is inside the project's source root `tmp/p/src` (from
+`tmp/p/salvo.toml`): pass `--src tmp/p/src`, or no `--src`; scope a command
+to one module with `--module` where it has one [manifest-src]". `--src
+lib/std` is refused in milliseconds, naming `lib`.
+
+- **The mirror case is refused too** (engineering call under the decision,
+  asked for by the user): a `--src` that *contains* the root without being
+  it — the manifest's own directory under `[build] src = "salvo"` — re-roots
+  the other way (`salvo.main`). `Project::find` looks at and above `--src`,
+  so a manifest it finds whose root lies below `--src` is the project the
+  flag is about, and the flag can only be mis-rooting it; same message with
+  "contains".
+- Paths compare canonically; the message spells them the way `--src` was
+  spelled (relative to the working directory, or absolute).
+- Unchanged: a `--src` beside the root (neither inside nor around it), a
+  `--src` with no manifest found, `--main` alone, and the language server —
+  it takes each document's root from its manifest (`Project::src()` in
+  `analyze_for_document_cached`) and has no `--src`.
+- **No `--module` for `analyze`/`test`.** On `ir`/`facts` it filters the
+  output of a whole-program analysis; for `analyze` the same filter raises
+  questions the existing two do not answer (the exit code, the std-errors
+  line, the file counts), so it is left for later; `test` already narrows
+  with its id `FILTER`.
+- Nothing in the repository passed a `--src` inside a project's root: every
+  CLI test, the bench scripts (`bench/*/salvo`) and the docs already named
+  the root, so no test, tool or doc had to change.
+- IMPLICIT_RECURSE.md's decision (A memoize, B the depth cap as a contract,
+  C a width rule) stays open: the duplicate std was a real width-2
+  reproduction of the blowup it could not build from std alone, and only the
+  user-facing route to it is closed.
+
+Tests: four in `analyze_tests.rs` — the refusal for every command, the
+mirror case with relative paths, `--src lib/std` against a 60 s deadline,
+and what still works (the root spelled with `..`, no `--src`, a sibling
+directory, no manifest). Found on the way: the two `lsp-std-front` soundness
+tests shared one scratch directory (`tmp/std_front_test/<name>`), and under
+nextest's parallel processes one deleted what the other was writing (EINVAL
+on a write); each now writes under its own name.
+
+### 2026-10-14 — Fate links stay the checker's facts (option C)
+
+User decision, after weighing the last R8 leftover (PIPELINE.md §8, "Fate
+links stay the checker's"). The checker keeps tracking links through flow;
+the IR flow pass keeps consuming them as recorded facts (`bind_facts`,
+`derived_uses`, `virtual_candidates`, `by_value_loops`, `fate_mutations`).
+Rejected: (A) a monotone derivation per variable in the checker with the
+precise links computed in the IR — it would refuse correct programs that
+re-point a borrowed variable (a re-pointed returned view, a claim rooted at
+an old source, aliasing handles, a re-pointed iterator), for tidiness and a
+handful of loop re-walks; (B) two link computations kept equal by nothing;
+and deferring claim-dependent overload choice to the IR, which would make
+the IR part of type-checking again (an overload's result type types the rest
+of the body). Two of the checker's link readers are typing rules (a claim's
+root; an iterator variable's element type), the rest are its errors and the
+facts it records. Lesson, user's words: "this can be a lesson going into
+future evolutions" — a claim is a type, so the flow facts its identity needs
+reach typing. Found while measuring: ROADMAP 0v.
 
 ### 2026-10-26 — A cycle through a router is reported
 
@@ -29699,7 +29768,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2066 under `cargo test` on 2026-10-26; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2070 under `cargo test` on 2026-10-26; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
