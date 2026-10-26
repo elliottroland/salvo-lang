@@ -4887,6 +4887,25 @@ Conventions:
   **declared on the type** [fn-attached]: it travels with it, `cmp@Point`
   names it, `?cmp` resolves to it by default, and it carries the type's own
   `export`.
+  * **The clause is one `fn … by X` per member** (user decision 2026-10-14,
+    ROADMAP §2c): each member is declared with **the group member's
+    signature**, `self` substituted — `Ordered<self>` on `Point` declares
+    `fn cmp(a: Point, b: Point) -> Int by X` — and stamped exactly as [fn-by]
+    stamps a written declaration: the template supplies only the body, and
+    its parameter names, effect list and deductions stop counting. The
+    member's parameter names are the stamped fn's (`sep = "-"` names a
+    defaulted parameter by the group's name), its defaults are the group's,
+    and its contract is its own clause or the defaults [deduce-default]. A
+    body that performs an effect the member does not list, or moves a
+    parameter the member keeps, is an error of the stamped body at the `by`
+    site with the stamp's prefix [comptime-instantiate]; a template whose
+    parameter types or return type are not the member's is the [fn-by]
+    mismatch, reported at the clause. One path in the code: the clause builds
+    the member's declaration (`Stamper::member_decl`) and fills it with the
+    written declarations' `Stamper::stamp_into`. (Before, the clause stamped
+    the template's whole signature; since every `std.core.auto` and
+    `std.args` template spells its group member's signature and the default
+    contract, no program changed.)
   * **`X` names only what the stamping file can see** (user decision
     2026-10-14, ROADMAP 0s): both readings consider the modules visible from
     the file the clause is written in — its own module, the modules it
@@ -4928,9 +4947,13 @@ Conventions:
     ?Ordered<T>)` — the target's type parameters and their `canbe` opt-ins,
     and one group per parameter a field (or arm) mentions: `?Ordered<T>` for
     `cmp`, `?Eq<T>` for `eq`, `?Hashed<T>` for `hash`, `?ToStr<T>` for
-    `to_str`. A template of another name is still refused at a generic
-    target. The template's own type parameter is renamed out of the way first
-    (`T` → `__Self`) when it shares a name with the target's. A concrete field
+    `to_str` — part of the member's signature, so they follow the
+    **member's** name (the template's until 2026-10-14). A member of another
+    name is still refused at a generic target, and so is a written `fn … by X`
+    at a generic type, which would have to spell these additions itself. The
+    template's own type parameter is renamed out of the way first
+    (`T` → `__Self`) when it shares a name with the target's, and the group's
+    (`__Group0`) before `self` is substituted. A concrete field
     beside a generic one reaches its own member [implicit-resolve-body].
     * Each stamped member gets a name span of its own (redirected to the `by`
       site), since one site stamps several and a fn's implicits are keyed by
@@ -4990,6 +5013,33 @@ Conventions:
   `by` is a parse error. The declaration attaches as any inner fn or
   fulfilment does [fn-attached]. `by` is contextual: it closes a type
   sequence, since a type or qualifier is uppercase by rule [name-casing].
+  * **The declaration's signature is the stamped fn's, never the
+    template's** (user decision 2026-10-14, ROADMAP §2c): its parameter
+    names, types, return type, effect list and deduction clause — written,
+    or defaulted [deduce-default] — and the template supplies **only the
+    body**, checked against it like any body against its signature. `fn
+    eq(a: P, b: P) -> Bool => !a by auto` consumes its first argument though
+    `std.core.auto`'s `eq` says `=> a, b`; `fn loud(v: P) [Console] -> Int by
+    derive` grants the effect a template's body performs. A body performing
+    an effect the declaration does not list, or moving a parameter it keeps,
+    is an ordinary error of the stamped body, reported as a stamped body's
+    errors are [comptime-instantiate]. (Before, an unwritten effect list or
+    clause was copied from the template.)
+  * The positional check of parameter types and return type is kept: the
+    template instantiated at the type must have the declared ones, which
+    reads better than the type errors its body would raise otherwise.
+  * **The template's parameters are bound to the declaration's by
+    position**: after the expansion, the body's references to the template's
+    parameter names are renamed to the declared ones (after, so no comptime
+    binder can meet a declared name), and a local of the body a declared
+    name would capture is renamed apart first — `fn hash(h: P) -> Long by
+    auto` meets `std.core.auto`'s own `let h`, which becomes `h__p`, still
+    written `h` in diagnostics but not refused as shadowing the parameter
+    [var-no-shadow]. Named arguments use the declared names, so they name
+    only a declared default [fn-param-default].
+  * **An obligation clause is this, once per member** [obligation-by]; a
+    written declaration at a generic type is refused for now
+    [comptime-generic].
 * [comptime-bound] **`comptime fn` is a compile-time function** (user decision
   2026-09-29: one modifier, `comptime`, for the whole facility — `comptime fn`,
   `comptime struct`, `comptime type` — replacing the standalone `compfn` of the
@@ -5016,7 +5066,11 @@ Conventions:
     obligation (comptime round 2).
   * Like an `intrinsic fn` either form writes its effect list, deductions and
     return type; an instantiation reached by implicit resolution must be
-    effect-free [implicit-fn-only]. `std.core.auto` holds `cmp`, `eq`, `hash` and
+    effect-free [implicit-fn-only]. For the **stamped** form they describe
+    the template only (user decision 2026-10-14): its parameter types and
+    return type are checked against the declaration it is stamped into, and
+    its effect list and deductions never reach the stamped fn, whose
+    signature is the declaration's [fn-by] [obligation-by]. `std.core.auto` holds `cmp`, `eq`, `hash` and
     `to_str` for structs and unions; a user module may hold its own, reached by
     `by mymodule`.
 * [comptime-generic-fn] **An expanded-in-place comptime fn may be generic**
@@ -5463,8 +5517,12 @@ Conventions:
     `auto` for `Point.y: Double`: no matching overload for `cmp(Double,
     Double)`" at the field declaration. (An expanded-in-place fn's copies are
     redirected to the written code instead [comptime-inline].)
+    A diagnostic raised outside the checker's walk at a synthetic span — the
+    deduction pass's, at a clause member's parameter [obligation-by] — is
+    redirected the same way (`comptime::redirect_stamped`, 2026-10-14).
   * A stamped fn is an ordinary `FnDecl` for everything downstream:
-    resolution, the duplicate check, mangling, export, both emitters.
+    resolution, the duplicate check, mangling, export, both emitters. Its
+    signature is the declaration's, never the template's [fn-by].
 * [cmp-carry] A structure that **holds** an ordering (or a hash, or an
   equality) names it as a **fn-valued type argument**, fixed at construction
   (user decision 2026-09-21, the ordering round's decision 1). The identity lands *in

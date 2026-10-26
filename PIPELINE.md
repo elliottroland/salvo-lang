@@ -225,6 +225,14 @@ Route stubs, derived per effect in the IR (step 6, piece 5):
   goes. Ownership errors exist where the IR exists — per declaration that
   type-checks — so a body with a type error reports its ownership errors
   once the type error is fixed.
+- **Amended (user, 2026-10-14): static move-site rules stay in the
+  checker.** A rule that reads no flow state — a lambda moving or mutating a
+  capture it may not, a value stored into handler state, a written lend list
+  checked against what the body visibly lends — is judged where the checker
+  already sees the lambda boundary, the call contract and the handler's
+  declaration. What those rules consume reaches the flow pass as moves
+  (`lambda_captures`, `moved_reads`, `flow_moves`), so the flow pass owns
+  every *path-dependent* ownership question and nothing else.
 
 ## 4. Body-derived interface facts (D2)
 
@@ -1884,3 +1892,35 @@ log current so the work can resume after a context reset). Newest last.
   dependency; the redundant-`@` warning echoes the selector as written.
   Left: ROADMAP 0t (`--src lib/std`), `demo/demo.sv`'s `import heap` (the
   user's). Next: R8's leftovers, awaiting the user (§8 piece 9).
+- **R8's leftovers settled (user, 2026-10-14): option (b), R8 amended.**
+  Lambda capture moves, handler-storage moves and lends validation stay
+  checker rules: they read no flow state, and what they consume reaches the
+  flow pass as recorded moves (§3 R8, "Amended"). Nothing to build. Still
+  open, engineering only: the fate links computed in the IR (needs an `is`
+  binding with links of its own), after which `check_loop_body`'s
+  link-triggered re-walk can go. `demo/demo.sv` now spells `import
+  std.heap` (the user's file; not committed by the agent).
+- **Comptime step B's DECISION made (user, 2026-10-14):** a stamped member
+  has the signature it is declared with — the written one for `fn … by X`,
+  the group member's with `self` substituted for an obligation clause, which
+  behaves as one `fn … by X` per member — and the template supplies only the
+  body (ROADMAP §2c). Built first in today's expansion; the
+  signature/body split itself still waits on stable ids and relative spans.
+- **comptime signatures: done (committed "Give a stamped member the
+  signature it is declared with").** One stamping path in `comptime.rs`: a
+  clause builds each member's declaration from the group member
+  (`Stamper::member_decl`: `self` substituted, qualifiers kept, the
+  [comptime-generic] additions keyed by the member's name) and fills it with
+  the same `Stamper::stamp_into` a written `fn … by X` uses, which now copies
+  only the body. The template's parameters bind positionally (renamed after
+  the expansion; a capturing local renamed apart to `name__p`); its effect
+  list and deductions no longer reach the stamped fn; the positional
+  type/return check is kept and covers clauses too. The deduction pass's
+  contract errors at a clause member's synthetic spans are redirected to the
+  `by` site (`comptime::redirect_stamped`). No program's behavior or emitted
+  code changed (every std and test template already spelled its group's
+  signature and the default contract); 7 new tests
+  (`stamp_signature_tests.rs`). Deviations: a written `fn … by X` at a
+  generic type is still refused. Left: the signature/body split itself (§5)
+  on step 8's stable ids and relative spans; a group member with type
+  parameters of its own loses them in `member_decl` (none exists yet).

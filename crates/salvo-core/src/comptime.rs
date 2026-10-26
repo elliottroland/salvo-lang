@@ -340,17 +340,27 @@ fn run<M: crate::expand::ModuleSlot>(
                     };
                     site_hover.push(compfn_hover_text(&template, &module, Some(&name.name)));
                     site_module = Some(module);
+                    // [obligation-by] [fn-by] The clause is one `fn … by X` per
+                    // member (user decision 2026-10-14): the member's
+                    // signature with `self` substituted is the declaration,
+                    // and the stamp fills its body exactly as it fills a
+                    // written one.
                     let stamp = Stamper::new(&world, &target, &template, by, &mut virtual_next);
-                    match stamp.stamp_whole(by.span) {
-                        Ok(mut f) => {
+                    let mut f = match stamp.member_decl(group, member) {
+                        Ok(f) => f,
+                        Err(errs) => {
+                            diags.extend(errs);
+                            continue;
+                        }
+                    };
+                    f.exported = exported;
+                    f.scoped_to = Some(name.clone());
+                    let stamp = Stamper::new(&world, &target, &template, by, &mut virtual_next);
+                    match stamp.stamp_into(&mut f, Declared::Member { group: &group.name.name }) {
+                        Ok(()) => {
                             if let Some(s) = &mut f.stamped {
                                 s.template_file = template_file;
                             }
-                            f.exported = exported;
-                            f.scoped_to = Some(name.clone());
-                            // The function form (`by tag`) fulfils the member
-                            // under the *member's* name.
-                            f.name.name = member.name.name.clone();
                             generated.push(Item::Fn(f));
                         }
                         Err(errs) => diags.extend(errs),
@@ -427,7 +437,14 @@ fn run<M: crate::expand::ModuleSlot>(
                     module: Some(module.clone()),
                 });
                 let stamper = Stamper::new(&world, &target, &template, &by, &mut virtual_next);
-                match stamper.stamp_into(f) {
+                // [comptime-generic] A written declaration at a generic type
+                // would have to spell the generic additions itself; not yet.
+                if let Some(d) = stamper.generic_refused(by.span) {
+                    diags.push(d);
+                    fallback_body(f);
+                    continue;
+                }
+                match stamper.stamp_into(f, Declared::Written) {
                     Ok(()) => {
                         if let Some(s) = &mut f.stamped {
                             s.template_file = template_file;
@@ -1961,17 +1978,16 @@ impl<'w> Stamper<'w> {
         ))
     }
 
-    /// [obligation-by] A whole new fn: the template's signature with `T`
-    /// substituted, and its body expanded.
     /// [comptime-generic] What stamping at a **generic** target needs (ROADMAP
     /// §0j 6i, decided with §2c): the target's type parameters, their `canbe`
     /// opt-ins, and one implicit group per parameter a field (or arm) mentions
     /// — `?Ordered<T>` for `cmp`, `?Eq<T>` for `eq`, `?Hashed<T>` for `hash`,
     /// `?ToStr<T>` for `to_str`. A copy meeting an opaque `T` has nothing to
-    /// call but what the caller hands in, so the need is the signature's.
-    /// `None` for a template whose capability has no group to ask for.
-    fn generic_needs(&self, site: Span) -> Option<(Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<TypeRef>)> {
-        let group = match self.template.name.name.as_str() {
+    /// call but what the caller hands in, so the need is the signature's —
+    /// and so it follows the **member** being declared, not the template's
+    /// name. `None` for a member whose capability has no group to ask for.
+    fn generic_needs(&self, member: &str, site: Span) -> Option<(Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<TypeRef>)> {
+        let group = match member {
             "cmp" => "Ordered",
             "eq" => "Eq",
             "hash" => "Hashed",
@@ -2000,61 +2016,52 @@ impl<'w> Stamper<'w> {
         Some((generics, canbe, needs))
     }
 
-    fn stamp_whole(self, site: Span) -> Result<FnDecl, Vec<Diagnostic>> {
+    /// [obligation-by] [fn-by] The declaration a clause stamps for one member
+    /// of its group: exactly the `fn … by X` it stands for (user decision
+    /// 2026-10-14). Its signature is the **member's**, with the group's
+    /// parameter — `self` at the clause — substituted by the target, and for
+    /// a generic target the additions [comptime-generic] makes: the target's
+    /// type parameters, their `canbe` opt-ins and the implicit groups its
+    /// fields need. No body: [`Stamper::stamp_into`] supplies it, as for a
+    /// written declaration. The member's spans move into virtual space, so a
+    /// diagnostic about the signature lands at the `by` site.
+    fn member_decl(self, group: &ParamsDecl, member: &FnDecl) -> Result<FnDecl, Vec<Diagnostic>> {
+        let site = self.by.span;
         let generic = if self.target.generics.is_empty() {
             None
         } else {
-            match self.generic_needs(site) {
+            match self.generic_needs(&member.name.name, site) {
                 Some(needs) => Some(needs),
                 None => return Err(vec![self.generic_refused(site).expect("generic target")]),
             }
         };
-        let mut f = self.template.clone();
-        // Everything the template carries moves into virtual space first, so
-        // the target file's own spans are never reused.
+        let mut f = member.clone();
         let mut remap = Remap::fresh(&mut f, self.virtual_next);
         visit_mut::walk_fn(&mut remap, &mut f);
-        let mut param = self.template.compfn.as_ref().and_then(|c| c.bound.as_ref()).map(|(_, id)| id.name.clone());
-        // [comptime-generic] The template's own parameter is renamed out of
-        // the way of the target's (`cmp<T is Struct>` stamped at `Wrapper<T>`):
-        // the substitution `T` → `Wrapper<T>` would otherwise meet its own `T`.
-        let mut target = self.target.clone();
+        // `self`: the group's parameters stand for the target (at a generic
+        // one, applied to its own parameters). Each is renamed apart first,
+        // so a target parameter of the same name (`Ordered<T>` at
+        // `Wrapper<T>`) is never substituted again.
+        let mut target = self.target.ty.clone();
         if generic.is_some() {
-            if let Some(p) = &param {
-                if self.target.generics.contains(p) {
-                    let fresh = "__Self".to_string();
-                    let mut rename = RenameIdent { from: p.clone(), to: fresh.clone() };
-                    visit_mut::walk_fn(&mut rename, &mut f);
-                    param = Some(fresh);
-                }
-            }
-            if let Type::Named { base, .. } = &mut target.ty {
+            if let Type::Named { base, .. } = &mut target {
                 base.args = self.target.generics.iter().map(|g| World::simple_named(g, site)).collect();
             }
         }
-        let mut ex = Expander::new(self.world, param.map(|p| (p, target)), site, self.virtual_next);
-        // Signature substitution: `T` → the target.
-        let mut sig = SigSubst { ex: &mut ex };
-        for p in &mut f.params {
-            visit_mut::walk_type(&mut sig, &mut p.ty);
+        let mut names = Vec::new();
+        for (i, g) in group.generics.iter().enumerate() {
+            let fresh = format!("__Group{i}");
+            let mut rename = RenameIdent { from: g.name.clone(), to: fresh.clone() };
+            visit_mut::walk_fn(&mut rename, &mut f);
+            names.push(fresh);
         }
-        if let Some(r) = &mut f.return_type {
-            visit_mut::walk_type(&mut sig, r);
-        }
-        if let Some(b) = &mut f.body {
-            ex.expand_block(b);
-        }
-        let (mut regions, mut errs) = ex.finish();
-        // A stamp reports errors at its `by` site; a template's warnings are
-        // its author's business, not every stamping site's.
-        errs.retain(|d| d.is_error());
-        if !errs.is_empty() {
-            return Err(errs);
-        }
+        let mut subst = SubstSelf { names: &names, target: &target };
+        visit_mut::walk_fn(&mut subst, &mut f);
         // [comptime-generic] One `by` site stamps several members (`Hashed`'s
         // `hash` and `eq`), and a generic stamp's implicits are looked up by
         // its name's span: each gets a span of its own, which diagnostics
         // redirect to the site.
+        let mut regions = Vec::new();
         let name_span = if generic.is_some() {
             let start = *self.virtual_next;
             *self.virtual_next = start + 2;
@@ -2078,12 +2085,13 @@ impl<'w> Stamper<'w> {
             f.implicit_groups.extend(needs);
         }
         f.compfn = None;
-        f.by = None;
-
+        f.body = None;
+        f.by = Some(self.by.clone());
         f.docs = vec![format!(
             "The `{}` of [{}], stamped from `{}`'s `compfn` [obligation-by].",
             f.name.name, self.target.name, self.by.text()
         )];
+        // Carries the name's region to the stamp `stamp_into` records.
         f.stamped = Some(Stamp {
             compfn: self.template.name.name.clone(),
             from: self.by.text(),
@@ -2098,18 +2106,45 @@ impl<'w> Stamper<'w> {
         Ok(f)
     }
 
-    /// [fn-by] Into a written declaration: the body is stamped, and the written
-    /// signature is checked against the instantiated one.
-    fn stamp_into(self, f: &mut FnDecl) -> Result<(), Vec<Diagnostic>> {
+    /// [fn-by] [obligation-by] Stamps the body of a declaration — a written
+    /// `fn … by X`, or the one a clause declares per member
+    /// ([`Stamper::member_decl`]). **The declaration's signature is the
+    /// stamped fn's** (user decision 2026-10-14): its parameter names, types,
+    /// return type, effect list and deduction clause (written or defaulted
+    /// [deduce-default]). The template supplies only the body: it is
+    /// instantiated at the target, its parameter types and return type are
+    /// checked against the declaration's, positionally (a clearer error than
+    /// the body's type errors would be), and its parameters are bound to the
+    /// declaration's by position — the body's references to the template's
+    /// names are renamed to the declared ones. Its own effect list and
+    /// deductions do not count: the checker holds the body to the declared
+    /// contract, as it holds any body to its signature.
+    fn stamp_into(self, f: &mut FnDecl, declared: Declared<'_>) -> Result<(), Vec<Diagnostic>> {
         let site = f.by.as_ref().map(|b| b.span).unwrap_or(f.span);
-        if let Some(d) = self.generic_refused(site) {
-            return Err(vec![d]);
-        }
         let mut inst = self.template.clone();
         let mut remap = Remap::fresh(&mut inst, self.virtual_next);
         visit_mut::walk_fn(&mut remap, &mut inst);
-        let param = self.template.compfn.as_ref().and_then(|c| c.bound.as_ref()).map(|(_, id)| id.name.clone());
-        let mut ex = Expander::new(self.world, param.map(|p| (p, self.target.clone())), site, self.virtual_next);
+        let mut param = self.template.compfn.as_ref().and_then(|c| c.bound.as_ref()).map(|(_, id)| id.name.clone());
+        // [comptime-generic] At a generic target (a clause's: a written
+        // declaration there is refused) the template's own parameter is
+        // renamed out of the way of the target's (`cmp<T is Struct>` stamped
+        // at `Wrapper<T>`): the substitution `T` → `Wrapper<T>` would
+        // otherwise meet its own `T`.
+        let mut target = self.target.clone();
+        if !self.target.generics.is_empty() {
+            if let Some(p) = &param {
+                if self.target.generics.contains(p) {
+                    let fresh = "__Self".to_string();
+                    let mut rename = RenameIdent { from: p.clone(), to: fresh.clone() };
+                    visit_mut::walk_fn(&mut rename, &mut inst);
+                    param = Some(fresh);
+                }
+            }
+            if let Type::Named { base, .. } = &mut target.ty {
+                base.args = self.target.generics.iter().map(|g| World::simple_named(g, site)).collect();
+            }
+        }
+        let mut ex = Expander::new(self.world, param.map(|p| (p, target)), site, self.virtual_next);
         let mut sig = SigSubst { ex: &mut ex };
         for p in &mut inst.params {
             visit_mut::walk_type(&mut sig, &mut p.ty);
@@ -2117,14 +2152,20 @@ impl<'w> Stamper<'w> {
         if let Some(r) = &mut inst.return_type {
             visit_mut::walk_type(&mut sig, r);
         }
-        // The written signature has to be the instantiation's, positionally.
+        // The declared signature has to be the instantiation's, positionally.
+        // A written one is reported where it is written; a clause's member at
+        // the clause.
+        let (what, written) = match declared {
+            Declared::Written => (format!("`fn {}`", f.name.name), true),
+            Declared::Member { group } => (format!("`{group}<self>`'s `fn {}`", f.name.name), false),
+        };
+        let at = |s: Span| if written { s } else { site };
         let mut errs = Vec::new();
         if inst.params.len() != f.params.len() {
             errs.push(Diagnostic::error(
                 format!(
-                    "`fn {}` takes {} parameter(s), but `{}`'s `compfn {}` stamped at `{}` \
+                    "{what} takes {} parameter(s), but `{}`'s `compfn {}` stamped at `{}` \
                      takes {} [fn-by]",
-                    f.name.name,
                     f.params.len(),
                     self.by.text(),
                     self.template.name.name,
@@ -2138,15 +2179,14 @@ impl<'w> Stamper<'w> {
                 if self.world.normalized(&w.ty) != self.world.normalized(&i.ty) {
                     errs.push(Diagnostic::error(
                         format!(
-                            "`fn {}`'s parameter `{}` is `{}`, but the stamped `{}` takes `{}` \
+                            "{what}'s parameter `{}` is `{}`, but the stamped `{}` takes `{}` \
                              there [fn-by]",
-                            f.name.name,
                             w.name.name,
                             w.ty,
                             self.template.name.name,
                             i.ty
                         ),
-                        w.ty.span(),
+                        at(w.ty.span()),
                     ));
                 }
             }
@@ -2156,8 +2196,7 @@ impl<'w> Stamper<'w> {
         if written_ret != inst_ret {
             errs.push(Diagnostic::error(
                 format!(
-                    "`fn {}` returns `{}`, but the stamped `{}` returns `{}` [fn-by]",
-                    f.name.name,
+                    "{what} returns `{}`, but the stamped `{}` returns `{}` [fn-by]",
                     f.return_type.as_ref().map(|t| t.to_string()).unwrap_or_else(|| "None".into()),
                     self.template.name.name,
                     inst.return_type.as_ref().map(|t| t.to_string()).unwrap_or_else(|| "None".into())
@@ -2168,8 +2207,21 @@ impl<'w> Stamper<'w> {
         if !errs.is_empty() {
             return Err(errs);
         }
-        // The body reads the template's parameter names; rename to the
-        // written ones so the written signature is the one the body uses.
+        if let Some(b) = &mut inst.body {
+            ex.expand_block(b);
+        }
+        let (regions, mut errs) = ex.finish();
+        // A stamp reports errors at its `by` site; a template's warnings are
+        // its author's business, not every stamping site's.
+        errs.retain(|d| d.is_error());
+        if !errs.is_empty() {
+            return Err(errs);
+        }
+        // The template's parameters are the declaration's, by position: the
+        // expanded body's references to the template's names are renamed to
+        // the declared ones (after the expansion, so no comptime binder can
+        // meet a declared name), and a local of the body that a declared name
+        // would capture is renamed apart first.
         let renames: HashMap<String, String> = inst
             .params
             .iter()
@@ -2179,41 +2231,21 @@ impl<'w> Stamper<'w> {
             .collect();
         if let Some(b) = &mut inst.body {
             if !renames.is_empty() {
+                rename_capturing_locals(b, &renames);
                 let mut r = RenameParams { renames: &renames };
                 visit_mut::walk_block(&mut r, b);
             }
-            ex.expand_block(b);
-        }
-        let (regions, mut errs) = ex.finish();
-        errs.retain(|d| d.is_error());
-        if !errs.is_empty() {
-            return Err(errs);
         }
         f.body = inst.body;
-        if f.effects.is_none() {
-            f.effects = inst.effects.clone();
-        }
-        if f.deductions.is_none() {
-            f.deductions = inst.deductions.clone().map(|ds| {
-                ds.into_iter()
-                    .map(|mut d| {
-                        if let DeductionTarget::Param { name, .. } = &mut d.target {
-                            if let Some(n) = renames.get(&name.name) {
-                                name.name = n.clone();
-                            }
-                        }
-                        d
-                    })
-                    .collect()
-            });
-        }
         f.by = None;
+        let mut all = f.stamped.take().map(|s| s.regions).unwrap_or_default();
+        all.extend(regions);
         f.stamped = Some(Stamp {
             compfn: self.template.name.name.clone(),
             from: self.by.text(),
             at_type: self.target.name.clone(),
             site,
-            regions,
+            regions: all,
             roots: Vec::new(),
             template_file: None,
         });
@@ -2246,9 +2278,84 @@ impl MutVisitor for RenameIdent {
 }
 
 /// Renames parameter references in a body (the template's names → the
-/// written declaration's).
+/// declaration's).
 struct RenameParams<'a> {
     renames: &'a HashMap<String, String>,
+}
+
+/// [fn-by] [obligation-by] Which declaration a stamp fills: one written `fn
+/// … by X`, or the one an obligation clause declares for a member of its
+/// group. They stamp alike; only where a signature mismatch is reported, and
+/// how it is named, differ.
+#[derive(Clone, Copy)]
+enum Declared<'a> {
+    Written,
+    Member { group: &'a str },
+}
+
+/// [obligation-by] `self` in a group member's signature: each of the group's
+/// (renamed-apart) parameters stands for the target type, its qualifiers
+/// kept (`Mut T` is `Mut Point`).
+struct SubstSelf<'a> {
+    names: &'a [String],
+    target: &'a Type,
+}
+
+impl MutVisitor for SubstSelf<'_> {
+    fn visit_type(&mut self, ty: &mut Type) {
+        let Type::Named { qualifiers, base } = ty else { return };
+        if !base.args.is_empty() || !self.names.contains(&base.name.name) {
+            return;
+        }
+        let mut new = self.target.clone();
+        if !qualifiers.is_empty() {
+            match &mut new {
+                Type::Named { qualifiers: q2, .. } => {
+                    let mut all = qualifiers.clone();
+                    all.append(q2);
+                    *q2 = all;
+                }
+                other => {
+                    let span = other.span();
+                    new = Type::QualifiedGroup {
+                        qualifiers: qualifiers.clone(),
+                        base: Box::new(other.clone()),
+                        span,
+                    };
+                }
+            }
+        }
+        *ty = new;
+    }
+}
+
+/// [fn-by] Before a template's parameters are renamed to the declared names,
+/// every local the body binds under one of those names — a `let`, an `is`
+/// binding, a `for` pattern, a lambda parameter — is renamed apart
+/// (`h` → `h__p`, written `h` in diagnostics [comptime-scope]), so a declared
+/// `fn hash(h: P) -> Long by auto` reads its parameter where the template read
+/// `value`, and its own `h` where it declared one.
+fn rename_capturing_locals(body: &mut Block, renames: &HashMap<String, String>) {
+    struct Lambdas<'a>(&'a mut Vec<String>);
+    impl MutVisitor for Lambdas<'_> {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if let Expr::Lambda { params, .. } = expr {
+                self.0.extend(params.iter().map(|p| p.name.name.clone()));
+            }
+        }
+    }
+    let mut names: Vec<String> = Vec::new();
+    visit_mut::walk_block(&mut CollectLocals { names: &mut names }, body);
+    visit_mut::walk_block(&mut Lambdas(&mut names), body);
+    let declared: Vec<&String> = renames.values().collect();
+    let apart: HashMap<String, String> = names
+        .into_iter()
+        .filter(|n| declared.contains(&n) && !renames.contains_key(n))
+        .map(|n| (n.clone(), format!("{n}{APART_SUFFIX}")))
+        .collect();
+    if !apart.is_empty() {
+        visit_mut::walk_block(&mut RenameLocals { renames: &apart }, body);
+    }
 }
 
 impl MutVisitor for RenameParams<'_> {
@@ -4140,9 +4247,33 @@ fn arm_check(arm: &Type) -> Option<Vec<TypeRef>> {
     }
 }
 
+/// [comptime-instantiate] Where a diagnostic about a stamped fn raised outside
+/// the checker's walk lands (the deduction pass's, at a parameter or a clause
+/// entry): a written span stays, a synthetic one — a clause member's
+/// signature [obligation-by], a copy in its body — goes to the field or arm
+/// its region is for, or the `by` site, prefixed as the checker prefixes a
+/// stamped body's errors.
+pub fn redirect_stamped(stamp: &Stamp, file_len: usize, span: Span, msg: String) -> (Span, String) {
+    if (span.start as usize) < file_len {
+        return (span, msg);
+    }
+    let region = stamp.regions.iter().rev().find(|r| span.start >= r.start && span.start < r.end);
+    let (at, label) = match region {
+        Some(r) => (r.target, r.label.as_str()),
+        None => (stamp.site, stamp.at_type.as_str()),
+    };
+    (at, format!("in `{}` from `{}` for `{label}`: {msg}", stamp.compfn, stamp.from))
+}
+
 /// The suffix [`rename_locals`] appends: `k` declared in a scoped comptime
 /// body becomes `k__c3`.
 const SCOPED_SUFFIX: &str = "__c";
+
+/// [fn-by] The suffix [`rename_capturing_locals`] appends: a template's local
+/// `h` that a declared parameter `h` would capture becomes `h__p`. Not a
+/// scoped body's suffix, so the checker's no-shadowing rule does not read it
+/// as the `h` it was written as; diagnostics still do.
+const APART_SUFFIX: &str = "__p";
 
 /// [comptime-scope] The name one scoped body's renaming wrapped: `k__c1__c3`
 /// was `k__c1` before the innermost body renamed it, and `None` for a name no
@@ -4154,18 +4285,24 @@ pub fn scoped_outer(name: &str) -> Option<&str> {
 }
 
 /// [comptime-scope] The name a renamed local was written as: every scoped
-/// body's suffix stripped.
+/// body's suffix stripped, and a local renamed apart from a declared
+/// parameter [fn-by] as written too.
 pub fn written_local(mut name: &str) -> &str {
-    while let Some(outer) = scoped_outer(name) {
-        name = outer;
+    loop {
+        if let Some(outer) = scoped_outer(name) {
+            name = outer;
+        } else if let Some(outer) = name.strip_suffix(APART_SUFFIX).filter(|o| !o.is_empty()) {
+            name = outer;
+        } else {
+            return name;
+        }
     }
-    name
 }
 
 /// [comptime-scope] A diagnostic in the author's terms: every renamed local
 /// it names (`k__c3`, `_k__c3`) written as it was (`k`, `_k`).
 pub fn unmangle_message(msg: &str) -> std::borrow::Cow<'_, str> {
-    if !msg.contains(SCOPED_SUFFIX) {
+    if !msg.contains(SCOPED_SUFFIX) && !msg.contains(APART_SUFFIX) {
         return std::borrow::Cow::Borrowed(msg);
     }
     let mut out = String::with_capacity(msg.len());

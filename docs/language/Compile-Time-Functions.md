@@ -24,6 +24,18 @@ function declared on the type, exactly as if you had written it inside the
 struct's body: it travels with the type, `cmp@Point` names it, an implicit
 `?cmp` resolves to it, and it carries the struct's own `export`.
 
+**A stamped function has the signature it is declared with.** For a clause
+that is the group's: `Ordered<self>` on `Point` declares `fn cmp(a: Point, b:
+Point) -> Int`, the group member with `self` replaced by the type — its
+parameter names, its defaults, its effect list (none) and its deductions (the
+defaults: both parameters kept). The `comptime fn` supplies only the
+**body**, and the body is checked against that signature like any other: the
+comptime fn's own parameter names, effect list and deduction clause do not
+count. A body that prints where the group's member is pure, or moves a
+parameter the member keeps, is an error at the clause, in the terms of the
+stamp ("in `take` from `derive` for `P`: `v` is kept by default, but the
+body moves it …").
+
 `auto` is `std.core.auto`, which holds `cmp`, `eq`, `hash` and `to_str` for
 structs and for unions — named by its suffix, as any module may be
 (`size@list` is `size@core.list`). Being in `std.core` means it can be named
@@ -70,9 +82,17 @@ struct Person : Hashed<self> {
 }
 ```
 
-The type stamped at is the first parameter's, and the written signature has to
-be the instantiation's; a body beside `by` is an error, since the body is what
-`by` supplies.
+The type stamped at is the first parameter's, and the written signature is
+the function's: its parameter names, effect list and deduction clause, as
+written or defaulted. It has to have the parameter types and return type the
+comptime fn has at that type (a mismatch names which), and a body beside `by`
+is an error, since the body is what `by` supplies. So a declaration may say
+more than the comptime fn does — `fn eq(a: Person, b: Person) -> Bool => !a by
+auto` consumes its first argument, and `fn loud(v: Person) [Console] -> Int by
+derive` grants a body that prints — and the names are its own: `fn hash(h:
+Person) -> Long by auto` reads `h` where `std.core.auto`'s `hash` reads
+`value`. A clause is exactly this, once per member, with the group's
+signature as the declaration.
 
 A clause names its type itself, so its members need not take one. A decoder
 returns the type and takes something else:
@@ -145,6 +165,11 @@ export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {
     return 0
 }
 ```
+
+Its signature is checked against the declaration it is stamped into, by
+position: at `Point`, `(a: T, b: T) -> Int` has to be the declaration's
+`(Point, Point) -> Int`. Its names, its `[]` and its `=> a, b` describe this
+body only; the stamped function's are the declaration's.
 
 Three things in it are compile-time:
 

@@ -218,12 +218,14 @@ pub(crate) fn infer<'p>(
         }
     }
     for f in &fns {
+        let before = errors.len();
         let state = match &f.decl.deductions {
             Some(list) => from_written(f.decl, list, &no_mutations, |span, msg| {
                 errors.push(FileDiagnostic::error(f.key.file, span, msg));
             }),
             None => defaults(f.decl),
         };
+        redirect_stamped(program, f.decl, f.key.file, &mut errors[before..]);
         states.insert(f.key, state);
     }
 
@@ -251,7 +253,9 @@ pub(crate) fn infer<'p>(
             expr_ty,
         );
         let contract = &states[&f.key];
+        let before = errors.len();
         validate_contract(f.key.file, f.decl, contract, &inferred, &mut errors);
+        redirect_stamped(program, f.decl, f.key.file, &mut errors[before..]);
     }
 
     // [effect-handler] Handler members are declarations with bodies too, and
@@ -554,6 +558,19 @@ pub(crate) fn from_written(
             }
         })
         .collect()
+}
+
+/// [deduce-default] [comptime-instantiate] A stamped fn's contract errors at
+/// a synthetic span — a clause member's parameter [obligation-by] — land at
+/// the `by` site with the stamp's prefix, as its body's errors do.
+fn redirect_stamped(program: &Program, decl: &FnDecl, file: usize, errors: &mut [FileDiagnostic]) {
+    let Some(stamp) = &decl.stamped else { return };
+    let file_len = program.files[file].content.len();
+    for e in errors {
+        let (span, message) = crate::comptime::redirect_stamped(stamp, file_len, e.span, std::mem::take(&mut e.message));
+        e.span = span;
+        e.message = message;
+    }
 }
 
 /// [deduce-default] The **default** deduction for one parameter, used where no

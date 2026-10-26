@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2054 tests, complete: the toolchain tests are
+cargo test                  # 2061 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -139,6 +139,84 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-14 — A stamped member has the signature it is declared with
+
+User decision 2026-10-14 (ROADMAP §2c, "The signature/body split"; the
+DECISION left there): a stamped member's signature is its declaration's,
+never the template's. For `fn cmp(a: Point, b: Point) -> Int by auto` that is
+the written signature — names, types, return type, effect list, deduction
+clause written or defaulted [deduce-default]; for `struct Point :
+Ordered<self> by auto` it is the group member's with `self` substituted (plus
+the generic additions at a generic target [comptime-generic]), and **the
+clause is one `fn … by auto` per member** [obligation-by] [fn-by]. The
+template (`comptime fn`) supplies only the body; its parameter names,
+effect list and deductions stop counting.
+
+How it worked before: the clause (`Stamper::stamp_whole`) cloned the
+template whole — its parameter names, effects, deductions, defaults —
+substituted `T`, renamed it to the member, and pushed it; nothing compared it
+with the group. A written `fn … by X` (`stamp_into`) kept its written names
+and types after a positional type check, but an unwritten effect list or
+deduction clause was **copied from the template** (deductions renamed to the
+written names), and the body's parameter references were renamed before the
+expansion.
+
+What changed (`comptime.rs`): one path. The clause builds the member's
+declaration (`Stamper::member_decl`: the group member cloned into virtual
+spans, the group's parameters renamed apart to `__Group<i>` and substituted
+by the target, qualifiers kept; generics, `canbe` opt-ins and implicit groups
+added at a generic target; name span, docs, `export`, `scoped_to` as before)
+and fills it with the same `stamp_into` a written declaration uses, which no
+longer copies anything but the body. The positional check of parameter types
+and return type is **kept** — it does not contradict the rule (the types are
+the declaration's either way; the check only reports a template that does
+not fit, more clearly than its body's type errors would) — and now covers the
+clause too, reported at the clause (`` `Ordered<self>`'s `fn cmp` … ``). The
+template's parameters are bound by position, renamed in the body **after**
+the expansion (so a comptime binder can never meet a declared name), and a
+body local a declared name would capture is renamed apart to `name__p`
+(`rename_capturing_locals`). The generic additions follow the member's name,
+not the template's. A written `fn … by X` at a generic type is still refused
+(moved from `stamp_into` to its call site). The deduction pass's contract
+errors at a synthetic span (a clause member's parameter) are now redirected
+to the `by` site with the stamp's prefix (`comptime::redirect_stamped`,
+called from `deduce::infer`); before, a clause stamp's written-entry errors
+would have landed past the end of the file.
+
+Programs: none changed. Every template in `lib/std` (`std.core.auto`'s
+`cmp`/`eq`/`hash`/`to_str`, `std.args`' `arg_spec`/`from_found`) spells its
+group member's parameter names and types, a `[]` effect list (the default of
+an unwritten one) and a clause that keeps every parameter (the default), and
+every test template does too — so contracts, Rust parameter modes and
+emitted code are identical: every example recompiled byte-identical on both
+backends, the ABI mirrors regenerated unchanged, no golden or snapshot moved.
+Tests: `stamp_signature_tests.rs` (7) — a clause member takes the group's
+names and defaults (`sep = "-"` named, the template's `between` refused, the
+group's default `" "` filled); a written declaration's own names and clause
+(`fn hash(h: P) -> Long by auto` against std's `let h`); declared
+deductions govern callers (`=> !a` consumes); a template's effect and move
+the member lacks are errors at the clause with the stamp prefix; a written
+declaration may grant them; a generic target; and the clause and its
+per-member `fn … by auto` spelling build the same IR, fn for fn. Left: the
+signature/body split itself (PIPELINE.md §5) still waits on step 8's stable
+ids and declaration-relative spans; it now needs no template to know a
+signature. Also left (ROADMAP §2c): a written `fn … by X` at a generic type,
+and a group member with type parameters of its own, which `member_decl`
+clears as the old path cleared the template's.
+
+### 2026-10-14 — Static move-site rules stay in the checker (R8 amended)
+
+User decision, option (b) of the question left at R8's end (PIPELINE.md §3
+R8, "Amended"): the IR flow pass owns every path-dependent ownership question
+(use after move, partial moves, poison, bound-away, move-mode, linear flow),
+and the checker keeps the rules that read no flow state — a lambda moving or
+mutating a capture it may not, a value stored into handler state, a written
+lend list against what the body visibly lends. What they consume already
+reaches the flow pass as recorded moves (`lambda_captures`, `moved_reads`,
+`flow_moves`). Option (a), moving them into the flow pass, was rejected: it
+would change no accepted program. Left, engineering only: the fate links
+computed in the IR.
 
 ### 2026-10-14 — The standard library's modules are under `std`
 
@@ -29475,7 +29553,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2054 under `cargo test` on 2026-10-14; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2061 under `cargo test` on 2026-10-14; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -29483,7 +29561,12 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 808 - 4 identity and key-bar tests (`tests/carry_tests.rs`
+- `salvo-core`: 815 - 7 stamped-signature tests
+  (`tests/stamp_signature_tests.rs` [obligation-by] [fn-by]
+  [comptime-generic], 2026-10-14: a clause member's names and defaults are
+  the group's, a written declaration's names and clause its own, the declared
+  contract governs callers and the body, a generic target, and a clause
+  building the same IR as its per-member `fn … by auto` spelling); 4 identity and key-bar tests (`tests/carry_tests.rs`
   [cmp-carry] [col-key-eligible]: two modules' same-named identities refused
   under one binder and printed with their modules, an identity resolved in
   its declaring module from a file importing the other or neither, a written
@@ -30750,6 +30833,27 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A stamp's capture-avoiding rename cannot use the scoped suffix**
+  (2026-10-14, stamped signatures). Renaming a template local that a declared
+  parameter would capture (`std.core.auto`'s `let h` under `fn hash(h: P)`) to
+  `h__c0` looked free — diagnostics already unmangle `__c<n>` — but the
+  checker's [var-no-shadow] reads through that suffix on purpose
+  (`shadows_by_written_name`) and refused it as shadowing `h`. It is
+  `h__p` (`APART_SUFFIX`): unmangled in messages, invisible to the shadowing
+  rule.
+
+- **Not every diagnostic about a stamped fn goes through the checker's
+  redirect** (2026-10-14). `redirect_stamped` in check.rs covers the walk;
+  the deduction pass pushes its contract errors straight into the list, at a
+  parameter's or clause entry's span. Harmless while a stamped signature's
+  spans were written ones; a clause member's are synthetic, and the error
+  landed past the end of the file until `deduce::infer` redirected it too.
+
+- **A named argument names only a defaulted parameter** [fn-param-default],
+  so "call sites use the declared names" is visible only for a member with a
+  default; and ownership errors (use after move) are the IR flow pass's, so
+  a test asserting one must run `ir::analyze`, not just `check_program`.
 
 - **A blanket rewrite of `import time` hits the tests' own `time`**
   (2026-10-14, the `std.` prefix). Inline test programs declare project

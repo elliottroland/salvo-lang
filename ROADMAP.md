@@ -999,10 +999,22 @@ program-wide ladder for a name the file does not see, and these stay open:
   union template ends in `return ""` after an exhaustive `[when value]`.
 - **The signature/body split** (PIPELINE.md §5: `by` declares the member
   signatures in 02-resolve-03, bodies stamped in 02-resolve-04) waits on step
-  8's stable ids and declaration-relative spans, and on a **DECISION**: whose
-  signature a stamped member has — the template's (today) or the group
-  member's with `self` substituted (the plan's wording), which would make the
-  template's parameter names, effects and deductions stop counting.
+  8's stable ids and declaration-relative spans. **Decided (user,
+  2026-10-14): a stamped member has the signature it is declared with, never
+  the template's.** For `fn cmp(a: Point, b: Point) -> Int by auto` that is
+  the written signature; for `struct Point : Ordered<self> by auto` it is
+  each group member's with `self` substituted, and the group clause behaves
+  exactly as a `fn … by auto` per member would. The template supplies only
+  the body, checked against that signature: its parameter names, effect list
+  and deductions stop counting. **Built 2026-10-14** in today's expansion
+  (COMPLETED.md's decision log): the clause builds each member's declaration
+  and fills it on the written declarations' path. The split itself still
+  waits on stable ids and relative spans, and now needs no template to know
+  a signature. Left beside it: a written `fn … by X` at a generic type is
+  still refused (it would have to spell the [comptime-generic] additions
+  itself), while the clause stamps one; and `Stamper::member_decl` clears a
+  group member's own type parameters (no std group has a generic member, and
+  no template for one could be written yet).
 
 ### 2d — Fix alongside the `lib/std/args` work: defects found 2026-10-20
 
