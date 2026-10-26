@@ -141,6 +141,18 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — The scheduler bench is in the current language
+
+Engineering, no decision (ROADMAP 0t's second bullet, closed).
+`bench/scheduler` no longer analyzed: its fan-out list was `Mut
+List<Addr<Counter>>`, the spelling [eff-handle] replaced with `eff[Counter]`.
+Rewritten, and its seven `!n`-style moves of `Int` parameters dropped
+([copy-scalar-free] warned on each), so it analyzes with no diagnostics; the
+protocol lock is unchanged. `tools/bench-scheduler.sh both 1` builds and runs
+it on both backends with the expected totals (100000 each), on a machine
+under heavy load, so the timings were not recorded. `bench/collections`
+already analyzed clean. The bench is still not in the suite.
+
 ### 2026-10-14 — A declared parameter that hides a stamped body's callee is named
 
 Engineering under the 2026-10-14 decision (ROADMAP 0u, closed). Since a

@@ -24,8 +24,8 @@ handler Ponging() of Ponger {
 }
 
 actor effect Pinger {
-    send fn start(n: Int, done: Reply<Int>) => !n, !done
-    send fn got(n: Int, done: Reply<Int>, v: Int) => !n, !done, !v
+    send fn start(n: Int, done: Reply<Int>) => !done
+    send fn got(n: Int, done: Reply<Int>, v: Int) => !done
 }
 
 handler Pinging() [Ponger] of Pinger {
@@ -48,7 +48,7 @@ handler Pinging() [Ponger] of Pinger {
 // ===== fan-out =====
 
 actor effect Counter {
-    send fn bump(n: Int) => !n
+    send fn bump(n: Int)
     send fn total(out: Reply<Int>) => !out
 }
 
@@ -70,7 +70,7 @@ handler Counting() of Counter {
 
 // ===== tasks =====
 
-send fn hop(left: Int, out: Reply<Int>, x: Int) => !left, !out, !x {
+send fn hop(left: Int, out: Reply<Int>, x: Int) => !out {
     if left == 0 {
         out.send(x)
     } else {
@@ -81,7 +81,7 @@ send fn hop(left: Int, out: Reply<Int>, x: Int) => !left, !out, !x {
 // ===== timers =====
 
 actor effect Alarms {
-    send fn arm(n: Int, done: Reply<Int>) => !n, !done
+    send fn arm(n: Int, done: Reply<Int>) => !done
     send fn rang(f: Fired) => !f
 }
 
@@ -130,7 +130,7 @@ fn main() [use, spawn] {
     discard(r1)
     println("ping-pong ${ms_since(t1)} ms")
 
-    let counters: Mut List<Addr<Counter>> = Mut List()
+    let counters: Mut List<eff[Counter]> = Mut List()
     let t2 = monotonic_nanos()
     let i = 0
     while i < 1000 {

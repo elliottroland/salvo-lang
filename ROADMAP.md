@@ -702,9 +702,6 @@ modules are under `std`", which closed 0s). Left:
   analysis is a page of noise. The reverse rule (a `std = true` tree's
   modules must be under `std`, or `--src` must not move a std tree's root)
   would turn that into one error. Not decided; `--src lib` is the spelling.
-- **`bench/scheduler` does not analyze** (found while sweeping, not caused by
-  the prefix): `Mut List<Addr<Counter>>` at `main.sv:133` is the pre-`eff[E]`
-  spelling ([eff-handle]). The bench is not in the suite.
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
