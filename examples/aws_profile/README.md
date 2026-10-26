@@ -48,7 +48,7 @@ named: hover `aws` on the import line, or the module in an `@aws` selector.
 **What a dependency may not do.** Declare a std module. A dependency whose
 tree holds a `core/list.sv` is refused, naming the file, unless its own
 manifest says `[project] std = true` — then it *is* a standard library and
-replaces the embedded modules it declares, the way `salvo test --src std`
+replaces the embedded modules it declares, the way `salvo test --src lib`
 lets the checkout do.
 
 **What the module holds today.** One struct, `ProfileCredentials`: the profile

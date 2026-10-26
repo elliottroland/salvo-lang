@@ -80,7 +80,7 @@ cargo run -- analyze --src ./my_project              # or --format json
 # `<module>.test.sv` files beside the modules they test):
 cargo run -- test --src ./my_project                 # or --list, or a filter
 # `--target DIR` and `--clean-target before|both` work here too.
-cargo run -- test --src std                          # the standard library's own
+cargo run -- test --src lib                          # the standard library's own
 
 # Generate the implementation skeletons into each backend's platform root —
 # an implementation file (`<m>.kt` / `.rs`) for platform handlers and
@@ -109,7 +109,7 @@ struct Person {
     age: Int
 }
 
-// `Ok`/`Err` and their constructors come from `core.result`; declaring
+// `Ok`/`Err` and their constructors come from `std.core.result`; declaring
 // your own pair of tags takes the same four lines.
 fn check_age(person: Person) -> Ok Int | Err Str {
     if person.age >= 0 {
@@ -277,7 +277,7 @@ fn main() [use] {
   due at, and a function handed its times declares no effect and needs no fake at
   all. Where a reading must agree with a deadline, a six-line test clock over the
   timer makes them one virtual clock. Imported rather than implicit:
-  `import time` brings the whole module.
+  `import std.time` brings the whole module.
 - **Non-resumption**: a function that may leave early declares
   `[Throw<Str>]` and keeps its own return type; `throw(message)` returns
   `Never`, so intermediate frames stay silent. The delimiter is
@@ -291,9 +291,9 @@ fn main() [use] {
   struct with `proj` fields is a view, and a copy happens only where the
   program writes `copy`.
 - **Files and streams**: `std`'s filesystem is the whole language in one
-  surface, imported rather than implicit (`import fs`, with `fs.host`, `fs.mem`
-  and `fs.restricted` beside it). Two effects, layered: **`Streams`** (`import
-  stream`) owns the linear `InStream`/`OutStream` tokens and every read and
+  surface, imported rather than implicit (`import std.fs`, with `std.fs.host`, `std.fs.mem`
+  and `std.fs.restricted` beside it). Two effects, layered: **`Streams`** (`import
+  std.stream`) owns the linear `InStream`/`OutStream` tokens and every read and
   write on them — whoever opened the stream, a file or a network body — and
   **`Fs`** is the path operations, minting into the `Streams` in scope.
   `Streams` is a *prerequisite* of `Fs` (`effect Fs [Streams]`), so file code
@@ -324,8 +324,8 @@ fn main() [use] {
   unless they say `export`** — so a module's public surface is exactly what it
   writes down, and the standard library's own plumbing is unreachable rather
   than merely undocumented. A name arrives by being in your own file, by being
-  exported from `core`, or by an `import` — of one name (`import time.Duration`)
-  or of a whole module (`import time` — that module, not the tree under it).
+  exported from `std.core`, or by an `import` — of one name (`import std.time.Duration`)
+  or of a whole module (`import std.time` — that module, not the tree under it).
   Using a private name says so and names
   the fix, rather than claiming the name does not exist. A **dependency** is
   another project: named under `[dependencies]` in `salvo.toml`, found by name

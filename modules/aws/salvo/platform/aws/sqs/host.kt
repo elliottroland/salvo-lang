@@ -33,12 +33,12 @@ class HostSqs(private val config: AwsConfig) : SqsPlatform {
     override fun createQueue(input: CreateQueueInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<CreateQueueOutput, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
+            val answer: Union2<CreateQueueOutput, salvo.std.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 CreateQueue.ok(fromSdkCreateQueueOutput(client.createQueue(toSdkCreateQueueInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                CreateQueue.err(salvo.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
+                CreateQueue.err(salvo.std.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
             } catch (e: Exception) {
-                CreateQueue.err(salvo.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
+                CreateQueue.err(salvo.std.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -47,12 +47,12 @@ class HostSqs(private val config: AwsConfig) : SqsPlatform {
     override fun getQueueUrl(input: GetQueueUrlInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<GetQueueUrlOutput, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
+            val answer: Union2<GetQueueUrlOutput, salvo.std.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 GetQueueUrl.ok(fromSdkGetQueueUrlOutput(client.getQueueUrl(toSdkGetQueueUrlInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                GetQueueUrl.err(salvo.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
+                GetQueueUrl.err(salvo.std.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
             } catch (e: Exception) {
-                GetQueueUrl.err(salvo.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
+                GetQueueUrl.err(salvo.std.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -61,12 +61,12 @@ class HostSqs(private val config: AwsConfig) : SqsPlatform {
     override fun sendMessage(input: SendMessageInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<SendMessageOutput, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
+            val answer: Union2<SendMessageOutput, salvo.std.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 SendMessage.ok(fromSdkSendMessageOutput(client.sendMessage(toSdkSendMessageInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                SendMessage.err(salvo.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
+                SendMessage.err(salvo.std.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
             } catch (e: Exception) {
-                SendMessage.err(salvo.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
+                SendMessage.err(salvo.std.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -75,12 +75,12 @@ class HostSqs(private val config: AwsConfig) : SqsPlatform {
     override fun receiveMessage(input: ReceiveMessageInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<ReceiveMessageOutput, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
+            val answer: Union2<ReceiveMessageOutput, salvo.std.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 ReceiveMessage.ok(fromSdkReceiveMessageOutput(client.receiveMessage(toSdkReceiveMessageInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                ReceiveMessage.err(salvo.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
+                ReceiveMessage.err(salvo.std.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
             } catch (e: Exception) {
-                ReceiveMessage.err(salvo.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
+                ReceiveMessage.err(salvo.std.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -89,13 +89,13 @@ class HostSqs(private val config: AwsConfig) : SqsPlatform {
     override fun deleteMessage(input: DeleteMessageInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
+            val answer: Union2<Unit, salvo.std.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 client.deleteMessage(toSdkDeleteMessageInput(input))
                 DeleteMessage.ok(Unit)
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                DeleteMessage.err(salvo.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
+                DeleteMessage.err(salvo.std.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
             } catch (e: Exception) {
-                DeleteMessage.err(salvo.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
+                DeleteMessage.err(salvo.std.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -104,13 +104,13 @@ class HostSqs(private val config: AwsConfig) : SqsPlatform {
     override fun deleteQueue(input: DeleteQueueInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
+            val answer: Union2<Unit, salvo.std.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 client.deleteQueue(toSdkDeleteQueueInput(input))
                 DeleteQueue.ok(Unit)
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                DeleteQueue.err(salvo.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
+                DeleteQueue.err(salvo.std.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
             } catch (e: Exception) {
-                DeleteQueue.err(salvo.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
+                DeleteQueue.err(salvo.std.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -250,9 +250,9 @@ private fun fromSdkMessage(v: aws.sdk.kotlin.services.sqs.model.Message): Messag
     receiptHandle = v.receiptHandle,
     md5OfBody = v.md5OfBody,
     body = v.body,
-    attributes = v.attributes?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key.value }.map { (k1, v1) -> k1.value to v1 }) },
+    attributes = v.attributes?.let { salvo.platform.std.core.map.canonicalMap(it.entries.sortedBy { it.key.value }.map { (k1, v1) -> k1.value to v1 }) },
     md5OfMessageAttributes = v.md5OfMessageAttributes,
-    messageAttributes = v.messageAttributes?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkMessageAttributeValue(v1) }) },
+    messageAttributes = v.messageAttributes?.let { salvo.platform.std.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkMessageAttributeValue(v1) }) },
 )
 
 private fun toSdkMessage(v: Message): aws.sdk.kotlin.services.sqs.model.Message = aws.sdk.kotlin.services.sqs.model.Message {

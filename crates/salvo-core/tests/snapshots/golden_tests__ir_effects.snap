@@ -1,5 +1,5 @@
 ---
-source: crates/salvo-ir/tests/golden_tests.rs
+source: crates/salvo-core/tests/golden_tests.rs
 expression: text
 ---
 module main
@@ -18,11 +18,11 @@ impl TickingClock() of Clock stateful {
 
 fn main::stamp(lent clock: Clock, lent console: Console; lent label: Str) -> None {
   bind#1 let t: Int = member main::Clock#0(read clock)
-  call main::banner(read console, concat(read label, " at t=", call core.basic::to_str(Int)(read t)))
+  call main::banner(read console, concat(read label, " at t=", call std.core.basic::to_str(Int)(read t)))
 }
 
 fn main::banner(lent console: Console; lent text: Str) -> None {
-  call core.console::println(read console, concat("   ", read text))
+  call std.core.console::println(read console, concat("   ", read text))
 }
 
 interface Logger {
@@ -31,7 +31,7 @@ interface Logger {
 
 impl PlainLogger() of Logger deps [Console] {
   fn log(lent message: Str) -> None {
-    call core.console::println(read __dep0, concat("   ", read message))
+    call std.core.console::println(read __dep0, concat("   ", read message))
   }
 }
 
@@ -42,7 +42,7 @@ impl QuietLogger() of Logger {
 
 impl Stamped() of Logger deps [Logger, Clock] {
   fn log(lent message: Str) -> None {
-    member main::Logger#0(read __dep0, concat("[t=", call core.basic::to_str(Int)(member main::Clock#0(read __dep1)), "] ", read message))
+    member main::Logger#0(read __dep0, concat("[t=", call std.core.basic::to_str(Int)(member main::Clock#0(read __dep1)), "] ", read message))
   }
 }
 
@@ -50,7 +50,7 @@ impl Numbered() of Logger deps [Logger] stateful {
   state seen: Int = 0
   fn log(lent message: Str) -> None {
     assign seen = (read seen + 1)
-    member main::Logger#0(read __dep0, concat("#", call core.basic::to_str(Int)(read seen), " ", read message))
+    member main::Logger#0(read __dep0, concat("#", call std.core.basic::to_str(Int)(read seen), " ", read message))
   }
 }
 
@@ -89,13 +89,13 @@ interface Metrics {
 
 impl ConsoleAudit() of Audit deps [Console] {
   fn record(lent what: Str) -> None {
-    call core.console::println(read __dep0, concat("   audit: ", read what))
+    call std.core.console::println(read __dep0, concat("   audit: ", read what))
   }
 }
 
 impl ConsoleMetrics() of Metrics deps [Console] {
   fn record(lent what: Str) -> None {
-    call core.console::println(read __dep0, concat("   metric: ", read what))
+    call std.core.console::println(read __dep0, concat("   metric: ", read what))
   }
 }
 
@@ -119,9 +119,9 @@ impl Fixed<T>(lent value: T) of Setting<T> {
 }
 
 fn main::settings(lent setting: Setting<Int>, lent setting__1: Setting<Str>, lent console: Console) -> None {
-  bind#1 let retries: Int = member main::Setting#0(read setting, fn core.basic::copy)
-  bind#2 let region: Str = member main::Setting#0(read setting__1, fn core.basic::copy)
-  call core.console::println(read console, concat("   retries=", call core.basic::to_str(Int)(read retries), " region=", read region))
+  bind#1 let retries: Int = member main::Setting#0(read setting, fn std.core.basic::copy)
+  bind#2 let region: Str = member main::Setting#0(read setting__1, fn std.core.basic::copy)
+  call std.core.console::println(read console, concat("   retries=", call std.core.basic::to_str(Int)(read retries), " region=", read region))
 }
 
 fn main::main() -> None {
@@ -129,25 +129,25 @@ fn main::main() -> None {
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let __use~3: TickingClock = construct TickingClock { }
   bind#4 let __handle~4: Clock = handle[Clock](read __use~3)
-  call core.console::println(read __handle~2, concat("1. the clock reads ", call core.basic::to_str(Int)(member main::Clock#0(read __handle~4)), ", then ", call core.basic::to_str(Int)(member main::Clock#0(read __handle~4))))
-  call core.console::println(read __handle~2, "2. two effects in one signature:")
+  call std.core.console::println(read __handle~2, concat("1. the clock reads ", call std.core.basic::to_str(Int)(member main::Clock#0(read __handle~4)), ", then ", call std.core.basic::to_str(Int)(member main::Clock#0(read __handle~4))))
+  call std.core.console::println(read __handle~2, "2. two effects in one signature:")
   call main::stamp(read __handle~4, read __handle~2, "2. a labelled moment")
-  call core.console::println(read __handle~2, "3. a logger whose handler needs the console:")
+  call std.core.console::println(read __handle~2, "3. a logger whose handler needs the console:")
   bind#5 let __use~5: PlainLogger = construct PlainLogger { __dep0: read __handle~2 }
   bind#6 let __handle~6: Logger = handle[Logger](read __use~5)
   call main::work(read __handle~6, "3. logged through the console")
-  call core.console::println(read __handle~2, "4. interception — each `use` wraps the one before it:")
+  call std.core.console::println(read __handle~2, "4. interception — each `use` wraps the one before it:")
   call main::interception(read __handle~6, read __handle~4)
-  call core.console::println(read __handle~2, "5. shadowing is not wrapping:")
+  call std.core.console::println(read __handle~2, "5. shadowing is not wrapping:")
   call main::scoping(read __handle~6)
-  call core.console::println(read __handle~2, "6. two effects, one member name:")
+  call std.core.console::println(read __handle~2, "6. two effects, one member name:")
   bind#7 let __use~7: ConsoleAudit = construct ConsoleAudit { __dep0: read __handle~2 }
   bind#8 let __handle~8: Audit = handle[Audit](read __use~7)
   call main::audit_only(read __handle~8, "6. audited only")
   bind#9 let __use~9: ConsoleMetrics = construct ConsoleMetrics { __dep0: read __handle~2 }
   bind#10 let __handle~10: Metrics = handle[Metrics](read __use~9)
   call main::audit_and_measure(read __handle~8, read __handle~10, "6. audited and measured")
-  call core.console::println(read __handle~2, "7. two instances of one generic effect:")
+  call std.core.console::println(read __handle~2, "7. two instances of one generic effect:")
   bind#11 let __use~11: Fixed<Int> = construct Fixed<Int> { value: 3 }
   bind#12 let __handle~12: Setting<Int> = handle[Setting<Int>](read __use~11)
   bind#13 let __use~13: Fixed<Str> = construct Fixed<Str> { value: "eu-west-1" }

@@ -28,12 +28,12 @@ fn diags_with_std(std_files: &[(&str, &str)], files: &[(&str, &str)]) -> Vec<Str
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
     for (name, src) in std_files {
-        let module = SourceSet::classify(Path::new(name)).unwrap();
+        let module = SourceSet::classify(Path::new(&format!("std/{name}"))).unwrap();
         sources.add(format!("std/{name}"), module, src.to_string(), true);
     }
     for (name, src) in files {
@@ -209,14 +209,24 @@ const RUNTIME: &str = "export fn tick_count() [] -> Int {\n    return 0\n}\n";
 /// name, even what it exports; std can.
 #[test]
 fn the_runtime_module_is_std_s_own() {
-    let program = "import runtime\nimport runtime.tick_count\n\nfn f() [] -> Int {\n    return 1\n}\n";
+    let program = "import std.runtime\nimport std.runtime.tick_count\n\nfn f() [] -> Int {\n    return 1\n}\n";
     let errs = diags_with_std(&[("runtime.sv", RUNTIME)], &[("main.sv", program)]);
     // Both imports refused (resolution and the checker each report what the
     // resolver found, so every resolve error appears twice here).
     let refused = errs.iter().filter(|m| m.contains("[mod-std-internal]")).count();
     assert_eq!(refused, 4, "{errs:?}");
 
-    let from_std = "import runtime.tick_count\n\nexport fn twice() [] -> Int {\n    return tick_count() + tick_count()\n}\n";
+    // [std-root] The bare spelling is refused for what it would have named:
+    // std's own module, not a path to correct towards.
+    let bare = "import runtime\n\nfn f() [] -> Int {\n    return 1\n}\n";
+    let errs = diags_with_std(&[("runtime.sv", RUNTIME)], &[("main.sv", bare)]);
+    assert!(
+        errs.iter().any(|m| m.contains("`std.runtime` is the standard library's own module") && m.contains("[mod-std-internal]")),
+        "{errs:?}"
+    );
+    assert!(!errs.iter().any(|m| m.contains("[std-root]")), "{errs:?}");
+
+    let from_std = "import std.runtime.tick_count\n\nexport fn twice() [] -> Int {\n    return tick_count() + tick_count()\n}\n";
     let errs = diags_with_std(&[("runtime.sv", RUNTIME), ("timing.sv", from_std)], &[]);
     assert!(errs.is_empty(), "std may import its own module: {errs:?}");
 }
@@ -241,11 +251,11 @@ fn a_module_level_use_is_the_runtime_module_s_alone() {
 /// which are built on it; a service imports the core freely.
 #[test]
 fn the_runtime_core_does_not_import_its_services() {
-    let service = "import runtime\n\nexport fn later() [] -> Int {\n    return now() + 1\n}\n";
+    let service = "import std.runtime\n\nexport fn later() [] -> Int {\n    return now() + 1\n}\n";
     let core_ok = "export fn now() [] -> Int {\n    return 1\n}\n";
     let errs = diags_with_std(&[("runtime.sv", core_ok), ("runtime/timers.sv", service)], &[]);
     assert!(errs.is_empty(), "{errs:?}");
-    let core_bad = "import runtime.timers.later\n\nexport fn now() [] -> Int {\n    return 1\n}\n";
+    let core_bad = "import std.runtime.timers.later\n\nexport fn now() [] -> Int {\n    return 1\n}\n";
     let errs = diags_with_std(&[("runtime.sv", core_bad), ("runtime/timers.sv", service)], &[]);
     assert!(errs.iter().any(|m| m.contains("[runtime-layers]")), "{errs:?}");
 }

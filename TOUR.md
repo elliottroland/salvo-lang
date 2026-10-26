@@ -107,7 +107,7 @@ The two decisive facts about the design:
 | `salvo-cli` | | the `salvo` binary; also the LSP (`lsp.rs`, `analysis.rs`). |
 | `salvo-test`, `salvo-testkit` | | the `salvo test` runner; toolchain probing and the test cache. |
 
-`std/` (the standard library, in Salvo) is embedded into the `salvo` binary at
+`lib/std/` (the standard library, in Salvo) is embedded into the `salvo` binary at
 build time, which is why a `std` edit needs a `cargo build`. Most of what used
 to be runtime code is now Salvo there (the scheduler, collections, the stream
 table); the emitters keep only `intrinsic` lowerings and a few host files.

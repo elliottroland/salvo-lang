@@ -29,7 +29,7 @@ fn corpus(name: &str) -> PathBuf {
 
 fn std_core(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../std/core")
+        .join("../../lib/std/core")
         .join(name)
 }
 
@@ -37,7 +37,7 @@ fn std_core(name: &str) -> PathBuf {
 
 #[test]
 fn std_parses_without_errors() {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut count = 0;
     let mut stack = vec![std_dir];
     while let Some(dir) = stack.pop() {
@@ -914,8 +914,8 @@ fn a_leading_comment_directly_above_a_declaration_is_its_docs() {
 fn a_leading_comment_directly_above_the_first_import_documents_the_module() {
     let (module, first_fn) = module_docs_of(
         "// Talks to the clock.\n\
-         import time.Duration\n\
-         import time.Instant\n\
+         import std.time.Duration\n\
+         import std.time.Instant\n\
          \n\
          fn f(d: Duration) -> Duration {\n    return d\n}\n",
     );
@@ -928,7 +928,7 @@ fn a_leading_comment_directly_above_the_first_import_documents_the_module() {
 #[test]
 fn only_the_first_comment_run_can_document_the_module() {
     let (module, _) = module_docs_of(
-        "import time.Duration\n\
+        "import std.time.Duration\n\
          \n\
          // Not the module's: code came first.\n\
          \n\
@@ -3308,10 +3308,10 @@ fn a_struct_literal_field_may_be_written_by_its_name_alone() {
 
 /// [comptime-fields] `type` is a reserved keyword, but a struct may declare
 /// a field named `type` (the carve-out `parse_field_decl` makes for
-/// `core.comptime`'s `Field.type`) — and once declared, it must be
+/// `std.core.comptime`'s `Field.type`) — and once declared, it must be
 /// constructible as an ordinary struct-literal field label `type: value`,
 /// the same `KwType`-before-`:` lookahead `parse_field_decl` already uses.
-/// Regression for a parse error found 2026-10-19 via `std/args/parse.sv`'s
+/// Regression for a parse error found 2026-10-19 via `lib/std/args/parse.sv`'s
 /// `Option { name: "x", type: .Str }`.
 #[test]
 fn a_struct_literal_field_may_be_named_type() {

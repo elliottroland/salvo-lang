@@ -1,0 +1,20 @@
+# The standard library's own manifest [manifest]: `std = true` says this tree
+# *is* std, so its files check as std (`intrinsic` allowed) and shadow the copy
+# embedded in the compiler [std-shadow] — which is what lets the repository
+# root be opened in an editor with lib/std analysed as its own program.
+#
+# [std-root] The source root is this directory (`[build] src` defaults to it),
+# so a module's path is its path under `lib/`: `lib/std/core/list.sv` is
+# `std.core.list`, and every module of the tree is under the reserved `std`
+# root.
+[project]
+name = "std"
+version = "0.1.0"
+std = true
+
+[build]
+backend = "*"
+# [platform-root] std's own host files: the machine's streams, files and
+# sockets, both languages side by side. Their paths under the root are module
+# paths too: `platform/std/time.kt` is the host file of `std.time`.
+platform = "platform"

@@ -4,14 +4,22 @@ The file extension for Salvo source code is `.sv`. Modules correspond to files, 
 
 The compiler discovers sources by walking the source directory recursively. Hidden directories and cache directories (those carrying a `CACHEDIR.TAG` marker, such as Cargo's `target/`) are skipped. A `.svignore` file at the source root excludes further paths: one path per line, relative to the root, naming a file or a whole directory subtree; blank lines and `#` comments are ignored.
 
-Everything must be imported explicitly unless it is defined in the `core` module. This includes qualifiers, types, effects, handlers, and functions. When there is ambiguity in a reference (e.g. functions which have the same signature, qualifiers which apply to the same type), then they can be aliased using `as` in the import statement.
+Everything must be imported explicitly unless it is defined in one of the `std.core` modules. This includes qualifiers, types, effects, handlers, and functions. When there is ambiguity in a reference (e.g. functions which have the same signature, qualifiers which apply to the same type), then they can be aliased using `as` in the import statement.
 
 ```
-import random.Random // import Random<T> effect from random.sv
+import std.random.Random // import Random<T> effect from random.sv
 import list.add // Import that list's add function from list.sv
 import list.ext.add as ext_add // Import the list extensions add function from list/ext.sv, which is now aliased
-import core.Str // Not strictly necessary -- all of core is imported by default
+import std.core.Str // Not strictly necessary -- all of std.core is imported by default
 ```
+
+**Every standard-library module is under `std`**: `std.time`, `std.fs.mem`, `std.core.list`, `std.test`. The library's tree is laid out that way too — `lib/std/core/list.sv` is module `std.core.list`, since a module path is always the path under the source root. `std` is a reserved root: only the standard library declares modules there, so a project file at `std/…` is an error naming the reason, and nothing a project writes is ever implicitly visible to std. An import that leaves the root off is refused with the path it meant:
+
+```
+import time    // error: the standard library's modules are under `std`: write `import std.time`
+```
+
+The refusal applies only when nothing else answers to the first segment, so a project's own `time` module is still `import time`. Selectors are unaffected: `size@list`, `between@time`, `by auto` and `@core.list` name a module by a suffix of its path, and they still do.
 
 A declaration is only importable if its own module lets it out. **Declarations are module-private by default, and `export` is how one becomes visible elsewhere:**
 
@@ -42,19 +50,19 @@ export fn total(b: Bag) -> Int => b { return b.total }   // fine: Bag's own modu
 
 In its own module (and that module's `*.test.sv` annex) an opaque struct is an ordinary struct. Everywhere else `Bag` is a type like any other — a parameter, a field, an element of a list — but its fields are not there: no literal, no field read or write, no spread, no destructuring. The error names the type as opaque and lists its functions. What the module generates for it (`by auto` members, `copy`, the wire form) is generated in the module and usable everywhere, and a comptime function stamped in another module sees the type as `Opaque`, so it calls `Bag`'s own functions rather than walking fields it may not see. Opacity is about Salvo code: the host class still has its fields. It is what lets a module change a representation later, which a readable struct does not.
 
-One module is private to the standard library as a whole: `runtime`, the scheduler every program runs on, which std's own modules import and a program cannot.
+One module is private to the standard library as a whole: `std.runtime`, the scheduler every program runs on, which std's own modules import and a program cannot.
 
-Privacy is per *module*, which is per file. Splitting a file in two is therefore a visibility decision: what the halves share has to be exported. The standard library is written this way, which is what it is for — `earliest_due` in `time`, the `mem_*` helpers in the in-memory filesystem, are reachable from their own file and nowhere else.
+Privacy is per *module*, which is per file. Splitting a file in two is therefore a visibility decision: what the halves share has to be exported. The standard library is written this way, which is what it is for — `earliest_due` in `std.time`, the `mem_*` helpers in the in-memory filesystem, are reachable from their own file and nowhere else.
 
 The diagnostics are meant to send you to the right file. Using a private name says it is declared in module `m` and not exported, and names the fix; it is not offered as an import, since importing it could not work. An `import` of a private name is refused at the import line rather than silently importing nothing. And a name that is in scope but of the wrong *kind* — a qualifier where a type belongs — keeps its own diagnostic, because that is not a visibility problem.
 
 A module can also be imported *whole*, which brings every name in it into scope with one line:
 
 ```
-import time // Instant, Tick, Duration, Clock, Ticker, Timer, millis, between, ...
+import std.time // Instant, Tick, Duration, Clock, Ticker, Timer, millis, between, ...
 ```
 
-This is how a std surface that is not implicitly visible stays cheap to use: `time` is one import rather than a dozen. It names **one** module and not the tree under it, so `import std.fs` does not bring `std.fs.mem` — that is a second line. The reading that imports less is the default, because importing more is always one more statement while importing less would need new syntax; a path that names no module but has modules under it is refused and lists them. A whole-module import is deliberately the weakest way for a name to arrive. Your own module's declarations win over it, and so does a named import, both silently — so a file that declares its own `Duration` keeps it, and `import other.Duration` beside `import time` picks the other one. Functions do not compete at all: overloads from a bulk import simply sit lower on the scope ladder, and `between@time(a, b)` names the module explicitly. An import is always fully qualified — it says where a name comes from — where a *selector* (`between@time`, `by auto`) may name a module by any unambiguous suffix of its path. The one case that cannot be resolved by hand at the use site is two whole-module imports carrying the same *type* name, since a type reference has no module selector; there the first module wins and the compiler warns, naming the import that would settle it. A module import takes no `as` — there is nothing to qualify a renamed module with — and `import core` is redundant, since core is always visible.
+This is how a std surface that is not implicitly visible stays cheap to use: `std.time` is one import rather than a dozen. It names **one** module and not the tree under it, so `import std.fs` does not bring `std.fs.mem` — that is a second line. The reading that imports less is the default, because importing more is always one more statement while importing less would need new syntax; a path that names no module but has modules under it is refused and lists them. A whole-module import is deliberately the weakest way for a name to arrive. Your own module's declarations win over it, and so does a named import, both silently — so a file that declares its own `Duration` keeps it, and `import other.Duration` beside `import std.time` picks the other one. Functions do not compete at all: overloads from a bulk import simply sit lower on the scope ladder, and `between@time(a, b)` names the module explicitly. An import is always fully qualified — it says where a name comes from — where a *selector* (`between@time`, `by auto`) may name a module by any unambiguous suffix of its path. The one case that cannot be resolved by hand at the use site is two whole-module imports carrying the same *type* name, since a type reference has no module selector; there the first module wins and the compiler warns, naming the import that would settle it. A module import takes no `as` — there is nothing to qualify a renamed module with — and `import std.core` is redundant, since `std.core` is always visible.
 
 Only the modules which are used in the code are transpiled to the relevant backend equivalent (modules in Rust, packages in Kotlin).
 
@@ -103,7 +111,7 @@ generate`) and the language server read it, so the command line and the editor
 agree on what a project is.
 
 A file **belongs to the nearest manifest above it**, and a nested manifest is
-a boundary: a directory holding several projects (this repository, with `std/`
+a boundary: a directory holding several projects (this repository, with `lib/`
 and every `examples/*/`) is several programs, and the editor analyses each
 document under its own.
 
@@ -308,7 +316,7 @@ Structs document their fields individually — the comment above a field belongs
 // The shop's geometry: shapes and their areas.
 //
 // Start with [Shape].
-import core.list.size
+import std.core.list.size
 
 // A closed figure.
 struct Shape { ... }
@@ -344,4 +352,4 @@ The language server shows these on hover — for a declaration, for a *use* of i
 
 Three things it adds beyond the declaration text. A **`params` group** hovers with its members, since those are the point of it. A **predicate qualifier** shows the condition it holds under when its `qualifies` is a single `return` — just the expression, so `Positive` reads as "Holds when `int > 0`." A longer body is hidden, and its doc comment explains it instead. And a variable that **shares fate** with another says so, naming what it was derived from and where, down to the field (`p.name`, not all of `p`) — with the reminder that reads are free, that moving or mutating it is rejected, and that `copy` makes an independent value. Names reached through an `import` hover like local ones, on the import line itself as well as at each use — as do the group name in a struct's obligation clause (`: Show<self>`) and the qualifier in an `is` check (`i is Positive`). A function's hover also says **where it came from** — the module of the overload that actually won, named the way an `@module` selector would spell it, since with scope-based overloading the signature alone does not tell you which `size` you are looking at — and for a declaration from a dependency, which dependency.
 
-**A module hovers wherever it is named**: the module part of an `import` line (all of `import time`, the `shop.shapes` of `import shop.shapes.label`, as one name however many segments), an `@module` selector (`size@list`, `by @auto`), and the module a `by` site took its comptime fn from. The hover is `module <full path>` — the full path, whatever suffix was written — then the module's own documentation, then where it lives: the standard library, a dependency by name, or the file. Go-to-definition on a module name opens its file.
+**A module hovers wherever it is named**: the module part of an `import` line (all of `import std.time`, the `shop.shapes` of `import shop.shapes.label`, as one name however many segments), an `@module` selector (`size@list`, `by @auto`), and the module a `by` site took its comptime fn from. The hover is `module <full path>` — the full path, whatever suffix was written — then the module's own documentation, then where it lives: the standard library, a dependency by name, or the file. Go-to-definition on a module name opens its file.

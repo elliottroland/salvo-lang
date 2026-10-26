@@ -435,7 +435,7 @@ fn diagnostics_hover_and_shutdown() {
 
     // [comptime-fields] Inside a `comptime fn` body the checker has nothing
     // (the body is stamped, never checked as itself); the expansion's own
-    // record answers, in `core.comptime`'s terms.
+    // record answers, in `std.core.comptime`'s terms.
     let comptime_src = "comptime fn tag<T is Struct>(v: T) [] -> Int => v {\n    \
                         let n = 0\n    \
                         [for field in T.fields] {\n        \
@@ -564,7 +564,7 @@ fn code_actions_offer_import_quickfix() {
         .contains("unknown handler `DefaultRandom`"));
     assert_eq!(
         diags[0]["data"]["imports"],
-        json!(["random.DefaultRandom"]),
+        json!(["std.random.DefaultRandom"]),
         "diagnostic: {:?}",
         diags[0]
     );
@@ -587,11 +587,11 @@ fn code_actions_offer_import_quickfix() {
     let action = &actions[0];
     assert_eq!(
         action["title"].as_str(),
-        Some("Add `import random.DefaultRandom`")
+        Some("Add `import std.random.DefaultRandom`")
     );
     assert_eq!(action["kind"].as_str(), Some("quickfix"));
     let edit = &action["edit"]["changes"][&uri][0];
-    assert_eq!(edit["newText"].as_str(), Some("import random.DefaultRandom\n"));
+    assert_eq!(edit["newText"].as_str(), Some("import std.random.DefaultRandom\n"));
     // No existing imports: inserted at the top of the file.
     assert_eq!(edit["range"]["start"], json!({"line": 0, "character": 0}));
 
@@ -1719,18 +1719,18 @@ fn wrap(box: Mut Box) [] -> None
 }
 
 /// [std-shadow] [cli-lsp] The standard library is developed through the
-/// shadow path: opening the repo's `std/` makes every std module an
+/// shadow path: opening the repo's `lib/std/` makes every std module an
 /// on-disk shadowing file — `is_std` for the checker, a real document for
 /// the editor. Hover must work there (the file-index lookup admits
 /// shadows), the open buffer must *replace* the disk content rather than
 /// be added beside it (or every declaration duplicates), and the
 /// refinements section shows `preserve` entries [qual-preserve] — checked
-/// against the real `core.list`, at the total `swap`'s delegation.
+/// against the real `std.core.list`, at the total `swap`'s delegation.
 #[test]
 fn hover_works_in_a_std_shadowing_file() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let root = root.canonicalize().unwrap();
-    let source = std::fs::read_to_string(root.join("core/list.sv")).unwrap();
+    let source = std::fs::read_to_string(root.join("std/core/list.sv")).unwrap();
     let line = source
         .lines()
         .position(|l| l.contains("swap(list, i + 0, j + 0)"))
@@ -1742,7 +1742,7 @@ fn hover_works_in_a_std_shadowing_file() {
         .find("swap")
         .unwrap() as u32;
     let mut lsp = start(&root);
-    let uri = format!("file://{}", root.join("core/list.sv").display());
+    let uri = format!("file://{}", root.join("std/core/list.sv").display());
     send(
         &mut lsp.stdin,
         json!({
@@ -1975,7 +1975,7 @@ fn hover_shows_module_docs_where_a_module_is_named() {
         "// AWS services, modelled as actors.\n\
          //\n\
          // Start with [ProfileCredentials].\n\
-         import time.Duration\n\
+         import std.time.Duration\n\
          \n\
          // Where a profile's credentials are read from.\n\
          export struct ProfileCredentials {\n    profile: Str = \"default\",\n    path: Str\n}\n",
@@ -1995,7 +1995,7 @@ fn hover_shows_module_docs_where_a_module_is_named() {
     let source = "\
 import aws.ProfileCredentials
 import shop.shapes.label
-import time
+import std.time
 
 fn label(n: Int) -> Str {
     return \"own ${n}\"
@@ -2054,7 +2054,7 @@ fn main() [Console] {
     // A whole-module import of a std module: std's own header comment, and
     // the standard library named.
     let value = hover(&mut lsp, 33, &uri, 2, 8);
-    assert!(value.starts_with("```salvo\nmodule time\n```"), "{value}");
+    assert!(value.starts_with("```salvo\nmodule std.time\n```"), "{value}");
     assert!(value.contains("The standard library."), "{value}");
     // [doc-module] The first functions, then a count of the rest.
     assert!(value.contains("fn seconds("), "{value}");
@@ -2488,8 +2488,8 @@ fn completion_offers_fields_types_and_modules() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     let source = "\
-import fs.
-import ti
+import std.fs.
+import std.ti
 
 struct Point {
     x: Int,
@@ -2540,12 +2540,12 @@ fn main() [Console] {
     let rank = |items: &[(String, String)], l: &str| {
         items.iter().find(|(x, _)| x == l).map(|(_, r)| r.clone()).unwrap_or_else(|| panic!("no `{l}` in {items:?}"))
     };
-    // `import fs.`: its sub-modules and exported items.
-    let items = complete(&mut lsp, 2, 0, 10);
+    // `import std.fs.`: its sub-modules and exported items.
+    let items = complete(&mut lsp, 2, 0, 14);
     rank(&items, "mem");
     rank(&items, "read_to_str");
-    // `import ti`: top-level modules.
-    let items = complete(&mut lsp, 3, 1, 9);
+    // `import std.ti`: the modules under `std`.
+    let items = complete(&mut lsp, 3, 1, 13);
     rank(&items, "time");
     // `p.`: the fields first.
     let items = complete(&mut lsp, 4, 9, 13);

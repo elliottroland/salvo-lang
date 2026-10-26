@@ -2,7 +2,7 @@
 
 The Rust interpretation of [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md). Load this
 file (only) when working on the Rust backend
-(`crates/salvo-backend-rust`, `std/**/*.rust.sv`).
+(`crates/salvo-backend-rust`, `lib/std/**/*.rust.sv`).
 
 Conventions:
 
@@ -121,10 +121,10 @@ Conventions:
   emitted file.
   For a library compile (no `main`), a synthetic `lib.rs` carries the
   attributes and mod declarations.
-  * A Salvo module `core.console` emits to `core/console.rs` and mounts
-    as `pub mod core_console` (path parts joined with `_`): Rust module
+  * A Salvo module `std.core.console` emits to `std/core/console.rs` and mounts
+    as `pub mod std_core_console` (path parts joined with `_`): Rust module
     paths are flat, and generated code names its items
-    `crate::core_console::println`.
+    `crate::std_core_console::println`.
   * The generated union enums live under `unions/`, mounted as
     `#[path = "unions/mod.rs"] pub mod unions;` [rs-union-enums], and the
     float-text helpers in `strings.rs` [rs-float-text], each emitted only
@@ -154,7 +154,7 @@ Conventions:
     reads `std::env::args().skip(1)` directly (argv is reachable from
     anywhere on Rust), so there is no entry-signature change and no runtime
     holder, unlike the JVM. Std ships the host impl at
-    `std/platform/args.rs`.
+    `lib/platform/std/args.rs`.
 * [rs-build] **`salvo build` persists a native binary** at `<out>/<name>`
   [cli-build]. The same `rustc` (or `cargo`, with crates declared) build as
   `program_command`, but the finished binary lands in the lasting `out`
@@ -219,7 +219,7 @@ Conventions:
   during M8.) `Any` has no Rust mapping: a value of it reaching emission is a
   codegen error ([backend-never-wrong]).
   * [byte-value] [bytes-type] `Byte`→`u8`, and **`Bytes` is std's platform
-    type over `Vec<u8>`** (`core.bytes` re-exports the host's
+    type over `Vec<u8>`** (`std.core.bytes` re-exports the host's
     `pub type Bytes = Vec<u8>;`, [rs-platform-type]): unboxed, with `Mut`
     erasing as it does for every other type here [type-canbe-mut]. The
     buffer class Kotlin has to ship ([kt-bytes]) is simply what this backend
@@ -264,8 +264,8 @@ Conventions:
   A call *through* a local (a fn value, an implicit) is the bare name.
 * [rs-seq] std's sequence functions [seq-iterator]: the `List` fast paths
   are std functions (2026-10-04, [platform-value-type]): `map` and `reduce`
-  are Salvo loops (`crate::core_seq::map__List_Fn::<i32, i32>(&xs, …)`), and
-  `filter` is a platform fn (`crate::core_seq::filter_platform`, host in
+  are Salvo loops (`crate::std_core_seq::map__List_Fn::<i32, i32>(&xs, …)`), and
+  `filter` is a platform fn (`crate::std_core_seq::filter_platform`, host in
   `platform/core/seq.rs`) cloning each kept element. Their fn-typed
   parameters render as `&mut dyn FnMut(&T) -> U` [rs-fn-param-convention],
   which is what gives a lambda argument its parameter types: the lambda is
@@ -285,16 +285,16 @@ Conventions:
   in the binding and the reference [type-canbe-mut], so a `Mut` drop
   renders nothing at all [str-drop-mut].
   * The string operations are std's **platform fns**
-    (`std/platform/core/string.rs`), called through their wrappers like any
-    other: `crate::core_string::size_platform(&s)`,
-    `crate::core_string::index_of_platform(&hay, &ll)`,
-    `crate::core_string::set_platform(&mut b, 0i32, 'H')`; a `Mut Str`
+    (`lib/platform/std/core/string.rs`), called through their wrappers like any
+    other: `crate::std_core_string::size_platform(&s)`,
+    `crate::std_core_string::index_of_platform(&hay, &ll)`,
+    `crate::std_core_string::set_platform(&mut b, 0i32, 'H')`; a `Mut Str`
     parameter is `&mut String` and passes on as `&mut *s`.
   * String indexes are **characters**, not bytes: the host's `size` counts
     `chars()`, and `index_of`/`substr`/`set` convert. (Kotlin counts UTF-16
     code units — the divergence `size` already had.)
   * `mut_str(parts)` is a Salvo fn over `Vec<String>`
-    (`crate::core_string::mut_str(vec![pa.clone()])`): its variadic
+    (`crate::std_core_string::mut_str(vec![pa.clone()])`): its variadic
     position consumes, so a part the caller keeps is cloned into the vector
     [fn-variadic].
   * `strings.rs` holds only the float-text helpers [rs-float-text].
@@ -316,7 +316,7 @@ Conventions:
 
   ```rust
   loop {
-      let mut __step_7: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::next__Halving(&mut __pass_6);
+      let mut __step_7: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::next__Halving(&mut __pass_6);
       if matches!(__step_7, crate::unions::Union2::U1(_)) {
           let mut __emitted_8 = match &__step_7 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
           let mut n: i32 = __emitted_8;
@@ -353,7 +353,7 @@ Conventions:
 
 * [rs-implicit-turbofish] A **generic call that fills implicit parameters**
   spells out its type arguments
-  (`crate::core_seq::map_to::<Vec<i32>, crate::Countdown, i32, i32>(…)`).
+  (`crate::std_core_seq::map_to::<Vec<i32>, crate::Countdown, i32, i32>(…)`).
   Each implicit arrives as an adapter *closure* whose parameter types Rust
   infers from the callee's bound, so with the callee's generics still open
   there is nothing to infer them from and inference stalls (E0282) on
@@ -381,7 +381,7 @@ Conventions:
   takes its callbacks owned as `impl Fn(…) + Send + Sync + 'static` (the
   `Arc<dyn Fn + Send + Sync>` field's bounds), and that includes the fns an
   implicit group spreads (`?Yield<It, T>`'s `next`):
-  `pub fn taking<It: Clone, T: Clone>(mut it: It, mut n: i32, next: impl Fn(&mut It) -> … + Send + Sync + 'static) -> crate::core_seq::Taking<It, T>`.
+  `pub fn taking<It: Clone, T: Clone>(mut it: It, mut n: i32, next: impl Fn(&mut It) -> … + Send + Sync + 'static) -> crate::std_core_seq::Taking<It, T>`.
 * [rs-fn-field] A **function in a struct field** is
   `std::sync::Arc<dyn Fn(A) -> R + Send + Sync>`:
   * `Fn`, not `FnMut`, because it is reached through a shared `Arc`; `Send +
@@ -480,7 +480,7 @@ references; the Rust backend spells the modes mechanically:
 * **Argument rendering.** Each argument follows its parameter's mode:
   * moved position → a value (see below): an owned local moves (`crate::consume(items)`);
   * `&T` position → `&place` (`crate::read(&items)`); a binding that already
-    is a reference passes as it is (`crate::core_list::size_platform::<i32>(xs)`),
+    is a reference passes as it is (`crate::std_core_list::size_platform::<i32>(xs)`),
     and a `&mut` one reborrows shared (`&*squad`);
   * `&mut T` position → `&mut place` (`crate::fill(&mut items, 3i32)`); a
     `&mut` binding reborrows (`&mut *xs`);
@@ -515,7 +515,7 @@ references; the Rust backend spells the modes mechanically:
       [fate-field-disjoint]: the checker lets `let n = p.name` stay live
       across a mutation of `p.tags`, and that emits as a real borrow held
       across `&mut p.tags` (`let mut n = &p.name;` …
-      `crate::core_list::add_platform::<String>(&mut p.tags, …)`), which
+      `crate::std_core_list::add_platform::<String>(&mut p.tags, …)`), which
       rustc accepts because they are disjoint fields of one local. The
       **move** half matches too [fate-partial-move]: a moved projection
       emits as a real partial move of the field and a later reassignment as
@@ -596,7 +596,7 @@ the blanket rule:
   Int`) is a Copy scalar like any other: passed by value (`mut index: i32`),
   a `platform fn` wrapper hands it to the host as it is, and a dependent
   qualifier's predicate takes it by value too
-  (`crate::core_index::Idx__Int_qualifies(i, &squad, …)`). A slot argument
+  (`crate::std_core_index::Idx__Int_qualifies(i, &squad, …)`). A slot argument
   that is a `&mut` binding reborrows as shared (`&*heap`), which keeps a
   generic slot (`Idx`'s `c: C`) from binding to the `&mut` itself
   ([col-idx]).
@@ -655,7 +655,7 @@ the blanket rule:
   type has one, transitively — is a **borrowing struct**:
   `pub struct ListYield<'s, T> { pub items: &'s Vec<T>, pub at: i32 }`, with
   `<'s>` on owned view-typed fields; every mention elides
-  (`crate::core_list::ListYield<'_, T>`); a struct literal borrows into its
+  (`crate::std_core_list::ListYield<'_, T>`); a struct literal borrows into its
   `proj` fields (`crate::BagIter { bag: &bag, at: 0i32 }`,
   or the reference itself when the source already is one:
   `crate::Window { roster: roster, at: 0i32 }`); it is returned *by value*
@@ -683,7 +683,7 @@ the blanket rule:
   the shared enum with a reference arm (`Union2<&'s T, Finished>`). At a
   call filling `?Yield<It, T>` from a borrowing `next`, the element generic
   is **retagged** to `&T` in the turbofish
-  (`crate::core_seq::filter::<crate::core_list::ListYield<'_, crate::Fighter>, &crate::Fighter>(…)`)
+  (`crate::std_core_seq::filter::<crate::std_core_list::ListYield<'_, crate::Fighter>, &crate::Fighter>(…)`)
   — unless the substituted type already carries the projection
   (`T = proj Str` renders `&String` on its own [proj-type]). User callbacks
   at a retagged position arrive one reference deeper and peel it
@@ -691,7 +691,7 @@ the blanket rule:
   retagged position out where the callee owns it, and `copy` at a retagged
   position is the identity. A concrete Copy element (`?Yield<It, Int>`) is
   copied out by a match adapter instead:
-  `&mut |__a0: &mut crate::core_list::ListYield<'_, i32>| (match crate::core_list::next__ListYield(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) })`.
+  `&mut |__a0: &mut crate::std_core_list::ListYield<'_, i32>| (match crate::std_core_list::next__ListYield(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) })`.
   A value of a `proj`-arm union flowing into a position written as the
   owned union is adapted arm by arm the same way for Copy payloads, and is
   a codegen error otherwise (a hidden clone this backend refuses).
@@ -700,22 +700,22 @@ the blanket rule:
   * A **statement-scoped** handle — `bump(at(es, 0) ?: unreachable!())` in a `&mut`
     position — materializes the element for that one call: the mint's path
     is bound, then walked into a borrow,
-    `{ let __h1: Option<usize> = crate::core_list::at_platform(&es, 0i32); … &mut es[__h2] }`
+    `{ let __h1: Option<usize> = crate::std_core_list::at_platform(&es, 0i32); … &mut es[__h2] }`
     inside the `!` block [rs-assert-trap]. The read borrow of the search
     ends before the write borrow begins, and the `&mut` lives exactly as
     long as the call.
   * A **bound** handle is its path [rs-path]:
-    `let __h2: usize = crate::core_list::at_platform(&squad, 0i32).expect("salvo: value is absent at main:231:16");`
+    `let __h2: usize = crate::std_core_list::at_platform(&squad, 0i32).expect("salvo: value is absent at main:231:16");`
     — the presence check traps at the mint, matching Kotlin's `!!` timing —
     and every use re-materializes the place: `squad[__h2].hp = …`,
     `crate::bump(&mut xs[__h1]);`, `squad[__h3].name.clone()` in a value
     position. Deliberately not a bound `&mut`: Salvo's poison discipline
     permits reads of the container between uses of the handle
-    (`let mut n: i32 = crate::core_list::size_platform::<crate::Fighter>(&squad);`
+    (`let mut n: i32 = crate::std_core_list::size_platform::<crate::Fighter>(&squad);`
     between two writes through `__h2`), which a live `&mut` binding would make
     E0502 — the same alignment argument as [rs-borrow-locals], resolved the
     other way. The total mint answers `usize` directly
-    (`let __h11: usize = crate::core_list::at(&squad, i);`).
+    (`let __h11: usize = crate::std_core_list::at(&squad, i);`).
   * A kept parameter whose **elements** carry `Mut` (`List<Mut T>`,
     `Mut T[]`) renders `&mut Vec<T>`: the container lends mutable handles, so
     the write must reach the caller's storage through it even though no
@@ -738,8 +738,8 @@ the blanket rule:
   (E0277), and `i32::wrapping_add(&i32, …)` has no impl either, so a lending
   call's scalar result (the total `get` at an `Idx`/`KeyOf` claim,
   `first(NonEmpty)`) is dereferenced as an operand:
-  `if (((*crate::core_list::get::<i32>(&xs, i))) == (20i32))`,
-  `i32::wrapping_add((*crate::core_list::get::<i32>(&xs, i)), 1i32)`.
+  `if (((*crate::std_core_list::get::<i32>(&xs, i))) == (20i32))`,
+  `i32::wrapping_add((*crate::std_core_list::get::<i32>(&xs, i)), 1i32)`.
   Non-Copy operands are not touched (a deref there would move out of a
   borrow). Kotlin has no references and needs nothing.
 * [rs-path] **A handle is a storage path** (user decisions 2026-10-10,
@@ -812,9 +812,9 @@ the blanket rule:
     renders as a **locator closure** —
     `at: &mut dyn FnMut(&Vec<crate::Entity>, &L) -> Option<usize>`,
     read-mode parameters — and a lambda filling such a position emits in
-    locator mode (`&mut |mut c, mut k| -> Option<usize> { crate::core_list::at_platform(c, k) }`),
+    locator mode (`&mut |mut c, mut k| -> Option<usize> { crate::std_core_list::at_platform(c, k) }`),
     a named mint through its path fn
-    (`&mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at_platform(__a0, *__a1)`).
+    (`&mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::std_core_list::at_platform(__a0, *__a1)`).
     The call materializes the borrow:
     `match at(&*squad, l) { Some(__l1) => Some(&mut squad[__l1]), None => None }`.
     This is what lets a mutable handle cross a closure boundary at all; a
@@ -849,7 +849,7 @@ the blanket rule:
     — and the body indexes `c[__cN]`. The call site computes the positions
     first (a bound handle's own path, or the mint's) and passes
     the container `&mut` once:
-    `{ let __q7 = crate::core_list::at_platform(&squad, i).expect(…); let __c8 = __q7; …; crate::strike(&mut squad, __c8, __c10) };`.
+    `{ let __q7 = crate::std_core_list::at_platform(&squad, i).expect(…); let __c8 = __q7; …; crate::strike(&mut squad, __c8, __c10) };`.
     The parameter's type is the path type [rs-path] (`a: ref(l) Mut Player`
     over a `League` takes `__c1: crate::__Path_League__Player`), and an
     argument's path is taken relative to the container argument.
@@ -860,9 +860,9 @@ the blanket rule:
     the same element. The container may be a field path at the call:
     `crate::rotate(&mut team.members, __c11, __c12)`. Reported, loudly: an
     anchored argument whose position cannot be computed.
-  * **Maps** (2026-10-08): `core.map`'s `at` is the by-key mint (a platform primitive), and a map
+  * **Maps** (2026-10-08): `std.core.map`'s `at` is the by-key mint (a platform primitive), and a map
     position is its entry's **slot** in the insertion-ordered slab
-    (`platform_core_map::slot_of`; `Map` implements `Index<usize>` /
+    (`platform_std_core_map::slot_of`; `Map` implements `Index<usize>` /
     `IndexMut<usize>` over slots), so `at`'s position is
     `slot_of(map, key, hash, eq)` and every list rendering above applies
     unchanged — a handle chains through a map (`at(at(m, k) ?: unreachable!(), i) ?: unreachable!()`).
@@ -948,7 +948,7 @@ the blanket rule:
     path to text reaches — an interpolated part
     (`format!("{}", crate::strings::salvo_f64_text(d))`), and a container's
     or a struct's `to_str`, which are Salvo fns handed the element's `to_str`
-    (`crate::core_list::to_str::<f64>(&xs, &mut |__a0: &f64| crate::strings::salvo_f64_text(*__a0))`).
+    (`crate::std_core_list::to_str::<f64>(&xs, &mut |__a0: &f64| crate::strings::salvo_f64_text(*__a0))`).
 * [rs-loop-temp] **A borrow of a temporary that outlives its statement is
   hoisted.** A `for` over a pass *binds* the pass, and a `let` can keep a
   borrow (a view, an optional projection), so a Rust temporary the value
@@ -958,7 +958,7 @@ the blanket rule:
   use) and Kotlin's reference needs nothing. So the temporaries are bound to
   locals in front, which is rustc's own suggestion:
   `let mut __tmp1 = vec![1i32, 2i32];`
-  `let mut __pass_3: crate::core_list::ListYield<'_, i32> = crate::core_list::iter::<i32>(&__tmp1);`.
+  `let mut __pass_3: crate::std_core_list::ListYield<'_, i32> = crate::std_core_list::iter::<i32>(&__tmp1);`.
   * **Which temporaries**: every argument of the call that is **lent and not
     a place**, when the call's result holds a borrow. An owned (consumed)
     position needs nothing — a moved value is not borrowed from anywhere —
@@ -991,7 +991,7 @@ the blanket rule:
     owned copy lent for a lent one:
     `{ let __arg9 = b.tag.clone(); let __arg10 = crate::bumped(&mut b); crate::label(&__arg9, __arg10) }`.
     A statement-position call whose arguments needed this is the same block
-    (`{ let __arg3 = …; crate::core_console::println(&__handle_2, &__arg3) };`).
+    (`{ let __arg3 = …; crate::std_core_console::println(&__handle_2, &__arg3) };`).
   * **What it will not do**: a read of **mutable data** before a later
     argument mutates it cannot be copied out of the way, because a snapshot
     on Rust against a live handle on Kotlin is exactly the divergence the
@@ -1052,7 +1052,7 @@ the blanket rule:
   for a wrapper arm, `match &mut e { Some(crate::unions::Union2::U1(__v)) => __v, … }`
   for the two composed, `__p.inner.as_mut().unwrap()` for a field. Every
   site that mutates through the narrowing reads that binding: a `&mut`
-  argument (`crate::core_list::add_platform::<i32>(&mut *a_5, 9i32)`), the
+  argument (`crate::std_core_list::add_platform::<i32>(&mut *a_5, 9i32)`), the
   base of an assignment target (`let mut r_5 = r.as_mut().unwrap();` then
   `r_5.at = 2i32;`), an intrinsic's `Mut` parameter, a `^` branch
   [rs-widen-shadow], a handler's state field (`match &mut self.held { … }`).
@@ -1146,7 +1146,7 @@ the blanket rule:
   fields one by one (`format!("x: {}", value.x)`) — *not* `{:?}`, which would
   quote strings and so disagree with Kotlin. A container's is std's Salvo
   `to_str`, handed the element's
-  (`crate::core_list::to_str::<String>(&names, &mut |__a0: &String| format!("{}", __a0))`).
+  (`crate::std_core_list::to_str::<String>(&names, &mut |__a0: &String| format!("{}", __a0))`).
 * [qual-lift] [rs-widen-shadow] A `^` check emits the same test `is` would
   (or `true` when the qualifiers are statically present — qualifiers are
   erased, so widening is a typing act). Where it *peels a wrapper arm*, the
@@ -1265,7 +1265,7 @@ the blanket rule:
     parameters like any implicit.
   * A **kept-`Mut`** parameter of an implicit position is rendered `&mut T`,
     and the adapter reborrows it into the callee
-    (`&mut |__a0: &mut Vec<i32>, __a1: i32| crate::core_list::add_platform(&mut *__a0, __a1)`).
+    (`&mut |__a0: &mut Vec<i32>, __a1: i32| crate::std_core_list::add_platform(&mut *__a0, __a1)`).
     A callee wanting `&T` takes the same value (`&mut T` coerces); one
     wanting it owned clones.
   * Every fn-typed parameter is `&mut dyn FnMut(..)` — **`dyn`,
@@ -1339,7 +1339,7 @@ the blanket rule:
     named fn, so nothing in this backend learns the member was not written by
     hand — and it takes part in overload mangling like any other body-bearing
     fn. The identities of a `List` or a tuple [col-hashed-ordered] are Salvo
-    (`core.compare`), not lowerings; `mix_hash` is Salvo too.
+    (`std.core.compare`), not lowerings; `mix_hash` is Salvo too.
   * [cmp-hash-values] `hash` is a block expression holding its own
     `std::hash::DefaultHasher`:
     `{ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(v), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }`
@@ -1478,15 +1478,15 @@ effects" keeps the history).
   `Clone + Send + Sync + 'static`, since the instance sits in an `Arc`;
   every Salvo type satisfies them.
 * **A `use` is the handle**: the instance is bound, then wrapped —
-  `let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();`
-  `let __handle_2 = crate::core_console::Console::shared(__use_1);` — and the
+  `let mut __use_1: crate::std_core_console::__Platform_StdConsole = crate::std_core_console::__Platform_StdConsole::new();`
+  `let __handle_2 = crate::std_core_console::Console::shared(__use_1);` — and the
   handle is what everything downstream receives. A multi-face handler is one
   `Arc` (of a `Mutex` when stateful) and one handle per face:
 
   ```rust
-  let __use_3 = std::sync::Arc::new(std::sync::Mutex::new(crate::fs_mem::MemFs::new()));
-  let __handle_4 = crate::fs::Fs::share_locked(__use_3.clone());
-  let __handle_5 = crate::stream::Streams::share_locked(__use_3.clone());
+  let __use_3 = std::sync::Arc::new(std::sync::Mutex::new(crate::std_fs_mem::MemFs::new()));
+  let __handle_4 = crate::std_fs::Fs::share_locked(__use_3.clone());
+  let __handle_5 = crate::std_stream::Streams::share_locked(__use_3.clone());
   ```
 
   so a **stateful multi-face handler is one lock behind several effect
@@ -1553,7 +1553,7 @@ effects" keeps the history).
   `crate::E::shared(__use_N)` — rustc checks the half of the contract it
   can, since a field that is not `Sync` does not compile — and an undeclared
   host implements `EPlatform` with `&mut self` behind `crate::E::locked(…)`
-  [rs-platform-handler]. `std/platform/net.rs` (`HostTcpTransport`) is
+  [rs-platform-handler]. `lib/platform/std/net.rs` (`HostTcpTransport`) is
   written in the first form.
 * **Fn-typed constructor parameters** ([rs-fn-field]): a written fn-typed
   constructor parameter (`handler Derived(step: (n: Int) -> Int)`) is stored
@@ -1603,7 +1603,7 @@ effects" keeps the history).
   exceptions: they dispatch on the argument's type, so the emitter lowers
   them itself. An intrinsic with no entry is a codegen error naming it.
   Most of std's surface is not intrinsic at all but **platform fns**,
-  called through their wrappers (`crate::core_list::add_platform::<i32>(&mut xs, 3i32)`,
+  called through their wrappers (`crate::std_core_list::add_platform::<i32>(&mut xs, 3i32)`,
   [platform-fn]).
   * The arguments are rendered by the IR's pass mode for each parameter, as
     for any call [rs-read-mode]: a lent one as the place (or reference) the
@@ -1770,16 +1770,16 @@ effects" keeps the history).
   | `Str`, `Bytes` | `String`, `Vec<u8>` (`Mut` erases) |
   | a literal, a union of one base's literals | its base (`"A" \| "B" \| Other Str` is a `String`) [type-literal] |
   | `List<T>` | `Vec<T>` |
-  | `Map<K, V>`, `Set<T>` | `crate::core_map::Map` / `crate::core_set::Set` (std's host types, re-exported) — insertion-ordered; build the canonical one with `crate::platform_core_map::canonical_map(entries)` / `crate::platform_core_set::canonical_set(elems)` [rs-collections] [platform-check] |
-  | `SortedSet<T>`, `SortedMap<K, V>` (canonical ordering) | `crate::core_sorted::SortedSet` / `SortedMap`; build one with `canonical_sorted_set` / `canonical_sorted_map` (Rust's `Ord`, which is Salvo's order for every type that may cross) [platform-check] |
+  | `Map<K, V>`, `Set<T>` | `crate::std_core_map::Map` / `crate::std_core_set::Set` (std's host types, re-exported) — insertion-ordered; build the canonical one with `crate::platform_std_core_map::canonical_map(entries)` / `crate::platform_std_core_set::canonical_set(elems)` [rs-collections] [platform-check] |
+  | `SortedSet<T>`, `SortedMap<K, V>` (canonical ordering) | `crate::std_core_sorted::SortedSet` / `SortedMap`; build one with `canonical_sorted_set` / `canonical_sorted_map` (Rust's `Ord`, which is Salvo's order for every type that may cross) [platform-check] |
   | `Deque<T>`, `Bytes` | `std::collections::VecDeque<T>`, `Vec<u8>` (std's host aliases) [rs-deque] [bytes-type] |
   | a union, to build | its factories: `FsError::not_found(…)`, `ReadToStr::ok(…)` [platform-factory] |
   | `T?` | `Option<T>` [rs-option] |
   | a union of *n* ≥ 2 runtime arms | `crate::unions::UnionN<A, …>` with variants `U1`…`Un` in runtime-arm order [union-arm-identity]; `Some(…)` around it when it has a `None` arm |
   | `struct S { f: T }` | `pub struct S { pub f: T }`, built with a literal of every field; a dot-name `A.B` is `AB`; a field that is a Rust keyword is `r#f` |
-  | `Checked<T>` | `crate::core_checked::Checked { value: T }` |
+  | `Checked<T>` | `crate::std_core_checked::Checked { value: T }` |
   | `Reply<T>` parameter | `crate::scheduler::SalvoReply`; `.hosted()` answers the `SalvoHostReply` whose `send(v)` may run on any thread, exactly once [platform-reply] |
-  | `InStream` / `OutStream` | `crate::stream::InStream { handle: i64 }`; the table is Salvo (`runtime.streams`); host code reaches it through `crate::hoststreams::salvo_stream_register_in/out` and `salvo_stream_take_in` (an `Arc<Mutex<SalvoIn>>` reader) [stream-table] |
+  | `InStream` / `OutStream` | `crate::std_stream::InStream { handle: i64 }`; the table is Salvo (`runtime.streams`); host code reaches it through `crate::hoststreams::salvo_stream_register_in/out` and `salvo_stream_take_in` (an `Arc<Mutex<SalvoIn>>` reader) [stream-table] |
   | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
   | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
   | a fn-typed parameter | lent: `&mut dyn FnMut(…)` (the wrapper hands it on as `&mut name`, which also fits a host's `&mut impl FnMut`); `once`: `impl FnOnce(…)`; **kept** (`=> !hook`) outside the runtime: the pointer `fn(…) -> R`, the call site's capture-free adapter coercing to it [platform-fn-value]; kept in the runtime: `Box<dyn FnOnce/FnMut + Send + 'static>` [runtime-kept-fn] |
@@ -1791,14 +1791,14 @@ effects" keeps the history).
   initializer wraps the instance in the effect's handle:
 
   ```rust
-  pub fn __module_use0_0() -> &'static crate::runtime::RuntimeHost {
-      static CELL: std::sync::OnceLock<crate::runtime::RuntimeHost> = std::sync::OnceLock::new();
-      CELL.get_or_init(|| crate::runtime::RuntimeHost::share_shared(crate::runtime::__module_use0().clone()))
+  pub fn __module_use0_0() -> &'static crate::std_runtime::RuntimeHost {
+      static CELL: std::sync::OnceLock<crate::std_runtime::RuntimeHost> = std::sync::OnceLock::new();
+      CELL.get_or_init(|| crate::std_runtime::RuntimeHost::share_shared(crate::std_runtime::__module_use0().clone()))
   }
   ```
 
   A call that uses the effect threads the accessor where a declared effect
-  threads its parameter (`crate::runtime::__module_use1_0().is_virtual()`).
+  threads its parameter (`crate::std_runtime::__module_use1_0().is_virtual()`).
 * [rs-host-fields] A struct whose fields reach a host value — any platform
   type, or a `Reply` — derives what those support: no `Debug`/`PartialEq`
   (a hand-written `Debug` prints such a field as `<fn>`, as for a fn field),
@@ -1889,7 +1889,7 @@ effects" keeps the history).
     exactly as it does for a generated handler struct.
   * A `use` whose declaring module has no host companion is a codegen error
     naming `salvo platform generate` [backend-never-wrong]; std's companion
-    is shipped in `std/platform/` rather than generated [platform-tree].
+    is shipped in `lib/platform/std/` rather than generated [platform-tree].
   * The skeleton opens with the **`use` lines its own signatures need**: the
     declaring module's items, `crate::unions::*` when a member's result is a
     union, the ordered collections when one appears, and the module of the
@@ -2000,10 +2000,10 @@ effects" keeps the history).
 * [rs-runtime-host] **The scheduler itself is Salvo** (2026-10-03,
   [runtime-sched]): std's `runtime` module and its services, emitted like any
   module. What Rust writes by hand is in std's platform root:
-  `std/platform/runtime.rs` (`HostRuntime`, `Parker` over
+  `lib/platform/std/runtime.rs` (`HostRuntime`, `Parker` over
   `std::thread::park`, daemon threads, the fault boundary over
   `catch_unwind`, `Dyn` as `Box<dyn Any + Send>`, `Body`, `Slot`, the `here`
-  thread-local) and `std/platform/runtime/{routing,streams}.rs` (frame
+  thread-local) and `lib/platform/std/runtime/{routing,streams}.rs` (frame
   codecs, `HostIn` over `Box<dyn Read + Send>`). `runtime/scheduler.rs` is
   the entry points generated code calls (`salvo_spawn`, `salvo_send`,
   `SalvoReply`, …) as calls into the core, plus `scheduler::registry()`, the
@@ -2013,16 +2013,16 @@ effects" keeps the history).
   `std::collections::VecDeque<T>` (std's host aliases them,
   `pub type Deque<T> = VecDeque<T>;`), and the surface is std's platform fns
   over it, called through their wrappers like any other
-  (`crate::core_deque::size_platform::<i32>(&dq)`,
-  `crate::core_deque::remove_first_platform::<i32>(&mut q)`;
-  `deque_of(1, 2)` is `crate::core_deque::deque_of__T_TArray::<i32>(1i32, vec![2i32])`).
+  (`crate::std_core_deque::size_platform::<i32>(&dq)`,
+  `crate::std_core_deque::remove_first_platform::<i32>(&mut q)`;
+  `deque_of(1, 2)` is `crate::std_core_deque::deque_of__T_TArray::<i32>(1i32, vec![2i32])`).
 * [rs-collections] The keyed collections are **std's host types**
   (2026-10-06, ROADMAP §0j step 7): `Set<T>`/`Map<K, V>` in
-  `std/platform/core/{set,map}.rs`, an insertion-ordered slot vector of
+  `lib/platform/std/core/{set,map}.rs`, an insertion-ordered slot vector of
   `(digest, entry)` with tombstones and a `HashMap<i64, Vec<usize>>` from a
   Salvo digest to its slots, compacted when the tombstones outgrow the live
   entries; the sorted pair a sorted `Vec` searched with `binary_search_by`
-  (`sorted.rs`). They render as ordinary platform types (`crate::core_set::Set`
+  (`sorted.rs`). They render as ordinary platform types (`crate::std_core_set::Set`
   re-exported from the host file) and need no runtime module.
   * **Every operation takes the identity as trailing lent fn parameters**
     (`hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool`,
@@ -2045,7 +2045,7 @@ effects" keeps the history).
   in `new`'s scope they are simply in scope.
   * A spawn therefore reads the bound **off the instance**, before it moves
     into the actor body:
-    `({ let __h = crate::Reporting::new(__handle_6.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::core_actor::pool(1i32), __cap as usize, std::boxed::Box::new(crate::__Actor_Reporting::new(__h)), crate::__DECODE_Reporting); __a })`.
+    `({ let __h = crate::Reporting::new(__handle_6.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::std_core_actor::pool(1i32), __cap as usize, std::boxed::Box::new(crate::__Actor_Reporting::new(__h)), crate::__DECODE_Reporting); __a })`.
     The ordering is the point — the
     alternative (emitting the slot's expression at the spawn site) would need
     the constructor arguments in scope there, and would evaluate them twice.
@@ -2056,7 +2056,7 @@ effects" keeps the history).
 
   ```rust
   loop {
-      let mut __subject_1: Option<i32> = crate::core_list::remove_first_platform::<i32>(&mut *xs);
+      let mut __subject_1: Option<i32> = crate::std_core_list::remove_first_platform::<i32>(&mut *xs);
       if !(__subject_1.is_some()) {
           break;
       };
@@ -2072,7 +2072,7 @@ effects" keeps the history).
   and cloning it would duplicate every obligation inside — so a consuming
   read of a state field (the IR's consume mark on a `self` place) renders as
   `std::mem::take(&mut self.waiting)`
-  (`crate::core_list::drain::<crate::scheduler::SalvoReply>(std::mem::take(&mut self.waiting), …)`).
+  (`crate::std_core_list::drain::<crate::scheduler::SalvoReply>(std::mem::take(&mut self.waiting), …)`).
   That is also the honest semantics: the field is empty until the member puts
   something back, which [linear-state] requires it to do before returning.
   `mem::take` needs `Default`, which `Vec` has — and a *bare* obligation in
@@ -2291,7 +2291,7 @@ effects" keeps the history).
 
     `send(r, v)` → `salvo_reply_wire::<T>(r, v)`, or
     `(r).send(std::boxed::Box::<T>::new(v))` for a payload with no wire form;
-    `pool(n)` is std Salvo (`crate::core_actor::pool(1i32)`, over the runtime
+    `pool(n)` is std Salvo (`crate::std_core_actor::pool(1i32)`, over the runtime
     module); `thread()` → `salvo_thread()`; `watch` and `on_idle` are Salvo
     over `reply_token(r)` → `(r).take_local()` [runtime-handles].
   * **[main-pool] An omitted `on` clause is `salvo_current_pool()`** — a
@@ -2324,7 +2324,7 @@ effects" keeps the history).
     * A free `send fn` itself needs no special emission: it is an ordinary
       `pub fn` whose parameters are all moved and which returns `()`.
   * **[pool-fault-sink] `pool(n, sink)`** →
-    `crate::scheduler::salvo_pool_with_sink(((n) as usize), Some((((sink) as usize), |__reason| std::boxed::Box::new(crate::core_actor::__Msg_Faults::Faulted(crate::core_actor::Fault { reason: __reason })))))`. The runtime holds a `String` and cannot
+    `crate::scheduler::salvo_pool_with_sink(((n) as usize), Some((((sink) as usize), |__reason| std::boxed::Box::new(crate::std_core_actor::__Msg_Faults::Faulted(crate::std_core_actor::Fault { reason: __reason })))))`. The runtime holds a `String` and cannot
     construct the `Faults` *message* (a generated enum no Salvo fn can name),
     so the *pool creation site* hands over the constructor. Dispatched on
     **arity**, since both `pool` overloads take an `Int` first and the

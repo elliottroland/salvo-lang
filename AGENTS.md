@@ -51,8 +51,8 @@ which rules are in play and where they live in the code*.
 | `docs/language/` | Narrative language spec, as pages — source of truth | The pages your task touches |
 | `wiki/` | **Generated** copy of `docs/language/` for reading on GitHub (`tools/sync-wiki.sh`); a separate git repository, gitignored here, and expected to be present | Never edit it — edit `docs/language/` |
 | `LANGUAGE_SPEC.md` | Labeled rules + compiler decisions (backend-neutral) | Always |
-| `BACKEND_SPEC.kotlin.md` | Kotlin interpretation of the rules + `kt-` rules | Only when working on the Kotlin backend (`salvo-backend-kotlin`, `std/**/*.kotlin.sv`) |
-| `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `std/**/*.rust.sv`) |
+| `BACKEND_SPEC.kotlin.md` | Kotlin interpretation of the rules + `kt-` rules | Only when working on the Kotlin backend (`salvo-backend-kotlin`, `lib/platform/std/**/*.kt`) |
+| `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `lib/platform/std/**/*.rs`) |
 | `ROADMAP.md` | What is left, as one sequence: steps, open defects, decisions, and the parked tail | Always |
 | `COMPLETED.md` | The record: decision log, milestone history, abandoned options, closed defects, test inventory, gotchas | Always |
 | `TOUR.md` | A guided tour of the compiler with snippets: the pipeline, a map of `salvo-core`, the `Checked` tables, both emitters, and what the IR work would change | When you need to find where a decision is made, or before design work on ownership and lowering |
@@ -100,7 +100,7 @@ The spec files carry the rule labels; keep them in sync with the code:
 
 ```
 crates/
-├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds std/ via include_dir
+├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds lib/ via include_dir
 ├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
 │   └── tests/corpus/     # language-docs example .sv files + insta snapshots
 ├── salvo-core/           # SourceSet, Program, Symbols, resolve.rs, types.rs, check.rs;
@@ -109,7 +109,10 @@ crates/
 ├── salvo-backend-kotlin/ # Kotlin emitter over the IR (ir_emit/) + golden/kotlinc tests
 ├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
 └── salvo-testkit/        # dev-dependency: toolchain probing + the e2e content cache
-std/core/                 # Salvo stdlib (.sv); each backend lowers its `intrinsic` declarations in src/intrinsics.rs
+lib/                      # the standard library as a project: lib/salvo.toml (`std = true`, source root lib/)
+├── std/                  #   Salvo stdlib (.sv); `lib/std/core/list.sv` is module `std.core.list`;
+│                         #   each backend lowers its `intrinsic` declarations in src/intrinsics.rs
+└── platform/             #   std's platform root: host files `platform/std/**.{kt,rs}` + generated ABI files
 examples/<name>/          # worked examples: salvo/ source, rust/ + kotlin/ generated output,
                           #   expected.txt (identical on both backends), README.md — see examples/README.md
 ```
@@ -134,8 +137,8 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
 tools/sync-wiki.sh               # regenerate wiki/ from docs/language/
                                  # (`--check` is what the docs test runs)
 
-cargo run -- test --src std      # the standard library's own tests, in Salvo
-                                 # (`std/*.test.sv`); one `cargo test` runs this
+cargo run -- test --src lib      # the standard library's own tests, in Salvo
+                                 # (`lib/std/**/*.test.sv`); one `cargo test` runs this
                                  # too — see `test_command_tests.rs`
 ```
 
@@ -286,7 +289,7 @@ Salvo source.
   ```
   at top level, and one indentation level in for a member of an effect,
   handler or qualifier body. Indenting it into the body makes it read as the
-  first statement. [deduce-syntax] states the rule; `std/` is written that way
+  first statement. [deduce-syntax] states the rule; `lib/std/` is written that way
   throughout.
 
 ## Non-negotiable invariants
@@ -314,7 +317,7 @@ Salvo source.
   - Change the syntax or the rules outright — no deprecation periods, no
     dual-accepting grammars, no version gates. The old spelling simply
     stops being the language.
-  - **Rewrite every affected example** in the same change: `std/`,
+  - **Rewrite every affected example** in the same change: `lib/std/`,
     `crates/**/tests/corpus/*.sv`, inline `.sv` sources in Rust tests,
     `examples/**` (source *and* its checked-in generated code and expected
     output), `docs/language/` / LANGUAGE_SPEC.md / BACKEND_SPEC.*.md snippets
@@ -366,7 +369,7 @@ Salvo source.
   type's literals collapse into one arm [union-arm-identity] [type-literal];
   `salvo_core::literal` is the one definition both sides use. Do not reorder
   or dedupe in ways that change arm indices.
-- When changing std (`std/`), the parser AST, checker lowering, or emitter
+- When changing std (`lib/std/`), the parser AST, checker lowering, or emitter
   output: update the insta snapshots deliberately and check the
   kotlinc/rustc end-to-end tests still pass.
 - Keep the spec documents and the implementation consistent. If you find a

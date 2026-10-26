@@ -18,7 +18,7 @@ fn diags(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
@@ -172,7 +172,7 @@ fn main() [use] {{
 
 // [effect-alias] An exported alias is usable from another module: `import
 // caps.App` brings the alias, and expansion synthesizes imports for whichever
-// members the consuming file cannot already name (a `core.*` effect needs
+// members the consuming file cannot already name (a `std.core.*` effect needs
 // none; a local effect of the alias's module does).
 #[test]
 fn an_alias_crosses_modules() {

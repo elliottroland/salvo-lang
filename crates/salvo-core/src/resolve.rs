@@ -4,7 +4,7 @@
 //! that file. Visibility rules per docs/language/ [mod-visibility]:
 //!
 //! * everything declared in the same module,
-//! * everything in `core.*` (implicitly imported),
+//! * everything in `std.core.*` (implicitly imported),
 //! * everything named by an `import` (with optional `as` alias)
 //!   [mod-import].
 //!
@@ -38,7 +38,7 @@ pub struct FnEntry<'p> {
     /// [fn-overload-scope] Which rung of the visibility ladder brought this
     /// overload into scope. Overload selection prefers the *most specific*
     /// rung that has a candidate matching the arguments, so a module's own
-    /// `map` wins over `core`'s without either being an error.
+    /// `map` wins over `std.core`'s without either being an error.
     pub rung: Rung,
     /// The module that declares it — what `f@core.list(...)` names
     /// [fn-overload-at], and what the scope-override warning points at.
@@ -57,9 +57,9 @@ pub enum Rung {
     /// template's author could see it: the last resort, so a name the
     /// stamping site resolves itself always wins.
     Template,
-    /// Implicitly visible `core.*`.
+    /// Implicitly visible `std.core.*`.
     Core,
-    /// Swept in by a whole-module `import time` [mod-import-module]: less
+    /// Swept in by a whole-module `import std.time` [mod-import-module]: less
     /// specific than naming the item, because nothing in the import
     /// mentions this declaration.
     ModuleImport,
@@ -151,7 +151,7 @@ pub struct ModuleScope<'p> {
     /// imports record the alias). Drives module reachability
     /// [mod-used-only] and generated backend imports.
     pub name_origins: HashMap<&'p str, Vec<&'p ModulePath>>,
-    /// [obligation-by] Every module this file can see: its own, `core.*`, a
+    /// [obligation-by] Every module this file can see: its own, `std.core.*`, a
     /// test annex's tested module and implicit ones, and each import's
     /// (whole or by item) — every module whose declarations the scope took
     /// in, whether or not any name of it survived. A `by` path names only
@@ -350,8 +350,8 @@ impl Resolution<'_> {
     }
 
     /// Import paths (`module.Item`) that would bring `name` into scope,
-    /// sorted and deduplicated [diag-import-suggest]. Non-`core` modules
-    /// only: `core.*` is implicitly visible, so an unknown name is never
+    /// sorted and deduplicated [diag-import-suggest]. Non-`std.core` modules
+    /// only: `std.core.*` is implicitly visible, so an unknown name is never
     /// fixed by importing it from core.
     pub fn import_candidates(&self, name: &str) -> Vec<String> {
         let mut paths: Vec<String> = self
@@ -360,7 +360,7 @@ impl Resolution<'_> {
             .map(|entries| {
                 entries
                     .iter()
-                    .filter(|(module, _)| module.0.first().is_none_or(|p| p != "core"))
+                    .filter(|(module, _)| !module.is_std_core())
                     .map(|(module, item)| format!("{module}.{item}"))
                     .collect()
             })
@@ -557,10 +557,10 @@ impl NameKind {
 }
 
 /// Visibility precedence of a scope entry [mod-collision]: own-module
-/// declarations override implicit `core.*` visibility, and explicit
-/// imports override `core.*`; everything else is a collision. A
+/// declarations override implicit `std.core.*` visibility, and explicit
+/// imports override `std.core.*`; everything else is a collision. A
 /// whole-module import [mod-import-module] sits between the two: it
-/// overrides `core.*` and is overridden, silently, by anything more
+/// overrides `std.core.*` and is overridden, silently, by anything more
 /// specific.
 #[derive(Clone, Copy, PartialEq)]
 enum Level {
@@ -583,17 +583,17 @@ impl Level {
     }
 }
 
-/// [test-implicit-import] The standard library's test module: `std.test`,
-/// whose path inside the embedded tree is `test`. Implicitly available in
+/// [test-implicit-import] The standard library's test module, `std.test`
+/// (this is the segment after `std`). Implicitly available in
 /// every test annex and nowhere else (user decision 2026-09-23), which is why
 /// no test file ever writes an import for the assertions it uses.
 pub const TEST_MODULE: &str = "test";
 
-/// [test-implicit-import] [throw] The non-resumption module, `throw`. Also
+/// [test-implicit-import] [throw] The non-resumption module, `std.throw`. Also
 /// implicitly available in a test annex, because the harness puts
 /// `[Throw<Failure>]` on a test body [test-body] and an assertion throws: a
 /// test file importing it would be importing something it never wrote
-/// (2026-09-26, when `throw` left `core`).
+/// (2026-09-26, when `throw` left `std.core`).
 pub const THROW_MODULE: &str = "throw";
 
 pub fn resolve(program: &Program) -> Resolution<'_> {
@@ -644,7 +644,36 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
     // module contribute).
     let mut by_module: HashMap<&ModulePath, ModuleItems<'_>> = HashMap::new();
     let mut unexpanded_iter_fns: Vec<FileDiagnostic> = Vec::new();
+    // [std-root] Whether a file is the standard library's: std's own, or a
+    // test annex of an on-disk std file of this tree (a `std = true` tree's
+    // annexes are never `is_std` [test-file]).
+    let std_owned = |file: &crate::source::SourceFile| {
+        file.is_std
+            || (file.is_test && {
+                let tested = &file.module.0[..file.module.0.len().saturating_sub(1)];
+                program
+                    .files
+                    .iter()
+                    .any(|f| f.is_shadow && f.dependency.is_none() && f.module.0 == tested)
+            })
+    };
     for (file_idx, (file, ast)) in program.files.iter().zip(program.modules).enumerate() {
+        // [std-root] `std` is a reserved root: only the standard library —
+        // the embedded copy, a `std = true` tree, a `std = true` dependency —
+        // declares modules under it.
+        if file.module.is_std_rooted() && !std_owned(file) {
+            unexpanded_iter_fns.push(FileDiagnostic::error(
+                file_idx,
+                Span::new(0, 0),
+                format!(
+                    "module `{}` is under `{root}`, which is reserved for the standard \
+                     library: only a tree whose manifest says `[project] std = true` declares \
+                     modules there — move this file out of its `{root}/` directory [std-root]",
+                    file.module,
+                    root = crate::STD_ROOT
+                ),
+            ));
+        }
         let items = by_module.entry(&file.module).or_default();
         for ns in &ast.namespaces {
             if !items.namespaces.contains(&ns.as_str()) {
@@ -713,9 +742,15 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
         }
     }
 
+    // [mod-visibility] [std-root] What every file sees implicitly: std's
+    // modules under `std.core` — declared by std files, so a project module
+    // misplaced under the reserved root (refused above) is not one, and std
+    // sees only std.
+    let std_files: std::collections::HashSet<&ModulePath> =
+        program.files.iter().filter(|f| std_owned(f)).map(|f| &f.module).collect();
     let mut core_modules: Vec<&ModulePath> = by_module
         .keys()
-        .filter(|m| m.0.first().is_some_and(|p| p == "core"))
+        .filter(|m| m.is_std_core() && std_files.contains(*m))
         .copied()
         .collect();
     // Sorted for determinism: scope-entry and overload-candidate order
@@ -727,7 +762,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
     // importing the effect is what brings the member into scope.
     //
     // [mod-export] Only *exported* declarations go in: suggesting
-    // `import time.earliest_due` for a private name would be a help line that
+    // `import std.time.earliest_due` for a private name would be a help line that
     // cannot work. The private ones go in `private_in` instead, which is what
     // turns "no such name" into "not exported".
     let mut declared_in: HashMap<&str, Vec<(&ModulePath, &str)>> = HashMap::new();
@@ -774,7 +809,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
     // [mod-collision] Declaration-level collisions are reported once,
     // globally: a same-kind same-name duplicate within one module, and a
     // same-kind same-name collision between two implicitly visible
-    // `core.*` modules (which would otherwise resolve by hash-map
+    // `std.core.*` modules (which would otherwise resolve by hash-map
     // ordering). Fns are exempt — same-name fns form overload sets.
     if !scopes_only {
         let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();
@@ -785,7 +820,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
         for module in sorted_modules {
             let items = &by_module[*module];
             let mut module_seen: HashMap<(NameKind, &str, Option<String>), Span> = HashMap::new();
-            let is_core = module.0.first().is_some_and(|p| p == "core");
+            let is_core = module.is_std_core();
             for (kind, name, subject, file, span) in items.non_fn_names() {
                 if let Some(_first) = module_seen.get(&(kind, name, subject.clone())) {
                     errors.push(FileDiagnostic::error(
@@ -1027,7 +1062,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
 
     // Pass 2: build one scope per file.
     //
-    // [mod-visibility] The `core.*` part of a scope depends only on which core
+    // [mod-visibility] The `std.core.*` part of a scope depends only on which core
     // module (if any) the file is in: added at `Level::Core` into an empty
     // scope, with no diagnostic (core-core collisions were reported
     // globally). So it is built once per such module and cloned into each
@@ -1079,7 +1114,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
             errors: &mut errors,
             attached: &attached,
         };
-        // core.* is implicitly visible everywhere — except in a core module's
+        // std.core.* is implicitly visible everywhere — except in a core module's
         // *own* files, which add themselves at `Level::Own` just below. Adding
         // both put every one of that module's fns into the overload set
         // **twice** (the same declaration at two rungs). Ordinary resolution
@@ -1101,7 +1136,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
             add_items(&mut scope, items, own, None, Level::Own, None, &mut ctx);
             // [qual-refn-scope] Top-level refinements are module-scoped and
             // not importable, so they are added here and nowhere else — not
-            // from `core.*` (which is visible everywhere) and not through
+            // from `std.core.*` (which is visible everywhere) and not through
             // an import.
             scope.refns.extend(items.refns.iter().copied());
             // [fn-rename] Module-scoped and order-independent, like every
@@ -1140,9 +1175,9 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
             // author — puts `[Throw<Failure>]` on a test body [test-body], and
             // an assertion is a function that throws, so a test file that had
             // to import `throw` would be importing something it never wrote
-            // (2026-09-26, with `throw` leaving `core`).
+            // (2026-09-26, with `throw` leaving `std.core`).
             for implicit in [TEST_MODULE, THROW_MODULE] {
-                let path = ModulePath(vec![implicit.to_string()]);
+                let path = ModulePath::std(&[implicit]);
                 if let Some((module, items)) = by_module.get_key_value(&path) {
                     add_items(
                         &mut scope,
@@ -1164,14 +1199,44 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
             // The test harness (`salvo test`'s synthesized module) imports a
             // test annex by path to run it, std's own included.
             let harness = file.module.0.first().is_some_and(|m| m == "__salvo_test_main");
-            if !file.is_std && !harness && import.path.first().is_some_and(|seg| seg.name == STD_INTERNAL) {
+            let segs: Vec<&str> = import.path.iter().map(|seg| seg.name.as_str()).collect();
+            // [std-root] The bare spelling of a std module (`import std.time`,
+            // `import std.core.list`) is refused with the corrected path named:
+            // it applies when the first segment is no module's root and
+            // `std.<first>` is std's. Not a fallback — the import resolves
+            // nothing.
+            let bare = segs.first().is_some_and(|first| {
+                *first != crate::STD_ROOT
+                    && !by_module.keys().any(|m| m.0.first().is_some_and(|s| s == first))
+                    && by_module.keys().any(|m| m.is_std_rooted() && m.0.get(1).is_some_and(|s| s == first))
+            });
+            let internal = if bare {
+                segs.first() == Some(&STD_INTERNAL)
+            } else {
+                segs.len() >= 2 && segs[0] == crate::STD_ROOT && segs[1] == STD_INTERNAL
+            };
+            if !file.is_std && !harness && internal {
                 ctx.errors.push(FileDiagnostic::error(
                     file_idx,
                     import.span,
                     format!(
-                        "`{STD_INTERNAL}` is the standard library's own module: the runtime \
+                        "`{}.{STD_INTERNAL}` is the standard library's own module: the runtime \
                          every program runs on, reachable only from std itself \
-                         [mod-std-internal]"
+                         [mod-std-internal]",
+                        crate::STD_ROOT
+                    ),
+                ));
+                continue;
+            }
+            if bare {
+                ctx.errors.push(FileDiagnostic::error(
+                    file_idx,
+                    import.span,
+                    format!(
+                        "the standard library's modules are under `{root}`: write `import {root}.{}` \
+                         [std-root]",
+                        segs.join("."),
+                        root = crate::STD_ROOT
                     ),
                 ));
                 continue;
@@ -1238,8 +1303,9 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
 }
 
 /// Per-file state threaded through scope building [mod-collision].
-/// [mod-std-internal] The first path segment of std's internal modules
-/// (`std/runtime.sv` and anything under `std/runtime/`).
+/// [mod-std-internal] The segment after `std` of std's internal modules:
+/// `std.runtime` and anything under it (`lib/std/runtime.sv`,
+/// `lib/std/runtime/**`).
 pub const STD_INTERNAL: &str = "runtime";
 
 struct AddCtx<'e, 'p> {
@@ -1253,10 +1319,10 @@ struct AddCtx<'e, 'p> {
 impl<'e, 'p> AddCtx<'e, 'p> {
     /// [type-name-shadow] A **type name** is one name whatever kind declares
     /// it: a struct, a type alias or an opaque type. So an own declaration
-    /// or an import of `name` (any of the three) shadows an implicit `core`
+    /// or an import of `name` (any of the three) shadows an implicit `std.core`
     /// one of the *other* two kinds too, the way it already shadowed one of
     /// its own kind. Before 2026-10-20 a user `type Field = …` sat beside
-    /// `core.comptime`'s `comptime struct Field`, and which one a use meant
+    /// `std.core.comptime`'s `comptime struct Field`, and which one a use meant
     /// depended on which table the lookup consulted first (ROADMAP §2d item
     /// 4). Core is added first, so removing its entries here is enough.
     fn shadow_core_type(&mut self, scope: &mut ModuleScope<'p>, kind: NameKind, name: &'p str, level: Level) {
@@ -1288,7 +1354,7 @@ impl<'e, 'p> AddCtx<'e, 'p> {
 
     /// Decides whether a non-fn entry may land in the scope
     /// [mod-collision]. Own-module declarations and explicit imports
-    /// override implicit `core.*` visibility; an import colliding with an
+    /// override implicit `std.core.*` visibility; an import colliding with an
     /// own-module declaration or another import is an error (declaration
     /// -level collisions were already reported globally).
     fn admit(
@@ -1751,7 +1817,7 @@ fn add_items<'p>(
         }
     }
     // [effect-alias] Resolved like a type alias (PIPELINE.md R6): visible
-    // by declaration, import and `core.*`, expanded where a list is lowered.
+    // by declaration, import and `std.core.*`, expanded where a list is lowered.
     for (file, a) in &items.effect_aliases {
         if want(&a.name.name) {
             if !visible(a.exported) {
@@ -1775,7 +1841,7 @@ fn resolve_import<'p>(
     own_module: &ModulePath,
     ctx: &mut AddCtx<'_, 'p>,
 ) {
-    // [mod-import-module] `import time` — a whole *module*, every name in
+    // [mod-import-module] `import std.time` — a whole *module*, every name in
     // it (user decision 2026-09-18). Tried first, and only when every
     // segment is lowercase, so it can never capture a name import: module
     // path segments are lowercase [name-casing] while a type is uppercase,
@@ -1811,12 +1877,12 @@ fn resolve_import<'p>(
                 ));
                 return;
             }
-            // Already visible at another level: `core.*` is implicit
+            // Already visible at another level: `std.core.*` is implicit
             // everywhere and the file's own module adds itself. Adding
             // them again would put every fn in the overload set twice —
             // the same declaration at two rungs, which the refinement
             // matcher counts [qual-refn-match].
-            let is_core = module.0.first().is_some_and(|p| p == "core");
+            let is_core = module.is_std_core();
             if is_core || **module == *own_module {
                 ctx.errors.push(FileDiagnostic::warning(
                     file_idx,
@@ -1855,12 +1921,12 @@ fn resolve_import<'p>(
         if !under.is_empty() {
             under.sort();
             under.dedup();
-            // `import core` names no module of its own — `core.list`,
-            // `core.string` and the rest are separate modules — but
+            // `import std.core` names no module of its own — `std.core.list`,
+            // `std.core.string` and the rest are separate modules — but
             // everything under it is visible anyway, so the honest answer is
             // the redundancy warning rather than "no such module"
             // [mod-visibility].
-            if prefix.first() == Some(&"core") {
+            if prefix == [crate::STD_ROOT, crate::source::CORE] {
                 ctx.errors.push(FileDiagnostic::warning(
                     file_idx,
                     import.span,
@@ -1895,7 +1961,7 @@ fn resolve_import<'p>(
         if import.path.len() == 1 {
             let mut known: Vec<String> = by_module
                 .keys()
-                .filter(|m| m.0.first().is_none_or(|p| p != "core"))
+                .filter(|m| !m.is_std_core())
                 .map(|m| m.to_string())
                 .collect();
             known.sort();
@@ -2021,7 +2087,7 @@ fn resolve_import<'p>(
     }
 
     // Candidate modules: path equals the prefix, or the prefix is a leading
-    // path of the module (`import core.Str` finds `core.string`). Never a
+    // path of the module (`import std.core.Str` finds `std.core.string`). Never a
     // suffix: an import is fully qualified [mod-suffix].
     let mut matches: Vec<&&ModulePath> = Vec::new();
     for (path, items) in by_module {

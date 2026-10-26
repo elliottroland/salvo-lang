@@ -15,7 +15,7 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 
 /// [intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`) — the shape of the real
-/// `core.bytes`, trimmed to what the cases below name.
+/// `std.core.bytes`, trimmed to what the cases below name.
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Bool\n",
@@ -44,7 +44,7 @@ fn errors_of(src: &str) -> Vec<FileDiagnostic> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );

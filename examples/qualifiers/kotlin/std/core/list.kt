@@ -1,0 +1,523 @@
+package salvo.std.core.list
+
+import salvo.*
+
+fun<T> listBy(size: Int, init: (Int) -> T): List<T> {
+    return mutListBy(size, init)
+}
+
+fun<T> mutListBy(size: Int, init: (Int) -> T): salvo.platform.std.core.list.MutList<T> {
+    val out: salvo.platform.std.core.list.MutList<T> = mutableListOf<T>()
+    var i: Int = 0
+    while (true) {
+        if (!((i < size))) {
+            break
+        }
+        addPlatform(out, init(i))
+        i = (i + 1)
+    }
+    return out
+}
+
+fun<T> getPlatform(list: List<T>, index: Int): T? = salvo.platform.std.core.list.get(list, index)
+
+fun<T> get(list: List<T>, index: Int): T {
+    return getAtPlatform(list, (index + 0))
+}
+
+fun<T> getAtPlatform(list: List<T>, index: Int): T = salvo.platform.std.core.list.getAt(list, index)
+
+fun<T> swap__MutList_IdxInt_IdxInt(list: salvo.platform.std.core.list.MutList<T>, i: Int, j: Int) {
+    salvo.std.core.checked.ignore(swap__MutList_Int_Int(list, (i + 0), (j + 0)))
+    null
+    return
+}
+
+fun<T> replacePlatform(list: salvo.platform.std.core.list.MutList<T>, index: Int, value: T): T = salvo.platform.std.core.list.replace(list, index, value)
+
+fun<T> atPlatform(list: List<T>, index: Int): T? = salvo.platform.std.core.list.at(list, index)
+
+fun<T> at(list: List<T>, index: Int): T {
+    return atProvenPlatform(list, (index + 0))
+}
+
+fun<T> atProvenPlatform(list: List<T>, index: Int): T = salvo.platform.std.core.list.atProven(list, index)
+
+fun<T> update(list: List<T>, index: Int, f: (T) -> Unit) {
+    f(at(list, index))
+    null
+    return
+}
+
+fun<T> addPlatform(list: salvo.platform.std.core.list.MutList<T>, elem: T) = salvo.platform.std.core.list.add(list, elem)
+
+fun<T> removeFirstPlatform(list: salvo.platform.std.core.list.MutList<T>): T? = salvo.platform.std.core.list.removeFirst(list)
+
+fun<T> removeAtPlatform(list: salvo.platform.std.core.list.MutList<T>, index: Int): T? = salvo.platform.std.core.list.removeAt(list, index)
+
+fun<T> insertAtPlatform(list: salvo.platform.std.core.list.MutList<T>, index: Int, elem: T): T? = salvo.platform.std.core.list.insertAt(list, index, elem)
+
+fun<T> removeRangePlatform(list: salvo.platform.std.core.list.MutList<T>, from: Int, to: Int): salvo.platform.std.core.list.MutList<T> = salvo.platform.std.core.list.removeRange(list, from, to)
+
+fun<T> swap__MutList_Int_Int(list: salvo.platform.std.core.list.MutList<T>, i: Int, j: Int): salvo.std.core.checked.Checked<Boolean> {
+    return salvo.std.core.checked.checked(swapAtPlatform(list, i, j))
+}
+
+fun<T> swapAtPlatform(list: salvo.platform.std.core.list.MutList<T>, i: Int, j: Int): Boolean = salvo.platform.std.core.list.swapAt(list, i, j)
+
+fun<T> drain(list: List<T>, each: (T) -> Unit) {
+    val m: salvo.platform.std.core.list.MutList<T> = intoMutPlatform(list)
+    reverse(m)
+    while (true) {
+        if (!((sizePlatform(m) > 0))) {
+            break
+        }
+        each(kotlin.run {
+            val __pick_1: T? = removeLastPlatform(m)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at std.core.list:247:32")
+            })
+        })
+    }
+    endEmptyPlatform(m)
+}
+
+fun<T> intoMutPlatform(list: List<T>): salvo.platform.std.core.list.MutList<T> = salvo.platform.std.core.list.intoMut(list)
+
+fun<T> endEmptyPlatform(list: salvo.platform.std.core.list.MutList<T>) = salvo.platform.std.core.list.endEmpty(list)
+
+fun<T> removeLastPlatform(list: salvo.platform.std.core.list.MutList<T>): T? = salvo.platform.std.core.list.removeLast(list)
+
+fun<T> firstPlatform(list: List<T>): T? = salvo.platform.std.core.list.first(list)
+
+fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
+    return (sizePlatform(list) > 0)
+}
+
+fun<T> first(list: List<T>): T {
+    return kotlin.run {
+        val __pick_1: T? = getPlatform(list, 0)
+        (if ((__pick_1 != null)) {
+            val __picked_2: T = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at std.core.list:304:28")
+        })
+    }
+}
+
+fun<T> sizePlatform(list: List<T>): Int = salvo.platform.std.core.list.size(list)
+
+fun<T> last(list: List<T>): T? {
+    return getPlatform(list, (sizePlatform(list) - 1))
+}
+
+fun<T> isEmpty(list: List<T>): Boolean {
+    return (sizePlatform(list) == 0)
+}
+
+fun<T> removeFront(list: salvo.platform.std.core.list.MutList<T>, n: Int): salvo.platform.std.core.list.MutList<T> {
+    return removeRangePlatform(list, 0, n)
+}
+
+fun<T> removeBack(list: salvo.platform.std.core.list.MutList<T>, n: Int): salvo.platform.std.core.list.MutList<T> {
+    var at: Int = (sizePlatform(list) - n)
+    if ((at < 0)) {
+        at = 0
+    }
+    return removeRangePlatform(list, at, sizePlatform(list))
+}
+
+fun<T> removeFrontWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T) -> Boolean): salvo.platform.std.core.list.MutList<T> {
+    var n: Int = 0
+    while (true) {
+        if (!(((n < sizePlatform(list)) && keep(kotlin.run {
+            val __pick_1: T? = getPlatform(list, n)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at std.core.list:347:50")
+            })
+        })))) {
+            break
+        }
+        n = (n + 1)
+    }
+    return removeRangePlatform(list, 0, n)
+}
+
+fun<T> removeBackWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T) -> Boolean): salvo.platform.std.core.list.MutList<T> {
+    var at: Int = sizePlatform(list)
+    while (true) {
+        if (!(((at > 0) && keep(kotlin.run {
+            val __pick_1: T? = getPlatform(list, (at - 1))
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at std.core.list:359:47")
+            })
+        })))) {
+            break
+        }
+        at = (at - 1)
+    }
+    return removeRangePlatform(list, at, sizePlatform(list))
+}
+
+fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platform.std.core.list.MutList<T> {
+    val out: salvo.platform.std.core.list.MutList<T> = mutableListOf<T>()
+    var i: Int = from
+    if ((i < 0)) {
+        i = 0
+    }
+    while (true) {
+        if (!(((i < to) && (i < sizePlatform(list))))) {
+            break
+        }
+        addPlatform(out, copy(kotlin.run {
+            val __pick_1: T? = getPlatform(list, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at std.core.list:377:39")
+            })
+        }))
+        i = (i + 1)
+    }
+    return out
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun<T> findFirst(list: List<T>, pick: (T) -> Boolean): Int? {
+    val __pass_1: salvo.std.core.index.Indices<T> = salvo.std.core.index.indices(list)
+    while (true) {
+        val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.index.next__Indices(__pass_1)
+        when {
+            (__step_2 is Union2.U1<*, *>) -> {
+                val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
+                val i: Int = __emitted_3
+                if (pick(get(list, i))) {
+                    return i
+                }
+            }
+            else -> {
+                break
+            }
+        }
+    }
+    return null
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun<T> findLast(list: List<T>, pick: (T) -> Boolean): Int? {
+    val __pass_1: salvo.std.core.index.RevIndices<T> = salvo.std.core.index.revIndices(list)
+    while (true) {
+        val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.index.next__RevIndices(__pass_1)
+        when {
+            (__step_2 is Union2.U1<*, *>) -> {
+                val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
+                val i: Int = __emitted_3
+                if (pick(get(list, i))) {
+                    return i
+                }
+            }
+            else -> {
+                break
+            }
+        }
+    }
+    return null
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun<T> indexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
+    val __pass_1: salvo.std.core.index.Indices<T> = salvo.std.core.index.indices(list)
+    while (true) {
+        val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.index.next__Indices(__pass_1)
+        when {
+            (__step_2 is Union2.U1<*, *>) -> {
+                val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
+                val i: Int = __emitted_3
+                if (eq(get(list, i), elem)) {
+                    return i
+                }
+            }
+            else -> {
+                break
+            }
+        }
+    }
+    return null
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun<T> lastIndexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
+    val __pass_1: salvo.std.core.index.RevIndices<T> = salvo.std.core.index.revIndices(list)
+    while (true) {
+        val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.index.next__RevIndices(__pass_1)
+        when {
+            (__step_2 is Union2.U1<*, *>) -> {
+                val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
+                val i: Int = __emitted_3
+                if (eq(get(list, i), elem)) {
+                    return i
+                }
+            }
+            else -> {
+                break
+            }
+        }
+    }
+    return null
+}
+
+fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
+    var i: Int = 0
+    while (true) {
+        if (!((i < sizePlatform(list)))) {
+            break
+        }
+        if (eq(kotlin.run {
+            val __pick_1: T? = getPlatform(list, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at std.core.list:427:31")
+            })
+        }, elem)) {
+            return true
+        }
+        i = (i + 1)
+    }
+    return false
+}
+
+fun<T> any(list: List<T>, pick: (T) -> Boolean): Boolean {
+    return !((findFirst(list, pick) == null))
+}
+
+fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
+    var i: Int = 0
+    while (true) {
+        if (!((i < sizePlatform(list)))) {
+            break
+        }
+        if (!(pick(kotlin.run {
+            val __pick_1: T? = getPlatform(list, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at std.core.list:444:34")
+            })
+        }))) {
+            return false
+        }
+        i = (i + 1)
+    }
+    return true
+}
+
+fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
+    var n: Int = 0
+    var i: Int = 0
+    while (true) {
+        if (!((i < sizePlatform(list)))) {
+            break
+        }
+        if (pick(kotlin.run {
+            val __pick_1: T? = getPlatform(list, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at std.core.list:457:33")
+            })
+        })) {
+            n = (n + 1)
+        }
+        i = (i + 1)
+    }
+    return n
+}
+
+fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): kotlin.Pair<salvo.platform.std.core.list.MutList<T>, salvo.platform.std.core.list.MutList<T>> {
+    val yes: salvo.platform.std.core.list.MutList<T> = mutableListOf<T>()
+    val no: salvo.platform.std.core.list.MutList<T> = mutableListOf<T>()
+    var i: Int = 0
+    while (true) {
+        if (!((i < sizePlatform(list)))) {
+            break
+        }
+        val x: T = kotlin.run {
+            val __pick_1: T? = getPlatform(list, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: T = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at std.core.list:474:33")
+            })
+        }
+        if (pick(x)) {
+            addPlatform(yes, copy(x))
+        } else {
+            addPlatform(no, copy(x))
+        }
+        i = (i + 1)
+    }
+    return kotlin.Pair(yes, no)
+}
+
+fun<T> reverse(list: salvo.platform.std.core.list.MutList<T>) {
+    var i: Int = 0
+    var j: Int = (sizePlatform(list) - 1)
+    while (true) {
+        if (!((i < j))) {
+            break
+        }
+        salvo.std.core.checked.ignore(swap__MutList_Int_Int(list, i, j))
+        i = (i + 1)
+        j = (j - 1)
+    }
+}
+
+fun<T> iter(list: List<T>): ListYield<T> {
+    return ListYield<T>(items = list, at = 0)
+}
+
+data class ListYield<T>(
+    var items: List<T>,
+    var at: Int,
+)
+
+fun<T> next__ListYield(p: ListYield<T>): Union2<T, salvo.std.core.iterator.Finished> {
+    val elem: T? = getPlatform(p.items, p.at)
+    if ((elem == null)) {
+        return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
+    }
+    p.at = (p.at + 1)
+    val elem_1: T = elem!!
+    return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(elem_1))
+}
+
+data class ListReversed<T>(
+    var list: List<T>,
+    var at: Int,
+)
+
+fun<T> reversed(list: List<T>): ListReversed<T> {
+    return ListReversed<T>(list = list, at = (sizePlatform(list) - 1))
+}
+
+fun<T> next__ListReversed(__p: ListReversed<T>): Union2<T, salvo.std.core.iterator.Finished> {
+    val elem: T? = getPlatform(__p.list, __p.at)
+    if ((elem == null)) {
+        return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
+    }
+    __p.at = (__p.at - 1)
+    val elem_1: T = elem!!
+    return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(elem_1))
+}
+
+data class Enumerated<T>(
+    val index: Int,
+    val elem: T,
+)
+
+data class ListEnumerate<T>(
+    var list: List<T>,
+    var at: Int,
+)
+
+fun<T> enumerate(list: List<T>): ListEnumerate<T> {
+    return ListEnumerate<T>(list = list, at = 0)
+}
+
+fun<T> next__ListEnumerate(__p: ListEnumerate<T>): Union2<Enumerated<T>, salvo.std.core.iterator.Finished> {
+    val elem: T? = getPlatform(__p.list, __p.at)
+    if ((elem == null)) {
+        return Union2.U2<Enumerated<T>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
+    }
+    val index: Int = __p.at
+    __p.at = (__p.at + 1)
+    val elem_1: T = elem!!
+    return Union2.U1<Enumerated<T>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(Enumerated<T>(index = index, elem = elem_1)))
+}
+
+data class ListEnumerateRev<T>(
+    var list: List<T>,
+    var at: Int,
+)
+
+fun<T> enumerateRev(list: List<T>): ListEnumerateRev<T> {
+    return ListEnumerateRev<T>(list = list, at = (sizePlatform(list) - 1))
+}
+
+fun<T> next__ListEnumerateRev(__p: ListEnumerateRev<T>): Union2<Enumerated<T>, salvo.std.core.iterator.Finished> {
+    val elem: T? = getPlatform(__p.list, __p.at)
+    if ((elem == null)) {
+        return Union2.U2<Enumerated<T>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
+    }
+    val index: Int = __p.at
+    __p.at = (__p.at - 1)
+    val elem_1: T = elem!!
+    return Union2.U1<Enumerated<T>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(Enumerated<T>(index = index, elem = elem_1)))
+}
+
+fun<T> toStr(list: List<T>, toStr: (T) -> String): String {
+    val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>("["))
+    var i: Int = 0
+    for (x in salvo.platform.std.core.list.each(list)) {
+        if ((i > 0)) {
+            salvo.std.core.string.appendPlatform(out, ", ")
+        }
+        salvo.std.core.string.appendPlatform(out, toStr(x))
+        i = (i + 1)
+    }
+    salvo.std.core.string.appendPlatform(out, "]")
+    return out.toString()
+}
+
+fun<T> sortByPlatform(list: List<T>, cmp: (T, T) -> Int): salvo.platform.std.core.list.MutList<T> = salvo.platform.std.core.list.sortBy(list, cmp)
+
+fun<T> insertSortedByPlatform(list: salvo.platform.std.core.list.MutList<T>, elem: T, cmp: (T, T) -> Int) = salvo.platform.std.core.list.insertSortedBy(list, elem, cmp)
+
+fun<T> searchSortedByPlatform(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? = salvo.platform.std.core.list.searchSortedBy(list, elem, cmp)
+
+fun<T> sort(list: List<T>, cmp: (T, T) -> Int): List<T> {
+    return sortByPlatform(list, cmp)
+}
+
+fun<T> mutSort(list: List<T>, cmp: (T, T) -> Int): salvo.platform.std.core.list.MutList<T> {
+    return sortByPlatform(list, cmp)
+}
+
+fun<T> addSorted(list: salvo.platform.std.core.list.MutList<T>, elem: T, cmp: (T, T) -> Int) {
+    insertSortedByPlatform(list, elem, cmp)
+}
+
+fun<T> binarySearch(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? {
+    val found: Int = kotlin.run {
+        val __pick_1: Int? = searchSortedByPlatform(list, elem, cmp)
+        (if ((__pick_1 != null)) {
+            val __picked_2: Int = __pick_1!!
+            __picked_2
+        } else {
+            kotlin.run {
+                return null
+            }
+        })
+    }
+    if (salvo.std.core.index.Idx_qualifies(found, list, ::sizePlatform)) {
+        return found
+    }
+    return null
+}
+

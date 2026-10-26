@@ -264,7 +264,7 @@ module, line and column, and reads identically on both backends:
 
 ```
 salvo: n must be positive, was 7 at main:5:5
-salvo: value is absent at core.list:153:12
+salvo: value is absent at std.core.list:153:12
 ```
 
 The mechanism underneath is each target's own trap — a panic on Rust, an

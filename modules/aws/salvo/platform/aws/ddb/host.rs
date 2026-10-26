@@ -10,7 +10,7 @@ use crate::aws::*;
 use crate::aws_ddb::*;
 use crate::aws_ddb_host::*;
 use crate::unions::*;
-use crate::core_checked::Checked;
+use crate::std_core_checked::Checked;
 use aws_sdk_dynamodb::error::ProvideErrorMetadata;
 
 // `threadsafe platform handler HostDdb`: the SDK client is cheap to
@@ -115,7 +115,7 @@ impl crate::aws_ddb::DdbPlatformSync for HostDdb {
                 Ok(out) => { let _ = &out; PutItem::ok(from_sdk_put_item_output(&out)) }
                 Err(e) => PutItem::err(salvo_failure(e, |err, out| {
                 if let aws_sdk_dynamodb::operation::put_item::PutItemError::ConditionalCheckFailedException(x) = err {
-                    out.item = x.item().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) });
+                    out.item = x.item().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) });
                 }
                 if let aws_sdk_dynamodb::operation::put_item::PutItemError::ProvisionedThroughputExceededException(x) = err {
                     out.throttling_reasons = { let __s = x.throttling_reasons(); if __s.is_empty() { None } else { Some(__s.iter().map(|e| from_sdk_throttling_reason(e)).collect::<Vec<_>>()) } };
@@ -152,7 +152,7 @@ impl crate::aws_ddb::DdbPlatformSync for HostDdb {
                 Ok(out) => { let _ = &out; DeleteItem::ok(from_sdk_delete_item_output(&out)) }
                 Err(e) => DeleteItem::err(salvo_failure(e, |err, out| {
                 if let aws_sdk_dynamodb::operation::delete_item::DeleteItemError::ConditionalCheckFailedException(x) = err {
-                    out.item = x.item().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) });
+                    out.item = x.item().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) });
                 }
                 if let aws_sdk_dynamodb::operation::delete_item::DeleteItemError::ProvisionedThroughputExceededException(x) = err {
                     out.throttling_reasons = { let __s = x.throttling_reasons(); if __s.is_empty() { None } else { Some(__s.iter().map(|e| from_sdk_throttling_reason(e)).collect::<Vec<_>>()) } };
@@ -257,7 +257,7 @@ impl crate::aws_ddb::DdbPlatformSync for HostDdb {
 
 fn from_sdk_get_item_output(v: &aws_sdk_dynamodb::operation::get_item::GetItemOutput) -> GetItemOutput {
     GetItemOutput {
-        item: v.item().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }),
+        item: v.item().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) }),
         consumed_capacity: v.consumed_capacity().map(|x| from_sdk_consumed_capacity(x)),
     }
 }
@@ -269,9 +269,9 @@ fn from_sdk_consumed_capacity(v: &aws_sdk_dynamodb::types::ConsumedCapacity) -> 
         read_capacity_units: v.read_capacity_units().map(|x| *(&x)),
         write_capacity_units: v.write_capacity_units().map(|x| *(&x)),
         table: v.table().map(|x| from_sdk_capacity(x)),
-        local_secondary_indexes: v.local_secondary_indexes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_capacity(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }),
-        global_secondary_indexes: v.global_secondary_indexes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_capacity(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }),
-        vector_indexes: v.vector_indexes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_vector_capacity(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }),
+        local_secondary_indexes: v.local_secondary_indexes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_capacity(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) }),
+        global_secondary_indexes: v.global_secondary_indexes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_capacity(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) }),
+        vector_indexes: v.vector_indexes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_vector_capacity(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) }),
     }
 }
 
@@ -352,7 +352,7 @@ fn to_sdk_expected_attribute_value(v: &ExpectedAttributeValue) -> aws_sdk_dynamo
 
 fn from_sdk_put_item_output(v: &aws_sdk_dynamodb::operation::put_item::PutItemOutput) -> PutItemOutput {
     PutItemOutput {
-        attributes: v.attributes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }),
+        attributes: v.attributes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) }),
         consumed_capacity: v.consumed_capacity().map(|x| from_sdk_consumed_capacity(x)),
         item_collection_metrics: v.item_collection_metrics().map(|x| from_sdk_item_collection_metrics(x)),
     }
@@ -360,7 +360,7 @@ fn from_sdk_put_item_output(v: &aws_sdk_dynamodb::operation::put_item::PutItemOu
 
 fn from_sdk_item_collection_metrics(v: &aws_sdk_dynamodb::types::ItemCollectionMetrics) -> ItemCollectionMetrics {
     ItemCollectionMetrics {
-        item_collection_key: v.item_collection_key().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }),
+        item_collection_key: v.item_collection_key().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) }),
         size_estimate_range_gb: { let __s = v.size_estimate_range_gb(); if __s.is_empty() { None } else { Some(__s.iter().map(|e| *e).collect::<Vec<_>>()) } },
     }
 }
@@ -374,7 +374,7 @@ fn to_sdk_item_collection_metrics(v: &ItemCollectionMetrics) -> aws_sdk_dynamodb
 
 fn from_sdk_delete_item_output(v: &aws_sdk_dynamodb::operation::delete_item::DeleteItemOutput) -> DeleteItemOutput {
     DeleteItemOutput {
-        attributes: v.attributes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }),
+        attributes: v.attributes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) }),
         consumed_capacity: v.consumed_capacity().map(|x| from_sdk_consumed_capacity(x)),
         item_collection_metrics: v.item_collection_metrics().map(|x| from_sdk_item_collection_metrics(x)),
     }
@@ -396,10 +396,10 @@ fn to_sdk_condition(v: &Condition) -> aws_sdk_dynamodb::types::Condition {
 
 fn from_sdk_query_output(v: &aws_sdk_dynamodb::operation::query::QueryOutput) -> QueryOutput {
     QueryOutput {
-        items: { let __s = v.items(); if __s.is_empty() { None } else { Some(__s.iter().map(|e| { let mut __es: Vec<_> = e.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }).collect::<Vec<_>>()) } },
+        items: { let __s = v.items(); if __s.is_empty() { None } else { Some(__s.iter().map(|e| { let mut __es: Vec<_> = e.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) }).collect::<Vec<_>>()) } },
         count: *(&v.count()),
         scanned_count: *(&v.scanned_count()),
-        last_evaluated_key: v.last_evaluated_key().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }),
+        last_evaluated_key: v.last_evaluated_key().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) }),
         consumed_capacity: v.consumed_capacity().map(|x| from_sdk_consumed_capacity(x)),
     }
 }
@@ -1031,7 +1031,7 @@ fn from_sdk_attribute_value(v: &aws_sdk_dynamodb::types::AttributeValue) -> Unio
         aws_sdk_dynamodb::types::AttributeValue::Ss(x) => Union10::U4(AttributeValueSs { value: x.iter().map(|s| s.to_string()).collect() }),
         aws_sdk_dynamodb::types::AttributeValue::Ns(x) => Union10::U5(AttributeValueNs { value: x.iter().map(|s| s.to_string()).collect() }),
         aws_sdk_dynamodb::types::AttributeValue::Bs(x) => Union10::U6(AttributeValueBs { value: x.iter().map(|b| b.as_ref().to_vec()).collect() }),
-        aws_sdk_dynamodb::types::AttributeValue::M(x) => Union10::U7(AttributeValueM { value: { let mut __es: Vec<_> = x.iter().map(|(k, e)| (k.clone(), from_sdk_attribute_value(e))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) } }),
+        aws_sdk_dynamodb::types::AttributeValue::M(x) => Union10::U7(AttributeValueM { value: { let mut __es: Vec<_> = x.iter().map(|(k, e)| (k.clone(), from_sdk_attribute_value(e))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) } }),
         aws_sdk_dynamodb::types::AttributeValue::L(x) => Union10::U8(AttributeValueL { value: x.iter().map(|e| from_sdk_attribute_value(e)).collect() }),
         aws_sdk_dynamodb::types::AttributeValue::Bool(x) => Union10::U9(AttributeValueBool { value: *x }),
         aws_sdk_dynamodb::types::AttributeValue::Null(x) => Union10::U10(AttributeValueNull { value: *x }),
@@ -1098,12 +1098,12 @@ fn salvo_expand_home(path: &str) -> String {
 
 /// A Smithy timestamp as a `time.Instant`: nanoseconds since the epoch,
 /// saturating outside `Instant`'s range (1678–2262).
-fn salvo_instant(t: &aws_sdk_dynamodb::primitives::DateTime) -> crate::time::Instant {
+fn salvo_instant(t: &aws_sdk_dynamodb::primitives::DateTime) -> crate::std_time::Instant {
     let nanos = t.as_nanos().clamp(i64::MIN as i128, i64::MAX as i128) as i64;
-    crate::time::Instant { nanos }
+    crate::std_time::Instant { nanos }
 }
 
 /// A `time.Instant` as a Smithy timestamp.
-fn salvo_date_time(at: &crate::time::Instant) -> aws_sdk_dynamodb::primitives::DateTime {
+fn salvo_date_time(at: &crate::std_time::Instant) -> aws_sdk_dynamodb::primitives::DateTime {
     aws_sdk_dynamodb::primitives::DateTime::from_nanos(at.nanos as i128).expect("an i64 of nanoseconds is a valid timestamp")
 }

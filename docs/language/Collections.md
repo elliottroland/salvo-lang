@@ -170,7 +170,7 @@ A deque has no constructor shorthand of its own and no `==`, hash or ordering: i
 
 ## Buffers
 
-`core.buffer` has two fixed-length runs of numbers, `IntBuffer` and `LongBuffer`: the index tables a hash structure probes, where a `List<Int>` would box every slot on the JVM. A buffer is made full and never changes length — there is no `add` or `remove`, and growing one means building a bigger one.
+`std.core.buffer` has two fixed-length runs of numbers, `IntBuffer` and `LongBuffer`: the index tables a hash structure probes, where a `List<Int>` would box every slot on the JVM. A buffer is made full and never changes length — there is no `add` or `remove`, and growing one means building a bigger one.
 
 ```
 let table = int_buffer(8, -1)      // eight slots, every one -1

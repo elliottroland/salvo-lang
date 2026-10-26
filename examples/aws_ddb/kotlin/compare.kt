@@ -11,7 +11,7 @@ package salvo
 // decided that a string is a sequence of characters rather than of encoding
 // units (string indexing made the same call), so this is the reading that
 // keeps the two backends ordering alike. Lists and tuples order through
-// Salvo's own `cmp` (`core.compare`), element by element.
+// Salvo's own `cmp` (`std.core.compare`), element by element.
 fun __salvoCompare(a: Any?, b: Any?): Int {
     val x = a as String
     val y = b as String

@@ -56,7 +56,7 @@ fn main::describe(lent t: Tool) -> Str {
         narrow#7[after branch#0.cond#0] tls~2: Tls = tls
         value concat("tls ", read tls~2.cert)
       }
-      return concat("serve ", call core.string::join(read c~1.files, ","), " on ", read c~1.net.host, ":", call core.basic::to_str(Int)(read c~1.port), " as ", call core.basic::to_str(Str)(read c~1.output), ", ", read secure, ", ", call core.basic::to_str(Int)(branch#14 cond#0 true {
+      return concat("serve ", call std.core.string::join(read c~1.files, ","), " on ", read c~1.net.host, ":", call std.core.basic::to_str(Int)(read c~1.port), " as ", call std.core.basic::to_str(Str)(read c~1.output), ", ", read secure, ", ", call std.core.basic::to_str(Int)(branch#14 cond#0 true {
         bind#9 let __pick~3: Int? = read c~1.net.workers
         value branch#10 cond#0 check#13 (read __pick~3 is arm 0) {
           narrow#11[branch#10.cond#0] __picked~4: Int = __pick~3
@@ -72,7 +72,7 @@ fn main::describe(lent t: Tool) -> Str {
       bind#21 let from: Str = switch#17 read s {
         arm#0 (arm 0) {
           narrow#18[switch#17.arm#0] s~7: FromUrl = s
-          value concat(read s~7.url, " (timeout ", call core.basic::to_str(Int)(read s~7.timeout), "s)")
+          value concat(read s~7.url, " (timeout ", call std.core.basic::to_str(Int)(read s~7.timeout), "s)")
         }
         arm#1 (arm 1) {
           narrow#19[switch#17.arm#1] s~8: FromFile = s
@@ -86,7 +86,7 @@ fn main::describe(lent t: Tool) -> Str {
           unreachable("unhandled union arm") at main:104:24
         }
       }
-      return concat("fetch ", read from, " with ", call core.basic::to_str(Int)(call core.list::size<Str>(read c~6.header)), " header(s)")
+      return concat("fetch ", read from, " with ", call std.core.basic::to_str(Int)(call std.core.list::size<Str>(read c~6.header)), " header(s)")
     }
     arm#2 (none) {
       return "nothing to do"
@@ -98,8 +98,8 @@ fn main::describe(lent t: Tool) -> Str {
 }
 
 fn main::show(lent console: Console; lent line: List<Str>) -> None {
-  call core.console::println(read console, concat("$ tool ", call core.string::join(read line, " ")))
-  bind#1 let r: Tool | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call args::parse_args<Tool>(read line, fn main::arg_spec(), fn main::from_found(Found))
+  call std.core.console::println(read console, concat("$ tool ", call std.core.string::join(read line, " ")))
+  bind#1 let r: Tool | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call std.args::parse_args<Tool>(read line, fn main::arg_spec(), fn main::from_found(Found))
   switch#2 read r {
     arm#0 (arm 0) {
       narrow#3[switch#2.arm#0] r~1: Tool = r
@@ -108,18 +108,18 @@ fn main::show(lent console: Console; lent line: List<Str>) -> None {
       } else {
         value ""
       }
-      call core.console::println(read console, concat("  ", call main::describe(read r~1), read loud))
+      call std.core.console::println(read console, concat("  ", call main::describe(read r~1), read loud))
     }
     arm#1 (arm 1) {
       narrow#6[switch#2.arm#1] r~2: List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = r
       foreach#7 e: proj (UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested) in read r~2 {
-        bind#8 let one: UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested = call core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e)
+        bind#8 let one: UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested = call std.core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e)
         branch#9 cond#0 check#10 (read one is arm 10) {
           narrow#11[check#10] one~3: HelpRequested = one
-          member core.console::Console#0(read console, read one~3.text)
+          member std.core.console::Console#0(read console, read one~3.text)
         } else {
           narrow#12[after branch#0.cond#0] one~4: UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand = one
-          call core.console::println(read console, concat("  error: ", call args::message(rewrap[UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand -> UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested](read one~4))))
+          call std.core.console::println(read console, concat("  error: ", call std.args::message(rewrap[UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand -> UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested](read one~4))))
         }
       }
     }
@@ -136,206 +136,206 @@ fn main::main() -> None {
   bind#4 let __handle~4: Args = read __use~3
   bind#5 let __use~5: HostProcess = construct HostProcess { }
   bind#6 let __handle~6: Process = read __use~5
-  call main::show(read __handle~2, call core.list::List(T, T[])<Str>("serve", array[Str[]]("-p", "80", "index.html", "app.js")))
-  call main::show(read __handle~2, call core.list::List(T, T[])<Str>("-v", array[Str[]]("serve", "--host=0.0.0.0", "--workers", "4", "--cert", "c.pem", "--key", "k.pem", "--output", "json", "site")))
-  call main::show(read __handle~2, call core.list::List(T, T[])<Str>("fetch", array[Str[]]("--url", "https://example.com", "--header", "Accept: text/html", "--header", "X-Id: 7")))
-  call main::show(read __handle~2, call core.list::List(T, T[])<Str>("fetch", array[Str[]]("--from-stdin")))
-  call main::show(read __handle~2, call core.list::List(T, T[])<Str>("serve", array[Str[]]("-p", "0", "--output", "xml", "--cert", "c.pem")))
-  call main::show(read __handle~2, call core.list::List(T, T[])<Str>("fetch", array[Str[]]("--url", "u", "--file", "f")))
-  call main::show(read __handle~2, call core.list::List(T, T[])<Str>("deploy", array[Str[]]()))
-  call main::show(read __handle~2, call core.list::List(T, T[])<Str>("--help", array[Str[]]()))
-  call main::show(read __handle~2, call core.list::List(T, T[])<Str>("serve", array[Str[]]("--help")))
-  bind#7 let tool: Tool = call args::args_or_exit<Tool>(read __handle~2, read __handle~6, member args::Args#0(read __handle~4), fn main::arg_spec(), fn main::from_found(Found))
-  call core.console::println(read __handle~2, concat("argv: ", call main::describe(read tool)))
+  call main::show(read __handle~2, call std.core.list::List(T, T[])<Str>("serve", array[Str[]]("-p", "80", "index.html", "app.js")))
+  call main::show(read __handle~2, call std.core.list::List(T, T[])<Str>("-v", array[Str[]]("serve", "--host=0.0.0.0", "--workers", "4", "--cert", "c.pem", "--key", "k.pem", "--output", "json", "site")))
+  call main::show(read __handle~2, call std.core.list::List(T, T[])<Str>("fetch", array[Str[]]("--url", "https://example.com", "--header", "Accept: text/html", "--header", "X-Id: 7")))
+  call main::show(read __handle~2, call std.core.list::List(T, T[])<Str>("fetch", array[Str[]]("--from-stdin")))
+  call main::show(read __handle~2, call std.core.list::List(T, T[])<Str>("serve", array[Str[]]("-p", "0", "--output", "xml", "--cert", "c.pem")))
+  call main::show(read __handle~2, call std.core.list::List(T, T[])<Str>("fetch", array[Str[]]("--url", "u", "--file", "f")))
+  call main::show(read __handle~2, call std.core.list::List(T, T[])<Str>("deploy", array[Str[]]()))
+  call main::show(read __handle~2, call std.core.list::List(T, T[])<Str>("--help", array[Str[]]()))
+  call main::show(read __handle~2, call std.core.list::List(T, T[])<Str>("serve", array[Str[]]("--help")))
+  bind#7 let tool: Tool = call std.args::args_or_exit<Tool>(read __handle~2, read __handle~6, member std.args::Args#0(read __handle~4), fn main::arg_spec(), fn main::from_found(Found))
+  call std.core.console::println(read __handle~2, concat("argv: ", call main::describe(read tool)))
 }
 
 fn main::arg_spec()() -> Spec<Tool> {
-  bind#1 let opts: Mut List<OptSpec> = call core.list::Mut_List()<OptSpec>()
-  bind#2 let args: Mut List<ArgSpec> = call core.list::Mut_List()<ArgSpec>()
-  bind#3 let groups: Mut List<GroupSpec> = call core.list::Mut_List()<GroupSpec>()
-  bind#4 let commands: Mut List<CmdSpec> = call core.list::Mut_List()<CmdSpec>()
+  bind#1 let opts: Mut List<OptSpec> = call std.core.list::Mut_List()<OptSpec>()
+  bind#2 let args: Mut List<ArgSpec> = call std.core.list::Mut_List()<ArgSpec>()
+  bind#3 let groups: Mut List<GroupSpec> = call std.core.list::Mut_List()<GroupSpec>()
+  bind#4 let commands: Mut List<CmdSpec> = call std.core.list::Mut_List()<CmdSpec>()
   bind#5 let command_required: Bool = false
   bind#6 let command_fields: Int = 0
   bind#7 let required__c1__c2__c3__c4: Bool = false
   bind#8 let many__c1__c2__c3__c4: Bool = false
   bind#9 let switch__c1__c2__c3__c4: Bool = false
   bind#10 let default_text__c1__c2__c3__c4: Str? = none[None]
-  bind#11 let choices__c1__c2__c3__c4: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#11 let choices__c1__c2__c3__c4: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#12 let exclusive__c1__c2__c3__c4: Bool = false
   assign switch__c1__c2__c3__c4 = true
   branch#13 cond#0 read exclusive__c1__c2__c3__c4 {
-    call args::add_one(read groups, "verbose", read required__c1__c2__c3__c4, present("Print more."))
+    call std.args::add_one(read groups, "verbose", read required__c1__c2__c3__c4, present("Print more."))
   }
   bind#14 let short__c1__c2__c3__c4: Char? = none[None]
   assign short__c1__c2__c3__c4 = present('v')
   narrow#15[after branch#13.cond#0] short__c1__c2__c3__c4~1: Char = short__c1__c2__c3__c4
   bind#16 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "verbose", short: present(!read short__c1__c2__c3__c4~1), takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Print more."), default_text: !read default_text__c1__c2__c3__c4, choices: drop_mut(!read choices__c1__c2__c3__c4), group: none[None] }
-  branch#17 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
-    call core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
+  branch#17 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call std.core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
+    call std.core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
   }
   assign command_fields = (read command_fields + 1)
   bind#18 let child__c8__c9__c11__c12__c13: Spec<Serve> = call main::arg_spec()()
-  call core.list::add<CmdSpec>(read commands, construct CmdSpec { name: call core.basic::copy<Str>(read child__c8__c9__c11__c12__c13.name), about: call core.basic::copy<Str?>(read child__c8__c9__c11__c12__c13.about) })
+  call std.core.list::add<CmdSpec>(read commands, construct CmdSpec { name: call std.core.basic::copy<Str>(read child__c8__c9__c11__c12__c13.name), about: call std.core.basic::copy<Str?>(read child__c8__c9__c11__c12__c13.about) })
   bind#19 let child__c8__c9__c11__c14__c15: Spec<Fetch> = call main::arg_spec()()
-  call core.list::add<CmdSpec>(read commands, construct CmdSpec { name: call core.basic::copy<Str>(read child__c8__c9__c11__c14__c15.name), about: call core.basic::copy<Str?>(read child__c8__c9__c11__c14__c15.about) })
-  bind#20 let name: Str = call args::command_name("Tool")
+  call std.core.list::add<CmdSpec>(read commands, construct CmdSpec { name: call std.core.basic::copy<Str>(read child__c8__c9__c11__c14__c15.name), about: call std.core.basic::copy<Str?>(read child__c8__c9__c11__c14__c15.about) })
+  bind#20 let name: Str = call std.args::command_name("Tool")
   return construct Spec<Tool> { name: !read name, about: present("A toy file server."), opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> Tool | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
-  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
+  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call std.core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
   foreach#2 e: proj (UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested) in read found.errors {
-    call core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
+    call std.core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call std.core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
   }
   bind#3 let s__c8__c9__c10__c11__c12: Spec<Serve> = call main::arg_spec()()
-  branch#4 cond#0 call args::is_command(read found, read s__c8__c9__c10__c11__c12.name) {
-    bind#5 let r__c8__c9__c10__c11__c12: Serve | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call args::parse_named<Serve>(read found.rest, present(call core.basic::copy<Str>(read found.path)), fn main::arg_spec(), fn main::from_found(Found))
-    call args::group_errors<Serve>(read errors, !read r__c8__c9__c10__c11__c12, 0)
+  branch#4 cond#0 call std.args::is_command(read found, read s__c8__c9__c10__c11__c12.name) {
+    bind#5 let r__c8__c9__c10__c11__c12: Serve | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call std.args::parse_named<Serve>(read found.rest, present(call std.core.basic::copy<Str>(read found.path)), fn main::arg_spec(), fn main::from_found(Found))
+    call std.args::group_errors<Serve>(read errors, !read r__c8__c9__c10__c11__c12, 0)
   }
   bind#6 let s__c8__c9__c10__c13__c14: Spec<Fetch> = call main::arg_spec()()
-  branch#7 cond#0 call args::is_command(read found, read s__c8__c9__c10__c13__c14.name) {
-    bind#8 let r__c8__c9__c10__c13__c14: Fetch | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call args::parse_named<Fetch>(read found.rest, present(call core.basic::copy<Str>(read found.path)), fn main::arg_spec(), fn main::from_found(Found))
-    call args::group_errors<Fetch>(read errors, !read r__c8__c9__c10__c13__c14, 0)
+  branch#7 cond#0 call std.args::is_command(read found, read s__c8__c9__c10__c13__c14.name) {
+    bind#8 let r__c8__c9__c10__c13__c14: Fetch | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call std.args::parse_named<Fetch>(read found.rest, present(call std.core.basic::copy<Str>(read found.path)), fn main::arg_spec(), fn main::from_found(Found))
+    call std.args::group_errors<Fetch>(read errors, !read r__c8__c9__c10__c13__c14, 0)
   }
-  branch#9 cond#0 call core.list::NonEmpty.qualifies(read errors) {
-    return make_union[Tool | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
+  branch#9 cond#0 call std.core.list::NonEmpty.qualifies(read errors) {
+    return make_union[Tool | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call std.core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
-  return make_union[Tool | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<Tool>(construct Tool { verbose: call args::eval<Bool>(lambda() -> Bool captures [found] {
-    return call args::given(read found, "verbose")
-  }), command: call args::eval<Serve | Fetch | None>(lambda() -> Serve | Fetch | None captures [found] {
+  return make_union[Tool | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call std.core.result::Ok<Tool>(construct Tool { verbose: call std.args::eval<Bool>(lambda() -> Bool captures [found] {
+    return call std.args::given(read found, "verbose")
+  }), command: call std.args::eval<Serve | Fetch | None>(lambda() -> Serve | Fetch | None captures [found] {
     bind#10 let s__c24__c25__c26__c27__c28: Spec<Serve> = call main::arg_spec()()
-    branch#11 cond#0 call args::is_command(read found, read s__c24__c25__c26__c27__c28.name) {
-      return make_union[Serve | Fetch | None]#0(call args::built<Serve>(call args::parse_named<Serve>(read found.rest, present(call core.basic::copy<Str>(read found.path)), fn main::arg_spec(), fn main::from_found(Found))))
+    branch#11 cond#0 call std.args::is_command(read found, read s__c24__c25__c26__c27__c28.name) {
+      return make_union[Serve | Fetch | None]#0(call std.args::built<Serve>(call std.args::parse_named<Serve>(read found.rest, present(call std.core.basic::copy<Str>(read found.path)), fn main::arg_spec(), fn main::from_found(Found))))
     }
     bind#12 let s__c24__c25__c26__c29__c30: Spec<Fetch> = call main::arg_spec()()
-    branch#13 cond#0 call args::is_command(read found, read s__c24__c25__c26__c29__c30.name) {
-      return make_union[Serve | Fetch | None]#1(call args::built<Fetch>(call args::parse_named<Fetch>(read found.rest, present(call core.basic::copy<Str>(read found.path)), fn main::arg_spec(), fn main::from_found(Found))))
+    branch#13 cond#0 call std.args::is_command(read found, read s__c24__c25__c26__c29__c30.name) {
+      return make_union[Serve | Fetch | None]#1(call std.args::built<Fetch>(call std.args::parse_named<Fetch>(read found.rest, present(call std.core.basic::copy<Str>(read found.path)), fn main::arg_spec(), fn main::from_found(Found))))
     }
     return none[None]
   }) }))
 }
 
 fn main::arg_spec()() -> Spec<Serve> {
-  bind#1 let opts: Mut List<OptSpec> = call core.list::Mut_List()<OptSpec>()
-  bind#2 let args: Mut List<ArgSpec> = call core.list::Mut_List()<ArgSpec>()
-  bind#3 let groups: Mut List<GroupSpec> = call core.list::Mut_List()<GroupSpec>()
-  bind#4 let commands: Mut List<CmdSpec> = call core.list::Mut_List()<CmdSpec>()
+  bind#1 let opts: Mut List<OptSpec> = call std.core.list::Mut_List()<OptSpec>()
+  bind#2 let args: Mut List<ArgSpec> = call std.core.list::Mut_List()<ArgSpec>()
+  bind#3 let groups: Mut List<GroupSpec> = call std.core.list::Mut_List()<GroupSpec>()
+  bind#4 let commands: Mut List<CmdSpec> = call std.core.list::Mut_List()<CmdSpec>()
   bind#5 let command_required: Bool = false
   bind#6 let command_fields: Int = 0
   bind#7 let child__c1__c2__c3__c4: Spec<Net> = call main::arg_spec()()
-  call args::merge_group<Net>(read opts, read groups, read child__c1__c2__c3__c4, "net", "flat", none[None])
+  call std.args::merge_group<Net>(read opts, read groups, read child__c1__c2__c3__c4, "net", "flat", none[None])
   bind#8 let required__c5__c6__c7__c8: Bool = false
   bind#9 let many__c5__c6__c7__c8: Bool = false
   bind#10 let switch__c5__c6__c7__c8: Bool = false
   bind#11 let default_text__c5__c6__c7__c8: Str? = none[None]
-  bind#12 let choices__c5__c6__c7__c8: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#12 let choices__c5__c6__c7__c8: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#13 let exclusive__c5__c6__c7__c8: Bool = false
-  assign default_text__c5__c6__c7__c8 = present(concat(call core.basic::to_str(Int)(branch#15 cond#0 true {
+  assign default_text__c5__c6__c7__c8 = present(concat(call std.core.basic::to_str(Int)(branch#15 cond#0 true {
     bind#14 let __default~1: Int = 8080
-    assert(call core.range::InRange.qualifies(read __default~1, 1, 65535), "the default for field `port` is not `InRange(1, 65535) Int`") at main:157:1
+    assert(call std.core.range::InRange.qualifies(read __default~1, 1, 65535), "the default for field `port` is not `InRange(1, 65535) Int`") at main:157:1
     value !read __default~1
   })))
   branch#16 cond#0 read exclusive__c5__c6__c7__c8 {
-    call args::add_one(read groups, "port", read required__c5__c6__c7__c8, present("Port to listen on."))
+    call std.args::add_one(read groups, "port", read required__c5__c6__c7__c8, present("Port to listen on."))
   }
   bind#17 let short__c5__c6__c7__c8: Char? = none[None]
   assign short__c5__c6__c7__c8 = present('p')
   narrow#18[after branch#16.cond#0] short__c5__c6__c7__c8~2: Char = short__c5__c6__c7__c8
   narrow#19[after branch#16.cond#0] default_text__c5__c6__c7__c8~3: Str = default_text__c5__c6__c7__c8
   bind#20 let opt__c5__c6__c7__c8: OptSpec = construct OptSpec { field: "port", short: present(!read short__c5__c6__c7__c8~2), takes_value: !(read switch__c5__c6__c7__c8), repeats: read many__c5__c6__c7__c8, required: (read required__c5__c6__c7__c8 && !(read exclusive__c5__c6__c7__c8)), help: present("Port to listen on."), default_text: present(!read default_text__c5__c6__c7__c8~3), choices: drop_mut(!read choices__c5__c6__c7__c8), group: none[None] }
-  branch#21 cond#0 (!(read exclusive__c5__c6__c7__c8) || !(call core.list::is_empty<Str>(read opt__c5__c6__c7__c8.choices))) {
-    call core.list::add<OptSpec>(read opts, !read opt__c5__c6__c7__c8)
+  branch#21 cond#0 (!(read exclusive__c5__c6__c7__c8) || !(call std.core.list::is_empty<Str>(read opt__c5__c6__c7__c8.choices))) {
+    call std.core.list::add<OptSpec>(read opts, !read opt__c5__c6__c7__c8)
   }
   bind#22 let required__c16__c17__c18__c19: Bool = false
   bind#23 let many__c16__c17__c18__c19: Bool = false
   bind#24 let switch__c16__c17__c18__c19: Bool = false
   bind#25 let default_text__c16__c17__c18__c19: Str? = none[None]
-  bind#26 let choices__c16__c17__c18__c19: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#26 let choices__c16__c17__c18__c19: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#27 let exclusive__c16__c17__c18__c19: Bool = false
-  assign default_text__c16__c17__c18__c19 = present(concat(call core.basic::to_str(Str)("text")))
-  call core.list::add<Str>(read choices__c16__c17__c18__c19, call args::literal_text("\"json\""))
-  call core.list::add<Str>(read choices__c16__c17__c18__c19, call args::literal_text("\"text\""))
+  assign default_text__c16__c17__c18__c19 = present(concat(call std.core.basic::to_str(Str)("text")))
+  call std.core.list::add<Str>(read choices__c16__c17__c18__c19, call std.args::literal_text("\"json\""))
+  call std.core.list::add<Str>(read choices__c16__c17__c18__c19, call std.args::literal_text("\"text\""))
   branch#28 cond#0 read exclusive__c16__c17__c18__c19 {
-    call args::add_one(read groups, "output", read required__c16__c17__c18__c19, present("Output format."))
+    call std.args::add_one(read groups, "output", read required__c16__c17__c18__c19, present("Output format."))
   }
   bind#29 let short__c16__c17__c18__c19: Char? = none[None]
   narrow#30[after branch#28.cond#0] default_text__c16__c17__c18__c19~4: Str = default_text__c16__c17__c18__c19
   bind#31 let opt__c16__c17__c18__c19: OptSpec = construct OptSpec { field: "output", short: !read short__c16__c17__c18__c19, takes_value: !(read switch__c16__c17__c18__c19), repeats: read many__c16__c17__c18__c19, required: (read required__c16__c17__c18__c19 && !(read exclusive__c16__c17__c18__c19)), help: present("Output format."), default_text: present(!read default_text__c16__c17__c18__c19~4), choices: drop_mut(!read choices__c16__c17__c18__c19), group: none[None] }
-  branch#32 cond#0 (!(read exclusive__c16__c17__c18__c19) || !(call core.list::is_empty<Str>(read opt__c16__c17__c18__c19.choices))) {
-    call core.list::add<OptSpec>(read opts, !read opt__c16__c17__c18__c19)
+  branch#32 cond#0 (!(read exclusive__c16__c17__c18__c19) || !(call std.core.list::is_empty<Str>(read opt__c16__c17__c18__c19.choices))) {
+    call std.core.list::add<OptSpec>(read opts, !read opt__c16__c17__c18__c19)
   }
   bind#33 let child__c33__c34__c35: Spec<Tls> = call main::arg_spec()()
-  call args::merge_group<Tls>(read opts, read groups, read child__c33__c34__c35, "tls", "together", present("TLS (give both or neither)."))
+  call std.args::merge_group<Tls>(read opts, read groups, read child__c33__c34__c35, "tls", "together", present("TLS (give both or neither)."))
   bind#34 let required__c36__c37__c38__c39: Bool = false
   bind#35 let many__c36__c37__c38__c39: Bool = false
   bind#36 let switch__c36__c37__c38__c39: Bool = false
   bind#37 let default_text__c36__c37__c38__c39: Str? = none[None]
-  bind#38 let choices__c36__c37__c38__c39: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#38 let choices__c36__c37__c38__c39: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#39 let exclusive__c36__c37__c38__c39: Bool = false
   assign many__c36__c37__c38__c39 = true
   assign required__c36__c37__c38__c39 = true
   branch#40 cond#0 read exclusive__c36__c37__c38__c39 {
-    call args::add_one(read groups, "files", read required__c36__c37__c38__c39, present("Files to serve."))
+    call std.args::add_one(read groups, "files", read required__c36__c37__c38__c39, present("Files to serve."))
   }
   bind#41 let short__c36__c37__c38__c39: Char? = none[None]
   bind#42 let opt__c36__c37__c38__c39: OptSpec = construct OptSpec { field: "files", short: !read short__c36__c37__c38__c39, takes_value: !(read switch__c36__c37__c38__c39), repeats: read many__c36__c37__c38__c39, required: (read required__c36__c37__c38__c39 && !(read exclusive__c36__c37__c38__c39)), help: present("Files to serve."), default_text: !read default_text__c36__c37__c38__c39, choices: drop_mut(!read choices__c36__c37__c38__c39), group: none[None] }
   branch#43 cond#0 read exclusive__c36__c37__c38__c39 {
     unreachable("positional `files` is a choice of option groups") at main:157:1
   }
-  call core.list::add<ArgSpec>(read args, construct ArgSpec { field: call core.basic::copy<Str>(read opt__c36__c37__c38__c39.field), help: call core.basic::copy<Str?>(read opt__c36__c37__c38__c39.help), required: read opt__c36__c37__c38__c39.required, many: read opt__c36__c37__c38__c39.repeats })
-  bind#44 let name: Str = call args::command_name("Serve")
+  call std.core.list::add<ArgSpec>(read args, construct ArgSpec { field: call std.core.basic::copy<Str>(read opt__c36__c37__c38__c39.field), help: call std.core.basic::copy<Str?>(read opt__c36__c37__c38__c39.help), required: read opt__c36__c37__c38__c39.required, many: read opt__c36__c37__c38__c39.repeats })
+  bind#44 let name: Str = call std.args::command_name("Serve")
   return construct Spec<Serve> { name: !read name, about: present("Serve files over HTTP."), opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> Serve | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
-  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
+  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call std.core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
   foreach#2 e: proj (UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested) in read found.errors {
-    call core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
+    call std.core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call std.core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
   }
   bind#3 let r__c1__c2__c3__c4: Net | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call main::from_found(Found)(read found)
-  call args::group_errors<Net>(read errors, !read r__c1__c2__c3__c4, call core.list::size<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read found.errors))
+  call std.args::group_errors<Net>(read errors, !read r__c1__c2__c3__c4, call std.core.list::size<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read found.errors))
   bind#4 let positional__c5__c6__c7__c8__c9__c10__c11: Bool = false
-  bind#5 let shown__c5__c6__c7__c8__c9__c10__c11: Str = call args::shown_name("port", read positional__c5__c6__c7__c8__c9__c10__c11)
+  bind#5 let shown__c5__c6__c7__c8__c9__c10__c11: Str = call std.args::shown_name("port", read positional__c5__c6__c7__c8__c9__c10__c11)
   bind#6 let what__c5__c6__c7__c8__c9__c10__c11: Str = "a valid value"
   assign what__c5__c6__c7__c8__c9__c10__c11 = "an integer"
-  call args::check_value<Int>(read errors, read found, "port", read shown__c5__c6__c7__c8__c9__c10__c11, read what__c5__c6__c7__c8__c9__c10__c11, lambda(lent v: Int) -> Str? {
-    value branch#7 cond#0 !(call core.range::InRange.qualifies(read v, 1, 65535)) {
-      value present(concat(call core.basic::to_str(Int)(read v), " is not in 1..65535"))
+  call std.args::check_value<Int>(read errors, read found, "port", read shown__c5__c6__c7__c8__c9__c10__c11, read what__c5__c6__c7__c8__c9__c10__c11, lambda(lent v: Int) -> Str? {
+    value branch#7 cond#0 !(call std.core.range::InRange.qualifies(read v, 1, 65535)) {
+      value present(concat(call std.core.basic::to_str(Int)(read v), " is not in 1..65535"))
     } else {
       value none[Str?]
     }
-  }, fn core.string::from_str(Str))
+  }, fn std.core.string::from_str(Str))
   bind#8 let s__c25__c26__c27: Spec<Tls> = call main::arg_spec()()
-  branch#9 cond#0 call args::any_given<Tls>(read found, read s__c25__c26__c27) {
+  branch#9 cond#0 call std.args::any_given<Tls>(read found, read s__c25__c26__c27) {
     bind#10 let r__c25__c26__c27: Tls | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call main::from_found(Found)(read found)
-    call args::group_errors<Tls>(read errors, !read r__c25__c26__c27, call core.list::size<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read found.errors))
+    call std.args::group_errors<Tls>(read errors, !read r__c25__c26__c27, call std.core.list::size<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read found.errors))
   }
   bind#11 let positional__c28__c29__c30__c31__c32__c33__c34: Bool = false
   assign positional__c28__c29__c30__c31__c32__c33__c34 = true
-  bind#12 let shown__c28__c29__c30__c31__c32__c33__c34: Str = call args::shown_name("files", read positional__c28__c29__c30__c31__c32__c33__c34)
+  bind#12 let shown__c28__c29__c30__c31__c32__c33__c34: Str = call std.args::shown_name("files", read positional__c28__c29__c30__c31__c32__c33__c34)
   bind#13 let what__c28__c29__c30__c31__c32__c33__c34: Str = "a valid value"
-  call args::check_value<Str>(read errors, read found, "files", read shown__c28__c29__c30__c31__c32__c33__c34, read what__c28__c29__c30__c31__c32__c33__c34, lambda(lent _v: Str) -> Str? {
+  call std.args::check_value<Str>(read errors, read found, "files", read shown__c28__c29__c30__c31__c32__c33__c34, read what__c28__c29__c30__c31__c32__c33__c34, lambda(lent _v: Str) -> Str? {
     value none[None]
-  }, fn core.string::from_str(Str))
-  branch#14 cond#0 call core.list::NonEmpty.qualifies(read errors) {
-    return make_union[Serve | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
+  }, fn std.core.string::from_str(Str))
+  branch#14 cond#0 call std.core.list::NonEmpty.qualifies(read errors) {
+    return make_union[Serve | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call std.core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
-  return make_union[Serve | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<Serve>(construct Serve { net: call args::eval<Net>(lambda() -> Net captures [found] {
-    return call args::built<Net>(call main::from_found(Found)(read found))
-  }), port: call args::eval<Int>(lambda() -> Int captures [found] {
-    return call args::read_value<Int, Int>(read found, "port", present(branch#16 cond#0 true {
+  return make_union[Serve | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call std.core.result::Ok<Serve>(construct Serve { net: call std.args::eval<Net>(lambda() -> Net captures [found] {
+    return call std.args::built<Net>(call main::from_found(Found)(read found))
+  }), port: call std.args::eval<Int>(lambda() -> Int captures [found] {
+    return call std.args::read_value<Int, Int>(read found, "port", present(branch#16 cond#0 true {
       bind#15 let __default~1: Int = 8080
-      assert(call core.range::InRange.qualifies(read __default~1, 1, 65535), "the default for field `port` is not `InRange(1, 65535) Int`") at main:157:1
+      assert(call std.core.range::InRange.qualifies(read __default~1, 1, 65535), "the default for field `port` is not `InRange(1, 65535) Int`") at main:157:1
       value !read __default~1
     }), lambda(lent v__c41__c42__c43__c44__c45__c46__c47__c48: Int) -> Int? {
-      value branch#17 cond#0 call core.range::InRange.qualifies(read v__c41__c42__c43__c44__c45__c46__c47__c48, 1, 65535) {
+      value branch#17 cond#0 call std.core.range::InRange.qualifies(read v__c41__c42__c43__c44__c45__c46__c47__c48, 1, 65535) {
         value present(read v__c41__c42__c43__c44__c45__c46__c47__c48)
       } else {
         value none[None]
       }
-    }, fn core.string::from_str(Str))
-  }), output: call args::eval<Str>(lambda() -> Str captures [found] {
-    bind#18 let v__c52__c53__c54__c55__c56__c57: Str? = call args::value_of(read found, "output")
+    }, fn std.core.string::from_str(Str))
+  }), output: call std.args::eval<Str>(lambda() -> Str captures [found] {
+    bind#18 let v__c52__c53__c54__c55__c56__c57: Str? = call std.args::value_of(read found, "output")
     branch#19 cond#0 !(check#20 (read v__c52__c53__c54__c55__c56__c57 is none)) {
       branch#21 cond#0 check#22 (read v__c52__c53__c54__c55__c56__c57 is lit 0 [Str("json")]) {
         narrow#23[check#22] v__c52__c53__c54__c55__c56__c57~2: Str = v__c52__c53__c54__c55__c56__c57
@@ -347,15 +347,15 @@ fn main::from_found(Found)(lent found: Found) -> Serve | List<UnknownOption | Mi
       }
     }
     return "text"
-  }), tls: call args::eval<Tls?>(lambda() -> Tls? captures [found] {
+  }), tls: call std.args::eval<Tls?>(lambda() -> Tls? captures [found] {
     bind#27 let s__c65__c66__c67: Spec<Tls> = call main::arg_spec()()
-    branch#28 cond#0 call args::any_given<Tls>(read found, read s__c65__c66__c67) {
-      return present(call args::built<Tls>(call main::from_found(Found)(read found)))
+    branch#28 cond#0 call std.args::any_given<Tls>(read found, read s__c65__c66__c67) {
+      return present(call std.args::built<Tls>(call main::from_found(Found)(read found)))
     }
     return none[None]
-  }), files: call args::eval<List<Str>>(lambda() -> List<Str> captures [found] {
-    bind#29 let all__c68__c69__c70__c71__c72__c73__c74__c75: List<Str> = call args::read_all<Str>(read found, "files", fn core.string::from_str(Str))
-    branch#30 cond#0 call core.list::NonEmpty.qualifies(read all__c68__c69__c70__c71__c72__c73__c74__c75) {
+  }), files: call std.args::eval<List<Str>>(lambda() -> List<Str> captures [found] {
+    bind#29 let all__c68__c69__c70__c71__c72__c73__c74__c75: List<Str> = call std.args::read_all<Str>(read found, "files", fn std.core.string::from_str(Str))
+    branch#30 cond#0 call std.core.list::NonEmpty.qualifies(read all__c68__c69__c70__c71__c72__c73__c74__c75) {
       return !read all__c68__c69__c70__c71__c72__c73__c74__c75
     }
     value unreachable("`files` was checked as required") at main:157:1
@@ -363,258 +363,258 @@ fn main::from_found(Found)(lent found: Found) -> Serve | List<UnknownOption | Mi
 }
 
 fn main::arg_spec()() -> Spec<Net> {
-  bind#1 let opts: Mut List<OptSpec> = call core.list::Mut_List()<OptSpec>()
-  bind#2 let args: Mut List<ArgSpec> = call core.list::Mut_List()<ArgSpec>()
-  bind#3 let groups: Mut List<GroupSpec> = call core.list::Mut_List()<GroupSpec>()
-  bind#4 let commands: Mut List<CmdSpec> = call core.list::Mut_List()<CmdSpec>()
+  bind#1 let opts: Mut List<OptSpec> = call std.core.list::Mut_List()<OptSpec>()
+  bind#2 let args: Mut List<ArgSpec> = call std.core.list::Mut_List()<ArgSpec>()
+  bind#3 let groups: Mut List<GroupSpec> = call std.core.list::Mut_List()<GroupSpec>()
+  bind#4 let commands: Mut List<CmdSpec> = call std.core.list::Mut_List()<CmdSpec>()
   bind#5 let command_required: Bool = false
   bind#6 let command_fields: Int = 0
   bind#7 let required__c1__c2__c3__c4: Bool = false
   bind#8 let many__c1__c2__c3__c4: Bool = false
   bind#9 let switch__c1__c2__c3__c4: Bool = false
   bind#10 let default_text__c1__c2__c3__c4: Str? = none[None]
-  bind#11 let choices__c1__c2__c3__c4: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#11 let choices__c1__c2__c3__c4: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#12 let exclusive__c1__c2__c3__c4: Bool = false
   assign default_text__c1__c2__c3__c4 = present(concat("127.0.0.1"))
   branch#13 cond#0 read exclusive__c1__c2__c3__c4 {
-    call args::add_one(read groups, "host", read required__c1__c2__c3__c4, present("Address to bind."))
+    call std.args::add_one(read groups, "host", read required__c1__c2__c3__c4, present("Address to bind."))
   }
   bind#14 let short__c1__c2__c3__c4: Char? = none[None]
   narrow#15[after branch#13.cond#0] default_text__c1__c2__c3__c4~1: Str = default_text__c1__c2__c3__c4
   bind#16 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "host", short: !read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Address to bind."), default_text: present(!read default_text__c1__c2__c3__c4~1), choices: drop_mut(!read choices__c1__c2__c3__c4), group: none[None] }
-  branch#17 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
-    call core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
+  branch#17 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call std.core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
+    call std.core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
   }
   bind#18 let required__c11__c12__c13__c14: Bool = false
   bind#19 let many__c11__c12__c13__c14: Bool = false
   bind#20 let switch__c11__c12__c13__c14: Bool = false
   bind#21 let default_text__c11__c12__c13__c14: Str? = none[None]
-  bind#22 let choices__c11__c12__c13__c14: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#22 let choices__c11__c12__c13__c14: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#23 let exclusive__c11__c12__c13__c14: Bool = false
   branch#24 cond#0 read exclusive__c11__c12__c13__c14 {
-    call args::add_one(read groups, "workers", read required__c11__c12__c13__c14, present("Connections served at once."))
+    call std.args::add_one(read groups, "workers", read required__c11__c12__c13__c14, present("Connections served at once."))
   }
   bind#25 let short__c11__c12__c13__c14: Char? = none[None]
   bind#26 let opt__c11__c12__c13__c14: OptSpec = construct OptSpec { field: "workers", short: !read short__c11__c12__c13__c14, takes_value: !(read switch__c11__c12__c13__c14), repeats: read many__c11__c12__c13__c14, required: (read required__c11__c12__c13__c14 && !(read exclusive__c11__c12__c13__c14)), help: present("Connections served at once."), default_text: !read default_text__c11__c12__c13__c14, choices: drop_mut(!read choices__c11__c12__c13__c14), group: none[None] }
-  branch#27 cond#0 (!(read exclusive__c11__c12__c13__c14) || !(call core.list::is_empty<Str>(read opt__c11__c12__c13__c14.choices))) {
-    call core.list::add<OptSpec>(read opts, !read opt__c11__c12__c13__c14)
+  branch#27 cond#0 (!(read exclusive__c11__c12__c13__c14) || !(call std.core.list::is_empty<Str>(read opt__c11__c12__c13__c14.choices))) {
+    call std.core.list::add<OptSpec>(read opts, !read opt__c11__c12__c13__c14)
   }
-  bind#28 let name: Str = call args::command_name("Net")
+  bind#28 let name: Str = call std.args::command_name("Net")
   return construct Spec<Net> { name: !read name, about: present("Network options."), opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> Net | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
-  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
+  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call std.core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
   foreach#2 e: proj (UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested) in read found.errors {
-    call core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
+    call std.core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call std.core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
   }
   bind#3 let positional__c1__c2__c3__c4__c5__c6__c7: Bool = false
-  bind#4 let shown__c1__c2__c3__c4__c5__c6__c7: Str = call args::shown_name("host", read positional__c1__c2__c3__c4__c5__c6__c7)
+  bind#4 let shown__c1__c2__c3__c4__c5__c6__c7: Str = call std.args::shown_name("host", read positional__c1__c2__c3__c4__c5__c6__c7)
   bind#5 let what__c1__c2__c3__c4__c5__c6__c7: Str = "a valid value"
-  call args::check_value<Str>(read errors, read found, "host", read shown__c1__c2__c3__c4__c5__c6__c7, read what__c1__c2__c3__c4__c5__c6__c7, lambda(lent v: Str) -> Str? {
+  call std.args::check_value<Str>(read errors, read found, "host", read shown__c1__c2__c3__c4__c5__c6__c7, read what__c1__c2__c3__c4__c5__c6__c7, lambda(lent v: Str) -> Str? {
     value none[Str?]
-  }, fn core.string::from_str(Str))
+  }, fn std.core.string::from_str(Str))
   bind#6 let positional__c11__c12__c13__c14__c15__c16__c17: Bool = false
-  bind#7 let shown__c11__c12__c13__c14__c15__c16__c17: Str = call args::shown_name("workers", read positional__c11__c12__c13__c14__c15__c16__c17)
+  bind#7 let shown__c11__c12__c13__c14__c15__c16__c17: Str = call std.args::shown_name("workers", read positional__c11__c12__c13__c14__c15__c16__c17)
   bind#8 let what__c11__c12__c13__c14__c15__c16__c17: Str = "a valid value"
   assign what__c11__c12__c13__c14__c15__c16__c17 = "an integer"
-  call args::check_value<Int>(read errors, read found, "workers", read shown__c11__c12__c13__c14__c15__c16__c17, read what__c11__c12__c13__c14__c15__c16__c17, lambda(lent _v: Int) -> Str? {
+  call std.args::check_value<Int>(read errors, read found, "workers", read shown__c11__c12__c13__c14__c15__c16__c17, read what__c11__c12__c13__c14__c15__c16__c17, lambda(lent _v: Int) -> Str? {
     value none[None]
-  }, fn core.string::from_str(Str))
-  branch#9 cond#0 call core.list::NonEmpty.qualifies(read errors) {
-    return make_union[Net | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
+  }, fn std.core.string::from_str(Str))
+  branch#9 cond#0 call std.core.list::NonEmpty.qualifies(read errors) {
+    return make_union[Net | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call std.core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
-  return make_union[Net | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<Net>(construct Net { host: call args::eval<Str>(lambda() -> Str captures [found] {
-    return call args::read_value<Str, Str>(read found, "host", present("127.0.0.1"), lambda(lent v__c21__c22__c23__c24__c25__c26__c27__c28: Str) -> Str? {
+  return make_union[Net | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call std.core.result::Ok<Net>(construct Net { host: call std.args::eval<Str>(lambda() -> Str captures [found] {
+    return call std.args::read_value<Str, Str>(read found, "host", present("127.0.0.1"), lambda(lent v__c21__c22__c23__c24__c25__c26__c27__c28: Str) -> Str? {
       value branch#10 cond#0 true {
         value present(read v__c21__c22__c23__c24__c25__c26__c27__c28)
       } else {
         value none[None]
       }
-    }, fn core.string::from_str(Str))
-  }), workers: call args::eval<Int?>(lambda() -> Int? captures [found] {
-    return call args::read_optional<Int>(read found, "workers", fn core.string::from_str(Str))
+    }, fn std.core.string::from_str(Str))
+  }), workers: call std.args::eval<Int?>(lambda() -> Int? captures [found] {
+    return call std.args::read_optional<Int>(read found, "workers", fn std.core.string::from_str(Str))
   }) }))
 }
 
 fn main::arg_spec()() -> Spec<Tls> {
-  bind#1 let opts: Mut List<OptSpec> = call core.list::Mut_List()<OptSpec>()
-  bind#2 let args: Mut List<ArgSpec> = call core.list::Mut_List()<ArgSpec>()
-  bind#3 let groups: Mut List<GroupSpec> = call core.list::Mut_List()<GroupSpec>()
-  bind#4 let commands: Mut List<CmdSpec> = call core.list::Mut_List()<CmdSpec>()
+  bind#1 let opts: Mut List<OptSpec> = call std.core.list::Mut_List()<OptSpec>()
+  bind#2 let args: Mut List<ArgSpec> = call std.core.list::Mut_List()<ArgSpec>()
+  bind#3 let groups: Mut List<GroupSpec> = call std.core.list::Mut_List()<GroupSpec>()
+  bind#4 let commands: Mut List<CmdSpec> = call std.core.list::Mut_List()<CmdSpec>()
   bind#5 let command_required: Bool = false
   bind#6 let command_fields: Int = 0
   bind#7 let required__c1__c2__c3__c4: Bool = false
   bind#8 let many__c1__c2__c3__c4: Bool = false
   bind#9 let switch__c1__c2__c3__c4: Bool = false
   bind#10 let default_text__c1__c2__c3__c4: Str? = none[None]
-  bind#11 let choices__c1__c2__c3__c4: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#11 let choices__c1__c2__c3__c4: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#12 let exclusive__c1__c2__c3__c4: Bool = false
   assign required__c1__c2__c3__c4 = true
   branch#13 cond#0 read exclusive__c1__c2__c3__c4 {
-    call args::add_one(read groups, "cert", read required__c1__c2__c3__c4, present("Certificate file."))
+    call std.args::add_one(read groups, "cert", read required__c1__c2__c3__c4, present("Certificate file."))
   }
   bind#14 let short__c1__c2__c3__c4: Char? = none[None]
   bind#15 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "cert", short: !read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Certificate file."), default_text: !read default_text__c1__c2__c3__c4, choices: drop_mut(!read choices__c1__c2__c3__c4), group: none[None] }
-  branch#16 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
-    call core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
+  branch#16 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call std.core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
+    call std.core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
   }
   bind#17 let required__c11__c12__c13__c14: Bool = false
   bind#18 let many__c11__c12__c13__c14: Bool = false
   bind#19 let switch__c11__c12__c13__c14: Bool = false
   bind#20 let default_text__c11__c12__c13__c14: Str? = none[None]
-  bind#21 let choices__c11__c12__c13__c14: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#21 let choices__c11__c12__c13__c14: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#22 let exclusive__c11__c12__c13__c14: Bool = false
   assign required__c11__c12__c13__c14 = true
   branch#23 cond#0 read exclusive__c11__c12__c13__c14 {
-    call args::add_one(read groups, "key", read required__c11__c12__c13__c14, present("Private key file."))
+    call std.args::add_one(read groups, "key", read required__c11__c12__c13__c14, present("Private key file."))
   }
   bind#24 let short__c11__c12__c13__c14: Char? = none[None]
   bind#25 let opt__c11__c12__c13__c14: OptSpec = construct OptSpec { field: "key", short: !read short__c11__c12__c13__c14, takes_value: !(read switch__c11__c12__c13__c14), repeats: read many__c11__c12__c13__c14, required: (read required__c11__c12__c13__c14 && !(read exclusive__c11__c12__c13__c14)), help: present("Private key file."), default_text: !read default_text__c11__c12__c13__c14, choices: drop_mut(!read choices__c11__c12__c13__c14), group: none[None] }
-  branch#26 cond#0 (!(read exclusive__c11__c12__c13__c14) || !(call core.list::is_empty<Str>(read opt__c11__c12__c13__c14.choices))) {
-    call core.list::add<OptSpec>(read opts, !read opt__c11__c12__c13__c14)
+  branch#26 cond#0 (!(read exclusive__c11__c12__c13__c14) || !(call std.core.list::is_empty<Str>(read opt__c11__c12__c13__c14.choices))) {
+    call std.core.list::add<OptSpec>(read opts, !read opt__c11__c12__c13__c14)
   }
-  bind#27 let name: Str = call args::command_name("Tls")
+  bind#27 let name: Str = call std.args::command_name("Tls")
   return construct Spec<Tls> { name: !read name, about: none[None], opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> Tls | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
-  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
+  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call std.core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
   foreach#2 e: proj (UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested) in read found.errors {
-    call core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
+    call std.core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call std.core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
   }
   bind#3 let positional__c1__c2__c3__c4__c5__c6__c7: Bool = false
-  bind#4 let shown__c1__c2__c3__c4__c5__c6__c7: Str = call args::shown_name("cert", read positional__c1__c2__c3__c4__c5__c6__c7)
+  bind#4 let shown__c1__c2__c3__c4__c5__c6__c7: Str = call std.args::shown_name("cert", read positional__c1__c2__c3__c4__c5__c6__c7)
   bind#5 let what__c1__c2__c3__c4__c5__c6__c7: Str = "a valid value"
-  call args::check_value<Str>(read errors, read found, "cert", read shown__c1__c2__c3__c4__c5__c6__c7, read what__c1__c2__c3__c4__c5__c6__c7, lambda(lent v: Str) -> Str? {
+  call std.args::check_value<Str>(read errors, read found, "cert", read shown__c1__c2__c3__c4__c5__c6__c7, read what__c1__c2__c3__c4__c5__c6__c7, lambda(lent v: Str) -> Str? {
     value none[Str?]
-  }, fn core.string::from_str(Str))
+  }, fn std.core.string::from_str(Str))
   bind#6 let positional__c11__c12__c13__c14__c15__c16__c17: Bool = false
-  bind#7 let shown__c11__c12__c13__c14__c15__c16__c17: Str = call args::shown_name("key", read positional__c11__c12__c13__c14__c15__c16__c17)
+  bind#7 let shown__c11__c12__c13__c14__c15__c16__c17: Str = call std.args::shown_name("key", read positional__c11__c12__c13__c14__c15__c16__c17)
   bind#8 let what__c11__c12__c13__c14__c15__c16__c17: Str = "a valid value"
-  call args::check_value<Str>(read errors, read found, "key", read shown__c11__c12__c13__c14__c15__c16__c17, read what__c11__c12__c13__c14__c15__c16__c17, lambda(lent v: Str) -> Str? {
+  call std.args::check_value<Str>(read errors, read found, "key", read shown__c11__c12__c13__c14__c15__c16__c17, read what__c11__c12__c13__c14__c15__c16__c17, lambda(lent v: Str) -> Str? {
     value none[Str?]
-  }, fn core.string::from_str(Str))
-  branch#9 cond#0 call core.list::NonEmpty.qualifies(read errors) {
-    return make_union[Tls | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
+  }, fn std.core.string::from_str(Str))
+  branch#9 cond#0 call std.core.list::NonEmpty.qualifies(read errors) {
+    return make_union[Tls | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call std.core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
-  return make_union[Tls | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<Tls>(construct Tls { cert: call args::eval<Str>(lambda() -> Str captures [found] {
-    return call args::read_value<Str, Str>(read found, "cert", none[None], lambda(lent v__c21__c22__c23__c24__c25__c26__c27__c28: Str) -> Str? {
+  return make_union[Tls | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call std.core.result::Ok<Tls>(construct Tls { cert: call std.args::eval<Str>(lambda() -> Str captures [found] {
+    return call std.args::read_value<Str, Str>(read found, "cert", none[None], lambda(lent v__c21__c22__c23__c24__c25__c26__c27__c28: Str) -> Str? {
       value branch#10 cond#0 true {
         value present(read v__c21__c22__c23__c24__c25__c26__c27__c28)
       } else {
         value none[None]
       }
-    }, fn core.string::from_str(Str))
-  }), key: call args::eval<Str>(lambda() -> Str captures [found] {
-    return call args::read_value<Str, Str>(read found, "key", none[None], lambda(lent v__c31__c32__c33__c34__c35__c36__c37__c38: Str) -> Str? {
+    }, fn std.core.string::from_str(Str))
+  }), key: call std.args::eval<Str>(lambda() -> Str captures [found] {
+    return call std.args::read_value<Str, Str>(read found, "key", none[None], lambda(lent v__c31__c32__c33__c34__c35__c36__c37__c38: Str) -> Str? {
       value branch#11 cond#0 true {
         value present(read v__c31__c32__c33__c34__c35__c36__c37__c38)
       } else {
         value none[None]
       }
-    }, fn core.string::from_str(Str))
+    }, fn std.core.string::from_str(Str))
   }) }))
 }
 
 fn main::arg_spec()() -> Spec<Fetch> {
-  bind#1 let opts: Mut List<OptSpec> = call core.list::Mut_List()<OptSpec>()
-  bind#2 let args: Mut List<ArgSpec> = call core.list::Mut_List()<ArgSpec>()
-  bind#3 let groups: Mut List<GroupSpec> = call core.list::Mut_List()<GroupSpec>()
-  bind#4 let commands: Mut List<CmdSpec> = call core.list::Mut_List()<CmdSpec>()
+  bind#1 let opts: Mut List<OptSpec> = call std.core.list::Mut_List()<OptSpec>()
+  bind#2 let args: Mut List<ArgSpec> = call std.core.list::Mut_List()<ArgSpec>()
+  bind#3 let groups: Mut List<GroupSpec> = call std.core.list::Mut_List()<GroupSpec>()
+  bind#4 let commands: Mut List<CmdSpec> = call std.core.list::Mut_List()<CmdSpec>()
   bind#5 let command_required: Bool = false
   bind#6 let command_fields: Int = 0
   bind#7 let required__c1__c2__c3__c4: Bool = false
   bind#8 let many__c1__c2__c3__c4: Bool = false
   bind#9 let switch__c1__c2__c3__c4: Bool = false
   bind#10 let default_text__c1__c2__c3__c4: Str? = none[None]
-  bind#11 let choices__c1__c2__c3__c4: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#11 let choices__c1__c2__c3__c4: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#12 let exclusive__c1__c2__c3__c4: Bool = false
   assign required__c1__c2__c3__c4 = true
   bind#13 let child__c1__c2__c3__c4__c5__c6__c9__c10__c11__c12: Spec<FromUrl> = call main::arg_spec()()
-  call args::merge_group<FromUrl>(read opts, read groups, read child__c1__c2__c3__c4__c5__c6__c9__c10__c11__c12, "source/FromUrl", "arm", none[None])
+  call std.args::merge_group<FromUrl>(read opts, read groups, read child__c1__c2__c3__c4__c5__c6__c9__c10__c11__c12, "source/FromUrl", "arm", none[None])
   assign exclusive__c1__c2__c3__c4 = true
   bind#14 let child__c1__c2__c3__c4__c5__c6__c9__c10__c13__c14: Spec<FromFile> = call main::arg_spec()()
-  call args::merge_group<FromFile>(read opts, read groups, read child__c1__c2__c3__c4__c5__c6__c9__c10__c13__c14, "source/FromFile", "arm", none[None])
+  call std.args::merge_group<FromFile>(read opts, read groups, read child__c1__c2__c3__c4__c5__c6__c9__c10__c13__c14, "source/FromFile", "arm", none[None])
   assign exclusive__c1__c2__c3__c4 = true
   bind#15 let child__c1__c2__c3__c4__c5__c6__c9__c10__c15__c16: Spec<FromStdin> = call main::arg_spec()()
-  call args::merge_group<FromStdin>(read opts, read groups, read child__c1__c2__c3__c4__c5__c6__c9__c10__c15__c16, "source/FromStdin", "arm", none[None])
+  call std.args::merge_group<FromStdin>(read opts, read groups, read child__c1__c2__c3__c4__c5__c6__c9__c10__c15__c16, "source/FromStdin", "arm", none[None])
   assign exclusive__c1__c2__c3__c4 = true
   branch#16 cond#0 read exclusive__c1__c2__c3__c4 {
-    call args::add_one(read groups, "source", read required__c1__c2__c3__c4, present("Where to read."))
+    call std.args::add_one(read groups, "source", read required__c1__c2__c3__c4, present("Where to read."))
   }
   bind#17 let short__c1__c2__c3__c4: Char? = none[None]
   bind#18 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "source", short: !read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Where to read."), default_text: !read default_text__c1__c2__c3__c4, choices: drop_mut(!read choices__c1__c2__c3__c4), group: none[None] }
-  branch#19 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
-    call core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
+  branch#19 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call std.core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
+    call std.core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
   }
   bind#20 let required__c18__c19__c20__c21: Bool = false
   bind#21 let many__c18__c19__c20__c21: Bool = false
   bind#22 let switch__c18__c19__c20__c21: Bool = false
   bind#23 let default_text__c18__c19__c20__c21: Str? = none[None]
-  bind#24 let choices__c18__c19__c20__c21: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#24 let choices__c18__c19__c20__c21: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#25 let exclusive__c18__c19__c20__c21: Bool = false
   assign many__c18__c19__c20__c21 = true
   branch#26 cond#0 read exclusive__c18__c19__c20__c21 {
-    call args::add_one(read groups, "header", read required__c18__c19__c20__c21, present("A header line to send; repeatable."))
+    call std.args::add_one(read groups, "header", read required__c18__c19__c20__c21, present("A header line to send; repeatable."))
   }
   bind#27 let short__c18__c19__c20__c21: Char? = none[None]
   bind#28 let opt__c18__c19__c20__c21: OptSpec = construct OptSpec { field: "header", short: !read short__c18__c19__c20__c21, takes_value: !(read switch__c18__c19__c20__c21), repeats: read many__c18__c19__c20__c21, required: (read required__c18__c19__c20__c21 && !(read exclusive__c18__c19__c20__c21)), help: present("A header line to send; repeatable."), default_text: !read default_text__c18__c19__c20__c21, choices: drop_mut(!read choices__c18__c19__c20__c21), group: none[None] }
-  branch#29 cond#0 (!(read exclusive__c18__c19__c20__c21) || !(call core.list::is_empty<Str>(read opt__c18__c19__c20__c21.choices))) {
-    call core.list::add<OptSpec>(read opts, !read opt__c18__c19__c20__c21)
+  branch#29 cond#0 (!(read exclusive__c18__c19__c20__c21) || !(call std.core.list::is_empty<Str>(read opt__c18__c19__c20__c21.choices))) {
+    call std.core.list::add<OptSpec>(read opts, !read opt__c18__c19__c20__c21)
   }
-  bind#30 let name: Str = call args::command_name("Fetch")
+  bind#30 let name: Str = call std.args::command_name("Fetch")
   return construct Spec<Fetch> { name: !read name, about: present("Fetch a document."), opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> Fetch | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
-  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
+  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call std.core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
   foreach#2 e: proj (UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested) in read found.errors {
-    call core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
+    call std.core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call std.core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
   }
   bind#3 let s__c1__c2__c3__c4__c5__c6__c7__c8: Spec<FromUrl> = call main::arg_spec()()
-  branch#4 cond#0 call args::any_given<FromUrl>(read found, read s__c1__c2__c3__c4__c5__c6__c7__c8) {
+  branch#4 cond#0 call std.args::any_given<FromUrl>(read found, read s__c1__c2__c3__c4__c5__c6__c7__c8) {
     bind#5 let r__c1__c2__c3__c4__c5__c6__c7__c8: FromUrl | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call main::from_found(Found)(read found)
-    call args::group_errors<FromUrl>(read errors, !read r__c1__c2__c3__c4__c5__c6__c7__c8, call core.list::size<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read found.errors))
+    call std.args::group_errors<FromUrl>(read errors, !read r__c1__c2__c3__c4__c5__c6__c7__c8, call std.core.list::size<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read found.errors))
   }
   bind#6 let s__c1__c2__c3__c4__c5__c6__c9__c10: Spec<FromFile> = call main::arg_spec()()
-  branch#7 cond#0 call args::any_given<FromFile>(read found, read s__c1__c2__c3__c4__c5__c6__c9__c10) {
+  branch#7 cond#0 call std.args::any_given<FromFile>(read found, read s__c1__c2__c3__c4__c5__c6__c9__c10) {
     bind#8 let r__c1__c2__c3__c4__c5__c6__c9__c10: FromFile | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call main::from_found(Found)(read found)
-    call args::group_errors<FromFile>(read errors, !read r__c1__c2__c3__c4__c5__c6__c9__c10, call core.list::size<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read found.errors))
+    call std.args::group_errors<FromFile>(read errors, !read r__c1__c2__c3__c4__c5__c6__c9__c10, call std.core.list::size<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read found.errors))
   }
   bind#9 let s__c1__c2__c3__c4__c5__c6__c11__c12: Spec<FromStdin> = call main::arg_spec()()
-  branch#10 cond#0 call args::any_given<FromStdin>(read found, read s__c1__c2__c3__c4__c5__c6__c11__c12) {
+  branch#10 cond#0 call std.args::any_given<FromStdin>(read found, read s__c1__c2__c3__c4__c5__c6__c11__c12) {
     bind#11 let r__c1__c2__c3__c4__c5__c6__c11__c12: FromStdin | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call main::from_found(Found)(read found)
-    call args::group_errors<FromStdin>(read errors, !read r__c1__c2__c3__c4__c5__c6__c11__c12, call core.list::size<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read found.errors))
+    call std.args::group_errors<FromStdin>(read errors, !read r__c1__c2__c3__c4__c5__c6__c11__c12, call std.core.list::size<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read found.errors))
   }
   bind#12 let positional__c13__c14__c15__c16__c17__c18__c19: Bool = false
-  bind#13 let shown__c13__c14__c15__c16__c17__c18__c19: Str = call args::shown_name("header", read positional__c13__c14__c15__c16__c17__c18__c19)
+  bind#13 let shown__c13__c14__c15__c16__c17__c18__c19: Str = call std.args::shown_name("header", read positional__c13__c14__c15__c16__c17__c18__c19)
   bind#14 let what__c13__c14__c15__c16__c17__c18__c19: Str = "a valid value"
-  call args::check_value<Str>(read errors, read found, "header", read shown__c13__c14__c15__c16__c17__c18__c19, read what__c13__c14__c15__c16__c17__c18__c19, lambda(lent _v: Str) -> Str? {
+  call std.args::check_value<Str>(read errors, read found, "header", read shown__c13__c14__c15__c16__c17__c18__c19, read what__c13__c14__c15__c16__c17__c18__c19, lambda(lent _v: Str) -> Str? {
     value none[None]
-  }, fn core.string::from_str(Str))
-  branch#15 cond#0 call core.list::NonEmpty.qualifies(read errors) {
-    return make_union[Fetch | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
+  }, fn std.core.string::from_str(Str))
+  branch#15 cond#0 call std.core.list::NonEmpty.qualifies(read errors) {
+    return make_union[Fetch | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call std.core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
-  return make_union[Fetch | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<Fetch>(construct Fetch { source: call args::eval<FromUrl | FromFile | FromStdin>(lambda() -> FromUrl | FromFile | FromStdin captures [found] {
+  return make_union[Fetch | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call std.core.result::Ok<Fetch>(construct Fetch { source: call std.args::eval<FromUrl | FromFile | FromStdin>(lambda() -> FromUrl | FromFile | FromStdin captures [found] {
     bind#16 let s__c21__c22__c23__c24__c25__c26__c27__c28: Spec<FromUrl> = call main::arg_spec()()
-    branch#17 cond#0 call args::any_given<FromUrl>(read found, read s__c21__c22__c23__c24__c25__c26__c27__c28) {
-      return make_union[FromUrl | FromFile | FromStdin]#0(call args::built<FromUrl>(call main::from_found(Found)(read found)))
+    branch#17 cond#0 call std.args::any_given<FromUrl>(read found, read s__c21__c22__c23__c24__c25__c26__c27__c28) {
+      return make_union[FromUrl | FromFile | FromStdin]#0(call std.args::built<FromUrl>(call main::from_found(Found)(read found)))
     }
     bind#18 let s__c21__c22__c23__c24__c25__c26__c29__c30: Spec<FromFile> = call main::arg_spec()()
-    branch#19 cond#0 call args::any_given<FromFile>(read found, read s__c21__c22__c23__c24__c25__c26__c29__c30) {
-      return make_union[FromUrl | FromFile | FromStdin]#1(call args::built<FromFile>(call main::from_found(Found)(read found)))
+    branch#19 cond#0 call std.args::any_given<FromFile>(read found, read s__c21__c22__c23__c24__c25__c26__c29__c30) {
+      return make_union[FromUrl | FromFile | FromStdin]#1(call std.args::built<FromFile>(call main::from_found(Found)(read found)))
     }
     bind#20 let s__c21__c22__c23__c24__c25__c26__c31__c32: Spec<FromStdin> = call main::arg_spec()()
-    branch#21 cond#0 call args::any_given<FromStdin>(read found, read s__c21__c22__c23__c24__c25__c26__c31__c32) {
-      return make_union[FromUrl | FromFile | FromStdin]#2(call args::built<FromStdin>(call main::from_found(Found)(read found)))
+    branch#21 cond#0 call std.args::any_given<FromStdin>(read found, read s__c21__c22__c23__c24__c25__c26__c31__c32) {
+      return make_union[FromUrl | FromFile | FromStdin]#2(call std.args::built<FromStdin>(call main::from_found(Found)(read found)))
     }
-    bind#22 let v__c21__c22__c23__c24__c25__c26: Str? = call args::value_of(read found, "source")
+    bind#22 let v__c21__c22__c23__c24__c25__c26: Str? = call std.args::value_of(read found, "source")
     branch#23 cond#0 !(check#24 (read v__c21__c22__c23__c24__c25__c26 is none)) {
     }
     value unreachable("`source` was checked as required") at main:157:1
-  }), header: call args::eval<List<Str>>(lambda() -> List<Str> captures [found] {
-    bind#25 let all__c41__c42__c43__c44__c45__c46__c47__c48: List<Str> = call args::read_all<Str>(read found, "header", fn core.string::from_str(Str))
+  }), header: call std.args::eval<List<Str>>(lambda() -> List<Str> captures [found] {
+    bind#25 let all__c41__c42__c43__c44__c45__c46__c47__c48: List<Str> = call std.args::read_all<Str>(read found, "header", fn std.core.string::from_str(Str))
     branch#26 cond#0 true {
       return !read all__c41__c42__c43__c44__c45__c46__c47__c48
     }
@@ -623,156 +623,156 @@ fn main::from_found(Found)(lent found: Found) -> Fetch | List<UnknownOption | Mi
 }
 
 fn main::arg_spec()() -> Spec<FromUrl> {
-  bind#1 let opts: Mut List<OptSpec> = call core.list::Mut_List()<OptSpec>()
-  bind#2 let args: Mut List<ArgSpec> = call core.list::Mut_List()<ArgSpec>()
-  bind#3 let groups: Mut List<GroupSpec> = call core.list::Mut_List()<GroupSpec>()
-  bind#4 let commands: Mut List<CmdSpec> = call core.list::Mut_List()<CmdSpec>()
+  bind#1 let opts: Mut List<OptSpec> = call std.core.list::Mut_List()<OptSpec>()
+  bind#2 let args: Mut List<ArgSpec> = call std.core.list::Mut_List()<ArgSpec>()
+  bind#3 let groups: Mut List<GroupSpec> = call std.core.list::Mut_List()<GroupSpec>()
+  bind#4 let commands: Mut List<CmdSpec> = call std.core.list::Mut_List()<CmdSpec>()
   bind#5 let command_required: Bool = false
   bind#6 let command_fields: Int = 0
   bind#7 let required__c1__c2__c3__c4: Bool = false
   bind#8 let many__c1__c2__c3__c4: Bool = false
   bind#9 let switch__c1__c2__c3__c4: Bool = false
   bind#10 let default_text__c1__c2__c3__c4: Str? = none[None]
-  bind#11 let choices__c1__c2__c3__c4: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#11 let choices__c1__c2__c3__c4: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#12 let exclusive__c1__c2__c3__c4: Bool = false
   assign required__c1__c2__c3__c4 = true
   branch#13 cond#0 read exclusive__c1__c2__c3__c4 {
-    call args::add_one(read groups, "url", read required__c1__c2__c3__c4, present("Where to fetch from."))
+    call std.args::add_one(read groups, "url", read required__c1__c2__c3__c4, present("Where to fetch from."))
   }
   bind#14 let short__c1__c2__c3__c4: Char? = none[None]
   bind#15 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "url", short: !read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("Where to fetch from."), default_text: !read default_text__c1__c2__c3__c4, choices: drop_mut(!read choices__c1__c2__c3__c4), group: none[None] }
-  branch#16 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
-    call core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
+  branch#16 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call std.core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
+    call std.core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
   }
   bind#17 let required__c11__c12__c13__c14: Bool = false
   bind#18 let many__c11__c12__c13__c14: Bool = false
   bind#19 let switch__c11__c12__c13__c14: Bool = false
   bind#20 let default_text__c11__c12__c13__c14: Str? = none[None]
-  bind#21 let choices__c11__c12__c13__c14: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#21 let choices__c11__c12__c13__c14: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#22 let exclusive__c11__c12__c13__c14: Bool = false
-  assign default_text__c11__c12__c13__c14 = present(concat(call core.basic::to_str(Int)(30)))
+  assign default_text__c11__c12__c13__c14 = present(concat(call std.core.basic::to_str(Int)(30)))
   branch#23 cond#0 read exclusive__c11__c12__c13__c14 {
-    call args::add_one(read groups, "timeout", read required__c11__c12__c13__c14, present("Seconds to wait."))
+    call std.args::add_one(read groups, "timeout", read required__c11__c12__c13__c14, present("Seconds to wait."))
   }
   bind#24 let short__c11__c12__c13__c14: Char? = none[None]
   narrow#25[after branch#23.cond#0] default_text__c11__c12__c13__c14~1: Str = default_text__c11__c12__c13__c14
   bind#26 let opt__c11__c12__c13__c14: OptSpec = construct OptSpec { field: "timeout", short: !read short__c11__c12__c13__c14, takes_value: !(read switch__c11__c12__c13__c14), repeats: read many__c11__c12__c13__c14, required: (read required__c11__c12__c13__c14 && !(read exclusive__c11__c12__c13__c14)), help: present("Seconds to wait."), default_text: present(!read default_text__c11__c12__c13__c14~1), choices: drop_mut(!read choices__c11__c12__c13__c14), group: none[None] }
-  branch#27 cond#0 (!(read exclusive__c11__c12__c13__c14) || !(call core.list::is_empty<Str>(read opt__c11__c12__c13__c14.choices))) {
-    call core.list::add<OptSpec>(read opts, !read opt__c11__c12__c13__c14)
+  branch#27 cond#0 (!(read exclusive__c11__c12__c13__c14) || !(call std.core.list::is_empty<Str>(read opt__c11__c12__c13__c14.choices))) {
+    call std.core.list::add<OptSpec>(read opts, !read opt__c11__c12__c13__c14)
   }
-  bind#28 let name: Str = call args::command_name("FromUrl")
+  bind#28 let name: Str = call std.args::command_name("FromUrl")
   return construct Spec<FromUrl> { name: !read name, about: none[None], opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> FromUrl | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
-  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
+  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call std.core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
   foreach#2 e: proj (UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested) in read found.errors {
-    call core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
+    call std.core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call std.core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
   }
   bind#3 let positional__c1__c2__c3__c4__c5__c6__c7: Bool = false
-  bind#4 let shown__c1__c2__c3__c4__c5__c6__c7: Str = call args::shown_name("url", read positional__c1__c2__c3__c4__c5__c6__c7)
+  bind#4 let shown__c1__c2__c3__c4__c5__c6__c7: Str = call std.args::shown_name("url", read positional__c1__c2__c3__c4__c5__c6__c7)
   bind#5 let what__c1__c2__c3__c4__c5__c6__c7: Str = "a valid value"
-  call args::check_value<Str>(read errors, read found, "url", read shown__c1__c2__c3__c4__c5__c6__c7, read what__c1__c2__c3__c4__c5__c6__c7, lambda(lent v: Str) -> Str? {
+  call std.args::check_value<Str>(read errors, read found, "url", read shown__c1__c2__c3__c4__c5__c6__c7, read what__c1__c2__c3__c4__c5__c6__c7, lambda(lent v: Str) -> Str? {
     value none[Str?]
-  }, fn core.string::from_str(Str))
+  }, fn std.core.string::from_str(Str))
   bind#6 let positional__c11__c12__c13__c14__c15__c16__c17: Bool = false
-  bind#7 let shown__c11__c12__c13__c14__c15__c16__c17: Str = call args::shown_name("timeout", read positional__c11__c12__c13__c14__c15__c16__c17)
+  bind#7 let shown__c11__c12__c13__c14__c15__c16__c17: Str = call std.args::shown_name("timeout", read positional__c11__c12__c13__c14__c15__c16__c17)
   bind#8 let what__c11__c12__c13__c14__c15__c16__c17: Str = "a valid value"
   assign what__c11__c12__c13__c14__c15__c16__c17 = "an integer"
-  call args::check_value<Int>(read errors, read found, "timeout", read shown__c11__c12__c13__c14__c15__c16__c17, read what__c11__c12__c13__c14__c15__c16__c17, lambda(lent v: Int) -> Str? {
+  call std.args::check_value<Int>(read errors, read found, "timeout", read shown__c11__c12__c13__c14__c15__c16__c17, read what__c11__c12__c13__c14__c15__c16__c17, lambda(lent v: Int) -> Str? {
     value none[Str?]
-  }, fn core.string::from_str(Str))
-  branch#9 cond#0 call core.list::NonEmpty.qualifies(read errors) {
-    return make_union[FromUrl | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
+  }, fn std.core.string::from_str(Str))
+  branch#9 cond#0 call std.core.list::NonEmpty.qualifies(read errors) {
+    return make_union[FromUrl | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call std.core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
-  return make_union[FromUrl | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<FromUrl>(construct FromUrl { url: call args::eval<Str>(lambda() -> Str captures [found] {
-    return call args::read_value<Str, Str>(read found, "url", none[None], lambda(lent v__c23__c24__c25__c26__c27__c28__c29__c30: Str) -> Str? {
+  return make_union[FromUrl | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call std.core.result::Ok<FromUrl>(construct FromUrl { url: call std.args::eval<Str>(lambda() -> Str captures [found] {
+    return call std.args::read_value<Str, Str>(read found, "url", none[None], lambda(lent v__c23__c24__c25__c26__c27__c28__c29__c30: Str) -> Str? {
       value branch#10 cond#0 true {
         value present(read v__c23__c24__c25__c26__c27__c28__c29__c30)
       } else {
         value none[None]
       }
-    }, fn core.string::from_str(Str))
-  }), timeout: call args::eval<Int>(lambda() -> Int captures [found] {
-    return call args::read_value<Int, Int>(read found, "timeout", present(30), lambda(lent v__c33__c34__c35__c36__c37__c38__c39__c40: Int) -> Int? {
+    }, fn std.core.string::from_str(Str))
+  }), timeout: call std.args::eval<Int>(lambda() -> Int captures [found] {
+    return call std.args::read_value<Int, Int>(read found, "timeout", present(30), lambda(lent v__c33__c34__c35__c36__c37__c38__c39__c40: Int) -> Int? {
       value branch#11 cond#0 true {
         value present(read v__c33__c34__c35__c36__c37__c38__c39__c40)
       } else {
         value none[None]
       }
-    }, fn core.string::from_str(Str))
+    }, fn std.core.string::from_str(Str))
   }) }))
 }
 
 fn main::arg_spec()() -> Spec<FromFile> {
-  bind#1 let opts: Mut List<OptSpec> = call core.list::Mut_List()<OptSpec>()
-  bind#2 let args: Mut List<ArgSpec> = call core.list::Mut_List()<ArgSpec>()
-  bind#3 let groups: Mut List<GroupSpec> = call core.list::Mut_List()<GroupSpec>()
-  bind#4 let commands: Mut List<CmdSpec> = call core.list::Mut_List()<CmdSpec>()
+  bind#1 let opts: Mut List<OptSpec> = call std.core.list::Mut_List()<OptSpec>()
+  bind#2 let args: Mut List<ArgSpec> = call std.core.list::Mut_List()<ArgSpec>()
+  bind#3 let groups: Mut List<GroupSpec> = call std.core.list::Mut_List()<GroupSpec>()
+  bind#4 let commands: Mut List<CmdSpec> = call std.core.list::Mut_List()<CmdSpec>()
   bind#5 let command_required: Bool = false
   bind#6 let command_fields: Int = 0
   bind#7 let required__c1__c2__c3__c4: Bool = false
   bind#8 let many__c1__c2__c3__c4: Bool = false
   bind#9 let switch__c1__c2__c3__c4: Bool = false
   bind#10 let default_text__c1__c2__c3__c4: Str? = none[None]
-  bind#11 let choices__c1__c2__c3__c4: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#11 let choices__c1__c2__c3__c4: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#12 let exclusive__c1__c2__c3__c4: Bool = false
   assign required__c1__c2__c3__c4 = true
   branch#13 cond#0 read exclusive__c1__c2__c3__c4 {
-    call args::add_one(read groups, "file", read required__c1__c2__c3__c4, present("A file to read instead."))
+    call std.args::add_one(read groups, "file", read required__c1__c2__c3__c4, present("A file to read instead."))
   }
   bind#14 let short__c1__c2__c3__c4: Char? = none[None]
   bind#15 let opt__c1__c2__c3__c4: OptSpec = construct OptSpec { field: "file", short: !read short__c1__c2__c3__c4, takes_value: !(read switch__c1__c2__c3__c4), repeats: read many__c1__c2__c3__c4, required: (read required__c1__c2__c3__c4 && !(read exclusive__c1__c2__c3__c4)), help: present("A file to read instead."), default_text: !read default_text__c1__c2__c3__c4, choices: drop_mut(!read choices__c1__c2__c3__c4), group: none[None] }
-  branch#16 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
-    call core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
+  branch#16 cond#0 (!(read exclusive__c1__c2__c3__c4) || !(call std.core.list::is_empty<Str>(read opt__c1__c2__c3__c4.choices))) {
+    call std.core.list::add<OptSpec>(read opts, !read opt__c1__c2__c3__c4)
   }
-  bind#17 let name: Str = call args::command_name("FromFile")
+  bind#17 let name: Str = call std.args::command_name("FromFile")
   return construct Spec<FromFile> { name: !read name, about: none[None], opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> FromFile | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
-  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
+  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call std.core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
   foreach#2 e: proj (UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested) in read found.errors {
-    call core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
+    call std.core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call std.core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
   }
   bind#3 let positional__c1__c2__c3__c4__c5__c6__c7: Bool = false
-  bind#4 let shown__c1__c2__c3__c4__c5__c6__c7: Str = call args::shown_name("file", read positional__c1__c2__c3__c4__c5__c6__c7)
+  bind#4 let shown__c1__c2__c3__c4__c5__c6__c7: Str = call std.args::shown_name("file", read positional__c1__c2__c3__c4__c5__c6__c7)
   bind#5 let what__c1__c2__c3__c4__c5__c6__c7: Str = "a valid value"
-  call args::check_value<Str>(read errors, read found, "file", read shown__c1__c2__c3__c4__c5__c6__c7, read what__c1__c2__c3__c4__c5__c6__c7, lambda(lent v: Str) -> Str? {
+  call std.args::check_value<Str>(read errors, read found, "file", read shown__c1__c2__c3__c4__c5__c6__c7, read what__c1__c2__c3__c4__c5__c6__c7, lambda(lent v: Str) -> Str? {
     value none[Str?]
-  }, fn core.string::from_str(Str))
-  branch#6 cond#0 call core.list::NonEmpty.qualifies(read errors) {
-    return make_union[FromFile | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
+  }, fn std.core.string::from_str(Str))
+  branch#6 cond#0 call std.core.list::NonEmpty.qualifies(read errors) {
+    return make_union[FromFile | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call std.core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
-  return make_union[FromFile | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<FromFile>(construct FromFile { file: call args::eval<Str>(lambda() -> Str captures [found] {
-    return call args::read_value<Str, Str>(read found, "file", none[None], lambda(lent v__c11__c12__c13__c14__c15__c16__c17__c18: Str) -> Str? {
+  return make_union[FromFile | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call std.core.result::Ok<FromFile>(construct FromFile { file: call std.args::eval<Str>(lambda() -> Str captures [found] {
+    return call std.args::read_value<Str, Str>(read found, "file", none[None], lambda(lent v__c11__c12__c13__c14__c15__c16__c17__c18: Str) -> Str? {
       value branch#7 cond#0 true {
         value present(read v__c11__c12__c13__c14__c15__c16__c17__c18)
       } else {
         value none[None]
       }
-    }, fn core.string::from_str(Str))
+    }, fn std.core.string::from_str(Str))
   }) }))
 }
 
 fn main::arg_spec()() -> Spec<FromStdin> {
-  bind#1 let opts: Mut List<OptSpec> = call core.list::Mut_List()<OptSpec>()
-  bind#2 let args: Mut List<ArgSpec> = call core.list::Mut_List()<ArgSpec>()
-  bind#3 let groups: Mut List<GroupSpec> = call core.list::Mut_List()<GroupSpec>()
-  bind#4 let commands: Mut List<CmdSpec> = call core.list::Mut_List()<CmdSpec>()
+  bind#1 let opts: Mut List<OptSpec> = call std.core.list::Mut_List()<OptSpec>()
+  bind#2 let args: Mut List<ArgSpec> = call std.core.list::Mut_List()<ArgSpec>()
+  bind#3 let groups: Mut List<GroupSpec> = call std.core.list::Mut_List()<GroupSpec>()
+  bind#4 let commands: Mut List<CmdSpec> = call std.core.list::Mut_List()<CmdSpec>()
   bind#5 let command_required: Bool = false
   bind#6 let command_fields: Int = 0
-  bind#7 let name: Str = call args::command_name("FromStdin")
+  bind#7 let name: Str = call std.args::command_name("FromStdin")
   return construct Spec<FromStdin> { name: !read name, about: present("Read standard input."), opts: drop_mut(!read opts), args: drop_mut(!read args), groups: drop_mut(!read groups), commands: drop_mut(!read commands), command_required: read command_required, command_fields: read command_fields }
 }
 
 fn main::from_found(Found)(lent found: Found) -> FromStdin | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> {
-  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
+  bind#1 let errors: Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call std.core.list::Mut_List()<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>()
   foreach#2 e: proj (UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested) in read found.errors {
-    call core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
+    call std.core.list::add<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call std.core.basic::copy<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
   }
-  branch#3 cond#0 call core.list::NonEmpty.qualifies(read errors) {
-    return make_union[FromStdin | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
+  branch#3 cond#0 call std.core.list::NonEmpty.qualifies(read errors) {
+    return make_union[FromStdin | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call std.core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
-  return make_union[FromStdin | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<FromStdin>(construct FromStdin { }))
+  return make_union[FromStdin | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call std.core.result::Ok<FromStdin>(construct FromStdin { }))
 }

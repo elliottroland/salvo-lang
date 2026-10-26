@@ -20,7 +20,7 @@
 // dischargers.
 // Non-resumption is imported, not implicit: a program that never throws
 // never links it [mod-import-module].
-import throw
+import std.throw
 
 linear struct FileHandle {
     // What was opened, for the trace this example prints.

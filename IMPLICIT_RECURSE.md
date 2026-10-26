@@ -48,9 +48,9 @@ String interpolation `"${x}"` resolves a `to_str` for `x`'s type as an implicit
 own** for the element/key/value:
 
 ```
-// std/core/list.sv
+// lib/std/core/list.sv
 fn to_str<T>(list: List<T>, ?to_str: (x: T) -> Str) [] -> Str
-// std/core/map.sv
+// lib/std/core/map.sv
 fn to_str<K, V>(map: Map<K, V>(?hash, ?eq), ?to_str: (k: K) -> Str, ?to_str: (v: V) -> Str) [] -> Str
 ```
 
@@ -186,9 +186,9 @@ Notes from the noticeboard:
 - Its interpolations are of `Str`/`Path`/placeholder `${_}` — not nested
   collections. Interpolating its `Notice` struct (no `to_str`) fails fast (one
   near-miss), ~0.46s.
-- `std/stream.sv`'s `write_value<T>(…, ?encode: (T) -> Bytes)` /
+- `lib/std/stream.sv`'s `write_value<T>(…, ?encode: (T) -> Bytes)` /
   `read_value<T>(…, ?decode: (Bytes) -> T?)` take recursive implicits *shaped*
-  like `?to_str`, but their fillers `encode<T>`/`decode<T>` (`std/codec.sv`)
+  like `?to_str`, but their fillers `encode<T>`/`decode<T>` (`lib/std/codec.sv`)
   are **single intrinsics taking no implicits**, so that path is width 1 and
   does not recurse. So the codec surface is not a second source of the blowup.
 

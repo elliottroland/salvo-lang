@@ -36,7 +36,7 @@ fn main() [use] -> None {
 "#;
 
 fn dump(src: &str) -> String {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");

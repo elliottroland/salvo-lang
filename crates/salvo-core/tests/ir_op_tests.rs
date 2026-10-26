@@ -31,7 +31,7 @@ fn main() [use] -> None {
 "#;
 
 fn dump() -> String {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
@@ -68,9 +68,9 @@ fn basic_types_compare_with_the_host_operator_and_the_rest_call() {
     }
     // `Str` is not basic: its operators are calls, intrinsic or not.
     for call in [
-        "(call core.compare::cmp(Str, Str)(read s, \"c\") < 0)",
-        "call core.compare::eq(Str, Str)(read s, \"b\")",
-        "!(call core.compare::eq(Str, Str)(read s, \"a\"))",
+        "(call std.core.compare::cmp(Str, Str)(read s, \"c\") < 0)",
+        "call std.core.compare::eq(Str, Str)(read s, \"b\")",
+        "!(call std.core.compare::eq(Str, Str)(read s, \"a\"))",
     ] {
         assert!(ir.contains(call), "missing `{call}` in:\n{ir}");
     }
@@ -79,7 +79,7 @@ fn basic_types_compare_with_the_host_operator_and_the_rest_call() {
     assert!(ir.contains("(call local cmp(read a, read b) > 0)"), "{ir}");
     // No basic-type comparison goes through `cmp`/`eq`; the intrinsic is only
     // the value passed to a generic.
-    assert!(!ir.contains("call core.compare::cmp(Int, Int)("), "{ir}");
-    assert!(!ir.contains("call core.compare::eq(Int, Int)("), "{ir}");
-    assert!(ir.contains("fn core.compare::cmp(Int, Int)"), "{ir}");
+    assert!(!ir.contains("call std.core.compare::cmp(Int, Int)("), "{ir}");
+    assert!(!ir.contains("call std.core.compare::eq(Int, Int)("), "{ir}");
+    assert!(ir.contains("fn std.core.compare::cmp(Int, Int)"), "{ir}");
 }

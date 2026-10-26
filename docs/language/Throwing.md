@@ -3,10 +3,10 @@
 An effect handler normally *resumes*: the operation runs and control comes back to the caller ([Effects and handlers](Effects-and-Handlers.md)). `throw` is the other option — it does not come back. It is declared in the standard library as an ordinary effect, in a module of its own that you import:
 
 ```
-import throw
+import std.throw
 ```
 
-`import throw` brings `Throw`, `try`'s `Thrown` arm and `thrown`, so a program that never throws links none of it. A test annex is the exception: the harness — not the author — puts `[Throw<Failure>]` on a test body, so a test file behaves as if it had written the import.
+`import std.throw` brings `Throw`, `try`'s `Thrown` arm and `thrown`, so a program that never throws links none of it. A test annex is the exception: the harness — not the author — puts `[Throw<Failure>]` on a test body, so a test file behaves as if it had written the import.
 
 ```
 effect Throw<M> {
@@ -46,7 +46,7 @@ when outcome {
 }
 ```
 
-Both arms are qualified, and the outcome is an ordinary union, so `is`, `when` and exhaustiveness work exactly as they do on `Ok Int | Err Str`. `Ok` is the same tag `core.result` uses; `Err` is deliberately *not* reused, because a throw is not an error value.
+Both arms are qualified, and the outcome is an ordinary union, so `is`, `when` and exhaustiveness work exactly as they do on `Ok Int | Err Str`. `Ok` is the same tag `std.core.result` uses; `Err` is deliberately *not* reused, because a throw is not an error value.
 
 Details worth knowing:
 
@@ -61,7 +61,7 @@ Both backends implement this without colouring any function the author did not a
 
 ## Every error, not the first: `Errs`
 
-`throw` stops at the first failure, and so does an `Ok T | Err E` result. When the user should see every problem at once (each bad flag, each invalid row), `core.result` has an accumulating outcome, `Ok T | Errs NonEmpty List<E>`, and combinators that keep collecting after a failure:
+`throw` stops at the first failure, and so does an `Ok T | Err E` result. When the user should see every problem at once (each bad flag, each invalid row), `std.core.result` has an accumulating outcome, `Ok T | Errs NonEmpty List<E>`, and combinators that keep collecting after a failure:
 
 ```
 fn port(s: Str) [] -> Ok Int | Errs NonEmpty List<Str> => s {

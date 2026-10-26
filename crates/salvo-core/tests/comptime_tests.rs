@@ -3,7 +3,7 @@
 //! say, and how it reports (the 2026-10-20 comptime expansion; COMPLETED.md's
 //! "Design record: comptime expansion").
 //!
-//! The `by`-site half (`core.auto`, obligations, `refuse!` at a `by`) is in
+//! The `by`-site half (`std.core.auto`, obligations, `refuse!` at a `by`) is in
 //! compare_tests.rs; these tests are about a comptime fn as a fn.
 
 use std::path::Path;
@@ -55,7 +55,7 @@ fn diagnostics_in(files: &[(&str, &str)]) -> Vec<Reported> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
@@ -128,7 +128,7 @@ fn use_it(p: P) [] -> Int => p {
 /// hand-written one: a copy that does not type-check is an error **where the
 /// failing code is written**, saying in the code's own terms which copy failed
 /// — "when `field` is `b` (`Str`): …" (2026-10-20, two TODOs in
-/// std/args/parse.sv: it landed on the field's declaration, away from the code
+/// lib/std/args/parse.sv: it landed on the field's declaration, away from the code
 /// to fix, and its stamp-style prefix read as jargon).
 #[test]
 fn an_expanded_in_place_body_is_checked_per_copy() {

@@ -4,7 +4,7 @@ The filesystem is the first place all of this meets: an effect for the capabilit
 
 It is two effects, layered. **`Streams`** (module `stream`) owns the stream tokens `InStream`/`OutStream` and every operation on them — the reads, the writes, `position`, `close` — whoever opened the stream: a file, a network body, a buffer. **`Fs`** (module `fs`) is the operations on *paths*; opening one mints a stream into the `Streams` bound around it. `Streams` is a **prerequisite** of `Fs` — `effect Fs [Streams]` [effect-prereq] — so wherever `Fs` is, `Streams` is, and a program that reads a file still declares `[Fs]` alone.
 
-Both are **imported, not implicit**: `import fs` brings the path surface and `import stream` the stream one (a program that names `InStream` or `StreamError` imports it), and each implementation is its own module — `stream.host` and `fs.host` for the machine's, `fs.mem` for an in-memory fake of both, `fs.restricted` for a sandbox. A whole-module import names one module, so a test that fakes the filesystem never mentions the host's, and a program that never opens a file links none of it.
+Both are **imported, not implicit**: `import std.fs` brings the path surface and `import std.stream` the stream one (a program that names `InStream` or `StreamError` imports it), and each implementation is its own module — `stream.host` and `fs.host` for the machine's, `fs.mem` for an in-memory fake of both, `fs.restricted` for a sandbox. A whole-module import names one module, so a test that fakes the filesystem never mentions the host's, and a program that never opens a file links none of it.
 
 A program that reads a file declares `[Fs]` and nothing else:
 
@@ -59,10 +59,10 @@ And the 90% case needs none of it — `read_to_str(path)`, `read_lines(path)`, `
 The composition root is where the filesystem is chosen — streams first, since `Fs` needs them bound:
 
 ```
-import fs
-import fs.path
-import fs.host
-import stream.host
+import std.fs
+import std.fs.path
+import std.fs.host
+import std.stream.host
 
 fn main() [use] {
     use StdConsole()
@@ -129,10 +129,10 @@ Because the read consumes the stream and the answer returns it, one read is in f
 Two more handlers ship beside the surface, each in its own module, and neither is a special case of anything:
 
 ```
-import fs
-import fs.path
-import fs.mem
-import fs.restricted
+import std.fs
+import std.fs.path
+import std.fs.mem
+import std.fs.restricted
 
 fn main() [use] {
     use StdConsole()
@@ -152,10 +152,10 @@ A stream belongs to the provider that minted it. Handing a `MemFs` stream to the
 
 ## Paths
 
-A path is a value of its own, `Path`, from `import fs.path`, so path operations stay out of `Str`'s way:
+A path is a value of its own, `Path`, from `import std.fs.path`, so path operations stay out of `Str`'s way:
 
 ```
-import fs.path
+import std.fs.path
 
 let db = path("/var/data/board.db")
 let dir = parent(db)              // Path?: /var/data
@@ -172,8 +172,8 @@ Every `fs` operation and one-shot takes its paths as `Path`s, and only as `Path`
 `write_int`, `write_long`, `read_int` and `read_long` write and read fixed-width numbers, big-endian. `write_value(out, v)` writes any value with a wire form [noremote] in Salvo's canonical encoding, behind its length, and `read_value<T>(in)` reads one back — which is what a file of records needs:
 
 ```
-import codec.encode
-import codec.decode
+import std.codec.encode
+import std.codec.decode
 
 let _n = write_value(out, Notice { id: "a1", body: "hello" })
 let back = read_value<Notice>(input)   // Ok Notice | End | Err Checked<StreamError>

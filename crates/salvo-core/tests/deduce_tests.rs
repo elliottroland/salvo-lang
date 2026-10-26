@@ -8,7 +8,7 @@ use salvo_syntax::ast::Item;
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
-/// Module `core.prelude`: `core.*` is implicitly imported, so the test source
+/// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
 const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn copy<T>(value: T) [] -> T => value\nexport intrinsic type Store<T> canbe Mut\nexport intrinsic fn fresh() [] -> List<Int>\nexport intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n";
 
@@ -17,7 +17,7 @@ fn check_src(src: &str) -> (Program, Checked) {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
@@ -1011,7 +1011,7 @@ fn disjoint_errors(body: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         format!(
             "{STD_PRELUDE}export intrinsic type Str\n\
              export intrinsic fn Mut List<T>(...elems: T[]) [] -> Mut List<T>\n\
@@ -1305,7 +1305,7 @@ fn a_kept_parameter_still_refuses_a_projection_move() {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         format!(
             "{STD_PRELUDE}export intrinsic type Str\n\
              export intrinsic fn Mut List<T>(...elems: T[]) [] -> Mut List<T>\n"
@@ -1526,7 +1526,7 @@ fn reapply_errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
@@ -1720,7 +1720,7 @@ fn field_errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         format!(
             "{STD_PRELUDE}export intrinsic type Str\n\
              export intrinsic fn Mut List<T>(...elems: T[]) [] -> Mut List<T>\n\
@@ -2087,7 +2087,7 @@ fn view_errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         format!(
             "{STD_PRELUDE}export intrinsic type Str\n\
              export intrinsic fn get<T>(list: List<T>, i: Int) [] -> proj(list) T => list\n"
@@ -2156,7 +2156,7 @@ fn check_std_tree(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );

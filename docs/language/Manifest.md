@@ -41,13 +41,17 @@ backend: `salvo compile` in an example directory regenerates both checked-in
 trees.
 
 A file **belongs to the nearest manifest above it**, and a nested manifest is
-a boundary: a directory holding several projects (this repository, with `std/`
+a boundary: a directory holding several projects (this repository, with `lib/`
 and every `examples/*/`) is several programs, and the editor analyses each
 document under its own. A file with no manifest above it is analysed under the
 editor's workspace root, and told so when that workspace does hold projects.
 
 `[project] std = true` marks the standard library's own tree, so its files are
-std to the checker and replace the copy built into the compiler.
+std to the checker and replace the copy built into the compiler. Only such a
+tree declares modules under the reserved `std` root ([Modules](Modules.md)):
+the library's own manifest is `lib/salvo.toml`, whose source root is `lib/`, so
+`lib/std/time.sv` is `std.time` and its host files are under
+`lib/platform/std/`.
 
 ## Output: `compile` versus `build`
 
@@ -105,7 +109,7 @@ its own manifest names — are loaded with it, since its platform declarations
 need them as much as yours do.
 
 A dependency **may not declare a standard-library module** — a library must
-not be able to redefine `core.list` on the programs that use it — unless its
+not be able to redefine `std.core.list` on the programs that use it — unless its
 own manifest says `[project] std = true`, in which case it *is* a standard
 library and replaces the embedded modules it declares, exactly as a source
 tree may. Nothing is transitive yet: a dependency's own `[dependencies]` are
@@ -225,5 +229,5 @@ A table of `name = "version"`. Each entry names a directory
   `[dependencies]` entry and `crates`/`artifacts` are orthogonal (one names a
   Salvo project, the others name target-language libraries).
 * **`std = true` and `[dependencies]`.** Only a `std = true` project may
-  declare standard-library modules; a dependency that is not `std = true` may
-  not redefine `core.*`.
+  declare standard-library modules — any module under `std` — and a dependency
+  that is not `std = true` may not either.

@@ -11,8 +11,8 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 const STD_PRELUDE: &str =
     "export intrinsic type Str\nexport intrinsic type Int\nexport intrinsic type Bool\n";
 
-/// A miniature `core.list`: the mint recognition is nominal — `get` and
-/// `at` declared by the `core.list` module — so the tests declare exactly the
+/// A miniature `std.core.list`: the mint recognition is nominal — `get` and
+/// `at` declared by the `std.core.list` module — so the tests declare exactly the
 /// surface the feature reads [elem-distinct].
 const STD_LIST: &str = "\
 export intrinsic type List<T> canbe Mut\n\
@@ -30,7 +30,7 @@ export fn get<T>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T\n\
 }\n\
 export intrinsic fn at<T>(list: List<Mut T>, index: Int) [] -> ref(list) Mut T? => list, index\n";
 
-/// A miniature `core.ref`, verbatim the declarations of `std/core/ref.sv`:
+/// A miniature `std.core.ref`, verbatim the declarations of `lib/std/core/ref.sv`:
 /// the proof that two handles name different elements [ref-notsame].
 const STD_REF: &str = "\
 export intrinsic fn same<T>(a: T, b: T) [] -> Bool => a, b\n\
@@ -46,19 +46,19 @@ fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
     sources.add(
         "std/core/list.sv",
-        SourceSet::classify(Path::new("core/list.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/list.sv")).unwrap(),
         STD_LIST.to_string(),
         true,
     );
     sources.add(
         "std/core/ref.sv",
-        SourceSet::classify(Path::new("core/ref.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/ref.sv")).unwrap(),
         STD_REF.to_string(),
         true,
     );

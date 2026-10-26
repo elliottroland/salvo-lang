@@ -168,7 +168,7 @@ pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>
     }
     // [stream-table] Host code's entry points into the stream table ship
     // wherever the table (the Salvo service `runtime.streams`) does.
-    if reach.emitted.iter().any(|m| m.0 == ["runtime", "streams"]) {
+    if reach.emitted.iter().any(|m| **m == salvo_core::ModulePath::std(&["runtime", "streams"])) {
         files.push(EmittedFile { rel_path: "hoststreams.kt".into(), content: include_str!("../../runtime/hoststreams.kt").to_string() });
     }
     // Host companions travel with their module [backend-companion]. In ABI

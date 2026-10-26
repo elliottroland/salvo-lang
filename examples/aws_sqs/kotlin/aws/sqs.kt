@@ -4,8 +4,8 @@ import salvo.*
 
 data class CreateQueueInput(
     val queueName: String,
-    val attributes: salvo.platform.core.map.Map<String, String>? = null,
-    val tags: salvo.platform.core.map.Map<String, String>? = null,
+    val attributes: salvo.platform.std.core.map.Map<String, String>? = null,
+    val tags: salvo.platform.std.core.map.Map<String, String>? = null,
 )
 
 data class CreateQueueOutput(
@@ -47,17 +47,17 @@ data class SendMessageInput(
     val queueUrl: String,
     val messageBody: String,
     val delaySeconds: Int? = null,
-    val messageAttributes: salvo.platform.core.map.Map<String, MessageAttributeValue>? = null,
-    val messageSystemAttributes: salvo.platform.core.map.Map<String, MessageSystemAttributeValue>? = null,
+    val messageAttributes: salvo.platform.std.core.map.Map<String, MessageAttributeValue>? = null,
+    val messageSystemAttributes: salvo.platform.std.core.map.Map<String, MessageSystemAttributeValue>? = null,
     val messageDeduplicationId: String? = null,
     val messageGroupId: String? = null,
 )
 
 data class MessageAttributeValue(
     val stringValue: String? = null,
-    val binaryValue: salvo.platform.core.bytes.Bytes? = null,
+    val binaryValue: salvo.platform.std.core.bytes.Bytes? = null,
     val stringListValues: List<String>? = null,
-    val binaryListValues: List<salvo.platform.core.bytes.Bytes>? = null,
+    val binaryListValues: List<salvo.platform.std.core.bytes.Bytes>? = null,
     val dataType: String,
 )
 
@@ -74,9 +74,9 @@ object __Codec_MessageAttributeValue : salvo.WireCodec<MessageAttributeValue> {
 
 data class MessageSystemAttributeValue(
     val stringValue: String? = null,
-    val binaryValue: salvo.platform.core.bytes.Bytes? = null,
+    val binaryValue: salvo.platform.std.core.bytes.Bytes? = null,
     val stringListValues: List<String>? = null,
-    val binaryListValues: List<salvo.platform.core.bytes.Bytes>? = null,
+    val binaryListValues: List<salvo.platform.std.core.bytes.Bytes>? = null,
     val dataType: String,
 )
 
@@ -144,9 +144,9 @@ data class Message(
     val receiptHandle: String? = null,
     val md5OfBody: String? = null,
     val body: String? = null,
-    val attributes: salvo.platform.core.map.Map<String, String>? = null,
+    val attributes: salvo.platform.std.core.map.Map<String, String>? = null,
     val md5OfMessageAttributes: String? = null,
-    val messageAttributes: salvo.platform.core.map.Map<String, MessageAttributeValue>? = null,
+    val messageAttributes: salvo.platform.std.core.map.Map<String, MessageAttributeValue>? = null,
 )
 
 data class DeleteMessageInput(
@@ -258,30 +258,30 @@ class __Mon_SqsCalls(
 }
 
 class FakeSqs : Sqs, SqsCalls {
-    var recorded: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
+    var recorded: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     override fun createQueue(input: CreateQueueInput, reply: salvo.SalvoReply) {
-        salvo.core.list.addPlatform(recorded, "create_queue")
-        salvo.SalvoSched.replyWire(reply, Union2.U1<CreateQueueOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>>(salvo.core.result.ok(CreateQueueOutput(queueUrl = null))), salvo.Union2Codec(__Codec_CreateQueueOutput, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_SqsError, salvo.aws.__Codec_AwsError))))
+        salvo.std.core.list.addPlatform(recorded, "create_queue")
+        salvo.SalvoSched.replyWire(reply, Union2.U1<CreateQueueOutput, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.ok(CreateQueueOutput(queueUrl = null))), salvo.Union2Codec(__Codec_CreateQueueOutput, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_SqsError, salvo.aws.__Codec_AwsError))))
     }
     override fun getQueueUrl(input: GetQueueUrlInput, reply: salvo.SalvoReply) {
-        salvo.core.list.addPlatform(recorded, "get_queue_url")
-        salvo.SalvoSched.replyWire(reply, Union2.U1<GetQueueUrlOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>>(salvo.core.result.ok(GetQueueUrlOutput(queueUrl = null))), salvo.Union2Codec(__Codec_GetQueueUrlOutput, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_SqsError, salvo.aws.__Codec_AwsError))))
+        salvo.std.core.list.addPlatform(recorded, "get_queue_url")
+        salvo.SalvoSched.replyWire(reply, Union2.U1<GetQueueUrlOutput, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.ok(GetQueueUrlOutput(queueUrl = null))), salvo.Union2Codec(__Codec_GetQueueUrlOutput, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_SqsError, salvo.aws.__Codec_AwsError))))
     }
     override fun sendMessage(input: SendMessageInput, reply: salvo.SalvoReply) {
-        salvo.core.list.addPlatform(recorded, "send_message")
-        salvo.SalvoSched.replyWire(reply, Union2.U1<SendMessageOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>>(salvo.core.result.ok(SendMessageOutput(md5OfMessageBody = null, md5OfMessageAttributes = null, md5OfMessageSystemAttributes = null, messageId = null, sequenceNumber = null))), salvo.Union2Codec(__Codec_SendMessageOutput, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_SqsError, salvo.aws.__Codec_AwsError))))
+        salvo.std.core.list.addPlatform(recorded, "send_message")
+        salvo.SalvoSched.replyWire(reply, Union2.U1<SendMessageOutput, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.ok(SendMessageOutput(md5OfMessageBody = null, md5OfMessageAttributes = null, md5OfMessageSystemAttributes = null, messageId = null, sequenceNumber = null))), salvo.Union2Codec(__Codec_SendMessageOutput, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_SqsError, salvo.aws.__Codec_AwsError))))
     }
     override fun receiveMessage(input: ReceiveMessageInput, reply: salvo.SalvoReply) {
-        salvo.core.list.addPlatform(recorded, "receive_message")
-        reply.send(Union2.U1<ReceiveMessageOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>>(salvo.core.result.ok(ReceiveMessageOutput(messages = null))))
+        salvo.std.core.list.addPlatform(recorded, "receive_message")
+        reply.send(Union2.U1<ReceiveMessageOutput, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.ok(ReceiveMessageOutput(messages = null))))
     }
     override fun deleteMessage(input: DeleteMessageInput, reply: salvo.SalvoReply) {
-        salvo.core.list.addPlatform(recorded, "delete_message")
-        salvo.SalvoSched.replyWire(reply, Union2.U1<Unit, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>>(salvo.core.result.ok(Unit)), salvo.Union2Codec(salvo.UnitCodec, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_SqsError, salvo.aws.__Codec_AwsError))))
+        salvo.std.core.list.addPlatform(recorded, "delete_message")
+        salvo.SalvoSched.replyWire(reply, Union2.U1<Unit, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.ok(Unit)), salvo.Union2Codec(salvo.UnitCodec, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_SqsError, salvo.aws.__Codec_AwsError))))
     }
     override fun deleteQueue(input: DeleteQueueInput, reply: salvo.SalvoReply) {
-        salvo.core.list.addPlatform(recorded, "delete_queue")
-        salvo.SalvoSched.replyWire(reply, Union2.U1<Unit, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>>(salvo.core.result.ok(Unit)), salvo.Union2Codec(salvo.UnitCodec, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_SqsError, salvo.aws.__Codec_AwsError))))
+        salvo.std.core.list.addPlatform(recorded, "delete_queue")
+        salvo.SalvoSched.replyWire(reply, Union2.U1<Unit, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.ok(Unit)), salvo.Union2Codec(salvo.UnitCodec, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_SqsError, salvo.aws.__Codec_AwsError))))
     }
     override fun calls(): List<String> {
         return recorded.toMutableList()

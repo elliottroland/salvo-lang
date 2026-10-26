@@ -42,7 +42,7 @@ put to the user; all as recommended):
 | 9 | `StreamError` | `Err Checked<StreamError>`, linear like `FsError` |
 | 10 | A handle from the wrong provider | **trap** with a message (a program bug, not a condition) — and a roadmap item to make it a *compile-time* error, §9 |
 | 11 | Stream table | process-global from day one, shared by `HostRawFs` and `HostByteSource` |
-| 12 | The `InStream` move | both `InStream` and `OutStream` move; `import stream.InStream` beside `import fs` is accepted (no re-export) |
+| 12 | The `InStream` move | both `InStream` and `OutStream` move; `import std.stream.InStream` beside `import std.fs` is accepted (no re-export) |
 | 13 | Fakes for streams | `MemByteSource` alone now; `MemHost of Fs, ByteSource` when a test needs a `MemFs` stream read asynchronously (the mem pair does not share a table, deliberately) |
 | 14 | smithy-rs codegen is **not published** to Maven | depend on `smithy-kotlin-codegen`; reimplement the Rust naming rules (snake-casing, reserved words) — small, and the correction to D2's rationale |
 | 15 | Handler constructor | one `AwsConfig { credentials: Credentials, region: Region, endpoint: Str? }`, `Credentials = ProfileCredentials \| EnvironmentCredentials \| DefaultChain`; `endpoint` is what LocalStack needs |
@@ -351,7 +351,7 @@ generator reads a model and writes text.
 | list / map | `List<T>` / `Map<Str, V>` | Smithy maps are string-keyed |
 | blob | `Bytes` | |
 | `@streaming` blob | `InStream` (D4) | §5 |
-| timestamp | `time.Instant` | `import time` in generated files |
+| timestamp | `time.Instant` | `import std.time` in generated files |
 | document | **refused** | no `Document` type in Salvo yet; an operation using one is omitted with a note in the generated file |
 | event streams | **refused** | later |
 
@@ -485,7 +485,7 @@ types without them.
 
 ## 8. Sequence
 
-1. §7.1 and §7.2 in the compiler, each with std/test coverage.
+1. §7.1 and §7.2 in the compiler, each with lib/std/test coverage.
 2. §7.3.
 3. `codegen/` as a `smithy-build` plugin: shapes, unions, enums, errors, the
    effect and handler declaration, the two glues; `document` and event streams

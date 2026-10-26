@@ -1500,7 +1500,7 @@ log current so the work can resume after a context reset). Newest last.
     suite checks, e2e included (2,005 distinct programs). It found two
     latent last-writer bugs, both fixed: `foreign_ref` (a callee's signature
     lowered at a use recorded its type names' definition sites under this
-    file: `std/fs/mem.sv`'s `Str` went to `Int`), and effect members
+    file: `lib/std/fs/mem.sv`'s `Str` went to `Int`), and effect members
     lowered without the effect's generics (`written_types` read `M` as a
     named type). After the fixes, nothing differed.
   - **An interface read off a body, fixed:** an `iter fn`'s inferred state
@@ -1824,7 +1824,7 @@ log current so the work can resume after a context reset). Newest last.
     hold them across loops that never write them (3.5ms → 0.4); it also
     re-validated every std handler member's contract under the std cache,
     which the cache's own check had done (now skipped like std's fns); and
-    pass 2 of resolution built every file's `core.*` part from scratch —
+    pass 2 of resolution built every file's `std.core.*` part from scratch —
     it depends only on which core module the file is in, so it is built
     once per such module and cloned (exact by construction: adding at
     `Level::Core` into an empty scope reports nothing; should it ever,
@@ -1854,10 +1854,33 @@ log current so the work can resume after a context reset). Newest last.
   modules (`ModuleScope::modules`); a `by` path's module and comptime-fn
   readings consider only those [obligation-by]; a std file's name fallback
   considers std's declarations only; `StdComptime::admits` refuses only a
-  project module under `core` and is asked before parsing (the queried-name
+  project module under `std.core` and is asked before parsing (the queried-name
   and `by`-path bookkeeping and the std reparse are gone); diagnostics
   located in the embedded std are hidden from analyze, the language server
   and every build path, with one unattributed line when hidden errors remain
   [diag-std-hidden]. The repro analyzes clean and passes the front's gate.
   Left: the `std.` prefix (TF-8), after which the gate can go; it needs the
   open TF-8 calls first.
+- **0s, piece 2 (the `std.` prefix, TF-8): decided (user, 2026-10-14)** —
+  `core` becomes `std.core` (implicitly visible as before) and the tree
+  moves to `lib/std`, module paths still derived from the layout. Being
+  built; afterwards no project module can be implicitly visible to std, and
+  `StdComptime::admits` goes.
+- **0s, piece 2: done** (committed "Put the standard library under std").
+  Built: `git mv std lib/std`, the tree's manifest at `lib/salvo.toml`
+  (source root `lib/`, so `lib/std/core/list.sv` is `std.core.list`; the
+  embed root is `lib/`, and embedded file names stay `std/…`), std's
+  platform root at `lib/platform` with its host files under
+  `lib/platform/std/`; `ModulePath::std`/`is_std_core`/`is_std_internal`
+  replacing every module-path string match; `std` reserved [std-root] (a
+  non-std tree's module under it is an error at the file, and not implicitly
+  visible) and the bare spelling refused with the corrected path named;
+  `StdComptime::admits`, its call and comptime's `shadow_copy` removed — the
+  front stands in for every program `std_front_applies` matches. Every
+  program, example tree, `modules/aws`, the docs and both runtimes swept.
+  Deviations: the misplaced module is also kept out of `std.core.*`
+  visibility (one error of its own instead of a page of hidden std errors);
+  [diag-std-hidden]'s test now builds its std errors from a `std = true`
+  dependency; the redundant-`@` warning echoes the selector as written.
+  Left: ROADMAP 0t (`--src lib/std`), `demo/demo.sv`'s `import heap` (the
+  user's). Next: R8's leftovers, awaiting the user (§8 piece 9).

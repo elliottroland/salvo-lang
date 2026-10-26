@@ -928,7 +928,7 @@ impl<'s> Parser<'s> {
                 self.parse_fn(false).map(Item::Fn)
             }
             // [obligation-by] The word this replaced (user decision 2026-09-28): the
-            // structural implementations are `compfn`s in `core.auto`, asked
+            // structural implementations are `compfn`s in `std.core.auto`, asked
             // for with `by auto`, so `auto fn` has nothing left to mean.
             TokenKind::Ident(name)
                 if name == "auto" && matches!(self.peek_at(1).kind, TokenKind::KwFn) =>
@@ -1685,7 +1685,7 @@ impl<'s> Parser<'s> {
     }
 
     /// A selector after `@`: a type name (`Person`) or a dotted module path
-    /// (`core.list`), kept as one identifier whose name holds the dots.
+    /// (`std.core.list`), kept as one identifier whose name holds the dots.
     fn ident_dotted_path(&mut self) -> Option<Ident> {
         let first = self.ident()?;
         let mut name = first.name.clone();
@@ -1911,7 +1911,7 @@ impl<'s> Parser<'s> {
             self.group_depth += 1;
             self.bump();
             // `<T is Struct>` / `<T is Union>`: the bound names an arm of
-            // `core.comptime`'s `Kind`, spelled as the narrowing it is — the
+            // `std.core.comptime`'s `Kind`, spelled as the narrowing it is — the
             // same `is` a `[when field.type]` arm tests (user decision
             // 2026-09-29).
             let param = self.ident_type("type parameter")?;
@@ -2022,7 +2022,7 @@ impl<'s> Parser<'s> {
         }
         // [comptime-fields] `type` is a keyword, and `Field.type` is the one
         // field spelled with it — the projection a comptime body reads as
-        // `field.type`. Accepted as a field name here so `core.comptime` can
+        // `field.type`. Accepted as a field name here so `std.core.comptime` can
         // declare what the body reads.
         let name = if self.at(&TokenKind::KwType) && matches!(self.peek_at(1).kind, TokenKind::Colon) {
             let span = self.bump().span;
@@ -5287,7 +5287,7 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// An arm of `core.comptime`'s `Kind`: `Struct`, `Union`, `Tuple`,
+    /// An arm of `std.core.comptime`'s `Kind`: `Struct`, `Union`, `Tuple`,
     /// `FnType`, `Opaque` (or its halves `Basic`, `Generic`).
     fn parse_kind_word(&mut self) -> Option<TypeKindWord> {
         let span = self.peek().span;
@@ -6688,7 +6688,7 @@ impl<'s> Parser<'s> {
                     let mut module = vec![first];
                     while self.at(&TokenKind::Dot) && self.same_line() {
                         // A dot after the module path may belong to the path
-                        // (`core.list`) or to a following field access; a
+                        // (`std.core.list`) or to a following field access; a
                         // module segment is always a lowercase name, and so
                         // is a field, so the path simply takes them all —
                         // `f@a.b.c(x)` names module `a.b.c`.
@@ -7496,7 +7496,7 @@ impl<'s> Parser<'s> {
             }
             TokenKind::Ident(_) => matches!(self.peek_at(2).kind, TokenKind::Colon),
             // [comptime-fields] `type` is a field name a struct may declare
-            // (`parse_field_decl`'s carve-out for `core.comptime`'s
+            // (`parse_field_decl`'s carve-out for `std.core.comptime`'s
             // `Field.type`), so `{ type: … }` must be recognised as a struct
             // literal even when `type:` is its *first* field — the ordinary
             // `Ident(_)` arm above never matches `KwType`, so without this

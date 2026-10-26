@@ -1,7 +1,7 @@
 # time
 
 Salvo's time surface is a std module rather than a language feature: one
-`import time` brings three types, two clock effects, a timer, and a fake. What
+`import std.time` brings three types, two clock effects, a timer, and a fake. What
 the module is *designed around* is a posture — **prefer time as data** — and
 this program is arranged to show why, and what to do in the cases where data is
 not enough.

@@ -188,7 +188,7 @@ is what `params Ref` is for [col-locate] — the bundle pattern, applied to
 positions:
 
 ```
-// core.list
+// std.core.list
 params Ref<C, L, T> {
     fn at(c: C, l: L) -> ref(c) Mut T?
 }
@@ -251,7 +251,7 @@ duel(at(squad, i) ?: unreachable!(), at(squad, j) ?: unreachable!())     // erro
 
 ## Proving two handles apart: `NotSame`
 
-`core.ref` declares a qualifier for exactly this. It is a claim about the
+`std.core.ref` declares a qualifier for exactly this. It is a claim about the
 **handles**, not about how they were found: `d is NotSame(a)` says that `d`
 names a different element from `a` [ref-notsame].
 

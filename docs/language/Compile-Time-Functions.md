@@ -24,9 +24,9 @@ function declared on the type, exactly as if you had written it inside the
 struct's body: it travels with the type, `cmp@Point` names it, an implicit
 `?cmp` resolves to it, and it carries the struct's own `export`.
 
-`auto` is `core.auto`, which holds `cmp`, `eq`, `hash` and `to_str` for
+`auto` is `std.core.auto`, which holds `cmp`, `eq`, `hash` and `to_str` for
 structs and for unions — named by its suffix, as any module may be
-(`size@list` is `size@core.list`). Being in `core` means it can be named
+(`size@list` is `size@core.list`). Being in `std.core` means it can be named
 without an import, and nothing more: **nothing is stamped unless you ask**. `X` may also
 be a comptime fn named directly (`fn cmp(a: P, b: P) -> Int by by_age`); a name
 that is both a module and a comptime fn is refused as ambiguous, and `by @tag`
@@ -37,13 +37,13 @@ no clause has no `cmp` and cannot be compared, and one with no `to_str` does
 not interpolate.
 
 **`X` names only what the file can see**: its own module, the modules it
-imports (whole, or an item of them), and what is implicitly visible (`core`,
+imports (whole, or an item of them), and what is implicitly visible (`std.core`,
 and in a test file the module it tests). A derive module of your own is
 imported like any other — `import derive` beside `by derive` — and a module
 you do not import is no reading of a `by` at all, so a project module that
 happens to be called `auto` does not touch the standard library's `by auto`,
 nor a file of yours that does not import it. A file that does import it has
-two `auto`s in sight and is told so; `by core.auto` settles it.
+two `auto`s in sight and is told so; `by std.core.auto` settles it.
 
 The clause works on a **named union** too, written after the alias:
 
@@ -117,7 +117,7 @@ error: in `cmp` from `auto` for `Reading.value: Double`: no matching overload
            ^^^^^^^^^^^^^
 ```
 
-A stamping can also be refused outright: `core.auto`'s `hash` refuses a
+A stamping can also be refused outright: `std.core.auto`'s `hash` refuses a
 `canbe Mut` struct, because a key that can change while a collection holds it
 corrupts the collection, and that refusal lands at the clause.
 
@@ -132,7 +132,7 @@ by `by`, and by the time the program is checked every use of one has been
 stamped and the comptime fn itself is gone. (A comptime fn *without* a bound
 is expanded in place and is callable; see below.)
 
-Here is `core.auto`'s `cmp` for structs, in full:
+Here is `std.core.auto`'s `cmp` for structs, in full:
 
 ```
 export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {
@@ -378,10 +378,10 @@ declaration order, with `lit.value` the member itself:
 `lit.name` is its text, and `lit.index`, `lit.first` and `lit.last` are as
 for fields. A named alias walks the same way: `[for lit in Level.literals]`.
 
-### The model: `core.comptime`
+### The model: `std.core.comptime`
 
 Everything a comptime fn may know about a type is declared, as compile-time
-structs in `core.comptime`:
+structs in `std.core.comptime`:
 
 ```
 comptime struct Struct  { name: Str, fields: List<Field>, mutable: Bool }
@@ -521,7 +521,7 @@ struct Serve {
 }
 ```
 
-Its subject is `core.comptime`'s `Field` (written before a field's name) or
+Its subject is `std.core.comptime`'s `Field` (written before a field's name) or
 `Struct` (written before a struct, ahead of `export`, on its line or the line
 above). It has no body and claims nothing about a value: `port` is an
 ordinary `InRange(1, 65535) Int`, and `Short` exists only where it is written
@@ -648,7 +648,7 @@ with it.
 
 ### Your own module
 
-`core.auto` is not special. A module of your own holding `comptime fn cmp<struct
+`std.core.auto` is not special. A module of your own holding `comptime fn cmp<struct
 T>(…)`, `eq` and `hash` — comparing an `id` field only, say — is reached by
 `import ids` and `by ids`, for every entity in a program. A comptime fn is like an `intrinsic fn` in
 what it writes down (its effect list, deductions and return type), and one that

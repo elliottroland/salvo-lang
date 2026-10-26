@@ -1,7 +1,7 @@
-import random.Random
+import std.random.Random
 import list.add
 import list.ext.add as ext_add
-import core.Str
+import std.core.Str
 
 // [intrinsic-fn] A compiler-intrinsic fn: declared for its signature and
 // deduction; each backend lowers calls to it directly from a table keyed by

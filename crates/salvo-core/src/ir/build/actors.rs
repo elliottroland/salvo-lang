@@ -34,10 +34,10 @@ pub fn route_key(effect: &str, module: &crate::ModulePath) -> String {
     enum_key(&route_name(effect), module)
 }
 
-/// [route-stub] A std `net` fn by name and arity, for the derived routes.
+/// [route-stub] A `std.net` fn by name and arity, for the derived routes.
 fn net_fn(ctx: &Ctx<'_>, name: &str, arity: usize) -> Option<DeclId> {
     for (file_idx, (file, module)) in ctx.program.files.iter().zip(&ctx.program.modules).enumerate() {
-        if file.module.0 != ["net"] {
+        if file.module != crate::ModulePath::std(&["net"]) {
             continue;
         }
         for (item, it) in module.items.iter().enumerate() {

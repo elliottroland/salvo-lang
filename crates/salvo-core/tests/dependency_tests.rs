@@ -78,12 +78,12 @@ fn dependencies_are_found_by_name_under_the_modules_directory() {
     assert!(err.contains("[build] modules"), "{err}");
 }
 
-/// A `SourceSet` holding one fake embedded std module, `core.list`.
+/// A `SourceSet` holding one fake embedded std module, `std.core.list`.
 fn with_embedded_std() -> SourceSet {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/list.sv",
-        ModulePath::parse("core.list"),
+        ModulePath::parse("std.core.list"),
         "export intrinsic type List<T>\n".to_string(),
         true,
     );
@@ -125,7 +125,7 @@ fn a_dependency_is_loaded_as_an_ordinary_tree_tagged_with_its_name() {
     assert!(!aws.is_std && !aws.is_test);
     assert!(sources.files.iter().all(|f| !f.is_test));
     // The embedded std is untouched.
-    assert!(sources.files.iter().any(|f| f.module.to_string() == "core.list" && f.is_std));
+    assert!(sources.files.iter().any(|f| f.module.to_string() == "std.core.list" && f.is_std));
 }
 
 // [manifest-deps] A dependency may not redefine the standard library on its
@@ -135,8 +135,8 @@ fn a_dependency_is_loaded_as_an_ordinary_tree_tagged_with_its_name() {
 #[test]
 fn a_dependency_declares_std_modules_only_when_its_manifest_says_std() {
     let root = dir("std");
-    write_dependency(&root, "sneaky", "", "core/list.sv", "export fn size() -> Int { return 0 }\n");
-    write_dependency(&root, "stdfork", "std = true\n", "core/list.sv", "export intrinsic type List<T>\n// fork\n");
+    write_dependency(&root, "sneaky", "", "std/core/list.sv", "export fn size() -> Int { return 0 }\n");
+    write_dependency(&root, "stdfork", "std = true\n", "std/core/list.sv", "export intrinsic type List<T>\n// fork\n");
     write_project(&root, &["sneaky", "stdfork"]);
     let project = Project::load(&root.join("salvo.toml")).unwrap();
     let deps = project.dependencies().unwrap();
@@ -145,7 +145,7 @@ fn a_dependency_declares_std_modules_only_when_its_manifest_says_std() {
     let errors = sources.add_dependency(&deps[0], "");
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(
-        errors[0].contains("`sneaky`") && errors[0].contains("`core.list`") && errors[0].contains("std = true"),
+        errors[0].contains("`sneaky`") && errors[0].contains("`std.core.list`") && errors[0].contains("std = true"),
         "{}",
         errors[0]
     );
@@ -153,7 +153,7 @@ fn a_dependency_declares_std_modules_only_when_its_manifest_says_std() {
     let mut sources = with_embedded_std();
     let errors = sources.add_dependency(&deps[1], "");
     assert!(errors.is_empty(), "{errors:?}");
-    let list: Vec<_> = sources.files.iter().filter(|f| f.module.to_string() == "core.list").collect();
+    let list: Vec<_> = sources.files.iter().filter(|f| f.module.to_string() == "std.core.list").collect();
     assert_eq!(list.len(), 1, "the embedded copy was replaced");
     assert!(list[0].is_std && list[0].is_shadow);
     assert_eq!(list[0].dependency.as_deref(), Some("stdfork"));
@@ -187,7 +187,7 @@ fn module_selectors_are_recorded_with_their_resolved_module() {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        ModulePath::parse("core.prelude"),
+        ModulePath::parse("std.core.prelude"),
         STD_PRELUDE.to_string(),
         true,
     );

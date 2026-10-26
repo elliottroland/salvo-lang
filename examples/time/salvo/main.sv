@@ -1,11 +1,11 @@
 // Time: two timelines, deadlines as messages, and how a test decides what
 // "now" means.
 //
-// One `import time` brings the whole module — the types, the two clock effects,
+// One `import std.time` brings the whole module — the types, the two clock effects,
 // the timer, and the fake. Nothing here is built into the language: `Duration`
 // is a struct, `Ticker` is an effect, `Timer` is an actor effect, and
 // `ManualTime` is ordinary Salvo you could have written yourself.
-import time
+import std.time
 
 // What this program is chosen to show, in the order it needs it:
 //

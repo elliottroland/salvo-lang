@@ -11,7 +11,7 @@
 //! ```text
 //! fn total(c: C) -> Int
 //!   3:9   `sum`                      Int
-//!   4:5   `size(xs)`                 Int  -> core.list::size
+//!   4:5   `size(xs)`                 Int  -> std.core.list::size
 //! ```
 
 use salvo_syntax::ast::{Expr, FnDecl, Item};

@@ -7,7 +7,7 @@ use std::path::Path;
 use salvo_core::{Program, SourceSet};
 
 fn build_program(extra: &[(&str, &str)]) -> Option<Program> {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");

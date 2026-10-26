@@ -1,0 +1,197 @@
+package salvo.std.core.sorted
+
+import salvo.*
+
+fun<T> SortedSet_platform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.std.core.sorted.SortedSet<T> = salvo.platform.std.core.sorted.SortedSet(elems, cmp)
+
+fun<T> Mut_SortedSet_platform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.std.core.sorted.MutSortedSet<T> = salvo.platform.std.core.sorted.Mut_SortedSet(elems, cmp)
+
+fun<T> addPlatform(set: salvo.platform.std.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.std.core.sorted.add(set, elem, cmp)
+
+fun<T> remove__SortedSet_T(set: salvo.platform.std.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+    return removeElemPlatform(set, elem, cmp)
+}
+
+fun<T> removeElemPlatform(set: salvo.platform.std.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.std.core.sorted.removeElem(set, elem, cmp)
+
+fun<T> setSizePlatform(set: salvo.platform.std.core.sorted.SortedSet<T>): Int = salvo.platform.std.core.sorted.setSize(set)
+
+fun<K, V> removeKeyPlatform(map: salvo.platform.std.core.sorted.MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? = salvo.platform.std.core.sorted.removeKey(map, key, cmp)
+
+fun<K, V> mapSizePlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>): Int = salvo.platform.std.core.sorted.mapSize(map)
+
+fun<T> containsPlatform(set: salvo.platform.std.core.sorted.SortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.std.core.sorted.contains(set, elem, cmp)
+
+fun<T> size__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>): Int {
+    return setSizePlatform(set)
+}
+
+fun<T> minPlatform(set: salvo.platform.std.core.sorted.SortedSet<T>): T? = salvo.platform.std.core.sorted.min(set)
+
+fun<T> maxPlatform(set: salvo.platform.std.core.sorted.SortedSet<T>): T? = salvo.platform.std.core.sorted.max(set)
+
+fun<T> toListPlatform(set: salvo.platform.std.core.sorted.SortedSet<T>): List<T> = salvo.platform.std.core.sorted.toList(set)
+
+fun<T> toStr__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>, toStr: (T) -> String): String {
+    val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>("{"))
+    var i: Int = 0
+    for (x in salvo.platform.std.core.sorted.eachSortedSet(set)) {
+        if ((i > 0)) {
+            salvo.std.core.string.appendPlatform(out, ", ")
+        }
+        salvo.std.core.string.appendPlatform(out, toStr(x))
+        i = (i + 1)
+    }
+    salvo.std.core.string.appendPlatform(out, "}")
+    return out.toString()
+}
+
+fun<T> iter__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>): salvo.std.core.set.SetYield<T> {
+    return salvo.std.core.set.SetYield<T>(items = toListPlatform(set), at = 0)
+}
+
+fun<K, V> SortedMap_platform(entries: Array<kotlin.Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.std.core.sorted.SortedMap<K, V> = salvo.platform.std.core.sorted.SortedMap(entries, cmp)
+
+fun<K, V> Mut_SortedMap_platform(entries: Array<kotlin.Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.std.core.sorted.MutSortedMap<K, V> = salvo.platform.std.core.sorted.Mut_SortedMap(entries, cmp)
+
+fun<K, V> getPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? = salvo.platform.std.core.sorted.get(map, key, cmp)
+
+fun<K, V> putPlatform(map: salvo.platform.std.core.sorted.MutSortedMap<K, V>, key: K, value: V, cmp: (K, K) -> Int) = salvo.platform.std.core.sorted.put(map, key, value, cmp)
+
+fun<K, V> remove__SortedMap_K(map: salvo.platform.std.core.sorted.MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
+    return removeKeyPlatform(map, key, cmp)
+}
+
+fun<K, V> containsKeyPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): Boolean = salvo.platform.std.core.sorted.containsKey(map, key, cmp)
+
+fun<K, V> size__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>): Int {
+    return mapSizePlatform(map)
+}
+
+fun<K, V> firstKeyPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K? = salvo.platform.std.core.sorted.firstKey(map)
+
+fun<K, V> lastKeyPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K? = salvo.platform.std.core.sorted.lastKey(map)
+
+fun<K, V> keysPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>): List<K> = salvo.platform.std.core.sorted.keys(map)
+
+fun<K, V> toStr__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>, toStr: (K) -> String, toStr__1: (V) -> String, cmp: (K, K) -> Int): String {
+    val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>("{"))
+    var i: Int = 0
+    for (k in salvo.platform.std.core.sorted.eachSortedMap(map)) {
+        if ((i > 0)) {
+            salvo.std.core.string.appendPlatform(out, ", ")
+        }
+        salvo.std.core.string.appendPlatform(out, toStr(k))
+        salvo.std.core.string.appendPlatform(out, ": ")
+        salvo.std.core.string.appendPlatform(out, toStr__1(kotlin.run {
+            val __pick_1: V? = getPlatform(map, k, cmp)
+            (if ((__pick_1 != null)) {
+                val __picked_2: V = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at std.core.sorted:158:43")
+            })
+        }))
+        i = (i + 1)
+    }
+    salvo.std.core.string.appendPlatform(out, "}")
+    return out.toString()
+}
+
+fun<T> eq__SortedSet_SortedSet(a: salvo.platform.std.core.sorted.SortedSet<T>, b: salvo.platform.std.core.sorted.SortedSet<T>, cmp: (T, T) -> Int): Boolean {
+    if ((size__SortedSet(a) != size__SortedSet(b))) {
+        return false
+    }
+    for (x in salvo.platform.std.core.sorted.eachSortedSet(a)) {
+        if (!(containsPlatform(b, x, cmp))) {
+            return false
+        }
+    }
+    return true
+}
+
+fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.std.core.sorted.SortedMap<K, V>, b: salvo.platform.std.core.sorted.SortedMap<K, V>, eq: (V, V) -> Boolean, cmp: (K, K) -> Int): Boolean {
+    if ((size__SortedMap(a) != size__SortedMap(b))) {
+        return false
+    }
+    for (k in salvo.platform.std.core.sorted.eachSortedMap(a)) {
+        val theirs: V? = getPlatform(b, k, cmp)
+        if ((theirs == null)) {
+            return false
+        }
+        val theirs_4: V = theirs!!
+        if (!(eq(kotlin.run {
+            val __pick_1: V? = getPlatform(a, k, cmp)
+            (if ((__pick_1 != null)) {
+                val __picked_2: V = __pick_1!!
+                __picked_2
+            } else {
+                throw AssertionError("salvo: unreachable at std.core.sorted:191:29")
+            })
+        }, theirs_4))) {
+            return false
+        }
+    }
+    return true
+}
+
+fun<K, V> iter__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>): salvo.std.core.map.MapKeyYield<K> {
+    return salvo.std.core.map.MapKeyYield<K>(items = keysPlatform(map), at = 0)
+}
+
+fun<T> NonEmpty_qualifies(set: salvo.platform.std.core.sorted.SortedSet<T>): Boolean {
+    return (size__SortedSet(set) > 0)
+}
+
+fun<K, V> NonEmpty_qualifies(map: salvo.platform.std.core.sorted.SortedMap<K, V>): Boolean {
+    return (size__SortedMap(map) > 0)
+}
+
+fun<T> min(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
+    return kotlin.run {
+        val __pick_1: T? = minPlatform(set)
+        (if ((__pick_1 != null)) {
+            val __picked_2: T = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at std.core.sorted:246:28")
+        })
+    }
+}
+
+fun<T> max(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
+    return kotlin.run {
+        val __pick_1: T? = maxPlatform(set)
+        (if ((__pick_1 != null)) {
+            val __picked_2: T = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at std.core.sorted:250:28")
+        })
+    }
+}
+
+fun<K, V> firstKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
+    return kotlin.run {
+        val __pick_1: K? = firstKeyPlatform(map)
+        (if ((__pick_1 != null)) {
+            val __picked_2: K = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at std.core.sorted:254:34")
+        })
+    }
+}
+
+fun<K, V> lastKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
+    return kotlin.run {
+        val __pick_1: K? = lastKeyPlatform(map)
+        (if ((__pick_1 != null)) {
+            val __picked_2: K = __pick_1!!
+            __picked_2
+        } else {
+            throw AssertionError("salvo: unreachable at std.core.sorted:258:33")
+        })
+    }
+}
+

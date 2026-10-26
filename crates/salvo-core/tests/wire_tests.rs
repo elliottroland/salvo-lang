@@ -57,20 +57,20 @@ fn program(src: &str) -> (Program, Vec<FileDiagnostic>) {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
-    // [fn-type-named] `List<T>()` resolves to `core.list`'s `List`.
+    // [fn-type-named] `List<T>()` resolves to `std.core.list`'s `List`.
     sources.add(
         "std/core/list.sv",
-        SourceSet::classify(Path::new("core/list.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/list.sv")).unwrap(),
         "export intrinsic fn List<T>() [] -> List<T>\n".to_string(),
         true,
     );
     sources.add(
         "std/net.sv",
-        SourceSet::classify(Path::new("net.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/net.sv")).unwrap(),
         STD_NET.to_string(),
         true,
     );
@@ -109,7 +109,7 @@ fn messages(src: &str) -> Vec<String> {
     program(src).1.iter().map(|d| d.message.clone()).collect()
 }
 
-const IMPORT: &str = "import net\n\n";
+const IMPORT: &str = "import std.net\n\n";
 
 /// [wire-format] The default: a struct of scalars, strings, lists, options
 /// and unions has a wire form, and so do `encode` and `decode` of it.
@@ -325,7 +325,7 @@ fn effect_typed_generics_check() {
 #[test]
 fn two_erased_instances_cannot_share_a_scope() {
     let src = "\
-import net
+import std.net
 
 actor effect Ping {
     send fn ping(out: Reply<Str>) => !out
@@ -364,7 +364,7 @@ fn main() [use] {
 #[test]
 fn spawn_in_group_needs_a_group_of_one_of_its_faces() {
     let src = "\
-import net
+import std.net
 
 actor effect Ping { send fn ping() }
 actor effect Pong { send fn pong() }

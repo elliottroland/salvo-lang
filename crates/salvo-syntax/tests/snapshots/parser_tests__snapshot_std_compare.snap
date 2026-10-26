@@ -7372,7 +7372,7 @@ Module {
                 docs: [
                     "The fold a structural `hash` combines its fields' digests with: `seed * 31 +",
                     "value`, which wraps on both backends because integer arithmetic does",
-                    "[op-wrap]. What `core.auto`'s `hash` calls per field; a hand-written `hash`",
+                    "[op-wrap]. What `std.core.auto`'s `hash` calls per field; a hand-written `hash`",
                     "may use it too. Ordinary Salvo since 2026-10-05 (ROADMAP §0j step 2).",
                 ],
                 exported: true,
@@ -7384,7 +7384,7 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "mix_hash",
-                    span: 8934..8942,
+                    span: 8938..8946,
                 },
                 type_name: None,
                 scoped_to: None,
@@ -7398,14 +7398,14 @@ Module {
                     Param {
                         name: Ident {
                             name: "seed",
-                            span: 8943..8947,
+                            span: 8947..8951,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "Long",
-                                    span: 8949..8953,
+                                    span: 8953..8957,
                                 },
                                 args: [],
                                 value_args: [],
@@ -7414,25 +7414,25 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 8949..8953,
+                                span: 8953..8957,
                             },
                         },
                         variadic: false,
                         implicit: false,
                         default: None,
-                        span: 8943..8953,
+                        span: 8947..8957,
                     },
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 8955..8960,
+                            span: 8959..8964,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "Long",
-                                    span: 8962..8966,
+                                    span: 8966..8970,
                                 },
                                 args: [],
                                 value_args: [],
@@ -7441,13 +7441,13 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 8962..8966,
+                                span: 8966..8970,
                             },
                         },
                         variadic: false,
                         implicit: false,
                         default: None,
-                        span: 8955..8966,
+                        span: 8959..8970,
                     },
                 ],
                 implicit_groups: [],
@@ -7460,23 +7460,23 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "seed",
-                                    span: 8982..8986,
+                                    span: 8986..8990,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 8982..8986,
+                            span: 8986..8990,
                         },
                         Deduction {
                             target: Param {
                                 name: Ident {
                                     name: "value",
-                                    span: 8988..8993,
+                                    span: 8992..8997,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 8988..8993,
+                            span: 8992..8997,
                         },
                     ],
                 ),
@@ -7486,7 +7486,7 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "Long",
-                                span: 8974..8978,
+                                span: 8978..8982,
                             },
                             args: [],
                             value_args: [],
@@ -7495,7 +7495,7 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 8974..8978,
+                            span: 8978..8982,
                         },
                     },
                 ),
@@ -7514,33 +7514,33 @@ Module {
                                                 lhs: Ident(
                                                     Ident {
                                                         name: "seed",
-                                                        span: 9007..9011,
+                                                        span: 9011..9015,
                                                     },
                                                 ),
                                                 rhs: Int {
                                                     value: 31,
                                                     long: true,
-                                                    span: 9014..9017,
+                                                    span: 9018..9021,
                                                 },
-                                                span: 9007..9017,
+                                                span: 9011..9021,
                                             },
                                             rhs: Ident(
                                                 Ident {
                                                     name: "value",
-                                                    span: 9020..9025,
+                                                    span: 9024..9029,
                                                 },
                                             ),
-                                            span: 9007..9025,
+                                            span: 9011..9029,
                                         },
                                     ),
-                                    span: 9000..9025,
+                                    span: 9004..9029,
                                 },
                             ),
                         ],
-                        span: 8994..9027,
+                        span: 8998..9031,
                     },
                 ),
-                span: 8931..9027,
+                span: 8935..9031,
             },
         ),
     ],

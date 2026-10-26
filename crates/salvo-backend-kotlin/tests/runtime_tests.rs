@@ -29,7 +29,7 @@ fn runtime_source(file: &str) -> String {
 }
 
 /// [runtime-sched] The scheduler shims onto the Salvo core
-/// (`std/runtime.sv`), so it compiles only beside a generated runtime: the
+/// (`lib/std/runtime.sv`), so it compiles only beside a generated runtime: the
 /// files example's checked-in output, without its `main.kt`, with the
 /// current runtime sources put in place. Answers every source file written.
 fn example_sources(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
@@ -60,7 +60,7 @@ fn copy_kt(from: &std::path::Path, to: &std::path::Path, root: &std::path::Path,
 /// cache key, so a change to the core re-runs the cases.
 fn example_runtime() -> Vec<u8> {
     let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/files/kotlin");
-    std::fs::read(example.join("runtime.kt")).unwrap_or_default()
+    std::fs::read(example.join("std/runtime.kt")).unwrap_or_default()
 }
 
 /// Compiles one runtime module on its own and asserts that `kotlinc`
@@ -317,15 +317,15 @@ fun main() {
     val pool = SalvoSched.pool(2)
     val fragile = SalvoSched.spawn(pool, 4, Fragile())
     val (token, wid) = SalvoSched.waiter()
-    token.takeLocal()?.let { salvo.runtime.watch(fragile, it) }
+    token.takeLocal()?.let { salvo.std.runtime.watch(fragile, it) }
     SalvoSched.send(fragile, "boom")
-    println("exit: exit(${(SalvoSched.awaitReply(wid) as salvo.core.actor.Exit).reason})")
+    println("exit: exit(${(SalvoSched.awaitReply(wid) as salvo.std.core.actor.Exit).reason})")
     // A send to the dead is a no-op: this neither blocks nor fails.
     SalvoSched.send(fragile, "ignored")
     // And a watch registered after the death answers immediately.
     val (lateToken, lateWid) = SalvoSched.waiter()
-    lateToken.takeLocal()?.let { salvo.runtime.watch(fragile, it) }
-    println("late watch: exit(${(SalvoSched.awaitReply(lateWid) as salvo.core.actor.Exit).reason})")
+    lateToken.takeLocal()?.let { salvo.std.runtime.watch(fragile, it) }
+    println("late watch: exit(${(SalvoSched.awaitReply(lateWid) as salvo.std.core.actor.Exit).reason})")
 }
 "#,
             expected_stdout: "exit: exit(boom)\nlate watch: exit(boom)\n",
@@ -668,13 +668,13 @@ fun main() {
     val asker = SalvoSched.spawn(pool, 4, Asker(holder))
     // Nothing has been sent, so the answer is "done".
     val (first, w1) = SalvoSched.waiter()
-    first.takeLocal()?.let { salvo.runtime.onIdle(pool, it) }
+    first.takeLocal()?.let { salvo.std.runtime.onIdle(pool, it) }
     println("settled: ${idleText(SalvoSched.awaitReply(w1))}")
     // The hook cannot fire before the message it was registered after has
     // run: a queued entry is deliverable, so the scheduler is not idle.
     SalvoSched.send(asker, "go")
     val (second, w2) = SalvoSched.waiter()
-    second.takeLocal()?.let { salvo.runtime.onIdle(pool, it) }
+    second.takeLocal()?.let { salvo.std.runtime.onIdle(pool, it) }
     println("stuck: ${idleText(SalvoSched.awaitReply(w2))}")
 }
 "#,
@@ -698,7 +698,7 @@ class Watcher : SalvoActor {
         // registration is a continuation on this actor.
         out = msg as SalvoReply
         val (token, _slot) = SalvoSched.mint(ctx.addr)
-        token.takeLocal()?.let { salvo.runtime.onIdle(SalvoSched.MAIN_POOL, it) }
+        token.takeLocal()?.let { salvo.std.runtime.onIdle(SalvoSched.MAIN_POOL, it) }
     }
 
     override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {
@@ -795,7 +795,7 @@ fun main() {
             &path,
             format!(
                 "package {pkg}\n\nimport salvo.*\n\n\
-                 fun idleText(v: Any?): String {{\n    val i = v as salvo.core.actor.Idle\n    \
+                 fun idleText(v: Any?): String {{\n    val i = v as salvo.std.core.actor.Idle\n    \
                  return \"gates ${{i.parkedGates}}, tokens ${{i.parkedTokens}}\"\n}}\n{}",
                 case.driver
             ),

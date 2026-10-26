@@ -2,7 +2,7 @@
 source: crates/salvo-backend-rust/tests/codegen_tests.rs
 expression: combined
 ---
-// ===== core/basic.rs =====
+// ===== std/core/basic.rs =====
 
 pub fn to_str__TupleAB<A: Clone, B: Clone>(value: &(A, B), to_str: &mut dyn FnMut(&A) -> String, to_str__1: &mut dyn FnMut(&B) -> String) -> String {
     return format!("({}, {})", to_str(&value.0), to_str__1(&value.1));
@@ -12,7 +12,7 @@ pub fn to_str__TupleABC<A: Clone, B: Clone, C: Clone>(value: &(A, B, C), to_str:
     return format!("({}, {}, {})", to_str(&value.0), to_str__1(&value.1), to_str__2(&value.2));
 }
 
-// ===== core/checked.rs =====
+// ===== std/core/checked.rs =====
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Checked<T> {
@@ -30,46 +30,46 @@ impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for Checked<T
     }
 }
 
-pub fn checked<T>(mut value: T) -> crate::core_checked::Checked<T> {
-    return crate::core_checked::Checked { value: value };
+pub fn checked<T>(mut value: T) -> crate::std_core_checked::Checked<T> {
+    return crate::std_core_checked::Checked { value: value };
 }
 
-pub fn ignore<T: Clone>(mut checked: crate::core_checked::Checked<T>) {
+pub fn ignore<T: Clone>(mut checked: crate::std_core_checked::Checked<T>) {
     std::mem::drop(checked);
 }
 
-pub fn detach<T>(mut checked: crate::core_checked::Checked<T>) -> T {
+pub fn detach<T>(mut checked: crate::std_core_checked::Checked<T>) -> T {
     return checked.value;
 }
 
-pub fn to_str<T: Clone>(checked: &crate::core_checked::Checked<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+pub fn to_str<T: Clone>(checked: &crate::std_core_checked::Checked<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
     return to_str(&checked.value);
 }
 
-// ===== core/compare.rs =====
-use crate::core_list::Enumerated;
-use crate::core_iterator::Finished;
-use crate::core_index::Idx__Int_qualifies;
-use crate::core_list::ListEnumerate;
-use crate::core_list::enumerate;
-use crate::core_list::get;
-use crate::core_list::next__ListEnumerate;
-use crate::core_list::size_platform;
+// ===== std/core/compare.rs =====
+use crate::std_core_list::Enumerated;
+use crate::std_core_iterator::Finished;
+use crate::std_core_index::Idx__Int_qualifies;
+use crate::std_core_list::ListEnumerate;
+use crate::std_core_list::enumerate;
+use crate::std_core_list::get;
+use crate::std_core_list::next__ListEnumerate;
+use crate::std_core_list::size_platform;
 
 
 pub fn eq__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
-    if (crate::core_list::size_platform::<T>(a) != crate::core_list::size_platform::<T>(b)) {
+    if (crate::std_core_list::size_platform::<T>(a) != crate::std_core_list::size_platform::<T>(b)) {
         return false;
     };
-    let mut __pass_1: crate::core_list::ListEnumerate<'_, T> = crate::core_list::enumerate::<T>(a);
+    let mut __pass_1: crate::std_core_list::ListEnumerate<'_, T> = crate::std_core_list::enumerate::<T>(a);
     loop {
-        let mut __step_2: crate::unions::Union2<crate::core_list::Enumerated<'_, T>, crate::core_iterator::Finished> = crate::core_list::next__ListEnumerate(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<crate::std_core_list::Enumerated<'_, T>, crate::std_core_iterator::Finished> = crate::std_core_list::next__ListEnumerate(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            let mut p: crate::core_list::Enumerated<'_, T> = __emitted_3;
+            let mut p: crate::std_core_list::Enumerated<'_, T> = __emitted_3;
             let mut j: i32 = p.index;
-            if crate::core_index::Idx__Int_qualifies(j, b, &mut |__a0| crate::core_list::size_platform(__a0)) {
-                if !(eq(p.elem, crate::core_list::get::<T>(b, j))) {
+            if crate::std_core_index::Idx__Int_qualifies(j, b, &mut |__a0| crate::std_core_list::size_platform(__a0)) {
+                if !(eq(p.elem, crate::std_core_list::get::<T>(b, j))) {
                     return false;
                 };
             };
@@ -81,15 +81,15 @@ pub fn eq__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, eq: &mut dyn FnMut(&T, &T
 }
 
 pub fn cmp__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> i32 {
-    let mut __pass_1: crate::core_list::ListEnumerate<'_, T> = crate::core_list::enumerate::<T>(a);
+    let mut __pass_1: crate::std_core_list::ListEnumerate<'_, T> = crate::std_core_list::enumerate::<T>(a);
     loop {
-        let mut __step_2: crate::unions::Union2<crate::core_list::Enumerated<'_, T>, crate::core_iterator::Finished> = crate::core_list::next__ListEnumerate(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<crate::std_core_list::Enumerated<'_, T>, crate::std_core_iterator::Finished> = crate::std_core_list::next__ListEnumerate(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            let mut p: crate::core_list::Enumerated<'_, T> = __emitted_3;
+            let mut p: crate::std_core_list::Enumerated<'_, T> = __emitted_3;
             let mut j: i32 = p.index;
-            if crate::core_index::Idx__Int_qualifies(j, b, &mut |__a0| crate::core_list::size_platform(__a0)) {
-                let mut c: i32 = cmp(p.elem, crate::core_list::get::<T>(b, j));
+            if crate::std_core_index::Idx__Int_qualifies(j, b, &mut |__a0| crate::std_core_list::size_platform(__a0)) {
+                let mut c: i32 = cmp(p.elem, crate::std_core_list::get::<T>(b, j));
                 if (c != 0i32) {
                     return c;
                 };
@@ -100,7 +100,7 @@ pub fn cmp__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, cmp: &mut dyn FnMut(&T, 
             break;
         };
     }
-    if (crate::core_list::size_platform::<T>(a) < crate::core_list::size_platform::<T>(b)) {
+    if (crate::std_core_list::size_platform::<T>(a) < crate::std_core_list::size_platform::<T>(b)) {
         return i32::wrapping_neg(1i32);
     };
     return 0i32;
@@ -109,7 +109,7 @@ pub fn cmp__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, cmp: &mut dyn FnMut(&T, 
 pub fn hash__List<T: Clone>(value: &Vec<T>, hash: &mut dyn FnMut(&T) -> i64) -> i64 {
     let mut h: i64 = 7i64;
     for mut x in value.iter() {
-        h = crate::core_compare::mix_hash(h, hash(x));
+        h = crate::std_core_compare::mix_hash(h, hash(x));
     }
     return h;
 }
@@ -127,7 +127,7 @@ pub fn cmp__TupleAB_TupleAB<A: Clone, B: Clone>(a: &(A, B), b: &(A, B), cmp: &mu
 }
 
 pub fn hash__TupleAB<A: Clone, B: Clone>(value: &(A, B), hash: &mut dyn FnMut(&A) -> i64, hash__1: &mut dyn FnMut(&B) -> i64) -> i64 {
-    return crate::core_compare::mix_hash(crate::core_compare::mix_hash(7i64, hash(&value.0)), hash__1(&value.1));
+    return crate::std_core_compare::mix_hash(crate::std_core_compare::mix_hash(7i64, hash(&value.0)), hash__1(&value.1));
 }
 
 pub fn eq__TupleABC_TupleABC<A: Clone, B: Clone, C: Clone>(a: &(A, B, C), b: &(A, B, C), eq: &mut dyn FnMut(&A, &A) -> bool, eq__1: &mut dyn FnMut(&B, &B) -> bool, eq__2: &mut dyn FnMut(&C, &C) -> bool) -> bool {
@@ -147,14 +147,14 @@ pub fn cmp__TupleABC_TupleABC<A: Clone, B: Clone, C: Clone>(a: &(A, B, C), b: &(
 }
 
 pub fn hash__TupleABC<A: Clone, B: Clone, C: Clone>(value: &(A, B, C), hash: &mut dyn FnMut(&A) -> i64, hash__1: &mut dyn FnMut(&B) -> i64, hash__2: &mut dyn FnMut(&C) -> i64) -> i64 {
-    return crate::core_compare::mix_hash(crate::core_compare::mix_hash(crate::core_compare::mix_hash(7i64, hash(&value.0)), hash__1(&value.1)), hash__2(&value.2));
+    return crate::std_core_compare::mix_hash(crate::std_core_compare::mix_hash(crate::std_core_compare::mix_hash(7i64, hash(&value.0)), hash__1(&value.1)), hash__2(&value.2));
 }
 
 pub fn mix_hash(mut seed: i64, mut value: i64) -> i64 {
     return i64::wrapping_add(i64::wrapping_mul(seed, 31i64), value);
 }
 
-// ===== core/console.rs =====
+// ===== std/core/console.rs =====
 
 pub trait __Stateless_Console: Send + Sync {
     fn print(&self, message: &String);
@@ -241,24 +241,24 @@ impl<T: ConsolePlatformSync> __Stateless_Console for __Platform_Console<T> {
     }
 }
 
-pub type __Platform_StdConsole = crate::core_console::__Platform_Console<crate::platform_core_console::StdConsole>;
+pub type __Platform_StdConsole = crate::std_core_console::__Platform_Console<crate::platform_std_core_console::StdConsole>;
 
 impl __Platform_StdConsole {
     pub fn new() -> Self {
-        crate::core_console::__Platform_Console(crate::platform_core_console::StdConsole::new())
+        crate::std_core_console::__Platform_Console(crate::platform_std_core_console::StdConsole::new())
     }
 }
 
-pub fn println(console: &crate::core_console::Console, message: &String) {
+pub fn println(console: &crate::std_core_console::Console, message: &String) {
     console.print(message);
     console.print(&String::from("\n"));
 }
 
-// ===== core/index.rs =====
-use crate::core_iterator::Finished;
-use crate::core_iterator::emitted;
-use crate::core_iterator::finished;
-use crate::core_list::size_platform;
+// ===== std/core/index.rs =====
+use crate::std_core_iterator::Finished;
+use crate::std_core_iterator::emitted;
+use crate::std_core_iterator::finished;
+use crate::std_core_list::size_platform;
 
 
 pub fn Idx__Int_qualifies<C>(mut index: i32, c: &C, size: &mut dyn FnMut(&C) -> i32) -> bool {
@@ -271,17 +271,17 @@ pub struct Indices<'s, T> {
     pub at: i32,
 }
 
-pub fn indices<T: Clone>(list: &Vec<T>) -> crate::core_index::Indices<'_, T> {
-    return crate::core_index::Indices { list: list, at: 0i32 };
+pub fn indices<T: Clone>(list: &Vec<T>) -> crate::std_core_index::Indices<'_, T> {
+    return crate::std_core_index::Indices { list: list, at: 0i32 };
 }
 
-pub fn next__Indices<T: Clone>(__p: &mut crate::core_index::Indices<'_, T>) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
-    if (__p.at >= crate::core_list::size_platform::<T>(__p.list)) {
-        return crate::unions::Union2::U2(crate::core_iterator::finished());
+pub fn next__Indices<T: Clone>(__p: &mut crate::std_core_index::Indices<'_, T>) -> crate::unions::Union2<i32, crate::std_core_iterator::Finished> {
+    if (__p.at >= crate::std_core_list::size_platform::<T>(__p.list)) {
+        return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
     let mut index: i32 = __p.at;
     __p.at = i32::wrapping_add(__p.at, 1i32);
-    return crate::unions::Union2::U1(crate::core_iterator::emitted::<i32>(index));
+    return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<i32>(index));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -290,20 +290,20 @@ pub struct RevIndices<'s, T> {
     pub at: i32,
 }
 
-pub fn rev_indices<T: Clone>(list: &Vec<T>) -> crate::core_index::RevIndices<'_, T> {
-    return crate::core_index::RevIndices { list: list, at: i32::wrapping_sub(crate::core_list::size_platform::<T>(list), 1i32) };
+pub fn rev_indices<T: Clone>(list: &Vec<T>) -> crate::std_core_index::RevIndices<'_, T> {
+    return crate::std_core_index::RevIndices { list: list, at: i32::wrapping_sub(crate::std_core_list::size_platform::<T>(list), 1i32) };
 }
 
-pub fn next__RevIndices<T: Clone>(__p: &mut crate::core_index::RevIndices<'_, T>) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
+pub fn next__RevIndices<T: Clone>(__p: &mut crate::std_core_index::RevIndices<'_, T>) -> crate::unions::Union2<i32, crate::std_core_iterator::Finished> {
     if (__p.at < 0i32) {
-        return crate::unions::Union2::U2(crate::core_iterator::finished());
+        return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
     let mut index: i32 = __p.at;
     __p.at = i32::wrapping_sub(__p.at, 1i32);
-    return crate::unions::Union2::U1(crate::core_iterator::emitted::<i32>(index));
+    return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<i32>(index));
 }
 
-// ===== core/iterator.rs =====
+// ===== std/core/iterator.rs =====
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Finished {
@@ -322,36 +322,36 @@ pub fn emitted<T>(mut value: T) -> T {
     return value;
 }
 
-pub fn finished() -> crate::core_iterator::Finished {
-    return crate::core_iterator::Finished {};
+pub fn finished() -> crate::std_core_iterator::Finished {
+    return crate::std_core_iterator::Finished {};
 }
 
-// ===== core/list.rs =====
-use crate::core_checked::Checked;
-use crate::core_iterator::Finished;
-use crate::core_index::Idx__Int_qualifies;
-use crate::core_index::Indices;
-use crate::core_string::Mut_Str;
-use crate::core_index::RevIndices;
-use crate::core_string::append_platform;
-use crate::core_checked::checked;
-use crate::core_iterator::emitted;
-use crate::core_iterator::finished;
-use crate::core_checked::ignore;
-use crate::core_index::indices;
-use crate::core_index::next__Indices;
-use crate::core_index::next__RevIndices;
-use crate::core_index::rev_indices;
+// ===== std/core/list.rs =====
+use crate::std_core_checked::Checked;
+use crate::std_core_iterator::Finished;
+use crate::std_core_index::Idx__Int_qualifies;
+use crate::std_core_index::Indices;
+use crate::std_core_string::Mut_Str;
+use crate::std_core_index::RevIndices;
+use crate::std_core_string::append_platform;
+use crate::std_core_checked::checked;
+use crate::std_core_iterator::emitted;
+use crate::std_core_iterator::finished;
+use crate::std_core_checked::ignore;
+use crate::std_core_index::indices;
+use crate::std_core_index::next__Indices;
+use crate::std_core_index::next__RevIndices;
+use crate::std_core_index::rev_indices;
 
 
 /// [platform-type] The host's `List`.
-pub use crate::platform_core_list::List;
+pub use crate::platform_std_core_list::List;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<List<i32>>(); };
-const _: fn() = || { fn __each(x: &List<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_list::each(x).map(|e| e.clone()) } let _ = __each; };
-const _: fn() = || { fn __each_ref(x: &List<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_list::each(x) } fn __each_mut(x: &mut List<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_list::each_mut(x) } fn __into_each(x: List<i32>) -> impl Iterator<Item = i32> { crate::platform_core_list::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
+const _: fn() = || { fn __each(x: &List<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_std_core_list::each(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &List<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_std_core_list::each(x) } fn __each_mut(x: &mut List<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_std_core_list::each_mut(x) } fn __into_each(x: List<i32>) -> impl Iterator<Item = i32> { crate::platform_std_core_list::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
 pub fn list_by<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T) -> Vec<T> {
-    return crate::core_list::mut_list_by::<T>(size, &mut *init);
+    return crate::std_core_list::mut_list_by::<T>(size, &mut *init);
 }
 
 pub fn mut_list_by<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T) -> Vec<T> {
@@ -361,31 +361,31 @@ pub fn mut_list_by<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T) -> V
         if !((i < size)) {
             break;
         };
-        crate::core_list::add_platform::<T>(&mut out, init(i));
+        crate::std_core_list::add_platform::<T>(&mut out, init(i));
         i = i32::wrapping_add(i, 1i32);
     }
     return out;
 }
 
 pub fn get_platform<T>(list: &Vec<T>, mut index: i32) -> Option<&T> {
-    crate::platform_core_list::get(list, index)
+    crate::platform_std_core_list::get(list, index)
 }
 
 pub fn get<T>(list: &Vec<T>, mut index: i32) -> &T {
-    return crate::core_list::get_at_platform::<T>(list, i32::wrapping_add(index, 0i32));
+    return crate::std_core_list::get_at_platform::<T>(list, i32::wrapping_add(index, 0i32));
 }
 
 pub fn get_at_platform<T>(list: &Vec<T>, mut index: i32) -> &T {
-    crate::platform_core_list::get_at(list, index)
+    crate::platform_std_core_list::get_at(list, index)
 }
 
 pub fn swap__MutList_IdxInt_IdxInt<T: Clone>(list: &mut Vec<T>, mut i: i32, mut j: i32) {
-    { let __arg1 = crate::core_list::swap__MutList_Int_Int::<T>(&mut *list, i32::wrapping_add(i, 0i32), i32::wrapping_add(j, 0i32)); crate::core_checked::ignore::<bool>(__arg1) };
+    { let __arg1 = crate::std_core_list::swap__MutList_Int_Int::<T>(&mut *list, i32::wrapping_add(i, 0i32), i32::wrapping_add(j, 0i32)); crate::std_core_checked::ignore::<bool>(__arg1) };
     return;
 }
 
 pub fn replace_platform<T>(list: &mut Vec<T>, mut index: i32, mut value: T) -> T {
-    crate::platform_core_list::replace(list, index, value)
+    crate::platform_std_core_list::replace(list, index, value)
 }
 
 pub fn at_platform<T>(list: &Vec<T>, mut index: i32) -> Option<usize> {
@@ -393,7 +393,7 @@ pub fn at_platform<T>(list: &Vec<T>, mut index: i32) -> Option<usize> {
 }
 
 pub fn at<T>(list: &Vec<T>, mut index: i32) -> usize {
-    return crate::core_list::at_proven_platform(list, i32::wrapping_add(index, 0i32));
+    return crate::std_core_list::at_proven_platform(list, i32::wrapping_add(index, 0i32));
 }
 
 pub fn at_proven_platform<T>(list: &Vec<T>, mut index: i32) -> usize {
@@ -401,150 +401,150 @@ pub fn at_proven_platform<T>(list: &Vec<T>, mut index: i32) -> usize {
 }
 
 pub fn update<T: Clone>(list: &mut Vec<T>, mut index: i32, f: &mut dyn FnMut(&mut T)) {
-    f({ let __l1 = crate::core_list::at(&*list, index); &mut list[__l1] });
+    f({ let __l1 = crate::std_core_list::at(&*list, index); &mut list[__l1] });
     return;
 }
 
 pub fn add_platform<T>(list: &mut Vec<T>, mut elem: T) {
-    crate::platform_core_list::add(list, elem)
+    crate::platform_std_core_list::add(list, elem)
 }
 
 pub fn remove_first_platform<T>(list: &mut Vec<T>) -> Option<T> {
-    crate::platform_core_list::remove_first(list)
+    crate::platform_std_core_list::remove_first(list)
 }
 
 pub fn remove_at_platform<T>(list: &mut Vec<T>, mut index: i32) -> Option<T> {
-    crate::platform_core_list::remove_at(list, index)
+    crate::platform_std_core_list::remove_at(list, index)
 }
 
 pub fn insert_at_platform<T>(list: &mut Vec<T>, mut index: i32, mut elem: T) -> Option<T> {
-    crate::platform_core_list::insert_at(list, index, elem)
+    crate::platform_std_core_list::insert_at(list, index, elem)
 }
 
 pub fn remove_range_platform<T>(list: &mut Vec<T>, mut from: i32, mut to: i32) -> Vec<T> {
-    crate::platform_core_list::remove_range(list, from, to)
+    crate::platform_std_core_list::remove_range(list, from, to)
 }
 
-pub fn swap__MutList_Int_Int<T>(list: &mut Vec<T>, mut i: i32, mut j: i32) -> crate::core_checked::Checked<bool> {
-    return { let __arg1 = crate::core_list::swap_at_platform::<T>(&mut *list, i, j); crate::core_checked::checked::<bool>(__arg1) };
+pub fn swap__MutList_Int_Int<T>(list: &mut Vec<T>, mut i: i32, mut j: i32) -> crate::std_core_checked::Checked<bool> {
+    return { let __arg1 = crate::std_core_list::swap_at_platform::<T>(&mut *list, i, j); crate::std_core_checked::checked::<bool>(__arg1) };
 }
 
 pub fn swap_at_platform<T>(list: &mut Vec<T>, mut i: i32, mut j: i32) -> bool {
-    crate::platform_core_list::swap_at(list, i, j)
+    crate::platform_std_core_list::swap_at(list, i, j)
 }
 
 pub fn drain<T>(mut list: Vec<T>, each: &mut dyn FnMut(T)) {
-    let mut m: Vec<T> = crate::core_list::into_mut_platform::<T>(list);
-    crate::core_list::reverse::<T>(&mut m);
+    let mut m: Vec<T> = crate::std_core_list::into_mut_platform::<T>(list);
+    crate::std_core_list::reverse::<T>(&mut m);
     loop {
-        if !((crate::core_list::size_platform::<T>(&m) > 0i32)) {
+        if !((crate::std_core_list::size_platform::<T>(&m) > 0i32)) {
             break;
         };
         { let __arg1 = {
-            let mut __pick_1: Option<T> = crate::core_list::remove_last_platform::<T>(&mut m);
+            let mut __pick_1: Option<T> = crate::std_core_list::remove_last_platform::<T>(&mut m);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at core.list:247:32")
+                panic!("salvo: unreachable at std.core.list:247:32")
             }
         }; each(__arg1) };
     }
-    crate::core_list::end_empty_platform::<T>(m);
+    crate::std_core_list::end_empty_platform::<T>(m);
 }
 
 pub fn into_mut_platform<T>(mut list: Vec<T>) -> Vec<T> {
-    crate::platform_core_list::into_mut(list)
+    crate::platform_std_core_list::into_mut(list)
 }
 
 pub fn end_empty_platform<T>(mut list: Vec<T>) {
-    crate::platform_core_list::end_empty(list)
+    crate::platform_std_core_list::end_empty(list)
 }
 
 pub fn remove_last_platform<T>(list: &mut Vec<T>) -> Option<T> {
-    crate::platform_core_list::remove_last(list)
+    crate::platform_std_core_list::remove_last(list)
 }
 
 pub fn first_platform<T>(list: &Vec<T>) -> Option<&T> {
-    crate::platform_core_list::first(list)
+    crate::platform_std_core_list::first(list)
 }
 
 pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
-    return (crate::core_list::size_platform::<T>(list) > 0i32);
+    return (crate::std_core_list::size_platform::<T>(list) > 0i32);
 }
 
 pub fn first<T>(list: &Vec<T>) -> &T {
     return {
-        let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(list, 0i32);
+        let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(list, 0i32);
         if __pick_1.is_some() {
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at core.list:304:28")
+            panic!("salvo: unreachable at std.core.list:304:28")
         }
     };
 }
 
 pub fn size_platform<T>(list: &Vec<T>) -> i32 {
-    crate::platform_core_list::size(list)
+    crate::platform_std_core_list::size(list)
 }
 
 pub fn last<T>(list: &Vec<T>) -> Option<&T> {
-    return crate::core_list::get_platform::<T>(list, i32::wrapping_sub(crate::core_list::size_platform::<T>(list), 1i32));
+    return crate::std_core_list::get_platform::<T>(list, i32::wrapping_sub(crate::std_core_list::size_platform::<T>(list), 1i32));
 }
 
 pub fn is_empty<T>(list: &Vec<T>) -> bool {
-    return (crate::core_list::size_platform::<T>(list) == 0i32);
+    return (crate::std_core_list::size_platform::<T>(list) == 0i32);
 }
 
 pub fn remove_front<T>(list: &mut Vec<T>, mut n: i32) -> Vec<T> {
-    return crate::core_list::remove_range_platform::<T>(&mut *list, 0i32, n);
+    return crate::std_core_list::remove_range_platform::<T>(&mut *list, 0i32, n);
 }
 
 pub fn remove_back<T>(list: &mut Vec<T>, mut n: i32) -> Vec<T> {
-    let mut at: i32 = i32::wrapping_sub(crate::core_list::size_platform::<T>(&*list), n);
+    let mut at: i32 = i32::wrapping_sub(crate::std_core_list::size_platform::<T>(&*list), n);
     if (at < 0i32) {
         at = 0i32;
     };
-    return { let __arg1 = crate::core_list::size_platform::<T>(&*list); crate::core_list::remove_range_platform::<T>(&mut *list, at, __arg1) };
+    return { let __arg1 = crate::std_core_list::size_platform::<T>(&*list); crate::std_core_list::remove_range_platform::<T>(&mut *list, at, __arg1) };
 }
 
 pub fn remove_front_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool) -> Vec<T> {
     let mut n: i32 = 0i32;
     loop {
-        if !(((n < crate::core_list::size_platform::<T>(&*list)) && keep({
-            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(&*list, n);
+        if !(((n < crate::std_core_list::size_platform::<T>(&*list)) && keep({
+            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(&*list, n);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at core.list:347:50")
+                panic!("salvo: unreachable at std.core.list:347:50")
             }
         }))) {
             break;
         };
         n = i32::wrapping_add(n, 1i32);
     }
-    return crate::core_list::remove_range_platform::<T>(&mut *list, 0i32, n);
+    return crate::std_core_list::remove_range_platform::<T>(&mut *list, 0i32, n);
 }
 
 pub fn remove_back_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool) -> Vec<T> {
-    let mut at: i32 = crate::core_list::size_platform::<T>(&*list);
+    let mut at: i32 = crate::std_core_list::size_platform::<T>(&*list);
     loop {
         if !(((at > 0i32) && keep({
-            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(&*list, i32::wrapping_sub(at, 1i32));
+            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(&*list, i32::wrapping_sub(at, 1i32));
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at core.list:359:47")
+                panic!("salvo: unreachable at std.core.list:359:47")
             }
         }))) {
             break;
         };
         at = i32::wrapping_sub(at, 1i32);
     }
-    return { let __arg1 = crate::core_list::size_platform::<T>(&*list); crate::core_list::remove_range_platform::<T>(&mut *list, at, __arg1) };
+    return { let __arg1 = crate::std_core_list::size_platform::<T>(&*list); crate::std_core_list::remove_range_platform::<T>(&mut *list, at, __arg1) };
 }
 
 pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut dyn FnMut(&T) -> T) -> Vec<T> {
@@ -554,16 +554,16 @@ pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut 
         i = 0i32;
     };
     loop {
-        if !(((i < to) && (i < crate::core_list::size_platform::<T>(list)))) {
+        if !(((i < to) && (i < crate::std_core_list::size_platform::<T>(list)))) {
             break;
         };
-        crate::core_list::add_platform::<T>(&mut out, copy({
-            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+        crate::std_core_list::add_platform::<T>(&mut out, copy({
+            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at core.list:377:39")
+                panic!("salvo: unreachable at std.core.list:377:39")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -572,13 +572,13 @@ pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut 
 }
 
 pub fn find_first<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> Option<i32> {
-    let mut __pass_1: crate::core_index::Indices<'_, T> = crate::core_index::indices::<T>(list);
+    let mut __pass_1: crate::std_core_index::Indices<'_, T> = crate::std_core_index::indices::<T>(list);
     loop {
-        let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_index::next__Indices(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::std_core_index::next__Indices(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut i: i32 = __emitted_3;
-            if pick(crate::core_list::get::<T>(list, i)) {
+            if pick(crate::std_core_list::get::<T>(list, i)) {
                 return Some(i);
             };
         } else {
@@ -589,13 +589,13 @@ pub fn find_first<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> 
 }
 
 pub fn find_last<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> Option<i32> {
-    let mut __pass_1: crate::core_index::RevIndices<'_, T> = crate::core_index::rev_indices::<T>(list);
+    let mut __pass_1: crate::std_core_index::RevIndices<'_, T> = crate::std_core_index::rev_indices::<T>(list);
     loop {
-        let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_index::next__RevIndices(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::std_core_index::next__RevIndices(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut i: i32 = __emitted_3;
-            if pick(crate::core_list::get::<T>(list, i)) {
+            if pick(crate::std_core_list::get::<T>(list, i)) {
                 return Some(i);
             };
         } else {
@@ -606,13 +606,13 @@ pub fn find_last<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> O
 }
 
 pub fn index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> Option<i32> {
-    let mut __pass_1: crate::core_index::Indices<'_, T> = crate::core_index::indices::<T>(list);
+    let mut __pass_1: crate::std_core_index::Indices<'_, T> = crate::std_core_index::indices::<T>(list);
     loop {
-        let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_index::next__Indices(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::std_core_index::next__Indices(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut i: i32 = __emitted_3;
-            if eq(crate::core_list::get::<T>(list, i), elem) {
+            if eq(crate::std_core_list::get::<T>(list, i), elem) {
                 return Some(i);
             };
         } else {
@@ -623,13 +623,13 @@ pub fn index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) ->
 }
 
 pub fn last_index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> Option<i32> {
-    let mut __pass_1: crate::core_index::RevIndices<'_, T> = crate::core_index::rev_indices::<T>(list);
+    let mut __pass_1: crate::std_core_index::RevIndices<'_, T> = crate::std_core_index::rev_indices::<T>(list);
     loop {
-        let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_index::next__RevIndices(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::std_core_index::next__RevIndices(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut i: i32 = __emitted_3;
-            if eq(crate::core_list::get::<T>(list, i), elem) {
+            if eq(crate::std_core_list::get::<T>(list, i), elem) {
                 return Some(i);
             };
         } else {
@@ -642,16 +642,16 @@ pub fn last_index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &
 pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
     let mut i: i32 = 0i32;
     loop {
-        if !((i < crate::core_list::size_platform::<T>(list))) {
+        if !((i < crate::std_core_list::size_platform::<T>(list))) {
             break;
         };
         if eq({
-            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at core.list:427:31")
+                panic!("salvo: unreachable at std.core.list:427:31")
             }
         }, elem) {
             return true;
@@ -662,22 +662,22 @@ pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) ->
 }
 
 pub fn any<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> bool {
-    return !((crate::core_list::find_first::<T>(list, &mut *pick)).is_none());
+    return !((crate::std_core_list::find_first::<T>(list, &mut *pick)).is_none());
 }
 
 pub fn all<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> bool {
     let mut i: i32 = 0i32;
     loop {
-        if !((i < crate::core_list::size_platform::<T>(list))) {
+        if !((i < crate::std_core_list::size_platform::<T>(list))) {
             break;
         };
         if !(pick({
-            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at core.list:444:34")
+                panic!("salvo: unreachable at std.core.list:444:34")
             }
         })) {
             return false;
@@ -691,16 +691,16 @@ pub fn count<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> i32 {
     let mut n: i32 = 0i32;
     let mut i: i32 = 0i32;
     loop {
-        if !((i < crate::core_list::size_platform::<T>(list))) {
+        if !((i < crate::std_core_list::size_platform::<T>(list))) {
             break;
         };
         if pick({
-            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at core.list:457:33")
+                panic!("salvo: unreachable at std.core.list:457:33")
             }
         }) {
             n = i32::wrapping_add(n, 1i32);
@@ -715,22 +715,22 @@ pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy
     let mut no: Vec<T> = vec![];
     let mut i: i32 = 0i32;
     loop {
-        if !((i < crate::core_list::size_platform::<T>(list))) {
+        if !((i < crate::std_core_list::size_platform::<T>(list))) {
             break;
         };
         let mut x: &T = {
-            let mut __pick_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at core.list:474:33")
+                panic!("salvo: unreachable at std.core.list:474:33")
             }
         };
         if pick(x) {
-            crate::core_list::add_platform::<T>(&mut yes, copy(x));
+            crate::std_core_list::add_platform::<T>(&mut yes, copy(x));
         } else {
-            crate::core_list::add_platform::<T>(&mut no, copy(x));
+            crate::std_core_list::add_platform::<T>(&mut no, copy(x));
         };
         i = i32::wrapping_add(i, 1i32);
     }
@@ -739,19 +739,19 @@ pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy
 
 pub fn reverse<T>(list: &mut Vec<T>) {
     let mut i: i32 = 0i32;
-    let mut j: i32 = i32::wrapping_sub(crate::core_list::size_platform::<T>(&*list), 1i32);
+    let mut j: i32 = i32::wrapping_sub(crate::std_core_list::size_platform::<T>(&*list), 1i32);
     loop {
         if !((i < j)) {
             break;
         };
-        { let __arg1 = crate::core_list::swap__MutList_Int_Int::<T>(&mut *list, i, j); crate::core_checked::ignore::<bool>(__arg1) };
+        { let __arg1 = crate::std_core_list::swap__MutList_Int_Int::<T>(&mut *list, i, j); crate::std_core_checked::ignore::<bool>(__arg1) };
         i = i32::wrapping_add(i, 1i32);
         j = i32::wrapping_sub(j, 1i32);
     }
 }
 
-pub fn iter<T: Clone>(list: &Vec<T>) -> crate::core_list::ListYield<'_, T> {
-    return crate::core_list::ListYield { items: list, at: 0i32 };
+pub fn iter<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListYield<'_, T> {
+    return crate::std_core_list::ListYield { items: list, at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -760,14 +760,14 @@ pub struct ListYield<'s, T> {
     pub at: i32,
 }
 
-pub fn next__ListYield<'a, T: Clone>(p: &mut crate::core_list::ListYield<'a, T>) -> crate::unions::Union2<&'a T, crate::core_iterator::Finished> {
-    let mut elem: Option<&T> = crate::core_list::get_platform::<T>(p.items, p.at);
+pub fn next__ListYield<'a, T: Clone>(p: &mut crate::std_core_list::ListYield<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::std_core_list::get_platform::<T>(p.items, p.at);
     if elem.is_none() {
-        return crate::unions::Union2::U2(crate::core_iterator::finished());
+        return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
     p.at = i32::wrapping_add(p.at, 1i32);
     let mut elem_1 = elem.unwrap();
-    return crate::unions::Union2::U1(crate::core_iterator::emitted::<&T>(elem_1));
+    return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<&T>(elem_1));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -776,18 +776,18 @@ pub struct ListReversed<'s, T> {
     pub at: i32,
 }
 
-pub fn reversed<T: Clone>(list: &Vec<T>) -> crate::core_list::ListReversed<'_, T> {
-    return crate::core_list::ListReversed { list: list, at: i32::wrapping_sub(crate::core_list::size_platform::<T>(list), 1i32) };
+pub fn reversed<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListReversed<'_, T> {
+    return crate::std_core_list::ListReversed { list: list, at: i32::wrapping_sub(crate::std_core_list::size_platform::<T>(list), 1i32) };
 }
 
-pub fn next__ListReversed<'a, T: Clone>(__p: &mut crate::core_list::ListReversed<'a, T>) -> crate::unions::Union2<&'a T, crate::core_iterator::Finished> {
-    let mut elem: Option<&T> = crate::core_list::get_platform::<T>(__p.list, __p.at);
+pub fn next__ListReversed<'a, T: Clone>(__p: &mut crate::std_core_list::ListReversed<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::std_core_list::get_platform::<T>(__p.list, __p.at);
     if elem.is_none() {
-        return crate::unions::Union2::U2(crate::core_iterator::finished());
+        return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
     __p.at = i32::wrapping_sub(__p.at, 1i32);
     let mut elem_1 = elem.unwrap();
-    return crate::unions::Union2::U1(crate::core_iterator::emitted::<&T>(elem_1));
+    return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<&T>(elem_1));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -802,19 +802,19 @@ pub struct ListEnumerate<'s, T> {
     pub at: i32,
 }
 
-pub fn enumerate<T: Clone>(list: &Vec<T>) -> crate::core_list::ListEnumerate<'_, T> {
-    return crate::core_list::ListEnumerate { list: list, at: 0i32 };
+pub fn enumerate<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListEnumerate<'_, T> {
+    return crate::std_core_list::ListEnumerate { list: list, at: 0i32 };
 }
 
-pub fn next__ListEnumerate<'a, T: Clone>(__p: &mut crate::core_list::ListEnumerate<'a, T>) -> crate::unions::Union2<crate::core_list::Enumerated<'a, T>, crate::core_iterator::Finished> {
-    let mut elem: Option<&T> = crate::core_list::get_platform::<T>(__p.list, __p.at);
+pub fn next__ListEnumerate<'a, T: Clone>(__p: &mut crate::std_core_list::ListEnumerate<'a, T>) -> crate::unions::Union2<crate::std_core_list::Enumerated<'a, T>, crate::std_core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::std_core_list::get_platform::<T>(__p.list, __p.at);
     if elem.is_none() {
-        return crate::unions::Union2::U2(crate::core_iterator::finished());
+        return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
     let mut index: i32 = __p.at;
     __p.at = i32::wrapping_add(__p.at, 1i32);
     let mut elem_1 = elem.unwrap();
-    return crate::unions::Union2::U1(crate::core_iterator::emitted::<crate::core_list::Enumerated<'_, T>>(crate::core_list::Enumerated { index: index, elem: elem_1 }));
+    return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<crate::std_core_list::Enumerated<'_, T>>(crate::std_core_list::Enumerated { index: index, elem: elem_1 }));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -823,65 +823,65 @@ pub struct ListEnumerateRev<'s, T> {
     pub at: i32,
 }
 
-pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> crate::core_list::ListEnumerateRev<'_, T> {
-    return crate::core_list::ListEnumerateRev { list: list, at: i32::wrapping_sub(crate::core_list::size_platform::<T>(list), 1i32) };
+pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListEnumerateRev<'_, T> {
+    return crate::std_core_list::ListEnumerateRev { list: list, at: i32::wrapping_sub(crate::std_core_list::size_platform::<T>(list), 1i32) };
 }
 
-pub fn next__ListEnumerateRev<'a, T: Clone>(__p: &mut crate::core_list::ListEnumerateRev<'a, T>) -> crate::unions::Union2<crate::core_list::Enumerated<'a, T>, crate::core_iterator::Finished> {
-    let mut elem: Option<&T> = crate::core_list::get_platform::<T>(__p.list, __p.at);
+pub fn next__ListEnumerateRev<'a, T: Clone>(__p: &mut crate::std_core_list::ListEnumerateRev<'a, T>) -> crate::unions::Union2<crate::std_core_list::Enumerated<'a, T>, crate::std_core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::std_core_list::get_platform::<T>(__p.list, __p.at);
     if elem.is_none() {
-        return crate::unions::Union2::U2(crate::core_iterator::finished());
+        return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
     let mut index: i32 = __p.at;
     __p.at = i32::wrapping_sub(__p.at, 1i32);
     let mut elem_1 = elem.unwrap();
-    return crate::unions::Union2::U1(crate::core_iterator::emitted::<crate::core_list::Enumerated<'_, T>>(crate::core_list::Enumerated { index: index, elem: elem_1 }));
+    return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<crate::std_core_list::Enumerated<'_, T>>(crate::std_core_list::Enumerated { index: index, elem: elem_1 }));
 }
 
 pub fn to_str<T: Clone>(list: &Vec<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
-    let mut out: String = crate::core_string::Mut_Str(vec![String::from("[")]);
+    let mut out: String = crate::std_core_string::Mut_Str(vec![String::from("[")]);
     let mut i: i32 = 0i32;
     for mut x in list.iter() {
         if (i > 0i32) {
-            crate::core_string::append_platform(&mut out, &String::from(", "));
+            crate::std_core_string::append_platform(&mut out, &String::from(", "));
         };
-        crate::core_string::append_platform(&mut out, &to_str(x));
+        crate::std_core_string::append_platform(&mut out, &to_str(x));
         i = i32::wrapping_add(i, 1i32);
     }
-    crate::core_string::append_platform(&mut out, &String::from("]"));
+    crate::std_core_string::append_platform(&mut out, &String::from("]"));
     return out;
 }
 
 pub fn sort_by_platform<T: Clone>(list: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Vec<T> {
     let mut cmp = cmp;
-    crate::platform_core_list::sort_by(list, &mut cmp)
+    crate::platform_std_core_list::sort_by(list, &mut cmp)
 }
 
 pub fn insert_sorted_by_platform<T: Clone>(list: &mut Vec<T>, mut elem: T, cmp: &mut dyn FnMut(&T, &T) -> i32) {
     let mut cmp = cmp;
-    crate::platform_core_list::insert_sorted_by(list, elem, &mut cmp)
+    crate::platform_std_core_list::insert_sorted_by(list, elem, &mut cmp)
 }
 
 pub fn search_sorted_by_platform<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Option<i32> {
     let mut cmp = cmp;
-    crate::platform_core_list::search_sorted_by(list, elem, &mut cmp)
+    crate::platform_std_core_list::search_sorted_by(list, elem, &mut cmp)
 }
 
 pub fn sort<T: Clone>(list: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Vec<T> {
-    return crate::core_list::sort_by_platform::<T>(list, &mut *cmp);
+    return crate::std_core_list::sort_by_platform::<T>(list, &mut *cmp);
 }
 
 pub fn mut_sort<T: Clone>(list: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Vec<T> {
-    return crate::core_list::sort_by_platform::<T>(list, &mut *cmp);
+    return crate::std_core_list::sort_by_platform::<T>(list, &mut *cmp);
 }
 
 pub fn add_sorted<T: Clone>(list: &mut Vec<T>, mut elem: T, cmp: &mut dyn FnMut(&T, &T) -> i32) {
-    crate::core_list::insert_sorted_by_platform::<T>(&mut *list, elem, &mut *cmp);
+    crate::std_core_list::insert_sorted_by_platform::<T>(&mut *list, elem, &mut *cmp);
 }
 
 pub fn binary_search<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Option<i32> {
     let mut found: i32 = {
-        let mut __pick_1: Option<i32> = crate::core_list::search_sorted_by_platform::<T>(list, elem, &mut *cmp);
+        let mut __pick_1: Option<i32> = crate::std_core_list::search_sorted_by_platform::<T>(list, elem, &mut *cmp);
         if __pick_1.is_some() {
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
@@ -891,178 +891,178 @@ pub fn binary_search<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, 
             }
         }
     };
-    if crate::core_index::Idx__Int_qualifies(found, list, &mut |__a0| crate::core_list::size_platform(__a0)) {
+    if crate::std_core_index::Idx__Int_qualifies(found, list, &mut |__a0| crate::std_core_list::size_platform(__a0)) {
         return Some(found);
     };
     return None;
 }
 
-// ===== core/map.rs =====
-use crate::core_iterator::Finished;
-use crate::core_string::Mut_Str;
-use crate::core_string::append_platform;
-use crate::core_iterator::emitted;
-use crate::core_iterator::finished;
+// ===== std/core/map.rs =====
+use crate::std_core_iterator::Finished;
+use crate::std_core_string::Mut_Str;
+use crate::std_core_string::append_platform;
+use crate::std_core_iterator::emitted;
+use crate::std_core_iterator::finished;
 
 
 /// [platform-type] The host's `Map`.
-pub use crate::platform_core_map::Map;
+pub use crate::platform_std_core_map::Map;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq>() {} __contract::<Map<i32, i32>>(); };
-const _: fn() = || { fn __each(x: &Map<i32, i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_map::each(x).map(|e| e.clone()) } let _ = __each; };
-const _: fn() = || { fn __each_ref(x: &Map<i32, i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_map::each(x) } fn __each_mut(x: &mut Map<i32, i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_map::each_mut(x) } fn __into_each(x: Map<i32, i32>) -> impl Iterator<Item = i32> { crate::platform_core_map::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
+const _: fn() = || { fn __each(x: &Map<i32, i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_std_core_map::each(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &Map<i32, i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_std_core_map::each(x) } fn __each_mut(x: &mut Map<i32, i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_std_core_map::each_mut(x) } fn __into_each(x: Map<i32, i32>) -> impl Iterator<Item = i32> { crate::platform_std_core_map::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
-pub fn Map_platform<K: Clone, V>(mut entries: Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::core_map::Map<K, V> {
+pub fn Map_platform<K: Clone, V>(mut entries: Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_map::Map(entries, &mut hash, &mut eq)
+    crate::platform_std_core_map::Map(entries, &mut hash, &mut eq)
 }
 
-pub fn Mut_Map_platform<K: Clone, V>(mut entries: Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::core_map::Map<K, V> {
+pub fn Mut_Map_platform<K: Clone, V>(mut entries: Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_map::Mut_Map(entries, &mut hash, &mut eq)
+    crate::platform_std_core_map::Mut_Map(entries, &mut hash, &mut eq)
 }
 
-pub fn map_by_platform<K: Clone, V>(mut size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::core_map::Map<K, V> {
+pub fn map_by_platform<K: Clone, V>(mut size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
     let mut init = init;
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_map::map_by(size, &mut init, &mut hash, &mut eq)
+    crate::platform_std_core_map::map_by(size, &mut init, &mut hash, &mut eq)
 }
 
-pub fn mut_map_by_platform<K: Clone, V>(mut size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::core_map::Map<K, V> {
+pub fn mut_map_by_platform<K: Clone, V>(mut size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
     let mut init = init;
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_map::mut_map_by(size, &mut init, &mut hash, &mut eq)
+    crate::platform_std_core_map::mut_map_by(size, &mut init, &mut hash, &mut eq)
 }
 
-pub fn to_map_platform<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::core_map::Map<K, V> {
+pub fn to_map_platform<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_map::to_map(pairs, &mut hash, &mut eq)
+    crate::platform_std_core_map::to_map(pairs, &mut hash, &mut eq)
 }
 
-pub fn to_map<T: Clone, K: Clone, V: Clone>(items: &Vec<T>, entry: &mut dyn FnMut(&T) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::core_map::Map<K, V> {
-    let mut map: crate::core_map::Map<K, V> = crate::core_map::Mut_Map_platform::<K, V>(vec![], &mut *hash, &mut *eq);
+pub fn to_map<T: Clone, K: Clone, V: Clone>(items: &Vec<T>, entry: &mut dyn FnMut(&T) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
+    let mut map: crate::std_core_map::Map<K, V> = crate::std_core_map::Mut_Map_platform::<K, V>(vec![], &mut *hash, &mut *eq);
     for mut x in items.iter() {
         let mut __destructured_1: (K, V) = entry(x);
         let mut k: K = __destructured_1.0;
         let mut v: V = __destructured_1.1;
-        crate::core_map::put_platform::<K, V>(&mut map, k, v, &mut *hash, &mut *eq);
+        crate::std_core_map::put_platform::<K, V>(&mut map, k, v, &mut *hash, &mut *eq);
     }
     return map;
 }
 
-pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<&'a V> {
+pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<&'a V> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_map::get(map, key, &mut hash, &mut eq)
+    crate::platform_std_core_map::get(map, key, &mut hash, &mut eq)
 }
 
-pub fn at_platform<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<usize> {
-    crate::platform_core_map::slot_of(map, key, hash, eq)
+pub fn at_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<usize> {
+    crate::platform_std_core_map::slot_of(map, key, hash, eq)
 }
 
-pub fn put_platform<K: Clone, V: Clone>(map: &mut crate::core_map::Map<K, V>, mut key: K, mut value: V, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) {
+pub fn put_platform<K: Clone, V: Clone>(map: &mut crate::std_core_map::Map<K, V>, mut key: K, mut value: V, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_map::put(map, key, value, &mut hash, &mut eq)
+    crate::platform_std_core_map::put(map, key, value, &mut hash, &mut eq)
 }
 
-pub fn replace_platform<K: Clone, V>(map: &mut crate::core_map::Map<K, V>, mut key: K, mut value: V, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<V> {
+pub fn replace_platform<K: Clone, V>(map: &mut crate::std_core_map::Map<K, V>, mut key: K, mut value: V, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<V> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_map::replace(map, key, value, &mut hash, &mut eq)
+    crate::platform_std_core_map::replace(map, key, value, &mut hash, &mut eq)
 }
 
-pub fn remove_platform<K: Clone, V>(map: &mut crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<V> {
+pub fn remove_platform<K: Clone, V>(map: &mut crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<V> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_map::remove(map, key, &mut hash, &mut eq)
+    crate::platform_std_core_map::remove(map, key, &mut hash, &mut eq)
 }
 
-pub fn contains_key_platform<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> bool {
+pub fn contains_key_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> bool {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_map::contains_key(map, key, &mut hash, &mut eq)
+    crate::platform_std_core_map::contains_key(map, key, &mut hash, &mut eq)
 }
 
-pub fn KeyOf_qualifies<K: Clone, V: Clone>(key: &K, map: &crate::core_map::Map<K, V>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> bool {
-    return crate::core_map::contains_key_platform::<K, V>(map, key, &mut *hash, &mut *eq);
+pub fn KeyOf_qualifies<K: Clone, V: Clone>(key: &K, map: &crate::std_core_map::Map<K, V>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> bool {
+    return crate::std_core_map::contains_key_platform::<K, V>(map, key, &mut *hash, &mut *eq);
 }
 
-pub fn get_present_platform<'a, K: Clone, V: Clone>(map: &'a crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> &'a V {
+pub fn get_present_platform<'a, K: Clone, V: Clone>(map: &'a crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> &'a V {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_map::get_present(map, key, &mut hash, &mut eq)
+    crate::platform_std_core_map::get_present(map, key, &mut hash, &mut eq)
 }
 
-pub fn get<'a, K: Clone, V: Clone>(map: &'a crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> &'a V {
-    return crate::core_map::get_present_platform::<K, V>(map, key, &mut *hash, &mut *eq);
+pub fn get<'a, K: Clone, V: Clone>(map: &'a crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> &'a V {
+    return crate::std_core_map::get_present_platform::<K, V>(map, key, &mut *hash, &mut *eq);
 }
 
-pub fn at<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> usize {
-    return crate::core_map::at_present_platform(map, key, &mut *hash, &mut *eq);
+pub fn at<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> usize {
+    return crate::std_core_map::at_present_platform(map, key, &mut *hash, &mut *eq);
 }
 
-pub fn at_present_platform<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> usize {
-    crate::platform_core_map::slot_of(map, key, hash, eq).expect("salvo: a `KeyOf` key is present")
+pub fn at_present_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> usize {
+    crate::platform_std_core_map::slot_of(map, key, hash, eq).expect("salvo: a `KeyOf` key is present")
 }
 
-pub fn size_platform<K: Clone, V>(map: &crate::core_map::Map<K, V>) -> i32 {
-    crate::platform_core_map::size(map)
+pub fn size_platform<K: Clone, V>(map: &crate::std_core_map::Map<K, V>) -> i32 {
+    crate::platform_std_core_map::size(map)
 }
 
-pub fn drain<K: Clone, V>(mut map: crate::core_map::Map<K, V>, each: &mut dyn FnMut(V)) {
-    crate::core_list::drain::<V>(crate::core_map::into_values_platform::<K, V>(map), &mut *each);
+pub fn drain<K: Clone, V>(mut map: crate::std_core_map::Map<K, V>, each: &mut dyn FnMut(V)) {
+    crate::std_core_list::drain::<V>(crate::std_core_map::into_values_platform::<K, V>(map), &mut *each);
 }
 
-pub fn into_values_platform<K: Clone, V>(mut map: crate::core_map::Map<K, V>) -> Vec<V> {
-    crate::platform_core_map::into_values(map)
+pub fn into_values_platform<K: Clone, V>(mut map: crate::std_core_map::Map<K, V>) -> Vec<V> {
+    crate::platform_std_core_map::into_values(map)
 }
 
-pub fn to_str<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> String {
-    let mut out: String = crate::core_string::Mut_Str(vec![String::from("{")]);
+pub fn to_str<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> String {
+    let mut out: String = crate::std_core_string::Mut_Str(vec![String::from("{")]);
     let mut i: i32 = 0i32;
-    for mut k in crate::platform_core_map::each(map).map(|__x| __x.clone()) {
+    for mut k in crate::platform_std_core_map::each(map).map(|__x| __x.clone()) {
         if (i > 0i32) {
-            crate::core_string::append_platform(&mut out, &String::from(", "));
+            crate::std_core_string::append_platform(&mut out, &String::from(", "));
         };
-        crate::core_string::append_platform(&mut out, &to_str(&k));
-        crate::core_string::append_platform(&mut out, &String::from(": "));
-        crate::core_string::append_platform(&mut out, &to_str__1({
-            let mut __pick_1: Option<&V> = crate::core_map::get_platform::<K, V>(map, &k, &mut *hash, &mut *eq);
+        crate::std_core_string::append_platform(&mut out, &to_str(&k));
+        crate::std_core_string::append_platform(&mut out, &String::from(": "));
+        crate::std_core_string::append_platform(&mut out, &to_str__1({
+            let mut __pick_1: Option<&V> = crate::std_core_map::get_platform::<K, V>(map, &k, &mut *hash, &mut *eq);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at core.map:186:43")
+                panic!("salvo: unreachable at std.core.map:186:43")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
     }
-    crate::core_string::append_platform(&mut out, &String::from("}"));
+    crate::std_core_string::append_platform(&mut out, &String::from("}"));
     return out;
 }
 
-pub fn eq<K: Clone, V: Clone>(a: &crate::core_map::Map<K, V>, b: &crate::core_map::Map<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, hash: &mut dyn FnMut(&K) -> i64, eq__1: &mut dyn FnMut(&K, &K) -> bool) -> bool {
-    if (crate::core_map::size_platform::<K, V>(a) != crate::core_map::size_platform::<K, V>(b)) {
+pub fn eq<K: Clone, V: Clone>(a: &crate::std_core_map::Map<K, V>, b: &crate::std_core_map::Map<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, hash: &mut dyn FnMut(&K) -> i64, eq__1: &mut dyn FnMut(&K, &K) -> bool) -> bool {
+    if (crate::std_core_map::size_platform::<K, V>(a) != crate::std_core_map::size_platform::<K, V>(b)) {
         return false;
     };
-    for mut k in crate::platform_core_map::each(a).map(|__x| __x.clone()) {
-        let mut theirs: Option<&V> = crate::core_map::get_platform::<K, V>(b, &k, &mut *hash, &mut *eq__1);
+    for mut k in crate::platform_std_core_map::each(a).map(|__x| __x.clone()) {
+        let mut theirs: Option<&V> = crate::std_core_map::get_platform::<K, V>(b, &k, &mut *hash, &mut *eq__1);
         if theirs.is_none() {
             return false;
         };
         let mut theirs_4 = theirs.unwrap();
         if !(eq({
-            let mut __pick_1: Option<&V> = crate::core_map::get_platform::<K, V>(a, &k, &mut *hash, &mut *eq__1);
+            let mut __pick_1: Option<&V> = crate::std_core_map::get_platform::<K, V>(a, &k, &mut *hash, &mut *eq__1);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at core.map:208:29")
+                panic!("salvo: unreachable at std.core.map:208:29")
             }
         }, theirs_4)) {
             return false;
@@ -1071,12 +1071,12 @@ pub fn eq<K: Clone, V: Clone>(a: &crate::core_map::Map<K, V>, b: &crate::core_ma
     return true;
 }
 
-pub fn keys_platform<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>) -> Vec<K> {
-    crate::platform_core_map::keys(map)
+pub fn keys_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> Vec<K> {
+    crate::platform_std_core_map::keys(map)
 }
 
-pub fn iter<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>) -> crate::core_map::MapKeyYield<K> {
-    return crate::core_map::MapKeyYield { items: crate::core_map::keys_platform::<K, V>(map), at: 0i32 };
+pub fn iter<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapKeyYield<K> {
+    return crate::std_core_map::MapKeyYield { items: crate::std_core_map::keys_platform::<K, V>(map), at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1098,26 +1098,26 @@ impl<K: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for MapKeyYie
     }
 }
 
-pub fn next__MapKeyYield<K: Clone>(p: &mut crate::core_map::MapKeyYield<K>) -> crate::unions::Union2<K, crate::core_iterator::Finished> {
+pub fn next__MapKeyYield<K: Clone>(p: &mut crate::std_core_map::MapKeyYield<K>) -> crate::unions::Union2<K, crate::std_core_iterator::Finished> {
     let mut key: Option<K> = p.items.get((p.at) as i64 as usize).cloned();
     if key.is_none() {
-        return crate::unions::Union2::U2(crate::core_iterator::finished());
+        return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
     p.at = i32::wrapping_add(p.at, 1i32);
     let mut key_1 = key.unwrap();
-    return crate::unions::Union2::U1(crate::core_iterator::emitted::<K>(key_1));
+    return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<K>(key_1));
 }
 
-pub fn slot_count_platform<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>) -> i32 {
-    crate::platform_core_map::slot_count(map)
+pub fn slot_count_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> i32 {
+    crate::platform_std_core_map::slot_count(map)
 }
 
-pub fn key_at_platform<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, mut at: i32) -> Option<&K> {
-    crate::platform_core_map::key_at(map, at)
+pub fn key_at_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, mut at: i32) -> Option<&K> {
+    crate::platform_std_core_map::key_at(map, at)
 }
 
-pub fn value_at_platform<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, mut at: i32) -> &V {
-    crate::platform_core_map::value_at(map, at)
+pub fn value_at_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, mut at: i32) -> &V {
+    crate::platform_std_core_map::value_at(map, at)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1128,63 +1128,63 @@ pub struct MapEntry<'s, K, V> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MapEntries<'s, K, V> {
-    pub map: &'s crate::core_map::Map<K, V>,
+    pub map: &'s crate::std_core_map::Map<K, V>,
     pub at: i32,
 }
 
-pub fn entries<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>) -> crate::core_map::MapEntries<'_, K, V> {
-    return crate::core_map::MapEntries { map: map, at: 0i32 };
+pub fn entries<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapEntries<'_, K, V> {
+    return crate::std_core_map::MapEntries { map: map, at: 0i32 };
 }
 
-pub fn next__MapEntries<'a, K: Clone, V: Clone>(__p: &mut crate::core_map::MapEntries<'a, K, V>) -> crate::unions::Union2<crate::core_map::MapEntry<'a, K, V>, crate::core_iterator::Finished> {
+pub fn next__MapEntries<'a, K: Clone, V: Clone>(__p: &mut crate::std_core_map::MapEntries<'a, K, V>) -> crate::unions::Union2<crate::std_core_map::MapEntry<'a, K, V>, crate::std_core_iterator::Finished> {
     loop {
-        if !((__p.at < crate::core_map::slot_count_platform::<K, V>(__p.map))) {
+        if !((__p.at < crate::std_core_map::slot_count_platform::<K, V>(__p.map))) {
             break;
         };
         let mut here: i32 = __p.at;
         __p.at = i32::wrapping_add(__p.at, 1i32);
-        let mut key: Option<&K> = crate::core_map::key_at_platform::<K, V>(__p.map, here);
+        let mut key: Option<&K> = crate::std_core_map::key_at_platform::<K, V>(__p.map, here);
         if !(key.is_none()) {
-            let mut value: &V = crate::core_map::value_at_platform::<K, V>(__p.map, here);
+            let mut value: &V = crate::std_core_map::value_at_platform::<K, V>(__p.map, here);
             let mut key_1 = key.unwrap();
-            return crate::unions::Union2::U1(crate::core_iterator::emitted::<crate::core_map::MapEntry<'_, K, V>>(crate::core_map::MapEntry { key: key_1, value: value }));
+            return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<crate::std_core_map::MapEntry<'_, K, V>>(crate::std_core_map::MapEntry { key: key_1, value: value }));
         };
     }
-    return crate::unions::Union2::U2(crate::core_iterator::finished());
+    return crate::unions::Union2::U2(crate::std_core_iterator::finished());
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MapValues<'s, K, V> {
-    pub map: &'s crate::core_map::Map<K, V>,
+    pub map: &'s crate::std_core_map::Map<K, V>,
     pub at: i32,
 }
 
-pub fn values<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>) -> crate::core_map::MapValues<'_, K, V> {
-    return crate::core_map::MapValues { map: map, at: 0i32 };
+pub fn values<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapValues<'_, K, V> {
+    return crate::std_core_map::MapValues { map: map, at: 0i32 };
 }
 
-pub fn next__MapValues<'a, K: Clone, V: Clone>(__p: &mut crate::core_map::MapValues<'a, K, V>) -> crate::unions::Union2<&'a V, crate::core_iterator::Finished> {
+pub fn next__MapValues<'a, K: Clone, V: Clone>(__p: &mut crate::std_core_map::MapValues<'a, K, V>) -> crate::unions::Union2<&'a V, crate::std_core_iterator::Finished> {
     loop {
-        if !((__p.at < crate::core_map::slot_count_platform::<K, V>(__p.map))) {
+        if !((__p.at < crate::std_core_map::slot_count_platform::<K, V>(__p.map))) {
             break;
         };
         let mut here: i32 = __p.at;
         __p.at = i32::wrapping_add(__p.at, 1i32);
-        if !((crate::core_map::key_at_platform::<K, V>(__p.map, here)).is_none()) {
-            let mut value: &V = crate::core_map::value_at_platform::<K, V>(__p.map, here);
-            return crate::unions::Union2::U1(crate::core_iterator::emitted::<&V>(value));
+        if !((crate::std_core_map::key_at_platform::<K, V>(__p.map, here)).is_none()) {
+            let mut value: &V = crate::std_core_map::value_at_platform::<K, V>(__p.map, here);
+            return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<&V>(value));
         };
     }
-    return crate::unions::Union2::U2(crate::core_iterator::finished());
+    return crate::unions::Union2::U2(crate::std_core_iterator::finished());
 }
 
-pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>) -> bool {
-    return (crate::core_map::size_platform::<K, V>(map) > 0i32);
+pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> bool {
+    return (crate::std_core_map::size_platform::<K, V>(map) > 0i32);
 }
 
-// ===== core/result.rs =====
-use crate::core_list::NonEmpty__List_qualifies;
-use crate::core_list::add_platform;
+// ===== std/core/result.rs =====
+use crate::std_core_list::NonEmpty__List_qualifies;
+use crate::std_core_list::add_platform;
 
 
 pub fn ok<T>(mut value: T) -> T {
@@ -1216,26 +1216,26 @@ pub fn both<A: Clone, B: Clone, E: Clone>(mut a: crate::unions::Union2<A, Vec<E>
         let mut a_1 = match a { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         if matches!(b, crate::unions::Union2::U1(_)) {
             let mut b_2 = match b { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            return crate::unions::Union2::U1(crate::core_result::Ok::<(A, B)>((a_1, b_2)));
+            return crate::unions::Union2::U1(crate::std_core_result::Ok::<(A, B)>((a_1, b_2)));
         } else if matches!(b, crate::unions::Union2::U2(_)) {
             let mut b_3 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-            return crate::unions::Union2::U2(crate::core_result::Errs::<Vec<E>>(b_3));
+            return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(b_3));
         } else {
-            panic!("salvo: unhandled union arm at core.result:70:13");
+            panic!("salvo: unhandled union arm at std.core.result:70:13");
         }
     } else if matches!(a, crate::unions::Union2::U2(_)) {
         let mut a_4 = match a { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         if matches!(b, crate::unions::Union2::U1(_)) {
             let mut b_5 = match &b { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            return crate::unions::Union2::U2(crate::core_result::Errs::<Vec<E>>(a_4));
+            return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(a_4));
         } else if matches!(b, crate::unions::Union2::U2(_)) {
             let mut b_6 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-            return crate::unions::Union2::U2(crate::core_result::Errs::<Vec<E>>(crate::core_result::joined::<E>(a_4, b_6, &mut *copy)));
+            return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(crate::std_core_result::joined::<E>(a_4, b_6, &mut *copy)));
         } else {
-            panic!("salvo: unhandled union arm at core.result:76:13");
+            panic!("salvo: unhandled union arm at std.core.result:76:13");
         }
     } else {
-        panic!("salvo: unhandled union arm at core.result:68:5");
+        panic!("salvo: unhandled union arm at std.core.result:68:5");
     };
 }
 
@@ -1244,143 +1244,143 @@ pub fn map2<A: Clone, B: Clone, C: Clone, E: Clone>(mut a: crate::unions::Union2
         let mut a_1 = match a { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         if matches!(b, crate::unions::Union2::U1(_)) {
             let mut b_2 = match b { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            return crate::unions::Union2::U1(crate::core_result::Ok::<C>(f(a_1, b_2)));
+            return crate::unions::Union2::U1(crate::std_core_result::Ok::<C>(f(a_1, b_2)));
         } else if matches!(b, crate::unions::Union2::U2(_)) {
             let mut b_3 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-            return crate::unions::Union2::U2(crate::core_result::Errs::<Vec<E>>(b_3));
+            return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(b_3));
         } else {
-            panic!("salvo: unhandled union arm at core.result:90:13");
+            panic!("salvo: unhandled union arm at std.core.result:90:13");
         }
     } else if matches!(a, crate::unions::Union2::U2(_)) {
         let mut a_4 = match a { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         if matches!(b, crate::unions::Union2::U1(_)) {
             let mut b_5 = match &b { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            return crate::unions::Union2::U2(crate::core_result::Errs::<Vec<E>>(a_4));
+            return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(a_4));
         } else if matches!(b, crate::unions::Union2::U2(_)) {
             let mut b_6 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-            return crate::unions::Union2::U2(crate::core_result::Errs::<Vec<E>>(crate::core_result::joined::<E>(a_4, b_6, &mut *copy)));
+            return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(crate::std_core_result::joined::<E>(a_4, b_6, &mut *copy)));
         } else {
-            panic!("salvo: unhandled union arm at core.result:96:13");
+            panic!("salvo: unhandled union arm at std.core.result:96:13");
         }
     } else {
-        panic!("salvo: unhandled union arm at core.result:88:5");
+        panic!("salvo: unhandled union arm at std.core.result:88:5");
     };
 }
 
 pub fn joined<X: Clone>(mut a: Vec<X>, mut b: Vec<X>, copy: &mut dyn FnMut(&X) -> X) -> Vec<X> {
     let mut errors: Vec<X> = vec![];
     for mut e in a.iter() {
-        crate::core_list::add_platform::<X>(&mut errors, copy(e));
+        crate::std_core_list::add_platform::<X>(&mut errors, copy(e));
     }
     for mut e in b.iter() {
-        crate::core_list::add_platform::<X>(&mut errors, copy(e));
+        crate::std_core_list::add_platform::<X>(&mut errors, copy(e));
     }
-    if crate::core_list::NonEmpty__List_qualifies(&errors) {
+    if crate::std_core_list::NonEmpty__List_qualifies(&errors) {
         return errors;
     };
-    return panic!("salvo: two non-empty lists joined are not empty at core.result:118:5");
+    return panic!("salvo: two non-empty lists joined are not empty at std.core.result:118:5");
 }
 
-// ===== core/set.rs =====
-use crate::core_iterator::Finished;
-use crate::core_string::Mut_Str;
-use crate::core_string::append_platform;
-use crate::core_iterator::emitted;
-use crate::core_iterator::finished;
+// ===== std/core/set.rs =====
+use crate::std_core_iterator::Finished;
+use crate::std_core_string::Mut_Str;
+use crate::std_core_string::append_platform;
+use crate::std_core_iterator::emitted;
+use crate::std_core_iterator::finished;
 
 
 /// [platform-type] The host's `Set`.
-pub use crate::platform_core_set::Set;
+pub use crate::platform_std_core_set::Set;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq>() {} __contract::<Set<i32>>(); };
-const _: fn() = || { fn __each(x: &Set<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_set::each(x).map(|e| e.clone()) } let _ = __each; };
-const _: fn() = || { fn __each_ref(x: &Set<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_set::each(x) } fn __each_mut(x: &mut Set<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_set::each_mut(x) } fn __into_each(x: Set<i32>) -> impl Iterator<Item = i32> { crate::platform_core_set::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
+const _: fn() = || { fn __each(x: &Set<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_std_core_set::each(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &Set<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_std_core_set::each(x) } fn __each_mut(x: &mut Set<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_std_core_set::each_mut(x) } fn __into_each(x: Set<i32>) -> impl Iterator<Item = i32> { crate::platform_std_core_set::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
-pub fn Set_platform<T: Clone>(mut elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::core_set::Set<T> {
+pub fn Set_platform<T: Clone>(mut elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_set::Set(elems, &mut hash, &mut eq)
+    crate::platform_std_core_set::Set(elems, &mut hash, &mut eq)
 }
 
-pub fn Mut_Set_platform<T: Clone>(mut elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::core_set::Set<T> {
+pub fn Mut_Set_platform<T: Clone>(mut elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_set::Mut_Set(elems, &mut hash, &mut eq)
+    crate::platform_std_core_set::Mut_Set(elems, &mut hash, &mut eq)
 }
 
-pub fn set_by_platform<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::core_set::Set<T> {
+pub fn set_by_platform<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
     let mut init = init;
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_set::set_by(size, &mut init, &mut hash, &mut eq)
+    crate::platform_std_core_set::set_by(size, &mut init, &mut hash, &mut eq)
 }
 
-pub fn mut_set_by_platform<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::core_set::Set<T> {
+pub fn mut_set_by_platform<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
     let mut init = init;
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_set::mut_set_by(size, &mut init, &mut hash, &mut eq)
+    crate::platform_std_core_set::mut_set_by(size, &mut init, &mut hash, &mut eq)
 }
 
-pub fn to_set_platform<T: Clone>(list: &Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::core_set::Set<T> {
+pub fn to_set_platform<T: Clone>(list: &Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_set::to_set(list, &mut hash, &mut eq)
+    crate::platform_std_core_set::to_set(list, &mut hash, &mut eq)
 }
 
-pub fn add_platform<T: Clone>(set: &mut crate::core_set::Set<T>, mut elem: T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+pub fn add_platform<T: Clone>(set: &mut crate::std_core_set::Set<T>, mut elem: T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_set::add(set, elem, &mut hash, &mut eq)
+    crate::platform_std_core_set::add(set, elem, &mut hash, &mut eq)
 }
 
-pub fn remove_platform<T: Clone>(set: &mut crate::core_set::Set<T>, elem: &T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+pub fn remove_platform<T: Clone>(set: &mut crate::std_core_set::Set<T>, elem: &T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_set::remove(set, elem, &mut hash, &mut eq)
+    crate::platform_std_core_set::remove(set, elem, &mut hash, &mut eq)
 }
 
-pub fn contains_platform<T: Clone>(set: &crate::core_set::Set<T>, elem: &T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+pub fn contains_platform<T: Clone>(set: &crate::std_core_set::Set<T>, elem: &T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_set::contains(set, elem, &mut hash, &mut eq)
+    crate::platform_std_core_set::contains(set, elem, &mut hash, &mut eq)
 }
 
-pub fn size_platform<T: Clone>(set: &crate::core_set::Set<T>) -> i32 {
-    crate::platform_core_set::size(set)
+pub fn size_platform<T: Clone>(set: &crate::std_core_set::Set<T>) -> i32 {
+    crate::platform_std_core_set::size(set)
 }
 
-pub fn to_str<T: Clone>(set: &crate::core_set::Set<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
-    let mut out: String = crate::core_string::Mut_Str(vec![String::from("{")]);
+pub fn to_str<T: Clone>(set: &crate::std_core_set::Set<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+    let mut out: String = crate::std_core_string::Mut_Str(vec![String::from("{")]);
     let mut i: i32 = 0i32;
-    for mut x in crate::platform_core_set::each(set).map(|__x| __x.clone()) {
+    for mut x in crate::platform_std_core_set::each(set).map(|__x| __x.clone()) {
         if (i > 0i32) {
-            crate::core_string::append_platform(&mut out, &String::from(", "));
+            crate::std_core_string::append_platform(&mut out, &String::from(", "));
         };
-        crate::core_string::append_platform(&mut out, &to_str(&x));
+        crate::std_core_string::append_platform(&mut out, &to_str(&x));
         i = i32::wrapping_add(i, 1i32);
     }
-    crate::core_string::append_platform(&mut out, &String::from("}"));
+    crate::std_core_string::append_platform(&mut out, &String::from("}"));
     return out;
 }
 
-pub fn eq<T: Clone>(a: &crate::core_set::Set<T>, b: &crate::core_set::Set<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
-    if (crate::core_set::size_platform::<T>(a) != crate::core_set::size_platform::<T>(b)) {
+pub fn eq<T: Clone>(a: &crate::std_core_set::Set<T>, b: &crate::std_core_set::Set<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+    if (crate::std_core_set::size_platform::<T>(a) != crate::std_core_set::size_platform::<T>(b)) {
         return false;
     };
-    for mut x in crate::platform_core_set::each(a).map(|__x| __x.clone()) {
-        if !(crate::core_set::contains_platform::<T>(b, &x, &mut *hash, &mut *eq)) {
+    for mut x in crate::platform_std_core_set::each(a).map(|__x| __x.clone()) {
+        if !(crate::std_core_set::contains_platform::<T>(b, &x, &mut *hash, &mut *eq)) {
             return false;
         };
     }
     return true;
 }
 
-pub fn to_list_platform<T: Clone>(set: &crate::core_set::Set<T>) -> Vec<T> {
-    crate::platform_core_set::to_list(set)
+pub fn to_list_platform<T: Clone>(set: &crate::std_core_set::Set<T>) -> Vec<T> {
+    crate::platform_std_core_set::to_list(set)
 }
 
-pub fn iter<T: Clone>(set: &crate::core_set::Set<T>) -> crate::core_set::SetYield<T> {
-    return crate::core_set::SetYield { items: crate::core_set::to_list_platform::<T>(set), at: 0i32 };
+pub fn iter<T: Clone>(set: &crate::std_core_set::Set<T>) -> crate::std_core_set::SetYield<T> {
+    return crate::std_core_set::SetYield { items: crate::std_core_set::to_list_platform::<T>(set), at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1402,213 +1402,213 @@ impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for SetYield<
     }
 }
 
-pub fn next<T: Clone>(p: &mut crate::core_set::SetYield<T>) -> crate::unions::Union2<T, crate::core_iterator::Finished> {
+pub fn next<T: Clone>(p: &mut crate::std_core_set::SetYield<T>) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> {
     let mut elem: Option<T> = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {
-        return crate::unions::Union2::U2(crate::core_iterator::finished());
+        return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
     p.at = i32::wrapping_add(p.at, 1i32);
     let mut elem_1 = elem.unwrap();
-    return crate::unions::Union2::U1(crate::core_iterator::emitted::<T>(elem_1));
+    return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<T>(elem_1));
 }
 
-pub fn NonEmpty__Set_qualifies<T: Clone>(set: &crate::core_set::Set<T>) -> bool {
-    return (crate::core_set::size_platform::<T>(set) > 0i32);
+pub fn NonEmpty__Set_qualifies<T: Clone>(set: &crate::std_core_set::Set<T>) -> bool {
+    return (crate::std_core_set::size_platform::<T>(set) > 0i32);
 }
 
-// ===== core/sorted.rs =====
-use crate::core_map::MapKeyYield;
-use crate::core_string::Mut_Str;
-use crate::core_set::SetYield;
-use crate::core_string::append_platform;
+// ===== std/core/sorted.rs =====
+use crate::std_core_map::MapKeyYield;
+use crate::std_core_string::Mut_Str;
+use crate::std_core_set::SetYield;
+use crate::std_core_string::append_platform;
 
 
 /// [platform-type] The host's `SortedSet`.
-pub use crate::platform_core_sorted::SortedSet;
+pub use crate::platform_std_core_sorted::SortedSet;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq>() {} __contract::<SortedSet<i32>>(); };
-const _: fn() = || { fn __each(x: &SortedSet<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_sorted::each_sorted_set(x).map(|e| e.clone()) } let _ = __each; };
-const _: fn() = || { fn __each_ref(x: &SortedSet<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_sorted::each_sorted_set(x) } fn __each_mut(x: &mut SortedSet<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_sorted::each_sorted_set_mut(x) } fn __into_each(x: SortedSet<i32>) -> impl Iterator<Item = i32> { crate::platform_core_sorted::into_each_sorted_set(x) } let _ = (__each_ref, __each_mut, __into_each); };
+const _: fn() = || { fn __each(x: &SortedSet<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_std_core_sorted::each_sorted_set(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &SortedSet<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_std_core_sorted::each_sorted_set(x) } fn __each_mut(x: &mut SortedSet<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_std_core_sorted::each_sorted_set_mut(x) } fn __into_each(x: SortedSet<i32>) -> impl Iterator<Item = i32> { crate::platform_std_core_sorted::into_each_sorted_set(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
-pub fn SortedSet_platform<T: Clone>(mut elems: Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> crate::core_sorted::SortedSet<T> {
+pub fn SortedSet_platform<T: Clone>(mut elems: Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> crate::std_core_sorted::SortedSet<T> {
     let mut cmp = cmp;
-    crate::platform_core_sorted::SortedSet(elems, &mut cmp)
+    crate::platform_std_core_sorted::SortedSet(elems, &mut cmp)
 }
 
-pub fn Mut_SortedSet_platform<T: Clone>(mut elems: Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> crate::core_sorted::SortedSet<T> {
+pub fn Mut_SortedSet_platform<T: Clone>(mut elems: Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> crate::std_core_sorted::SortedSet<T> {
     let mut cmp = cmp;
-    crate::platform_core_sorted::Mut_SortedSet(elems, &mut cmp)
+    crate::platform_std_core_sorted::Mut_SortedSet(elems, &mut cmp)
 }
 
-pub fn add_platform<T: Clone>(set: &mut crate::core_sorted::SortedSet<T>, mut elem: T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
+pub fn add_platform<T: Clone>(set: &mut crate::std_core_sorted::SortedSet<T>, mut elem: T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
     let mut cmp = cmp;
-    crate::platform_core_sorted::add(set, elem, &mut cmp)
+    crate::platform_std_core_sorted::add(set, elem, &mut cmp)
 }
 
-pub fn remove__SortedSet_T<T: Clone>(set: &mut crate::core_sorted::SortedSet<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
-    return crate::core_sorted::remove_elem_platform::<T>(&mut *set, elem, &mut *cmp);
+pub fn remove__SortedSet_T<T: Clone>(set: &mut crate::std_core_sorted::SortedSet<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
+    return crate::std_core_sorted::remove_elem_platform::<T>(&mut *set, elem, &mut *cmp);
 }
 
-pub fn remove_elem_platform<T: Clone>(set: &mut crate::core_sorted::SortedSet<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
+pub fn remove_elem_platform<T: Clone>(set: &mut crate::std_core_sorted::SortedSet<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
     let mut cmp = cmp;
-    crate::platform_core_sorted::remove_elem(set, elem, &mut cmp)
+    crate::platform_std_core_sorted::remove_elem(set, elem, &mut cmp)
 }
 
-pub fn set_size_platform<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> i32 {
-    crate::platform_core_sorted::set_size(set)
+pub fn set_size_platform<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> i32 {
+    crate::platform_std_core_sorted::set_size(set)
 }
 
-pub fn remove_key_platform<K: Clone, V: Clone>(map: &mut crate::core_sorted::SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> Option<V> {
+pub fn remove_key_platform<K: Clone, V: Clone>(map: &mut crate::std_core_sorted::SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> Option<V> {
     let mut cmp = cmp;
-    crate::platform_core_sorted::remove_key(map, key, &mut cmp)
+    crate::platform_std_core_sorted::remove_key(map, key, &mut cmp)
 }
 
-pub fn map_size_platform<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> i32 {
-    crate::platform_core_sorted::map_size(map)
+pub fn map_size_platform<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> i32 {
+    crate::platform_std_core_sorted::map_size(map)
 }
 
-pub fn contains_platform<T: Clone>(set: &crate::core_sorted::SortedSet<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
+pub fn contains_platform<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
     let mut cmp = cmp;
-    crate::platform_core_sorted::contains(set, elem, &mut cmp)
+    crate::platform_std_core_sorted::contains(set, elem, &mut cmp)
 }
 
-pub fn size__SortedSet<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> i32 {
-    return crate::core_sorted::set_size_platform::<T>(set);
+pub fn size__SortedSet<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> i32 {
+    return crate::std_core_sorted::set_size_platform::<T>(set);
 }
 
-pub fn min_platform<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> Option<T> {
-    crate::platform_core_sorted::min(set)
+pub fn min_platform<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> Option<T> {
+    crate::platform_std_core_sorted::min(set)
 }
 
-pub fn max_platform<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> Option<T> {
-    crate::platform_core_sorted::max(set)
+pub fn max_platform<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> Option<T> {
+    crate::platform_std_core_sorted::max(set)
 }
 
-pub fn to_list_platform<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> Vec<T> {
-    crate::platform_core_sorted::to_list(set)
+pub fn to_list_platform<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> Vec<T> {
+    crate::platform_std_core_sorted::to_list(set)
 }
 
-pub fn to_str__SortedSet<T: Clone>(set: &crate::core_sorted::SortedSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
-    let mut out: String = crate::core_string::Mut_Str(vec![String::from("{")]);
+pub fn to_str__SortedSet<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+    let mut out: String = crate::std_core_string::Mut_Str(vec![String::from("{")]);
     let mut i: i32 = 0i32;
-    for mut x in crate::platform_core_sorted::each_sorted_set(set).map(|__x| __x.clone()) {
+    for mut x in crate::platform_std_core_sorted::each_sorted_set(set).map(|__x| __x.clone()) {
         if (i > 0i32) {
-            crate::core_string::append_platform(&mut out, &String::from(", "));
+            crate::std_core_string::append_platform(&mut out, &String::from(", "));
         };
-        crate::core_string::append_platform(&mut out, &to_str(&x));
+        crate::std_core_string::append_platform(&mut out, &to_str(&x));
         i = i32::wrapping_add(i, 1i32);
     }
-    crate::core_string::append_platform(&mut out, &String::from("}"));
+    crate::std_core_string::append_platform(&mut out, &String::from("}"));
     return out;
 }
 
-pub fn iter__SortedSet<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> crate::core_set::SetYield<T> {
-    return crate::core_set::SetYield { items: crate::core_sorted::to_list_platform::<T>(set), at: 0i32 };
+pub fn iter__SortedSet<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> crate::std_core_set::SetYield<T> {
+    return crate::std_core_set::SetYield { items: crate::std_core_sorted::to_list_platform::<T>(set), at: 0i32 };
 }
 
 /// [platform-type] The host's `SortedMap`.
-pub use crate::platform_core_sorted::SortedMap;
+pub use crate::platform_std_core_sorted::SortedMap;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq>() {} __contract::<SortedMap<i32, i32>>(); };
-const _: fn() = || { fn __each(x: &SortedMap<i32, i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_sorted::each_sorted_map(x).map(|e| e.clone()) } let _ = __each; };
-const _: fn() = || { fn __each_ref(x: &SortedMap<i32, i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_sorted::each_sorted_map(x) } fn __each_mut(x: &mut SortedMap<i32, i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_sorted::each_sorted_map_mut(x) } fn __into_each(x: SortedMap<i32, i32>) -> impl Iterator<Item = i32> { crate::platform_core_sorted::into_each_sorted_map(x) } let _ = (__each_ref, __each_mut, __into_each); };
+const _: fn() = || { fn __each(x: &SortedMap<i32, i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_std_core_sorted::each_sorted_map(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &SortedMap<i32, i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_std_core_sorted::each_sorted_map(x) } fn __each_mut(x: &mut SortedMap<i32, i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_std_core_sorted::each_sorted_map_mut(x) } fn __into_each(x: SortedMap<i32, i32>) -> impl Iterator<Item = i32> { crate::platform_std_core_sorted::into_each_sorted_map(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
-pub fn SortedMap_platform<K: Clone, V: Clone>(mut entries: Vec<(K, V)>, cmp: &mut dyn FnMut(&K, &K) -> i32) -> crate::core_sorted::SortedMap<K, V> {
+pub fn SortedMap_platform<K: Clone, V: Clone>(mut entries: Vec<(K, V)>, cmp: &mut dyn FnMut(&K, &K) -> i32) -> crate::std_core_sorted::SortedMap<K, V> {
     let mut cmp = cmp;
-    crate::platform_core_sorted::SortedMap(entries, &mut cmp)
+    crate::platform_std_core_sorted::SortedMap(entries, &mut cmp)
 }
 
-pub fn Mut_SortedMap_platform<K: Clone, V: Clone>(mut entries: Vec<(K, V)>, cmp: &mut dyn FnMut(&K, &K) -> i32) -> crate::core_sorted::SortedMap<K, V> {
+pub fn Mut_SortedMap_platform<K: Clone, V: Clone>(mut entries: Vec<(K, V)>, cmp: &mut dyn FnMut(&K, &K) -> i32) -> crate::std_core_sorted::SortedMap<K, V> {
     let mut cmp = cmp;
-    crate::platform_core_sorted::Mut_SortedMap(entries, &mut cmp)
+    crate::platform_std_core_sorted::Mut_SortedMap(entries, &mut cmp)
 }
 
-pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a crate::core_sorted::SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> Option<&'a V> {
+pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a crate::std_core_sorted::SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> Option<&'a V> {
     let mut cmp = cmp;
-    crate::platform_core_sorted::get(map, key, &mut cmp)
+    crate::platform_std_core_sorted::get(map, key, &mut cmp)
 }
 
-pub fn put_platform<K: Clone, V: Clone>(map: &mut crate::core_sorted::SortedMap<K, V>, mut key: K, mut value: V, cmp: &mut dyn FnMut(&K, &K) -> i32) {
+pub fn put_platform<K: Clone, V: Clone>(map: &mut crate::std_core_sorted::SortedMap<K, V>, mut key: K, mut value: V, cmp: &mut dyn FnMut(&K, &K) -> i32) {
     let mut cmp = cmp;
-    crate::platform_core_sorted::put(map, key, value, &mut cmp)
+    crate::platform_std_core_sorted::put(map, key, value, &mut cmp)
 }
 
-pub fn remove__SortedMap_K<K: Clone, V: Clone>(map: &mut crate::core_sorted::SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> Option<V> {
-    return crate::core_sorted::remove_key_platform::<K, V>(&mut *map, key, &mut *cmp);
+pub fn remove__SortedMap_K<K: Clone, V: Clone>(map: &mut crate::std_core_sorted::SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> Option<V> {
+    return crate::std_core_sorted::remove_key_platform::<K, V>(&mut *map, key, &mut *cmp);
 }
 
-pub fn contains_key_platform<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> bool {
+pub fn contains_key_platform<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> bool {
     let mut cmp = cmp;
-    crate::platform_core_sorted::contains_key(map, key, &mut cmp)
+    crate::platform_std_core_sorted::contains_key(map, key, &mut cmp)
 }
 
-pub fn size__SortedMap<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> i32 {
-    return crate::core_sorted::map_size_platform::<K, V>(map);
+pub fn size__SortedMap<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> i32 {
+    return crate::std_core_sorted::map_size_platform::<K, V>(map);
 }
 
-pub fn first_key_platform<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> Option<K> {
-    crate::platform_core_sorted::first_key(map)
+pub fn first_key_platform<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> Option<K> {
+    crate::platform_std_core_sorted::first_key(map)
 }
 
-pub fn last_key_platform<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> Option<K> {
-    crate::platform_core_sorted::last_key(map)
+pub fn last_key_platform<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> Option<K> {
+    crate::platform_std_core_sorted::last_key(map)
 }
 
-pub fn keys_platform<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> Vec<K> {
-    crate::platform_core_sorted::keys(map)
+pub fn keys_platform<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> Vec<K> {
+    crate::platform_std_core_sorted::keys(map)
 }
 
-pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, cmp: &mut dyn FnMut(&K, &K) -> i32) -> String {
-    let mut out: String = crate::core_string::Mut_Str(vec![String::from("{")]);
+pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, cmp: &mut dyn FnMut(&K, &K) -> i32) -> String {
+    let mut out: String = crate::std_core_string::Mut_Str(vec![String::from("{")]);
     let mut i: i32 = 0i32;
-    for mut k in crate::platform_core_sorted::each_sorted_map(map).map(|__x| __x.clone()) {
+    for mut k in crate::platform_std_core_sorted::each_sorted_map(map).map(|__x| __x.clone()) {
         if (i > 0i32) {
-            crate::core_string::append_platform(&mut out, &String::from(", "));
+            crate::std_core_string::append_platform(&mut out, &String::from(", "));
         };
-        crate::core_string::append_platform(&mut out, &to_str(&k));
-        crate::core_string::append_platform(&mut out, &String::from(": "));
-        crate::core_string::append_platform(&mut out, &to_str__1({
-            let mut __pick_1: Option<&V> = crate::core_sorted::get_platform::<K, V>(map, &k, &mut *cmp);
+        crate::std_core_string::append_platform(&mut out, &to_str(&k));
+        crate::std_core_string::append_platform(&mut out, &String::from(": "));
+        crate::std_core_string::append_platform(&mut out, &to_str__1({
+            let mut __pick_1: Option<&V> = crate::std_core_sorted::get_platform::<K, V>(map, &k, &mut *cmp);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at core.sorted:158:43")
+                panic!("salvo: unreachable at std.core.sorted:158:43")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
     }
-    crate::core_string::append_platform(&mut out, &String::from("}"));
+    crate::std_core_string::append_platform(&mut out, &String::from("}"));
     return out;
 }
 
-pub fn eq__SortedSet_SortedSet<T: Clone>(a: &crate::core_sorted::SortedSet<T>, b: &crate::core_sorted::SortedSet<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
-    if (crate::core_sorted::size__SortedSet::<T>(a) != crate::core_sorted::size__SortedSet::<T>(b)) {
+pub fn eq__SortedSet_SortedSet<T: Clone>(a: &crate::std_core_sorted::SortedSet<T>, b: &crate::std_core_sorted::SortedSet<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
+    if (crate::std_core_sorted::size__SortedSet::<T>(a) != crate::std_core_sorted::size__SortedSet::<T>(b)) {
         return false;
     };
-    for mut x in crate::platform_core_sorted::each_sorted_set(a).map(|__x| __x.clone()) {
-        if !(crate::core_sorted::contains_platform::<T>(b, &x, &mut *cmp)) {
+    for mut x in crate::platform_std_core_sorted::each_sorted_set(a).map(|__x| __x.clone()) {
+        if !(crate::std_core_sorted::contains_platform::<T>(b, &x, &mut *cmp)) {
             return false;
         };
     }
     return true;
 }
 
-pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &crate::core_sorted::SortedMap<K, V>, b: &crate::core_sorted::SortedMap<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, cmp: &mut dyn FnMut(&K, &K) -> i32) -> bool {
-    if (crate::core_sorted::size__SortedMap::<K, V>(a) != crate::core_sorted::size__SortedMap::<K, V>(b)) {
+pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &crate::std_core_sorted::SortedMap<K, V>, b: &crate::std_core_sorted::SortedMap<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, cmp: &mut dyn FnMut(&K, &K) -> i32) -> bool {
+    if (crate::std_core_sorted::size__SortedMap::<K, V>(a) != crate::std_core_sorted::size__SortedMap::<K, V>(b)) {
         return false;
     };
-    for mut k in crate::platform_core_sorted::each_sorted_map(a).map(|__x| __x.clone()) {
-        let mut theirs: Option<&V> = crate::core_sorted::get_platform::<K, V>(b, &k, &mut *cmp);
+    for mut k in crate::platform_std_core_sorted::each_sorted_map(a).map(|__x| __x.clone()) {
+        let mut theirs: Option<&V> = crate::std_core_sorted::get_platform::<K, V>(b, &k, &mut *cmp);
         if theirs.is_none() {
             return false;
         };
         let mut theirs_4 = theirs.unwrap();
         if !(eq({
-            let mut __pick_1: Option<&V> = crate::core_sorted::get_platform::<K, V>(a, &k, &mut *cmp);
+            let mut __pick_1: Option<&V> = crate::std_core_sorted::get_platform::<K, V>(a, &k, &mut *cmp);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at core.sorted:191:29")
+                panic!("salvo: unreachable at std.core.sorted:191:29")
             }
         }, theirs_4)) {
             return false;
@@ -1617,105 +1617,105 @@ pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &crate::core_sorted::Sorte
     return true;
 }
 
-pub fn iter__SortedMap<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> crate::core_map::MapKeyYield<K> {
-    return crate::core_map::MapKeyYield { items: crate::core_sorted::keys_platform::<K, V>(map), at: 0i32 };
+pub fn iter__SortedMap<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> crate::std_core_map::MapKeyYield<K> {
+    return crate::std_core_map::MapKeyYield { items: crate::std_core_sorted::keys_platform::<K, V>(map), at: 0i32 };
 }
 
-pub fn NonEmpty__SortedSet_qualifies<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> bool {
-    return (crate::core_sorted::size__SortedSet::<T>(set) > 0i32);
+pub fn NonEmpty__SortedSet_qualifies<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> bool {
+    return (crate::std_core_sorted::size__SortedSet::<T>(set) > 0i32);
 }
 
-pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> bool {
-    return (crate::core_sorted::size__SortedMap::<K, V>(map) > 0i32);
+pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> bool {
+    return (crate::std_core_sorted::size__SortedMap::<K, V>(map) > 0i32);
 }
 
-pub fn min<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> T {
+pub fn min<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> T {
     return {
-        let mut __pick_1: Option<T> = crate::core_sorted::min_platform::<T>(set);
+        let mut __pick_1: Option<T> = crate::std_core_sorted::min_platform::<T>(set);
         if __pick_1.is_some() {
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at core.sorted:246:28")
+            panic!("salvo: unreachable at std.core.sorted:246:28")
         }
     };
 }
 
-pub fn max<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> T {
+pub fn max<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> T {
     return {
-        let mut __pick_1: Option<T> = crate::core_sorted::max_platform::<T>(set);
+        let mut __pick_1: Option<T> = crate::std_core_sorted::max_platform::<T>(set);
         if __pick_1.is_some() {
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at core.sorted:250:28")
+            panic!("salvo: unreachable at std.core.sorted:250:28")
         }
     };
 }
 
-pub fn first_key<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> K {
+pub fn first_key<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> K {
     return {
-        let mut __pick_1: Option<K> = crate::core_sorted::first_key_platform::<K, V>(map);
+        let mut __pick_1: Option<K> = crate::std_core_sorted::first_key_platform::<K, V>(map);
         if __pick_1.is_some() {
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at core.sorted:254:34")
+            panic!("salvo: unreachable at std.core.sorted:254:34")
         }
     };
 }
 
-pub fn last_key<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>) -> K {
+pub fn last_key<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> K {
     return {
-        let mut __pick_1: Option<K> = crate::core_sorted::last_key_platform::<K, V>(map);
+        let mut __pick_1: Option<K> = crate::std_core_sorted::last_key_platform::<K, V>(map);
         if __pick_1.is_some() {
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at core.sorted:258:33")
+            panic!("salvo: unreachable at std.core.sorted:258:33")
         }
     };
 }
 
-// ===== core/string.rs =====
-use crate::core_iterator::Finished;
-use crate::core_list::add_platform;
-use crate::core_iterator::emitted;
-use crate::core_iterator::finished;
-use crate::core_list::remove_back;
+// ===== std/core/string.rs =====
+use crate::std_core_iterator::Finished;
+use crate::std_core_list::add_platform;
+use crate::std_core_iterator::emitted;
+use crate::std_core_iterator::finished;
+use crate::std_core_list::remove_back;
 
 
 /// [platform-type] The host's `Str`.
-pub use crate::platform_core_string::Str;
+pub use crate::platform_std_core_string::Str;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<Str>(); };
-const _: fn() = || { fn __each(x: &Str) -> impl Iterator<Item = char> + '_ { crate::platform_core_string::each(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each(x: &Str) -> impl Iterator<Item = char> + '_ { crate::platform_std_core_string::each(x).map(|e| e.clone()) } let _ = __each; };
 
 pub fn Mut_Str(mut parts: Vec<String>) -> String {
-    let mut out: String = crate::core_string::empty_str_platform();
+    let mut out: String = crate::std_core_string::empty_str_platform();
     for mut part in parts.iter().cloned() {
-        crate::core_string::append_platform(&mut out, &part);
+        crate::std_core_string::append_platform(&mut out, &part);
     }
     return out;
 }
 
 pub fn empty_str_platform() -> String {
-    crate::platform_core_string::empty_str()
+    crate::platform_std_core_string::empty_str()
 }
 
 pub fn size_platform(str: &String) -> i32 {
-    crate::platform_core_string::size(str)
+    crate::platform_std_core_string::size(str)
 }
 
 pub fn byte_size_platform(str: &String) -> i64 {
-    crate::platform_core_string::byte_size(str)
+    crate::platform_std_core_string::byte_size(str)
 }
 
 pub fn char_at_platform(str: &String, mut index: i32) -> Option<char> {
-    crate::platform_core_string::char_at(str, index)
+    crate::platform_std_core_string::char_at(str, index)
 }
 
-pub fn iter(str: &String) -> crate::core_string::StrYield<'_> {
-    return crate::core_string::StrYield { text: str, at: 0i32 };
+pub fn iter(str: &String) -> crate::std_core_string::StrYield<'_> {
+    return crate::std_core_string::StrYield { text: str, at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1724,74 +1724,74 @@ pub struct StrYield<'s> {
     pub at: i32,
 }
 
-pub fn next(p: &mut crate::core_string::StrYield<'_>) -> crate::unions::Union2<char, crate::core_iterator::Finished> {
-    let mut chr: Option<char> = crate::core_string::char_at_platform(p.text, p.at);
+pub fn next(p: &mut crate::std_core_string::StrYield<'_>) -> crate::unions::Union2<char, crate::std_core_iterator::Finished> {
+    let mut chr: Option<char> = crate::std_core_string::char_at_platform(p.text, p.at);
     if chr.is_none() {
-        return crate::unions::Union2::U2(crate::core_iterator::finished());
+        return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
     p.at = i32::wrapping_add(p.at, 1i32);
     let mut chr_1 = chr.unwrap();
-    return crate::unions::Union2::U1(crate::core_iterator::emitted::<char>(chr_1));
+    return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<char>(chr_1));
 }
 
 pub fn split_platform(str: &String, sep: &String) -> Vec<String> {
-    crate::platform_core_string::split(str, sep)
+    crate::platform_std_core_string::split(str, sep)
 }
 
 pub fn index_of_platform(str: &String, needle: &String) -> Option<i32> {
-    crate::platform_core_string::index_of(str, needle)
+    crate::platform_std_core_string::index_of(str, needle)
 }
 
 pub fn index_of(str: &String, needle: &String, mut from: i32) -> Option<i32> {
-    return crate::core_string::index_of_from_platform(str, needle, from);
+    return crate::std_core_string::index_of_from_platform(str, needle, from);
 }
 
 pub fn index_of_from_platform(str: &String, needle: &String, mut from: i32) -> Option<i32> {
-    crate::platform_core_string::index_of_from(str, needle, from)
+    crate::platform_std_core_string::index_of_from(str, needle, from)
 }
 
 pub fn last_index_of_platform(str: &String, needle: &String) -> Option<i32> {
-    crate::platform_core_string::last_index_of(str, needle)
+    crate::platform_std_core_string::last_index_of(str, needle)
 }
 
 pub fn replace_platform(str: &String, from: &String, to: &String) -> String {
-    crate::platform_core_string::replace(str, from, to)
+    crate::platform_std_core_string::replace(str, from, to)
 }
 
 pub fn trim_start_platform(str: &String) -> String {
-    crate::platform_core_string::trim_start(str)
+    crate::platform_std_core_string::trim_start(str)
 }
 
 pub fn trim_end_platform(str: &String) -> String {
-    crate::platform_core_string::trim_end(str)
+    crate::platform_std_core_string::trim_end(str)
 }
 
 pub fn contains_platform(str: &String, needle: &String) -> bool {
-    crate::platform_core_string::contains(str, needle)
+    crate::platform_std_core_string::contains(str, needle)
 }
 
 pub fn starts_with_platform(str: &String, prefix: &String) -> bool {
-    crate::platform_core_string::starts_with(str, prefix)
+    crate::platform_std_core_string::starts_with(str, prefix)
 }
 
 pub fn ends_with_platform(str: &String, suffix: &String) -> bool {
-    crate::platform_core_string::ends_with(str, suffix)
+    crate::platform_std_core_string::ends_with(str, suffix)
 }
 
 pub fn trim_platform(str: &String) -> String {
-    crate::platform_core_string::trim(str)
+    crate::platform_std_core_string::trim(str)
 }
 
 pub fn trim_prefix_platform(str: &String, prefix: &String) -> String {
-    crate::platform_core_string::trim_prefix(str, prefix)
+    crate::platform_std_core_string::trim_prefix(str, prefix)
 }
 
 pub fn trim_suffix_platform(str: &String, suffix: &String) -> String {
-    crate::platform_core_string::trim_suffix(str, suffix)
+    crate::platform_std_core_string::trim_suffix(str, suffix)
 }
 
 pub fn substr_platform(str: &String, mut start: i32, mut end: i32) -> Option<String> {
-    crate::platform_core_string::substr(str, start, end)
+    crate::platform_std_core_string::substr(str, start, end)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1813,44 +1813,44 @@ impl crate::wire::__Wire for Span {
     }
 }
 
-pub fn SpanOf__Span_qualifies(span: &crate::core_string::Span, str: &String) -> bool {
-    return (((span.start >= 0i32) && (span.start <= span.end)) && (span.end <= crate::core_string::size_platform(str)));
+pub fn SpanOf__Span_qualifies(span: &crate::std_core_string::Span, str: &String) -> bool {
+    return (((span.start >= 0i32) && (span.start <= span.end)) && (span.end <= crate::std_core_string::size_platform(str)));
 }
 
-pub fn substr(str: &String, at: &crate::core_string::Span) -> String {
+pub fn substr(str: &String, at: &crate::std_core_string::Span) -> String {
     return {
-        let mut __pick_1: Option<String> = crate::core_string::substr_platform(str, at.start, at.end);
+        let mut __pick_1: Option<String> = crate::std_core_string::substr_platform(str, at.start, at.end);
         if __pick_1.is_some() {
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at core.string:150:45")
+            panic!("salvo: unreachable at std.core.string:150:45")
         }
     };
 }
 
 pub fn to_upper_platform(str: &String) -> String {
-    crate::platform_core_string::to_upper(str)
+    crate::platform_std_core_string::to_upper(str)
 }
 
 pub fn to_lower_platform(str: &String) -> String {
-    crate::platform_core_string::to_lower(str)
+    crate::platform_std_core_string::to_lower(str)
 }
 
 pub fn join_platform(parts: &Vec<String>, sep: &String) -> String {
-    crate::platform_core_string::join(parts, sep)
+    crate::platform_std_core_string::join(parts, sep)
 }
 
 pub fn parse_int_platform(str: &String) -> Option<i32> {
-    crate::platform_core_string::parse_int(str)
+    crate::platform_std_core_string::parse_int(str)
 }
 
 pub fn parse_long_platform(str: &String) -> Option<i64> {
-    crate::platform_core_string::parse_long(str)
+    crate::platform_std_core_string::parse_long(str)
 }
 
 pub fn parse_double_platform(str: &String) -> Option<f64> {
-    crate::platform_core_string::parse_double(str)
+    crate::platform_std_core_string::parse_double(str)
 }
 
 pub fn parse_bool(str: &String) -> Option<bool> {
@@ -1868,68 +1868,68 @@ pub fn from_str__Str_StrOpt(s: &String) -> Option<String> {
 }
 
 pub fn from_str__Str_IntOpt(s: &String) -> Option<i32> {
-    return crate::core_string::parse_int_platform(s);
+    return crate::std_core_string::parse_int_platform(s);
 }
 
 pub fn from_str__Str_LongOpt(s: &String) -> Option<i64> {
-    return crate::core_string::parse_long_platform(s);
+    return crate::std_core_string::parse_long_platform(s);
 }
 
 pub fn from_str__Str_DoubleOpt(s: &String) -> Option<f64> {
-    return crate::core_string::parse_double_platform(s);
+    return crate::std_core_string::parse_double_platform(s);
 }
 
 pub fn from_str__Str_BoolOpt(s: &String) -> Option<bool> {
-    return crate::core_string::parse_bool(s);
+    return crate::std_core_string::parse_bool(s);
 }
 
 pub fn append_platform(str: &mut String, text: &String) {
-    crate::platform_core_string::append(str, text)
+    crate::platform_std_core_string::append(str, text)
 }
 
 pub fn set_platform(str: &mut String, mut index: i32, mut chr: char) -> bool {
-    crate::platform_core_string::set(str, index, chr)
+    crate::platform_std_core_string::set(str, index, chr)
 }
 
 pub fn clear_platform(str: &mut String) {
-    crate::platform_core_string::clear(str)
+    crate::platform_std_core_string::clear(str)
 }
 
 pub fn is_empty(str: &String) -> bool {
-    return (crate::core_string::size_platform(str) == 0i32);
+    return (crate::std_core_string::size_platform(str) == 0i32);
 }
 
 pub fn repeat(str: &String, mut n: i32) -> String {
-    let mut out: String = crate::core_string::Mut_Str(vec![]);
+    let mut out: String = crate::std_core_string::Mut_Str(vec![]);
     let mut i: i32 = 0i32;
     loop {
         if !((i < n)) {
             break;
         };
-        crate::core_string::append_platform(&mut out, str);
+        crate::std_core_string::append_platform(&mut out, str);
         i = i32::wrapping_add(i, 1i32);
     }
     return out;
 }
 
 pub fn lines(str: &String) -> Vec<String> {
-    let mut parts: Vec<String> = crate::core_string::split_platform(str, &String::from("\n"));
-    if ((crate::core_list::size_platform::<String>(&parts) > 1i32) && crate::core_string::ends_with_platform(str, &String::from("\n"))) {
-        let mut _end: Vec<String> = crate::core_list::remove_back::<String>(&mut parts, 1i32);
+    let mut parts: Vec<String> = crate::std_core_string::split_platform(str, &String::from("\n"));
+    if ((crate::std_core_list::size_platform::<String>(&parts) > 1i32) && crate::std_core_string::ends_with_platform(str, &String::from("\n"))) {
+        let mut _end: Vec<String> = crate::std_core_list::remove_back::<String>(&mut parts, 1i32);
     };
     let mut out: Vec<String> = vec![];
     for mut p in parts.iter() {
-        crate::core_list::add_platform::<String>(&mut out, crate::core_string::trim_suffix_platform(p, &String::from("\r")));
+        crate::std_core_list::add_platform::<String>(&mut out, crate::std_core_string::trim_suffix_platform(p, &String::from("\r")));
     }
     return out;
 }
 
 pub fn split_once(str: &String, sep: &String) -> Option<(String, String)> {
-    let mut at: Option<i32> = crate::core_string::index_of_platform(str, sep);
+    let mut at: Option<i32> = crate::std_core_string::index_of_platform(str, sep);
     if at.is_some() {
         let mut i = at.unwrap();
         let mut before: String = {
-            let mut __pick_1: Option<String> = crate::core_string::substr_platform(str, 0i32, i);
+            let mut __pick_1: Option<String> = crate::std_core_string::substr_platform(str, 0i32, i);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
@@ -1938,7 +1938,7 @@ pub fn split_once(str: &String, sep: &String) -> Option<(String, String)> {
             }
         };
         let mut after: String = {
-            let mut __pick_4: Option<String> = crate::core_string::substr_platform(str, i32::wrapping_add(i, crate::core_string::size_platform(sep)), crate::core_string::size_platform(str));
+            let mut __pick_4: Option<String> = crate::std_core_string::substr_platform(str, i32::wrapping_add(i, crate::std_core_string::size_platform(sep)), crate::std_core_string::size_platform(str));
             if __pick_4.is_some() {
                 let mut __picked_5 = __pick_4.unwrap();
                 __picked_5
@@ -1952,11 +1952,11 @@ pub fn split_once(str: &String, sep: &String) -> Option<(String, String)> {
 }
 
 pub fn split_last(str: &String, sep: &String) -> Option<(String, String)> {
-    let mut at: Option<i32> = crate::core_string::last_index_of_platform(str, sep);
+    let mut at: Option<i32> = crate::std_core_string::last_index_of_platform(str, sep);
     if at.is_some() {
         let mut i = at.unwrap();
         let mut before: String = {
-            let mut __pick_1: Option<String> = crate::core_string::substr_platform(str, 0i32, i);
+            let mut __pick_1: Option<String> = crate::std_core_string::substr_platform(str, 0i32, i);
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
@@ -1965,7 +1965,7 @@ pub fn split_last(str: &String, sep: &String) -> Option<(String, String)> {
             }
         };
         let mut after: String = {
-            let mut __pick_4: Option<String> = crate::core_string::substr_platform(str, i32::wrapping_add(i, crate::core_string::size_platform(sep)), crate::core_string::size_platform(str));
+            let mut __pick_4: Option<String> = crate::std_core_string::substr_platform(str, i32::wrapping_add(i, crate::std_core_string::size_platform(sep)), crate::std_core_string::size_platform(str));
             if __pick_4.is_some() {
                 let mut __picked_5 = __pick_4.unwrap();
                 __picked_5
@@ -1986,46 +1986,46 @@ pub mod unions;
 pub mod hosttime;
 #[path = "wire.rs"]
 pub mod wire;
-#[path = "core/basic.rs"]
-pub mod core_basic;
-#[path = "core/checked.rs"]
-pub mod core_checked;
-#[path = "core/compare.rs"]
-pub mod core_compare;
-#[path = "core/console.rs"]
-pub mod core_console;
-#[path = "core/index.rs"]
-pub mod core_index;
-#[path = "core/iterator.rs"]
-pub mod core_iterator;
-#[path = "core/list.rs"]
-pub mod core_list;
-#[path = "core/map.rs"]
-pub mod core_map;
-#[path = "core/result.rs"]
-pub mod core_result;
-#[path = "core/set.rs"]
-pub mod core_set;
-#[path = "core/sorted.rs"]
-pub mod core_sorted;
-#[path = "core/string.rs"]
-pub mod core_string;
-#[path = "platform/core/console.rs"]
-pub mod platform_core_console;
-#[path = "platform/core/list.rs"]
-pub mod platform_core_list;
-#[path = "platform/core/map.rs"]
-pub mod platform_core_map;
-#[path = "platform/core/set.rs"]
-pub mod platform_core_set;
-#[path = "platform/core/sorted.rs"]
-pub mod platform_core_sorted;
-#[path = "platform/core/string.rs"]
-pub mod platform_core_string;
+#[path = "std/core/basic.rs"]
+pub mod std_core_basic;
+#[path = "std/core/checked.rs"]
+pub mod std_core_checked;
+#[path = "std/core/compare.rs"]
+pub mod std_core_compare;
+#[path = "std/core/console.rs"]
+pub mod std_core_console;
+#[path = "std/core/index.rs"]
+pub mod std_core_index;
+#[path = "std/core/iterator.rs"]
+pub mod std_core_iterator;
+#[path = "std/core/list.rs"]
+pub mod std_core_list;
+#[path = "std/core/map.rs"]
+pub mod std_core_map;
+#[path = "std/core/result.rs"]
+pub mod std_core_result;
+#[path = "std/core/set.rs"]
+pub mod std_core_set;
+#[path = "std/core/sorted.rs"]
+pub mod std_core_sorted;
+#[path = "std/core/string.rs"]
+pub mod std_core_string;
+#[path = "platform/std/core/console.rs"]
+pub mod platform_std_core_console;
+#[path = "platform/std/core/list.rs"]
+pub mod platform_std_core_list;
+#[path = "platform/std/core/map.rs"]
+pub mod platform_std_core_map;
+#[path = "platform/std/core/set.rs"]
+pub mod platform_std_core_set;
+#[path = "platform/std/core/sorted.rs"]
+pub mod platform_std_core_sorted;
+#[path = "platform/std/core/string.rs"]
+pub mod platform_std_core_string;
 
-use crate::core_console::Console;
-use crate::core_result::ok;
-use crate::core_console::println;
+use crate::std_core_console::Console;
+use crate::std_core_result::ok;
+use crate::std_core_console::println;
 
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2067,25 +2067,25 @@ pub fn full_name__SurnamePerson(person: &crate::Person) -> String {
     return format!("{} {}", person.name, __claimed_1);
 }
 
-pub fn describe(console: &crate::core_console::Console, person: &crate::Person) {
+pub fn describe(console: &crate::std_core_console::Console, person: &crate::Person) {
     if crate::Surname__Person_qualifies(person) {
-        crate::core_console::println(console, &crate::full_name__SurnamePerson(person));
+        crate::std_core_console::println(console, &crate::full_name__SurnamePerson(person));
     } else {
-        crate::core_console::println(console, &crate::full_name__Person(person));
+        crate::std_core_console::println(console, &crate::full_name__Person(person));
     };
 }
 
-pub fn check(console: &crate::core_console::Console, mut n: i32) {
+pub fn check(console: &crate::std_core_console::Console, mut n: i32) {
     if crate::Positive__Int_qualifies(n) {
-        crate::core_console::println(console, &format!("{} is positive", n));
+        crate::std_core_console::println(console, &format!("{} is positive", n));
     } else {
-        crate::core_console::println(console, &format!("{} is not positive", n));
+        crate::std_core_console::println(console, &format!("{} is not positive", n));
     };
 }
 
 pub fn main() {
-    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
-    let __handle_2 = crate::core_console::Console::shared(__use_1);
+    let mut __use_1: crate::std_core_console::__Platform_StdConsole = crate::std_core_console::__Platform_StdConsole::new();
+    let __handle_2 = crate::std_core_console::Console::shared(__use_1);
     crate::describe(&__handle_2, &crate::Person { name: String::from("Roland"), surname: Some(String::from("Elliott")), age: 36i32 });
     crate::describe(&__handle_2, &crate::Person { name: String::from("Anon"), surname: None, age: 3i32 });
     crate::check(&__handle_2, 5i32);
@@ -2096,21 +2096,21 @@ pub fn main() {
             break;
         };
         let mut c = current.unwrap();
-        crate::core_console::println(&__handle_2, &format!("tick {}", c));
+        crate::std_core_console::println(&__handle_2, &format!("tick {}", c));
         current = if (c > 1i32) {
             Some(i32::wrapping_sub(c, 1i32))
         } else {
             None
         };
     }
-    let mut inner: crate::unions::Union2<String, i32> = crate::unions::Union2::U1(crate::core_result::ok::<String>(String::from("yes")));
-    let mut nested: crate::unions::Union2<crate::unions::Union2<String, i32>, bool> = crate::unions::Union2::U1(crate::core_result::ok::<crate::unions::Union2<String, i32>>(inner));
+    let mut inner: crate::unions::Union2<String, i32> = crate::unions::Union2::U1(crate::std_core_result::ok::<String>(String::from("yes")));
+    let mut nested: crate::unions::Union2<crate::unions::Union2<String, i32>, bool> = crate::unions::Union2::U1(crate::std_core_result::ok::<crate::unions::Union2<String, i32>>(inner));
     if matches!(nested, crate::unions::Union2::U1(_)) {
         let mut nested_3 = match &nested { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         let mut back = nested_3;
         if matches!(back, crate::unions::Union2::U1(_)) {
             let mut back_4 = match &back { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            crate::core_console::println(&__handle_2, &format!("inner ok: {}", back_4));
+            crate::std_core_console::println(&__handle_2, &format!("inner ok: {}", back_4));
         };
     };
 }
@@ -2473,8 +2473,8 @@ pub fn salvo_mono_nanos() -> i64 {
     Instant::now().duration_since(*origin).as_nanos() as i64
 }
 
-// ===== platform/core/console.rs =====
-// [platform-tree] [console] std's console, for `core.console`'s
+// ===== platform/std/core/console.rs =====
+// [platform-tree] [console] std's console, for `std.core.console`'s
 // `threadsafe platform handler StdConsole` (ROADMAP 0.5): standard output and
 // standard error, with no buffering of their own, so a line printed before a
 // trap is seen; and standard input, a line at a time.
@@ -2489,7 +2489,7 @@ impl StdConsole {
     }
 }
 
-impl crate::core_console::ConsolePlatformSync for StdConsole {
+impl crate::std_core_console::ConsolePlatformSync for StdConsole {
     fn print(&self, message: &String) {
         let mut out = std::io::stdout().lock();
         let _ = out.write_all(message.as_bytes());
@@ -2519,8 +2519,8 @@ impl crate::core_console::ConsolePlatformSync for StdConsole {
     }
 }
 
-// ===== platform/core/list.rs =====
-// [platform-value-type] std's list, for `core.list`'s
+// ===== platform/std/core/list.rs =====
+// [platform-value-type] std's list, for `std.core.list`'s
 // `platform type List<T> canbe Mut` (ROADMAP 0.7): a `Vec`. `Mut List` is the
 // same type, passed as `&mut`.
 
@@ -2634,8 +2634,8 @@ pub fn search_sorted_by<T>(list: &List<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T)
     if at < list.len() && cmp(&list[at], elem) == 0 { Some(at as i32) } else { None }
 }
 
-// ===== platform/core/map.rs =====
-// [platform-value-type] [platform-slots] std's map, for `core.map`'s `platform
+// ===== platform/std/core/map.rs =====
+// [platform-value-type] [platform-slots] std's map, for `std.core.map`'s `platform
 // type Map<K, V>(?hash, ?eq) canbe Mut`: one insertion-ordered slab for every
 // identity (ROADMAP §0j step 7, user decision 2026-10-06). Every operation is
 // handed the `hash` and `eq` its call resolved, lent for the call
@@ -2953,8 +2953,8 @@ pub fn value_at<'a, K, V>(map: &'a Map<K, V>, at: i32) -> &'a V {
     map.slots[at as usize].as_ref().map(|(_, v)| v).expect("salvo: a removed map slot")
 }
 
-// ===== platform/core/set.rs =====
-// [platform-value-type] [platform-slots] std's set, for `core.set`'s `platform
+// ===== platform/std/core/set.rs =====
+// [platform-value-type] [platform-slots] std's set, for `std.core.set`'s `platform
 // type Set<T>(?hash, ?eq) canbe Mut`: one insertion-ordered slab for every
 // identity (ROADMAP §0j step 7, user decision 2026-10-06). Every operation is
 // handed the `hash` and `eq` its call resolved, lent for the call
@@ -3207,8 +3207,8 @@ pub fn to_list<T: Clone>(set: &Set<T>) -> Vec<T> {
     set.iter().cloned().collect()
 }
 
-// ===== platform/core/sorted.rs =====
-// [platform-value-type] [platform-slots] std's sorted pair, for `core.sorted`'s
+// ===== platform/std/core/sorted.rs =====
+// [platform-value-type] [platform-slots] std's sorted pair, for `std.core.sorted`'s
 // `platform type SortedSet<T>(?cmp)` and `SortedMap<K, V>(?cmp)`: a sorted
 // `Vec` searched by bisection (ROADMAP §0j step 7, user decision 2026-10-06).
 // Every operation is handed the `cmp` its call resolved, lent for the call
@@ -3450,8 +3450,8 @@ pub fn keys<K: Clone, V>(map: &SortedMap<K, V>) -> Vec<K> {
     map.keys.clone()
 }
 
-// ===== platform/core/string.rs =====
-// [platform-value-type] std's string, for `core.string`'s
+// ===== platform/std/core/string.rs =====
+// [platform-value-type] std's string, for `std.core.string`'s
 // `platform type Str canbe Mut` (ROADMAP 0.7). A `Str` is a `String`, and so
 // is a `Mut Str`, passed as `&mut`. Indices count characters, not bytes.
 

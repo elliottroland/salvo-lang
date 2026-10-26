@@ -26,7 +26,7 @@ impl Sequencing(lent who: Str) of Sequencer stateful {
   fn next(lent out: Reply<Str>) -> None {
     assign n = (read n + 1)
     obligation release [out]
-    call core.actor::send<Str>(!read out, concat(read who, "#", call core.basic::to_str(Int)(read n)))
+    call std.core.actor::send<Str>(!read out, concat(read who, "#", call std.core.basic::to_str(Int)(read n)))
   }
 }
 
@@ -36,7 +36,7 @@ impl Stocking(lent shard: Str) of Inventory stateful {
   fn reserve(lent sku: Str, lent qty: Int, lent out: Reply<Str>) -> None {
     assign served = (read served + read qty)
     obligation release [out]
-    call core.actor::send<Str>(!read out, concat(read shard, ":", call core.basic::to_str(Int)(read served)))
+    call std.core.actor::send<Str>(!read out, concat(read shard, ":", call std.core.basic::to_str(Int)(read served)))
   }
 }
 
@@ -45,12 +45,12 @@ impl Indexing(lent words: List<Str>) of Search {
   fn query(lent word: Str, lent out: Reply<Int>) -> None {
     bind#1 let n: Int = 0
     foreach#2 w: proj Str in read words {
-      branch#3 cond#0 call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](read w), read word) {
+      branch#3 cond#0 call std.core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](read w), read word) {
         assign n = (read n + 1)
       }
     }
     obligation release [out]
-    call core.actor::send<Int>(!read out, !read n)
+    call std.core.actor::send<Int>(!read out, !read n)
   }
 }
 
@@ -58,7 +58,7 @@ impl Looking(lent who: Str) of Lookup {
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(lent key: Str, lent out: Reply<Str>) -> None {
     obligation release [out]
-    call core.actor::send<Str>(!read out, concat(read key, " from ", read who))
+    call std.core.actor::send<Str>(!read out, concat(read key, " from ", read who))
   }
 }
 
@@ -66,11 +66,11 @@ impl SlowLooking(lent who: Str, lent timer: eff[Timer]) of Lookup stateful {
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(lent key: Str, lent out: Reply<Str>) -> None {
     obligation release [out]
-    send time::Timer#0(read timer, call time::millis(150L), replyto answer(!read key, !read out))
+    send std.time::Timer#0(read timer, call std.time::millis(150L), replyto answer(!read key, !read out))
   }
   fn answer(lent key: Str, lent out: Reply<Str>, lent fired: Fired) -> None {
     obligation release [out]
-    call core.actor::send<Str>(!read out, concat(read key, " from ", read who))
+    call std.core.actor::send<Str>(!read out, concat(read key, " from ", read who))
   }
 }
 
@@ -80,7 +80,7 @@ impl Scattering(lent group: eff[ActorGroup<Search>], lent gather: eff[Gather]) o
     bind#1 let members: List<eff[Search]> = waitfor ms: Reply<List<eff[Search]>> {
       obligation gain [ms]
       obligation release [ms]
-      send net::ActorGroup#2(read group, !read ms)
+      send std.net::ActorGroup#2(read group, !read ms)
     }
     obligation release [out]
     send main::Gather#0(read gather, !read word, !read members, !read out)
@@ -93,23 +93,23 @@ actor interface Gather {
 
 impl Gathering() of Gather stateful {
   mailbox construct Mailbox { capacity: 16 }
-  state pending: Mut Deque<Reply<Int>> = call core.deque::mut_deque_of()<Reply<Int>>()
+  state pending: Mut Deque<Reply<Int>> = call std.core.deque::mut_deque_of()<Reply<Int>>()
   state left: Int = 0
   state total: Int = 0
   fn scatter(lent word: Str, lent members: List<eff[Search]>, lent out: Reply<Int>) -> None {
     obligation release [out]
-    call core.deque::add_last<Reply<Int>>(read pending, !read out)
-    assign left = call core.list::size<eff[Search]>(read members)
+    call std.core.deque::add_last<Reply<Int>>(read pending, !read out)
+    assign left = call std.core.list::size<eff[Search]>(read members)
     assign total = 0
     foreach#1 m: proj eff[Search] in read members {
-      send main::Search#0(read m, call core.basic::copy<Str>(read word), replyto partial())
+      send main::Search#0(read m, call std.core.basic::copy<Str>(read word), replyto partial())
     }
   }
   fn partial(lent n: Int) -> None {
     assign total = (read total + read n)
     assign left = (read left - 1)
     branch#1 cond#0 (read left == 0) {
-      bind#2 let out: Reply<Int>? = call core.deque::remove_first<Reply<Int>>(read pending)
+      bind#2 let out: Reply<Int>? = call std.core.deque::remove_first<Reply<Int>>(read pending)
       obligation gain [out.arms{0}]
       switch#3 read out {
         arm#0 (arm 0) {
@@ -117,7 +117,7 @@ impl Gathering() of Gather stateful {
           obligation discharge [out.arms{0}]
           obligation gain [out~1]
           obligation release [out~1]
-          call core.actor::send<Int>(!read out~1, call core.basic::copy<Int>(read total))
+          call std.core.actor::send<Int>(!read out~1, call std.core.basic::copy<Int>(read total))
         }
         arm#1 (none) {
         }
@@ -135,7 +135,7 @@ impl Hedging(lent group: eff[ActorGroup<Lookup>], lent racer: eff[Race]) of any 
     bind#1 let members: List<eff[Lookup]> = waitfor ms: Reply<List<eff[Lookup]>> {
       obligation gain [ms]
       obligation release [ms]
-      send net::ActorGroup#2(read group, !read ms)
+      send std.net::ActorGroup#2(read group, !read ms)
     }
     obligation release [out]
     send main::Race#0(read racer, !read key, !read members, !read out)
@@ -148,16 +148,16 @@ actor interface Race {
 
 impl Racing() of Race stateful {
   mailbox construct Mailbox { capacity: 16 }
-  state pending: Mut Deque<Reply<Str>> = call core.deque::mut_deque_of()<Reply<Str>>()
+  state pending: Mut Deque<Reply<Str>> = call std.core.deque::mut_deque_of()<Reply<Str>>()
   fn race(lent key: Str, lent members: List<eff[Lookup]>, lent out: Reply<Str>) -> None {
     obligation release [out]
-    call core.deque::add_last<Reply<Str>>(read pending, !read out)
+    call std.core.deque::add_last<Reply<Str>>(read pending, !read out)
     foreach#1 m: proj eff[Lookup] in read members {
-      send main::Lookup#0(read m, call core.basic::copy<Str>(read key), replyto first())
+      send main::Lookup#0(read m, call std.core.basic::copy<Str>(read key), replyto first())
     }
   }
   fn first(lent answer: Str) -> None {
-    bind#1 let out: Reply<Str>? = call core.deque::remove_first<Reply<Str>>(read pending)
+    bind#1 let out: Reply<Str>? = call std.core.deque::remove_first<Reply<Str>>(read pending)
     obligation gain [out.arms{0}]
     switch#2 read out {
       arm#0 (arm 0) {
@@ -165,10 +165,10 @@ impl Racing() of Race stateful {
         obligation discharge [out.arms{0}]
         obligation gain [out~1]
         obligation release [out~1]
-        call core.actor::send<Str>(!read out~1, !read answer)
+        call std.core.actor::send<Str>(!read out~1, !read answer)
       }
       arm#1 (none) {
-        call core.basic::discard<Str>(!read answer)
+        call std.core.basic::discard<Str>(!read answer)
       }
       arm#2 (else) {
         unreachable("unhandled union arm") at main:177:9
@@ -182,14 +182,14 @@ impl LastHost(lent nodes: eff[NodeGroup], lent me: NodeEndpoint) of Leader {
     bind#1 let peers: List<Node> = waitfor out: Reply<List<Node>> {
       obligation gain [out]
       obligation release [out]
-      send net::NodeGroup#0(read nodes, !read out)
+      send std.net::NodeGroup#0(read nodes, !read out)
     }
-    bind#2 let best_host: Str = call core.basic::copy<Str>(read me.host)
-    bind#3 let best: NodeId = call net::this_node()
+    bind#2 let best_host: Str = call std.core.basic::copy<Str>(read me.host)
+    bind#3 let best: NodeId = call std.net::this_node()
     foreach#4 n: proj Node in read peers {
-      branch#5 cond#0 (call core.compare::cmp(Str, Str)(read n.at.host, read best_host) > 0) {
-        assign best_host = call core.basic::copy<Str>(read n.at.host)
-        assign best = call core.basic::copy<NodeId>(read n.id)
+      branch#5 cond#0 (call std.core.compare::cmp(Str, Str)(read n.at.host, read best_host) > 0) {
+        assign best_host = call std.core.basic::copy<Str>(read n.at.host)
+        assign best = call std.core.basic::copy<NodeId>(read n.id)
       }
     }
     return present(!read best)
@@ -205,16 +205,16 @@ fn main::fresh_id(lent sequencer: Sequencer) -> Str {
 }
 
 fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: List<Str>) -> None {
-  bind#1 let shards: Mut List<Str> = call core.list::Mut_List()<Str>()
+  bind#1 let shards: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   foreach#2 sku: proj Str in read skus {
     bind#3 let answer: Str = waitfor out: Reply<Str> {
       obligation gain [out]
       obligation release [out]
-      member main::Inventory#0(read inventory, call core.basic::copy<Str>(read sku), 1, !read out)
+      member main::Inventory#0(read inventory, call std.core.basic::copy<Str>(read sku), 1, !read out)
     }
-    bind#4 let parts: Mut List<Str> = call core.string::split(read answer, ":")
-    call core.list::add<Str>(read shards, call core.basic::copy<Str>(branch#10 cond#0 true {
-      bind#5 let __pick~1: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read parts), 0)
+    bind#4 let parts: Mut List<Str> = call std.core.string::split(read answer, ":")
+    call std.core.list::add<Str>(read shards, call std.core.basic::copy<Str>(branch#10 cond#0 true {
+      bind#5 let __pick~1: proj Str? = call std.core.list::get(List<T>, Int)<Str>(drop_mut(read parts), 0)
       value branch#6 cond#0 check#9 (read __pick~1 is arm 0) {
         narrow#7[branch#6.cond#0] __picked~2: proj Str = __pick~1
         value !read __picked~2
@@ -222,8 +222,8 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
         value unreachable() at main:228:43
       }
     }))
-    call core.console::println(read console, concat("  ", read sku, ": ", branch#16 cond#0 true {
-      bind#11 let __pick~4: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read parts), 1)
+    call std.core.console::println(read console, concat("  ", read sku, ": ", branch#16 cond#0 true {
+      bind#11 let __pick~4: proj Str? = call std.core.list::get(List<T>, Int)<Str>(drop_mut(read parts), 1)
       value branch#12 cond#0 check#15 (read __pick~4 is arm 0) {
         narrow#13[branch#12.cond#0] __picked~5: proj Str = __pick~4
         value !read __picked~5
@@ -232,8 +232,8 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       }
     }, " reserved on its shard so far"))
   }
-  call core.console::println(read console, concat("  apple and apple on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#22 cond#0 true {
-    bind#17 let __pick~7: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
+  call std.core.console::println(read console, concat("  apple and apple on one shard: ", call std.core.basic::to_str(Bool)(call std.core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#22 cond#0 true {
+    bind#17 let __pick~7: proj Str? = call std.core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value branch#18 cond#0 check#21 (read __pick~7 is arm 0) {
       narrow#19[branch#18.cond#0] __picked~8: proj Str = __pick~7
       value !read __picked~8
@@ -241,7 +241,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       value unreachable() at main:231:69
     }
   }), borrow_as[proj Str -> Str](branch#28 cond#0 true {
-    bind#23 let __pick~10: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 2)
+    bind#23 let __pick~10: proj Str? = call std.core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 2)
     value branch#24 cond#0 check#27 (read __pick~10 is arm 0) {
       narrow#25[branch#24.cond#0] __picked~11: proj Str = __pick~10
       value !read __picked~11
@@ -249,8 +249,8 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       value unreachable() at main:231:103
     }
   })))))
-  call core.console::println(read console, concat("  apple and fig on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#34 cond#0 true {
-    bind#29 let __pick~13: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
+  call std.core.console::println(read console, concat("  apple and fig on one shard: ", call std.core.basic::to_str(Bool)(call std.core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#34 cond#0 true {
+    bind#29 let __pick~13: proj Str? = call std.core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value branch#30 cond#0 check#33 (read __pick~13 is arm 0) {
       narrow#31[branch#30.cond#0] __picked~14: proj Str = __pick~13
       value !read __picked~14
@@ -258,7 +258,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       value unreachable() at main:232:67
     }
   }), borrow_as[proj Str -> Str](branch#40 cond#0 true {
-    bind#35 let __pick~16: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 3)
+    bind#35 let __pick~16: proj Str? = call std.core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 3)
     value branch#36 cond#0 check#39 (read __pick~16 is arm 0) {
       narrow#37[branch#36.cond#0] __picked~17: proj Str = __pick~16
       value !read __picked~17
@@ -266,8 +266,8 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       value unreachable() at main:232:101
     }
   })))))
-  call core.console::println(read console, concat("  apple and pear on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#46 cond#0 true {
-    bind#41 let __pick~19: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
+  call std.core.console::println(read console, concat("  apple and pear on one shard: ", call std.core.basic::to_str(Bool)(call std.core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#46 cond#0 true {
+    bind#41 let __pick~19: proj Str? = call std.core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value branch#42 cond#0 check#45 (read __pick~19 is arm 0) {
       narrow#43[branch#42.cond#0] __picked~20: proj Str = __pick~19
       value !read __picked~20
@@ -275,7 +275,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       value unreachable() at main:233:68
     }
   }), borrow_as[proj Str -> Str](branch#52 cond#0 true {
-    bind#47 let __pick~22: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 1)
+    bind#47 let __pick~22: proj Str? = call std.core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 1)
     value branch#48 cond#0 check#51 (read __pick~22 is arm 0) {
       narrow#49[branch#48.cond#0] __picked~23: proj Str = __pick~22
       value !read __picked~23
@@ -302,19 +302,19 @@ fn main::find(lent lookup: Lookup; moved key: Str) -> Str {
 }
 
 fn main::two_ids(lent leader: Leader, lent console: Console; moved seq: eff[ActorGroup<Sequencer>]) -> None {
-  bind#1 let __use~1: Elected<Sequencer> = construct Elected<Sequencer> { config: call net::default_route_config(), __dep0: read leader }
+  bind#1 let __use~1: Elected<Sequencer> = construct Elected<Sequencer> { config: call std.net::default_route_config(), __dep0: read leader }
   bind#2 let __handle~2: RouteSelector<Sequencer> = handle[RouteSelector<Sequencer>](read __use~1)
   bind#3 let __use~3: __Route_Sequencer = construct __Route_Sequencer { group: !read seq, __dep0: read __handle~2 }
   bind#4 let __handle~4: Sequencer = handle[Sequencer](read __use~3)
-  call core.console::println(read console, concat("  ", call main::fresh_id(read __handle~4), " ", call main::fresh_id(read __handle~4)))
+  call std.core.console::println(read console, concat("  ", call main::fresh_id(read __handle~4), " ", call main::fresh_id(read __handle~4)))
 }
 
 fn main::shop(lent console: Console; moved stock: eff[ActorGroup<Inventory>]) -> None {
-  bind#1 let __use~1: Sharded<Inventory> = construct Sharded<Inventory> { config: call net::default_route_config() }
+  bind#1 let __use~1: Sharded<Inventory> = construct Sharded<Inventory> { config: call std.net::default_route_config() }
   bind#2 let __handle~2: RouteSelector<Inventory> = handle[RouteSelector<Inventory>](read __use~1)
   bind#3 let __use~3: __Route_Inventory = construct __Route_Inventory { group: !read stock, __dep0: read __handle~2 }
   bind#4 let __handle~4: Inventory = handle[Inventory](read __use~3)
-  call main::checkout(read __handle~4, read console, call core.list::List(T, T[])<Str>("apple", array[Str[]]("pear", "apple", "fig", "pear")))
+  call main::checkout(read __handle~4, read console, call std.core.list::List(T, T[])<Str>("apple", array[Str[]]("pear", "apple", "fig", "pear")))
 }
 
 actor interface Boot {
@@ -326,29 +326,29 @@ impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: eff[
   mailbox construct Mailbox { capacity: 2 }
   state nodes: eff[NodeGroup]? = none[None]
   fn boot(lent done: Reply<eff[Sequencer]>) -> None {
-    bind#1 let p: Pool = call core.actor::pool(Int)(1)
-    bind#2 let group: eff[NodeGroup] = spawn[eff[NodeGroup]](construct StaticNodeGroup { name: "cluster", all: call core.basic::copy<List<NodeEndpoint>>(read all), __dep0: read __dep0 }, on: read p) serves [NodeGroup]
-    assign nodes = present(call core.basic::copy<eff[NodeGroup]>(read group))
-    bind#3 let seq: eff[ActorGroup<Sequencer>] = call net::actor_group(eff[NodeGroup])<Sequencer>(call core.basic::copy<eff[NodeGroup]>(read group), fn net::protocol)
+    bind#1 let p: Pool = call std.core.actor::pool(Int)(1)
+    bind#2 let group: eff[NodeGroup] = spawn[eff[NodeGroup]](construct StaticNodeGroup { name: "cluster", all: call std.core.basic::copy<List<NodeEndpoint>>(read all), __dep0: read __dep0 }, on: read p) serves [NodeGroup]
+    assign nodes = present(call std.core.basic::copy<eff[NodeGroup]>(read group))
+    bind#3 let seq: eff[ActorGroup<Sequencer>] = call std.net::actor_group(eff[NodeGroup])<Sequencer>(call std.core.basic::copy<eff[NodeGroup]>(read group), fn std.net::protocol)
     bind#4 let mine: eff[Sequencer] = spawn[eff[Sequencer]](construct Sequencing { who: "b" }, on: read p, in: read seq) serves [Sequencer]
-    bind#5 let stock: eff[ActorGroup<Inventory>] = call net::actor_group(eff[NodeGroup])<Inventory>(call core.basic::copy<eff[NodeGroup]>(read group), fn net::protocol)
+    bind#5 let stock: eff[ActorGroup<Inventory>] = call std.net::actor_group(eff[NodeGroup])<Inventory>(call std.core.basic::copy<eff[NodeGroup]>(read group), fn std.net::protocol)
     spawn[eff[Inventory]](construct Stocking { shard: "shard-b" }, on: read p, in: read stock) serves [Inventory]
-    bind#6 let index: eff[ActorGroup<Search>] = call net::actor_group(eff[NodeGroup])<Search>(call core.basic::copy<eff[NodeGroup]>(read group), fn net::protocol)
-    spawn[eff[Search]](construct Indexing { words: call core.list::List(T, T[])<Str>("salvo", array[Str[]]("actors", "salvo", "nodes")) }, on: read p, in: read index) serves [Search]
-    bind#7 let looks: eff[ActorGroup<Lookup>] = call net::actor_group(eff[NodeGroup])<Lookup>(!read group, fn net::protocol)
+    bind#6 let index: eff[ActorGroup<Search>] = call std.net::actor_group(eff[NodeGroup])<Search>(call std.core.basic::copy<eff[NodeGroup]>(read group), fn std.net::protocol)
+    spawn[eff[Search]](construct Indexing { words: call std.core.list::List(T, T[])<Str>("salvo", array[Str[]]("actors", "salvo", "nodes")) }, on: read p, in: read index) serves [Search]
+    bind#7 let looks: eff[ActorGroup<Lookup>] = call std.net::actor_group(eff[NodeGroup])<Lookup>(!read group, fn std.net::protocol)
     bind#8 let timer: eff[Timer] = spawn[eff[Timer]](construct DefaultTimer { }, on: read p) serves [Timer]
     spawn[eff[Lookup]](construct SlowLooking { who: "b (slow)", timer: !read timer }, on: read p, in: read looks) serves [Lookup]
     obligation release [done]
-    call core.actor::send<eff[Sequencer]>(!read done, !read mine)
+    call std.core.actor::send<eff[Sequencer]>(!read done, !read mine)
   }
   fn stop(lent done: Reply<Bool>) -> None {
     bind#1 let group: eff[NodeGroup]? = read nodes
     branch#2 cond#0 !(check#3 (read group is none)) {
       narrow#4[branch#2.cond#0] group~1: eff[NodeGroup] = group
-      send net::NodeGroup#2(read group~1)
+      send std.net::NodeGroup#2(read group~1)
     }
     obligation release [done]
-    call core.actor::send<Bool>(!read done, true)
+    call std.core.actor::send<Bool>(!read done, true)
   }
 }
 
@@ -356,7 +356,7 @@ fn main::settle(lent timer: eff[Timer]) -> None {
   bind#1 let _f: Fired = waitfor f: Reply<Fired> {
     obligation gain [f]
     obligation release [f]
-    send time::Timer#0(read timer, call time::millis(400L), !read f)
+    send std.time::Timer#0(read timer, call std.time::millis(400L), !read f)
   }
 }
 
@@ -365,60 +365,60 @@ fn main::main() -> None {
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let a: NodeEndpoint = construct NodeEndpoint { host: "a", port: 1 }
   bind#4 let b: NodeEndpoint = construct NodeEndpoint { host: "b", port: 1 }
-  bind#5 let all: List<NodeEndpoint> = call core.list::List(T, T[])<NodeEndpoint>(call core.basic::copy<NodeEndpoint>(read a), array[NodeEndpoint[]](call core.basic::copy<NodeEndpoint>(read b)))
-  bind#6 let network: eff[MemNet] = spawn[eff[MemNet]](construct MemNetwork { }, on: call core.actor::pool(Int)(1)) serves [MemNet]
-  bind#7 let __use~3: MemTransport = construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read a), net: call core.basic::copy<eff[MemNet]>(read network) }
+  bind#5 let all: List<NodeEndpoint> = call std.core.list::List(T, T[])<NodeEndpoint>(call std.core.basic::copy<NodeEndpoint>(read a), array[NodeEndpoint[]](call std.core.basic::copy<NodeEndpoint>(read b)))
+  bind#6 let network: eff[MemNet] = spawn[eff[MemNet]](construct MemNetwork { }, on: call std.core.actor::pool(Int)(1)) serves [MemNet]
+  bind#7 let __use~3: MemTransport = construct MemTransport { me: call std.core.basic::copy<NodeEndpoint>(read a), net: call std.core.basic::copy<eff[MemNet]>(read network) }
   bind#8 let __handle~4: Transport = handle[Transport](read __use~3)
-  bind#9 let p: Pool = call core.actor::pool(Int)(2)
-  bind#10 let nodes: eff[NodeGroup] = spawn[eff[NodeGroup]](construct StaticNodeGroup { name: "cluster", all: call core.basic::copy<List<NodeEndpoint>>(read all), __dep0: read __handle~4 }, on: read p) serves [NodeGroup]
-  bind#11 let seq: eff[ActorGroup<Sequencer>] = call net::actor_group(eff[NodeGroup])<Sequencer>(call core.basic::copy<eff[NodeGroup]>(read nodes), fn net::protocol)
+  bind#9 let p: Pool = call std.core.actor::pool(Int)(2)
+  bind#10 let nodes: eff[NodeGroup] = spawn[eff[NodeGroup]](construct StaticNodeGroup { name: "cluster", all: call std.core.basic::copy<List<NodeEndpoint>>(read all), __dep0: read __handle~4 }, on: read p) serves [NodeGroup]
+  bind#11 let seq: eff[ActorGroup<Sequencer>] = call std.net::actor_group(eff[NodeGroup])<Sequencer>(call std.core.basic::copy<eff[NodeGroup]>(read nodes), fn std.net::protocol)
   spawn[eff[Sequencer]](construct Sequencing { who: "a" }, on: read p, in: read seq) serves [Sequencer]
-  bind#12 let stock: eff[ActorGroup<Inventory>] = call net::actor_group(eff[NodeGroup])<Inventory>(call core.basic::copy<eff[NodeGroup]>(read nodes), fn net::protocol)
+  bind#12 let stock: eff[ActorGroup<Inventory>] = call std.net::actor_group(eff[NodeGroup])<Inventory>(call std.core.basic::copy<eff[NodeGroup]>(read nodes), fn std.net::protocol)
   spawn[eff[Inventory]](construct Stocking { shard: "shard-a" }, on: read p, in: read stock) serves [Inventory]
-  bind#13 let index: eff[ActorGroup<Search>] = call net::actor_group(eff[NodeGroup])<Search>(call core.basic::copy<eff[NodeGroup]>(read nodes), fn net::protocol)
-  spawn[eff[Search]](construct Indexing { words: call core.list::List(T, T[])<Str>("salvo", array[Str[]]("is", "salvo")) }, on: read p, in: read index) serves [Search]
-  bind#14 let looks: eff[ActorGroup<Lookup>] = call net::actor_group(eff[NodeGroup])<Lookup>(call core.basic::copy<eff[NodeGroup]>(read nodes), fn net::protocol)
+  bind#13 let index: eff[ActorGroup<Search>] = call std.net::actor_group(eff[NodeGroup])<Search>(call std.core.basic::copy<eff[NodeGroup]>(read nodes), fn std.net::protocol)
+  spawn[eff[Search]](construct Indexing { words: call std.core.list::List(T, T[])<Str>("salvo", array[Str[]]("is", "salvo")) }, on: read p, in: read index) serves [Search]
+  bind#14 let looks: eff[ActorGroup<Lookup>] = call std.net::actor_group(eff[NodeGroup])<Lookup>(call std.core.basic::copy<eff[NodeGroup]>(read nodes), fn std.net::protocol)
   spawn[eff[Lookup]](construct Looking { who: "a" }, on: read p, in: read looks) serves [Lookup]
-  bind#15 let pb: Pool = call net::pool_at(call net::new_node(), 1)
-  bind#16 let booter: eff[Boot] = spawn[eff[Boot]](construct Booting { at: call core.basic::copy<NodeEndpoint>(read b), all: call core.basic::copy<List<NodeEndpoint>>(read all), net: call core.basic::copy<eff[MemNet]>(read network), __dep0: handle[Transport](construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read b), net: call core.basic::copy<eff[MemNet]>(read network) }) }, on: read pb) serves [Boot]
+  bind#15 let pb: Pool = call std.net::pool_at(call std.net::new_node(), 1)
+  bind#16 let booter: eff[Boot] = spawn[eff[Boot]](construct Booting { at: call std.core.basic::copy<NodeEndpoint>(read b), all: call std.core.basic::copy<List<NodeEndpoint>>(read all), net: call std.core.basic::copy<eff[MemNet]>(read network), __dep0: handle[Transport](construct MemTransport { me: call std.core.basic::copy<NodeEndpoint>(read b), net: call std.core.basic::copy<eff[MemNet]>(read network) }) }, on: read pb) serves [Boot]
   bind#17 let remote_seq: eff[Sequencer] = waitfor done: Reply<eff[Sequencer]> {
     obligation gain [done]
     obligation release [done]
     send main::Boot#0(read booter, !read done)
   }
-  bind#18 let timer: eff[Timer] = spawn[eff[Timer]](construct DefaultTimer { }, on: call core.actor::pool(Int)(1)) serves [Timer]
-  call main::settle(call core.basic::copy<eff[Timer]>(read timer))
+  bind#18 let timer: eff[Timer] = spawn[eff[Timer]](construct DefaultTimer { }, on: call std.core.actor::pool(Int)(1)) serves [Timer]
+  call main::settle(call std.core.basic::copy<eff[Timer]>(read timer))
   bind#19 let members: List<Node> = waitfor out: Reply<List<Node>> {
     obligation gain [out]
     obligation release [out]
-    send net::NodeGroup#0(read nodes, !read out)
+    send std.net::NodeGroup#0(read nodes, !read out)
   }
-  call core.console::println(read __handle~2, concat("nodes: ", call core.basic::to_str(Int)((call core.list::size<Node>(read members) + 1)), ", sequencers: ", call core.basic::to_str(Int)(call core.list::size<eff[Sequencer]>(waitfor out: Reply<List<eff[Sequencer]>> {
-    send net::ActorGroup#2(read seq, !read out)
+  call std.core.console::println(read __handle~2, concat("nodes: ", call std.core.basic::to_str(Int)((call std.core.list::size<Node>(read members) + 1)), ", sequencers: ", call std.core.basic::to_str(Int)(call std.core.list::size<eff[Sequencer]>(waitfor out: Reply<List<eff[Sequencer]>> {
+    send std.net::ActorGroup#2(read seq, !read out)
   }))))
-  call core.console::println(read __handle~2, concat("singleton (b's sequencer is remote: ", call core.basic::to_str(Bool)(!(call net::eq(NodeId, NodeId)(call net::node_of<Sequencer>(read remote_seq), call net::this_node()))), "):"))
-  bind#20 let __use~5: LastHost = construct LastHost { nodes: call core.basic::copy<eff[NodeGroup]>(read nodes), me: call core.basic::copy<NodeEndpoint>(read a) }
+  call std.core.console::println(read __handle~2, concat("singleton (b's sequencer is remote: ", call std.core.basic::to_str(Bool)(!(call std.net::eq(NodeId, NodeId)(call std.net::node_of<Sequencer>(read remote_seq), call std.net::this_node()))), "):"))
+  bind#20 let __use~5: LastHost = construct LastHost { nodes: call std.core.basic::copy<eff[NodeGroup]>(read nodes), me: call std.core.basic::copy<NodeEndpoint>(read a) }
   bind#21 let __handle~6: Leader = handle[Leader](read __use~5)
-  call main::two_ids(read __handle~6, read __handle~2, call core.basic::copy<eff[ActorGroup<Sequencer>]>(read seq))
-  call core.console::println(read __handle~2, "sharded:")
+  call main::two_ids(read __handle~6, read __handle~2, call std.core.basic::copy<eff[ActorGroup<Sequencer>]>(read seq))
+  call std.core.console::println(read __handle~2, "sharded:")
   call main::shop(read __handle~2, !read stock)
-  call core.console::println(read __handle~2, "scatter:")
-  bind#22 let __use~7: Scattering = construct Scattering { group: call core.basic::copy<eff[ActorGroup<Search>]>(read index), gather: spawn[eff[Gather]](construct Gathering { }, on: read p) serves [Gather] }
+  call std.core.console::println(read __handle~2, "scatter:")
+  bind#22 let __use~7: Scattering = construct Scattering { group: call std.core.basic::copy<eff[ActorGroup<Search>]>(read index), gather: spawn[eff[Gather]](construct Gathering { }, on: read p) serves [Gather] }
   bind#23 let __handle~8: Search = handle[Search](read __use~7)
-  call core.console::println(read __handle~2, concat("  salvo: ", call core.basic::to_str(Int)(call main::count(read __handle~8, "salvo")), ", actors: ", call core.basic::to_str(Int)(call main::count(read __handle~8, "actors")), ", none: ", call core.basic::to_str(Int)(call main::count(read __handle~8, "none"))))
-  call core.console::println(read __handle~2, "hedge:")
-  bind#24 let __use~9: Hedging = construct Hedging { group: call core.basic::copy<eff[ActorGroup<Lookup>]>(read looks), racer: spawn[eff[Race]](construct Racing { }, on: read p) serves [Race] }
+  call std.core.console::println(read __handle~2, concat("  salvo: ", call std.core.basic::to_str(Int)(call main::count(read __handle~8, "salvo")), ", actors: ", call std.core.basic::to_str(Int)(call main::count(read __handle~8, "actors")), ", none: ", call std.core.basic::to_str(Int)(call main::count(read __handle~8, "none"))))
+  call std.core.console::println(read __handle~2, "hedge:")
+  bind#24 let __use~9: Hedging = construct Hedging { group: call std.core.basic::copy<eff[ActorGroup<Lookup>]>(read looks), racer: spawn[eff[Race]](construct Racing { }, on: read p) serves [Race] }
   bind#25 let __handle~10: Lookup = handle[Lookup](read __use~9)
-  call core.console::println(read __handle~2, concat("  ", call main::find(read __handle~10, "k1")))
+  call std.core.console::println(read __handle~2, concat("  ", call main::find(read __handle~10, "k1")))
   bind#26 let _stopped: Bool = waitfor done: Reply<Bool> {
     obligation gain [done]
     obligation release [done]
     send main::Boot#1(read booter, !read done)
   }
-  call main::settle(call core.basic::copy<eff[Timer]>(read timer))
-  call core.console::println(read __handle~2, "after b left:")
-  call core.console::println(read __handle~2, concat("  sequencers: ", call core.basic::to_str(Int)(call core.list::size<eff[Sequencer]>(waitfor out: Reply<List<eff[Sequencer]>> {
-    send net::ActorGroup#2(read seq, !read out)
+  call main::settle(call std.core.basic::copy<eff[Timer]>(read timer))
+  call std.core.console::println(read __handle~2, "after b left:")
+  call std.core.console::println(read __handle~2, concat("  sequencers: ", call std.core.basic::to_str(Int)(call std.core.list::size<eff[Sequencer]>(waitfor out: Reply<List<eff[Sequencer]>> {
+    send std.net::ActorGroup#2(read seq, !read out)
   }))))
   call main::two_ids(read __handle~6, read __handle~2, !read seq)
 }
@@ -428,7 +428,7 @@ export impl __Route_Inventory(lent group: eff[ActorGroup<Inventory>]) of any Inv
   state seen: Long = -1L
   fn reserve(moved sku: Str, lent qty: Int, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
-    bind#1 let __pick: RoutePick<Inventory> = call net::route_pick(eff[ActorGroup<E>], Long, Long)<Inventory>(read __dep0, read group, read seen, call net::key_hash<Str>(read sku))
+    bind#1 let __pick: RoutePick<Inventory> = call std.net::route_pick(eff[ActorGroup<E>], Long, Long)<Inventory>(read __dep0, read group, read seen, call std.net::key_hash<Str>(read sku))
     assign seen = read __pick.version
     obligation release [out]
     send main::Inventory#0(read __pick.to, !read sku, !read qty, !read out)
@@ -440,7 +440,7 @@ export impl __Route_Sequencer(lent group: eff[ActorGroup<Sequencer>]) of any Seq
   state seen: Long = -1L
   fn next(moved out: Reply<Str>) -> None {
     obligation gain-params [out]
-    bind#1 let __pick: RoutePick<Sequencer> = call net::route_pick(eff[ActorGroup<E>], Long)<Sequencer>(read __dep0, read group, read seen)
+    bind#1 let __pick: RoutePick<Sequencer> = call std.net::route_pick(eff[ActorGroup<E>], Long)<Sequencer>(read __dep0, read group, read seen)
     assign seen = read __pick.version
     obligation release [out]
     send main::Sequencer#0(read __pick.to, !read out)

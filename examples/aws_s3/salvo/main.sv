@@ -14,10 +14,10 @@
 
 import aws
 import aws.s3
-import fs
-import fs.path
-import fs.mem
-import stream
+import std.fs
+import std.fs.path
+import std.fs.mem
+import std.stream
 
 // What a failure says, in a line.
 fn describe(e: S3Failure) [] -> Str => e {

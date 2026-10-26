@@ -111,7 +111,7 @@ makes the three one class. A function may add relations of its own —
 by spreading a group; declaring the members individually (`?hash: …, ?eq: …`) is
 how a signature takes them unrelated.
 
-`core` declares the ones everything else builds on: `Ordered<T>` (`cmp`),
+`std.core` declares the ones everything else builds on: `Ordered<T>` (`cmp`),
 `Eq<T>` (`eq`), `Hashed<T>` (`hash` and `eq` together), `Yield<It, T>`
 (`next`), `Ref<C, L, T>` (`at`). A type joins any of them by declaring the
 function — there is nothing to register.
@@ -170,7 +170,7 @@ A struct can state that its type parameter must come with a bundle, using a
 *type's*, not each function's:
 
 ```
-// core.array — the iterator an array is walked by. `: Yield<self, proj T>` is the
+// std.core.array — the iterator an array is walked by. `: Yield<self, proj T>` is the
 // obligation: this struct comes with a `next`, and `self` names the struct.
 export struct ArrayYield<T> : Yield<self, proj T> canbe Mut {
     items: proj (T[]),
@@ -241,7 +241,7 @@ struct captures it through `?cmp`, and `Ranked<Int>(backwards)` and
 
 ## Worked example: `std`'s heap
 
-`import heap` brings a binary heap that is **not a container**: it is a claim
+`import std.heap` brings a binary heap that is **not a container**: it is a claim
 on an ordinary `List<T>`, arranged and kept by the ordering it was built
 with. Every piece of this page appears in it.
 
@@ -293,7 +293,7 @@ export fn push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) -> None
 Using it:
 
 ```
-import heap
+import std.heap
 
 fn main() [use] {
     use StdConsole()

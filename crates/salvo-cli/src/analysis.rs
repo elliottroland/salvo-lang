@@ -92,11 +92,14 @@ fn content_hash(content: &str) -> u64 {
     h
 }
 
-/// The standard library, embedded into the binary at build time. Every file
-/// in it is a language file: std reaches its target languages through the
-/// backends' `intrinsic` lowerings [backend-intrinsic], not through
-/// per-backend source files.
-static STD_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../std");
+/// The standard library, embedded into the binary at build time: the tree
+/// under `lib/`, whose own manifest (`lib/salvo.toml`) makes `lib/` the
+/// source root, so `lib/std/core/list.sv` is module `std.core.list` [std-root]
+/// and `platform/std/time.kt` is the host file of `std.time`
+/// [platform-root]. The `.sv` files reach their target languages through the
+/// backends' `intrinsic` lowerings [backend-intrinsic] and std's platform
+/// host files, not through per-backend source files.
+static STD_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../lib");
 
 /// The result of analyzing a source directory.
 pub struct Analysis {
@@ -273,8 +276,8 @@ pub fn build_std_front(native_ext: &str) -> StdFront {
 /// `files`: they are exactly the embedded std it was built from (names,
 /// modules and contents), unshadowed, and nothing after them is std except
 /// a shadowing file — so not a `std = true` project, whose files are all
-/// std. The comptime half of the gate (`StdComptime::admits`, no project
-/// module under `core`) is asked beside it.
+/// std. Nothing a project declares changes std's expansion: std sees only
+/// std [obligation-by], and no project module is under `std` [std-root].
 fn std_front_applies(files: &[salvo_core::SourceFile], front: &StdFront) -> bool {
     let n = front.files.len();
     n <= files.len()
@@ -350,7 +353,7 @@ pub fn analyze_std() -> Analysis {
 
 /// [lsp-std-source] The temp directory the embedded-std copies live under,
 /// **per server process**: `<temp>/salvo-std-<version>-<pid>`. A std file
-/// named `std/core/basic.sv` is written at `<this>/std/core/basic.sv`, so
+/// named `lib/std/core/basic.sv` is written at `<this>/std/core/basic.sv`, so
 /// this is the `Analysis::root` that makes `root.join(name)` resolve a copy's
 /// path. The pid keeps concurrent servers (several editor windows, or a test
 /// suite's parallel servers) from sharing a directory — so one server's
@@ -481,9 +484,7 @@ fn analyze_project_with(
     let mut diagnostics: Vec<FileDiagnostic> = Vec::new();
     let mut ir_reliant: std::collections::HashSet<(usize, salvo_syntax::Span)> = std::collections::HashSet::new();
     let mut live: std::collections::HashSet<u64> = std::collections::HashSet::new();
-    let front = std_front.filter(|front| {
-        front_half && std_front_applies(&sources.files, front) && front.comptime.admits(&sources.files)
-    });
+    let front = std_front.filter(|front| front_half && std_front_applies(&sources.files, front));
     let t = salvo_core::timing::phase("parse");
     let mut parse = |idx: usize, cache: &mut Option<&mut ParseCache>, diagnostics: &mut Vec<FileDiagnostic>| {
         let file = &sources.files[idx];
@@ -865,7 +866,7 @@ pub fn load_dependencies(
 }
 
 /// Loads the embedded standard library: every `.sv` module, plus std's own
-/// host companions for the backend in play — `std/platform/**.<native_ext>`,
+/// host companions for the backend in play — `lib/platform/std/**.<native_ext>`,
 /// the implementations of std's `platform handler` declarations
 /// [platform-handler] [platform-tree]. std ships both languages side by side,
 /// exactly as a customer's source tree may, and only the extension of the
@@ -883,7 +884,8 @@ pub fn load_embedded_std(sources: &mut SourceSet, native_ext: &str) {
     walk(&STD_DIR, &mut files);
     files.sort_by_key(|f| f.path().to_path_buf());
     // [platform-root] std names its platform root in its own manifest, like
-    // any project; the embedded paths are relative to std's directory.
+    // any project; the embedded paths are relative to the manifest's
+    // directory, `lib/`.
     let roots = STD_DIR
         .get_file(salvo_core::MANIFEST_FILE)
         .and_then(|f| f.contents_utf8())
@@ -915,7 +917,7 @@ pub fn load_embedded_std(sources: &mut SourceSet, native_ext: &str) {
         }
         // [test-file] std's own test annexes are *not* part of the embedded
         // library: they are compiler-repository files, run by
-        // `salvo test --src std` from a checkout (user decision 2026-09-23,
+        // `salvo test --src lib` from a checkout (user decision 2026-09-23,
         // N1a), so a shipped binary never carries them — and a program that
         // merely uses std never parses them.
         if SourceSet::is_test_path(path) {
@@ -924,12 +926,9 @@ pub fn load_embedded_std(sources: &mut SourceSet, native_ext: &str) {
         let Ok(module) = SourceSet::classify(path) else {
             continue;
         };
-        sources.add(
-            format!("std/{}", path.display()),
-            module,
-            content.to_string(),
-            true,
-        );
+        // Named by its path under `lib/` (`lib/std/core/list.sv`), which is also
+        // where `embedded_std_copy` writes it [lsp-std-source].
+        sources.add(path.display().to_string(), module, content.to_string(), true);
     }
 }
 
@@ -1086,8 +1085,9 @@ mod tests {
     /// project of several modules with its own `by auto` and comptime fns and
     /// errors in both; a project module `auto` and a project `comptime fn
     /// auto`, which std's `by auto` must not see; and a project module under
-    /// `core` that std's `by auto` does see, which the comptime gate must
-    /// refuse.
+    /// `std.core`, the one way a project could have been implicitly visible to
+    /// std — refused as a module under the reserved root, and not visible
+    /// [std-root]. The `bool` says whether the program is free of that error.
     fn front_programs() -> Vec<(PathBuf, bool)> {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut out: Vec<(PathBuf, bool)> = Vec::new();
@@ -1157,13 +1157,13 @@ mod tests {
             ),
             true,
         ));
-        // What a project can still reach std through: a module under `core`,
-        // which std sees implicitly (until the `std.` prefix). Here it makes
-        // std's own `by auto` name two modules, so the gate must refuse it.
+        // [std-root] The one way a project could have reached std: a module
+        // under `std.core`, which every file sees implicitly. Its path is
+        // under the reserved root, so it is an error.
         out.push((
             scratch(
                 "core_module",
-                &[("core/extra/auto.sv", "export fn helper() [] -> Int {\n    return 1\n}\n"), ("main.sv", "fn main() [] {\n    let x = helper()\n}\n")],
+                &[("std/core/extra/auto.sv", "export fn helper() [] -> Int {\n    return 1\n}\n"), ("main.sv", "fn main() [] {\n    let x = helper()\n}\n")],
             ),
             false,
         ));
@@ -1191,27 +1191,30 @@ mod tests {
         let front = build_std_front("");
         let n = front.files.len();
         let alone: Vec<String> = front.modules.iter().map(|m| format!("{m:?}")).collect();
-        for (dir, admitted) in front_programs() {
+        for (dir, clean) in front_programs() {
             let full = front_analysis(&dir, None, false);
             assert!(std_front_applies(&full.program.files, &front), "{}: std did not load as the front's", dir.display());
             let same: Vec<bool> = (0..n).map(|i| format!("{:?}", full.program.modules[i]) == alone[i]).collect();
-            if admitted {
-                for (i, same) in same.iter().enumerate() {
-                    assert!(
-                        same,
-                        "{}: std's `{}` expanded differently inside the program",
-                        dir.display(),
-                        front.files[i].name
-                    );
-                }
-            } else {
-                // The gate's reason to exist: a project module under `core`
-                // (here `core.extra.auto`) makes std's own `by auto` sites
-                // name two modules.
+            for (i, same) in same.iter().enumerate() {
                 assert!(
-                    same.iter().any(|s| !s),
-                    "{}: the gate refuses this program, but std expanded alike in it",
-                    dir.display()
+                    same,
+                    "{}: std's `{}` expanded differently inside the program",
+                    dir.display(),
+                    front.files[i].name
+                );
+            }
+            if !clean {
+                // [std-root] A project module under `std` (here
+                // `std.core.extra.auto`) is refused where it is written.
+                assert!(
+                    full.diagnostics.iter().any(|d| {
+                        d.message.contains("module `std.core.extra.auto` is under `std`")
+                            && d.message.contains("[std-root]")
+                            && full.program.files[d.file].name.ends_with("auto.sv")
+                    }),
+                    "{}: a project module under `std` was not refused: {:#?}",
+                    dir.display(),
+                    full.diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
                 );
             }
         }
@@ -1278,14 +1281,15 @@ mod tests {
     fn std_front_matches_an_analysis_without_it() {
         let front = build_std_front("");
         let n = front.files.len();
-        for (dir, admitted) in front_programs() {
+        for (dir, _) in front_programs() {
             let without = front_analysis(&dir, Some(&front), false);
             let with = front_analysis(&dir, Some(&front), true);
             assert!(std_cache_applies(&with.program, &front.cache), "{}: the std cache did not apply", dir.display());
-            // The front stood in exactly when the program was expected to
-            // pass its gate: std's modules are the front's own `Arc`s.
+            // The front stands in for every program, a refused one included
+            // (there is no gate since [std-root]): std's modules are the
+            // front's own `Arc`s.
             let shared = Arc::ptr_eq(&with.program.modules[0], &front.modules[0]);
-            assert_eq!(shared, admitted, "{}: the front stood in = {shared}", dir.display());
+            assert!(shared, "{}: the front did not stand in", dir.display());
             assert!(!Arc::ptr_eq(&without.program.modules[0], &front.modules[0]));
             for ((what, a), (_, b)) in view(&with, n).into_iter().zip(view(&without, n)) {
                 assert!(a == b, "{}: {what} differ through the front:\n{a:#?}\nwithout it:\n{b:#?}", dir.display());

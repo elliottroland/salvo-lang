@@ -32,7 +32,7 @@ fn greet(person: Person) [Console] -> None => person {
     }
 }
 
-// Its own pass, named `Upto` rather than `Range`: `core.range` exports a
+// Its own pass, named `Upto` rather than `Range`: `std.core.range` exports a
 // `Range` of its own [mod-export], and two same-named structs in two modules
 // confuse the pass-driving resolution (an open defect — ROADMAP.md).
 struct Upto {
@@ -74,20 +74,20 @@ fn main() [use] -> None {
 
 /// [platform-handler] std's own route: a `platform handler` declared in a
 /// *std* module, implemented by a host companion std ships
-/// (`std/platform/core/…`) rather than one `salvo platform generate` writes.
+/// (`lib/platform/std/core/…`) rather than one `salvo platform generate` writes.
 /// This is FS-1's `HostRawFs` shape (FILE_SYSTEM.md §5.8) with a clock
 /// standing in for the filesystem.
 #[test]
 fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
-    // A std module — `core.*` is implicitly imported, so the program below
+    // A std module — `std.core.*` is implicitly imported, so the program below
     // sees these names without an `import`.
     sources.add(
         "std/core/rawclock.sv",
-        SourceSet::classify(Path::new("core/rawclock.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/rawclock.sv")).unwrap(),
         "export effect RawClock {\n    fn raw_now() [] -> Int\n}\n\n\
          export platform handler HostRawClock of RawClock\n"
             .to_string(),
@@ -104,9 +104,9 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
     // The companion std ships for this backend, mounted exactly as a
     // customer's `platform/` file is [platform-tree].
     sources.add_companion(
-        std::path::PathBuf::from("platform/core/rawclock.kt"),
-        salvo_core::ModulePath(vec!["core".into(), "rawclock".into()]),
-        "package salvo.platform.core.rawclock\n\nimport salvo.core.rawclock.*\n\n\
+        std::path::PathBuf::from("platform/std/core/rawclock.kt"),
+        salvo_core::ModulePath(vec!["std".into(), "core".into(), "rawclock".into()]),
+        "package salvo.platform.std.core.rawclock\n\nimport salvo.std.core.rawclock.*\n\n\
          class HostRawClock : RawClockPlatform {\n    override fun raw_now(): Int = 7\n}\n"
             .to_string(),
         true,
@@ -135,7 +135,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
         .expect("main.kt");
     assert!(
         main.content
-            .contains("salvo.core.rawclock.__Platform_HostRawClock()"),
+            .contains("salvo.std.core.rawclock.__Platform_HostRawClock()"),
         "expected the shipped host class to be constructed, got:\n{}",
         main.content
     );
@@ -143,7 +143,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
     assert!(
         files
             .iter()
-            .any(|f| f.rel_path.to_string_lossy() == "platform/core/rawclock.kt"),
+            .any(|f| f.rel_path.to_string_lossy() == "platform/std/core/rawclock.kt"),
         "expected std's host companion to be copied"
     );
     // And `salvo platform generate` writes nothing for it: std's host file
@@ -161,7 +161,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
 }
 
 fn build_program(extra: &[(&str, &str)]) -> Program {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
@@ -336,14 +336,14 @@ fn unions_emit_sealed_wrappers() {
         .unwrap();
     // Wrap at return boundaries, positional arm identity (the constructor
     // call is wrapped into the union arm).
-    assert!(main.content.contains("return Union2.U1<Int, String>(salvo.core.result.ok(input))"));
+    assert!(main.content.contains("return Union2.U1<Int, String>(salvo.std.core.result.ok(input))"));
     assert!(main
         .content
-        .contains("return Union2.U2<Int, String>(salvo.core.result.err(\"negative age\"))"));
+        .contains("return Union2.U2<Int, String>(salvo.std.core.result.err(\"negative age\"))"));
     // Qualifier-tagged wrap picks the right arm of the 3-union.
     assert!(main
         .content
-        .contains("Union3.U1<String, String, Boolean>(salvo.core.result.ok(\"yes\"))"));
+        .contains("Union3.U1<String, String, Boolean>(salvo.std.core.result.ok(\"yes\"))"));
     // Precise `is Err Str` tests a single arm; `is Ok` another.
     assert!(main.content.contains("precise is Union3.U2<*, *, *>"));
     assert!(main.content.contains("precise is Union3.U1<*, *, *>"));
@@ -660,7 +660,7 @@ fn a_pass_lowers_to_a_guarded_while_loop() {
         .expect("main.kt")
         .content;
     assert!(
-        src.contains(": Countdown = countdown(3)") && src.contains(": Union2<Int, salvo.core.iterator.Finished> = next__Countdown("),
+        src.contains(": Countdown = countdown(3)") && src.contains(": Union2<Int, salvo.std.core.iterator.Finished> = next__Countdown("),
         "expected the driving loop in:\n{src}"
     );
     // [ir-loop] The pass is driven by one `while (true)` testing the step's
@@ -682,8 +682,8 @@ fn a_fieldless_struct_is_a_plain_class() {
     });
     let src = &files
         .iter()
-        .find(|f| f.rel_path == std::path::Path::new("core/iterator.kt"))
-        .expect("core/iterator.kt")
+        .find(|f| f.rel_path == std::path::Path::new("std/core/iterator.kt"))
+        .expect("std/core/iterator.kt")
         .content;
     assert!(
         src.contains("class Finished") && !src.contains("data class Finished"),
@@ -701,7 +701,7 @@ fn a_fieldless_struct_is_a_plain_class() {
 /// *group* and the value needs two wraps — inner union first. That needed an
 /// intermediate annotated `let` until 2026-09-10.
 const FALLIBLE_PASS_DEMO: &str = r#"
-import throw
+import std.throw
 
 struct Reader : Yield<self, Ok Str | Err Str> canbe Mut {
     lines: List<Str>,
@@ -785,7 +785,7 @@ fn a_flattened_qualifier_wraps_the_inner_union_first() {
         .find(|f| f.rel_path == std::path::Path::new("main.kt"))
         .expect("main.kt");
     for (arm, what) in [("Union2.U2", "err"), ("Union2.U1", "ok")] {
-        let needle = format!("Union2.U1<Union2<String, String>, salvo.core.iterator.Finished>({arm}<String, String>(");
+        let needle = format!("Union2.U1<Union2<String, String>, salvo.std.core.iterator.Finished>({arm}<String, String>(");
         assert!(
             main.content.contains(&needle),
             "expected the inner {what} arm to be wrapped before the outer one in:\n{}",
@@ -1281,7 +1281,7 @@ const PICK_OUTPUT: &str =
 /// The mapping itself is the one an annotated `let` has always emitted
 /// [let-infer]; what was missing was reaching it from a site with no slot.
 const REWRAP_DEMO: &str = r#"
-import throw
+import std.throw
 
 fn classify(n: Int) -> Ok Int | Ok Str | Err Str {
     if n == 0 {
@@ -1888,7 +1888,7 @@ fn a_union_returning_implicit_renders_the_wrapper_type() {
         .expect("main.kt")
         .content;
     assert!(
-        src.contains("next: (It) -> Union2<T, salvo.core.iterator.Finished>"),
+        src.contains("next: (It) -> Union2<T, salvo.std.core.iterator.Finished>"),
         "expected the union wrapper in the spread position, got:\n{src}"
     );
     assert!(
@@ -2100,13 +2100,13 @@ export fn main() [use] -> None {
         .unwrap();
     assert!(
         main.content
-            .contains("fun fill(target: salvo.platform.core.list.MutList<Int>, n: Int)"),
+            .contains("fun fill(target: salvo.platform.std.core.list.MutList<Int>, n: Int)"),
         "unexpected: {}",
         main.content
     );
     assert!(main
         .content
-        .contains("val items: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>(1)"));
+        .contains("val items: salvo.platform.std.core.list.MutList<Int> = mutableListOf<Int>(1)"));
 }
 
 // [type-canbe-mut] `Mut` only applies to declarations that say `canbe Mut`.
@@ -3105,7 +3105,7 @@ struct Point : Ordered<self> by auto, Hashed<self> by auto {
 }
 
 // [fn-by] The **function-level** form, with no obligation clause at all: one
-// member stamped from `core.auto`, declared on the type by being inside it.
+// member stamped from `std.core.auto`, declared on the type by being inside it.
 struct Tag {
     label: Str
 
@@ -3992,7 +3992,7 @@ iter fn iter(r: Range) -> Emitted Int | Finished {
 
 fn main() [use] -> None {
     use StdConsole()
-    // `core.range` declares a `range(Int, Int)` too, and nothing separates the
+    // `std.core.range` declares a `range(Int, Int)` too, and nothing separates the
     // two by signature, so the call names the place [fn-overload-ambiguous].
     for i in range@main(1, 4) {
         println("${i}")
@@ -4780,7 +4780,7 @@ fn kotlinc_compiles_and_runs_notsame_handles() -> KotlinCase {
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    let reff = files.iter().find(|f| f.rel_path.ends_with("core/ref.kt")).unwrap();
+    let reff = files.iter().find(|f| f.rel_path.ends_with("std/core/ref.kt")).unwrap();
     assert!(reff.content.contains("==="), "{}", reff.content);
     kotlin_case(files, "notsame_handles", NOTSAME_OUTPUT)
 }
@@ -4895,7 +4895,7 @@ fn kotlinc_compiles_and_runs_a_disjunction_and_a_negation_narrow_nothing_after_t
 
 /// [qual-lift] `^` on a projection: a test inside the branch reads the lifted view of the field, not the stored union.
 const LIFT_FIELD_DEMO: &str = r#"
-import throw
+import std.throw
 struct H { result: Ok (Ok Int | Err Str) | Thrown Str }
 
 fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
@@ -6263,7 +6263,7 @@ fn cache_stamp(
 /// in value and statement position, bare `break` (optional value), and a
 /// union-typed loop value re-wrapped to the declared type [while-value].
 const LOOPS: &str = r#"
-// Its own pass, named `Upto` rather than `Range`: `core.range` exports a
+// Its own pass, named `Upto` rather than `Range`: `std.core.range` exports a
 // `Range` of its own [mod-export], and two same-named structs in two modules
 // confuse the pass-driving resolution (an open defect — ROADMAP.md).
 struct Upto {
@@ -6509,7 +6509,7 @@ fn modules_get_packages_and_generated_imports() {
     assert!(main.content.starts_with("package salvo.main\n"));
     // [kt-ir] A foreign reference is fully qualified, so a module imports
     // only the root runtime package.
-    assert!(main.content.contains("salvo.core.console.println("), "{}", main.content);
+    assert!(main.content.contains("salvo.std.core.console.println("), "{}", main.content);
     assert!(main.content.contains("salvo.geometry.area("), "{}", main.content);
     let geometry = files
         .iter()
@@ -6642,7 +6642,7 @@ export fn main() [use] -> None {
     // The generated effect parameter picks a fresh name.
     assert!(
         main.content
-            .contains("fun shadowed(console__1: salvo.core.console.Console, console: String)"),
+            .contains("fun shadowed(console__1: salvo.std.core.console.Console, console: String)"),
         "unexpected: {}",
         main.content
     );
@@ -6771,13 +6771,13 @@ export fn main() [use] -> None {
     // Positional arm identity: Ok -> first arm, Err -> second arm.
     assert!(
         main.content
-            .contains("describe(Union2.U1<String, String>(salvo.core.result.ok(\"x\")))"),
+            .contains("describe(Union2.U1<String, String>(salvo.std.core.result.ok(\"x\")))"),
         "content: {}",
         main.content
     );
     assert!(
         main.content
-            .contains("describe(Union2.U2<String, String>(salvo.core.result.err(\"y\")))"),
+            .contains("describe(Union2.U2<String, String>(salvo.std.core.result.err(\"y\")))"),
         "content: {}",
         main.content
     );
@@ -6837,7 +6837,7 @@ fn copy_lowers_type_directedly() {
     );
     // A real copy for `Mut List<Int>`.
     assert!(
-        main.content.contains("val ys: salvo.platform.core.list.MutList<Int> = xs.toMutableList()"),
+        main.content.contains("val ys: salvo.platform.std.core.list.MutList<Int> = xs.toMutableList()"),
         "generated:\n{}",
         main.content
     );
@@ -6957,7 +6957,7 @@ fn canbe_mut_field_reads_cast_and_structs_copy_deeply() {
     let main = files.iter().find(|f| f.rel_path.to_string_lossy() == "main.kt").unwrap();
     // Declared at the plain type, read as `Mut` through a cast.
     assert!(main.content.contains("var items: List<Int>"), "generated:\n{}", main.content);
-    assert!(main.content.contains("(b.items as salvo.platform.core.list.MutList<Int>)"), "generated:\n{}", main.content);
+    assert!(main.content.contains("(b.items as salvo.platform.std.core.list.MutList<Int>)"), "generated:\n{}", main.content);
     // A deep copy replaces every mutable field.
     assert!(main.content.contains(".copy(items = "), "generated:\n{}", main.content);
 }
@@ -9279,7 +9279,7 @@ fn main() [use] -> None {
     // A keyed container over a tuple used to live here, exercising the
     // generated class's structural comparison. It cannot today: a keyed
     // constructor asks for its identity as a capability (user decision
-    // 2026-09-26) and `core.compare` declares `cmp`/`hash` for the intrinsic
+    // 2026-09-26) and `std.core.compare` declares `cmp`/`hash` for the intrinsic
     // scalars only, so a tuple has no identity to pass — the same gap that
     // stops `(1, 2) == (1, 2)` and `(1, 2) < (1, 3)` from resolving, which
     // never worked either. ROADMAP's "Recursive implicit resolution" is the
@@ -9574,7 +9574,7 @@ fn kotlinc_compiles_and_runs_aliased_effects() -> KotlinCase {
 }
 
 // ===== std array functions =====
-// [type-array] Arrays get the `core.list` function surface minus
+// [type-array] Arrays get the `std.core.list` function surface minus
 // construction and mutation: `size`, `get`, `first`, `iter` (user
 // decision 2026-09-02 — the docs/language/ `CyclicRandom` example calls
 // `values.size()` on a `T[]`).
@@ -9621,7 +9621,7 @@ fn array_std_functions_lower() {
         "nums.size",
         "nums.getOrNull(2)",
         "nums.firstOrNull()",
-        "= salvo.core.array.iter(nums)",
+        "= salvo.std.core.array.iter(nums)",
         "values.size",
     ] {
         assert!(
@@ -9927,7 +9927,7 @@ fn provenance_survives_mutation_where_state_does_not() -> KotlinCase {
 /// (`Thrown (Str | Int)`), a may-throw call inside a loop, and a nested
 /// delimiter that must not swallow the outer throw.
 const THROW_DEMO: &str = r#"
-import throw
+import std.throw
 
 linear struct FileHandle {
     fd: Int
@@ -10070,7 +10070,7 @@ fn throw_lowers_to_a_signal_and_try_to_a_catch() {
     // implement, so an interface for it would be dead code.
     let std_throw = files
         .iter()
-        .find(|f| f.rel_path.ends_with("core/throw.kt"))
+        .find(|f| f.rel_path.ends_with("std/core/throw.kt"))
         .map(|f| f.content.clone())
         .unwrap_or_default();
     assert!(
@@ -10221,7 +10221,7 @@ fn kotlinc_compiles_and_runs_fn_type_effects() -> KotlinCase {
 // [qual-lift] `^` tests the arm *and* removes the claim, so a branch can
 // `when` the union inside a qualified one — the shape `try` outcomes produce.
 const WIDEN_DEMO: &str = r#"
-import throw
+import std.throw
 
 fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
     if n < 0 {
@@ -10446,7 +10446,7 @@ fn kotlinc_compiles_and_runs_when_cond() -> KotlinCase {
 // rejected the output — a [backend-never-wrong] miss caught by nothing but
 // the toolchain.
 const TRY_MUTATION_DEMO: &str = r#"
-import throw
+import std.throw
 
 fn risky(n: Int) [Throw<Str>] -> Int {
     if n < 0 {
@@ -10777,7 +10777,7 @@ fn kotlinc_compiles_and_runs_a_threadsafe_platform_handler() -> KotlinCase {
 
 /// The Rust backend's `NET_MEM_TRANSPORT`, verbatim, with the same expected
 /// output — the parity assertion for the wire's double.
-const NET_MEM_TRANSPORT: &str = r#"import net
+const NET_MEM_TRANSPORT: &str = r#"import std.net
 
 actor effect Counting {
     send fn total(out: Reply<Str>) => !out
@@ -10849,7 +10849,7 @@ fn an_unused_threadsafe_platform_handler_is_never_constructed() {
     let files = generate_files(&[("main.sv", NET_MEM_TRANSPORT)]);
     let all: String = files.iter().map(|f| f.content.as_str()).collect();
     assert!(
-        !all.contains("salvo.net.__Platform_HostTcpTransport("),
+        !all.contains("salvo.std.net.__Platform_HostTcpTransport("),
         "an unused platform handler was constructed:\n{all}"
     );
 }
@@ -10862,8 +10862,8 @@ fn kotlinc_compiles_and_runs_the_mem_transport() -> KotlinCase {
 
 /// [threadsafe-platform] The real wire on localhost under kotlinc — the Rust
 /// backend's `NET_TCP_SMOKE` on this backend's own port.
-const NET_TCP_SMOKE: &str = r#"import net
-import time
+const NET_TCP_SMOKE: &str = r#"import std.net
+import std.time
 
 actor effect Seen {
     send fn wait_one(out: Reply<Str>) => !out
@@ -10931,8 +10931,8 @@ fn kotlinc_compiles_and_runs_the_tcp_transport_on_localhost() -> KotlinCase {
 
 /// The Rust backend's `WIRE_DEMO`, verbatim, with the same expected hex — the
 /// byte-for-byte parity assertion for the wire [wire-format] [kt-wire].
-const WIRE_DEMO: &str = r#"import net
-import codec
+const WIRE_DEMO: &str = r#"import std.net
+import std.codec
 
 struct Point { x: Int, y: Long }
 struct Tag { name: Str }
@@ -11006,9 +11006,9 @@ fn kotlinc_compiles_and_runs_the_wire_format() -> KotlinCase {
 // ===== the network sequence, step ③: routable addrs across two nodes =====
 
 /// The Rust backend's `NODES_DEMO`, verbatim [addr-routable].
-const NODES_DEMO: &str = r#"import net
-import codec
-import time
+const NODES_DEMO: &str = r#"import std.net
+import std.codec
+import std.time
 
 actor effect Counter {
     send fn bump(n: Int) => !n
@@ -11091,8 +11091,8 @@ fn kotlinc_compiles_and_runs_two_nodes_over_mem_transport() -> KotlinCase {
 // ===== the network sequence, step ④: node groups =====
 
 /// The Rust backend's `NODE_GROUP_DEMO`, verbatim [node-group].
-const NODE_GROUP_DEMO: &str = r#"import net
-import time
+const NODE_GROUP_DEMO: &str = r#"import std.net
+import std.time
 
 handler Announcing(label: Str) [Console] of NodeGroupWatcher {
     mailbox { capacity: 32 }
@@ -11363,8 +11363,8 @@ fn kotlinc_compiles_and_runs_private_send_members() -> KotlinCase {
 }
 
 /// The Rust backend's `SPAWN_IN_GROUP_DEMO`, verbatim [actor-group].
-const SPAWN_IN_GROUP_DEMO: &str = r#"import net
-import time
+const SPAWN_IN_GROUP_DEMO: &str = r#"import std.net
+import std.time
 
 actor effect Ping { send fn ping(out: Reply<Str>) => !out }
 actor effect Admin { send fn stop() }
@@ -11479,7 +11479,7 @@ fn kotlinc_compiles_and_runs_handler_init() -> KotlinCase {
 }
 
 /// The Rust backend's `ANY_ROUTER_DEMO`, verbatim [effect-any].
-const ANY_ROUTER_DEMO: &str = r#"import time
+const ANY_ROUTER_DEMO: &str = r#"import std.time
 
 actor effect Resizer {
     send fn resize(name: Str, w: Int, out: Reply<Str>) => !name, !out
@@ -11530,8 +11530,8 @@ fn kotlinc_compiles_and_runs_a_router_of_any() -> KotlinCase {
 }
 
 /// The Rust backend's `ROUTE_SHARDED_DEMO`, verbatim [route-stub].
-const ROUTE_SHARDED_DEMO: &str = r#"import net
-import time
+const ROUTE_SHARDED_DEMO: &str = r#"import std.net
+import std.time
 
 actor effect Inventory {
     send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out
@@ -11579,8 +11579,8 @@ fn kotlinc_compiles_and_runs_a_sharded_route() -> KotlinCase {
 }
 
 /// The Rust backend's `ROUTE_PICKS_DEMO`, verbatim [route-stub].
-const ROUTE_PICKS_DEMO: &str = r#"import net
-import time
+const ROUTE_PICKS_DEMO: &str = r#"import std.net
+import std.time
 
 actor effect Sequencer {
     send fn next(out: Reply<Str>) => !out
@@ -11656,8 +11656,8 @@ fn kotlinc_compiles_and_runs_least_loaded_and_elected_routes() -> KotlinCase {
 }
 
 /// The Rust backend's `ACTOR_GROUP_DEMO`, verbatim [actor-group].
-const ACTOR_GROUP_DEMO: &str = r#"import net
-import time
+const ACTOR_GROUP_DEMO: &str = r#"import std.net
+import std.time
 
 actor effect Ping {
     send fn ping(out: Reply<Str>) => !out
@@ -11775,7 +11775,7 @@ fn every_emitted_overload_gets_its_own_kotlin_name() {
         .expect("main.kt emitted")
         .content;
     assert!(
-        main.contains("fun twice__ListYield_Fn(p: salvo.core.list.ListYield<Int>") && main.contains("fun twice__List_Fn(xs: List<Int>"),
+        main.contains("fun twice__ListYield_Fn(p: salvo.std.core.list.ListYield<Int>") && main.contains("fun twice__List_Fn(xs: List<Int>"),
         "expected the second overload to be renamed in:\n{main}"
     );
     // The delegation calls the *other* overload, by its own name.
@@ -11845,7 +11845,7 @@ fn kotlinc_compiles_and_runs_the_combinator_surface() -> KotlinCase {
     // resolved, which arrives as an ordinary function parameter — no trait, no
     // bound [implicit-group].
     assert!(
-        seq.contains("next: (It) -> Union2<T, salvo.core.iterator.Finished>"),
+        seq.contains("next: (It) -> Union2<T, salvo.std.core.iterator.Finished>"),
         "expected the resolved `next` as a plain parameter in:\n{seq}"
     );
     kotlin_case(files, "seq-surface", SEQ_SURFACE_OUTPUT)
@@ -12211,7 +12211,7 @@ fn main() [use] {
     add(xs, 2)
     // `@core.list` changes nothing here: there is one `size` that fits and
     // nothing refines it, so the selector is noise [fn-overload-at]. (`add`
-    // was the example until `Idx` moved to `core.index`: refined in two
+    // was the example until `Idx` moved to `std.core.index`: refined in two
     // places, its selector chooses whose refinements apply.)
     println("size: ${size@core.list(xs)}")
 }
@@ -12360,7 +12360,7 @@ fn mut_str_lowers_to_a_string_builder() {
     // Construction is asked for; the parts are joined, which is also what
     // makes a `...spread` work [fn-variadic].
     assert!(
-        main.contains(r#"= salvo.core.string.Mut_Str(arrayOf<String>("he", "llo"))"#),
+        main.contains(r#"= salvo.std.core.string.Mut_Str(arrayOf<String>("he", "llo"))"#),
         "unexpected:\n{main}"
     );
     // [str-drop-mut] The conversion at a call argument, in interpolation,
@@ -12377,7 +12377,7 @@ fn mut_str_lowers_to_a_string_builder() {
     // [kt-copy] A builder's copy is a new builder: identity would alias the
     // buffer.
     assert!(
-        main.contains(": salvo.platform.core.string.MutStr = StringBuilder(b)"),
+        main.contains(": salvo.platform.std.core.string.MutStr = StringBuilder(b)"),
         "unexpected:\n{main}"
     );
     // `setCharAt` throws out of range, so `set` guards — and binds its
@@ -12427,7 +12427,7 @@ export fn main() [use] {
     // [fn-variadic], so a lone spread reaches the purely variadic intrinsics.
     assert!(
         // [platform-value-type] `Mut Str` is Salvo now; the spread is the array.
-        main.contains("= salvo.core.string.Mut_Str(parts)"),
+        main.contains("= salvo.std.core.string.Mut_Str(parts)"),
         "unexpected:\n{main}"
     );
     kotlin_case(files, "strings-spread", "ab 2\n")
@@ -12582,7 +12582,7 @@ fn sequence_functions_lower_to_collection_operations() {
     // The generic overload for a pass subject gets the resolved `next` as its
     // implicit argument.
     assert!(
-        main.contains("salvo.core.seq.map__It_Fn(salvo.core.array.iter(arr), fun(n: Int): Int {") && main.contains("{ __a0 -> salvo.core.array.next(__a0) })"),
+        main.contains("salvo.std.core.seq.map__It_Fn(salvo.std.core.array.iter(arr), fun(n: Int): Int {") && main.contains("{ __a0 -> salvo.std.core.array.next(__a0) })"),
         "expected the resolved `next` as the implicit in:\n{main}"
     );
     // A `params` group is not a value: nothing *declares* `Yield`.
@@ -12684,7 +12684,7 @@ fn scope_selectors_and_renames_are_erased() {
     // `size@core.list(xs)` is std's `size` — the mangled one, since this
     // program declares its own.
     assert!(
-        main.contains("\"core: ${salvo.core.list.sizePlatform(xs)}\""),
+        main.contains("\"core: ${salvo.std.core.list.sizePlatform(xs)}\""),
         "unexpected:\n{main}"
     );
     // The renamed overload is called by its declaration's mangled name —
@@ -13040,10 +13040,10 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
     // pair (two of them) was removed 2026-09-10, again when `Set` and `Map`
     // brought their own passes (two more) 2026-09-13, again when `Bytes`
     // and the fs chunk pass brought two more 2026-09-15, and again when
-    // `core.range` joined std 2026-09-23 (its `next` counts even though the
+    // `std.core.range` joined std 2026-09-23 (its `next` counts even though the
     // module is private), and again when `reversed`/`enumerate` (then `indices`) brought
     // more (the refinement-types sequence, step 0, 2026-09-23), and when
-    // `core.deque` brought two more (2026-10-02).
+    // `std.core.deque` brought two more (2026-10-02).
     assert!(
         // The suffix is the overload's mangle, which moves as std grows.
         src.contains("= next__NoisyIter(__handle_"),
@@ -13312,9 +13312,9 @@ fn kotlinc_compiles_and_runs_a_generic_subject_iter_fn() -> KotlinCase {
 
 /// [kt-wire] [wire-format] A generic struct's `T?` field: its codec wraps the
 /// struct's own `WireCodec<T>` in `OptCodec`, which once demanded a non-null
-/// `T` and so did not compile (found 2026-10-20 through std/args). The bytes
+/// `T` and so did not compile (found 2026-10-20 through lib/std/args). The bytes
 /// are Rust's (`generic_optional_codec` in the Rust suite).
-pub const GENERIC_OPT_CODEC_DEMO: &str = r#"import codec
+pub const GENERIC_OPT_CODEC_DEMO: &str = r#"import std.codec
 
 struct Arg<T> {
     default: T? = None
@@ -13998,13 +13998,13 @@ fn bytes_is_a_value_platform_type() {
         .find(|f| f.rel_path == std::path::Path::new("main.kt"))
         .expect("main.kt emitted");
     assert!(
-        main.content.contains("salvo.platform.core.bytes.MutBytes")
-            || files.iter().any(|f| f.content.contains("salvo.platform.core.bytes.MutBytes")),
+        main.content.contains("salvo.platform.std.core.bytes.MutBytes")
+            || files.iter().any(|f| f.content.contains("salvo.platform.std.core.bytes.MutBytes")),
         "expected the host's mutable kind named by convention"
     );
     let host = files
         .iter()
-        .find(|f| f.rel_path == std::path::Path::new("platform/core/bytes.kt"))
+        .find(|f| f.rel_path == std::path::Path::new("platform/std/core/bytes.kt"))
         .expect("std's host file for core.bytes travels with the program");
     for expected in ["typealias MutBytes", "fun copy(data: Bytes)"] {
         assert!(host.content.contains(expected), "expected `{expected}` in:\n{}", host.content);
@@ -14025,11 +14025,11 @@ fn bytes_is_a_value_platform_type() {
 /// tokens discharged by an effect member, the `Lines` pass, the one-shots, a
 /// `position` after a ranged open, and a failure path acknowledged once.
 const FS_PROGRAM: &str = r#"
-import fs
-import fs.path
-import fs.host
-import stream
-import stream.host
+import std.fs
+import std.fs.path
+import std.fs.host
+import std.stream
+import std.stream.host
 
 fn describe(e: FsError) [] -> Str => e {
     if e is NotFound {
@@ -14339,14 +14339,14 @@ fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
             .content
             .clone()
     };
-    let surface = file("fs.kt");
+    let surface = file("std/fs.kt");
     assert!(
         surface.contains("interface Fs {"),
         "expected the effect interface in:\n{surface}"
     );
     // [effect-available] The stream operations are `stream`'s now, and the
     // pass's discharger is a *fn* named `close` beside `Streams`' members.
-    let streams = file("stream.kt");
+    let streams = file("std/stream.kt");
     assert!(
         streams.contains("interface Streams {"),
         "expected the stream effect in:\n{streams}"
@@ -14358,15 +14358,15 @@ fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
     // The host seam is its own module [mod-used-only]: a program that never
     // opens a file links none of it. [effect-prereq] `DefaultFs` reaches the
     // `Streams` in scope as a dependency it never wrote.
-    let host = file("fs/host.kt");
-    for expected in ["interface RawFs {", "class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.stream.Streams) : salvo.fs.Fs"] {
+    let host = file("std/fs/host.kt");
+    for expected in ["interface RawFs {", "class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.Streams) : salvo.std.fs.Fs"] {
         assert!(host.contains(expected), "expected `{expected}` in:\n{host}");
     }
     assert!(
         !host.contains("class HostRawFs"),
         "the platform handler's class is the host's:\n{host}"
     );
-    let stream_host = file("stream/host.kt");
+    let stream_host = file("std/stream/host.kt");
     // [stream-table] `HostRawStreams` is Salvo over the runtime's table.
     for expected in ["interface RawStreams {", "fun rawCloseRead(handle: Long)", "class DefaultStreams(", "class HostRawStreams"] {
         assert!(stream_host.contains(expected), "expected `{expected}` in:\n{stream_host}");
@@ -14374,11 +14374,11 @@ fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
     // The `use` site constructs the shipped host class through its package.
     let main = file("main.kt");
     assert!(
-        main.contains("= salvo.fs.host.__Platform_HostRawFs()") && main.contains("= salvo.fs.host.__Mon_RawFs(__use_"),
+        main.contains("= salvo.std.fs.host.__Platform_HostRawFs()") && main.contains("= salvo.std.fs.host.__Mon_RawFs(__use_"),
         "expected the shipped host class at the `use` site, got:\n{main}"
     );
     // std ships the host files, and they travel into the output.
-    for rel in ["platform/fs/host.kt", "platform/runtime/streams.kt"] {
+    for rel in ["platform/std/fs/host.kt", "platform/std/runtime/streams.kt"] {
         assert!(
             files.iter().any(|f| f.rel_path == std::path::Path::new(rel)),
             "expected std's host companion {rel} to be emitted"
@@ -14405,11 +14405,11 @@ fn kotlinc_compiles_and_runs_the_fs_surface() -> KotlinCase {
 /// `byte_size` while slicing its content by characters. A fake that counted
 /// characters would let this test pass and production break.
 const MEMFS_PROGRAM: &str = r#"
-import fs
-import fs.path
-import fs.mem
-import fs.restricted
-import stream
+import std.fs
+import std.fs.path
+import std.fs.mem
+import std.fs.restricted
+import std.stream
 
 fn describe(e: FsError) [] -> Str => e {
     if e is NotFound {
@@ -15602,7 +15602,7 @@ fn draining_state_lowers_to_a_foreach_kotlin() {
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .expect("main.kt");
     assert!(
-        main.content.contains("salvo.core.list.drain(waiting, fun(") && main.content.contains("waiting = mutableListOf<"),
+        main.content.contains("salvo.std.core.list.drain(waiting, fun(") && main.content.contains("waiting = mutableListOf<"),
         "the drain is not std's drain over the field:\n{}",
         main.content
     );
@@ -15821,7 +15821,7 @@ fn an_inherited_effect_is_captured_at_the_mint() {
         "the handler is captured at the mint:\n{text}"
     );
     assert!(
-        text.contains("fun report(console: salvo.core.console.Console"),
+        text.contains("fun report(console: salvo.std.core.console.Console"),
         "a task body still takes the handler it performs through:\n{text}"
     );
 }
@@ -16068,7 +16068,7 @@ fn kotlinc_compiles_and_runs_a_quiescence_hook() -> KotlinCase {
 }
 
 /// [actor-watch] [actor-on-idle] [runtime-handles] `watch` and `on_idle` are
-/// Salvo: the program calls `core.actor`'s fns, which take the core's token
+/// Salvo: the program calls `std.core.actor`'s fns, which take the core's token
 /// out of the reply token (`takeLocal()`) and register it; the scheduler
 /// builds `Exit` and `Idle` itself, so no builder travels with the call.
 #[test]
@@ -16079,8 +16079,8 @@ fn watch_and_on_idle_are_salvo_over_the_core_token_kotlin() {
         assert!(main.content.contains(call) && !main.content.contains("SalvoSched.watch"), "{}", main.content);
         let actor = files
             .iter()
-            .find(|f| f.rel_path.to_string_lossy() == "core/actor.kt")
-            .expect("core/actor.kt");
+            .find(|f| f.rel_path.to_string_lossy() == "std/core/actor.kt")
+            .expect("std/core/actor.kt");
         assert!(actor.content.contains(".takeLocal()"), "{}", actor.content);
     }
 }
@@ -16439,7 +16439,7 @@ fn example_names() -> Vec<String> {
 
 /// Emits one example's Kotlin, exactly as `salvo compile` would.
 fn emit_example(example: &str) -> Vec<salvo_backend_kotlin::EmittedFile> {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
@@ -16533,7 +16533,7 @@ fn example_case(name: &str) -> KotlinCase {
 // [backend-parity].
 
 const TIME_SURFACE: &str = r#"
-import time
+import std.time
 
 fn main() [use] -> None {
     use StdConsole()
@@ -16566,7 +16566,7 @@ const TIME_SURFACE_OUTPUT: &str = "span=1500ms\nsum=2500ms\nscaled=3s\nabs=2s\nm
                                    ordered=true true\n";
 
 const TIME_TIMER: &str = r#"
-import time
+import std.time
 
 fn main() [use, spawn] -> None {
     use StdConsole()
@@ -16588,7 +16588,7 @@ fn main() [use, spawn] -> None {
 const TIME_TIMER_OUTPUT: &str = "waited enough: true\nin order: true\n";
 
 const TIME_MANUAL: &str = r#"
-import time
+import std.time
 
 actor effect Sleeper {
     send fn nap(wait: Duration, done: Reply<Str>) => !wait, !done
@@ -16640,7 +16640,7 @@ const TIME_MANUAL_OUTPUT: &str = "woke at 2000ms\nwoke at 3000ms\n";
 /// `Ticker`, and the unified test clock — a `Ticker` whose reading is a zero
 /// deadline on the very timer the test advances [backend-parity].
 const TIME_COUPLING: &str = r#"
-import time
+import std.time
 
 // Time as data: no effect, so nothing to fake.
 fn verdict(started: Tick, at: Tick, budget: Duration) [] -> Str {
@@ -16716,7 +16716,7 @@ const TIME_COUPLING_OUTPUT: &str = "data: in time\nscripted: 500 1000\n\
                                     unified: napped 2s, fired at 2000ms\n";
 
 /// [time-types] [time-clock] [time-ticker] [mod-import-module] The whole
-/// surface, reached with one `import time`.
+/// surface, reached with one `import std.time`.
 fn kotlinc_compiles_and_runs_the_time_surface() -> KotlinCase {
     kotlin_case(
         generate_files(&[("main.sv", TIME_SURFACE)]),
@@ -16762,9 +16762,9 @@ fn kotlinc_compiles_and_runs_the_coupling_postures() -> KotlinCase {
 fn a_deadline_lowers_to_the_runtime_modules_wheel() {
     let files = generate_files(&[("main.sv", TIME_TIMER)]);
     let find = |name: &str| files.iter().find(|f| f.rel_path.to_string_lossy() == name).map(|f| f.content.clone());
-    let time = find("time.kt").expect("time.kt");
+    let time = find("std/time.kt").expect("std/time.kt");
     assert!(time.contains("afterNanos("), "expected the deadline call in:\n{time}");
-    let runtime = find("runtime/timers.kt").expect("runtime/timers.kt");
+    let runtime = find("std/runtime/timers.kt").expect("std/runtime/timers.kt");
     assert!(runtime.contains("val __module_use0: Deadlines by kotlin.lazy {"), "{runtime}");
     let scheduler = find("scheduler.kt").expect("scheduler.kt");
     assert!(!scheduler.contains("fun after(") && !scheduler.contains("timers"), "the host scheduler keeps no timers");

@@ -47,7 +47,7 @@ fn compile_runtime_module(file: &str) {
         return;
     }
     // [runtime-sched] The scheduler shims onto the Salvo core
-    // (`std/runtime.sv`), and the wire and the stream table name the
+    // (`lib/std/runtime.sv`), and the wire and the stream table name the
     // scheduler, so those three compile only inside a generated program:
     // they are checked in the files example's output, with the current
     // sources put in place, and must add no warning of their own.
@@ -103,7 +103,7 @@ fn compile_in_example(file: &str, version: &str) {
         .iter()
         .map(|f| runtime_source(f))
         .collect();
-    let runtime = std::fs::read(example.join("runtime.rs")).unwrap_or_default();
+    let runtime = std::fs::read(example.join("std/runtime.rs")).unwrap_or_default();
     let mut parts: Vec<&[u8]> = vec![b"rust-runtime-in-example", version.as_bytes(), file.as_bytes(), &runtime];
     for s in &sources {
         parts.push(s.as_bytes());
@@ -289,7 +289,7 @@ fn run_scheduler_program(
     if !rustc.available {
         return;
     }
-    // [runtime-sched] The scheduler is Salvo (`std/runtime.sv`), so a driver
+    // [runtime-sched] The scheduler is Salvo (`lib/std/runtime.sv`), so a driver
     // runs against a whole generated runtime: the actors example's checked-in
     // output, which a test keeps current, with its `main.rs` cut down to the
     // module header and the driver put in place of the program.
@@ -302,7 +302,7 @@ fn run_scheduler_program(
         .collect();
     let source = format!("{header}use scheduler::*;\n{driver}");
     let sched_src = runtime_source("scheduler.rs");
-    let runtime_rs = std::fs::read(example.join("runtime.rs")).unwrap_or_default();
+    let runtime_rs = std::fs::read(example.join("std/runtime.rs")).unwrap_or_default();
     let parts: Vec<&[u8]> = vec![
         b"rust-scheduler-behaviour",
         rustc.version.as_bytes(),
@@ -522,18 +522,18 @@ fn main() {
     let pool = salvo_pool(2);
     let fragile = salvo_spawn(pool, 4, Box::new(Fragile), None);
     let (token, wid) = salvo_waiter();
-    crate::runtime::watch(fragile as i32, token.take_local().unwrap());
+    crate::std_runtime::watch(fragile as i32, token.take_local().unwrap());
     salvo_send(fragile, Box::new("boom".to_string()));
     let exit = salvo_wait(wid);
-    println!("exit: exit({})", exit.downcast_ref::<crate::core_actor::Exit>().unwrap().reason);
+    println!("exit: exit({})", exit.downcast_ref::<crate::std_core_actor::Exit>().unwrap().reason);
     // A send to the dead is a no-op: this neither blocks nor fails.
     salvo_send(fragile, Box::new("ignored".to_string()));
     // And a watch registered after the death answers immediately, with the
     // reason the death recorded.
     let (late_token, late_wid) = salvo_waiter();
-    crate::runtime::watch(fragile as i32, late_token.take_local().unwrap());
+    crate::std_runtime::watch(fragile as i32, late_token.take_local().unwrap());
     let late = salvo_wait(late_wid);
-    println!("late watch: exit({})", late.downcast_ref::<crate::core_actor::Exit>().unwrap().reason);
+    println!("late watch: exit({})", late.downcast_ref::<crate::std_core_actor::Exit>().unwrap().reason);
 }
 "#,
         "exit: exit(boom)\nlate watch: exit(boom)\n",
@@ -938,9 +938,9 @@ impl SalvoActor for Asker {
     fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
 }
 
-/// The core answers an idle hook with `core.actor`'s `Idle`.
+/// The core answers an idle hook with `std.core.actor`'s `Idle`.
 fn idle_text(v: &SalvoMsg) -> String {
-    let i = v.downcast_ref::<crate::core_actor::Idle>().unwrap();
+    let i = v.downcast_ref::<crate::std_core_actor::Idle>().unwrap();
     format!("gates {}, tokens {}", i.parked_gates, i.parked_tokens)
 }
 
@@ -950,13 +950,13 @@ fn main() {
     let asker = salvo_spawn(pool, 4, Box::new(Asker { holder }), None);
     // Nothing has been sent, so the answer is "done".
     let (first, w1) = salvo_waiter();
-    crate::runtime::on_idle(pool as i32, first.take_local().unwrap());
+    crate::std_runtime::on_idle(pool as i32, first.take_local().unwrap());
     println!("settled: {}", idle_text(&salvo_wait(w1)));
     // The hook cannot fire before the message it was registered after has
     // run: a queued entry is deliverable, so the scheduler is not idle.
     salvo_send(asker, Box::new("go".to_string()));
     let (second, w2) = salvo_waiter();
-    crate::runtime::on_idle(pool as i32, second.take_local().unwrap());
+    crate::std_runtime::on_idle(pool as i32, second.take_local().unwrap());
     println!("stuck: {}", idle_text(&salvo_wait(w2)));
 }
 "#,
@@ -986,16 +986,16 @@ impl SalvoActor for Watcher {
         // the registration is a continuation on this actor.
         self.out = Some(*msg.downcast::<SalvoReply>().unwrap());
         let (token, _slot) = salvo_mint(ctx.addr);
-        crate::runtime::on_idle(SALVO_MAIN_POOL as i32, token.take_local().unwrap());
+        crate::std_runtime::on_idle(SALVO_MAIN_POOL as i32, token.take_local().unwrap());
     }
     fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, value: SalvoMsg) {
         self.out.take().unwrap().send(value);
     }
 }
 
-/// The core answers an idle hook with `core.actor`'s `Idle`.
+/// The core answers an idle hook with `std.core.actor`'s `Idle`.
 fn idle_text(v: &SalvoMsg) -> String {
-    let i = v.downcast_ref::<crate::core_actor::Idle>().unwrap();
+    let i = v.downcast_ref::<crate::std_core_actor::Idle>().unwrap();
     format!("gates {}, tokens {}", i.parked_gates, i.parked_tokens)
 }
 

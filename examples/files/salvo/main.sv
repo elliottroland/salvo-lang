@@ -26,13 +26,13 @@
 // The filesystem and the streams are `std`'s, imported: the surfaces, the
 // host's implementations, and the two doubles. A whole-module import names one
 // module, so each is its own line [mod-import-module].
-import fs
-import fs.path
-import fs.host
-import fs.mem
-import fs.restricted
-import stream
-import stream.host
+import std.fs
+import std.fs.path
+import std.fs.host
+import std.fs.mem
+import std.fs.restricted
+import std.stream
+import std.stream.host
 
 fn kind_name(kind: FsError) [] -> Str => kind {
     if kind is NotFound {

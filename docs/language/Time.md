@@ -1,9 +1,9 @@
 # Time
 
-Time is a std module rather than a language feature, and it is not part of `core`, so it is imported. The surface is a dozen names, so one line brings all of it:
+Time is a std module rather than a language feature, and it is not part of `std.core`, so it is imported. The surface is a dozen names, so one line brings all of it:
 
 ```
-import time
+import std.time
 ```
 
 **Three types, one representation.** A `Duration` is a span, an `Instant` is a point on the wall clock, and a `Tick` is a point on the monotonic clock. Each is an ordinary struct holding a single `nanos: Long`, which is what makes every value canonical: a two-field `{secs, nanos}` form would let the same span be written two ways, and struct equality is structural, so the two would compare unequal.

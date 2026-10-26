@@ -154,7 +154,7 @@ the handle as a storable value, so emission is identical by construction
    now `eff[A, B, …]` (parser former + a parse error on the old `Addr<…>`);
    internal `Ty` name stays `"Addr"`, rendered as `eff[…]` by both `Ty` and AST
    Display; the std intrinsic `type Addr<E>` declaration is the only remaining
-   `Addr` spelling. std/examples/docs/tests/spec all swept.
+   `Addr` spelling. lib/std/examples/docs/tests/spec all swept.
 2. **`spawn` must be `on` a pool** — ✅ DONE (this commit). An *actor* spawn
    requires `on POOL`; the implicit main-pool default is retired. A **monitor**
    spawn (plain-effect faces) still omits a pool — it runs on no thread — and is
@@ -272,7 +272,7 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    termination predicate (Rust `block_terminates`, Kotlin
    `block_returns_early`).
 5. **Runtime files and intrinsics to std** — `epoch_nanos` is a platform fn
-   with host files `std/platform/time.{kt,rs}` (2026-10-05, COMPLETED.md).
+   with host files `lib/platform/std/time.{kt,rs}` (2026-10-05, COMPLETED.md).
    The runtime files turned out to be used by other runtime code, so each
    moves with what uses it: `hosttime`'s monotonic clock with the scheduler
    (the runtime host files and `scheduler.*` call it; §0d), Kotlin's
@@ -280,7 +280,7 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    the stream table use them), Rust's `seq.rs` (`salvo_pair_mut`) with step 12
    (element handles), `hoststreams` with the stream table's host code. Rust's
    `strings.rs` (float text) is used by the emitter's interpolation; it can
-   become a platform fn of `core.string` once interpolation lowers through
+   become a platform fn of `std.core.string` once interpolation lowers through
    `to_str` for floats, which is a small step of its own. The recorded
    runtime-file-name collision shrinks as these go.
 6. **The language the Salvo collections need.**
@@ -305,7 +305,7 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      `by` is a promise any visible fn keeps), generic structs included since
      6i. Step 7's map writes its order- and tombstone-blind `eq` this way.
    - g0. ✅ **`Idx` for anything indexable** [col-idx] (user decision and
-     build 2026-10-05, COMPLETED.md): `core.index`, `qualifies` taking
+     build 2026-10-05, COMPLETED.md): `std.core.index`, `qualifies` taking
      `?size` at the tested container. `Str` stays excluded until the
      recorded `size(Str)` DECISION.
    - g. ✅ **`IntBuffer` and `LongBuffer`** [buffer-type] (user decisions and
@@ -365,7 +365,7 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    - Waiting on it and now unblocked: `Checked<T>`'s `to_str`
      [checked-type], `expect_eq` on a generic container, property testing's
      `?generate`, `json` over container fields.
-9. **Wire codecs in Salvo.** `encode`/`decode` (`std/codec.sv`,
+9. **Wire codecs in Salvo.** `encode`/`decode` (`lib/std/codec.sv`,
    `runtime/routing.sv`) as comptime fns over fields and arms, the `by auto`
    way, on a byte-level platform surface over `Bytes` (write/read `Int`,
    `Long`, `Double`, `Byte`, length-prefixed `Bytes`/`Str`). Deletes
@@ -492,7 +492,7 @@ and rejected (358s against 371s; slower on the large batches).
 ### 0i — Leftovers of deterministic names (2026-10-05)
 
 - Rust calls a platform fn's wrapper by its module path
-  (`crate::core_list::size_platform`) while Kotlin imports it like any fn
+  (`crate::std_core_list::size_platform`) while Kotlin imports it like any fn
   (`sizePlatform`, `sizePlatform__core_list` on a clash): Rust's `__loc`
   locator variants hang off the wrapper's name, which an alias would break.
 - A Kotlin predicate qualifier keeps `Q_qualifies` and overloads on the JVM
@@ -503,7 +503,7 @@ and rejected (358s against 371s; slower on the large batches).
   part in the clash check; two of one name from two modules is reported as an
   internal error rather than imported over each other. Closed by §0j step 10
   (imports from the checker's references).
-- `examples/actors` calls `drop(boom)` on an `Int`; `core.seq`'s `drop` is not
+- `examples/actors` calls `drop(boom)` on an `Int`; `std.core.seq`'s `drop` is not
   emitted there, so Rust's prelude `drop` runs (same effect on an `Int`, and
   it was so under the globs too). Worth a check that a resolved Salvo fn the
   program calls is always emitted.
@@ -666,31 +666,21 @@ an error"): check the inferring minters in dependency order (a minter whose
 initializer names an iterator struct with an inferred field after that
 struct's minter), and report a cycle. Only tests write the inferred form.
 
-### 0s — Open defect: a project module named `auto` breaks std's `by auto` (found 2026-10-20; decided 2026-10-14; parts 1 and 3 done 2026-10-14)
+### 0t — Leftovers of the `std.` prefix (found 2026-10-14)
 
-**Decided (user, 2026-10-14):** std is a fixed point the program works
-around. (1) A `by` path — its module reading and its comptime-fn reading —
-names only modules the stamping file can see (its own module, what it
-imports, what is implicitly visible); so std, which sees only std, is
-expanded the same whatever the project. (2) The `std.` prefix (§9's TF-8
-item) is taken next, so the rule is about the `std` namespace: no project
-module can be implicitly visible to std (today a project `core.x` is).
-(3) Diagnostics located in the embedded std are not shown unless the tree is
-`std = true`.
+The prefix itself is done (COMPLETED.md, 2026-10-14 "The standard library's
+modules are under `std`", which closed 0s). Left:
 
-**Done (2026-10-14, COMPLETED.md decision log):** (1) [obligation-by], with
-std's name fallback limited to std's declarations [comptime-instantiate];
-(3) [diag-std-hidden]. The repro (`auto.sv` with `export fn helper() [] ->
-Int { return 1 }`, `main.sv` importing it) analyzes clean, and the std
-front's gate (`StdComptime::admits`) refuses only a project module under
-`core`, the one dependency left: such a module is implicitly visible to std,
-and can still make std's `by auto` name two modules (constructed in
-`errors_in_the_embedded_std_are_one_line`).
-
-**Next: the `std.` prefix (§9 TF-8 item).** It needs the open TF-8 calls
-first (whether `core` becomes `std.core`, the tree's layout). Once no
-project module is implicitly visible to std, "std sees only std" is a rule
-about the `std` namespace and the front's comptime gate can go entirely.
+- **A `std = true` tree checked from below its source root.** `salvo test --src
+  lib/std` finds `lib/salvo.toml` (std = true) but the flag's source root
+  makes the modules `core.list`, `time`, … — std files outside the reserved
+  root, which neither shadow the embedded copy nor collide with it, so the
+  analysis is a page of noise. The reverse rule (a `std = true` tree's
+  modules must be under `std`, or `--src` must not move a std tree's root)
+  would turn that into one error. Not decided; `--src lib` is the spelling.
+- **`bench/scheduler` does not analyze** (found while sweeping, not caused by
+  the prefix): `Mut List<Addr<Counter>>` at `main.sv:133` is the pre-`eff[E]`
+  spelling ([eff-handle]). The bench is not in the suite.
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
@@ -734,27 +724,27 @@ One theme: std's shape. Step (a) landed with the sitting that scheduled the rest
 and each remaining step is mechanical but wide — the sweeps are the cost, not the
 design.
 
-- **(a) ✅ `Checked<T>` in `core`, and a list write answers one** — built
+- **(a) ✅ `Checked<T>` in `std.core`, and a list write answers one** — built
   2026-09-26 [checked-type] [col-bounds] (COMPLETED.md's log). `take` is
   `detach`; the fallible `swap` hands back a `Checked<Bool>`.
 - **(b) ✅ The filesystem on `Checked<T>`** — built 2026-09-26 [fs-surface]
   [checked-type] (COMPLETED.md's log). `Err Checked<FsError>` throughout; the
   bespoke wrapper, its `ignore`/`detach` and its `to_str` are gone.
-- **(c) ✅ The filesystem out of `core`** — built 2026-09-26 [fs-module]
+- **(c) ✅ The filesystem out of `std.core`** — built 2026-09-26 [fs-module]
   [fs-host-split] (COMPLETED.md's log). Modules `fs`, `fs.host`, `fs.mem`,
   `fs.restricted`, unprefixed (user decision: (B1), with step 8's `std.` prefix
   left as its own slice). `DefaultFs` stays in `fs.host` rather than the surface
   module — the fusion gate reads reachable modules, so a `fs.mem` test would
   otherwise be fused by a handler it never registers.
-- **(d) ✅ `core.nonempty` dissolves into the collections** — built 2026-09-26
+- **(d) ✅ `std.core.nonempty` dissolves into the collections** — built 2026-09-26
   [qual-overload] (COMPLETED.md's log). Each `NonEmpty` sits beside its
   container; the four ordered accessors delegate through a `rename fn`, which is
   what let the module go. The recorded "`NonEmpty` constructor convention — the
   siblings" item is now *unblocked* rather than closed: `Set(first, ...rest)
   -> +NonEmpty Set<T>` siblings are writable where they were not, and whether
   std should have them is an API question.
-- **(e) ✅ `throw` out of `core`** — built 2026-09-26 [throw]
-  [test-implicit-import] (COMPLETED.md's log). `import throw`, and a test annex
+- **(e) ✅ `throw` out of `std.core`** — built 2026-09-26 [throw]
+  [test-implicit-import] (COMPLETED.md's log). `import std.throw`, and a test annex
   gets it implicitly because the harness puts the effect there. Two defects fell
   out of the module's name: Kotlin keyword package segments now mangle
   [kt-package-keyword], and a duplicate emitted path is refused rather than
@@ -884,10 +874,10 @@ same day: `comptime fn` with `<T is Struct>`/`<T is Union>` bounds and concrete 
 declarations, `[for …]`/`[if …]`/`[when …]` (kinds `struct`, `union`,
 `tuple`, `fn`, `opaque` = `basic` | `generic`), `v.[field]`, `[field]:` in a
 literal, `refuse!`, `T.name`/`field.name`/`field.type`/`field.index`/
-`field.first`/`field.last`, `core.auto` with `cmp`/`eq`/`hash`/`to_str` for
+`field.first`/`field.last`, `std.core.auto` with `cmp`/`eq`/`hash`/`to_str` for
 structs and unions, `auto` deleted, [interp-struct] made opt-in. Round 8
 (2026-09-29) respelled it — `comptime fn/struct/type`, `<T is Struct>`,
-bracketed heads, `refuse!(…)` — declared the model in `core.comptime` as
+bracketed heads, `refuse!(…)` — declared the model in `std.core.comptime` as
 compile-time-only structs with `Type` a union the kind `when` dispatches over,
 and added hover inside comptime fn bodies. What the decided design still owes,
 in build order:
@@ -900,14 +890,14 @@ in build order:
   the sorted pair become Salvo structs, whose clauses are ordinary). For
   `List`: `platform type List<T> canbe Mut : Hashed<self>,
   Ordered<self>, ToStr<self>` with the container identities written **in
-  Salvo** in `core.list` (`fn eq<T>(a: List<T>, b:
+  Salvo** in `std.core.list` (`fn eq<T>(a: List<T>, b:
   List<T>, ?Eq<T>)`), the scalars keeping their `intrinsic fn`s and declaring
   them (`intrinsic type Int : Ordered<self>, Hashed<self>, ToStr<self>`), and
   `ToStr<self>` on `List` rendering each element with its own `to_str`. Needs
   the relaxation above and recursive implicit resolution (section 6); it is
   §0j step 8. Until
   then the **interim** structural `cmp`/`eq`/`hash` intrinsics over `List` and
-  2-/3-tuples in `core.compare` stand in — they relaxed the recorded "tuple key
+  2-/3-tuples in `std.core.compare` stand in — they relaxed the recorded "tuple key
   refused by name" limitation on both backends, and an element struct's *own*
   `cmp` is still not consulted inside a list (the Rust backend keeps
   `Hash`/`Ord` derives on structs that have the functions for exactly this).
@@ -920,7 +910,7 @@ in build order:
   Researched 2026-10-20 (user: research only, not built — COMPLETED.md's
   2026-10-20 comptime entry, design record): today's equivalent is one line
   (`fn my_hash(p: P) -> Long by hash@auto`, then `hash = my_hash`), and
-  tuples already have identities in `core.compare` since 2026-10-06, so the
+  tuples already have identities in `std.core.compare` since 2026-10-06, so the
   feature is a convenience. The decisions it would need:
   1. **The identity it carries into a type.** Identities are names
      (`FnId { name, at }`) compared and printed by name, and a binder later
@@ -964,7 +954,7 @@ in build order:
 - **The `json` module** (`Json` union per SERDE.md SD-1, `to_json`/`from_json`
   comptime fns spelled `by json`, tag rules per SD-4) — waits on SERDE.md's SD-1 and
   SD-4 decisions and on section 6 for container fields.
-- ✅ **Command-line parsing** (`std/args`): built 2026-10-20 (COMPLETED.md,
+- ✅ **Command-line parsing** (`lib/std/args`): built 2026-10-20 (COMPLETED.md,
   "Design record: command-line parsing"; [args-derive] and the rules beside
   it). What it left open is §2d items 10 and 15 below and the deferred
   features in "Recorded, not scheduled".
@@ -1005,7 +995,7 @@ program-wide ladder for a name the file does not see, and these stay open:
 - **`generic_needs` and `group_for` hard-code** member → group
   (`cmp` → `Ordered`, …).
 - **Defect, found writing the tests**: `type T = Str | Int : ToStr<self> by
-  auto` warns "this code is unreachable" in the stamped `to_str` — `core.auto`'s
+  auto` warns "this code is unreachable" in the stamped `to_str` — `std.core.auto`'s
   union template ends in `return ""` after an exhaustive `[when value]`.
 - **The signature/body split** (PIPELINE.md §5: `by` declares the member
   signatures in 02-resolve-03, bodies stamped in 02-resolve-04) waits on step
@@ -1014,12 +1004,12 @@ program-wide ladder for a name the file does not see, and these stay open:
   member's with `self` substituted (the plan's wording), which would make the
   template's parameter names, effects and deductions stop counting.
 
-### 2d — Fix alongside the `std/args` work: defects found 2026-10-20
+### 2d — Fix alongside the `lib/std/args` work: defects found 2026-10-20
 
-Found while designing and building `std/args` (COMPLETED.md, "Design record:
+Found while designing and building `lib/std/args` (COMPLETED.md, "Design record:
 command-line parsing") and the `[if]` scoping fix; the user asked
 (2026-10-20) for each to be fixed **in general**, not only where the args
-design touches it, and scheduled **alongside the planned `std/args` derive
+design touches it, and scheduled **alongside the planned `lib/std/args` derive
 and comptime work**. None is a decision except where marked. Each was
 reproduced in a scratch project; the repros are below.
 
@@ -1030,7 +1020,7 @@ reproduced in a scratch project; the repros are below.
    COMPLETED.md; [type-literal-qualified]).
 3. ✅ **`Short "port"` parses** (done 2026-10-20, with item 2).
 
-4. ✅ **A type name shadows `core` whatever kind declares it** (done
+4. ✅ **A type name shadows `std.core` whatever kind declares it** (done
    2026-10-20, COMPLETED.md; [type-name-shadow]).
 
 5. ✅ **Warnings in comptime copies land on the written code, once** (done
@@ -1064,7 +1054,7 @@ reproduced in a scratch project; the repros are below.
    treats the caller's `Var("E")` as the callee's unbound `E` and learns it
    from a visible `copy` instead of the forwarded `?copy`. Fix: substitute
    the callee's generics apart from the caller's before inference, or learn
-   from a forwarded own implicit first. `core.result`'s `joined` names its
+   from a forwarded own implicit first. `std.core.result`'s `joined` names its
    parameter `X` until then.
 
 8. ✅ **A declaration's own types resolve where they were written** —
@@ -1197,8 +1187,8 @@ What the second one left open, deliberately, is the reading it chose *against*:
 
 - **A slot could state that its fn does *not* lend.** `(c: C) -> Mut It` would
   then mean "the iterator must not borrow the container", and implicit resolution
-  would refuse `core.list`'s borrowing `iter` for it — naming the candidate and
-  `holds proj(c)` — while accepting `core.set`'s snapshotting one. The machinery
+  would refuse `std.core.list`'s borrowing `iter` for it — naming the candidate and
+  `holds proj(c)` — while accepting `std.core.set`'s snapshotting one. The machinery
   is already there: resolution **already** compares a candidate's contract against
   a slot's and refuses a mismatch (probed 2026-09-26: a keep/consume mismatch is
   reported with both remedies named), so adding the lend to that comparison is
@@ -1229,8 +1219,8 @@ Decided (M-1…M-7) and built the same day; COMPLETED.md's log has the entry.
 `salvo.toml` with `[project]`/`[build]`/`[rust]`/`[kotlin]`, discovery by
 nearest ancestor with nested manifests as boundaries, every command reading it
 flag > manifest > default, `backend = "*"`, per-document analysis in the LSP,
-`std = true` for `std/`, and `salvo.lock` for the protocol hashes (section 2's
-step-8 customer, now closed). The repo-root defect is gone: `std/`, every
+`std = true` for `lib/std/`, and `salvo.lock` for the protocol hashes (section 2's
+step-8 customer, now closed). The repo-root defect is gone: `lib/std/`, every
 `examples/*/` and `demo/` carry manifests, so the root opens as several
 programs.
 
@@ -1390,7 +1380,7 @@ log for the round itself).
 [implicit-resolve] **skips a candidate that itself needs implicits**, so
 `fn eq<T>(a: List<T>, b: List<T>, ?Eq<T>)` can never be what a `Set<List<Person>>`
 resolves, and the container identities have to be structural host intrinsics
-(the interim ones `core.compare` carries since 2026-09-28, see section 2c). The
+(the interim ones `std.core.compare` carries since 2026-09-28, see section 2c). The
 lift has two halves: resolution — `resolve_implicit_fn_at`'s one-line skip
 becomes a recursive resolution — and emission — a filled implicit that itself
 needs implicits is handed its own, so `ImplicitArg::Resolved` needs nested
@@ -1537,21 +1527,6 @@ deliberately cut, in the order the decisions put it:
 - **`--isolate`, `--timeout`, crash recovery** (TF-4): one process per test, a
   per-test wall-clock kill, automatic re-run of a crashed batch's remainder. The
   MVP runs everything in one process and reports a test that died (`DIED`).
-- **The `std.` import prefix** (TF-8, decided 2026-09-19): `import std.time`
-  rather than `import time`, `std` a reserved root, the bare spelling refused with
-  the corrected path named, and the library tree moving to `lib/std`. Sequenced
-  after the MVP deliberately. Step 1(c) shipped **without** the prefix (user
-  decision 2026-09-26, option B1), so the filesystem's modules are `fs`,
-  `fs.host`, `fs.mem`, `fs.restricted` and this step renames every top-level std
-  module at once. What it drags, and why it is its own slice: module paths derive
-  from the embed root, so moving the tree to `lib/std` renames `core.*` to
-  `std.core.*` — five hardcoded `"core"` sites in `resolve.rs` deciding implicit
-  visibility, `[std-shadow]`'s classification, the CLI embed root, and the
-  emitted path of every std module in every golden and every example. **Whether
-  `core` becomes `std.core` at all is the decision to take first**; the
-  alternative examined in that round was a reserved `std` root mapping to the
-  embedded library whatever the on-disk layout, leaving `core` unprefixed as a
-  stated exception.
 - **Smaller leftovers**: the annex's one-way visibility holds by construction but
   is not *checked*; the report has no `--format json` for editors; a test's stderr
   is attributed by arrival [test-output], so a line written just before a
@@ -1592,7 +1567,7 @@ The site waiting on it is **interpolation**, the most common read position in th
 tree, which still clones every narrowed or `!`-ed value:
 
 ```rust
-// std/test.sv's expect_trap_with, where the same `trap` two lines up borrows
+// lib/std/test.sv's expect_trap_with, where the same `trap` two lines up borrows
 format!("… got `{}`: {}", trap.as_ref().unwrap().clone(), label.clone())
 ```
 
@@ -1937,7 +1912,7 @@ it would save only the cheap transcription and inherit every coupling of the
      the rest of Option B stays future.
    - **Unverified concern** (2026-10-20): the cache's gate does not look at
      a project module under `core.` that is no std module (`src/core/x.sv`):
-     `core.*` is implicitly visible in every file, std's included, so such a
+     `std.core.*` is implicitly visible in every file, std's included, so such a
      module could change what std's own names resolve to while the cache
      stands in for std's check. Not reproduced.
 
@@ -1955,11 +1930,11 @@ it would save only the cheap transcription and inherit every coupling of the
 - **What a language-server edit still costs** (PIPELINE.md step 8, measured
   2026-10-20, debug, `tools/lsp-timing.py`; ~28–39ms on `examples/cluster`,
   ~40ms on `modules/aws`), largest first:
-  1. std's scopes, rebuilt every analysis (~10–13ms: a `core.*` base per core
+  1. std's scopes, rebuilt every analysis (~10–13ms: a `std.core.*` base per core
      module, pass 1, and the address maps over std). Sharing them needs the
      scopes to outlive the `Program` they borrow (`ModuleScope<'p>`), e.g. kept
      by the `StdFront` beside the modules they point into; gate on no project
-     module under `core.` (a project `core.x` is implicitly visible to std's
+     module under `core.` (a project `std.core.x` is implicitly visible to std's
      own files, which the `StdCache` gate does not check either). Part of §5
      item 4.
   2. The std seed: `check_once` clones std's whole `Checked` (~5ms) to add the
@@ -1979,7 +1954,7 @@ it would save only the cheap transcription and inherit every coupling of the
   spans relative to their declaration and stable declaration ids. Revisit when
   single files grow large or the costs above are gone.
 
-- **`std/args`, the features deferred** (from the CLI design record,
+- **`lib/std/args`, the features deferred** (from the CLI design record,
   2026-10-20): a `--no-x` form for a defaulted `Bool` (AP-11); `--version`
   (Q17 (c): until asked for; a manifest version or a `Version("1.2")`
   qualifier were the options); options accepted after a sub-command's name
@@ -2045,7 +2020,7 @@ several are "revisit only if a customer appears".
   scope-local bindings below, which touches the same shape.
 
 - **Implicit comptime fn resolution** (2026-09-28, comptime round 5, punted): an
-  implicit that finds no candidate for a tuple could stamp `core.auto`'s comptime fn
+  implicit that finds no candidate for a tuple could stamp `std.core.auto`'s comptime fn
   without being asked, making `Mut Set()` over a tuple work bare. Deferred
   because it is the one place a comptime fn would apply without a `by`, which round
   1 decided against for everything else; the remedy `hash by auto, eq by auto`
@@ -2259,7 +2234,7 @@ several are "revisit only if a customer appears".
 - **A runtime file name colliding with an emitted std module** — the *silence*
   is closed (2026-09-26): emission refuses at the end when two files claim one
   path [backend-companion], which is how it was caught the second time (`throw`
-  left `core`, and the runtime's `throw.kt` had been winning that path). The
+  left `std.core`, and the runtime's `throw.kt` had been winning that path). The
   workaround is still a rename each time — `hosttime.{rs,kt}`, now
   `throwsignal.kt`. The durable fix, unscheduled: namespace the runtime under
   `salvo_rt/`, which touches every golden, every example and the documented

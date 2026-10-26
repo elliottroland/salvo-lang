@@ -48,7 +48,7 @@ only when its platform code is reached. `examples/aws_sqs/` is that case, and
 runs in the test suite.
 
 `import aws.s3` works the same way, with one addition: bodies are streams, so a
-program also needs a `Streams` bound (`import stream`). `FakeS3` mints and
+program also needs a `Streams` bound (`import std.stream`). `FakeS3` mints and
 closes its bodies through that `Streams`, and so does a hand-written double.
 With `HostS3`, bind the host's streams — `HostRawStreams()` then
 `DefaultStreams()` — since the glue registers a response body in the host's

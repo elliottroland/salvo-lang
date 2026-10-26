@@ -14,7 +14,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// The two protocols every case shares: `Ping`, the routed group's, and
 /// `Pong`, served by an actor that depends on the route.
 const PROTOCOLS: &str = "\
-import net
+import std.net
 
 actor effect Ping {
     send fn ping(k: Key Str, out: Reply<Str>) => !k, !out
@@ -50,7 +50,7 @@ handler Ponging() [any Ping] of Pong {{
 /// Checks `src` with std loaded, returning the rendered diagnostics (errors
 /// and warnings) and the deadlock graph's edges.
 fn check(src: &str) -> (Vec<String>, Vec<String>) {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let io_errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(io_errors.is_empty(), "failed to read std: {io_errors:?}");

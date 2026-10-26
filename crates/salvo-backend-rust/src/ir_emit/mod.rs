@@ -4,7 +4,7 @@
 //! What it decides is representation and ownership idiom: `UnionN` enums and
 //! `Option` for unions, references for `proj` values and lent parameters,
 //! clones where a non-consuming read needs its own value, the handle struct
-//! of an effect, and fully qualified paths (`crate::core_list::get`), so it
+//! of an effect, and fully qualified paths (`crate::std_core_list::get`), so it
 //! writes no `use` items.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -204,8 +204,9 @@ fn run(
     if needs_wire {
         files.push(EmittedFile { rel_path: "wire.rs".into(), content: include_str!("../../runtime/wire.rs").to_string() });
     }
-    let needs_hoststreams = reach.emitted.iter().any(|m| m.0 == ["runtime", "streams"])
-        && (!abi || reach.abi_full.iter().any(|m| m.0 == ["runtime", "streams"]));
+    let streams = salvo_core::ModulePath::std(&["runtime", "streams"]);
+    let needs_hoststreams = reach.emitted.iter().any(|m| **m == streams)
+        && (!abi || reach.abi_full.iter().any(|m| **m == streams));
     let needs_time = features.time();
     let mut errors = std::mem::take(&mut shared.errors);
     // A construct rendered twice (a retried borrow, a hoist) reports once.
@@ -397,7 +398,7 @@ pub(crate) struct Shared<'p> {
     pub abi: bool,
     pub ir: &'p IrProgram,
     pub fn_names: &'p salvo_core::naming::FnNames,
-    /// Per module: the path prefix of its items (`crate::core_list::`).
+    /// Per module: the path prefix of its items (`crate::std_core_list::`).
     pub prefixes: HashMap<ModulePath, String>,
     pub union_sizes: BTreeSet<usize>,
     pub needs_str: bool,
@@ -617,7 +618,7 @@ impl<'p> Shared<'p> {
             return None;
         }
         let file = self.program.files.iter().find(|x| x.module == f.id.module)?;
-        let runtime = file.is_std && file.module.0.first().is_some_and(|m| m == salvo_core::STD_INTERNAL);
+        let runtime = file.is_std && file.module.is_std_internal();
         if !runtime && !matches!(ap.ty, salvo_syntax::ast::Type::Fn { .. }) {
             return None;
         }

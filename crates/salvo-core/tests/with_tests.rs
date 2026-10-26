@@ -12,7 +12,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] Enough of `std/core/compare.sv` to have a bound group,
+/// [intrinsic-std-only] Enough of `lib/std/core/compare.sv` to have a bound group,
 /// plus a set to build with it.
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\n",
@@ -36,7 +36,7 @@ fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/compare.sv",
-        SourceSet::classify(Path::new("core/compare.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/compare.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );

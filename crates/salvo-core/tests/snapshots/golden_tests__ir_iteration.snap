@@ -9,18 +9,18 @@ fn main::describe_container(lent console: Console; lent xs: List<Int>) -> None {
   foreach#2 n: Int in read xs {
     assign sum = (read sum + read n)
   }
-  call core.console::println(read console, concat("1. list of ", call core.basic::to_str(Int)(call core.list::size<Int>(read xs)), " sums to ", call core.basic::to_str(Int)(read sum)))
-  bind#3 let letters: Mut Str = call core.string::Mut_Str(array[Str[]]())
+  call std.core.console::println(read console, concat("1. list of ", call std.core.basic::to_str(Int)(call std.core.list::size<Int>(read xs)), " sums to ", call std.core.basic::to_str(Int)(read sum)))
+  bind#3 let letters: Mut Str = call std.core.string::Mut_Str(array[Str[]]())
   foreach#4 c: Char in "salvo" {
-    call core.string::append(read letters, concat(call core.basic::to_str(Char)(read c), "."))
+    call std.core.string::append(read letters, concat(call std.core.basic::to_str(Char)(read c), "."))
   }
-  call core.console::println(read console, concat("1. string: ", drop_mut(read letters)))
-  bind#5 let arr: Int[] = call core.array::array_of<Int>(array[Int[]](10, 20, 30))
+  call std.core.console::println(read console, concat("1. string: ", drop_mut(read letters)))
+  bind#5 let arr: Int[] = call std.core.array::array_of<Int>(array[Int[]](10, 20, 30))
   bind#6 let from_array: Int = 0
   foreach#7 n: Int in read arr {
     assign from_array = (read from_array + read n)
   }
-  call core.console::println(read console, concat("1. array sums to ", call core.basic::to_str(Int)(read from_array)))
+  call std.core.console::println(read console, concat("1. array sums to ", call std.core.basic::to_str(Int)(read from_array)))
 }
 
 struct Countdown canbe Mut wire {
@@ -33,20 +33,20 @@ fn main::countdown(lent from: Int) -> Mut Countdown {
 
 fn main::next(Mut Countdown)(lent_mut p: Mut Countdown) -> Int | Finished {
   branch#1 cond#0 (read p.at <= 0) {
-    return make_union[Int | Finished]#1(call core.iterator::finished())
+    return make_union[Int | Finished]#1(call std.core.iterator::finished())
   }
-  bind#2 let now: Int = call core.basic::copy<Int>(read p.at)
+  bind#2 let now: Int = call std.core.basic::copy<Int>(read p.at)
   assign p.at = (read p.at - 1)
-  return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
+  return make_union[Int | Finished]#0(call std.core.iterator::emitted<Int>(!read now))
 }
 
 fn main::skip(lent_mut p: Mut Countdown) -> Int | Finished {
   branch#1 cond#0 (read p.at <= 1) {
-    return make_union[Int | Finished]#1(call core.iterator::finished())
+    return make_union[Int | Finished]#1(call std.core.iterator::finished())
   }
-  bind#2 let now: Int = call core.basic::copy<Int>(read p.at)
+  bind#2 let now: Int = call std.core.basic::copy<Int>(read p.at)
   assign p.at = (read p.at - 2)
-  return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
+  return make_union[Int | Finished]#0(call std.core.iterator::emitted<Int>(!read now))
 }
 
 fn main::take(lent console: Console; lent_mut p: Mut Countdown, lent count: Int) -> None {
@@ -57,7 +57,7 @@ fn main::take(lent console: Console; lent_mut p: Mut Countdown, lent count: Int)
       arm#0 (arm 0) {
         narrow#5[switch#4.arm#0] __emitted~3: Int = __step~2
         bind#6 let n: Int = !read __emitted~3
-        call core.console::println(read console, concat("2. got ", call core.basic::to_str(Int)(read n)))
+        call std.core.console::println(read console, concat("2. got ", call std.core.basic::to_str(Int)(read n)))
         assign seen = (read seen + 1)
         branch#7 cond#0 (read seen == read count) {
           break
@@ -81,11 +81,11 @@ fn main::halving(lent start: Int) -> Mut Halving {
 
 fn main::next(Mut Halving)(lent_mut __p: Mut Halving) -> Int | Finished {
   branch#1 cond#0 (read __p.at <= 0) {
-    return make_union[Int | Finished]#1(call core.iterator::finished())
+    return make_union[Int | Finished]#1(call std.core.iterator::finished())
   }
-  bind#2 let now: Int = call core.basic::copy<Int>(read __p.at)
+  bind#2 let now: Int = call std.core.basic::copy<Int>(read __p.at)
   assign __p.at = (read __p.at / 2)
-  return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
+  return make_union[Int | Finished]#0(call std.core.iterator::emitted<Int>(!read now))
 }
 
 fn main::halving_from_ten() -> Mut Halving {
@@ -106,13 +106,13 @@ fn main::iter(lent bag: Bag) -> Mut BagIter borrows [bag] {
 }
 
 fn main::next(Mut BagIter)(lent_mut __p: Mut BagIter) -> Int | Finished {
-  bind#1 let e: Int? = call core.list::get(List<T>, Int)<Int>(read __p.bag.items, read __p.at)
+  bind#1 let e: Int? = call std.core.list::get(List<T>, Int)<Int>(read __p.bag.items, read __p.at)
   branch#2 cond#0 check#3 (read e is none) {
-    return make_union[Int | Finished]#1(call core.iterator::finished())
+    return make_union[Int | Finished]#1(call std.core.iterator::finished())
   }
   assign __p.at = (read __p.at + 1)
   narrow#4[after branch#2.cond#0] e~1: Int = e
-  return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(call core.basic::copy<Int>(read e~1)))
+  return make_union[Int | Finished]#0(call std.core.iterator::emitted<Int>(call std.core.basic::copy<Int>(read e~1)))
 }
 
 struct Fibs canbe Mut wire {
@@ -128,15 +128,15 @@ fn main::fibs(lent count: Int) -> Mut Fibs {
 
 fn main::next(Mut Fibs)(lent console: Console; lent_mut __p: Mut Fibs) -> Int | Finished {
   branch#1 cond#0 (read __p.made >= read __p.count) {
-    call core.console::println(read console, "3. finished")
-    return make_union[Int | Finished]#1(call core.iterator::finished())
+    call std.core.console::println(read console, "3. finished")
+    return make_union[Int | Finished]#1(call std.core.iterator::finished())
   }
-  bind#2 let now: Int = call core.basic::copy<Int>(read __p.a)
+  bind#2 let now: Int = call std.core.basic::copy<Int>(read __p.a)
   bind#3 let sum: Int = (read __p.a + read __p.b)
-  assign __p.a = call core.basic::copy<Int>(read __p.b)
-  assign __p.b = call core.basic::copy<Int>(read sum)
+  assign __p.a = call std.core.basic::copy<Int>(read __p.b)
+  assign __p.b = call std.core.basic::copy<Int>(read sum)
   assign __p.made = (read __p.made + 1)
-  return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
+  return make_union[Int | Finished]#0(call std.core.iterator::emitted<Int>(!read now))
 }
 
 struct Naturals canbe Mut wire {
@@ -149,9 +149,9 @@ fn main::naturals(lent from: Int) -> Mut Naturals {
 }
 
 fn main::next(Mut Naturals)(lent_mut __p: Mut Naturals) -> Int | Finished {
-  bind#1 let now: Int = call core.basic::copy<Int>(read __p.at)
+  bind#1 let now: Int = call std.core.basic::copy<Int>(read __p.at)
   assign __p.at = (read __p.at + 1)
-  return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
+  return make_union[Int | Finished]#0(call std.core.iterator::emitted<Int>(!read now))
 }
 
 fn main::sum_of<It>(lent_mut it: Mut It; ?lent next: (Mut It) -> Int | Finished) -> Int {
@@ -211,11 +211,11 @@ fn main::first<It>(lent_mut it: Mut It; ?lent next: (Mut It) -> Int | Finished) 
 fn main::main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
-  bind#3 let xs: List<Int> = call core.list::List(T, T[])<Int>(1, array[Int[]](2, 3, 4))
+  bind#3 let xs: List<Int> = call std.core.list::List(T, T[])<Int>(1, array[Int[]](2, 3, 4))
   call main::describe_container(read __handle~2, read xs)
   bind#4 let p: Mut Countdown = call main::countdown(5)
   call main::take(read __handle~2, read p, 2)
-  call core.console::println(read __handle~2, concat("2. rest sums to ", call core.basic::to_str(Int)(call main::sum_of<Countdown>(read p, fn main::next(Mut Countdown)))))
+  call std.core.console::println(read __handle~2, concat("2. rest sums to ", call std.core.basic::to_str(Int)(call main::sum_of<Countdown>(read p, fn main::next(Mut Countdown)))))
   bind#5 let q: Mut Countdown = call main::countdown(6)
   loop#6 {
     bind#7 let __step~4: Int | Finished = call main::skip(read q)
@@ -223,7 +223,7 @@ fn main::main() -> None {
       arm#0 (arm 0) {
         narrow#9[switch#8.arm#0] __emitted~5: Int = __step~4
         bind#10 let n: Int = !read __emitted~5
-        call core.console::println(read __handle~2, concat("2. skip ", call core.basic::to_str(Int)(read n)))
+        call std.core.console::println(read __handle~2, concat("2. skip ", call std.core.basic::to_str(Int)(read n)))
       }
       arm#1 (else) {
         break
@@ -237,7 +237,7 @@ fn main::main() -> None {
       arm#0 (arm 0) {
         narrow#15[switch#14.arm#0] __emitted~8: Int = __step~7
         bind#16 let n: Int = !read __emitted~8
-        call core.console::println(read __handle~2, concat("2b. halving ", call core.basic::to_str(Int)(read n)))
+        call std.core.console::println(read __handle~2, concat("2b. halving ", call std.core.basic::to_str(Int)(read n)))
       }
       arm#1 (else) {
         break
@@ -245,9 +245,9 @@ fn main::main() -> None {
     }
   }
   bind#17 let hp: Mut Halving = call main::halving(20)
-  call core.console::println(read __handle~2, concat("2b. summed from a held iterator: ", call core.basic::to_str(Int)(call main::sum_of<Halving>(read hp, fn main::next(Mut Halving)))))
-  call core.console::println(read __handle~2, concat("2b. first from a fn returning one: ", call core.basic::to_str(Int)(call main::first<Halving>(call main::halving_from_ten(), fn main::next(Mut Halving)))))
-  bind#18 let bag: Bag = construct Bag { items: call core.list::List(T, T[])<Int>(7, array[Int[]](8)) }
+  call std.core.console::println(read __handle~2, concat("2b. summed from a held iterator: ", call std.core.basic::to_str(Int)(call main::sum_of<Halving>(read hp, fn main::next(Mut Halving)))))
+  call std.core.console::println(read __handle~2, concat("2b. first from a fn returning one: ", call std.core.basic::to_str(Int)(call main::first<Halving>(call main::halving_from_ten(), fn main::next(Mut Halving)))))
+  bind#18 let bag: Bag = construct Bag { items: call std.core.list::List(T, T[])<Int>(7, array[Int[]](8)) }
   bind#20 let __pass~9: Mut BagIter = call main::iter(read bag)
   loop#19 {
     bind#21 let __step~10: Int | Finished = call main::next(Mut BagIter)(read __pass~9)
@@ -255,14 +255,14 @@ fn main::main() -> None {
       arm#0 (arm 0) {
         narrow#23[switch#22.arm#0] __emitted~11: Int = __step~10
         bind#24 let n: Int = !read __emitted~11
-        call core.console::println(read __handle~2, concat("2c. bag ", call core.basic::to_str(Int)(read n)))
+        call std.core.console::println(read __handle~2, concat("2c. bag ", call std.core.basic::to_str(Int)(read n)))
       }
       arm#1 (else) {
         break
       }
     }
   }
-  call core.console::println(read __handle~2, concat("2c. total of a bag ", call core.basic::to_str(Int)(call main::total<Bag, BagIter>(read bag, fn main::iter, fn main::next(Mut BagIter))), ", of a list ", call core.basic::to_str(Int)(call main::total<List<Int>, ListYield<Int>>(read xs, fn core.list::iter, fn core.list::next(Mut ListYield<T>)))))
+  call std.core.console::println(read __handle~2, concat("2c. total of a bag ", call std.core.basic::to_str(Int)(call main::total<Bag, BagIter>(read bag, fn main::iter, fn main::next(Mut BagIter))), ", of a list ", call std.core.basic::to_str(Int)(call main::total<List<Int>, ListYield<Int>>(read xs, fn std.core.list::iter, fn std.core.list::next(Mut ListYield<T>)))))
   bind#26 let __pass~12: Mut Fibs = call main::fibs(6)
   loop#25 {
     bind#27 let __step~13: Int | Finished = call main::next(Mut Fibs)(read __handle~2, read __pass~12)
@@ -270,7 +270,7 @@ fn main::main() -> None {
       arm#0 (arm 0) {
         narrow#29[switch#28.arm#0] __emitted~14: Int = __step~13
         bind#30 let n: Int = !read __emitted~14
-        call core.console::println(read __handle~2, concat("3. fib ", call core.basic::to_str(Int)(read n)))
+        call std.core.console::println(read __handle~2, concat("3. fib ", call std.core.basic::to_str(Int)(read n)))
       }
       arm#1 (else) {
         break
@@ -287,56 +287,56 @@ fn main::main() -> None {
         branch#37 cond#0 (read n > 12) {
           break
         }
-        call core.console::println(read __handle~2, concat("3. natural ", call core.basic::to_str(Int)(read n)))
+        call std.core.console::println(read __handle~2, concat("3. natural ", call std.core.basic::to_str(Int)(read n)))
       }
       arm#1 (else) {
         break
       }
     }
   }
-  bind#38 let doubled: Mut List<Int> = call core.seq::map(List<T>, (T) -> U)<Int, Int>(read xs, lambda(lent n: Int) -> Int {
+  bind#38 let doubled: Mut List<Int> = call std.core.seq::map(List<T>, (T) -> U)<Int, Int>(read xs, lambda(lent n: Int) -> Int {
     value (read n * 2)
   })
-  bind#39 let odd: Mut List<Int> = call core.seq::filter(List<T>, (T) -> Bool)<Int>(read xs, lambda(lent n: Int) -> Bool {
+  bind#39 let odd: Mut List<Int> = call std.core.seq::filter(List<T>, (T) -> Bool)<Int>(read xs, lambda(lent n: Int) -> Bool {
     value ((read n % 2) == 1)
   })
-  bind#40 let total: Int = call core.seq::reduce(List<T>, A, (A, T) -> A)<Int, Int>(read xs, 0, lambda(lent acc: Int, lent n: Int) -> Int {
+  bind#40 let total: Int = call std.core.seq::reduce(List<T>, A, (A, T) -> A)<Int, Int>(read xs, 0, lambda(lent acc: Int, lent n: Int) -> Int {
     value (read acc + read n)
   })
-  call core.console::println(read __handle~2, concat("5. list: ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read doubled))), " doubled, ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read odd))), " odd, total ", call core.basic::to_str(Int)(read total)))
-  bind#41 let words: List<Str> = call core.list::List(T, T[])<Str>("ann", array[Str[]]("bo", "carol"))
-  bind#42 let lengths: Mut List<Int> = call core.seq::map(Mut It, (T) -> U)<ListYield<Str>, proj Str, Int>(call core.list::iter<Str>(read words), lambda(lent w: proj Str) -> Int {
-    value call core.string::size(borrow_as[proj Str -> Str](read w))
-  }, fn core.list::next(Mut ListYield<T>))
-  call core.console::println(read __handle~2, concat("5. lengths: ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<ListYield<Int>, Int, Int>(call core.list::iter<Int>(drop_mut(read lengths)), 0, lambda(lent acc: Int, lent n: Int) -> Int {
+  call std.core.console::println(read __handle~2, concat("5. list: ", call std.core.basic::to_str(Int)(call std.core.list::size<Int>(drop_mut(read doubled))), " doubled, ", call std.core.basic::to_str(Int)(call std.core.list::size<Int>(drop_mut(read odd))), " odd, total ", call std.core.basic::to_str(Int)(read total)))
+  bind#41 let words: List<Str> = call std.core.list::List(T, T[])<Str>("ann", array[Str[]]("bo", "carol"))
+  bind#42 let lengths: Mut List<Int> = call std.core.seq::map(Mut It, (T) -> U)<ListYield<Str>, proj Str, Int>(call std.core.list::iter<Str>(read words), lambda(lent w: proj Str) -> Int {
+    value call std.core.string::size(borrow_as[proj Str -> Str](read w))
+  }, fn std.core.list::next(Mut ListYield<T>))
+  call std.core.console::println(read __handle~2, concat("5. lengths: ", call std.core.basic::to_str(Int)(call std.core.seq::reduce(Mut It, A, (A, T) -> A)<ListYield<Int>, Int, Int>(call std.core.list::iter<Int>(drop_mut(read lengths)), 0, lambda(lent acc: Int, lent n: Int) -> Int {
     value (read acc + read n)
-  }, fn core.list::next(Mut ListYield<T>)))))
+  }, fn std.core.list::next(Mut ListYield<T>)))))
   bind#43 let word: Str = "iteration"
-  bind#44 let vowels: Mut List<Char> = call core.seq::filter(Mut It, (T) -> Bool)<StrYield, Char>(call core.string::iter(read word), lambda(lent c: Char) -> Bool {
+  bind#44 let vowels: Mut List<Char> = call std.core.seq::filter(Mut It, (T) -> Bool)<StrYield, Char>(call std.core.string::iter(read word), lambda(lent c: Char) -> Bool {
     value ((read c == 'i') || (read c == 'o'))
-  }, fn core.string::next)
-  call core.console::println(read __handle~2, concat("5. vowels: ", call core.basic::to_str(Int)(call core.list::size<Char>(drop_mut(read vowels)))))
-  call core.console::println(read __handle~2, concat("5. halving total ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<Halving, Int, Int>(call main::halving(20), 0, lambda(lent acc: Int, lent n: Int) -> Int {
+  }, fn std.core.string::next)
+  call std.core.console::println(read __handle~2, concat("5. vowels: ", call std.core.basic::to_str(Int)(call std.core.list::size<Char>(drop_mut(read vowels)))))
+  call std.core.console::println(read __handle~2, concat("5. halving total ", call std.core.basic::to_str(Int)(call std.core.seq::reduce(Mut It, A, (A, T) -> A)<Halving, Int, Int>(call main::halving(20), 0, lambda(lent acc: Int, lent n: Int) -> Int {
     value (read acc + read n)
   }, fn main::next(Mut Halving)))))
-  bind#45 let collected: Mut List<Int> = call core.seq::map_to<List<Int>, Countdown, Int, Int>(call core.list::Mut_List()<Int>(), call main::countdown(3), lambda(lent n: Int) -> Int {
+  bind#45 let collected: Mut List<Int> = call std.core.seq::map_to<List<Int>, Countdown, Int, Int>(call std.core.list::Mut_List()<Int>(), call main::countdown(3), lambda(lent n: Int) -> Int {
     value (read n * 10)
-  }, fn core.list::add, fn main::next(Mut Countdown))
-  call core.console::println(read __handle~2, concat("6. collected ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read collected)))))
-  bind#46 let evens: Mut Str = call core.string::Mut_Str(array[Str[]]())
-  bind#48 let __pass~18: Mut Range = call core.range::range(Int, Int, Int)(0, 10, 2)
+  }, fn std.core.list::add, fn main::next(Mut Countdown))
+  call std.core.console::println(read __handle~2, concat("6. collected ", call std.core.basic::to_str(Int)(call std.core.list::size<Int>(drop_mut(read collected)))))
+  bind#46 let evens: Mut Str = call std.core.string::Mut_Str(array[Str[]]())
+  bind#48 let __pass~18: Mut Range = call std.core.range::range(Int, Int, Int)(0, 10, 2)
   loop#47 {
-    bind#49 let __step~19: Int | Finished = call core.range::next(read __pass~18)
+    bind#49 let __step~19: Int | Finished = call std.core.range::next(read __pass~18)
     switch#50 read __step~19 {
       arm#0 (arm 0) {
         narrow#51[switch#50.arm#0] __emitted~20: Int = __step~19
         bind#52 let i: Int = !read __emitted~20
-        call core.string::append(read evens, concat(call core.basic::to_str(Int)(read i), " "))
+        call std.core.string::append(read evens, concat(call std.core.basic::to_str(Int)(read i), " "))
       }
       arm#1 (else) {
         break
       }
     }
   }
-  call core.console::println(read __handle~2, concat("7. evens ", drop_mut(read evens)))
+  call std.core.console::println(read __handle~2, concat("7. evens ", drop_mut(read evens)))
 }

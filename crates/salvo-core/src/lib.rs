@@ -72,6 +72,6 @@ pub use wire::{
 pub use resolve::{resolve, DefSite, FnKey, ModuleScope, Resolution, STD_INTERNAL};
 pub use source::{
     dependencies_with_reached_platform, CompanionFile, ModulePath, PlatformFile, PlatformRoots, SourceFile, SourceSet,
-    PLATFORM_DIR, TEST_SUFFIX,
+    PLATFORM_DIR, STD_ROOT, TEST_SUFFIX,
 };
 pub use types::{fn_type_throws, is_subtype, is_throw_effect, threaded_effects, Qual, QualEffect, Ty};

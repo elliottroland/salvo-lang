@@ -226,7 +226,7 @@ qualifier NonEmpty<T> of List<T> {
 intrinsic fn List<T>(first: T, ...rest: T[]) -> +NonEmpty List<T>
 ```
 
-**This one is real.** `NonEmpty`, and the constructor above, are declared in std's `core.list` — so is `Sorted`, and `Distinct` in `core.set`; see "Collections".
+**This one is real.** `NonEmpty`, and the constructor above, are declared in std's `std.core.list` — so is `Sorted`, and `Distinct` in `std.core.set`; see "Collections".
 
 This is also how union arms are tagged in practice: a generic constructor applies the tag, and the tagged value then coerces into the union:
 
@@ -250,7 +250,7 @@ fn parse_age(input: Int) -> Ok Int | Err Str {
 }
 ```
 
-These four declarations are `core.result`, which is implicitly visible like the rest of `core`, so real code writes only the last function. They are shown here because there is nothing privileged about them: a domain-specific pair of tags is declared exactly the same way.
+These four declarations are `std.core.result`, which is implicitly visible like the rest of `std.core`, so real code writes only the last function. They are shown here because there is nothing privileged about them: a domain-specific pair of tags is declared exactly the same way.
 
 Constructive qualifiers can also be entirely handled by the backend implementation. We will discuss this more in the section on backends.
 

@@ -46,13 +46,13 @@ fn checked(src: &str) -> salvo_core::Checked {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
     sources.add(
         "std/core/auto.sv",
-        SourceSet::classify(Path::new("core/auto.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/auto.sv")).unwrap(),
         AUTO_PRELUDE.to_string(),
         true,
     );
@@ -295,7 +295,7 @@ const LIT_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
     "export intrinsic fn hash(value: Str) [] -> Long => value\n",
     // [col-hashed-ordered] The interim structural container identities, as
-    // `core.compare` declares them.
+    // `std.core.compare` declares them.
     "export intrinsic fn cmp<T>(a: List<T>, b: List<T>) [] -> Int => a, b\n",
     "export intrinsic fn eq<T>(a: List<T>, b: List<T>) [] -> Bool => a, b\n",
     "export intrinsic fn hash<T>(value: List<T>) [] -> Long => value\n",
@@ -308,7 +308,7 @@ const LIT_PRELUDE: &str = concat!(
 );
 
 /// [obligation-by] The structural `comptime fn`s `by auto` stamps, mirroring
-/// `std/core/auto.sv`'s struct half: the tests here are about what a `by`
+/// `lib/std/core/auto.sv`'s struct half: the tests here are about what a `by`
 /// clause does to a type, not about the bodies.
 const AUTO_PRELUDE: &str = concat!(
     "export intrinsic fn mix_hash(seed: Long, value: Long) [] -> Long => seed, value\n",
@@ -332,7 +332,7 @@ const AUTO_PRELUDE: &str = concat!(
 );
 
 /// [fn-type-named] The collection constructors the type-named spellings
-/// (`List(…)`, `Mut Set(…)`, `Map("k": v)`) resolve to, each in the `core`
+/// (`List(…)`, `Mut Set(…)`, `Map("k": v)`) resolve to, each in the `std.core`
 /// module that owns it, as std declares them.
 const LIT_CONSTRUCTORS: &[(&str, &str)] = &[
     (
@@ -364,21 +364,21 @@ fn lit_checked(src: &str) -> salvo_core::Checked {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         LIT_PRELUDE.to_string(),
         true,
     );
     for (path, text) in LIT_CONSTRUCTORS {
         sources.add(
             &format!("std/{path}"),
-            SourceSet::classify(Path::new(path)).unwrap(),
+            SourceSet::classify(Path::new(&format!("std/{path}"))).unwrap(),
             text.to_string(),
             true,
         );
     }
     sources.add(
         "std/core/auto.sv",
-        SourceSet::classify(Path::new("core/auto.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/auto.sv")).unwrap(),
         AUTO_PRELUDE.to_string(),
         true,
     );
@@ -660,7 +660,7 @@ fn ordering_needs_a_cmp() {
 }
 
 /// [obligation-by] [comptime-refuse] The `by auto` clauses are validated where
-/// they are written: `core.auto`'s `hash` **refuses** a `canbe Mut` struct (a key
+/// they are written: `std.core.auto`'s `hash` **refuses** a `canbe Mut` struct (a key
 /// that can change under the collection holding it), and every field has to
 /// resolve its own `hash`/`cmp` — the rules `canbe hashed`/`canbe ordered` used
 /// to carry, now stated in std rather than in the compiler.
@@ -788,13 +788,13 @@ fn sorted_messages(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         SORTED_PRELUDE.to_string(),
         true,
     );
     sources.add(
         "std/core/auto.sv",
-        SourceSet::classify(Path::new("core/auto.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/auto.sv")).unwrap(),
         AUTO_PRELUDE.to_string(),
         true,
     );
@@ -920,7 +920,7 @@ fn the_generated_constructors_and_converters_type_correctly() {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         prelude.to_string(),
         true,
     );

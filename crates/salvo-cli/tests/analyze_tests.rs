@@ -101,15 +101,28 @@ fn json_output_is_empty_array_for_clean_program() {
 }
 
 // [diag-std-hidden] A program whose only errors are located in the embedded
-// std: a project module under `core` (implicitly visible to std, until the
-// `std.` prefix) makes std's own `by auto` sites name two modules. Neither
-// `analyze` nor a build lists a std position; each says so in one line and
-// fails.
+// std. A project cannot reach std any more [std-root], so the construction is
+// a `std = true` dependency adding a module under `std.core`: implicitly
+// visible to std, it makes std's own `by auto` sites name two modules.
+// Neither `analyze` nor a build lists a std position; each says so in one
+// line and fails.
 #[test]
 fn errors_in_the_embedded_std_are_one_line() {
     let dir = src_dir("std_hidden");
-    fs::create_dir_all(dir.join("core/extra")).unwrap();
-    fs::write(dir.join("core/extra/auto.sv"), "export fn helper() [] -> Int {\n    return 1\n}\n").unwrap();
+    let fork = dir.join("salvo_modules/fork");
+    fs::create_dir_all(fork.join("salvo/std/core/extra")).unwrap();
+    fs::write(
+        dir.join("salvo.toml"),
+        "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build]\nmodules = \"salvo_modules\"\n\n\
+         [dependencies]\nfork = \"0.1.0\"\n",
+    )
+    .unwrap();
+    fs::write(
+        fork.join("salvo.toml"),
+        "[project]\nname = \"fork\"\nversion = \"0.1.0\"\nstd = true\n\n[build]\nsrc = \"salvo\"\n",
+    )
+    .unwrap();
+    fs::write(fork.join("salvo/std/core/extra/auto.sv"), "export fn helper() [] -> Int {\n    return 1\n}\n").unwrap();
     fs::write(dir.join("main.sv"), "fn main() [] {\n    let _x = helper()\n}\n").unwrap();
     let line = "the standard library does not check with this program";
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -123,11 +136,63 @@ fn errors_in_the_embedded_std_are_one_line() {
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[]");
     assert!(String::from_utf8_lossy(&out.stderr).contains(line));
     let target = dir.with_file_name("analyze_std_hidden_out");
+    let _ = fs::remove_dir_all(&target);
     let out = salvo(&["compile", "--backend", "rust", "--src", dir.to_str().unwrap(), "--target", target.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "stderr: {stderr}");
     assert!(stderr.contains(line), "stderr: {stderr}");
     assert!(!stderr.contains("--> std/"), "a std position was shown: {stderr}");
+}
+
+// [std-root] `std` is a reserved root: a project's module under it is refused
+// where it is written, and is not implicitly visible — so std's own expansion
+// is untouched, and the program's one mistake is two lines (the misplaced
+// module, and the name it would have supplied).
+#[test]
+fn a_project_module_under_std_is_refused() {
+    let dir = src_dir("std_root");
+    fs::create_dir_all(dir.join("std/core/extra")).unwrap();
+    fs::write(dir.join("std/core/extra/auto.sv"), "export fn helper() [] -> Int {\n    return 1\n}\n").unwrap();
+    fs::write(dir.join("main.sv"), "fn main() [] {\n    let _x = helper()\n}\n").unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "stderr: {stderr}");
+    assert!(
+        stderr.contains("module `std.core.extra.auto` is under `std`, which is reserved for the standard library")
+            && stderr.contains("[std-root] --> std/core/extra/auto.sv:1:1"),
+        "stderr: {stderr}"
+    );
+    assert!(!stderr.contains("[diag-std-hidden]"), "std itself checks: {stderr}");
+    assert!(stderr.contains("2 errors, 0 warnings"), "stderr: {stderr}");
+}
+
+// [std-root] The bare spelling of a std module is refused with the corrected
+// path named, and resolves nothing; a project's own module of that name is
+// its own business.
+#[test]
+fn a_bare_std_import_names_the_corrected_path() {
+    let dir = src_dir("std_bare");
+    fs::write(
+        dir.join("main.sv"),
+        "import time\nimport core.list\nimport fs.mem.MemFs\n\nfn main() [] {\n    let _d = seconds(1)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "stderr: {stderr}");
+    for corrected in ["import std.time`", "import std.core.list`", "import std.fs.mem.MemFs`"] {
+        assert!(
+            stderr.contains(&format!("the standard library's modules are under `std`: write `{corrected} [std-root]")),
+            "{corrected}: {stderr}"
+        );
+    }
+    assert!(stderr.contains("no function named `seconds` is in scope"), "not a fallback: {stderr}");
+
+    fs::write(dir.join("time.sv"), "export fn seconds(n: Int) [] -> Int {\n    return n\n}\n").unwrap();
+    fs::write(dir.join("main.sv"), "import time\n\nfn main() [] {\n    let _d = seconds(1)\n}\n").unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "a project module `time` is the project's: {stderr}");
 }
 
 // Parse errors are reported with location; exit is nonzero.
@@ -204,7 +269,7 @@ fn unresolved_names_suggest_imports() {
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("help: add `import random.DefaultRandom`"),
+        stderr.contains("help: add `import std.random.DefaultRandom`"),
         "stderr: {stderr}"
     );
 
@@ -217,7 +282,7 @@ fn unresolved_names_suggest_imports() {
     ]);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("\"imports\": [\"random.DefaultRandom\"]"),
+        stdout.contains("\"imports\": [\"std.random.DefaultRandom\"]"),
         "stdout: {stdout}"
     );
 }
@@ -759,7 +824,7 @@ fn consumption_survives_narrowing_and_loop_back_edges() {
 #[test]
 fn when_branches_merge_consumption() {
     let dir = src_dir("consume_when");
-    // `Ok`/`Err` and their constructors come from `core.result`.
+    // `Ok`/`Err` and their constructors come from `std.core.result`.
     let prelude = "fn consume(v: Ok Str) -> None => !v {\n}\n\n";
 
     // Consumed in one fall-through arm -> unusable after the `when`.
@@ -928,7 +993,7 @@ fn union_arm_arguments_resolve_against_union_params() {
     assert!(stderr.contains("no errors"), "stderr: {stderr}");
 }
 
-// [qual-result-tags] [qual-ctor-fn] `core.result` supplies the result tags: a program can
+// [qual-result-tags] [qual-ctor-fn] `std.core.result` supplies the result tags: a program can
 // write `Ok Int | Err Str` and call `ok`/`err` without declaring anything,
 // and `is`/`when` narrow the arms as they do for local qualifiers.
 #[test]
@@ -2616,7 +2681,7 @@ fn an_fs_failure_must_be_acknowledged() {
     let dir = src_dir("fs_checked");
     let program = |body: &str| {
         format!(
-            "import fs\nimport fs.path\nimport fs.host\nimport stream.host\n\n\
+            "import std.fs\nimport std.fs.path\nimport std.fs.host\nimport std.stream.host\n\n\
              fn main() [use] -> None {{\n    use StdConsole()\n    \
              use HostRawStreams()\n    use DefaultStreams()\n    \
              use HostRawFs()\n    use DefaultFs()\n    \
@@ -2729,7 +2794,7 @@ fn route_binds_any_and_needs_a_selector() {
     let dir = src_dir("route_ok");
     let program = |tail: &str| {
         format!(
-            "import net\n\n\
+            "import std.net\n\n\
              actor effect Ping {{\n    send fn ping(k: Key Str, out: Reply<Str>) => !k, !out\n}}\n\n\
              fn one() [any Ping] -> Str {{\n    return waitfor out: Reply<Str> {{ ping(\"a\", out) }}\n}}\n\n\
              fn strong() [Ping] -> Str {{\n    return waitfor out: Reply<Str> {{ ping(\"a\", out) }}\n}}\n\n\
@@ -2770,7 +2835,7 @@ fn route_refusals_name_the_fix() {
     let dir = src_dir("route_bad");
     fs::write(
         dir.join("main.sv"),
-        "import net\n\nfn main() [use] {\n    let x = 3\n    use LeastLoaded<NodeGroup>(true)\n    use any x\n}\n",
+        "import std.net\n\nfn main() [use] {\n    let x = 3\n    use LeastLoaded<NodeGroup>(true)\n    use any x\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -2783,7 +2848,7 @@ fn route_refusals_name_the_fix() {
     // Two `Key`s, and nothing routes `Two`.
     fs::write(
         dir.join("main.sv"),
-        "import net\n\nactor effect Two {\n    send fn go(a: Key Str, b: Key Int) => !a, !b\n}\n\nfn main() {\n}\n",
+        "import std.net\n\nactor effect Two {\n    send fn go(a: Key Str, b: Key Int) => !a, !b\n}\n\nfn main() {\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -2793,13 +2858,13 @@ fn route_refusals_name_the_fix() {
     // The group's type is spelled only in `lib`: `main` routes it all the same.
     fs::write(
         dir.join("main.sv"),
-        "import net\nimport lib.Ping\nimport lib.some_group\n\n\
+        "import std.net\nimport lib.Ping\nimport lib.some_group\n\n\
          fn main() [use, spawn] {\n    use LeastLoaded<Ping>(true)\n    let h = some_group()\n    use any h\n}\n",
     )
     .unwrap();
     fs::write(
         dir.join("lib.sv"),
-        "import net\n\nexport actor effect Ping {\n    send fn ping(out: Reply<Str>) => !out\n}\n\n\
+        "import std.net\n\nexport actor effect Ping {\n    send fn ping(out: Reply<Str>) => !out\n}\n\n\
          export fn some_group() [spawn] -> eff[ActorGroup<Ping>] {\n    \
          return actor_group<Ping>(spawn StaticNodeGroup(\"x\", List(NodeEndpoint { host: \"a\", port: 1 })) with MemTransport(NodeEndpoint { host: \"a\", port: 1 }, (spawn MemNetwork() on pool(1))) on pool(1))\n}\n",
     )

@@ -81,7 +81,7 @@ pub fn fn_call(
         _ => format!("{}.clone()", a(0)),
     };
     Some(match (name, recv) {
-        // core.basic -----------------------------------------------------
+        // std.core.basic -----------------------------------------------------
         // [op-convert] The explicit numeric conversions. `as` matches the
         // Kotlin `toX()` semantics case by case: float→int truncates
         // toward zero and saturates (NaN → 0), i64→i32 keeps the low 32
@@ -108,7 +108,7 @@ pub fn fn_call(
         // meaning 255 on both backends.
         ("to_byte", Some("Int")) => format!("((({}) as i32) as u8)", a(0)),
         ("to_int", Some("Byte")) => format!("(({}) as i32)", a(0)),
-        // core.compare ---------------------------------------------------
+        // std.core.compare ---------------------------------------------------
         // [cmp-groups] The canonical `cmp`/`eq`/`hash` at each intrinsic type.
         //
         // `Ord::cmp` answers an `Ordering`, which is a fieldless `#[repr(i8)]`
@@ -192,7 +192,7 @@ pub fn fn_call(
         // `i32` in the Salvo runtime.
         ("addr_index", Some("Addr")) | ("pool_index", Some("Pool")) => format!("((({}).clone()) as i32)", a(0)),
         ("addr_of", Some("Int")) | ("pool_of", Some("Int")) => format!("(({}) as usize)", a(0)),
-        // core.actor ---------------------------------------------------
+        // std.core.actor ---------------------------------------------------
         // [actor-replyto] [rs-actor] Answering a request: the token is
         // consumed, and the payload crosses the seam as the runtime's untyped
         // box. `Box::new` is where the sendability the checker proved becomes
@@ -286,7 +286,7 @@ pub fn fn_call(
             a(0)
         ),
 
-        // core.array -----------------------------------------------------
+        // std.core.array -----------------------------------------------------
         // [fn-variadic] The variadic tail *is* the array, so the constructor
         // is its argument: a `...spread` arrives as the whole thing (cloned,
         // since a variadic position is untracked and the source stays
@@ -301,7 +301,7 @@ pub fn fn_call(
             format!("(0..({})).map({}).collect::<Vec<_>>()", a(0), a(1))
         }
 
-        // core.set -------------------------------------------------------
+        // std.core.set -------------------------------------------------------
         // [col-key-eligible] An owned read of a snapshot element — a clone
         // here, where Kotlin can share the reference.
         ("snapshot_at", Some("List")) => {

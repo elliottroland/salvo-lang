@@ -17,7 +17,7 @@ qualifier FirstStr<T> of Pair<Str, T>
 qualifier Ints of Pair<Int, Int>
 ```
 
-Using qualifiers and generics we can implement the equivalent of a `Result` type from Rust. `core` ships exactly this pair, so you do not have to declare it — but nothing about it is built in, and the declarations are just:
+Using qualifiers and generics we can implement the equivalent of a `Result` type from Rust. `std.core` ships exactly this pair, so you do not have to declare it — but nothing about it is built in, and the declarations are just:
 
 ```
 provenance qualifier Ok<T> of T

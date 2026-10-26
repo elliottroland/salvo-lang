@@ -35,7 +35,7 @@ fn checked(src: &str) -> salvo_core::Checked {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
@@ -217,7 +217,7 @@ fn logical_operands_are_bool_only() {
 /// path**, where the canonical implementation is the host's own operator
 /// [op-order]. Everything else needs a `cmp`, and the refusal says which
 /// function is missing and how to get it: this prelude declares none, so even
-/// `Str` is refused here (the real `core.compare` has one, which is what makes
+/// `Str` is refused here (the real `std.core.compare` has one, which is what makes
 /// `"a" < "b"` legal and code-point ordered).
 #[test]
 fn ordering_surface() {

@@ -428,7 +428,7 @@ pub struct StructDecl {
     pub noremote: bool,
     /// [comptime-fields] `comptime struct Field { … }`: a type that exists at
     /// compile time only — what a `comptime fn` may know about a type,
-    /// declared in `core.comptime` so the surface is readable and hoverable.
+    /// declared in `std.core.comptime` so the surface is readable and hoverable.
     /// Never constructed, never a value; the compiler fills its fields.
     pub comptime: bool,
     pub span: Span,
@@ -454,7 +454,7 @@ pub struct Obligation {
 
 /// [obligation-by] [fn-by] What follows `by`: the scope a `compfn` is taken
 /// from. A lowercase dotted path — a module (`auto`, `json`; matched against
-/// the program's module paths by suffix, so `by auto` reaches `core.auto`
+/// the program's module paths by suffix, so `by auto` reaches `std.core.auto`
 /// without an import) or, in the function form, a `compfn` named directly.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ByRef {
@@ -491,7 +491,7 @@ impl ByRef {
 /// [comptime-bound] The kind a `comptime fn`'s type parameter is bound to:
 /// `comptime fn cmp<T is Struct>(a: T, b: T)` is instantiated at struct types
 /// only, `<T is Union>` at named union types — the bound names an arm of
-/// `core.comptime`'s `Kind`. Which of a module's same-named comptime fns a
+/// `std.core.comptime`'s `Kind`. Which of a module's same-named comptime fns a
 /// `by` picks is decided by the target's kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompKind {
@@ -603,7 +603,7 @@ pub struct CompSeq {
 }
 
 /// [comptime-fields] The kinds of a compile-time type — the arms of
-/// `core.comptime`'s `Kind` union (`Struct | Union | Tuple | FnType | Opaque`,
+/// `std.core.comptime`'s `Kind` union (`Struct | Union | Tuple | FnType | Opaque`,
 /// with `Opaque = Basic | Generic`), so a `[when field.kind]` is an ordinary
 /// exhaustive `when` over a union and `is Opaque` matches either of its two
 /// arms (comptime rounds 5 and 8; `Kind` split from `Type` 2026-10-20).
@@ -652,7 +652,7 @@ impl TypeKindWord {
 #[derive(Clone, Debug, PartialEq)]
 pub enum CompCond {
     /// `field.kind is Struct`, `T.kind is Union` — a kind test, against an
-    /// arm of `core.comptime`'s `Kind`. The kind is of the type `ty`
+    /// arm of `std.core.comptime`'s `Kind`. The kind is of the type `ty`
     /// denotes (`field.kind` is the kind of `field.type`). Resolved only
     /// against the kinds, so a program type named `Union` cannot interfere
     /// [comptime-kind].
@@ -663,7 +663,7 @@ pub enum CompCond {
     /// matches any type, and `binders` (`is <E> List<E>`) are declared
     /// before it and bind the part they stand at, in the then-branch.
     Is { ty: CompTy, binders: Vec<Ident>, target: Type, span: Span },
-    /// `T.mutable` — whether the type declares `canbe Mut` (`core.comptime`'s
+    /// `T.mutable` — whether the type declares `canbe Mut` (`std.core.comptime`'s
     /// `Struct.mutable`).
     Mutable { ty: CompTy, span: Span },
     /// `field.name == "value"`, `field.name is "a" | "b"` — the binder's name
@@ -770,7 +770,7 @@ pub enum CompStmt {
         span: Span,
     },
     /// `[when field.kind] { is Struct { … } is Union { … } … }` — a `when`
-    /// over `core.comptime`'s `Kind` union, of the kind of the type `ty`
+    /// over `std.core.comptime`'s `Kind` union, of the kind of the type `ty`
     /// denotes. Exhaustive over its arms, and like every `when` with a
     /// subject it takes no `else` [when-exhaustive], so that a kind added to
     /// the language is an error in every comptime fn that did not consider it
@@ -937,7 +937,7 @@ pub struct QualifierDecl {
     /// True when the declaration had a `{ ... }` body (predicate qualifier).
     pub has_body: bool,
     /// [comptime-qualifier] `comptime qualifier Short(c: Char) of Field`: a
-    /// qualifier on a `core.comptime` description, written on a declaration
+    /// qualifier on a `std.core.comptime` description, written on a declaration
     /// and read by comptime code; it has no body and claims nothing about a
     /// value.
     pub comptime: bool,
@@ -1892,7 +1892,7 @@ pub enum Expr {
         /// The dot-notation receiver, when written as `base.name@module(..)`.
         base: Option<Box<Expr>>,
         name: Ident,
-        /// The module path, as written (`core.list`).
+        /// The module path, as written (`std.core.list`).
         module: Vec<Ident>,
         span: Span,
     },

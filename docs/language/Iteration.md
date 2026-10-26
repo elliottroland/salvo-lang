@@ -96,10 +96,10 @@ holds a view of `xs`, so `xs` stays usable and cannot be mutated while the
 iterator lives. A `for` straight over the container allocates nothing at all —
 that is data, and the backends walk it in place.
 
-`Yield` and `Iter` are the pattern, not the only instances: `core.compare`
+`Yield` and `Iter` are the pattern, not the only instances: `std.core.compare`
 declares `Ordered`, `Eq` and `Hashed` the same way
 ([Comparison, equality and hashing](Comparison-and-Hashing.md)), and
-`core.list` declares `Ref` for algorithms generic over what a *position*
+`std.core.list` declares `Ref` for algorithms generic over what a *position*
 is ([Mutable handles](Mutable-Handles.md)). A type joins any of them by
 declaring one function.
 

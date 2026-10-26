@@ -7,52 +7,52 @@ pub mod hosttime;
 pub mod wire;
 #[path = "aws.rs"]
 pub mod aws;
-#[path = "core/basic.rs"]
-pub mod core_basic;
-#[path = "core/checked.rs"]
-pub mod core_checked;
-#[path = "core/compare.rs"]
-pub mod core_compare;
-#[path = "core/console.rs"]
-pub mod core_console;
-#[path = "core/index.rs"]
-pub mod core_index;
-#[path = "core/iterator.rs"]
-pub mod core_iterator;
-#[path = "core/list.rs"]
-pub mod core_list;
-#[path = "core/map.rs"]
-pub mod core_map;
-#[path = "core/set.rs"]
-pub mod core_set;
-#[path = "core/sorted.rs"]
-pub mod core_sorted;
-#[path = "core/string.rs"]
-pub mod core_string;
-#[path = "platform/core/console.rs"]
-pub mod platform_core_console;
-#[path = "platform/core/list.rs"]
-pub mod platform_core_list;
-#[path = "platform/core/map.rs"]
-pub mod platform_core_map;
-#[path = "platform/core/set.rs"]
-pub mod platform_core_set;
-#[path = "platform/core/sorted.rs"]
-pub mod platform_core_sorted;
-#[path = "platform/core/string.rs"]
-pub mod platform_core_string;
+#[path = "std/core/basic.rs"]
+pub mod std_core_basic;
+#[path = "std/core/checked.rs"]
+pub mod std_core_checked;
+#[path = "std/core/compare.rs"]
+pub mod std_core_compare;
+#[path = "std/core/console.rs"]
+pub mod std_core_console;
+#[path = "std/core/index.rs"]
+pub mod std_core_index;
+#[path = "std/core/iterator.rs"]
+pub mod std_core_iterator;
+#[path = "std/core/list.rs"]
+pub mod std_core_list;
+#[path = "std/core/map.rs"]
+pub mod std_core_map;
+#[path = "std/core/set.rs"]
+pub mod std_core_set;
+#[path = "std/core/sorted.rs"]
+pub mod std_core_sorted;
+#[path = "std/core/string.rs"]
+pub mod std_core_string;
+#[path = "platform/std/core/console.rs"]
+pub mod platform_std_core_console;
+#[path = "platform/std/core/list.rs"]
+pub mod platform_std_core_list;
+#[path = "platform/std/core/map.rs"]
+pub mod platform_std_core_map;
+#[path = "platform/std/core/set.rs"]
+pub mod platform_std_core_set;
+#[path = "platform/std/core/sorted.rs"]
+pub mod platform_std_core_sorted;
+#[path = "platform/std/core/string.rs"]
+pub mod platform_std_core_string;
 
 use crate::aws::ProfileCredentials;
-use crate::core_console::println;
+use crate::std_core_console::println;
 use crate::aws::to_str;
 
 
 pub fn main() {
-    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
-    let __handle_2 = crate::core_console::Console::shared(__use_1);
+    let mut __use_1: crate::std_core_console::__Platform_StdConsole = crate::std_core_console::__Platform_StdConsole::new();
+    let __handle_2 = crate::std_core_console::Console::shared(__use_1);
     let mut creds: crate::aws::ProfileCredentials = crate::aws::ProfileCredentials { profile: String::from("default"), path: String::from("~/.aws/credentials") };
-    crate::core_console::println(&__handle_2, &format!("profile: {}", creds.profile));
-    crate::core_console::println(&__handle_2, &format!("path:    {}", creds.path));
+    crate::std_core_console::println(&__handle_2, &format!("profile: {}", creds.profile));
+    crate::std_core_console::println(&__handle_2, &format!("path:    {}", creds.path));
     let mut staging: crate::aws::ProfileCredentials = crate::aws::ProfileCredentials { profile: String::from("staging"), path: String::from("/etc/aws/credentials") };
-    crate::core_console::println(&__handle_2, &format!("{}", crate::aws::to_str(&staging)));
+    crate::std_core_console::println(&__handle_2, &format!("{}", crate::aws::to_str(&staging)));
 }

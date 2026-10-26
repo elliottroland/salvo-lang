@@ -1,6 +1,6 @@
-//! [mod-import-module] The whole-module import: `import time` brings every
+//! [mod-import-module] The whole-module import: `import std.time` brings every
 //! name in a module into scope, at a rung below a named import and above
-//! implicit `core.*` visibility (user decision 2026-09-18).
+//! implicit `std.core.*` visibility (user decision 2026-09-18).
 //!
 //! The rule's point is that a bulk import never *fights* anything: it loses
 //! silently to an own declaration and to a named import, functions resolve
@@ -12,13 +12,14 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
-/// Parses + resolves a multi-file program (no std) and returns the
-/// resolver's diagnostics as rendered messages, errors and warnings alike.
+/// Parses + resolves a multi-file program (no std beyond the files under
+/// `lib/std/` it is given, which are std's) and returns the resolver's
+/// diagnostics as rendered messages, errors and warnings alike.
 fn resolve_diags(files: &[(&str, &str)]) -> Vec<String> {
     let mut sources = SourceSet::default();
     for (name, src) in files {
         let module = SourceSet::classify(Path::new(name)).unwrap();
-        sources.add(*name, module, src.to_string(), false);
+        sources.add(*name, module, src.to_string(), name.starts_with("std/"));
     }
     let mut modules = Vec::new();
     for file in &sources.files {
@@ -50,7 +51,7 @@ fn check_diags(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
@@ -248,14 +249,14 @@ fn a_module_import_rejects_an_alias() {
     );
 }
 
-// [mod-import-module] [mod-visibility] Importing `core` is redundant, and
+// [mod-import-module] [mod-visibility] Importing `std.core` is redundant, and
 // saying so is better than adding every core name at a second rung (which
 // would double every core overload).
 #[test]
 fn importing_core_is_reported_as_redundant() {
     let core = "export struct Span {\n    nanos: Long\n}\n";
-    let main = "import core\n\nfn f() [] -> Long {\n    return 1\n}\n";
-    let diags = resolve_diags(&[("core/span.sv", core), ("main.sv", main)]);
+    let main = "import std.core\n\nfn f() [] -> Long {\n    return 1\n}\n";
+    let diags = resolve_diags(&[("std/core/span.sv", core), ("main.sv", main)]);
     assert_eq!(diags.len(), 1, "expected one diagnostic: {diags:?}");
     assert!(
         diags[0].contains("redundant import"),
@@ -281,7 +282,7 @@ fn an_unknown_module_import_names_the_candidates() {
 }
 
 // [mod-import-module] The name form still works, and still takes precedence
-// as a *reading*: `import time.Span` is one name, not the module.
+// as a *reading*: `import std.time.Span` is one name, not the module.
 #[test]
 fn the_name_form_is_unaffected() {
     let lib = "export struct Span {\n    nanos: Long\n}\n\n\

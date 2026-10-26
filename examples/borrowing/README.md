@@ -52,7 +52,7 @@ cargo run -- run --backend kotlin --src examples/borrowing/salvo
 3. **Two handles, proven apart.** `duel` mutates both parameters and says
    nothing about them coinciding, so a caller owes a proof: `d is NotSame(a)` —
    `d` is a different element from `a`, a claim about the two handles
-   themselves (`core.ref`). With it, two handles into one list coexist, a
+   themselves (`std.core.ref`). With it, two handles into one list coexist, a
    write through one leaves the other standing, and one call may take both.
    `update` is std's wrapper for the one-handle shape, and it promises
    `preserve Idx`, so the reads after it stay *total* — an in-place write

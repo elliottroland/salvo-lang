@@ -9,23 +9,23 @@ linear struct FileHandle wire {
 }
 
 fn main::open_file(lent console: Console; moved name: Str) -> FileHandle {
-  call core.console::println(read console, concat("1. open ", read name))
+  call std.core.console::println(read console, concat("1. open ", read name))
   return construct FileHandle { name: !read name }
 }
 
 fn main::close(lent console: Console; moved handle: FileHandle) -> None {
   obligation gain-params [handle]
-  call core.console::println(read console, concat("1. close ", read handle.name))
+  call std.core.console::println(read console, concat("1. close ", read handle.name))
   obligation release [handle]
-  call core.basic::discard<FileHandle>(!read handle)
+  call std.core.basic::discard<FileHandle>(!read handle)
 }
 
 fn main::read_size(lent console: Console; moved name: Str, lent want: Int) -> Int {
-  bind#1 let there_is: Int = call core.string::size(read name)
+  bind#1 let there_is: Int = call std.core.string::size(read name)
   bind#2 let handle: FileHandle = call main::open_file(read console, !read name)
   obligation gain [handle]
   branch#3 cond#0 (read want > read there_is) {
-    call core.console::println(read console, "1. asked for more than there is")
+    call std.core.console::println(read console, "1. asked for more than there is")
     obligation release [handle]
     call main::close(read console, !read handle)
     return !read there_is
@@ -36,7 +36,7 @@ fn main::read_size(lent console: Console; moved name: Str, lent want: Int) -> In
 }
 
 fn main::parse_port(lent text: Str) -> Int throws Str {
-  bind#1 let n: Int? = call core.string::parse_int(read text)
+  bind#1 let n: Int? = call std.core.string::parse_int(read text)
   branch#2 cond#0 check#3 (read n is none) {
     throw(concat("not a number: ", read text))
   }
@@ -56,20 +56,20 @@ fn main::port_of(lent config: Str) -> Int throws Str {
 fn main::port_from_file(lent console: Console; moved name: Str, lent text: Str) -> Int throws Str {
   bind#1 let handle: FileHandle = call main::open_file(read console, !read name)
   obligation gain [handle]
-  bind#2 let from: Str = call core.basic::copy<Str>(read handle.name)
+  bind#2 let from: Str = call std.core.basic::copy<Str>(read handle.name)
   obligation release [handle]
   call main::close(read console, !read handle)
-  call core.console::println(read console, concat("2. reading a port out of ", read from))
+  call std.core.console::println(read console, concat("2. reading a port out of ", read from))
   return call main::parse_port(read text)
 }
 
 fn main::strict_port(lent text: Str) -> Int throws Str | Int {
-  branch#1 cond#0 (call core.string::size(read text) == 0) {
+  branch#1 cond#0 (call std.core.string::size(read text) == 0) {
     throw("empty")
   }
-  bind#2 let n: Int? = call core.string::parse_int(read text)
+  bind#2 let n: Int? = call std.core.string::parse_int(read text)
   branch#3 cond#0 check#4 (read n is none) {
-    throw(call core.string::size(read text))
+    throw(call std.core.string::size(read text))
   }
   narrow#5[after branch#3.cond#0] n~1: Int = n
   return !read n~1
@@ -82,11 +82,11 @@ fn main::report(lent console: Console; lent label: Str, lent config: Str) -> Non
   switch#2 read outcome {
     arm#0 (arm 0) {
       narrow#3[switch#2.arm#0] outcome~1: Int = outcome
-      call core.console::println(read console, concat("3. ", read label, ": port ", call core.basic::to_str(Int)(read outcome~1)))
+      call std.core.console::println(read console, concat("3. ", read label, ": port ", call std.core.basic::to_str(Int)(read outcome~1)))
     }
     arm#1 (arm 1) {
       narrow#4[switch#2.arm#1] outcome~2: Str = outcome
-      call core.console::println(read console, concat("3. ", read label, ": rejected — ", read outcome~2))
+      call std.core.console::println(read console, concat("3. ", read label, ": rejected — ", read outcome~2))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:116:5
@@ -98,9 +98,9 @@ fn main::main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let small: Int = call main::read_size(read __handle~2, "notes.txt", 3)
-  call core.console::println(read __handle~2, concat("1. read ", call core.basic::to_str(Int)(read small)))
+  call std.core.console::println(read __handle~2, concat("1. read ", call std.core.basic::to_str(Int)(read small)))
   bind#4 let clamped: Int = call main::read_size(read __handle~2, "notes.txt", 99)
-  call core.console::println(read __handle~2, concat("1. read ", call core.basic::to_str(Int)(read clamped)))
+  call std.core.console::println(read __handle~2, concat("1. read ", call std.core.basic::to_str(Int)(read clamped)))
   call main::report(read __handle~2, "good", "8080")
   call main::report(read __handle~2, "bad", "http")
   bind#5 let guarded: Int | Str = try[Int | Str] {
@@ -109,11 +109,11 @@ fn main::main() -> None {
   switch#6 read guarded {
     arm#0 (arm 0) {
       narrow#7[switch#6.arm#0] guarded~3: Int = guarded
-      call core.console::println(read __handle~2, concat("3. guarded: ", call core.basic::to_str(Int)(read guarded~3)))
+      call std.core.console::println(read __handle~2, concat("3. guarded: ", call std.core.basic::to_str(Int)(read guarded~3)))
     }
     arm#1 (arm 1) {
       narrow#8[switch#6.arm#1] guarded~4: Str = guarded
-      call core.console::println(read __handle~2, concat("3. guarded: rejected — ", read guarded~4))
+      call std.core.console::println(read __handle~2, concat("3. guarded: rejected — ", read guarded~4))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:143:5
@@ -125,7 +125,7 @@ fn main::main() -> None {
   switch#10 read mixed {
     arm#0 (arm 0) {
       narrow#11[switch#10.arm#0] mixed~5: Int = mixed
-      call core.console::println(read __handle~2, concat("3. mixed: ", call core.basic::to_str(Int)(read mixed~5)))
+      call std.core.console::println(read __handle~2, concat("3. mixed: ", call std.core.basic::to_str(Int)(read mixed~5)))
     }
     arm#1 (arm 1) {
       narrow#12[switch#10.arm#1] mixed~6: Str | Int = mixed
@@ -133,11 +133,11 @@ fn main::main() -> None {
       switch#14 read why {
         arm#0 (arm 0) {
           narrow#15[switch#14.arm#0] why~7: Str = why
-          call core.console::println(read __handle~2, concat("3. mixed: message ", read why~7))
+          call std.core.console::println(read __handle~2, concat("3. mixed: message ", read why~7))
         }
         arm#1 (arm 1) {
           narrow#16[switch#14.arm#1] why~8: Int = why
-          call core.console::println(read __handle~2, concat("3. mixed: length ", call core.basic::to_str(Int)(read why~8)))
+          call std.core.console::println(read __handle~2, concat("3. mixed: length ", call std.core.basic::to_str(Int)(read why~8)))
         }
         arm#2 (else) {
           unreachable("unhandled union arm") at main:163:13
@@ -160,7 +160,7 @@ fn main::main() -> None {
       }
       arm#1 (arm 1) {
         narrow#21[switch#18.arm#1] inner~10: Str = inner
-        call core.console::println(read __handle~2, concat("3. inner caught: ", read inner~10))
+        call std.core.console::println(read __handle~2, concat("3. inner caught: ", read inner~10))
         value call main::parse_port("also nope")
       }
       arm#2 (else) {
@@ -171,11 +171,11 @@ fn main::main() -> None {
   switch#23 read outer {
     arm#0 (arm 0) {
       narrow#24[switch#23.arm#0] outer~11: Int = outer
-      call core.console::println(read __handle~2, concat("3. outer: ", call core.basic::to_str(Int)(read outer~11)))
+      call std.core.console::println(read __handle~2, concat("3. outer: ", call std.core.basic::to_str(Int)(read outer~11)))
     }
     arm#1 (arm 1) {
       narrow#25[switch#23.arm#1] outer~12: Str = outer
-      call core.console::println(read __handle~2, concat("3. outer caught: ", read outer~12))
+      call std.core.console::println(read __handle~2, concat("3. outer caught: ", read outer~12))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:191:5

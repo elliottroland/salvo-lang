@@ -102,16 +102,16 @@ fn main::main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#5 let b: Mut Box = construct Mut Box { n: 1, tag: "t" }
-  call core.console::println(read __handle~2, concat(call core.basic::to_str(Int)(call main::bumped(read b)), " ", read b.tag))
+  call std.core.console::println(read __handle~2, concat(call std.core.basic::to_str(Int)(call main::bumped(read b)), " ", read b.tag))
   bind#6 let xs: List<Int> = list[List<Int>](3, 2, 1)
-  call core.console::println(read __handle~2, concat(call core.basic::to_str(Int)(call main::total(!read xs))))
+  call std.core.console::println(read __handle~2, concat(call std.core.basic::to_str(Int)(call main::total(!read xs))))
 }
 ```
 
 The things to notice:
 
 * **References are `module::name`**, with the parameter types added when the
-  module overloads the name: `core.basic::to_str(Int)`. A declaration with
+  module overloads the name: `std.core.basic::to_str(Int)`. A declaration with
   no recorded name prints as its module and position, such as `main::#4.0`.
 * **Parameters say how they are passed.** `lent` means borrowed, `lent_mut`
   means borrowed and mutated, `moved` means handed over. These come from the
@@ -245,16 +245,16 @@ The rule turns on the **basic types**: `Byte`, `Int`, `Long`, `Float`,
   `(read i < 4)` and `i != 2` is `(read i != 2)`. No basic-type operator goes through
   `cmp` or `eq`. Those intrinsics exist only so a scalar's ordering can be
   passed to generic code, where they appear as a value:
-  `call main::bigger<Int>(2, 7, fn core.compare::cmp(Int, Int))`.
+  `call main::bigger<Int>(2, 7, fn std.core.compare::cmp(Int, Int))`.
 * **On every other type, `Str` included, an operator is a call** of the
   function the checker resolved, whether it is declared in Salvo or is an
-  intrinsic. `a == b` is `call core.compare::eq(Str, Str)(read a, read b)`,
+  intrinsic. `a == b` is `call std.core.compare::eq(Str, Str)(read a, read b)`,
   and `a != b` is `!` of that call. An ordering is the `cmp` call
   followed by a sign test of its `Int` result, which is inline because `Int`
   is basic:
 
   ```
-  (call core.compare::cmp(Str, Str)(read s, "c") < 0)
+  (call std.core.compare::cmp(Str, Str)(read s, "c") < 0)
   (call main::cmp(read p, read q) < 0)
   (call local cmp(read a, read b) > 0)     // a forwarded ?cmp
   ```
@@ -272,7 +272,7 @@ begins with a `narrow` that names it:
 ```
 branch#1 cond#0 check#2 (read x is arm 0) {
   narrow#3[check#2] x~1: Int = x
-  return concat("int ", call core.basic::to_str(Int)(read x~1))
+  return concat("int ", call std.core.basic::to_str(Int)(read x~1))
 }
 ```
 

@@ -6,7 +6,7 @@ use std::path::Path;
 use salvo_core::{Program, SourceSet};
 
 fn example_program(dir: &Path) -> Program {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
@@ -57,7 +57,7 @@ fn example_facts_are_stable() {
     let checked = salvo_core::check_program(&program, &resolution, &symbols);
     assert!(!checked.errors.iter().any(|d| d.is_error()));
     let text = salvo_core::facts::dump(&program, &checked, &|f| !program.files[f].is_std);
-    assert!(text.contains("-> core.list::size"), "{text}");
+    assert!(text.contains("-> std.core.list::size"), "{text}");
     insta::assert_snapshot!("facts_iteration", text);
 }
 
@@ -68,7 +68,7 @@ fn example_facts_are_stable() {
 /// the dump must contain both the fn's IR and the inline marker.
 #[test]
 fn dump_inlines_a_linear_leak_and_still_produces_the_ir() {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");

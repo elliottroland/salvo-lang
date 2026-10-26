@@ -25,13 +25,13 @@ class TickingClock : Clock {
     }
 }
 
-fun stamp(clock: Clock, console: salvo.core.console.Console, label: String) {
+fun stamp(clock: Clock, console: salvo.std.core.console.Console, label: String) {
     val t: Int = clock.now()
     banner(console, "${label} at t=${t}")
 }
 
-fun banner(console: salvo.core.console.Console, text: String) {
-    salvo.core.console.println(console, "   ${text}")
+fun banner(console: salvo.std.core.console.Console, text: String) {
+    salvo.std.core.console.println(console, "   ${text}")
 }
 
 interface Logger {
@@ -49,9 +49,9 @@ class __Mon_Logger(
     }
 }
 
-class PlainLogger(private val __dep0: salvo.core.console.Console) : Logger {
+class PlainLogger(private val __dep0: salvo.std.core.console.Console) : Logger {
     override fun log(message: String) {
-        salvo.core.console.println(__dep0, "   ${message}")
+        salvo.std.core.console.println(__dep0, "   ${message}")
     }
 }
 
@@ -132,15 +132,15 @@ class __Mon_Metrics(
     }
 }
 
-class ConsoleAudit(private val __dep0: salvo.core.console.Console) : Audit {
+class ConsoleAudit(private val __dep0: salvo.std.core.console.Console) : Audit {
     override fun record(what: String) {
-        salvo.core.console.println(__dep0, "   audit: ${what}")
+        salvo.std.core.console.println(__dep0, "   audit: ${what}")
     }
 }
 
-class ConsoleMetrics(private val __dep0: salvo.core.console.Console) : Metrics {
+class ConsoleMetrics(private val __dep0: salvo.std.core.console.Console) : Metrics {
     override fun record(what: String) {
-        salvo.core.console.println(__dep0, "   metric: ${what}")
+        salvo.std.core.console.println(__dep0, "   metric: ${what}")
     }
 }
 
@@ -174,31 +174,31 @@ class Fixed<T>(private val value: T) : Setting<T> {
     }
 }
 
-fun settings(setting: Setting<Int>, setting__1: Setting<String>, console: salvo.core.console.Console) {
+fun settings(setting: Setting<Int>, setting__1: Setting<String>, console: salvo.std.core.console.Console) {
     val retries: Int = setting.setting({ __a0 -> __a0 })
     val region: String = setting__1.setting({ __a0 -> __a0 })
-    salvo.core.console.println(console, "   retries=${retries} region=${region}")
+    salvo.std.core.console.println(console, "   retries=${retries} region=${region}")
 }
 
 fun main() {
-    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
-    val __handle_2: salvo.core.console.Console = __use_1
+    val __use_1: salvo.std.core.console.__Platform_StdConsole = salvo.std.core.console.__Platform_StdConsole()
+    val __handle_2: salvo.std.core.console.Console = __use_1
     val __use_3: TickingClock = TickingClock()
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
     val __handle_4: Clock = __Mon_Clock(__use_3, __lock___use_3)
-    salvo.core.console.println(__handle_2, "1. the clock reads ${__handle_4.now()}, then ${__handle_4.now()}")
-    salvo.core.console.println(__handle_2, "2. two effects in one signature:")
+    salvo.std.core.console.println(__handle_2, "1. the clock reads ${__handle_4.now()}, then ${__handle_4.now()}")
+    salvo.std.core.console.println(__handle_2, "2. two effects in one signature:")
     stamp(__handle_4, __handle_2, "2. a labelled moment")
-    salvo.core.console.println(__handle_2, "3. a logger whose handler needs the console:")
+    salvo.std.core.console.println(__handle_2, "3. a logger whose handler needs the console:")
     val __use_5: PlainLogger = PlainLogger(__handle_2)
     val __lock___use_5 = java.util.concurrent.locks.ReentrantLock()
     val __handle_6: Logger = __Mon_Logger(__use_5, __lock___use_5)
     work(__handle_6, "3. logged through the console")
-    salvo.core.console.println(__handle_2, "4. interception — each `use` wraps the one before it:")
+    salvo.std.core.console.println(__handle_2, "4. interception — each `use` wraps the one before it:")
     interception(__handle_6, __handle_4)
-    salvo.core.console.println(__handle_2, "5. shadowing is not wrapping:")
+    salvo.std.core.console.println(__handle_2, "5. shadowing is not wrapping:")
     scoping(__handle_6)
-    salvo.core.console.println(__handle_2, "6. two effects, one member name:")
+    salvo.std.core.console.println(__handle_2, "6. two effects, one member name:")
     val __use_7: ConsoleAudit = ConsoleAudit(__handle_2)
     val __lock___use_7 = java.util.concurrent.locks.ReentrantLock()
     val __handle_8: Audit = __Mon_Audit(__use_7, __lock___use_7)
@@ -207,7 +207,7 @@ fun main() {
     val __lock___use_9 = java.util.concurrent.locks.ReentrantLock()
     val __handle_10: Metrics = __Mon_Metrics(__use_9, __lock___use_9)
     auditAndMeasure(__handle_8, __handle_10, "6. audited and measured")
-    salvo.core.console.println(__handle_2, "7. two instances of one generic effect:")
+    salvo.std.core.console.println(__handle_2, "7. two instances of one generic effect:")
     val __use_11: Fixed<Int> = Fixed<Int>(value = 3)
     val __lock___use_11 = java.util.concurrent.locks.ReentrantLock()
     val __handle_12: Setting<Int> = __Mon_Setting<Int>(__use_11, __lock___use_11)

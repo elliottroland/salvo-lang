@@ -7,69 +7,69 @@ pub mod scheduler;
 pub mod hosttime;
 #[path = "wire.rs"]
 pub mod wire;
-#[path = "core/actor.rs"]
-pub mod core_actor;
-#[path = "core/basic.rs"]
-pub mod core_basic;
-#[path = "core/bytes.rs"]
-pub mod core_bytes;
-#[path = "core/checked.rs"]
-pub mod core_checked;
-#[path = "core/compare.rs"]
-pub mod core_compare;
-#[path = "core/console.rs"]
-pub mod core_console;
-#[path = "core/deque.rs"]
-pub mod core_deque;
-#[path = "core/index.rs"]
-pub mod core_index;
-#[path = "core/iterator.rs"]
-pub mod core_iterator;
-#[path = "core/list.rs"]
-pub mod core_list;
-#[path = "core/map.rs"]
-pub mod core_map;
-#[path = "core/set.rs"]
-pub mod core_set;
-#[path = "core/sorted.rs"]
-pub mod core_sorted;
-#[path = "core/string.rs"]
-pub mod core_string;
-#[path = "runtime.rs"]
-pub mod runtime;
-#[path = "runtime/routing.rs"]
-pub mod runtime_routing;
-#[path = "platform/core/bytes.rs"]
-pub mod platform_core_bytes;
-#[path = "platform/core/console.rs"]
-pub mod platform_core_console;
-#[path = "platform/core/deque.rs"]
-pub mod platform_core_deque;
-#[path = "platform/core/list.rs"]
-pub mod platform_core_list;
-#[path = "platform/core/map.rs"]
-pub mod platform_core_map;
-#[path = "platform/core/set.rs"]
-pub mod platform_core_set;
-#[path = "platform/core/sorted.rs"]
-pub mod platform_core_sorted;
-#[path = "platform/core/string.rs"]
-pub mod platform_core_string;
-#[path = "platform/runtime/routing.rs"]
-pub mod platform_runtime_routing;
-#[path = "platform/runtime.rs"]
-pub mod platform_runtime;
+#[path = "std/core/actor.rs"]
+pub mod std_core_actor;
+#[path = "std/core/basic.rs"]
+pub mod std_core_basic;
+#[path = "std/core/bytes.rs"]
+pub mod std_core_bytes;
+#[path = "std/core/checked.rs"]
+pub mod std_core_checked;
+#[path = "std/core/compare.rs"]
+pub mod std_core_compare;
+#[path = "std/core/console.rs"]
+pub mod std_core_console;
+#[path = "std/core/deque.rs"]
+pub mod std_core_deque;
+#[path = "std/core/index.rs"]
+pub mod std_core_index;
+#[path = "std/core/iterator.rs"]
+pub mod std_core_iterator;
+#[path = "std/core/list.rs"]
+pub mod std_core_list;
+#[path = "std/core/map.rs"]
+pub mod std_core_map;
+#[path = "std/core/set.rs"]
+pub mod std_core_set;
+#[path = "std/core/sorted.rs"]
+pub mod std_core_sorted;
+#[path = "std/core/string.rs"]
+pub mod std_core_string;
+#[path = "std/runtime.rs"]
+pub mod std_runtime;
+#[path = "std/runtime/routing.rs"]
+pub mod std_runtime_routing;
+#[path = "platform/std/core/bytes.rs"]
+pub mod platform_std_core_bytes;
+#[path = "platform/std/core/console.rs"]
+pub mod platform_std_core_console;
+#[path = "platform/std/core/deque.rs"]
+pub mod platform_std_core_deque;
+#[path = "platform/std/core/list.rs"]
+pub mod platform_std_core_list;
+#[path = "platform/std/core/map.rs"]
+pub mod platform_std_core_map;
+#[path = "platform/std/core/set.rs"]
+pub mod platform_std_core_set;
+#[path = "platform/std/core/sorted.rs"]
+pub mod platform_std_core_sorted;
+#[path = "platform/std/core/string.rs"]
+pub mod platform_std_core_string;
+#[path = "platform/std/runtime/routing.rs"]
+pub mod platform_std_runtime_routing;
+#[path = "platform/std/runtime.rs"]
+pub mod platform_std_runtime;
 
-use crate::core_actor::Exit;
-use crate::core_deque::add_last_platform;
-use crate::core_deque::drain;
-use crate::core_list::get_platform;
-use crate::core_deque::mut_deque_of;
-use crate::core_actor::pool;
-use crate::core_console::println;
-use crate::core_deque::remove_first_platform;
-use crate::core_string::size_platform;
-use crate::core_actor::watch;
+use crate::std_core_actor::Exit;
+use crate::std_core_deque::add_last_platform;
+use crate::std_core_deque::drain;
+use crate::std_core_list::get_platform;
+use crate::std_core_deque::mut_deque_of;
+use crate::std_core_actor::pool;
+use crate::std_core_console::println;
+use crate::std_core_deque::remove_first_platform;
+use crate::std_core_string::size_platform;
+use crate::std_core_actor::watch;
 
 
 pub trait __Stateless_Counter: Send + Sync {
@@ -399,7 +399,7 @@ impl Desking {
     pub fn new(room: i32) -> Self {
         Self {
             room: room.clone(),
-            waiting: crate::core_deque::mut_deque_of::<crate::scheduler::SalvoReply>(),
+            waiting: crate::std_core_deque::mut_deque_of::<crate::scheduler::SalvoReply>(),
             __mailbox_capacity: room,
             __addr: None,
             __parked: std::collections::HashMap::new()
@@ -409,10 +409,10 @@ impl Desking {
 
 impl crate::__Stateful_Desk for Desking {
     fn ticket(&mut self, out: crate::scheduler::SalvoReply) {
-        crate::core_deque::add_last_platform::<crate::scheduler::SalvoReply>(&mut self.waiting, out);
+        crate::std_core_deque::add_last_platform::<crate::scheduler::SalvoReply>(&mut self.waiting, out);
     }
     fn serve(&mut self, name: String) {
-        let mut next: Option<crate::scheduler::SalvoReply> = crate::core_deque::remove_first_platform::<crate::scheduler::SalvoReply>(&mut self.waiting);
+        let mut next: Option<crate::scheduler::SalvoReply> = crate::std_core_deque::remove_first_platform::<crate::scheduler::SalvoReply>(&mut self.waiting);
         if next.is_some() {
             let mut next_1 = next.unwrap();
             crate::scheduler::salvo_reply_wire::<String>(next_1, format!("served {}", name));
@@ -423,10 +423,10 @@ impl crate::__Stateful_Desk for Desking {
         };
     }
     fn close_up(&mut self, reason: String) {
-        crate::core_deque::drain::<crate::scheduler::SalvoReply>(std::mem::take(&mut self.waiting), &mut |mut r| {
+        crate::std_core_deque::drain::<crate::scheduler::SalvoReply>(std::mem::take(&mut self.waiting), &mut |mut r| {
             crate::scheduler::salvo_reply_wire::<String>(r, format!("closed: {}", reason))
         });
-        self.waiting = crate::core_deque::mut_deque_of::<crate::scheduler::SalvoReply>();
+        self.waiting = crate::std_core_deque::mut_deque_of::<crate::scheduler::SalvoReply>();
     }
 }
 
@@ -541,7 +541,7 @@ impl crate::__Stateless_Fragile for Breaking {
     fn crash(&self) {
         let mut empty: Vec<i32> = vec![];
         let mut boom: i32 = {
-            let mut __pick_1: Option<i32> = crate::core_list::get_platform::<i32>(&empty, 7i32).copied();
+            let mut __pick_1: Option<i32> = crate::std_core_list::get_platform::<i32>(&empty, 7i32).copied();
             if __pick_1.is_some() {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
@@ -592,10 +592,10 @@ pub fn report_line(mut counter: usize, mut label: String, mut out: crate::schedu
 }
 
 pub fn main() {
-    crate::scheduler::salvo_set_protocols(vec![("Counter".to_string(), crate::__PROTO_Counter.to_string()), ("Desk".to_string(), crate::__PROTO_Desk.to_string()), ("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Fragile".to_string(), crate::__PROTO_Fragile.to_string()), ("Ledger".to_string(), crate::__PROTO_Ledger.to_string())]);
-    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
-    let __handle_2 = crate::core_console::Console::shared(__use_1);
-    let mut workers: usize = crate::core_actor::pool(2i32);
+    crate::scheduler::salvo_set_protocols(vec![("Counter".to_string(), crate::__PROTO_Counter.to_string()), ("Desk".to_string(), crate::__PROTO_Desk.to_string()), ("Faults".to_string(), crate::std_core_actor::__PROTO_Faults.to_string()), ("Fragile".to_string(), crate::__PROTO_Fragile.to_string()), ("Ledger".to_string(), crate::__PROTO_Ledger.to_string())]);
+    let mut __use_1: crate::std_core_console::__Platform_StdConsole = crate::std_core_console::__Platform_StdConsole::new();
+    let __handle_2 = crate::std_core_console::Console::shared(__use_1);
+    let mut workers: usize = crate::std_core_actor::pool(2i32);
     let mut counter: usize = ({ let __h = crate::Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, std::boxed::Box::new(crate::__Actor_Counting::new(__h)), crate::__DECODE_Counting); __a });
     crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Bump(2i32), crate::__PROTO_Counter);
     crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Bump(3i32), crate::__PROTO_Counter);
@@ -605,7 +605,7 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Total(out), crate::__PROTO_Counter);
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
-    crate::core_console::println(&__handle_2, &format!("1. counter total is {}", sum));
+    crate::std_core_console::println(&__handle_2, &format!("1. counter total is {}", sum));
     let mut ledger: usize = ({ let __h = crate::Bookkeeping::new(crate::Counter::shared(crate::__Stub_Counter::new(counter))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, std::boxed::Box::new(crate::__Actor_Bookkeeping::new(__h)), crate::__DECODE_Bookkeeping); __a });
     let mut line: String = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
@@ -613,7 +613,7 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(ledger, crate::__Msg_Ledger::Report(String::from("counter"), out), crate::__PROTO_Ledger);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
-    crate::core_console::println(&__handle_2, &format!("3. ledger says {}", line));
+    crate::std_core_console::println(&__handle_2, &format!("3. ledger says {}", line));
     let mut desk: usize = ({ let __h = crate::Desking::new(8i32); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, std::boxed::Box::new(crate::__Actor_Desking::new(__h)), crate::__DECODE_Desking); __a });
     let mut first: String = {
         let (mut a, __wid) = crate::scheduler::salvo_waiter();
@@ -627,19 +627,19 @@ pub fn main() {
             crate::scheduler::salvo_send_wire(desk, crate::__Msg_Desk::CloseUp(String::from("end of day")), crate::__PROTO_Desk);
             *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
         };
-        crate::core_console::println(&__handle_2, &format!("4. second waiter got: {}", second));
+        crate::std_core_console::println(&__handle_2, &format!("4. second waiter got: {}", second));
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
-    crate::core_console::println(&__handle_2, &format!("4. first waiter got: {}", first));
+    crate::std_core_console::println(&__handle_2, &format!("4. first waiter got: {}", first));
     let mut fragile: usize = ({ let __h = crate::Breaking::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, std::boxed::Box::new(crate::__Actor_Breaking::new(__h)), crate::__DECODE_Breaking); __a });
-    let mut exit: crate::core_actor::Exit = {
+    let mut exit: crate::std_core_actor::Exit = {
         let (mut gone, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<crate::core_actor::Exit>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
-        crate::core_actor::watch(fragile, gone);
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<crate::std_core_actor::Exit>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::std_core_actor::watch(fragile, gone);
         crate::scheduler::salvo_send_wire(fragile, crate::__Msg_Fragile::Crash, crate::__PROTO_Fragile);
-        *crate::scheduler::salvo_wait(__wid).downcast::<crate::core_actor::Exit>().expect("the awaited answer")
+        *crate::scheduler::salvo_wait(__wid).downcast::<crate::std_core_actor::Exit>().expect("the awaited answer")
     };
-    crate::core_console::println(&__handle_2, &format!("5. it died with a reason: {}", (crate::core_string::size_platform(&exit.reason) > 0i32)));
+    crate::std_core_console::println(&__handle_2, &format!("5. it died with a reason: {}", (crate::std_core_string::size_platform(&exit.reason) > 0i32)));
     crate::scheduler::salvo_send_wire(fragile, crate::__Msg_Fragile::Crash, crate::__PROTO_Fragile);
     let mut __use_3: crate::Counting = crate::Counting::new();
     let __handle_4 = crate::Counter::locked(__use_3);
@@ -651,8 +651,8 @@ pub fn main() {
         __handle_4.total(out);
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
-    crate::core_console::println(&__handle_2, &format!("6. inline total is {}", inline));
-    let mut solo: usize = crate::core_actor::pool(1i32);
+    crate::std_core_console::println(&__handle_2, &format!("6. inline total is {}", inline));
+    let mut solo: usize = crate::std_core_actor::pool(1i32);
     let mut mine: usize = ({ let __h = crate::Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(solo, __cap as usize, std::boxed::Box::new(crate::__Actor_Counting::new(__h)), crate::__DECODE_Counting); __a });
     crate::scheduler::salvo_send_wire(mine, crate::__Msg_Counter::Bump(6i32), crate::__PROTO_Counter);
     let mut local: i32 = {
@@ -661,15 +661,15 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(mine, crate::__Msg_Counter::Total(out), crate::__PROTO_Counter);
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
-    crate::core_console::println(&__handle_2, &format!("7. the solo pool's own actor totalled {}", local));
+    crate::std_core_console::println(&__handle_2, &format!("7. the solo pool's own actor totalled {}", local));
     let mut line8: String = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::report_line(mine, String::from("the counter"), out);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
-    crate::core_console::println(&__handle_2, &format!("8. {}", line8));
-    crate::core_console::println(&__handle_2, &String::from("done"));
+    crate::std_core_console::println(&__handle_2, &format!("8. {}", line8));
+    crate::std_core_console::println(&__handle_2, &String::from("done"));
 }
 
 pub enum __Msg_Counter {

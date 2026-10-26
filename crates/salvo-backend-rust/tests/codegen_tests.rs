@@ -8,7 +8,7 @@ use std::process::Command;
 use salvo_core::{Program, SourceSet};
 
 fn build_program(extra: &[(&str, &str)]) -> Program {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "rs", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
@@ -146,7 +146,7 @@ fn greet(person: Person) [Console] -> None => person {
     }
 }
 
-// Its own pass, named `Upto` rather than `Range`: `core.range` exports a
+// Its own pass, named `Upto` rather than `Range`: `std.core.range` exports a
 // `Range` of its own [mod-export], and two same-named structs in two modules
 // confuse the pass-driving resolution (an open defect — ROADMAP.md).
 struct Upto {
@@ -357,10 +357,10 @@ fn unions_emit_enums() {
     // Wrap at return boundaries, positional arm identity.
     assert!(main
         .content
-        .contains("return crate::unions::Union2::U1(crate::core_result::ok::<i32>(input));"));
+        .contains("return crate::unions::Union2::U1(crate::std_core_result::ok::<i32>(input));"));
     assert!(main
         .content
-        .contains("return crate::unions::Union2::U2(crate::core_result::err::<String>(String::from(\"negative age\")));"));
+        .contains("return crate::unions::Union2::U2(crate::std_core_result::err::<String>(String::from(\"negative age\")));"));
     // Precise `is Err Str` tests a single arm.
     assert!(main.content.contains("matches!(precise, crate::unions::Union3::U2(_))"));
     assert!(main.content.contains("matches!(precise, crate::unions::Union3::U1(_))"));
@@ -585,11 +585,11 @@ fn effects_lower_to_traits_and_mut_dyn_params() {
     // [rs-handle] Effect deps as leading `&E` handle parameters, named for
     // the effect (a second instance of one effect numbered).
     assert!(main.content.contains(
-        "pub fn draw(random: &crate::Random<i32>, random__1: &crate::Random<String>, console: &crate::core_console::Console)"
+        "pub fn draw(random: &crate::Random<i32>, random__1: &crate::Random<String>, console: &crate::std_core_console::Console)"
     ));
     // `use` instantiates handlers into locals holding the handle: a stateless
     // one `shared`, a stateful one `locked` [rs-handle].
-    assert!(main.content.contains("let __handle_2 = crate::core_console::Console::shared(__use_1);"));
+    assert!(main.content.contains("let __handle_2 = crate::std_core_console::Console::shared(__use_1);"));
     // [effect-handler-generics] The handler is constructed *at* a type: the
     // local's annotation says which.
     assert!(main.content.contains(
@@ -616,7 +616,7 @@ fn rustc_compiles_and_runs_effects() {
 // ===== loops as values =====
 
 const LOOPS: &str = r#"
-// Its own pass, named `Upto` rather than `Range`: `core.range` exports a
+// Its own pass, named `Upto` rather than `Range`: `std.core.range` exports a
 // `Range` of its own [mod-export], and two same-named structs in two modules
 // confuse the pass-driving resolution (an open defect — ROADMAP.md).
 struct Upto {
@@ -811,11 +811,11 @@ fn crate_layout_mounts_only_used_modules() {
         .contains("#[path = \"geometry.rs\"]\npub mod geometry;"));
     assert!(main
         .content
-        .contains("#[path = \"core/console.rs\"]\npub mod core_console;"));
+        .contains("#[path = \"std/core/console.rs\"]\npub mod std_core_console;"));
     assert!(!main.content.contains("pub mod unused;"));
     // Generated imports: one per name used [rs-imports].
     assert!(main.content.contains("use crate::geometry::area;"), "{}", main.content);
-    assert!(main.content.contains("use crate::core_console::println;"), "{}", main.content);
+    assert!(main.content.contains("use crate::std_core_console::println;"), "{}", main.content);
     assert!(!main.content.contains("use crate::geometry::*;"), "{}", main.content);
 }
 
@@ -1298,7 +1298,7 @@ fn main() [use] -> None {
 }
 
 /// [obligation-by] [rs-shadowed-call] The Kotlin backend's mixed-members
-/// case, run on Rust: the stamped `to_str` calls `crate::core_list::to_str`,
+/// case, run on Rust: the stamped `to_str` calls `crate::std_core_list::to_str`,
 /// since its own implicit `to_str` shadows the name.
 #[test]
 fn rustc_compiles_and_runs_mixed_members() {
@@ -1771,7 +1771,7 @@ fn once_fn_params_emit_fnonce() {
         .expect("main.rs emitted");
     assert!(
         main.content.contains(
-            "pub fn run_once(console: &crate::core_console::Console, f: impl FnOnce(&crate::core_console::Console))"
+            "pub fn run_once(console: &crate::std_core_console::Console, f: impl FnOnce(&crate::std_core_console::Console))"
         ),
         "generated:\n{}",
         main.content
@@ -1858,7 +1858,7 @@ fn derived_returns_emit_borrows() {
         main.content
     );
     assert!(
-        main.content.contains("return crate::core_list::first_platform::<crate::Person>(persons);"),
+        main.content.contains("return crate::std_core_list::first_platform::<crate::Person>(persons);"),
         "generated:\n{}",
         main.content
     );
@@ -2233,7 +2233,7 @@ fn a_fn_takes_one_handle_per_declared_effect() {
         .unwrap();
     let c = &main.content;
     assert!(
-        c.contains("pub fn work(logger: &crate::Logger, console: &crate::core_console::Console)"),
+        c.contains("pub fn work(logger: &crate::Logger, console: &crate::std_core_console::Console)"),
         "expected one handle parameter per effect:\n{c}"
     );
     assert!(
@@ -2726,7 +2726,7 @@ export fn main() [use] -> None {
         "one struct for the handler:\n{c}"
     );
     assert!(
-        c.contains("__dep0: crate::core_console::Console,"),
+        c.contains("__dep0: crate::std_core_console::Console,"),
         "the dependency is a handle field:\n{c}"
     );
     assert_eq!(
@@ -3360,7 +3360,7 @@ fn main() [use] -> None {
     // A keyed container over a tuple used to live here, exercising the
     // generated class's structural comparison. It cannot today: a keyed
     // constructor asks for its identity as a capability (user decision
-    // 2026-09-26) and `core.compare` declares `cmp`/`hash` for the intrinsic
+    // 2026-09-26) and `std.core.compare` declares `cmp`/`hash` for the intrinsic
     // scalars only, so a tuple has no identity to pass — the same gap that
     // stops `(1, 2) == (1, 2)` and `(1, 2) < (1, 3)` from resolving, which
     // never worked either. ROADMAP's "Recursive implicit resolution" is the
@@ -3566,7 +3566,7 @@ fn rustc_compiles_and_runs_aliased_effects() {
 }
 
 // ===== std array functions =====
-// [type-array] Arrays get the `core.list` function surface minus
+// [type-array] Arrays get the `std.core.list` function surface minus
 // construction and mutation: `size`, `get`, `first`, `iter` (user
 // decision 2026-09-02). `T[]` and `List<T>` share the `Vec<T>`
 // rendering, so their lowerings mirror each other.
@@ -3913,7 +3913,7 @@ fn provenance_survives_mutation_where_state_does_not() {
 /// (`Thrown (Str | Int)`), a may-throw call inside a loop, and a nested
 /// delimiter that must not swallow the outer throw.
 const THROW_DEMO: &str = r#"
-import throw
+import std.throw
 
 linear struct FileHandle {
     fd: Int
@@ -4035,7 +4035,7 @@ fn throw_lowers_to_controlflow() {
         .unwrap();
     assert!(
         main.content.contains(
-            "pub fn parse(console: &crate::core_console::Console, mut line: String) -> std::ops::ControlFlow<String, i32>"
+            "pub fn parse(console: &crate::std_core_console::Console, mut line: String) -> std::ops::ControlFlow<String, i32>"
         ),
         "expected a ControlFlow return shape in:\n{}",
         main.content
@@ -4054,7 +4054,7 @@ fn throw_lowers_to_controlflow() {
     // [throw] The effect emits no trait: there are no handlers to implement.
     let std_throw = files
         .iter()
-        .find(|f| f.rel_path.ends_with("core/throw.rs"))
+        .find(|f| f.rel_path.ends_with("std/core/throw.rs"))
         .map(|f| f.content.clone())
         .unwrap_or_default();
     assert!(
@@ -4217,7 +4217,7 @@ fn rustc_compiles_and_runs_fn_type_effects() {
 // [qual-lift] `^` tests the arm *and* removes the claim, so a branch can
 // `when` the union inside a qualified one — the shape `try` outcomes produce.
 const WIDEN_DEMO: &str = r#"
-import throw
+import std.throw
 
 fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
     if n < 0 {
@@ -4457,7 +4457,7 @@ fn rustc_compiles_and_runs_when_cond() {
 // `let mut` unconditionally, so the mutability half is latent here rather
 // than fatal; the declaration half is what would collide.
 const TRY_MUTATION_DEMO: &str = r#"
-import throw
+import std.throw
 
 fn risky(n: Int) [Throw<Str>] -> Int {
     if n < 0 {
@@ -4911,13 +4911,13 @@ fn rustc_compiles_and_runs_the_combinator_surface() {
     let files = generate(&[("main.sv", SEQ_SURFACE_DEMO)]);
     let seq = &files
         .iter()
-        .find(|f| f.rel_path == std::path::Path::new("core/seq.rs"))
-        .expect("core/seq.rs")
+        .find(|f| f.rel_path == std::path::Path::new("std/core/seq.rs"))
+        .expect("std/core/seq.rs")
         .content;
     // The generic body drives its subject through the `next` the call site
     // resolved, which arrives as an ordinary borrowed callback [implicit-group].
     assert!(
-        seq.contains("next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::core_iterator::Finished>"),
+        seq.contains("next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>"),
         "expected the resolved `next` as a borrowed callback in:\n{seq}"
     );
     // [fn-contract] A kept `Mut` position of an implicit's fn type borrows
@@ -4934,7 +4934,7 @@ fn rustc_compiles_and_runs_the_combinator_surface() {
     // [rs-implicit-turbofish] The instantiation is spelled out, or the adapter
     // closures have nothing to infer their parameter types from.
     assert!(
-        main.contains("crate::core_seq::map_to::<Vec<i32>, crate::core_list::ListYield<'_, i32>, i32, i32>("),
+        main.contains("crate::std_core_seq::map_to::<Vec<i32>, crate::std_core_list::ListYield<'_, i32>, i32, i32>("),
         "expected the type arguments spelled out in:\n{main}"
     );
     run_rust_files(&files, "seq-surface", SEQ_SURFACE_OUTPUT);
@@ -5312,7 +5312,7 @@ fn a_mut_implicit_position_is_not_borrowed_twice() {
     );
     assert!(
         main.content
-            .contains("next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::core_iterator::Finished>"),
+            .contains("next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>"),
         "expected the spread position to be a `&mut`-taking, union-returning fn, got:\n{}",
         main.content
     );
@@ -5682,7 +5682,7 @@ struct Point : Ordered<self> by auto, Hashed<self> by auto {
 }
 
 // [fn-by] The **function-level** form, with no obligation clause at all: one
-// member stamped from `core.auto`, declared on the type by being inside it.
+// member stamped from `std.core.auto`, declared on the type by being inside it.
 struct Tag {
     label: Str
 
@@ -5846,7 +5846,7 @@ fn rustc_compiles_and_runs_comptime() {
 /// codec did not compile until 2026-10-20).
 #[test]
 fn compiles_and_runs_a_generic_optional_codec() {
-    let src = r#"import codec
+    let src = r#"import std.codec
 
 struct Arg<T> {
     default: T? = None
@@ -6468,7 +6468,7 @@ fn a_pass_lowers_to_a_driving_loop() {
 /// *group* and the value needs two wraps — inner union first. That needed an
 /// intermediate annotated `let` until 2026-09-10.
 pub const FALLIBLE_PASS_DEMO: &str = r#"
-import throw
+import std.throw
 
 struct Reader : Yield<self, Ok Str | Err Str> canbe Mut {
     lines: List<Str>,
@@ -6549,7 +6549,7 @@ fn a_flattened_qualifier_wraps_the_inner_union_first() {
         .find(|f| f.rel_path == std::path::Path::new("main.rs"))
         .expect("main.rs");
     for (arm, what) in [("U2", "err"), ("U1", "ok")] {
-        let needle = format!("crate::unions::Union2::U1(crate::unions::Union2::{arm}(crate::core_iterator::emitted::<String>(");
+        let needle = format!("crate::unions::Union2::U1(crate::unions::Union2::{arm}(crate::std_core_iterator::emitted::<String>(");
         assert!(
             main.content.contains(&needle),
             "expected the inner {what} arm to be wrapped before the outer one in:\n{}",
@@ -6834,7 +6834,7 @@ fn a_mut_payload_is_peeled_by_borrowing_the_storage() {
     for needle in [
         // A variable and a field over the nullable repr, each narrowed into
         // a `&mut` binding of the storage.
-        "let mut a_5 = a.as_mut().unwrap();\n        crate::core_list::add_platform::<i32>(&mut *a_5, 9i32);",
+        "let mut a_5 = a.as_mut().unwrap();\n        crate::std_core_list::add_platform::<i32>(&mut *a_5, 9i32);",
         "let mut __narrowed_7 = b.items.as_mut().unwrap();",
         // A wrapper arm, narrowed by `when`/`is`.
         "let mut d_11 = match &mut d { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };",
@@ -7241,7 +7241,7 @@ fn rustc_compiles_and_runs_a_positional_pick() {
 /// The mapping itself is the one an annotated `let` has always emitted
 /// [let-infer]; what was missing was reaching it from a site with no slot.
 const REWRAP_DEMO: &str = r#"
-import throw
+import std.throw
 
 fn classify(n: Int) -> Ok Int | Ok Str | Err Str {
     if n == 0 {
@@ -7555,7 +7555,7 @@ fn main() [use] {
     add(xs, 2)
     // `@core.list` changes nothing here: there is one `size` that fits and
     // nothing refines it, so the selector is noise [fn-overload-at]. (`add`
-    // was the example until `Idx` moved to `core.index`: refined in two
+    // was the example until `Idx` moved to `std.core.index`: refined in two
     // places, its selector chooses whose refinements apply.)
     println("size: ${size@core.list(xs)}")
 }
@@ -7882,17 +7882,17 @@ fn mut_str_is_a_plain_string() {
     // the flow analysis, so an owned `vec![pa]` would move a variable the
     // checker still considers live.
     assert!(
-        main.contains(r#"let mut x: String = crate::core_string::Mut_Str(vec![pa.clone()]);"#),
+        main.contains(r#"let mut x: String = crate::std_core_string::Mut_Str(vec![pa.clone()]);"#),
         "unexpected:\n{main}"
     );
     // [platform-value-type] The operations are std's host code
-    // (`std/platform/core/string.rs`), called through their wrappers; a
+    // (`lib/platform/std/core/string.rs`), called through their wrappers; a
     // `Mut Str` goes as `&mut`.
     assert!(
-        main.contains("crate::core_string::index_of_platform(&hay, &ll)"),
+        main.contains("crate::std_core_string::index_of_platform(&hay, &ll)"),
         "unexpected:\n{main}"
     );
-    assert!(main.contains("crate::core_string::set_platform(&mut b, 0i32, 'H')"), "unexpected:\n{main}");
+    assert!(main.contains("crate::std_core_string::set_platform(&mut b, 0i32, 'H')"), "unexpected:\n{main}");
     // The support file is only generated when something needs it.
     let plain = generate(&[("main.sv", "export fn main() {\n}\n")]);
     assert!(
@@ -7935,7 +7935,7 @@ export fn main() [use] {
     // [fn-variadic], so a lone spread reaches the purely variadic intrinsics —
     // which is where this lowering lives anyway.
     assert!(
-        main.contains("let mut sb: String = crate::core_string::Mut_Str(parts.clone());")
+        main.contains("let mut sb: String = crate::std_core_string::Mut_Str(parts.clone());")
             && main.contains("Set_platform::<String>(parts.clone(), "),
         "unexpected:\n{main}"
     );
@@ -7981,11 +7981,11 @@ fn rustc_compiles_and_runs_mut_str_places() {
         .content;
     // A `Mut Str` parameter is a `&mut String`, reborrowed for the helper.
     assert!(
-        main.contains("pub fn grow(s: &mut String)") && main.contains("crate::core_string::set_platform(&mut *s, 0i32, 'G')"),
+        main.contains("pub fn grow(s: &mut String)") && main.contains("crate::std_core_string::set_platform(&mut *s, 0i32, 'G')"),
         "unexpected:\n{main}"
     );
     assert!(
-        main.contains("crate::core_string::set_platform(&mut buf.text, 0i32, 'I')"),
+        main.contains("crate::std_core_string::set_platform(&mut buf.text, 0i32, 'I')"),
         "unexpected:\n{main}"
     );
     run_rust_files(&files, "mut-str-places", "grown 5\nIn-struct!\n");
@@ -8193,7 +8193,7 @@ fn scope_selectors_and_renames_are_erased() {
     // `@core.list` is std's `size`, a platform fn's wrapper called by its
     // module's path.
     assert!(
-        main.contains("crate::core_list::size_platform::<i32>(&xs)"),
+        main.contains("crate::std_core_list::size_platform::<i32>(&xs)"),
         "expected the core lowering:\n{main}"
     );
     // The renamed overload is called by its declaration's mangled name.
@@ -8634,7 +8634,7 @@ fn rustc_compiles_and_runs_a_partial_move() {
     // The field moves out as a raw place (no clone), and the sibling is
     // still read afterwards: a genuine partial move.
     assert!(
-        main.contains("crate::eat(p.tags);\n    crate::core_console::println(&__handle_2, &format!(\"1 {}\", p.name));")
+        main.contains("crate::eat(p.tags);\n    crate::std_core_console::println(&__handle_2, &format!(\"1 {}\", p.name));")
             && main.contains("let mut t: Vec<String> = q.tags;"),
         "expected a partial move with a live sibling read in:\n{main}"
     );
@@ -8715,7 +8715,7 @@ fn rustc_compiles_and_runs_an_optional_borrow_unwrap() {
         .expect("main.rs")
         .content;
     assert!(
-        main.contains("let mut head_3 = head.unwrap();\n    crate::core_console::println(&__handle_2, &format!(\"{}\", crate::take((head_3).clone())));")
+        main.contains("let mut head_3 = head.unwrap();\n    crate::std_core_console::println(&__handle_2, &format!(\"{}\", crate::take((head_3).clone())));")
             && !main.contains("head.as_ref().unwrap()"),
         "expected the reference unwrap, not a clone of the reference, in:\n{main}"
     );
@@ -8886,7 +8886,7 @@ fn rustc_compiles_and_runs_a_capture_rooted_projection() {
     // literal index stays an *answer* rather than rustc's E0600 [col-bounds].
     assert!(
         main.contains("&mut |mut i| -> &String {")
-            && main.contains("let mut __pick_3: Option<&String> = crate::core_list::get_platform::<String>(&all, *i);")
+            && main.contains("let mut __pick_3: Option<&String> = crate::std_core_list::get_platform::<String>(&all, *i);")
             && !main.contains("__picked_4.clone()"),
         "expected a clone-free, deref'd pick lambda:\n{main}"
     );
@@ -9154,7 +9154,7 @@ fn rustc_compiles_and_runs_collections() {
 }
 
 /// [platform-value-type] The keyed collections are std's host types
-/// (`std/platform/core/{set,map,sorted}.rs`), so no runtime module is emitted
+/// (`lib/platform/std/core/{set,map,sorted}.rs`), so no runtime module is emitted
 /// for them (ROADMAP §0j step 7), and the emitted code names Rust's unordered
 /// `HashMap`/`HashSet` nowhere [col-insertion-order].
 #[test]
@@ -9174,7 +9174,7 @@ fn the_collections_are_std_host_types() {
         main.content
     );
     assert!(
-        files.iter().any(|f| f.rel_path.to_string_lossy() == "platform/core/map.rs"),
+        files.iter().any(|f| f.rel_path.to_string_lossy() == "platform/std/core/map.rs"),
         "the map's host file is carried"
     );
 }
@@ -10387,12 +10387,12 @@ fn bytes_is_a_value_platform_type() {
     let files = generate(&[("main.sv", BYTES_PROGRAM)]);
     let core = files
         .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "core/bytes.rs")
+        .find(|f| f.rel_path.to_string_lossy() == "std/core/bytes.rs")
         .expect("core/bytes.rs emitted");
-    assert!(core.content.contains("pub use crate::platform_core_bytes::Bytes;"), "{}", core.content);
+    assert!(core.content.contains("pub use crate::platform_std_core_bytes::Bytes;"), "{}", core.content);
     let host = files
         .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "platform/core/bytes.rs")
+        .find(|f| f.rel_path.to_string_lossy() == "platform/std/core/bytes.rs")
         .expect("std's host file for core.bytes travels with the program");
     assert!(host.content.contains("pub type Bytes = Vec<u8>;"), "{}", host.content);
 }
@@ -10411,11 +10411,11 @@ fn bytes_is_a_value_platform_type() {
 /// lines byte for byte — the whole point of the layering is that only the
 /// host file differs.
 const FS_PROGRAM: &str = r#"
-import fs
-import fs.path
-import fs.host
-import stream
-import stream.host
+import std.fs
+import std.fs.path
+import std.fs.host
+import std.stream
+import std.stream.host
 
 fn describe(e: FsError) [] -> Str => e {
     if e is NotFound {
@@ -10725,16 +10725,16 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
             .content
             .clone()
     };
-    let surface = file("stream.rs");
+    let surface = file("std/stream.rs");
     for expected in [
         "pub trait __Stateful_Streams: Send {",
         // The token is consumed: by value, not `&InStream`.
-        "fn close__InStream(&mut self, s: crate::stream::InStream)",
+        "fn close__InStream(&mut self, s: crate::std_stream::InStream)",
         // …and kept members borrow it.
-        "fn read_line(&mut self, s: &crate::stream::InStream) -> Option<String>",
+        "fn read_line(&mut self, s: &crate::std_stream::InStream) -> Option<String>",
         // [effect-available] One overload set: the pass's discharger is a
         // *fn* named `close`, beside the two members of that name.
-        "pub fn close__Lines(streams: &crate::stream::Streams, mut p: crate::stream::Lines)",
+        "pub fn close__Lines(streams: &crate::std_stream::Streams, mut p: crate::std_stream::Lines)",
     ] {
         assert!(
             surface.contains(expected),
@@ -10743,7 +10743,7 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
     }
     // The host seams are their own modules [mod-used-only]: a program that
     // never opens a file links none of them.
-    let host = file("fs/host.rs");
+    let host = file("std/fs/host.rs");
     for expected in ["pub trait __Stateful_RawFs: Send {", "pub struct DefaultFs"] {
         assert!(host.contains(expected), "expected `{expected}` in:\n{host}");
     }
@@ -10751,13 +10751,13 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
         !host.contains("pub struct HostRawFs"),
         "the platform handler's struct is the host's:\n{host}"
     );
-    let stream_host = file("stream/host.rs");
+    let stream_host = file("std/stream/host.rs");
     // [stream-table] `HostRawStreams` is Salvo over the runtime's table.
     for expected in ["fn raw_close_read(&self, handle: i64)", "pub struct DefaultStreams", "pub struct HostRawStreams"] {
         assert!(stream_host.contains(expected), "expected `{expected}` in:\n{stream_host}");
     }
     // std ships the host files, and they travel into the output.
-    for rel in ["platform/fs/host.rs", "platform/runtime/streams.rs"] {
+    for rel in ["platform/std/fs/host.rs", "platform/std/runtime/streams.rs"] {
         assert!(
             files.iter().any(|f| f.rel_path == std::path::Path::new(rel)),
             "expected std's host companion {rel} to be emitted"
@@ -10789,11 +10789,11 @@ fn rustc_compiles_and_runs_the_fs_surface() {
 /// `byte_size` while slicing its content by characters. A fake that counted
 /// characters would let this test pass and production break.
 const MEMFS_PROGRAM: &str = r#"
-import fs
-import fs.path
-import fs.mem
-import fs.restricted
-import stream
+import std.fs
+import std.fs.path
+import std.fs.mem
+import std.fs.restricted
+import std.stream
 
 fn describe(e: FsError) [] -> Str => e {
     if e is NotFound {
@@ -11082,12 +11082,12 @@ fn rustc_compiles_and_runs_the_memory_filesystem() {
 /// function everywhere else and wherever `@module` says so. Two bugs lived here
 /// until 2026-09-15, both from the checker and the emitters asking *different
 /// questions*: the checker's availability rule reads an **import-scoped**
-/// table, and inside `std/core/seq.sv` a program's `Tally` is not in it, so
+/// table, and inside `lib/std/core/seq.sv` a program's `Tally` is not in it, so
 /// `add(out, x)` resolved to std's own `add` and nothing was recorded; the
 /// emitters read the **program-wide** `Symbols::effect_of_fn` and emitted a
 /// member dispatch anyway.
 ///
-/// The first symptom was loud — "`std/core/seq.sv`: no handler for effect
+/// The first symptom was loud — "`lib/std/core/seq.sv`: no handler for effect
 /// `Tally`" from inside std, for any program declaring such a member, whether
 /// or not it ever called the colliding name. The second was **silently wrong
 /// output**: `to_upper@core.string("hi")` ran the *member* and printed `hi!`
@@ -12954,14 +12954,14 @@ fn an_opaque_returning_slot_ties_the_parameters_lifetimes() {
 /// [proj-infer-fn-type] The inference is scoped to an **opaque** return, and a
 /// lend **names a source** — so a slot with no parameter name (std's
 /// `?copy: (T) -> T`) gets nothing, which is what stops a `&'c T` no signature
-/// declares. `core.seq`'s combinators are the regression: they carry exactly
+/// declares. `std.core.seq`'s combinators are the regression: they carry exactly
 /// that slot.
 #[test]
 fn an_unnamed_or_concrete_slot_infers_no_lend() {
     let files = generate(&[("main.sv", INFERRED_LEND)]);
     let seq = files
         .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "core/seq.rs");
+        .find(|f| f.rel_path.to_string_lossy() == "std/core/seq.rs");
     if let Some(seq) = seq {
         assert!(
             !seq.content.contains("&'c T"),
@@ -13038,7 +13038,7 @@ fn an_inherited_effect_travels_as_an_owned_handle() {
     let text = &main.content;
     // A task body takes the handle like any fn.
     assert!(
-        text.contains("pub fn report(console: &crate::core_console::Console"),
+        text.contains("pub fn report(console: &crate::std_core_console::Console"),
         "a task's effect parameter is a handle:\n{text}"
     );
     // The mint clones the handle outside the closure, which owns the clone.
@@ -13196,7 +13196,7 @@ fn an_is_binding_over_a_call_hoists_its_subject() {
         .expect("main.rs");
     let text = &main.content;
     assert!(
-        text.contains("loop {\n        let mut __subject_1: Option<i32> = crate::core_list::remove_first_platform::<i32>(&mut *xs);\n        if !(__subject_1.is_some()) {"),
+        text.contains("loop {\n        let mut __subject_1: Option<i32> = crate::std_core_list::remove_first_platform::<i32>(&mut *xs);\n        if !(__subject_1.is_some()) {"),
         "the while did not become a test-inside loop:\n{text}"
     );
     assert!(
@@ -13246,7 +13246,7 @@ fn example_names() -> Vec<String> {
 
 /// Emits one example's Rust, exactly as `salvo compile` would.
 fn emit_example(example: &str) -> Vec<salvo_backend_rust::EmittedFile> {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "rs", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
@@ -13342,10 +13342,10 @@ fn every_example_runs_to_its_expected_output() {
 // ===================== time [time-types] [time-timer] =====================
 
 /// [time-types] [time-clock] [time-ticker] [mod-import-module] The time surface
-/// end to end: one `import time` for the module, spans built and read back,
+/// end to end: one `import std.time` for the module, spans built and read back,
 /// both timelines' `between`, the epoch bridge, and the two clock effects.
 const TIME_SURFACE: &str = r#"
-import time
+import std.time
 
 fn main() [use] -> None {
     use StdConsole()
@@ -13382,7 +13382,7 @@ const TIME_SURFACE_OUTPUT: &str = "span=1500ms\nsum=2500ms\nscaled=3s\nabs=2s\nm
 /// deadline was honoured. Asserted as *inequalities*, since a real clock cannot
 /// promise an exact number.
 const TIME_TIMER: &str = r#"
-import time
+import std.time
 
 fn main() [use, spawn] -> None {
     use StdConsole()
@@ -13408,7 +13408,7 @@ const TIME_TIMER_OUTPUT: &str = "waited enough: true\nin order: true\n";
 /// the test sequences itself with `on_idle` before advancing virtual time — so
 /// a two-second deadline is observed in microseconds, deterministically.
 const TIME_MANUAL: &str = r#"
-import time
+import std.time
 
 actor effect Sleeper {
     send fn nap(wait: Duration, done: Reply<Str>) => !wait, !done
@@ -13465,7 +13465,7 @@ const TIME_MANUAL_OUTPUT: &str = "woke at 2000ms\nwoke at 3000ms\n";
 /// needs `[waitfor]` as a propagating capability and `ManualTime` firing an
 /// already-due deadline at registration.
 const TIME_COUPLING: &str = r#"
-import time
+import std.time
 
 // Time as data: no effect, so nothing to fake.
 fn verdict(started: Tick, at: Tick, budget: Duration) [] -> Str {
@@ -13574,7 +13574,7 @@ fn rustc_compiles_and_runs_a_real_timer() {
 /// door (`Inbound` is an actor effect and `deliver` sends to it), and a
 /// `waitfor` inside a plain handler's member (the route lookup) serving its
 /// pool while it waits. Both backends print this text byte for byte.
-const NET_MEM_TRANSPORT: &str = r#"import net
+const NET_MEM_TRANSPORT: &str = r#"import std.net
 
 actor effect Counting {
     send fn total(out: Reply<Str>) => !out
@@ -13671,8 +13671,8 @@ fn rustc_compiles_and_runs_the_mem_transport() {
 /// through `__Stub_Inbound`. One smoke test per backend; everything else about
 /// the network runs on `MemTransport`. The port is this backend's own so the
 /// two suites can run at once.
-const NET_TCP_SMOKE: &str = r#"import net
-import time
+const NET_TCP_SMOKE: &str = r#"import std.net
+import std.time
 
 actor effect Seen {
     send fn wait_one(out: Reply<Str>) => !out
@@ -13740,8 +13740,8 @@ fn rustc_compiles_and_runs_the_tcp_transport_on_localhost() {
     let files = generate(&[("main.sv", NET_TCP_SMOKE)]);
     let all: String = files.iter().map(|f| f.content.as_str()).collect();
     assert!(
-        all.contains("= crate::net::__Platform_HostTcpTransport::new((me).clone());")
-            && all.contains("= crate::net::Transport::shared(__use_"),
+        all.contains("= crate::std_net::__Platform_HostTcpTransport::new((me).clone());")
+            && all.contains("= crate::std_net::Transport::shared(__use_"),
         "expected the host behind the effect's handle:\n{all}"
     );
     run_rust_files(&files, "net-tcp-smoke", NET_TCP_SMOKE_OUTPUT);
@@ -13756,8 +13756,8 @@ fn rustc_compiles_and_runs_the_tcp_transport_on_localhost() {
 /// Kotlin node and a Rust node share a group. A malformed input decodes to
 /// `None`. The trailing `Ledger` protocol has a wire form, so its message
 /// codec and `__PROTO_Ledger` are generated.
-const WIRE_DEMO: &str = r#"import net
-import codec
+const WIRE_DEMO: &str = r#"import std.net
+import std.codec
 
 struct Point { x: Int, y: Long }
 struct Tag { name: Str }
@@ -13849,9 +13849,9 @@ fn rustc_compiles_and_runs_the_wire_format() {
 /// MSG frames; `total(out)` carries a reply token across, and the answer
 /// comes back as a REPLY frame into `main`'s waiter. The direct addr still
 /// works locally. Byte-identical on both backends.
-const NODES_DEMO: &str = r#"import net
-import codec
-import time
+const NODES_DEMO: &str = r#"import std.net
+import std.codec
+import std.time
 
 actor effect Counter {
     send fn bump(n: Int) => !n
@@ -13944,8 +13944,8 @@ fn rustc_compiles_and_runs_two_nodes_over_mem_transport() {
 /// departure. Then three fresh nodes on a second network, each seeded with
 /// the first only, converge on a full mesh through `GossipNodeGroup`'s
 /// introductions. Byte-identical on both backends.
-const NODE_GROUP_DEMO: &str = r#"import net
-import time
+const NODE_GROUP_DEMO: &str = r#"import std.net
+import std.time
 
 handler Announcing(label: Str) [Console] of NodeGroupWatcher {
     mailbox { capacity: 32 }
@@ -14275,8 +14275,8 @@ fn rustc_compiles_and_runs_private_send_members() {
 /// `join` send — for a single face (the addr itself) and a two-face handler
 /// (the element of the tuple whose face the group is of). Both members are
 /// listed and answer.
-const SPAWN_IN_GROUP_DEMO: &str = r#"import net
-import time
+const SPAWN_IN_GROUP_DEMO: &str = r#"import std.net
+import std.time
 
 actor effect Ping { send fn ping(out: Reply<Str>) => !out }
 actor effect Admin { send fn stop() }
@@ -14409,7 +14409,7 @@ fn rustc_compiles_and_runs_handler_init() {
 /// [effect-any] A hand-written router: `RoundRobin(members) of any Resizer`
 /// bound with `use` (a monitor of an actor effect — the lock adapter alone),
 /// `thumbnail` declaring `[any Resizer]`, three sends spread over two members.
-const ANY_ROUTER_DEMO: &str = r#"import time
+const ANY_ROUTER_DEMO: &str = r#"import std.time
 
 actor effect Resizer {
     send fn resize(name: Str, w: Int, out: Reply<Str>) => !name, !out
@@ -14468,8 +14468,8 @@ fn rustc_compiles_and_runs_a_router_of_any() {
 
 /// [route-stub] The generated stub with `Sharded`: a `Key`-marked argument
 /// picks the shard, so the same SKU lands on the same member every time.
-const ROUTE_SHARDED_DEMO: &str = r#"import net
-import time
+const ROUTE_SHARDED_DEMO: &str = r#"import std.net
+import std.time
 
 actor effect Inventory {
     send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out
@@ -14526,8 +14526,8 @@ fn rustc_compiles_and_runs_a_sharded_route() {
 /// [route-stub] `LeastLoaded` (local first) and `Elected` over a two-node
 /// group: the first stub answers from this node's member, the second from the
 /// member on the node `StaticLeader` names.
-const ROUTE_PICKS_DEMO: &str = r#"import net
-import time
+const ROUTE_PICKS_DEMO: &str = r#"import std.net
+import std.time
 
 actor effect Sequencer {
     send fn next(out: Reply<Str>) => !out
@@ -14614,8 +14614,8 @@ fn rustc_compiles_and_runs_least_loaded_and_elected_routes() {
 /// joined on each side, both replicas listing both, a subscriber hearing the
 /// local and the remote arrival, and a ping to the remote member answered over
 /// the wire. Byte-identical on both backends.
-const ACTOR_GROUP_DEMO: &str = r#"import net
-import time
+const ACTOR_GROUP_DEMO: &str = r#"import std.net
+import std.time
 
 actor effect Ping {
     send fn ping(out: Reply<Str>) => !out
@@ -14722,9 +14722,9 @@ fn rustc_compiles_and_runs_the_coupling_postures() {
 fn a_deadline_lowers_to_the_runtime_modules_wheel() {
     let files = generate(&[("main.sv", TIME_TIMER)]);
     let find = |name: &str| files.iter().find(|f| f.rel_path.to_string_lossy() == name).map(|f| f.content.clone());
-    let time = find("time.rs").expect("time.rs");
+    let time = find("std/time.rs").expect("std/time.rs");
     assert!(time.contains("after_nanos("), "expected the deadline call in:\n{time}");
-    let runtime = find("runtime/timers.rs").expect("runtime/timers.rs");
+    let runtime = find("std/runtime/timers.rs").expect("std/runtime/timers.rs");
     assert!(runtime.contains("fn __module_use0() -> &'static") && runtime.contains("std::sync::OnceLock"), "{runtime}");
     let scheduler = find("scheduler.rs").expect("scheduler.rs");
     assert!(!scheduler.contains("salvo_after") && !scheduler.contains("timers"), "the host scheduler keeps no timers");
@@ -14745,7 +14745,7 @@ fn a_deadline_lowers_to_the_runtime_modules_wheel() {
 /// not move the value the first time. The form is the one a narrowed read
 /// already takes — borrow the `Option`, unwrap the borrow, clone the payload
 /// only where an owned value is wanted (found 2026-09-23 writing
-/// `std/test.test.sv` with the since-removed postfix `!`).
+/// `lib/std/test.test.sv` with the since-removed postfix `!`).
 const REREAD_OPTIONAL: &str = r#"
 fn len_of(s: Str) -> Int => s {
     return size(s)
@@ -14902,7 +14902,7 @@ fn a_narrowed_read_borrows_unless_the_position_owns() {
     // once; kept positions borrow it — no clone anywhere.
     assert!(
         main.contains("let mut name_3 = name.unwrap();")
-            && main.contains("crate::core_string::size_platform(&name_3)")
+            && main.contains("crate::std_core_string::size_platform(&name_3)")
             && main.contains("crate::len_of(&name_3)"),
         "a narrowed kept argument cloned:\n{main}"
     );
@@ -14974,7 +14974,7 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
         main.content
     );
     assert!(
-        main.content.contains("let __h1: usize = crate::core_list::at_platform(&*xs, 1i32).expect("),
+        main.content.contains("let __h1: usize = crate::std_core_list::at_platform(&*xs, 1i32).expect("),
         "{}",
         main.content
     );
@@ -14991,7 +14991,7 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
     // A temporary handle is `at`'s position, read from a shared borrow and
     // only then materialized as the element borrowed `&mut` in place.
     assert!(
-        main.content.contains("let __h1: Option<usize> = crate::core_list::at_platform(&xs, 0i32);")
+        main.content.contains("let __h1: Option<usize> = crate::std_core_list::at_platform(&xs, 0i32);")
             && main.content.contains("let __h2 = __h1.expect(\"salvo: value is absent\");\n            &mut xs[__h2]"),
         "{}",
         main.content
@@ -15185,14 +15185,14 @@ fn a_borrowed_copy_scalar_derefs_in_a_comparison_only() {
     let files = generate(&[("main.sv", CMP_DEREF_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("if ((*crate::core_list::get::<i32>(&xs, i)) == 20i32) {")
-            && main.content.contains("if ((*crate::core_list::get::<i32>(&xs, i)) < 30i32) {"),
+        main.content.contains("if ((*crate::std_core_list::get::<i32>(&xs, i)) == 20i32) {")
+            && main.content.contains("if ((*crate::std_core_list::get::<i32>(&xs, i)) < 30i32) {"),
         "{}",
         main.content
     );
     // Arithmetic takes the scalar the same way.
     assert!(
-        main.content.contains("i32::wrapping_add((*crate::core_list::get::<i32>(&xs, i)), 1i32)"),
+        main.content.contains("i32::wrapping_add((*crate::std_core_list::get::<i32>(&xs, i)), 1i32)"),
         "{}",
         main.content
     );
@@ -15344,7 +15344,7 @@ fn ref_handles_render_as_their_container_and_positions() {
     );
     // Each handle is minted as a position before the container is lent.
     assert!(
-        main.content.contains("let __q1 = crate::core_list::at_platform(&es, i).expect(")
+        main.content.contains("let __q1 = crate::std_core_list::at_platform(&es, i).expect(")
             && main.content.contains("let __c2 = __q1;")
             && main.content.contains("crate::attack(&mut es, __c2, __c4)"),
         "{}",
@@ -15709,7 +15709,7 @@ fn rustc_compiles_and_runs_a_generic_keyed_container() {
 #[test]
 fn a_tuple_key_resolves_the_structural_identity() {
     // [col-hashed-ordered] **Interim** (2026-09-28): a tuple or a list key
-    // resolves the structural host identity `core.compare` declares for it,
+    // resolves the structural host identity `std.core.compare` declares for it,
     // so this container builds — the same on both backends for scalar
     // elements. What is still not consulted is an element struct's *own*
     // `cmp` inside a tuple; std owning these waits on ROADMAP §6.
@@ -15729,8 +15729,8 @@ fn a_tuple_key_resolves_the_structural_identity() {
 /// [mod-used-only] Reachability follows **resolution** for functions, not
 /// names (user decision 2026-09-25, closing a defect open since 2026-09-23).
 /// A name resolves to every module declaring it, so a program that merely
-/// iterates — using the name `next` — used to emit `core.range` as well,
-/// because `core.range` declares a `next` too. The checker knows which `next`
+/// iterates — using the name `next` — used to emit `std.core.range` as well,
+/// because `std.core.range` declares a `next` too. The checker knows which `next`
 /// the loop drives, so the edge follows that.
 const REACH_ITERATES_ONLY: &str = r#"
 fn main() [use] -> None {
@@ -15769,13 +15769,13 @@ fn reachability_follows_resolution_not_names() {
         "iterating must not emit `core.range`: {iterating:?}"
     );
     // The same for the other names a program merely mentions: `fs`
-    // declares `read`/`write`/`close`, `core.bytes` a `size`.
+    // declares `read`/`write`/`close`, `std.core.bytes` a `size`.
     assert!(
         !iterating.iter().any(|p| p.contains("fs") || p.contains("bytes")),
         "…nor the modules that merely share a name: {iterating:?}"
     );
     // What it does use is still there.
-    for needed in ["core/list.rs", "core/console.rs", "core/seq.rs"] {
+    for needed in ["std/core/list.rs", "std/core/console.rs", "std/core/seq.rs"] {
         assert!(
             iterating.iter().any(|p| p.ends_with(needed)),
             "{needed} is used and must be emitted: {iterating:?}"
@@ -15783,7 +15783,7 @@ fn reachability_follows_resolution_not_names() {
     }
     let ranging = emitted(REACH_RANGES);
     assert!(
-        ranging.iter().any(|p| p.ends_with("core/range.rs")),
+        ranging.iter().any(|p| p.ends_with("std/core/range.rs")),
         "a program that ranges needs `core.range`: {ranging:?}"
     );
 }
@@ -15895,7 +15895,7 @@ fn a_loops_temporary_subject_is_hoisted() {
         main.content
     );
     assert!(
-        main.content.contains("let mut __pass_3: crate::core_list::ListYield<'_, i32> = crate::core_list::iter::<i32>(&__tmp1);"),
+        main.content.contains("let mut __pass_3: crate::std_core_list::ListYield<'_, i32> = crate::std_core_list::iter::<i32>(&__tmp1);"),
         "…and the pass must borrow the local:\n{}",
         main.content
     );
@@ -15922,7 +15922,7 @@ fn rustc_compiles_and_runs_a_loop_over_a_temporary() {
 }
 
 /// [iter-resolve] Two same-named structs in two modules: a user `Range` beside
-/// `core.range`'s. The pass-driving lookups matched the subject by *type name*,
+/// `std.core.range`'s. The pass-driving lookups matched the subject by *type name*,
 /// so the loop could mint with one module's `iter` and drive the other's
 /// `next` — wrong output, not a diagnostic (E0308 in rustc, an argument type
 /// mismatch in kotlinc). Both lookups compare **declarations** now.
@@ -15950,7 +15950,7 @@ iter fn iter(r: Range) -> Emitted Int | Finished {
 
 fn main() [use] -> None {
     use StdConsole()
-    // `core.range` declares a `range(Int, Int)` too, and nothing separates the
+    // `std.core.range` declares a `range(Int, Int)` too, and nothing separates the
     // two by signature, so the call names the place [fn-overload-ambiguous].
     for i in range@main(1, 4) {
         println("${i}")
@@ -16061,7 +16061,7 @@ fn main() [use] -> None {
 fn a_qualified_argument_still_binds_an_implicits_type_variable() {
     let files = generate(&[("main.sv", QUALIFIED_IMPLICIT_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
-    // Both calls fill `?next` from `core.list`, not from the sibling `Sib`.
+    // Both calls fill `?next` from `std.core.list`, not from the sibling `Sib`.
     assert_eq!(
         main.content.matches("next__ListYield(").count(),
         2,
@@ -16162,7 +16162,7 @@ fn a_ref_anchored_handle_indexes_its_container_parameter() {
     );
     assert!(
         main.content.contains("crate::trade(&mut squad.members, __c2, __c4) };")
-            && main.content.contains("let __q1 = crate::core_list::at_platform(&squad.members, i).expect("),
+            && main.content.contains("let __q1 = crate::std_core_list::at_platform(&squad.members, i).expect("),
         "{}",
         main.content
     );
@@ -16330,7 +16330,7 @@ fn a_distinct_pair_call_splits_the_container_once() {
     assert!(
         main.content.contains("crate::attack(__pm5, __pm6)")
             && main.content.contains("if __h1 != __h2 { let (__u3, __w4) = crate::seq::salvo_pair_mut(&mut es[..], __h1, __h2)")
-            && main.content.contains("crate::core_ref::NotSame_qualifies(&es[__h2], &es[__h1])"),
+            && main.content.contains("crate::std_core_ref::NotSame_qualifies(&es[__h2], &es[__h1])"),
         "{}",
         main.content
     );
@@ -16542,7 +16542,7 @@ fn a_lending_fn_value_renders_as_a_locator_closure() {
         main.content
     );
     assert!(
-        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        crate::core_list::at_platform(c, k)\n"),
+        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        crate::std_core_list::at_platform(c, k)\n"),
         "{}",
         main.content
     );
@@ -16592,7 +16592,7 @@ fn a_locate_implicit_renders_as_a_locator_closure() {
         main.content
     );
     assert!(
-        main.content.contains("crate::core_list::at_platform(__a0, *__a1)"),
+        main.content.contains("crate::std_core_list::at_platform(__a0, *__a1)"),
         "{}",
         main.content
     );
@@ -16757,19 +16757,19 @@ fn union_text(files: &[salvo_backend_rust::EmittedFile]) -> UnionText {
 }
 
 /// [actor-watch] [actor-on-idle] [runtime-handles] `watch` and `on_idle` are
-/// Salvo: the program calls `core.actor`'s fns, which take the core's token
+/// Salvo: the program calls `std.core.actor`'s fns, which take the core's token
 /// out of the reply token (`take_local()`) and register it; the scheduler
 /// builds `Exit` and `Idle` itself, so no builder travels with the call.
 #[test]
 fn watch_and_on_idle_are_salvo_over_the_core_token() {
-    for (src, call) in [(WATCH, "crate::core_actor::watch(c, out)"), (ON_IDLE, "crate::core_actor::on_idle(")] {
+    for (src, call) in [(WATCH, "crate::std_core_actor::watch(c, out)"), (ON_IDLE, "crate::std_core_actor::on_idle(")] {
         let files = generate(&[("main.sv", src)]);
         let main = files.iter().find(|f| f.rel_path.to_string_lossy() == "main.rs").expect("main.rs");
         assert!(main.content.contains(call) && !main.content.contains("salvo_watch("), "{}", main.content);
         let actor = files
             .iter()
-            .find(|f| f.rel_path.to_string_lossy() == "core/actor.rs")
-            .expect("core/actor.rs");
+            .find(|f| f.rel_path.to_string_lossy() == "std/core/actor.rs")
+            .expect("std/core/actor.rs");
         assert!(actor.content.contains(".take_local()"), "{}", actor.content);
     }
 }
@@ -16841,7 +16841,7 @@ fn rustc_compiles_and_runs_a_disjunction_and_a_negation_narrow_nothing_after_the
 
 /// [qual-lift] `^` on a projection: a test inside the branch reads the lifted view of the field, not the stored union.
 const LIFT_FIELD_DEMO: &str = r#"
-import throw
+import std.throw
 struct H { result: Ok (Ok Int | Err Str) | Thrown Str }
 
 fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
@@ -17192,17 +17192,17 @@ fn rustc_compiles_and_runs_the_total_at() {
     let files = generate(&[("main.sv", TOTAL_AT_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
     assert!(
-        main.content.contains("let __h1: usize = crate::core_list::at(&xs, i);")
-            && main.content.contains("crate::bump({ let __l2 = crate::core_list::at(&xs, j); &mut xs[__l2] });")
-            && main.content.contains("let __h8: usize = crate::core_list::at(&xs, j);")
+        main.content.contains("let __h1: usize = crate::std_core_list::at(&xs, i);")
+            && main.content.contains("crate::bump({ let __l2 = crate::std_core_list::at(&xs, j); &mut xs[__l2] });")
+            && main.content.contains("let __h8: usize = crate::std_core_list::at(&xs, j);")
             && main.content.contains("crate::seq::salvo_pair_mut(&mut xs[..], __h7, __h8)")
             && main.content.contains("crate::merge(__pm11, __pm12)"),
         "{}",
         main.content
     );
-    let list = files.iter().find(|f| f.rel_path.ends_with("core/list.rs")).unwrap();
+    let list = files.iter().find(|f| f.rel_path.ends_with("std/core/list.rs")).unwrap();
     assert!(
-        list.content.contains("f({ let __l1 = crate::core_list::at(&*list, index); &mut list[__l1] });"),
+        list.content.contains("f({ let __l1 = crate::std_core_list::at(&*list, index); &mut list[__l1] });"),
         "{}",
         list.content
     );
@@ -17365,7 +17365,7 @@ fn rustc_compiles_and_runs_notsame_handles() {
         "{}",
         main.content
     );
-    let reff = files.iter().find(|f| f.rel_path.ends_with("core/ref.rs")).unwrap();
+    let reff = files.iter().find(|f| f.rel_path.ends_with("std/core/ref.rs")).unwrap();
     assert!(reff.content.contains("std::ptr::eq(a, b)"), "{}", reff.content);
     run_rust_files(&files, "notsame-handles", NOTSAME_OUTPUT);
 }

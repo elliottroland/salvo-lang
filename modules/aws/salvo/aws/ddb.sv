@@ -15,7 +15,7 @@
 // edit — regenerate with `./gradlew generate` in `modules/aws/codegen`.
 
 import aws
-import time.Instant
+import std.time.Instant
 
 // Determines the level of detail about either provisioned or on-demand
 // throughput consumption that is returned in the response:

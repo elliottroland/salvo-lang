@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2052 tests, complete: the toolchain tests are
+cargo test                  # 2054 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -78,7 +78,7 @@ INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended 
 cargo run -- compile --src ./some_dir --target ./out        # --backend defaults to kotlin
 cargo run -- compile --backend rust --src ./some_dir --target ./out_rs
 cargo run -- compile --src ./some_dir --target ./out --emit-ast             # user-module AST dump
-cargo run -- compile --src ./some_dir --target ./out --emit-ast=core.list   # one module's AST
+cargo run -- compile --src ./some_dir --target ./out --emit-ast=std.core.list   # one module's AST
 
 # Type-check without generating code [cli-analyze]:
 cargo run -- analyze --src ./some_dir                       # text diagnostics, exit 1 on errors
@@ -108,7 +108,7 @@ rustc --edition 2021 out_rs/main.rs -o program && ./program
 
 ```
 crates/
-├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds std/ via include_dir,
+├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds lib/ via include_dir,
 │                         #   analysis pipeline (analysis.rs), LSP server (lsp.rs), tm-grammar (lang.rs)
 ├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
 │   └── tests/corpus/     # language-docs-example .sv files + insta snapshots
@@ -120,8 +120,10 @@ crates/
 ├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
 └── salvo-testkit/        # dev-dependency for the test crates: toolchain probing
                           #   (once per binary) + the e2e content-hash cache
-std/                      # stdlib: core/ (basic, string, list, set, map, sorted,
-                          #   console, …) + random.sv
+lib/                      # the standard library as a project (lib/salvo.toml, `std = true`, src lib/):
+├── std/                  #   std.core.* (basic, string, list, set, map, sorted, console, …),
+│                         #   std.time, std.fs.*, std.runtime.*, std.test, …
+└── platform/std/         #   std's host files (`lib/platform` is its platform root)
 vscode/                   # VS Code extension: LSP client + generated TextMate grammar
 ```
 
@@ -133,10 +135,108 @@ prefix. The emitter starts from `salvo_backend::driver` (check, erase, resolve,
 reach) and `salvo_backend::emit_util` (shared walkers, `EmittedFile`, ABI
 stamping, file writing); it lowers every `intrinsic` std declares (its
 `intrinsics.rs`), and writes a host file per std platform module
-(`std/platform/**/<m>.<ext>`) beside the generated ABI mirrors
+(`lib/platform/std/**/<m>.<ext>`) beside the generated ABI mirrors
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-14 — The standard library's modules are under `std`
+
+ROADMAP §9's TF-8 and the last part of 0s; user decisions 2026-10-14 (and
+TF-8's of 2026-09-19): `core` becomes `std.core`, still implicitly visible;
+every std module takes the `std.` prefix (`import std.time`, `std.fs.mem`,
+`std.runtime`, `std.test`, `std.throw`); the tree moves from `std/` to
+`lib/std/`, module paths still derived from the layout; `std` is a reserved
+root; the bare spelling is refused with the corrected path named; selectors
+keep matching by suffix.
+
+- **Layout** [std-root] [mod-file]. `git mv std lib/std`. The tree's manifest
+  is **`lib/salvo.toml`** (`std = true`, `[build] src` left at its default,
+  the manifest's directory) rather than `lib/std/salvo.toml` with
+  `src = ".."`: no `..`, `salvo test --src lib` finds the manifest where
+  `Project::find` looks (at and above `--src`; from `lib/` a manifest in
+  `lib/std/` is below it), and the embed root (`include_dir!("…/lib")`) is
+  the manifest's directory, so an embedded file's name is its path under
+  `lib/` — `std/core/list.sv`, exactly the name it had — and std's file
+  names in diagnostics and the language server's std copies did not move.
+  The platform root is **`lib/platform`**, std's hand-written host files
+  under `lib/platform/std/**` (a platform file's module is its path under
+  the root, so `platform/std/time.kt` is `std.time`'s, as aws's are under
+  `platform/aws/`); the generated ABI files were regenerated there.
+- **Compiler.** One spelling of the root: `ModulePath::std`,
+  `is_std_rooted`, `is_std_core`, `is_std_internal` and `STD_ROOT`
+  (`source.rs`), used by every site that matched a std module by string —
+  the resolver's implicit `std.core.*` (`core_modules`, the collision and
+  redundant-import checks, import suggestions), `TEST_MODULE`/`THROW_MODULE`
+  in an annex, [mod-std-internal] and [runtime-layers] (`std.runtime`,
+  `std.runtime.*`), `reach.rs`'s runtime, routing and streams modules, the
+  checker's `Key` test (`std.net`), the IR's route stubs (`std.net`), the
+  Rust emitter's `std.core.list`/`deque`/`map` platform-fn lowerings and its
+  hoststreams check, the Kotlin emitter's, comptime's `pick_decl` core
+  rung, and the test harness's "`std.core` annexes need no import".
+  Emitted names follow from the path: Kotlin `salvo.std.core.list`, host
+  packages `salvo.platform.std.…`; Rust `crate::std_core_list`,
+  `platform_std_…`; output files `std/core/list.<ext>`. Both runtimes'
+  calls into std (`scheduler`, `hoststreams`) and std's host files were
+  rewritten to those names.
+- **The reserved root** [std-root]: a file of a non-std tree whose module is
+  under `std` is an error at the file ("module `std.core.extra.auto` is under
+  `std`, which is reserved for the standard library …"), reported by the
+  resolver so every driver and the editor show it. A test annex is std's when
+  the module it tests is an on-disk std file (`std = true` annexes are never
+  `is_std`). **The bare spelling**: an import whose first segment is no
+  module's root while `std.<first>` is std's is refused, "the standard
+  library's modules are under `std`: write `import std.time`", and resolves
+  nothing; a bare `import runtime` gets [mod-std-internal]'s refusal instead
+  of a correction towards it.
+- **No gate.** With no project module under `std`, std sees only std, so
+  `StdComptime::admits` and its call are gone, and the front stands in for
+  every program `std_front_applies` matches. The comptime expansion's
+  `shadow_copy` (a std file loaded twice as a user file) went with it: such a
+  copy is not visible to std. `std_front_expansion_is_project_independent`'s
+  `core/extra/auto.sv` case is now `std/core/extra/auto.sv`, asserting the
+  reserved-root error and that std expands alike.
+- **Deviations.** (1) A project module under `std` is also **not implicitly
+  visible** — `std.core.*` visibility (and comptime's core rung) requires a
+  std-owned module, not only the path. Without it the program got the
+  [std-root] error plus "the standard library does not check with this
+  program (22 errors in std …)", since the misplaced module still made std's
+  `by auto` name two modules; now the program's second error is its own
+  (`helper` not in scope). (2) So [diag-std-hidden]'s test,
+  `errors_in_the_embedded_std_are_one_line`, constructs std errors with a
+  `std = true` *dependency* adding `std/core/extra/auto.sv` — the one way
+  left. (3) The redundant-selector warning ([fn-overload-at]) echoes the
+  selector as written (`@core.list`) rather than the resolved module, which
+  is now `std.core.list` and would have rewritten what the reader wrote.
+- **Swept.** std (every import and comment), the corpus, inline sources in
+  the Rust tests (test-owned modules named `heap` and `time` kept their
+  imports), every example's source and checked-in Rust and Kotlin (each
+  `expected.txt` unchanged on both backends), `modules/aws` (sources, host
+  files, the generator's `Generator.java`, its ABI files), `bench/`, the
+  docs pages (Modules.md gains the reserved root), LANGUAGE_SPEC.md
+  ([std-root] new; [mod-file], [mod-visibility], [mod-suffix],
+  [mod-std-internal], [runtime-layers], [std-shadow], [lsp-std-front],
+  [diag-std-hidden] updated), both backend specs, README, AGENTS.md, this
+  file and ROADMAP.md's prose, and the VS Code grammar. The aws generator's
+  output was rewritten by the same substitution as the generator, not
+  re-run (it needs Smithy); the two agree by construction.
+  Left alone: `demo/demo.sv` (the user's uncommitted edits; it needs
+  `import std.heap`), and this log's previous entry, which records the
+  `core` spelling it was written under.
+- **What 0s was** (moved from ROADMAP): a project module named `auto` broke
+  std's `by auto` (found 2026-10-20). Decided 2026-10-14: std is a fixed
+  point the program works around — (1) a `by` path names only the modules
+  the stamping file can see (done, the entry below); (2) the `std.` prefix,
+  so "std sees only std" is a rule about the `std` namespace (this entry);
+  (3) diagnostics located in the embedded std are hidden unless the tree is
+  `std = true` (done, the entry below).
+- **Tests.** `a_project_module_under_std_is_refused` and
+  `a_bare_std_import_names_the_corrected_path` (analyze_tests);
+  `the_runtime_module_is_std_s_own` also covers a bare `import runtime`.
+  2054 tests (two new; a fresh `cargo nextest run` 9m56, a warm `cargo test` 3m14).
+
+Left (ROADMAP 0t): a `std = true` tree checked from below its root
+(`--src lib/std`) gives modules outside `std`, which nothing refuses.
 
 ### 2026-10-14 — A `by` clause names only the modules its file can see
 
@@ -220,7 +320,7 @@ instead:
   rows included, only to read them (3.5ms per check → 0.4). It also
   re-validated std's handler members under the std cache, whose own check
   had done it; they are skipped as std's fns already were.
-- Resolution's pass 2 built the `core.*` part of every file's scope from
+- Resolution's pass 2 built the `std.core.*` part of every file's scope from
   scratch. It depends only on which core module the file is in, so it is
   built once per such module and cloned [mod-visibility]. Exact by
   construction: adding at `Level::Core` into an empty scope reports nothing,
@@ -425,7 +525,7 @@ walk that owns its check, at the span it always had.
   1. A callee's signature lowered at a use (`fn_value_ty`) recorded its
      type names' definition sites under *this* file's key and the callee
      file's span. `list_dir`'s body overwrote `read_all`'s `Str` in
-     `std/fs/mem.sv` with a callee's `Int`, so go-to-definition there went
+     `lib/std/fs/mem.sv` with a callee's `Int`, so go-to-definition there went
      to `Int`. `foreign_ref` skips a type reference another file wrote.
   2. `check_effect_member_signatures` lowered member types without the
      effect's generics. An effect's `M` read as a type named `M`, and when
@@ -1585,7 +1685,7 @@ rewritten by script.
 
 Found on the way: the two forms differ on a union with several value arms.
 `!` dropped `None` and kept the rest; `?:` keeps the **first** value arm
-[elvis]. Three such sites in `std/runtime.sv` were rewritten by hand to
+[elvis]. Three such sites in `lib/std/runtime.sv` were rewritten by hand to
 `assert!(entry !is None)`; the hazard is recorded under ROADMAP §2d item 9.
 And `?: unreachable!()` narrows the local for the rest of the scope, so a
 second pick on it is refused ("keeps its only arm"): the rewritten tests read
@@ -1661,7 +1761,7 @@ other copy of the list now calls one of them, and the Rust backend's
 `!v` on a concrete scalar parameter warns (std exempt); a generic `!elem`
 does not. [deduce-consume]'s uniform-consumption sentence is reversed in the
 spec, and [copy-scalar-free] is restated as the one rule. `args` drops its
-`+ 0`s; the `index + 0` in `core.buffer`, `core.deque` and `core.list` stay —
+`+ 0`s; the `index + 0` in `std.core.buffer`, `std.core.deque` and `std.core.list` stay —
 they strip an `Idx` claim to reach the partial overload, not a move.
 
 Falling out of the warning: a handler-local `send fn`'s clause, which must be
@@ -2069,7 +2169,7 @@ Tests: comptime_tests
 `args_or_exit_ends_the_process_with_help_or_errors_on_both_backends`,
 `an_else_narrows_by_its_own_test_inside_a_when_arm_on_both_backends`.
 
-### 2026-10-20 — `std/args`: the lexer, the errors and the scan under the derive
+### 2026-10-20 — `lib/std/args`: the lexer, the errors and the scan under the derive
 
 Phase 2.1 of the argument-parsing build (the CLI design record §4.0, Q12 (b), Q17,
 Q18). No new decision; the layer the derive (2.2) builds on:
@@ -2094,8 +2194,8 @@ What building it found:
   §2d item 9); the test binds the value first.
 - No `else if`: the scan's branches are `when { … }` chains.
 
-Tests: `std/args/lex.test.sv` (4) and `std/args.test.sv` (11), run on both
-backends by `salvo test --src std` (150 std tests).
+Tests: `lib/std/args/lex.test.sv` (4) and `lib/std/args.test.sv` (11), run on both
+backends by `salvo test --src lib` (150 std tests).
 
 ### 2026-10-20 — A clause stamps a member that only returns its type
 
@@ -2129,10 +2229,10 @@ comptime_tests `two_binders_names_compare`.
 ### 2026-10-20 — `Errs`: the accumulating outcome
 
 Phase 1.10 of the argument-parsing build (the CLI design record X12, Q11; the arm is
-`Errs`). [result-errs]: `core.result` gains `provenance qualifier Errs<T> of
+`Errs`). [result-errs]: `std.core.result` gains `provenance qualifier Errs<T> of
 T`, `errs(e)`, `Errs(list)`, `both(a, b)` and `map2(a, b, f)` over `Ok T |
 Errs NonEmpty List<E>`, which keep every error after a failure. The examples
-reaching `core.result` regenerated (the added fns only), as did four golden
+reaching `std.core.result` regenerated (the added fns only), as did four golden
 snapshots and `snapshot_std_result`.
 
 What it took, and what it ran into:
@@ -2165,7 +2265,7 @@ the call spelling `InRange.explain(n, 1, 65535)`). [qual-whynot]: an
 optional `fn explain` with `qualifies`'s parameters returns the message;
 `assert!(x is Q(…))` without a message of its own traps with it; `Q.qualifies`
 and `Q.explain` are callable directly. std's `InRange` gains one, so the
-examples that reach `core.range` regenerated (the added fn only).
+examples that reach `std.core.range` regenerated (the added fn only).
 
 What it took:
 - Checker: `check_explain_decl` (same parameters as `qualifies`, returns
@@ -2224,7 +2324,7 @@ Phase 1.7 of the argument-parsing build (the CLI design record X3, Q8, accepted 
 recommended). [comptime-literals]: `[for lit in field.type.literals]` (also
 on `T` and a named alias) makes one copy per literal member in declaration
 order, with `lit.value` the member as a literal of the union, `lit.name`,
-`lit.index`, `lit.first`, `lit.last`. `core.comptime` gains `Literal`.
+`lit.index`, `lit.first`, `lit.last`. `std.core.comptime` gains `Literal`.
 
 What it took:
 - `CompSeq.literals`; `elements` takes the literal arms of the type's
@@ -2357,7 +2457,7 @@ Phase 1.3 of the argument-parsing build (the CLI design record X2; "text as hove
 prints it", round 2). [comptime-docs]: `field.docs`, `arm.docs`, `T.docs`
 and a named root's `Serve.docs` are the doc comment above the declaration,
 lines joined with newlines and `[symbol]` references left as written, or
-`None`; `core.comptime`'s `Struct`, `Union`, `Field` and `Arm` gain
+`None`; `std.core.comptime`'s `Struct`, `Union`, `Field` and `Arm` gain
 `docs: Str?`.
 
 What it took:
@@ -2385,7 +2485,7 @@ Phase 1.2 of the argument-parsing build (the CLI design record X1; engineering u
 round 2, which listed it as needing no decision). [comptime-default]: in a
 copy, `field.default` is the field's declared `= expr`, or `None` where it
 declares none, and `[if field.default is None]` / `!is None` tests which.
-`core.comptime`'s `Field` gains `default: Value?`, with `comptime struct Value
+`std.core.comptime`'s `Field` gains `default: Value?`, with `comptime struct Value
 {}` for a declared value.
 
 What it took:
@@ -2448,7 +2548,7 @@ What it took:
   returning `None` there turned `take<field.type>(v)` into "expected
   identifier, found `type`". No std body, test or example wrote the bare
   form, so nothing else needed rewriting; the comment in
-  `std/core/comptime.sv`, the Compile-Time-Functions page, [comptime-fields],
+  `lib/std/core/comptime.sv`, the Compile-Time-Functions page, [comptime-fields],
   [comptime-access] and the CLI design record's examples were.
 - Expansion messages said "an enclosing `inline for`", the spelling retired
   on 2026-09-29; they now say `[for …]`/`[when …]`.
@@ -2481,11 +2581,11 @@ tokens found no other hang. Test: parser_tests
 ### 2026-10-20 — `Process` and `Env`: exit status and environment variables
 
 Phase 0.7, the last of phase 0 of the argument-parsing build (the CLI design record
-X10, Q3, accepted as recommended). [cli-process]: `import process` brings
+X10, Q3, accepted as recommended). [cli-process]: `import std.process` brings
 `effect Process { fn exit(code: Int) -> Never }` and `HostProcess()`, which
-flushes stdout and stderr and then exits. [cli-env]: `import env` brings
+flushes stdout and stderr and then exits. [cli-env]: `import std.env` brings
 `effect Env { fn env(name: Str) -> Str? }` and `HostEnv()`. Each is a module
-of its own, like `args`, with host files `std/platform/{process,env}.{rs,kt}`.
+of its own, like `args`, with host files `lib/platform/std/{process,env}.{rs,kt}`.
 
 What it took:
 - **Nothing in the checker.** A linear value live at an `exit` is not a leak
@@ -2504,7 +2604,7 @@ What it took:
 - `Env.env` needs `=> name`: an effect member has no body to infer its
   deduction from.
 - Nine golden snapshots (`golden_{demo,effects,loops,qualifiers}` on both
-  backends, `golden_unions_kotlin`) still lacked 0.6's `core.string`
+  backends, `golden_unions_kotlin`) still lacked 0.6's `std.core.string`
   additions: that commit's suite run had failed them too, but only the last
   lines of the log were read. Accepted here; the diff is those additions only.
 
@@ -2518,7 +2618,7 @@ and an unset variable); linear_release_tests
 
 Phase 0.6 of the argument-parsing build (the CLI design record X11, Q4; `Bool` accepts
 `true`/`false` only, by the user's call in round 2). [str-parse]:
-`core.string` gains `parse_long` and `parse_double` (platform), `parse_bool`
+`std.core.string` gains `parse_long` and `parse_double` (platform), `parse_bool`
 (Salvo), one `from_str` overloaded by return type for `Str?`, `Int?`,
 `Long?`, `Double?` and `Bool?`, and `params FromStr<T>`.
 
@@ -2530,14 +2630,14 @@ What it took:
   passes. `parse_long` uses the hosts' own parsers (`toLongOrNull`,
   `parse::<i64>`), which already agree with `parse_int`: an optional sign and
   decimal digits.
-- **All the overloads in `core.string`.** Placing one `from_str` per type in
+- **All the overloads in `std.core.string`.** Placing one `from_str` per type in
   the type's own module was the plan before return-type overloading; with it,
   one module is simpler and the overload set is visible in one place.
 - The std platform project, `modules/aws`'s host project and every example's
   generated `core/string` were regenerated; the examples' output is
   unchanged.
 - `return_type_overloads_run_on_both_backends` declared its own
-  `from_str(Str) -> Int?`, which now meets `core.string`'s identical one and
+  `from_str(Str) -> Int?`, which now meets `std.core.string`'s identical one and
   is the ordinary cross-module ambiguity; the test's overloads are renamed
   `read_as`.
 
@@ -2576,7 +2676,7 @@ What it took:
   (`from_str__Str_IntOpt`); every earlier name is unchanged. Neither backend
   needed anything else, since both call the overload the checker recorded.
 - A cross-module consequence, intended: a module's `size(List<T>) -> Str`
-  beside `core.list`'s `-> Int` is now chosen by the expected type instead of
+  beside `std.core.list`'s `-> Int` is now chosen by the expected type instead of
   being ambiguous; that is what lets each type's module declare its own
   `from_str`. Two tests that used differing return types to stage a scope
   ambiguity now use equal ones.
@@ -2613,18 +2713,18 @@ Tests: comptime_tests `a_warning_in_copies_is_reported_once_on_the_written_code`
 (every warning inside the file; `y`, used by the `Int` copy, not reported;
 `z`, unused everywhere, reported once on line 7; a `todo!()` once).
 
-### 2026-10-20 — A type name shadows `core` whatever kind declares it
+### 2026-10-20 — A type name shadows `std.core` whatever kind declares it
 
 Phase 0.3 of the argument-parsing build. **The defect** (found probing
 the CLI design record §10.1b, and again testing 0.2): with `type Field = …` in a file,
 one use of `Field` was checked against the alias and the next refused as
-"`Field` is a compile-time type (`core.comptime`)". Resolution's
+"`Field` is a compile-time type (`std.core.comptime`)". Resolution's
 [mod-collision] provenance is keyed by (kind, name), so a user *alias* did not
-displace `core.comptime`'s *struct* of the same name; both sat in the file's
+displace `std.core.comptime`'s *struct* of the same name; both sat in the file's
 scope, and the checker's lookups read the struct table or the alias table
 first depending on the site. **The fix** ([type-name-shadow]): a type name
 is one name across struct, alias and opaque type; when an own declaration or
-an import admits one, `AddCtx::shadow_core_type` removes a `core` entry of
+an import admits one, `AddCtx::shadow_core_type` removes a `std.core` entry of
 the other two kinds (core is added first, so this is enough). No decision
 was needed: the rule is the existing "own and imports shadow core", applied
 across the three kinds a type name can have.
@@ -2660,7 +2760,7 @@ qualified *alias* of a whole arm is not caught). The parser now reads a
 literal after a qualifier run as a `QualifiedGroup`.
 
 Found while testing: a fn parameter typed by a user alias named `Field`
-reports "`Field` is a compile-time type (`core.comptime`)"; that is ROADMAP
+reports "`Field` is a compile-time type (`std.core.comptime`)"; that is ROADMAP
 §2d item 4, the next step.
 
 Tests: `literal.rs` unit `a_qualified_literal_collapses_like_a_bare_one`;
@@ -2725,8 +2825,8 @@ a default, as a declaration's own `canbe Mut` follows its name; the prefix
 `canbe`"), with no transitional message. `parse_field_decl`, the docs.rs hover
 line, and every source swept — the tests, the spec, BACKEND_SPEC.kotlin.md,
 Qualifiers.md, Implicit-Parameters.md, Compile-Time-Functions.md. No std file
-outside the user's `std/args/parse.sv` and no example used the field form.
-`std/args/parse.sv` (six fields) is the user's in-progress file and was left
+outside the user's `lib/std/args/parse.sv` and no example used the field form.
+`lib/std/args/parse.sv` (six fields) is the user's in-progress file and was left
 alone; the embedded std fails to parse until it is updated, so the suite was
 run in a copy without it and `parse.test.sv`.
 
@@ -2744,14 +2844,14 @@ stripped, `\r\n` included; `None` at the end or on an error, the `Str | None`
 `read_line` answers), flushing stdout first so a prompt shows. The handler
 `StdOutConsole` is renamed **`StdConsole`** everywhere — 167 files, the
 examples' generated trees and the goldens included (the
-`std/args/parse.test.sv` annex, the user's, still says `StdOutConsole`, and
+`lib/std/args/parse.test.sv` annex, the user's, still says `StdOutConsole`, and
 `hover_works_in_a_std_shadowing_file` fails on it until it is updated). No
 `printerrln` and no unbuffered `read`: the user asked whether a non-line read
 exists — none does; left open in ROADMAP §9. `salvo test` now runs the harness
 with stdin closed, so a test's `readln` answers `None` instead of blocking.
 Host files: Rust `stderr().lock()` / `stdin().lock().read_line`, Kotlin
 `System.err` + flush / `readlnOrNull` after `System.out.flush()`; std's host
-project regenerated (`salvo platform generate` in `std/`), every example
+project regenerated (`salvo platform generate` in `lib/std/`), every example
 recompiled.
 
 **Terminal comptime scopes** ([terminal-scope] [comptime-inline]): `[for …]
@@ -2771,7 +2871,7 @@ Tests: run_tests `console_reads_lines_and_writes_stderr_on_each_backend`
 parser snapshots updated for the new members and the rename. Full `cargo test
 --no-fail-fast`: 1933 passed, 2 failed — `std_tests_pass` and
 `hover_works_in_a_std_shadowing_file`, both on the user's untouched
-`std/args/parse.test.sv` still writing `use StdOutConsole()`.
+`lib/std/args/parse.test.sv` still writing `use StdOutConsole()`.
 
 ### 2026-10-20 — `salvo test` shows a test's output as configured, and a `[test]` manifest section
 
@@ -2812,7 +2912,7 @@ configuring them together with the tests' backend, over `[build] backend`
   unterminated output keeps its verdict); manifest +1; test_command_tests
   `a_tests_output_is_shown_as_configured` (both backends, the three modes, the
   manifest's backend and output). Full suite in a fresh copy without the
-  in-progress `std/args/parse.sv` and its new annex `parse.test.sv`: 1932
+  in-progress `lib/std/args/parse.sv` and its new annex `parse.test.sv`: 1932
   passed, 0 failed.
 
 ### 2026-10-20 — An in-place copy's error says which copy in the code's terms
@@ -2830,12 +2930,12 @@ the type). `StampRegion::written_label` carries the phrase, set by
 chain it already follows. A stamp's errors keep the old prefix — there the
 compfn and its module are what the reader at the `by` site needs. Test:
 `an_expanded_in_place_body_is_checked_per_copy` asserts the new wording. Full
-suite in a copy without the in-progress `std/args/parse.sv` (its current
+suite in a copy without the in-progress `lib/std/args/parse.sv` (its current
 state does not check): 1927 passed, 0 failed.
 
 ### 2026-10-20 — An expanded-in-place fn's copy errors land on the written code
 
-A TODO in `std/args/parse.sv`: uncommenting `print_help(args.[field])` in the
+A TODO in `lib/std/args/parse.sv`: uncommenting `print_help(args.[field])` in the
 `"groups"` arm (a `Map<Str, ArgGroup>`, which no `print_help` takes) reported
 the error on the `groups` field's declaration, not on the call. The checker's
 `redirect_stamped` sent every error inside a copy to the copy's
@@ -2913,9 +3013,9 @@ f.type]` (whose catch-all is the arm `is *`). No compatibility.
   declaration-time walk that refuses `[when f.type]` / `[when f.name]` over
   the bound parameter, instead of at every `by` site.
 - **Rewritten**: the spec ([comptime-inline]'s list, [comptime-name],
-  [comptime-pattern]), the Compile-Time-Functions page, `core.comptime`'s
+  [comptime-pattern]), the Compile-Time-Functions page, `std.core.comptime`'s
   `Kind` comment, the AST doc comments, and five test sources that wrote an
-  `else` (`is *` or the remaining arms instead). Nothing in `std/`,
+  `else` (`is *` or the remaining arms instead). Nothing in `lib/std/`,
   `examples/` or the corpus used one.
 - Tests: parser_tests +1 (`a_subject_comptime_when_takes_no_else`, each form
   one error naming its remedy); the stamped-template test gained the
@@ -3006,8 +3106,8 @@ next entry up.)*
   the call are bare identifiers only" went with it.
 - **Kotlin: a generic struct's `T?` codec did not compile** — [kt-wire].
   `OptCodec<T : Any>` became `OptCodec<T>`, as Rust's `Option<T>` impl is. This
-  was what failed every Kotlin std build while `std/args/parse.sv` sat in
-  `std/`: the full suite now passes with it.
+  was what failed every Kotlin std build while `lib/std/args/parse.sv` sat in
+  `lib/std/`: the full suite now passes with it.
 
 **Spec bugs fixed on the way**: Comparison-and-Hashing.md said a tuple or list
 key "does not work yet" (true until 2026-10-06); [cmp-carry]'s "a bare name is
@@ -3017,19 +3117,19 @@ resolved where the type is used" now says *written*.
 parser_tests +1, Rust codegen +3 with three mirrored Kotlin cases, and
 updated: `a_literal_with_an_ineligible_key_is_refused` (one key error now) and
 the Kotlin golden snapshots (the runtime's `wire.kt`, copied verbatim; also
-into the 15 `examples/*/kotlin/wire.kt` and the std/aws host projects, via
+into the 15 `examples/*/kotlin/wire.kt` and the lib/std/aws host projects, via
 `salvo platform generate`). Full `cargo test --no-fail-fast`: 1923 passed, 0
 failed, in 8m10s — every Kotlin stamp missed, since `wire.kt` is in every
 generated program.
 
 ### 2026-10-20 — Comptime expanded: callable and generic in-place fns, visible roots, condition logic, literal-union names, the kind/type split, type patterns
 
-User decisions, from the `std/args/parse.sv` `print_help` discussion. The
+User decisions, from the `lib/std/args/parse.sv` `print_help` discussion. The
 principle the user set: **if you want to guarantee exhaustivity over a
 struct's fields, comptime is the solution.** Built as a six-step sequence
 tracked in COMPTIME.md (retired into the "Design record: comptime expansion"
 section below). No compatibility: the old kind spellings stopped being the
-language, and `core.auto`, `compare_tests.rs`, the docs page and the spec were
+language, and `std.core.auto`, `compare_tests.rs`, the docs page and the spec were
 rewritten.
 
 - **D1, expanded in place vs stamped** ([comptime-bound]): a comptime fn
@@ -3040,7 +3140,7 @@ rewritten.
 - **D2, roots obey visibility** ([comptime-root-visible]): `Pt.fields` needs
   `Pt` visible where it is written. The checker checks `Stamp.roots` with
   `require_name` + `record_def_ref` right after `own_stamp`. The expander's
-  `World::pick_decl` prefers own module, then imported, then `core`.
+  `World::pick_decl` prefers own module, then imported, then `std.core`.
   Rejected: the flat program-wide lookup it had (it accepted an unimported
   struct).
 - **D3, condition logic** ([comptime-logic]): `&&`, `||`, `!`, parentheses
@@ -3053,11 +3153,11 @@ rewritten.
   these itself; reusing the checker's literal machinery was rejected as too
   large for what it buys.
 - **D5, kind and type split** ([comptime-kind]): kinds are `X.kind is K` /
-  `[when X.kind]`, resolved only against `core.comptime`'s kinds, which fixed
+  `[when X.kind]`, resolved only against `std.core.comptime`'s kinds, which fixed
   a silent wrong answer (a user `struct Union` read as the kind under the old
   `field.type is Union`). `field.type is …` is a type test only; a kind word
   there errors "`Struct` is a kind, not a type". The bound keeps `<T is
-  Struct>`. In `core.comptime` the `Type` union became `Kind`, `comptime
+  Struct>`. In `std.core.comptime` the `Type` union became `Kind`, `comptime
   struct Type {}` was added, and `Field`/`Arm` gained `kind: Kind`.
 - **D6, ordinary generics** ([comptime-generic-fn]): an expanded-in-place fn
   may take ordinary `<T>`; the result is an ordinary generic fn. A generic
@@ -3094,7 +3194,7 @@ stamp drops template warnings).
 
 **Tests**: `crates/salvo-core/tests/comptime_tests.rs`, 23 tests tagged with
 the rule labels. Full `cargo test --no-fail-fast` green at 1913 tests in a copy
-of the tree without the user's untracked `std/args/parse.sv` (with it, 33
+of the tree without the user's untracked `lib/std/args/parse.sv` (with it, 33
 Kotlin failures, all the pre-existing `OptCodec(__c_T)` wire-codec defect in
 the generated `parse.kt`). Probes over the motivating `describe<T>` /
 `print_help` program run on Rust; a parse.sv-free probe printed identically
@@ -3113,7 +3213,7 @@ implicits is skipped" (lifted by [implicit-recursive]).
 
 ### 2026-10-19 — `type` as a struct-literal field label, and the leading-dot shorthand inside a `type` alias's own union-arm list
 
-Two follow-on language fixes while the user built `std/args/parse.sv`, a
+Two follow-on language fixes while the user built `lib/std/args/parse.sv`, a
 command-line argument parser using a namespaced union (`namespace Arg {
 struct Int {} struct Str {} struct Bool {} type Type = .Int | .Str | .Bool
 }`).
@@ -3123,7 +3223,7 @@ struct Int {} struct Str {} struct Bool {} type Type = .Int | .Str | .Bool
 fixed). `type` is a hard keyword (`TokenKind::KwType`, unconditional —
 unlike the genuinely *contextual* `namespace`/`effects`, which the lexer
 never tokenizes specially at all); `[comptime-fields]` already carves out
-`type` as a *field-declaration* name for `core.comptime`'s `Field.type`
+`type` as a *field-declaration* name for `std.core.comptime`'s `Field.type`
 (`parse_field_decl`, lookahead-gated on `KwType` immediately before `:`),
 but the identical carve-out did not exist on the struct-*literal* side.
 Two gaps, both in `crates/salvo-syntax/src/parser.rs`, both closed with the
@@ -3257,25 +3357,25 @@ no `Rename`/`PrepareRenameRequest` handler at all. Added both, in
   name (`size`) refuses with an error and `prepareRename` answers `null`.
 
 **The `mut_str` example turned out to be real, not a demonstration case.**
-`std/core/string.sv`'s `Mut Str` constructor had already been migrated from
+`lib/std/core/string.sv`'s `Mut Str` constructor had already been migrated from
 a plain `fn mut_str(...)` to the type-named-fn form `fn Mut Str(...)`
 [fn-type-named] in uncommitted work before this session, but only one of
-its ~14 call sites across `std/` and `examples/` had been updated to match
+its ~14 call sites across `lib/std/` and `examples/` had been updated to match
 — the rest still wrote `mut_str(...)`, which **[fn-type-named] says is
 never valid**: "a capitalized callee is a type-fn lookup... lowercase
 callees are ordinary value-fns," with no snake_case fallback for a
 type-named fn's call-site spelling. So most of std failed to resolve
-`mut_str` at all. Finished the migration: every `.sv` call site (`std/`,
+`mut_str` at all. Finished the migration: every `.sv` call site (`lib/std/`,
 `examples/*/salvo/`), every inline Salvo source string in the backend test
 suites (`crates/salvo-backend-{kotlin,rust}/tests/codegen_tests.rs`,
 `crates/salvo-cli/tests/analyze_tests.rs` — ~30 occurrences, mechanical
 `mut_str(` → `Mut Str(` since the fn is otherwise unchanged), two stale
-`[mut_str]` doc-references (`std/core/string.sv`, `std/core/bytes.sv` — now
+`[mut_str]` doc-references (`lib/std/core/string.sv`, `lib/std/core/bytes.sv` — now
 `[Mut Str]`), and two docs pages (`Data-and-Types.md`,
 `Compile-Time-Functions.md`). `crates/salvo-core/tests/str_tests.rs`
 declares its own self-contained `intrinsic fn mut_str` prelude for checker
 unit tests, unrelated to std's real declaration — left alone.
-`std/core/sorted.sv`'s `to_str<T>(set: SortedSet<T>, ...)` overload was
+`lib/std/core/sorted.sv`'s `to_str<T>(set: SortedSet<T>, ...)` overload was
 *not yet* touched by the half-finished migration (still called the old
 plain name as if it still existed, same bug) — fixed in the same pass.
 
@@ -3298,7 +3398,7 @@ not generate-in-place); every example's checked-in `rust/`/`kotlin/` trees
 (all 15 — `string.sv`'s change reaches nearly every container's `to_str`);
 10 insta snapshots across `salvo-backend-kotlin`/`salvo-backend-rust`
 (golden fixtures embedding std's emitted code) and 3 in `salvo-syntax`
-(parser AST snapshots of `std/core/{string,list,bytes}.sv`) plus one in
+(parser AST snapshots of `lib/std/core/{string,list,bytes}.sv`) plus one in
 `salvo-core` (`golden_tests__ir_files`, the IR dump of
 `examples/files/salvo/main.sv`) — every diff reviewed line-by-line before
 `INSTA_UPDATE=always`, confirmed to be exactly the rename (plus the AST
@@ -3378,7 +3478,7 @@ passing at the obligations-checker fix); docs/language/Functions.md's
 **Naming note, in case a *new* IR node is ever actually needed for a
 future case**: before finding `block_expr`, several names for a
 hypothetical sequencing/let-expression `ExprKind` variant were checked for
-collisions and rejected — `Seq`/`Sequence` (collides with std's `core.seq`
+collisions and rejected — `Seq`/`Sequence` (collides with std's `std.core.seq`
 and the generated actor `Sequencer`/`Sequencing` types in `examples/`),
 `Scope` (collides with `ModuleScope` and the resolver's own "scope" vocabulary),
 `With` (collides with `[with-clause]`, `use H() with D()`). `Prelude`,
@@ -3457,10 +3557,10 @@ nothing param-default-specific needed building for it).
 module started failing to resolve `mut_str` ("no function named `mut_str` is
 in scope"). Bisected by reverting each change in turn (down to a worktree
 checkout of HEAD for a byte-for-byte comparison) before finding the actual
-cause: `std/core/string.sv` carried a stray, unrelated, uncommitted edit
+cause: `lib/std/core/string.sv` carried a stray, unrelated, uncommitted edit
 (`export fn mut_str(…)` → `export fn Mut Str(…)`, turning a plain fn into a
 type-named one) left over from a prior session — nothing to do with this
-feature. `git checkout -- std/core/string.sv` fixed it. Lesson for the
+feature. `git checkout -- lib/std/core/string.sv` fixed it. Lesson for the
 gotchas list: when a change that should be inert for some other area breaks
 that area anyway, check `git diff` against the *whole* working tree before
 assuming the new code is the cause — an unrelated dirty file is cheaper to
@@ -3485,32 +3585,32 @@ literal (`b: Int = "x"` on a struct field is accepted exactly as a defaulted
 parameter of the same shape is) — a declaration-time literal/expected-type
 check gap, not anything-goes.
 
-### 2026-10-18 — `args` moved out of `core` into its own module
+### 2026-10-18 — `args` moved out of `std.core` into its own module
 
-The command-line-arguments surface was placed in `core` (so `args()`/`HostArgs`
+The command-line-arguments surface was placed in `std.core` (so `args()`/`HostArgs`
 needed no import); the user moved it out the same day. It is now the top-level
-std module `args`, brought in with `import args` — like `time`, which is also
+std module `args`, brought in with `import std.args` — like `time`, which is also
 imported rather than implicit. A program that uses `HostArgs` without the
 import now gets a resolution error with the quick-fix "add `import
-args.HostArgs`".
+std.args.HostArgs`".
 
-The move: `std/core/args.sv` → `std/args.sv`, host impls
-`std/platform/core/args.{rs,kt}` → `std/platform/args.{rs,kt}` with their ABI
-module/package names following the path (`crate::args` /
-`crate::platform_args` on Rust, `salvo.args` / `salvo.platform.args` on
-Kotlin), and the generated `std/platform/args.sv.{rs,kt}` regenerated via
+The move: `lib/std/core/args.sv` → `lib/std/args.sv`, host impls
+`lib/platform/std/core/args.{rs,kt}` → `lib/platform/std/args.{rs,kt}` with their ABI
+module/package names following the path (`crate::std_args` /
+`crate::platform_std_args` on Rust, `salvo.std.args` / `salvo.platform.std.args` on
+Kotlin), and the generated `lib/platform/std/args.sv.{rs,kt}` regenerated via
 `salvo platform generate --backend '*'` (which re-bumped the std platform ABI
-hash across all `std/platform/**.sv.{rs,kt}`). The name-based
+hash across all `lib/platform/std/**.sv.{rs,kt}`). The name-based
 `RuntimeFeatures::args` detector was unaffected (it keys on the names `Args` /
 `HostArgs`, not the module path).
 
 One real collision surfaced and was fixed: the Kotlin argv **runtime holder**
 file was emitted as `args.kt`, which at top level clashed with the `args`
-module's own emitted `args.kt` (under `core.args` it had been `core/args.kt`,
+module's own emitted `args.kt` (under `std.core.args` it had been `core/args.kt`,
 no clash). Renamed the holder to `runtime/hostargs.kt` (and its emitted
 `hostargs.kt`), matching the `hosttime.kt`/`hoststreams.kt` runtime-file
 convention. Verified byte-identical argv output on both backends with `import
-args`; docs/spec updated (`[cli-args]`, the Effects-and-Handlers narrative, both
+std.args`; docs/spec updated (`[cli-args]`, the Effects-and-Handlers narrative, both
 backend specs).
 
 ### 2026-10-18 — `salvo init`: scaffolding a project
@@ -3574,15 +3674,15 @@ section and key and how they interact; `Modules.md` now points to it.
 
 ### 2026-10-18 — Command-line arguments: the `Args` effect
 
-*(Superseded the same day — `args` was moved out of `core` into its own
+*(Superseded the same day — `args` was moved out of `std.core` into its own
 imported module; see the top entry. The paths and "no import" below describe
 the original landing.)*
 
 Reading the process's command line is a std capability, not a global (user
 decision: "globally accessible state is antithetical to the locality value of
-salvo; the effect version, option B"). `core.args` declares
+salvo; the effect version, option B"). `std.core.args` declares
 `effect Args { fn args() -> List<Str> }` and
-`threadsafe platform handler HostArgs() of Args`; both are in `core`, so a CLI
+`threadsafe platform handler HostArgs() of Args`; both are in `std.core`, so a CLI
 tool writes `use HostArgs()` and calls `args()` without an import. `args()`
 answers the arguments **after the program name** — the one form both backends
 produce identically — and the two hosts' argv conventions are reconciled inside
@@ -3590,11 +3690,11 @@ the handler, not in the language.
 
 What it cost, and where the backends diverge. Rust was free: `std::env::args()`
 is reachable from anywhere, so `HostArgs` reads `.skip(1)` and no entry changes
-(`std/platform/core/args.rs`). The JVM delivers argv **only** through
+(`lib/platform/std/core/args.rs`). The JVM delivers argv **only** through
 `fun main(args: Array<String>)`, so a program that uses `Args` now emits that
 entry shape and captures the array into a `salvo.SalvoArgs` holder
 (`runtime/args.kt`) beside the protocol prelude, where `HostArgs`
-(`std/platform/core/args.kt`) reads it back. The Salvo `main` signature is
+(`lib/platform/std/core/args.kt`) reads it back. The Salvo `main` signature is
 unchanged (a `main(args)` entry form was considered and rejected, decision 4) —
 only the *emitted* Kotlin entry changes, and only when the effect is used, so a
 non-CLI program is byte-for-byte as before. Gated on a new
@@ -3611,7 +3711,7 @@ a space (`run_forwards_command_line_arguments_to_both_backends`,
 `crates/salvo-cli/tests/run_tests.rs`). Rules: [cli-args] in LANGUAGE_SPEC,
 backend interpretations under [kt-entry]/[rs-entry]; narrative in
 `docs/language/Effects-and-Handlers.md`. The std platform ABI hash bumped
-(`salvo platform generate --backend '*'`), so every `std/platform/**.sv.{rs,kt}`
+(`salvo platform generate --backend '*'`), so every `lib/platform/std/**.sv.{rs,kt}`
 header changed — expected when the platform surface grows.
 
 ### 2026-10-18 — Terminal lambda arguments (`map(xs, (e) -> ...)`)
@@ -3796,14 +3896,14 @@ values," recorded as a ROADMAP **DECISION**.
 - **Synthetic imports for expanded members** (empty span at offset 0, as
   prereq does): a member the consuming file cannot already name gets one. The
   decision reuses a reduced effect-name resolution ladder (own module, the
-  tested module for an annex, named import, whole-module import, `core.*`); a
-  `core.*` effect is implicit everywhere and needs no import, a local effect of
+  tested module for an annex, named import, whole-module import, `std.core.*`); a
+  `std.core.*` effect is implicit everywhere and needs no import, a local effect of
   the alias's own module does. **Gotcha found while building:** the first cut
   keyed the import only on explicit imports of the alias's file, so an implicit
-  `core.*` member (`Console`) rode with the alias's file and produced a wrong
+  `std.core.*` member (`Console`) rode with the alias's file and produced a wrong
   `import caps.Console`. Fixed by indexing *effect* declarations too
   (`Index::effect_file`) and making `ensure_visible` skip when the member
-  already resolves to the same file from the consuming file (core.* / own
+  already resolves to the same file from the consuming file (std.core.* / own
   module / an existing import) — the prereq pass's exact shape. A second gotcha:
   a leftover `import mod.Alias` resolved to nothing once the alias was dropped,
   so the pass now also drops any import that names an alias.
@@ -3967,10 +4067,10 @@ prerequisite in, `Streams`' members too. [effect-member-completion].
 ### 2026-10-14 — `Path`'s field `text` renamed to `value`; `NodeId.id` → `value`
 
 User decision: a single-value **wrapper** struct's field should be `value`.
-Renamed `std/fs/path.sv`'s `Path { text: Str }` to `value` and swept every use:
-path.sv's own members (`p.value`, the `path(...)` literal), `std/fs/restricted.sv`'s
+Renamed `lib/std/fs/path.sv`'s `Path { text: Str }` to `value` and swept every use:
+path.sv's own members (`p.value`, the `path(...)` literal), `lib/std/fs/restricted.sv`'s
 11 `Path { value: real }` literals, and the `FS_PROGRAM`/fs-surface test demos
-in both backend codegen test files. Later also renamed `std/net.sv`'s
+in both backend codegen test files. Later also renamed `lib/std/net.sv`'s
 `NodeId { id: Long }` to `value` (user confirmed `NodeId` is such a wrapper):
 the decl, its three `NodeId { value: … }` literals, and the six `.value`
 accesses on `NodeId` receivers. The sibling `Node.id` field (type `NodeId`) is
@@ -4085,7 +4185,7 @@ retired, so a leading `:` is free).
   `MakeNone` for a `None`-typed value into an optional, else `Rewrap`. `fn
   elvis` unchanged (reads the same `PickTest`/`elvis_picks`/`pick_left`/
   `elvis_widen`, now always value-arm 0).
-- **Nothing in std/examples used `??:`/`:?`/`|>`** (the pipe was new and std's
+- **Nothing in lib/std/examples used `??:`/`:?`/`|>`** (the pipe was new and std's
   `?:` are all first-arm `T?` already), so the rewrite surface was tests +
   docs: `elvis_tests.rs` (dropped the backward/multi-arm tests, kept/adjusted
   the first-arm ones), `parser_tests.rs` (elvis wrap tests to `?:`, pipe tests
@@ -4316,7 +4416,7 @@ into a `state { }` block — std (`fs/mem`, `net`, `runtime`, `runtime/routing`,
 `runtime/timers`, `runtime/streams`, `time`), `modules/aws`, examples
 (regenerated both trees), the inline `.sv` snippets across the backend/CLI/core
 test files (a `tmp/wrap_state.py` for the clean cases, by hand for `format!`
-doubled-brace and single-line snippets), and the std/aws platform host projects
+doubled-brace and single-line snippets), and the lib/std/aws platform host projects
 (`salvo platform generate`). Snapshots re-accepted were all the
 `ty: Named{…}` → `ty: Some(Named{…})` representation change and `main:line:col`
 trap-location line shifts. Full warm suite incl. kotlinc/rustc e2e green.
@@ -4522,7 +4622,7 @@ QUALIFIERS.md). Three pieces landed this stretch, each its own commit:
   Key finding — a `-> +Q T` establishment parses into `f.constructs` (the
   parser lifts the `+Q` out of the return), so a provenance type-fn is already
   a `[qual-ctor-fn]` constructor and the same-file rule applies for free.
-  std/core/result.sv gained `Ok`/`Err` alongside lowercase `ok`/`err`.
+  lib/std/core/result.sv gained `Ok`/`Err` alongside lowercase `ok`/`err`.
 
 - **Key-value pair arguments** [col-pairs]: `k: v` at a call parses to a
   2-tuple filling a `(K, V)[]` variadic (`Map("a": 1)`), all-or-nothing with
@@ -4560,7 +4660,7 @@ aliases. Landed as one commit.
 
 - **The ten core collection constructors** (`List`/`Mut List`, `Set`/`Mut
   Set`, `Map`/`Mut Map`, `SortedSet`/`Mut SortedSet`, `SortedMap`/`Mut
-  SortedMap`) are now the real bodyless primitives in `std/core/{list,set,map,
+  SortedMap`) are now the real bodyless primitives in `lib/std/core/{list,set,map,
   sorted}.sv`, named `fn [Mut] <Type><…>(…)`. The lowercase `*_of` names are
   gone. Signatures, generics, `canbe linear`, implicits (`?Hashed`/`?Ordered`)
   and `+NonEmpty` establishment are unchanged — only the name moved.
@@ -4575,7 +4675,7 @@ aliases. Landed as one commit.
   `FnDecl.name.name` both emitters dispatch on. The set/map/sorted
   constructors stay **platform**; their generated `<name>_platform` wrapper
   (naming.rs) becomes `Map_platform`/`Mut_Map_platform`/… and the hand-written
-  host functions in `std/platform/core/{map,set,sorted}.{rs,kt}` were renamed
+  host functions in `lib/platform/std/core/{map,set,sorted}.{rs,kt}` were renamed
   to match (`map_of`→`Map`, `mut_map_of`→`Mut_Map`, …). The generated
   `.sv.{rs,kt}` ABI wrappers regenerate on build; the aws module's vendored
   copies were regenerated with `salvo platform generate --backend '*'`.
@@ -4867,7 +4967,7 @@ brackets everything prior as that operator's subject.
   (like the other binary tiers) rather than a right recursion, and each
   operator's right side parses one tier up (`parse_additive`), not a recursive
   elvis. `a ?: b ?: c` is `(a ?: b) ?: c`, so a chain of picks each handling
-  the arms the previous left behind reads left to right. No std/example used a
+  the arms the previous left behind reads left to right. No lib/std/example used a
   chained elvis, so nothing migrated.
 - **A newline brackets the left** ([elvis-wrap] refined): a forward `?:` may
   start a continuation line (added last session), and now a `return`/escape
@@ -5402,8 +5502,8 @@ deleted); the parser counts a run. What this **removed**:
   pick. Deleted outright (user: no need to keep in the ROADMAP; the existing
   syntax is enough until a real site reads worse without the sugar).
 - **Predicate picks** (`i Idx(heap)?: break`, `[pick-qualifies]`) — the
-  runtime-`qualifies` form on a non-union subject. std's two users (`std/heap.sv`
-  sift, `std/core/list.test.sv`) were rewritten with `if …is Idx(…)` guards and,
+  runtime-`qualifies` form on a non-union subject. std's two users (`lib/std/heap.sv`
+  sift, `lib/std/core/list.test.sv`) were rewritten with `if …is Idx(…)` guards and,
   for the heap, an `if`-expression that keeps the `Idx` claim across the
   conditional child choice (reassigning a narrowed local strips its dependent
   claim, so the choice is a fresh binding, not a mutation).
@@ -5586,7 +5686,7 @@ session start). 1760 tests green; `STD_CACHE.md` retired into this entry.
   ROADMAP §5 as a future successor**, not built: A recovers essentially all the
   cost per session, and B's cross-run persistence is not worth its front-half
   refactor yet.
-- **Gotcha reconfirmed**: a `std/*.sv` edit needs `touch
+- **Gotcha reconfirmed**: a `lib/std/*.sv` edit needs `touch
   crates/salvo-cli/src/analysis.rs` before `cargo build`, and here also means
   the cache's embedded std is only as fresh as the last such rebuild.
 
@@ -5595,7 +5695,7 @@ session start). 1760 tests green; `STD_CACHE.md` retired into this entry.
 Phase 3's enabling rule for the std front-half cache (ROADMAP §5 step 3),
 built. The user chose **option (a)**: require *total* clauses, after the design
 point surfaced that a partial clause does not pin unmentioned parameters.
-Language rule, `std/` sweep, checker enforcement, tests, spec. **1759 tests
+Language rule, `lib/std/` sweep, checker enforcement, tests, spec. **1759 tests
 green; no emitted code changed** (the clauses equal the inferred contracts, so
 every codegen golden held).
 
@@ -5645,7 +5745,7 @@ every codegen golden held).
   a front-half architecture change (a std-as-library boundary), not an
   increment. Measured prize: `salvo analyze --src demo` is ~460ms for 42 std +
   1 user file, nearly all std. Left for a user design pass (ROADMAP §5 step 3).
-- **Gotcha confirmed**: a `std/*.sv` edit does not rebuild the embedded std
+- **Gotcha confirmed**: a `lib/std/*.sv` edit does not rebuild the embedded std
   unless the file holding `include_dir!` (`analysis.rs`) is touched — cargo has
   no `rerun-if-changed` for the embed. Tests run against embedded std, so the
   touch-and-rebuild is required before trusting them.
@@ -5734,7 +5834,7 @@ diagnostic, and diagnostics latency).
   annotated std surface stops depending on any project. This is enforcement,
   not a language-surface change (so no DECISION), but it is a new rule — a
   neutral label such as `[deduce-std-explicit]` in LANGUAGE_SPEC.md — and the
-  `std/` sweep that adds the clauses must flag any fn whose inferred contract
+  `lib/std/` sweep that adds the clauses must flag any fn whose inferred contract
   is awkward to state by hand rather than guess at it. Once it holds, std's IR
   is program-independent too, which lets the Kotlin std classes cache
   ([kt-std-library]) drop its "verify byte-identical" fallback and gives Rust a
@@ -5848,7 +5948,7 @@ for sign-off ("Proceed"). [rs-path], [rs-loc], [ref-handle],
 
 The design recorded in the entry below, built in four committed steps, with
 the user's further calls: `NotEq` and `update2` retired, `NotSame` in a new
-module `core.ref` with an intrinsic identity predicate, the container's
+module `std.core.ref` with an intrinsic identity predicate, the container's
 type kept on the `ref` qualifier in the IR. [rs-path], [ref-notsame],
 [elem-distinct] (re-based), [col-update].
 - **IR** (`salvo_ir::build::refs`): a pass after the build gives every `ref`
@@ -5882,7 +5982,7 @@ type kept on the `ref` qualifier in the IR. [rs-path], [ref-notsame],
 - **Emitter fixes found on the way**: a lambda parameter now shadows a
   handle of the same name (the borrowing example's `update2` lambda read an
   out-of-scope `__h5`); a generic-container refusal reports once.
-- **`same` is private** to `core.ref`: exported, it made a user's own
+- **`same` is private** to `std.core.ref`: exported, it made a user's own
   `same<T>` an ambiguous call. Two codegen tests had such a fn (renamed).
 - Sweep: `examples/borrowing` §3 rewritten on `NotSame` (output
   byte-identical), every example and both host projects regenerated,
@@ -5915,7 +6015,7 @@ meaningless without the path it indexes. Options weighed:
 
 ### 2026-10-10 — A total `at` at an `Idx`
 
-User request, closing the last open point of the `ref(c)` rework: `core.list`
+User request, closing the last open point of the `ref(c)` rework: `std.core.list`
 gains `at(list: List<Mut T>, index: Idx(list) Int) -> ref(list) Mut T`, the
 handle twin of the total `get` [col-idx], ranked above the optional `at` by
 its qualifier. `update`/`update2` mint with it, so on Rust they are back to
@@ -5956,7 +6056,7 @@ What landed, in pipeline order:
   accepted by a `proj → ref` promotion distributed over union arms
   (`has_ref_arm`/`promote_proj_to_ref`), and the value's recorded type is
   rewritten so the emitters see the handle. `elem_mint_index` recognizes
-  `core.list`'s `at` beside `get`. **[ref-anchor]**: `check_elem_handle_pairs`
+  `std.core.list`'s `at` beside `get`. **[ref-anchor]**: `check_elem_handle_pairs`
   takes per-argument anchors (`ref_anchor_of`); an anchored argument must be
   a `ref` handle whose links include the container argument's own (root and
   path), and two arguments anchored at one container may alias with no proof.
@@ -5982,7 +6082,7 @@ What landed, in pipeline order:
   `Map`), so the list locator machinery applies unchanged and a handle chains
   through a map. **Finding 1a is closed**: the Step-2 confirmed-refusal test
   became `rustc_compiles_and_runs_a_mutable_handle_chained_through_a_map_at`.
-  `std/runtime.sv`'s 29 mutating `get` binds became `at`.
+  `lib/std/runtime.sv`'s 29 mutating `get` binds became `at`.
 - **Sweep**: `examples/borrowing` rewritten (`strike`/`rotate` as `ref(c)`
   signatures; output byte-identical to before on both backends), every
   example's generated code, the std and `modules/aws` host projects, the
@@ -6019,18 +6119,18 @@ narrower than the plan anticipated:
   an `intrinsic: bool` (threaded from `TypeDecl.intrinsic`; the struct
   caller passes `false`) and rejects `entry.by` up front. [obligation-by],
   check.rs `check_obligation_list`.
-- **Applied to the scalars** in `std/core/basic.sv`: `Int`, `Long`,
+- **Applied to the scalars** in `lib/std/core/basic.sv`: `Int`, `Long`,
   `Byte`, `Char`, `Bool` claim `: Ordered<self>, Eq<self>, Hashed<self>,
   ToStr<self>`; `Double`, `Float` claim only `: Eq<self>, ToStr<self>`
   (no total order over NaN, so no `cmp`/`hash` — consistent with
   `[cmp-groups]`). `Any`/`Never` claim nothing. The groups live in
   `compare.sv`/`basic.sv` and resolve cross-module with no import needed
-  (`core.*` is implicitly visible, the same way `Str : Iter<self, Char>`
+  (`std.core.*` is implicitly visible, the same way `Str : Iter<self, Char>`
   already works); the circular-dependency worry (basic ← compare) did not
   materialize. `Str` already carried `: Iter<self, Char>` and was left as
   is for this cut — folding its `cmp`/`eq`/`hash`/`to_str` into a clause is
   a follow-up, noted in ROADMAP.
-- **Behavior-neutral**, as the step requires: `salvo analyze --src std`
+- **Behavior-neutral**, as the step requires: `salvo analyze --src lib`
   clean, and the full suite (incl. every kotlinc/rustc golden) unchanged —
   obligations add no scope, no dispatch and no runtime representation, so
   emitted code is byte-identical for every program that compiled before.
@@ -6102,7 +6202,7 @@ The user's reading: for the **basic types** (`Byte`, `Int`, `Long`,
 `Float`, `Double`, `Bool`, `Char`) the intrinsic `cmp`/`eq` are wrappers
 around the host's operators, there to be passed to generic code; for every
 other type an operator is sugar for the function in scope. And `Str` is not
-basic: it is a `platform type` of `core.string`, so treating it as half
+basic: it is a `platform type` of `std.core.string`, so treating it as half
 basic (native `==`, called `cmp`) was rejected in favour of one rule.
 Built: the IR writes every operator on basic types as an `Op` (new `Eq` and
 `NotEq`), and every operator on anything else as a call of the resolved
@@ -6263,7 +6363,7 @@ What it took, beyond the port itself:
   `__name_N` temporaries, `loop` + `matches!` for passes, `match &x {..}` for
   union narrowing, `__depN` handler fields, `__Priv_H`/`__Fac_H` for mixed
   handlers. About 100 textual assertions and 5 golden snapshots were rewritten
-  to the new shapes; `examples/*/rust`, `std/platform` and
+  to the new shapes; `examples/*/rust`, `lib/platform` and
   `modules/aws/salvo/platform` were regenerated.
 * **Behaviour that changed on purpose**: a value-position distinct-pair call
   is lowered rather than refused; the `x!` unwrap borrows where its position
@@ -6345,7 +6445,7 @@ Builder facts the remaining cases forced, all backend-neutral:
 
 Kotlin-side: primitive `cmp` sign tests render as operators, scalars
 interpolate bare in templates, the platform `Mut<Name>` convention applies
-to `List`/`Str` too (`salvo.platform.core.list.MutList`), an intrinsic
+to `List`/`Str` too (`salvo.platform.std.core.list.MutList`), an intrinsic
 handler is a codegen error rather than skipped, and `@Suppress` marks any fn
 whose body casts.
 
@@ -6402,7 +6502,7 @@ platform handler's adapter is emitted in the handler's own module (the aws
 glue declares `HostSqs` away from `Sqs`). Every salvo-cli test binary passes
 under the flag but the stale-check against the AST-generated host projects.
 
-Also: `std/platform/runtime.kt` prints a fault's host stack when
+Also: `lib/platform/std/runtime.kt` prints a fault's host stack when
 `SALVO_FAULT_TRACE` is set (a debugging aid that found the deadline NPE).
 Cost and lesson in the timelog report: about half the session went to
 runtime-visible divergences (locks, narrowing placement, union arms) that no
@@ -6642,7 +6742,7 @@ invariant).
   and an adapter appends the nested fills after the fn's explicit arguments
   (`forwarded_implicit_for` takes the callee's key); Kotlin's adapter is a
   lambda when there are nested fills, `::f` otherwise.
-- **In Salvo** (`core.compare`, `core.basic`): `eq`/`cmp`/`hash` for `List<T>`
+- **In Salvo** (`std.core.compare`, `std.core.basic`): `eq`/`cmp`/`hash` for `List<T>`
   (element by element, lexicographic) and for pairs and triples (one implicit
   per part, of one name [implicit-same-name]), and `to_str` for tuples. A
   `List<Person>` now compares by `Person`'s *declared* `eq`.
@@ -6703,7 +6803,7 @@ decisions).**
   the intrinsic identities waits on a benchmark (ROADMAP §0j step 7). Options
   put and not taken: the boundary as entries lists, refusing sets/maps at the
   boundary, and a Salvo slab with generated host factories.
-- **Built**: std's host files `std/platform/core/{set,map,sorted}.{kt,rs}`
+- **Built**: std's host files `lib/platform/std/core/{set,map,sorted}.{kt,rs}`
   implement the collections — an insertion-ordered slot list with tombstones,
   each entry's digest cached, a bucket index from digest to slots, compaction
   past `2·live + 8`; the sorted pair a sorted list with bisection. Cached
@@ -6739,7 +6839,7 @@ decisions).**
   variable (reified), so a variadic tail at one is `arrayOf<Any?>(…) as
   Array<T>`, and over `Pair<K, V>` spells the element type [kt-variadic]. A
   Given intrinsic implicit (`Mut Set(hash = hash, eq = all_same)`) renders
-  as its lowering on Rust (it used `use crate::core_compare::hash`). A
+  as its lowering on Rust (it used `use crate::std_core_compare::hash`). A
   `rename` in a module with a test annex matched its target twice (the annex
   sees the module's fns again) and failed; `match_overload` dedupes by key.
   The two-entry `to_map` dropped `V canbe linear` (it clones the pairs).
@@ -6779,8 +6879,8 @@ ROADMAP §0j).**
   nothing and coerces to it. Kotlin needed nothing.
 - **Became Salvo**: `net.route_frames` hands the host the named fn
   `forward_frame` through a new platform fn `bind_outbound` (host code in
-  `std/platform/net.{kt,rs}`), which decodes the endpoint and sends
-  `send_frame` to the `Outbound` actor; `core.actor`'s `watch` and `on_idle`
+  `lib/platform/std/net.{kt,rs}`), which decodes the endpoint and sends
+  `send_frame` to the `Outbound` actor; `std.core.actor`'s `watch` and `on_idle`
   take the core's token out of the reply token with a new runtime intrinsic,
   `reply_token<T>(Reply<T>) -> Token?` [runtime-handles], and register it.
   The builders `watch`/`on_idle` passed had been dead since the scheduler
@@ -6793,8 +6893,8 @@ ROADMAP §0j).**
   "named message-building fn" cannot write them. They stay intrinsic until
   the user picks among the options recorded there.
 - Fell out: the scheduler drivers in both `runtime_tests.rs` called the
-  deleted shims and now register through the core (`crate::runtime::watch`,
-  `salvo.runtime.watch`). The first full run after the change **hung for over
+  deleted shims and now register through the core (`crate::std_runtime::watch`,
+  `salvo.std.runtime.watch`). The first full run after the change **hung for over
   25 minutes** in Kotlin's `runtime_tests` (stale drivers that no longer
   compiled); the rerun after fixing them took 3m33. Not diagnosed further.
 - Tests: `a_platform_fn_keeps_a_named_fn` (host keeps the fn and calls it
@@ -6811,14 +6911,14 @@ stamped `to_str<T>(…, ?ToStr<T>)` sit side by side. One Rust defect fell out:
 inside the stamped `to_str`, interpolating a `List<T>` field called the
 list's `to_str` by its bare name, which the fn's own implicit `to_str`
 shadows (E0057); the interpolation path now spells the path
-(`crate::core_list::to_str`) as a call already did [rs-shadowed-call], and
+(`crate::std_core_list::to_str`) as a call already did [rs-shadowed-call], and
 `fn_module_path` finds a declaration of another file by its key. Test: one
 program e2e on both backends. **1716 tests.**
 
 **Shrinking the backends, steps 6g0 and 6g: one `Idx` for every container,
 and the buffers (2026-10-05, ROADMAP §0j; built on the user's decisions
 recorded the same day).**
-- **`core.index`** holds `Idx<C canbe linear>(c: C) of Int` and `NotEq`
+- **`std.core.index`** holds `Idx<C canbe linear>(c: C) of Int` and `NotEq`
   [col-idx]. `qualifies(index, c, ?size: (c: C) -> Int)`: the mechanism the
   decision preferred — `size` resolved where the claim is tested, at the
   container the slot binds, so nothing prints in the type. Built as a general
@@ -6827,23 +6927,23 @@ recorded the same day).**
   place and fills the implicits at a zero-width span on the first value
   argument (`PredicateCheck::implicits_at`); both emitters append them.
 - **What moving the claim cost**: the refinements that keep it are the
-  owner's, so they all moved to `core.index` and refine only what that module
-  can see — `core.list`'s `replace` became an exported platform fn (its
+  owner's, so they all moved to `std.core.index` and refine only what that module
+  can see — `std.core.list`'s `replace` became an exported platform fn (its
   private `replace_at` could not be refined from elsewhere), and the buffers'
   operations are exported Salvo fns. A refinement's own type parameters now
   take the leading positions when it is matched (inside `Idx<C>`, `refn
   add<T>` lined `T` up behind `C` and matched nothing). `+Idx` is trusted only
-  in its own file, so `indices`/`rev_indices` moved too, and `core.list`'s
+  in its own file, so `indices`/`rev_indices` moved too, and `std.core.list`'s
   `find_first`/`find_last`/`index_of`/`last_index_of` now prove their result
   through `indices` (no `while`, no `!`) and `binary_search` tests the host's
   answer: their results are `(Idx(list) Int)?`.
 - **Deque** gains the total `get` and `replace`; both total reads are the
   host's `get_at`, which **fixes the recorded `List<T?>` defect** (a stored
   `None` read through `!` on the JVM's flattened `T??`).
-- **`core.buffer`** [buffer-type]: `IntBuffer`/`LongBuffer` exactly as
+- **`std.core.buffer`** [buffer-type]: `IntBuffer`/`LongBuffer` exactly as
   decided, over private `int_*`/`long_*` platform fns (two platform fns of one
   module may not overload), `iter` for the `Iter` obligation, host files
-  `std/platform/core/buffer.{kt,rs}` (`IntArray`/`Vec<i32>`).
+  `lib/platform/std/core/buffer.{kt,rs}` (`IntArray`/`Vec<i32>`).
 - **Rust fell out**: a qualified scalar parameter arrives `&i32`, so a
   platform fn's wrapper derefs it; a slot argument already a reference is
   reborrowed `&*heap` (std's heap tests bound `C` to `&mut Vec<T>`
@@ -6859,10 +6959,10 @@ recorded the same day).**
 
 **The buffers and a general `Idx` (2026-10-05, user decisions).**
 ROADMAP §0j steps 6g0 and 6g held the API. Decided: `IntBuffer` and
-`LongBuffer` in `core.buffer`, iterable, with `int_buffer(size, fill)`,
+`LongBuffer` in `std.core.buffer`, iterable, with `int_buffer(size, fill)`,
 `size`, an optional and a total `get`, `replace`, `clear(buf, fill)` and
 `to_str`; `noremote`; a bounds test per hash probe. And `Idx` generalized: its
-own module `core.index` (with `NotEq`), claiming an index of any container
+own module `std.core.index` (with `NotEq`), claiming an index of any container
 with a `size`, so the buffers need no `BufferIdx` of their own (which the
 first proposal had, because qualifiers overload by subject and both would be
 `of Int`). Left out until needed: a fallible `set`, a wire form.
@@ -6946,7 +7046,7 @@ copies on Kotlin (2026-10-05, ROADMAP §0j).**
   either would make mutable what a plain value may share (Kotlin's `copy` of
   a plain value is identity).
 - **Kotlin** [kt-field-canbe-mut]: one property, declared at the plain type;
-  a read typed `Mut` casts (`as salvo.platform.core.list.MutList<Int>`). A
+  a read typed `Mut` casts (`as salvo.platform.std.core.list.MutList<Int>`). A
   `Str canbe Mut` field is a codegen error: `StringBuilder` and `String`
   share no type but `Any`, where the data class's equality would compare a
   builder by identity. Rust erases `Mut` and needed nothing.
@@ -6965,7 +7065,7 @@ ROADMAP §0j step 2).**
 - **Bitwise operations are `bit_` functions** [op-bits] (user decision: not
   operators, since `&`, `|`, `^` and `>>` already mean other things):
   `bit_and`, `bit_or`, `bit_xor`, `bit_not`, `bit_shl`, `bit_shr`,
-  `bit_ushr`, for `Int` and `Long`, intrinsic in `core.basic`. Shift counts are
+  `bit_ushr`, for `Int` and `Long`, intrinsic in `std.core.basic`. Shift counts are
   taken modulo the width on both backends (Kotlin natively; Rust through
   `wrapping_shl`/`wrapping_shr`).
 - **Integer arithmetic wraps** [op-wrap] (A-6's overflow row, decided
@@ -6995,7 +7095,7 @@ recorded with its repro). Two std tests.
 **Shrinking the backends, step 5: the wall clock as a platform fn (2026-10-05,
 ROADMAP §0j).** `time.epoch_nanos` was an intrinsic lowered to the runtime's
 `SalvoTime`/`hosttime`; it is a `platform fn` with host files
-`std/platform/time.{kt,rs}`, and the clock code left both runtime files and
+`lib/platform/std/time.{kt,rs}`, and the clock code left both runtime files and
 both intrinsic tables (with the dead `needs_time` trigger, whose two names
 were no longer intrinsics). Found on the way: an ABI root (`modules/aws`)
 carried the *ABI mirror* of a std module with platform fns but not that
@@ -7073,7 +7173,7 @@ a value platform type, and what a third backend would have to write; the
 plan is ROADMAP §0j.
 - **Found**: the platform-type moves took every collection *member* out of
   the backends (Kotlin `intrinsics.rs` −190 lines, Rust −230; 601 lines of
-  host files in `std/platform/core`). Left: about 560 collection lines in the
+  host files in `lib/platform/std/core`). Left: about 560 collection lines in the
   Kotlin crate and 1,200 in the Rust crate (constructors, literals, identity
   carry, type-name tables, Rust element handles), plus 1,571 lines of
   runtime containers. Outside collections and actors: about 1,500–2,000
@@ -7138,7 +7238,7 @@ plan is ROADMAP §0j.
   in_stream }`, after a type name only (a bare `{ x }` is a set).
 - **`to_str` of a `Checked<T>`**, over its value's, so `${_}` on an `Err
   Checked<StreamError>` prints (std already had `StreamError`'s).
-- **`path` is `fs.path`** (`std/fs/path.sv`).
+- **`path` is `fs.path`** (`lib/std/fs/path.sv`).
 - **LSP** [lsp-coalesce]: it was already one long-running process; what made
   completion lag was that every keystroke re-analysed the program before the
   next message was read (~0.3 s each for the noticeboard), so a completion
@@ -7156,7 +7256,7 @@ plan is ROADMAP §0j.
   TODO's line has two typos (`out_strema`, `md`), which is why it did not
   resolve there.
 Then, on the user's answers: `encode`/`decode` moved from `net` to a
-top-level `codec` module (`std/codec.sv`; `net` imports it), and `fs` takes
+top-level `codec` module (`lib/std/codec.sv`; `net` imports it), and `fs` takes
 paths only as `Path`s — `Fs`'s members, the one-shots, `MemFs` and
 `RestrictedFs(root: Path)`; the `Str` overloads and the forwarding block
 went. `RawFs` (the host boundary) and the `FsError` structs keep text. Swept:
@@ -7178,7 +7278,7 @@ parameter, E0091). The user dropped 0.3. What 0.2 needed instead was a way
 between a handle and the runtime's index: four std-only intrinsics in
 `runtime` [runtime-handles] (`addr_index`, `addr_of`, `pool_index`,
 `pool_of`; a program cannot import `runtime`, so handles stay unforgeable).
-With them `core.actor`'s `eq` and `pool(size)` and 19 of `net`'s intrinsics
+With them `std.core.actor`'s `eq` and `pool(size)` and 19 of `net`'s intrinsics
 (`this_node`, `new_node`, `pool_at`, `add_route`, `deliver_frame`, `credits`,
 `connected`, `send_control`, `control_frame`, `node_left`, `local_protocols`,
 `set_peer_protocols`, `peer_protocol`, `pending`, `node_of`, the five `view_*`)
@@ -7189,7 +7289,7 @@ per backend and 17 scheduler shims per runtime went with them;
 them). What is still intrinsic, and why, is ROADMAP 0.2.
 
 **`SortedSet` and `SortedMap` as value platform types (2026-10-05, ROADMAP
-0.7).** Both in `core.sorted`, over the runtime's `SalvoSortedSet`/
+0.7).** Both in `std.core.sorted`, over the runtime's `SalvoSortedSet`/
 `SalvoSortedMap` (Rust) and `java.util.SortedSet`/`SortedMap` (Kotlin). 16
 lowerings per backend went; `SortedMap`'s `to_str` stays intrinsic, as
 `Map`'s does. What it took: two platform fns of one module may not overload,
@@ -7301,8 +7401,8 @@ and refused by kotlinc (ROADMAP 0g, open). New tests:
 `iterable_belongs_on_a_platform_type` (parser), and refusals in
 `platform_types_are_opaque_handles_in_three_kinds`.
 
-**`List` as a value platform type (2026-10-04, ROADMAP 0.7).** `core.list`'s
-operations are host code (`std/platform/core/list.*`), and `core.seq`'s
+**`List` as a value platform type (2026-10-04, ROADMAP 0.7).** `std.core.list`'s
+operations are host code (`lib/platform/std/core/list.*`), and `std.core.seq`'s
 `filter` over a `List` too (`platform/core/seq.*`); `map`/`reduce` over a
 `List`, `swap`, `drain`, `sort`/`mut_sort` (over a platform `sort_by`),
 `list_by`/`mut_list_by` and `to_str` are Salvo. `List`/`Mut List` stay
@@ -7324,7 +7424,7 @@ and the `SalvoTake` trait from Rust's `runtime/seq.rs`. What fell out:
   ([iter-for-native] now counts these platform types): without it a loop over
   `List<Addr<E>>` bound each element as `&usize`. That also wins back the
   native loop over `Bytes`, lost in the `Bytes` step.
-- Rust: a `core` platform fn's plain `T` is bounded `Clone` (the host copies);
+- Rust: a `std.core` platform fn's plain `T` is bounded `Clone` (the host copies);
   std's platform wrappers take `&mut dyn FnMut`, since an implicit `cmp`
   already arrives that way; the locator variant [rs-loc] of a borrowing
   platform fn answers the position (`get`: the index; otherwise found by
@@ -7337,26 +7437,26 @@ Thirteen tests that pinned old lowering text were updated.
 decisions the same evening: std's platform fns may answer a borrow of their
 argument; a collection's `to_str` is Salvo over a `?to_str` implicit (option
 (a)); `Set`/`Map` will get identity slots on platform types (option (a)).
-Built: `core.deque` is host code (`std/platform/core/deque.*`) plus Salvo
+Built: `std.core.deque` is host code (`lib/platform/std/core/deque.*`) plus Salvo
 constructors, `drain` (over `into_mut`/`remove_first`/`end_empty`), `to_str`,
 `to_list`, `to_deque` and `deque_by`; 15 lowerings per backend went. A
 linear element travels alone (`deque_of(first)`), since no obligation can sit
-in a variadic tail. What fell out on Rust: a `core` platform fn's type
+in a variadic tail. What fell out on Rust: a `std.core` platform fn's type
 parameters are unbounded (the host bounds them), a `T canbe linear` fn's are
 not bounded `Clone`, and no struct bounds its parameters (`Checked<T: Clone>`
 had made a linear `Checked` unnameable from such a fn) — the derives bound
 their own impls. A cleanup script took a shared Rust constructor arm with it
 (`array_by`/`list_by`/`set_by`/`map_by`/`to_set`); restored before the suite.
 
-**`Str` as a value platform type (2026-10-04, ROADMAP 0.7).** `core.string`'s
-operations are std host code (`std/platform/core/string.{rs,kt}`); `mut_str`
+**`Str` as a value platform type (2026-10-04, ROADMAP 0.7).** `std.core.string`'s
+operations are std host code (`lib/platform/std/core/string.{rs,kt}`); `mut_str`
 and `index_of(str, needle, from)` are Salvo (two platform fns may not overload
 each other, so the latter calls `index_of_from`). The type mappings stay, so
 `Str` still renders `String` and `Mut Str` Kotlin's `StringBuilder` — which
 the host types alias — and none of the emitter's `Str` handling (literals,
 interpolation, `&str` reads, the drop of `Mut`) changed. 25 lowerings per
 backend went, and Rust's `SalvoStr` helper trait. Found: two modules' platform
-wrappers of one name (`size_platform` in `core.bytes` and `core.string`)
+wrappers of one name (`size_platform` in `std.core.bytes` and `std.core.string`)
 were ambiguous through glob imports on Rust; calls now go through the module
 path. Seven tests that pinned the old lowering text were updated.
 
@@ -7366,7 +7466,7 @@ mutable kind `Mut<Name>`, no new syntax. Built: the checker accepts a
 copyable `canbe Mut` platform type as a value type (refusing `threadsafe`);
 Kotlin renders `Mut X` as the host's `MutX` and copies through the host
 package's `copy`; Rust asserts the derives a struct of it needs and treats it
-as derivable. `core.bytes` is platform code (`std/platform/core/bytes.*`),
+as derivable. `std.core.bytes` is platform code (`lib/platform/std/core/bytes.*`),
 both backends' 13 `Bytes` lowerings and its type mappings are gone, and
 `bytes_of`/`mut_bytes` are Salvo. What fell out: Kotlin's host project
 flattened every file to `salvo/<stem>.sv.kt`, so the companion
@@ -7383,7 +7483,7 @@ its token's slot, and an answer with another slot is dropped), so a loop of
 `waitfor`s no longer grows it — tested with 50 waits. `std.test`'s
 `trapped_by` is Salvo over `runtime.trap_boundary`, the runtime's quiet fault
 boundary for a lent body; both backends' `trapped_by` lowerings are gone.
-`StdConsole` is a `threadsafe platform handler` (`std/platform/core/console.*`)
+`StdConsole` is a `threadsafe platform handler` (`lib/platform/std/core/console.*`)
 and `DefaultRandom` an ordinary handler over `runtime.random_double`, seeded in
 an actor test (user decision) [random-default]; std has no intrinsic handler
 left, so the Kotlin test of intrinsic-handler templates went with it (the
@@ -7474,7 +7574,7 @@ ranking rule, not scope. A generic `count(it)` was tried again and dropped:
 it fits any argument by type, so a program's own `count(NonEmpty List<T>)`
 called with a plain list reported a missing `next` instead of "no matching
 overload" (ROADMAP 0c item 17). New tests:
-`std/path.test.sv` (4), `std/fs.test.sv` (1), a stream round trip, and two
+`lib/std/path.test.sv` (4), `lib/std/fs.test.sv` (1), a stream round trip, and two
 in `core/seq.test.sv`.
 
 **Lists, strings and lazy adaptors (2026-10-03, user request).** From the
@@ -7528,9 +7628,9 @@ with a status head saying what is built and where the open items went
 (ROADMAP 0c, 0d, 0e, the `test actor` follow-ups, optional step 17); ROADMAP
 item 0 is closed. User decision the same day: `ManualTime` stays for now.
 
-**A quiet `salvo test --src std` (2026-10-03, user report).** Three kinds of
+**A quiet `salvo test --src lib` (2026-10-03, user report).** Three kinds of
 noise, all fixed: std's manifest runs both backends, which now head their
-reports (`rust:`, `kotlin:`); the harness imported `core`'s annexes, which are
+reports (`rust:`, `kotlin:`); the harness imported `std.core`'s annexes, which are
 visible anyway, and drew a redundant-import warning per annex; kotlinc's
 warnings about generated code reached the user (now `-nowarn`; the warnings
 themselves are ROADMAP 0c item 15); and two runtime tests let an actor die
@@ -7555,8 +7655,8 @@ place, a wait with nothing runnable is the deadlock report, and
 dropped, pools retired, deadlines forgotten. `time.monotonic_nanos` is no
 longer an intrinsic. What fell out: a lambda cannot spawn, so the harness
 cannot wrap an actor test in `trapped_by`; a trap there is a process death the
-runner already recovers from. New tests: `std/time.test.sv` (three actor
-tests), a seed test in `std/runtime.test.sv`, the CLI test
+runner already recovers from. New tests: `lib/std/time.test.sv` (three actor
+tests), a seed test in `lib/std/runtime.test.sv`, the CLI test
 `actor_tests_run_on_the_virtual_runtime`, two parser tests and a harness
 test. Gotcha: `for x in list` with `x.field = …` emits an immutable borrow on
 Rust (the checker accepts it); index with `get(list, i)!`.
@@ -7568,11 +7668,11 @@ decoding; the host supplies `HostIn`/`HostOut` and five leaf fns. An operation
 checks its entry out and back in, so no lock is held across a host read.
 `stream.host`'s `HostRawStreams` became an ordinary Salvo handler, and
 `raw_receive` reads on a runtime thread and answers through a task
-(`chunk_received`). `std/platform/stream/host.{rs,kt}` are deleted;
+(`chunk_received`). `lib/platform/std/stream/host.{rs,kt}` are deleted;
 `hoststreams.{rs,kt}` keep only host code's entry points, unchanged for
 `HostRawFs` and the S3 glue. `stream.fresh_handle` is no longer an
 intrinsic. What fell out: the Kotlin struct-literal path did not qualify a
-clashing name (`Fault` here and in `core.actor`) — fixed; a handler and an
+clashing name (`Fault` here and in `std.core.actor`) — fixed; a handler and an
 effect of one name clash in Kotlin output (ROADMAP 0c item 13); a host project
 carries `runtime.streams` whenever the program reaches it. The runtime tests'
 host-module compile checks now run in the `files` example's tree, which has
@@ -7646,7 +7746,7 @@ fn field with a named parameter does not build on Rust (0c item 11).
 **1680 tests**, 5m44 fresh.
 
 **Routing in Salvo (2026-10-03; runtime step 11 slice 11e).** The service
-`runtime.routing` (`std/runtime/routing.sv`) now holds what the hosts' routing
+`runtime.routing` (`lib/std/runtime/routing.sv`) now holds what the hosts' routing
 layers did: node identities and virtual nodes, proxies and the shared dead
 entry, credits, routes and the frames waiting for one, protocol tables,
 control channels and exported tasks. The frames are one Salvo union in the
@@ -7656,7 +7756,7 @@ knows (message, answer and task decoders, control builders, outbound hooks),
 read through six platform fns. Rust's `scheduler.rs` is now about 600 lines,
 Kotlin's about 390 (2,720 and 1,994 before the port). Generated code and the
 emitters' lowerings are unchanged. What fell out:
-- **The proxy check moved into the core.** Asking the routing table on every
+- **The proxy check moved into the std.core.** Asking the routing table on every
   typed send looked like a regression; it was not (the machine was loaded by
   two hung test programs from an earlier session), but a lock per send is
   avoidable: the core marks a proxy's entry and hands a send to it back to
@@ -7700,14 +7800,14 @@ What fell out:
 
 **Generated code runs on the Salvo scheduler (2026-10-03; runtime steps
 slice 11d, the cutover).** Both hosts' `scheduler.*` are now shims onto
-`std/runtime.sv`'s core, keeping every entry point the emitters call, so no
+`lib/std/runtime.sv`'s core, keeping every entry point the emitters call, so no
 emitter lowering changed; the routing layer (proxies, credits, frames 0–4)
 stays on host-side tables until it is ported. Rust's file went from 2,720 to
 about 1,030 lines, Kotlin's from 1,994 to about 660. The core gained the hooks
 routing needs (`enqueue_remote`, `kill`, `token_to_actor`/`waiter`,
 `export_token`, `granted`, `flush_frames`, mailbox room and depth). What it
 took and what fell out:
-- **Reaching the runtime.** No Salvo code names `std/runtime.sv`, so
+- **Reaching the runtime.** No Salvo code names `lib/std/runtime.sv`, so
   reachability adds it when a reachable module uses an actor form (source
   text outside comments), and an emitter refuses a build that would ship the
   scheduler without it. `scheduler.*` no longer rides along with the wire: the
@@ -7772,7 +7872,7 @@ element is not reachable after an `is` test (the gate reads a parallel deque
 of slots instead). **1679 tests** (four more std tests).
 
 **The local scheduler core in Salvo, first part (2026-10-02; the runtime record
-§11.5 slice 11d).** In `std/runtime.sv`, beside the hosts' schedulers: a
+§11.5 slice 11d).** In `lib/std/runtime.sv`, beside the hosts' schedulers: a
 `Scheduler` monitor bound at module level holding the actor table (`linear
 struct ActorRec canbe Mut` records reached by `get(actors, i)!`), pools whose
 worker threads (`start_thread`) park when idle and are unparked by an
@@ -7791,7 +7891,7 @@ platform type by the first module declaring that name anywhere (std's `Dyn`
 captured a test program's own), now the file's own module or its import; and a
 private runtime fn named `work` renumbered a user's `work` on Rust (renamed
 `serve_pool` — std's private names still share the mangling space). Tested in
-`std/runtime.test.sv` on both backends: fifty messages through a
+`lib/std/runtime.test.sv` on both backends: fifty messages through a
 four-message mailbox arrive in order; a faulting actor dies, later sends to
 it are dropped, and its pool keeps working. **1679 tests** (two more std
 tests).
@@ -7826,14 +7926,14 @@ boundary, module-level state. **1678 tests** (two more std tests).
 the runtime record).** Prompted by the user's question of how a wheel written as
 an actor fits a scheduler written in Salvo: it is a client of the scheduler,
 not part of it, so the dependency is one-way — but only by convention while
-both lived in `std/runtime.sv`, whose rules said the module could not use
-actors at all. The wheel moved to `std/runtime/timers.sv` (`runtime.timers`),
+both lived in `lib/std/runtime.sv`, whose rules said the module could not use
+actors at all. The wheel moved to `lib/std/runtime/timers.sv` (`runtime.timers`),
 the core exports what it needs (`Parker` and its fns, `now_nanos`), and the
 checker refuses the core importing a service [runtime-layers]. New test
 `the_runtime_core_does_not_import_its_services`. **1678 tests.**
 
 **Deadlines in Salvo (2026-10-02; runtime step 11 slice 11a).** The first
-piece of a host scheduler written once: `std/runtime.sv` keeps deadlines in a
+piece of a host scheduler written once: `lib/std/runtime.sv` keeps deadlines in a
 `Deadlines` monitor and serves them with a wheel — an actor on a dedicated
 thread, both bound by module-level `use` (`use Wheeling() on thread()`, the
 spawn sugar now allowed there) — whose one activation fires what is due and
@@ -7861,8 +7961,8 @@ without recording them in `fn_effects`, so no caller is asked for them. Rust
 lowers each to an accessor over a `OnceLock` [rs-mod-use], Kotlin to a
 `private val … by lazy` [kt-mod-use]. The runtime module now binds
 `use HostRuntime()`, the first `RuntimeHost` members (`secure_bits` from OS
-entropy, `report`) are implemented in `std/platform/runtime.{rs,kt}`
-[runtime-host], and a runtime fn calls them undeclared (`std/runtime.test.sv`).
+entropy, `report`) are implemented in `lib/platform/std/runtime.{rs,kt}`
+[runtime-host], and a runtime fn calls them undeclared (`lib/std/runtime.test.sv`).
 Every module's AST snapshot gains `uses: []`. New test
 `a_module_level_use_is_the_runtime_module_s_alone`. **1677 tests.**
 
@@ -7876,10 +7976,10 @@ snapshots change by the check. **1676 tests.**
 
 **`Parker` (2026-10-02; runtime step 8, E3).** The runtime module's
 first declarations: `threadsafe platform type Parker` and four platform fns
-[runtime-parker], implemented by hand in `std/platform/runtime.{rs,kt}` over
+[runtime-parker], implemented by hand in `lib/platform/std/runtime.{rs,kt}` over
 `std::thread::{park, park_timeout, Thread::unpark}` and `LockSupport`, and
-tested in `std/runtime.test.sv` (the token survives until one park; a timed
-park returns). What fell out: `salvo test --src std` — a std tree on disk
+tested in `lib/std/runtime.test.sv` (the token survives until one park; a timed
+park returns). What fell out: `salvo test --src lib` — a std tree on disk
 shadowing the embedded one — kept both copies of a reached platform file
 and refused the second as a collision; `apply_std_shadow` now drops the
 embedded companion a shadowing module replaces (it had never been hit, as no
@@ -7926,7 +8026,7 @@ recorded: `f(f(x))` is E0499 on Rust (ROADMAP 0c item 4). New tests
 **1675 tests.**
 
 **`Deque` (user decision 2026-10-02; runtime step 6, D3).** std's
-double-ended queue, `core.deque`, as an intrinsic beside `List` [col-deque]:
+double-ended queue, `std.core.deque`, as an intrinsic beside `List` [col-deque]:
 the surface the user approved (both-ends add and remove, `get`/`first`/
 `last`, `remove_at`, `drain`, iteration and `reversed`, `deque_by`,
 `to_list`/`to_deque`; no literal, no `eq`/`hash`), lowered to `VecDeque` and
@@ -7940,11 +8040,11 @@ spelled from the call's type arguments; and the new `iter`/`next` overloads
 shifted the mangled-name indices five tests spell literally (the same
 renumbering earlier collections caused). The generic platform types and
 `Dyn`, planned in the same step, move after step 7 (they build on plain
-platform types). New std tests `std/core/deque.test.sv` (seven, both
+platform types). New std tests `lib/std/core/deque.test.sv` (seven, both
 backends). **1670 tests.**
 
 **std's own module, and platform `Never` (2026-10-02; runtime steps
-step 5, E8 and E6).** `std/runtime.sv` is the module the scheduler will be
+step 5, E8 and E6).** `lib/std/runtime.sv` is the module the scheduler will be
 written in; std's files may import it and a program may not, refused at the
 import [mod-std-internal] — the path is the marker, no syntax. A platform fn
 or platform handler member answering `Never` is now `-> !` in Rust's host
@@ -8328,7 +8428,7 @@ declaration naming the key; a host file in a `platform/` directory nothing
 covers is reported, never read as module `platform.…`. `PlatformRoots` in
 `source.rs` classifies a file by its root; in the output a host file is still
 `platform/<module>.<ext>`, which the emitters name. std's roots come from
-`std/salvo.toml`, read by the embedded loader too; a dependency's from its own
+`lib/std/salvo.toml`, read by the embedded loader too; a dependency's from its own
 manifest. Every manifest in the repository that uses platform files names its
 current directory, so nothing moved. (2) **`salvo platform generate` writes
 templates**: for each backend the manifest builds, into that backend's root —
@@ -8552,7 +8652,7 @@ and `"A" | "C"` stay incompatible across nodes. The names `SqsFailure` and
 [union-arm-identity]: `ast::Type::Literal` / `Ty::Lit` for `Str`, `Int`, `Long`
 and `Bool` literals (a float is a parse error; `Byte` has no literal syntax, so
 none yet); `is "A"` parses as a check whose one ref is named by the literal;
-`core.other` holds `Other` and `other`. The representation is one module,
+`std.core.other` holds `Other` and `other`. The representation is one module,
 `salvo_core::literal`: `collapse_ty`/`collapse_ast` (with alias expansion
 inside unions, so `Kms | "X" | Other Str` sees `Kms`'s literals), `runtime_arm`,
 `widen`, and `lower_tables`, which rewrites the coercions into runtime arms
@@ -8584,7 +8684,7 @@ one runtime arm; the rules put to the user were taken with three changes.
 union of one base type's literals *is* that base type on both backends, and in
 a mixed union each base's literals collapse into one arm, arms ordered by first
 appearance (this rewrites the arm-identity invariant); (3) **the open arm is
-`Other`, an ordinary constructive qualifier in `core`** — `Other Str` collapses
+`Other`, an ordinary constructive qualifier in `std.core`** — `Other Str` collapses
 with the `Str` literals by the normal union rules, with no special error or
 matching rules of its own (the user's change: "a convenience type people can
 use or not"); (4) **a value reaches the `Other` arm only through `other(…)`**,
@@ -8743,7 +8843,7 @@ reads on a thread of its own and completes the reply from there
 [platform-reply]: `DefaultStreams.receive` discharges the token, `raw_receive`
 takes the handle, and the continuation `host_received` mints it back. `MemFs`
 answers at once. `Reply<T canbe linear>` and `send<T canbe linear>` in
-`core.actor` so a linear answer can travel; the continuation owes it on arrival.
+`std.core.actor` so a linear answer can travel; the continuation owes it on arrival.
 PutObject-from-a-file and GetObject-to-a-file are `pipe(open_read(path), …)`
 and `pipe(body, open_write(path), …)` with no adapter, run end to end on both
 backends against the host and against `MemFs` (one CLI test), plus two std
@@ -8767,10 +8867,10 @@ panic at run time on the untyped one. Four tests pinned overload suffixes
 (`close__3`) that `close(Packet)` shifted by one; updated. **1653 tests.**
 
 **The fs/stream split (2026-09-29; §4b step 3c, decisions 20–31).** [stream-layer]
-[stream-table] [stream-provider]: `std/stream.sv` holds `InStream`/`OutStream`,
+[stream-table] [stream-provider]: `lib/std/stream.sv` holds `InStream`/`OutStream`,
 `StreamError = InvalidUtf8 | StreamFailed` (field `source`, not `path`), the
 `Streams` effect with every stream member moved out of `Fs`, the
-`Lines`/`Chunks` iterators, `fill_from` and `copy_stream`; `std/stream/host.sv`
+`Lines`/`Chunks` iterators, `fill_from` and `copy_stream`; `lib/std/stream/host.sv`
 the `RawStreams`/`HostRawStreams`/`DefaultStreams` layering. `fs` keeps the path
 operations as `effect Fs [Streams]`; its one-shots report a read failure as a
 new `FsError` arm **`Streaming { error: StreamError }`**. `MemFs` became `of Fs,
@@ -8802,7 +8902,7 @@ names (`use MemFs()` binds `Fs` and `Streams`) and did not import their
 packages. **1652 tests.**
 
 **One handle counter for every stream table (2026-09-29; §4b step 3b).**
-[stream-handle]: `std/stream.sv` begins with `fresh_handle()`, an intrinsic over
+[stream-handle]: `lib/std/stream.sv` begins with `fresh_handle()`, an intrinsic over
 a process-wide atomic in each runtime; `MemFs` loses its `next_handle` state and
 `HostRawFs` its counter on both hosts. A foreign handle is now unknown rather
 than a live collision. One std test (`stream.test.sv`); goldens and example
@@ -9004,15 +9104,15 @@ makes a bare `label(2)` ambiguous — the LSP test writes `label@main(2)`; not a
 defect, but worth knowing when a test imports a name it also declares. (2)
 `salvo analyze` went through `analyze_sources` with `project: None`, so it
 would have loaded no dependencies while `run` did; `analyze_sources` now takes
-the project. (3) A left-behind edit in the working tree (`std/heap.sv` with
+the project. (3) A left-behind edit in the working tree (`lib/std/heap.sv` with
 `heapify` commented out) made every std-checking CLI test fail with a
 `heap.sv` error that had nothing to do with the change; bisecting by
 re-applying the diff crate by crate found it. The two user sketches
-(`std/heap.sv`, `demo/demo.sv`) were stashed, not committed — see the gotcha.
+(`lib/std/heap.sv`, `demo/demo.sv`) were stashed, not committed — see the gotcha.
 
 **The project manifest, per-document analysis, and the protocol lock
 (2026-09-29, user decisions M-1…M-7; built the same day).** ROADMAP §4's
-defect — the repository root opened as a workspace analysed `std/`, every
+defect — the repository root opened as a workspace analysed `lib/std/`, every
 example and `demo/` as one program, ~750 spurious diagnostics — closed by the
 direction decided 2026-09-24: a manifest anchors per-document source-root
 discovery. **1628 tests.**
@@ -9024,7 +9124,7 @@ tweak: (b) and (c) of M-2, keeping `[build]` for the default backend and the
 shared target); every command reads it, flag > manifest > default; discovery by
 nearest ancestor, nested manifests are boundaries, no manifest falls back to
 `rootUri`/`--src` with a note in the editor when the workspace does hold
-projects; manifests at `std/` (`std = true`), every `examples/*/` (`src =
+projects; manifests at `lib/std/` (`std = true`), every `examples/*/` (`src =
 "salvo"`, `backend = "*"`, targets `rust`/`kotlin`) and `demo/`; `salvo.lock`
 written by every build, locking the project's own actor protocols with a wire
 form at the manifest's version, a changed hash at one version refused with the
@@ -9066,7 +9166,7 @@ morning because it confuses where a module *goes* — and `by auto@mymod` for th
 fn (the call selector). Fixing it exposed that a clause-form `by tag` stamped
 the fn under its own name rather than the member's, so `: Tagged<self> by tag`
 never fulfilled `cmp`; corrected. (3) **The consistency question** — `by auto`
-against `size@core.list` and `import fs.mem` — was settled the other way from
+against `size@core.list` and `import std.fs.mem` — was settled the other way from
 the recommendation: **a module *selector* names a module by any unambiguous
 suffix of its path** [mod-suffix]. `size@list` and `by auto` resolve; a suffix
 two modules share is refused naming both. An `import` is not a selector and
@@ -9074,7 +9174,7 @@ stays fully qualified (first built for imports too, reverted the same hour at
 the user's clarification: an import says where a name comes from).
 `ModulePath::matches_suffix`/`text_matches_suffix` are the one predicate, read
 by the checker's selector sites and the comptime expansion. A shadow copy of
-std under a repository-root workspace (`std.core.auto` beside `core.auto`,
+std under a repository-root workspace (`std.core.auto` beside `std.core.auto`,
 ROADMAP §4) had made `by auto` name two modules in the editor; the expansion
 skips a same-content copy whose module ends in the std module's path.
 The user preferred it to requiring the full path (verbose at the most common
@@ -9095,7 +9195,7 @@ landed the user iterated on how it reads and how a writer learns the surface.
    where the same text without it would be runtime Salvo with another
    meaning*; `else`, `is Struct` arms and the binder projections stay bare.
 2. **`refuse!("…")`**, with the bang and parens of `assert!`/`unreachable!`.
-3. **The model is declared** — option (c) of the round: `core.comptime` holds
+3. **The model is declared** — option (c) of the round: `std.core.comptime` holds
    `comptime struct Struct/Union/Tuple/FnType/Basic/Generic/Field/Arm` and
    `comptime type Opaque = Basic | Generic`, `Type = Struct | Union | Tuple |
    FnType | Opaque`. Compile-time only (never emitted, no wire form, not
@@ -9147,8 +9247,8 @@ would grow) is superseded by this.
    `field.index`, `field.first`, `field.last`; `v.[field]` to read and
    `[field]:` to build; `inline for` / `inline if` / `inline when` (one rule:
    comptime constructs say `inline`); `refuse "…"`.
-4. **Nothing auto-applies, `core` included.** Being in `core` means nameable
-   without an import and nothing more, so the builders live in `core.auto` and
+4. **Nothing auto-applies, `std.core` included.** Being in `std.core` means nameable
+   without an import and nothing more, so the builders live in `std.core.auto` and
    the spelling everywhere is `by auto`. [interp-struct]'s default-on
    derivation is **deleted**: a struct prints in its literal's shape by
    declaring `: ToStr<self> by auto`, and the diagnostic at a bare `${p}` names
@@ -9216,7 +9316,7 @@ debug), `: auto G<self>` → `: G<self> by auto` at six sites, `FLOAT_TEXT_DEMO`
 gains `: ToStr<self> by auto`. Tests: an e2e case on both backends with
 identical output (struct + named union, hand/stamped mix, `to_str`); checker
 tests for `refuse`, exhaustive kinds, concrete compfn, out-of-scope syntax; the
-core harnesses now run `salvo_core::expand` and load a `core.auto` prelude.
+core harnesses now run `salvo_core::expand` and load a `std.core.auto` prelude.
 Docs: `Compile-Time-Functions.md`; LANGUAGE_SPEC `[comptime-bound]`
 `[comptime-fields]` `[comptime-inline]` `[comptime-access]` `[comptime-refuse]`
 `[comptime-instantiate]` `[obligation-by]` `[fn-by]`, `[cmp-auto]` deleted,
@@ -9227,7 +9327,7 @@ backend specs.
 
 * **An interim for container identity.** `by auto` over a struct with a
   `List<Int>` or `(Str, Int)` field resolves `cmp`/`eq`/`hash` at that field,
-  and nothing declared them: `core.compare` now declares **structural host
+  and nothing declared them: `std.core.compare` now declares **structural host
   intrinsics** over `List<T>` and 2-/3-tuples, both backends lowering to the
   host's `Ord`/`==`/hash (Kotlin through `__salvoCompare`). That relaxed the
   recorded "tuple key refused by name" limitation (`SortedSet<(Int, Int)>`
@@ -9472,7 +9572,7 @@ shared borrow — the E0499 hoisting is gone); handlers implement one trait by
 statefulness (`Emitter::member_receiver_mut`), the actor body dispatches through
 that trait, the send stub, façade and intrinsic handlers are stateless, a
 `threadsafe` host implements `__Stateless_E` with `&self`
-(`std/platform/net.rs` restored), an undeclared host and a platform *effect*'s
+(`lib/platform/std/net.rs` restored), an undeclared host and a platform *effect*'s
 host `__Stateful_E`; generic handlers carry `Send + Sync`. **Kotlin**: a
 stateless handler binds raw, a stateful one behind `__Mon_E` — the pre-§2b
 bare/monitor split, decided by the emitter from the declaration rather than by
@@ -9684,7 +9784,7 @@ out: `actor_group<E>` is an intrinsic lowered per call to `open_group(
 protocol<E>(), …)`, because an erased generic fn cannot produce the protocol
 constant of its written `E` (superseded 2026-09-28: an ordinary fn over an
 implicit `?protocol`, see that entry); and a **handle bundle is named by its shape and
-spelled through the callee's module** (`crate::net::__Hs_transport`) — the
+spelled through the callee's module** (`crate::std_net::__Hs_transport`) — the
 first cross-module call of a fn with handle requirements (`connect` from a
 program) built a same-named struct in the caller's module and failed rustc.
 **Not done, recorded**: a node group connecting the node itself — an actor's
@@ -9993,7 +10093,7 @@ constructs, so the host compiles under shared access and rustc refuses a
 divergence closed**: a silent host is serialized on both backends. `salvo
 platform generate` prints the contract into the skeleton in both shapes, and
 the threadsafe Rust skeleton's receivers are `&self`. `HostRawFs` reviewed:
-plain hash-map state, stays undeclared (comments in `std/fs/host.sv` and the
+plain hash-map state, stays undeclared (comments in `lib/std/fs/host.sv` and the
 two host files say why). Rules: [threadsafe-platform] in LANGUAGE_SPEC,
 rewritten [rs-platform-handler]/[kt-platform-handler] bullets, a Backends.md
 section.
@@ -10002,7 +10102,7 @@ section.
 `NetError`, `actor effect Inbound { send fn frame(from, data) }`, `effect
 Transport { listen, unlisten, deliver, local_endpoint }`; `threadsafe platform
 handler HostTcpTransport(bind)` with a host per backend in
-`std/platform/net.{rs,kt}` (one TCP connection per peer, hello + 4-byte
+`lib/platform/std/net.{rs,kt}` (one TCP connection per peer, hello + 4-byte
 length-prefixed frames, an acceptor thread per `listen` and a reader per
 connection, each frame a send through `__Stub_Inbound`); and the double —
 `actor effect MemNet` / `handler MemNetwork` (listener table, `partition` /
@@ -10224,8 +10324,8 @@ them.
   `iter(list)` does. Probing every combination of slot × candidate × whether the
   pass escapes the function says yes: the lend is **strictly more permissive**,
   every program that compiles without it compiles with it, and it additionally
-  admits the lending candidate. std has both candidates —  `core.list`'s `iter`
-  lends (`ListYield.items: proj List<T>`), `core.set`'s snapshots — and a lent
+  admits the lending candidate. std has both candidates —  `std.core.list`'s `iter`
+  lends (`ListYield.items: proj List<T>`), `std.core.set`'s snapshots — and a lent
   slot takes either.
 - **One shared lifetime is the correct design, not merely the simple one.** The
   opaque return's hidden lifetime has to *be* one of the parameters', and separate
@@ -10234,7 +10334,7 @@ them.
   reference even at `Int`, because generics are opaque, so there is always a
   lifetime to tie).
 - **Two things scope it, and the first attempt lacked them.** Inferring for every
-  fn type with a bare-type-parameter return broke `core.seq`: std's
+  fn type with a bare-type-parameter return broke `std.core.seq`: std's
   `?copy: (T) -> T` has an **unnamed** parameter, so there was nothing for a
   lifetime to attach to and the emitter rendered a `&'c T` no signature declared
   (E0261, in three examples). A lend *names a source*, so an unnamed position
@@ -10325,8 +10425,8 @@ restriction it replaces was written before there were thread-shareable handlers.
   identical lines on both backends. The old `[free-send-fn]` effect-refusal test
   became the `use`/`local` pair.
 
-**`throw` leaves `core` (2026-09-26).** ROADMAP step 1(e), and the last of the
-std reorganisation. `import throw` brings `Throw`, `try`'s `Thrown` arm and
+**`throw` leaves `std.core` (2026-09-26).** ROADMAP step 1(e), and the last of the
+std reorganisation. `import std.throw` brings `Throw`, `try`'s `Thrown` arm and
 `thrown`; a program that never throws links none of it [throw].
 
 - **A test annex gets it without writing it**, extending [test-implicit-import]:
@@ -10341,7 +10441,7 @@ std reorganisation. `import throw` brings `Throw`, `try`'s `Thrown` arm and
     is "unresolved reference". Backquoting is right for identifiers and wrong
     for path segments, so a keyword segment now **mangles** to `throw_`
     [kt-package-keyword]. Nothing had exercised it before, because every module
-    was `core.*` or `time`/`heap`/`random`/`test`.
+    was `std.core.*` or `time`/`heap`/`random`/`test`.
   * **A runtime file silently clobbered the module.** The Kotlin runtime ships
     a `throw.kt` (the control signal, package `salvo`) and module `throw`
     emits to `throw.kt` — same path, second write wins, and the module's code
@@ -10352,14 +10452,14 @@ std reorganisation. `import throw` brings `Throw`, `try`'s `Thrown` arm and
     is `throwsignal.kt`, and the durable fix — namespacing the runtime under
     `salvo_rt/` — stays recorded, because it touches every golden, every
     example and the documented compiler invocations.
-- The sweep: `import throw` in `std/test.sv`, in `examples/throw-and-release`
+- The sweep: `import std.throw` in `lib/std/test.sv`, in `examples/throw-and-release`
   and in 12 backend fixtures. The fixture sweep needed two passes — keying on
   `Throw<`/`try {` missed a program using only `Thrown`/`thrown(`, which is a
   reminder that a feature's *surface* is wider than its headline spelling.
 
-**`core.nonempty` dissolves into the collections (2026-09-26).** ROADMAP step
-1(d). Each `NonEmpty` now sits beside the container it claims — `core.set`,
-`core.map`, `core.sorted` (twice) — joining `core.list`'s, and the four
+**`std.core.nonempty` dissolves into the collections (2026-09-26).** ROADMAP step
+1(d). Each `NonEmpty` now sits beside the container it claims — `std.core.set`,
+`std.core.map`, `std.core.sorted` (twice) — joining `std.core.list`'s, and the four
 `NonEmpty` accessors (`min`, `max`, `first_key`, `last_key`) moved with them
 [qual-overload].
 
@@ -10369,7 +10469,7 @@ std reorganisation. `import throw` brings `Throw`, `try`'s `Thrown` arm and
   header had written down: `min(NonEmpty SortedSet<T>)` must delegate to the
   plain `min`, and `min@core.sorted(set)` re-picks the `NonEmpty` overload —
   a selector names a *module*, and within it the qualified argument still ranks
-  first — so it recurses forever. `core.list`'s `first` escapes by delegating
+  first — so it recurses forever. `std.core.list`'s `first` escapes by delegating
   to `get` instead; the four ordered accessors had no such neighbour.
 - **`rename fn` is the escape**, and it is the mechanism the ambiguity round
   already named as a remedy: `rename fn min_opt = min<T>(set: SortedSet<T>)` in
@@ -10389,16 +10489,16 @@ std reorganisation. `import throw` brings `Throw`, `try`'s `Thrown` arm and
 - The goldens lost `core/nonempty.{rs,kt}` and gained its contents in the three
   container modules; no example's output changed.
 
-**The filesystem leaves `core` (2026-09-26, user decision — built).** ROADMAP
+**The filesystem leaves `std.core` (2026-09-26, user decision — built).** ROADMAP
 step 1(c). Module **`fs`** holds the surface, `fs.host` the machine's
 filesystem, `fs.mem` the in-memory double and `fs.restricted` the sandbox
-[fs-module] [fs-host-split]. `import fs` is one line, each implementation is
+[fs-module] [fs-host-split]. `import std.fs` is one line, each implementation is
 another, and the split now means something because a whole-module import names
 one module.
 
 - **The user chose (B1) — unprefixed, with step 9's `std.` prefix left as its own
-  slice.** The coupling is that module paths derive from the embed root (`std/`),
-  so `std.fs` needs step 9's move of the tree to `lib/std`, which renames `core.*`
+  slice.** The coupling is that module paths derive from the embed root (`lib/std/`),
+  so `std.fs` needs step 9's move of the tree to `lib/std`, which renames `std.core.*`
   to `std.core.*`: five hardcoded `"core"` sites in `resolve.rs`, `[std-shadow]`'s
   classification, the CLI embed root, and the emitted path of every std module in
   every golden and example. Two different kinds of sweep, so two slices — and
@@ -10412,10 +10512,10 @@ one module.
   including a test whose only filesystem is `fs.mem`. `DefaultFs` therefore stays
   with `RawFs` in `fs.host`, which is exactly the property [fs-host-split] was
   written for — the reason changed (it used to be about name-based reachability
-  dragging `core.fs` into iterating programs) while the placement did not.
+  dragging `std.core.fs` into iterating programs) while the placement did not.
 - **What it bought, measured.** `examples/throw-and-release` throws and never
   opens a file. It used to emit `core/fs` because [mod-used-only]'s name-based
-  half resolves a used name to *every* module declaring it and `core.fs` declares
+  half resolves a used name to *every* module declaring it and `std.core.fs` declares
   a `next` and a `to_str` — and `core/bytes` behind it, and 136 lines of union
   wrappers for types nothing referenced. **1,398 lines** of generated code gone
   across the two backends for a program whose output did not change. An imported
@@ -10423,8 +10523,8 @@ one module.
 - The sweep: four std files moved (`core/fs.sv` → `fs.sv`, `core/hostfs.sv` →
   `fs/host.sv`, `core/memfs.sv` → `fs/mem.sv`, `core/restrictedfs.sv` →
   `fs/restricted.sv`), the platform companions with them
-  (`std/platform/core/hostfs.{kt,rs}` → `std/platform/fs/host.{kt,rs}`, package
-  and `use` lines retargeted), `import fs` added to the three implementations and
+  (`lib/platform/std/core/hostfs.{kt,rs}` → `lib/platform/std/fs/host.{kt,rs}`, package
+  and `use` lines retargeted), `import std.fs` added to the three implementations and
   to `examples/files`, module-path assertions in both backends' fs tests, and the
   goldens' `next__N` all dropping by two — `fs.sv` sorts after `core/*` where
   `core/fs.sv` sorted before it, which is the recorded global-index gotcha
@@ -10462,15 +10562,15 @@ right now I would prefer a way to import less".
   namespacing and nothing else, since one `import std.fs` handed the program every
   fake as well. Now the split means what it looks like.
 - **Nothing to sweep.** std is flat today — `heap`, `random`, `test`, `time` and
-  `core.*`, with no module under a non-core one — so no existing import changed
+  `std.core.*`, with no module under a non-core one — so no existing import changed
   meaning, and the examples and goldens are untouched. The reversal is therefore
   free *now* and would not have been after 1(c).
 - **One diagnostic added, one kept.** A path that names no module but has modules
   under it is the mistake the exact reading introduces, so it is refused by name:
   "no module `time` — it is a path prefix, not a module … Import the ones you
-  want: `import time.clock`, `import time.types`". And `import core` still warns
+  want: `import std.time.clock`, `import std.time.types`". And `import std.core` still warns
   *redundant* rather than reporting an unknown module: it names no module of its
-  own (`core.list` and `core.string` are separate modules) but everything under it
+  own (`std.core.list` and `std.core.string` are separate modules) but everything under it
   is visible anyway — a case the prefix sweep had been covering silently.
 - Tests: `a_module_import_names_one_module_not_a_tree` (the refusal, naming both
   submodules) replaces `a_module_import_covers_submodules`, and
@@ -10504,14 +10604,14 @@ to read the wrapper.
   (`FsError { kind: <arm> }`), which still works; what does not exist is seeding
   a type variable with a supertype. Recorded in ROADMAP beside variance, where
   the same question is already open, with a small DECISION attached.
-- **It removed a module edge nobody wanted.** `core.fs` used to declare its own
+- **It removed a module edge nobody wanted.** `std.core.fs` used to declare its own
   `ignore`/`detach`, and name-based reachability [mod-used-only] resolves a used
   name to every module declaring it — so `core/list.rs` in the two
-  filesystem examples carried a `use crate::core_fs::*;` that a list write had
-  dragged in. With those two names gone from `core.fs`, the import goes too.
+  filesystem examples carried a `use crate::std_core_fs::*;` that a list write had
+  dragged in. With those two names gone from `std.core.fs`, the import goes too.
 - One test added, `an_fs_failure_must_be_acknowledged`, against **real** std
   rather than a synthetic prelude: what it pins is the wiring between two std
-  modules (does `core.fs`'s failure reach `core.checked`'s obligation?), not the
+  modules (does `std.core.fs`'s failure reach `std.core.checked`'s obligation?), not the
   linear rule, which `linear_group_tests` owns. It also records the improved
   diagnostic — the refusal now names `detach` / `ignore` generically.
 - Verified by running all ten examples on both backends against their checked-in
@@ -10577,7 +10677,7 @@ remembering: *everything declared on a struct is imported with it*.
   usable. A private type demands nothing.
 - Attachment is same-file **by construction**, which is what the old rule needed a
   check for. `eq@Bytes` became a plain std overload: an `intrinsic type` has
-  neither route, and `core.*` is visible everywhere anyway — which is the
+  neither route, and `std.core.*` is visible everywhere anyway — which is the
   travelling attachment exists to provide.
 
 **Refinements live in their qualifier (2026-09-26, user decision — built).** The
@@ -10616,7 +10716,7 @@ and still has something to say about an insert that keeps it.
   wildcard pattern (`mut _` is not a binding it accepts), Kotlin drops the `val`
   line for a pass loop and names an unreachable local for a native `for`, which
   has no wildcard form. Two such loops in one function are independent.
-- **`Checked<T>` moved into `core`** with `take` renamed to **`detach`**
+- **`Checked<T>` moved into `std.core`** with `take` renamed to **`detach`**
   [checked-type], and the fallible **`swap` answers one** [col-bounds]: the
   failure it reports is exactly the kind with no symptom at the call site. The
   total `swap` — both indices claimed — still answers `None` and discharges the
@@ -10851,7 +10951,7 @@ constructor has nothing else, and without it every `eq` in scope matches
 **Two limitations accepted deliberately** (user: "I'm ok with the limitation
 today… we'll get to how to make this work in the long run later"), both refused
 with a Salvo diagnostic rather than a target compiler's: a keyed container over
-a **tuple or a list**, because `core.compare` declares identities for the
+a **tuple or a list**, because `std.core.compare` declares identities for the
 intrinsic scalars only and [implicit-resolve] skips a candidate that itself
 needs implicits — the lift is ROADMAP's "Recursive implicit resolution", and the
 same gap already stopped `(1, 2) == (1, 2)` from resolving — and one built
@@ -10919,7 +11019,7 @@ record.** The std declarations are written and probed: std checks clean, and the
 headline symptom is fixed — a hand-written `hash`/`eq` with no type naming it
 prints `1` on both backends, where Kotlin printed `2` (silently structural) and
 Rust did not compile. But with the capability declared, a keyed container over a
-**tuple or a list** cannot resolve its identity: `core.compare` declares
+**tuple or a list** cannot resolve its identity: `std.core.compare` declares
 `cmp`/`hash` for the intrinsic scalars only, and [implicit-resolve] skips a
 candidate that itself needs implicits — so `SortedSet<(Int, Int, Int, Int)>`,
 which works today through the host's structural ordering, would stop. That is
@@ -10986,8 +11086,8 @@ decision stated. The tree is green at 1497 with the three fixes above.
 **Reachability follows resolution for functions (2026-09-25, user decision
 "let's follow resolution instead, and fix any issues as they come").** The
 defect was over-emission: a *name* resolves to every module declaring it, so a
-program that merely iterated — using the name `next` — pulled in `core.range`
-and whatever it dragged, because `core.range` declares a `next` too. Now the
+program that merely iterated — using the name `next` — pulled in `std.core.range`
+and whatever it dragged, because `std.core.range` declares a `next` too. Now the
 graph has **two kinds of edge** [mod-used-only]: functions go by resolution,
 everything else (types, structs, effects, handlers, qualifiers, `params`
 groups) still goes by name, since those are not overload sets and the
@@ -11015,7 +11115,7 @@ from ~133s to ~121s, simply because there is less generated code to compile.
 Verified beyond the suite: std's own 45 tests, and a probe set for the edges a
 name never shows — an operator's `cmp`, a carried `SortedSet<Person>(by_age)`,
 `auto Ordered`/`auto Hashed`, a cross-module `to_str`, a user struct named like
-std's, and a program that really does `range` (which still gets `core.range`).
+std's, and a program that really does `range` (which still gets `std.core.range`).
 Two tests pin it: the narrowing itself (iterating emits no `range`, `fs` or
 `bytes`; ranging does emit `range`) and a compile-and-run pair for both.
 
@@ -11098,7 +11198,7 @@ stale comment in check.rs that claimed otherwise now points at the rule.
 
 **Two same-named structs** confused pass driving — wrong output, so
 [backend-never-wrong]-grade. A `Ty::Named` carries no module, so a user `Range`
-beside `core.range`'s is one type to `unify`: the loop could mint with one
+beside `std.core.range`'s is one type to `unify`: the loop could mint with one
 module's `iter` and drive the other's `next`. Both lookups compare
 **declarations** now, each side's name resolved in its own file's scope
 [iter-resolve]. Fixing only the `next` scan moved the failure rather than
@@ -11506,7 +11606,7 @@ no `PartialEq`/`PartialOrd` exists between `&T` and `T`, so `==`, `!=`, `<`,
 plain `Int` and cannot be the signal; the derived-call table is, and it is
 exact (a lending call is the only reference-yielding shape left in that
 position). Fixed as [rs-cmp-deref]: a comparison operand that is a
-derived-return call of a Copy-scalar type renders `*call`. `core.map`'s annex
+derived-return call of a Copy-scalar type renders `*call`. `std.core.map`'s annex
 now writes the comparison form on purpose, where it previously used
 `expect_eq` to dodge the bug, so the fix is pinned in std as well as in a
 codegen golden and a rustc/kotlinc parity pair (`eq lt 21`). 1472 tests
@@ -11582,7 +11682,7 @@ deletes a case inference and field-qualifiers would otherwise have to
 handle — a whole-parameter assignment is "mutates everything" — and the
 invariants say a checker/emitter disagreement belongs to the checker. The
 sweep found nothing relying on it (std, every example, the corpora; the
-`now = …` sites in `std/time.sv` are handler state). One test changed: a
+`now = …` sites in `lib/std/time.sv` are handler state). One test changed: a
 guard test asserting that an assignment in an exiting branch does not reset
 a narrowing now assigns a local, since its subject is the reset, not who
 may be assigned. 1466 tests green.
@@ -11747,7 +11847,7 @@ inline splice (the degenerate locator). The label swept
 **The update family and mode-specialized lending — group-borrowing
 ladder step ③ (built 2026-09-24; user decisions same day).** Decisions
 first: the Int-subject qualifier shipped in ② is **renamed `NotEq`**
-(`Distinct` was taken — `core.set`'s list-subject claim — and NotEq says
+(`Distinct` was taken — `std.core.set`'s list-subject claim — and NotEq says
 what it claims; generalizing it to any `?eq`-capable subject is a recorded
 ROADMAP note), gains `with Idx` [qual-with]; the family promises
 `preserve Idx` (an in-place write moves no boundary); and the lending
@@ -11789,7 +11889,7 @@ container, proven different elements, now coexist — the first refinement of
 `qualifier NotEq(i: Int) of Int` beside `Idx` [col-noteq] (named `Distinct` when it landed; renamed same day, see the rename entry); the
 compiler work is [elem-distinct]: element links carry the **identity of
 their minting index** (`FateLink.elem_idx` — the index variable's ultimate
-fate-root id, stamped only for `core.list`'s `get`, nominal deliberately: a
+fate-root id, stamped only for `std.core.list`'s `get`, nominal deliberately: a
 user fn with a derived return may lend any projection, so only the `get`
 whose semantics the compiler knows may name a discriminator; a nested mint
 keeps the identity nearest the root), the identity is **erased eagerly**
@@ -11814,7 +11914,7 @@ panicked out of bounds at runtime (probe-verified before the fix; the strip
 now fires at both rebind sites, before links are severed, since the claim
 roots to strip are the old value's). Tests: two strip tests in
 depend_tests, seven checker tests in the new `elem_distinct_tests.rs`
-(mini-std harness — the nominal recognition wants a real `core.list`
+(mini-std harness — the nominal recognition wants a real `std.core.list`
 module, which `SourceSet::add(..., is_std)` provides), two Rust codegen
 tests + a rustc e2e, the value-position refusal, and the Kotlin parity
 case. 1432 tests green. Adjacent shapes deliberately left to rustc (noted
@@ -11874,8 +11974,8 @@ and **synthesizes the same `DeductionTarget::Opaque` entry the old parse
 produced**, so `lends.rs`, `deduce.rs`, validation and the emitters are
 byte-for-byte unchanged — the std AST snapshots diffed only in spans.
 Hover renders the annotation where it is written (return type, fn-type
-Display) and subtracts it from the clause tail. Migrated: `core.list`'s
-`ListEnumYield` `next`, both `filter`s in `core.seq`, the container
+Display) and subtracts it from the clause tail. Migrated: `std.core.list`'s
+`ListEnumYield` `next`, both `filter`s in `std.core.seq`, the container
 combinator in three test crates, widen/analyze tests; specs
 ([deduce-syntax] table and bullets, [proj-infer], the language docs' table and
 views narrative, [rs-proj-lends]); stale spellings in ROADMAP/COMPLETED
@@ -11885,21 +11985,21 @@ hover test. 1417 tests green, fresh nextest included.
 
 **The std-editing false positive, and the root-discovery direction
 (2026-09-24, user decision).** A user report — the hover at
-`std/core/list.sv:86` claimed the total `swap`'s delegation "may invalidate
+`lib/std/core/list.sv:86` claimed the total `swap`'s delegation "may invalidate
 `Idx` claims … which the enclosing function promises to preserve", as if the
 `preserve Idx` refn at line 65 were being ignored. Investigation exonerated
 the checker: the editor's workspace root was the *repository* root, the LSP
 analyzes under the client's `rootUri`, and under that root the on-disk file
-classifies as module `std.core.list` while the embedded copy is `core.list`
+classifies as module `std.core.list` while the embedded copy is `std.core.list`
 — so [std-shadow] misses, both copies load, the refns fail to attach
 ("matches more than one `swap` in scope"), and the `preserve`-promise check
-[qual-preserve] fires as collateral. `analyze --src std` is clean and
+[qual-preserve] fires as collateral. `analyze --src lib` is clean and
 `hover_works_in_a_std_shadowing_file` covers the exact reported call.
 **Decided**: fix by per-document source-root discovery in the LSP, anchored
 by a **project manifest** — option (b), over widening [std-shadow] by a
-`std/` segment (a silent re-classification of user trees) and over
+`lib/std/` segment (a silent re-classification of user trees) and over
 documenting the workaround alone — **sequenced after the COMPLETED.md's log
-exploration**. The defect, its repro, the workaround (open `std/` as its own
+exploration**. The defect, its repro, the workaround (open `lib/std/` as its own
 workspace folder) and the manifest DECISION live in ROADMAP.md's "LSP
 source-root discovery, and a project manifest". Same day, earlier: the
 **COMPLETED.md's log working document was opened** (per DESIGN_DOC.md's
@@ -11936,7 +12036,7 @@ the fn's own `return elem`.
 claims the root once and reads with **no `!` at all** — `0 Idx(heap)?:
 return elem`, `i * 2 + 1 Idx(heap)?: break`, `i_right is Idx(heap)` for
 the sibling, and the total `swap` of two proven indices. Tests: four pick
-tests in `depend_tests.rs` (20 total), two `core.list` annex tests (45 std
+tests in `depend_tests.rs` (20 total), two `std.core.list` annex tests (45 std
 tests, both backends), heap suite unchanged and green. One flow find
 recorded along the way: a claim assigned inside a loop survives the
 back-edge join, so a pre-loop `assert!`/pick that claims the induction
@@ -11944,18 +12044,18 @@ variable keeps every iteration total.
 
 **The LSP through the std shadow, and the grammar's new words (2026-09-24,
 user report).** Editing the standard library goes through [std-shadow] —
-opening the repo's `std/` makes every module an on-disk shadowing file —
+opening the repo's `lib/std/` makes every module an on-disk shadowing file —
 and the LSP was blind there: `apply_std_shadow` flips the disk file to
 `is_std`, and every LSP path filtered on `!is_std`, so a std developer got
 **no hover at all**, stderr-only diagnostics, and — worst — the open
 buffer's overlay was *added beside* the shadowing file instead of replacing
 it, so every declaration in the module reported as a duplicate (117
-diagnostics for `core.list`). `SourceFile` gained `is_shadow` (set by
+diagnostics for `std.core.list`). `SourceFile` gained `is_shadow` (set by
 `apply_std_shadow`: `is_std` for the checker's rules, a real document for
 the tooling), and the overlay replacement, the hover/definition file
 lookups, diagnostics publishing and the doc-linker all admit shadows.
 Regression test: `hover_works_in_a_std_shadowing_file` hovers the real
-`core.list`'s total-`swap` delegation and asserts the `preserve Idx`
+`std.core.list`'s total-`swap` delegation and asserts the `preserve Idx`
 refinement section renders — the report's own case.
 
 The TextMate grammar (the only highlighter — the LSP has no semantic
@@ -11967,7 +12067,7 @@ it had never been added), `self` between `<`/`,` and `,`/`>` (the
 contextual-coverage unit test's word list updated to match.
 
 **Refinement types, step 6 — constant slots (built 2026-09-24).** The third
-slot kind [qual-const]: `core.range`'s `qualifier InRange(lo: Int, hi: Int)
+slot kind [qual-const]: `std.core.range`'s `qualifier InRange(lo: Int, hi: Int)
 of Int`, used as `InRange(0, 65535) Int` — one declaration, a distinct type
 per pair of bounds. `Ty::ConstInt` needs no flow tracking and no
 invalidation; the filled test hands the constants to the dependent
@@ -11985,7 +12085,7 @@ comparison cannot know the bounds *mean* a range; it needs per-qualifier
 semantics, a design question rather than an engineering one). Exact
 equality is the sound core both would extend.
 
-Tests: two constant tests in `depend_tests.rs` (16 total), `core.range`'s
+Tests: two constant tests in `depend_tests.rs` (16 total), `std.core.range`'s
 first annex (4 tests; 43 std tests, both backends). Suite green.
 
 **Refinement types, step 5 — pass minting, and the founding example closed
@@ -12002,7 +12102,7 @@ opened with. Three pieces:
   `(+Idx(list) Int)?` — narrowing the optional is the last check the
   result ever needs.
 - **Pass elements carry claims**: `indices(list)`/`rev_indices(list)` in
-  `core.list` declare `: Yield<self, Idx(self.items) Int>` with a `next`
+  `std.core.list` declare `: Yield<self, Idx(self.items) Int>` with a `next`
   returning `Emitted (+Idx(p.items) Int) | Finished`. Two checker finds:
   `emitted_arm_ty` used to return the arm's *base*, silently dropping
   every qualifier beside `Emitted` — it now filters the protocol tag out
@@ -12023,7 +12123,7 @@ Deliberately not done, recorded: the claimed respell of `enumerate`'s
 value the struct does not contain — the design's RT-2-beyond-v1 case) and
 a claimed `keys` pass for maps (`MapKeyYield` walks a key *snapshot*, not
 the map, so its element cannot honestly name the map). Tests: three new
-`core.list` annex tests (39 std tests, both backends), iter-fn mangling
+`std.core.list` annex tests (39 std tests, both backends), iter-fn mangling
 moved again (`next__14` → `next__15`). Suite green.
 
 **Refinement types, step 4 — `preserve` (built 2026-09-24).** The opt-back
@@ -12080,10 +12180,10 @@ land on it.
   and a sibling with no identity (a temporary) satisfies nothing.
   [type-unknown-lenient] is about not cascading errors; it cannot be about
   granting claims.
-- **std**: `Idx<T>(list)` in `core.list` (`0 <= i < size(list)`) with total
+- **std**: `Idx<T>(list)` in `std.core.list` (`0 <= i < size(list)`) with total
   `get` (answers `proj(list) T` — no `None` arm) and total `swap` (no
   `Bool` — the claims did the checking) [col-idx]; `Span` +
-  `SpanOf(str)` in `core.string` with total `substr` [col-span] — the
+  `SpanOf(str)` in `std.core.string` with total `substr` [col-span] — the
   parse-don't-validate pattern for the multi-part precondition
   (`0 <= start <= end <= size`), claimed whole because a qualifier cannot
   apply to a tuple. Delegation sheds the claim first (`index + 0`) — with
@@ -12097,14 +12197,14 @@ land on it.
 
 Tests: three signature tests in `depend_tests.rs` (total picked on matching
 roots, refused across values, alias matches through fate roots), five
-`core.string` annex tests and four new `core.list` ones — both backends.
+`std.core.string` annex tests and four new `std.core.list` ones — both backends.
 Suite: 1403 tests, all green.
 
 **Refinement types, step 2 — dependent qualifiers, local slots (built
 2026-09-23/24).** The first genuinely new semantics of the sequence
 [qual-depend]: a qualifier may declare **value slots** — unprefixed
 `name: Type` entries in its block — and becomes a claim about the subject's
-relationship to another value. `core.map` ships the first:
+relationship to another value. `std.core.map` ships the first:
 `qualifier KeyOf<K, V>(map: Map<K, V>) of K`, whose dependent `qualifies`
 is exactly `contains_key`. What landed:
 
@@ -12132,8 +12232,8 @@ is exactly `contains_key`. What landed:
   dependent qualifier names the filled form; one kind of slot per
   qualifier for now (fn or value, not both).
 
-Tests: `depend_tests.rs` (7, checker-level), `std/core/map.test.sv` (4,
-runtime, both backends — `core.map`'s first annex). docs/language/ gained the
+Tests: `depend_tests.rs` (7, checker-level), `lib/std/core/map.test.sv` (4,
+runtime, both backends — `std.core.map`'s first annex). docs/language/ gained the
 "Dependent qualifiers" section; LANGUAGE_SPEC.md the [qual-depend] rule.
 The `Span`/`substr`/`slice` driver moved to step 3 with the total
 overloads that make it consumable — a dependent claim nothing can consume
@@ -12165,8 +12265,8 @@ sequence, step 1):
   is now the establishment prefix deductions already use [deduce-reapply] —
   one spelling for one trust in every position.
 - **The tags are provenance** [qual-subject]: `provenance qualifier` onto
-  `Ok`/`Err` (core.result), `Emitted` (core.iterator), `Thrown`
-  (core.throw). The round's one semantic change: tags now survive
+  `Ok`/`Err` (std.core.result), `Emitted` (std.core.iterator), `Thrown`
+  (std.core.throw). The round's one semantic change: tags now survive
   exhaustive stripping and compose with state claims without `with`
   (`Ok NonEmpty List<Int>` — tested), and the sweep-check found nothing
   relying on the old stripping (zero non-snapshot failures). the language docs'
@@ -12188,8 +12288,8 @@ green on both backends.
 **Refinement types, step 0 — `reversed`, `enumerate`, `enumerate_rev`
 (built 2026-09-23).** The plain iteration vocabulary from the decided
 sequence (ROADMAP.md "Refinement types — the build sequence"): three passes
-in `core.list`, the `Range`/`ListYield` shape, with `core.list`'s first test
-annex (`std/core/list.test.sv`, 7 tests, both backends). [col-reversed]
+in `std.core.list`, the `Range`/`ListYield` shape, with `std.core.list`'s first test
+annex (`lib/std/core/list.test.sv`, 7 tests, both backends). [col-reversed]
 walks backwards emitting borrows (`: Yield<self, proj T>`) — a pass, not
 Kotlin's copying `reversed()`. [col-enumerate] pairs elements with their
 indices, either direction, one pass struct stepped `+1`/`-1`.
@@ -12345,8 +12445,8 @@ intrinsic's own deduction clause [rs-read-mode], which is the `param_mode`
 treatment the named-call path has had since the borrow rules were written:
 
 ```rust
-// std/core/string.sv: export intrinsic fn contains(str: Str, needle: Str) [] -> Bool => str, needle
-// before, from `contains(trap!, "…")` in std/test.test.sv
+// lib/std/core/string.sv: export intrinsic fn contains(str: Str, needle: Str) [] -> Bool => str, needle
+// before, from `contains(trap!, "…")` in lib/std/test.test.sv
 trap.as_ref().expect("…").clone().contains(&"…".to_string()[..])
 // after
 trap.as_ref().expect("…").contains(&"…".to_string()[..])
@@ -12382,7 +12482,7 @@ backends now print `xs 2`, and a Kotlin case says so
 (`an_intrinsic_argument_takes_the_intrinsics_own_mode`).
 
 Measured: no example or golden churn — the only `!`-on-a-local intrinsic argument
-in the tree is `std/test.test.sv`'s `contains(trap!, …)`, which is where the win
+in the tree is `lib/std/test.test.sv`'s `contains(trap!, …)`, which is where the win
 shows. The narrowed path is what carries the tree-wide churn, and it is the one
 remaining slice.
 
@@ -12416,7 +12516,7 @@ reports whether it produced a reference**, which is the durable answer for sites
 that cannot ask a predicate in advance.
 
 Measured: no example or golden churn at all, because every `!` in std sits on a
-*call* rather than on a local — `std/test.test.sv` is the only local-`!` site in
+*call* rather than on a local — `lib/std/test.test.sv` is the only local-`!` site in
 the tree, and it is what the two codegen tests were written from.
 
 **A test about a trap (2026-09-23, the `expect_panics` slice).** With the
@@ -12438,14 +12538,14 @@ Three things fell out of building it:
   first attempt gave `trapped_by` an effectful body type and hit the Rust
   effect-threading path — the same wall A-5 hit an hour earlier, and the same
   answer: keep the body pure.
-- **`std.test` now has an annex of its own** (`std/test.test.sv`, module
+- **`std.test` now has an annex of its own** (`lib/std/test.test.sv`, module
   `test.test`), which is the test module testing itself — and a pleasing proof
   that annexes are per module rather than a special case. Its tests read their
   *own* failures off a `try`, since the assertions under test throw
   [test-fail].
 - **The harness is now marked `is_test`**, which is what it always was: that
   gives it `std.test` implicitly [test-implicit-import] and removed the
-  `import test` line, whose coexistence with `import test.test` (the annex of
+  `import std.test` line, whose coexistence with `import std.test.test` (the annex of
   `test` itself) made every test fn in that annex ambiguous. A small lesson about
   generated code: the moment std's own modules get annexes, the harness's import
   list can collide with them, and not importing at all is the fix.
@@ -12565,7 +12665,7 @@ What was built, and what it cost:
   qualifier with no new analysis.
 - [assert-trap]'s location is the **module path**, not the file name. The first
   attempt used the name and made the *emitted output* depend on the loader: the
-  CLI calls an embedded std file `std/core/list.sv` and a directory walk calls it
+  CLI calls an embedded std file `lib/std/core/list.sv` and a directory walk calls it
   `core/list.sv`, so the golden tests and the checked-in examples disagreed about
   the trap text. Caught by the examples test, which is what it is for.
 - 12 checker tests (`assert_tests.rs`), and 46 example files regenerated for the
@@ -12602,7 +12702,7 @@ the body exactly like any other plain entry. Three parts:
   answers an element. Only *written* clauses report a gain; an inferred one stays
   quiet, since handing a caller a claim is a signature's job to state.
 
-What it cost: `std/heap.test.sv` lost four `!`s, because a `pop` after a `push`
+What it cost: `lib/std/heap.test.sv` lost four `!`s, because a `pop` after a `push`
 is no longer optional. That is the feature working, and it is also the second
 time today the redundant-`!` defect has bitten — `!` on a non-optional is
 accepted and lowers to an unwrap, which remains open.
@@ -12656,7 +12756,7 @@ much they turned up:
   **by construction** [qual-ctor-predicate]. Built for `List`/`Mut List`;
   `non_empty_list` is deleted (it *was* the second shape). `Set`/`Map` and
   the sorted pair keep the single variadic shape for now, because their
-  `NonEmpty` is declared in `core.nonempty` and a constructor must live in its
+  `NonEmpty` is declared in `std.core.nonempty` and a constructor must live in its
   qualifier's file [qual-ctor-same-file] — which is a decision waiting in
   ROADMAP.md, not an oversight.
 - **A claim survives a foreign call through a refinement written by the claim's
@@ -12665,7 +12765,7 @@ much they turned up:
   the entry above it, which replaced it with
   `refn swap(list: NonEmpty Mut List<T>, …) => list: +NonEmpty`. With it,
   `std.heap` grew a second `heapify` over `NonEmpty Mut List<T>` whose clause
-  *names* `NonEmpty` without establishing it (the claim is `core.list`'s to
+  *names* `NonEmpty` without establishing it (the claim is `std.core.list`'s to
   establish), and `heap_of(5, 1, 9)` now answers a heap that is known non-empty
   — so `peek` and the first `pop` answer elements rather than optionals. The
   user's first attempt, an overload of `swap` that widened with `^NonEmpty` and
@@ -12697,17 +12797,17 @@ most of it is *cost*:
   the `if`); a qualified argument stops a type variable binding through an
   implicit fn position, so a sibling `next` at a nearer rung wins; two
   same-named structs in two modules confuse pass-driving resolution (exporting
-  `core.range`'s `Range` made the codegen demos' own `Range` emit calls to the
+  `std.core.range`'s `Range` made the codegen demos' own `Range` emit calls to the
   wrong `iter`, so they are `Upto` now); and `!` on a non-optional is accepted
   and lowers to an unwrap.
-- **`core.range` is exported** (the user's call), which closed "`range` is
+- **`std.core.range` is exported** (the user's call), which closed "`range` is
   unusable outside its own file" and left the reachability bill behind: every
   program that iterates now emits `core/range`, because reachability follows
   names. That is the first entry under open defects, with the fix named.
 
 **Testing — the MVP, built the day it was decided (2026-09-23, user
 decisions).** Salvo can test itself: `test "name" { … }` blocks in `*.test.sv`
-annexes, `salvo test` to run them, `std.test` for assertions, and `std/heap.sv`
+annexes, `salvo test` to run them, `std.test` for assertions, and `lib/std/heap.sv`
 (moved out of `demo/`) as the first std module with a suite of its own. The
 option space had been worked out on 2026-09-19 in a working document
 (TESTING.md, three rounds, now deleted per its own charter); this session took
@@ -12730,11 +12830,11 @@ The calls, each the user's:
   `salvo-test`** rather than `salvo-harness` (the user's naming call: the crate
   is where anything test-specific goes). No emitter has a line of test-shaped
   code — the harness is a Salvo program, so the backends agree by construction.
-- **`salvo test --src std`** is how std's suite runs, driven from an ordinary
+- **`salvo test --src lib`** is how std's suite runs, driven from an ordinary
   `cargo test`, with no `--std` flag to explain to users and no migration of the
   existing e2e suite. std's annexes are **not embedded** in the binary: they are
   repository files, so a shipped compiler carries no tests.
-- **`std.heap`, with `push`/`pop`**, arriving by `import heap` — the names only
+- **`std.heap`, with `push`/`pop`**, arriving by `import std.heap` — the names only
   enter a program that asks for the module.
 - **The report**: `test <module a program would import> :: <name as written,
   unquoted> ... ok (N ms)`, green/red, a failure indented under its test.
@@ -12775,7 +12875,7 @@ What building it took, and what fell out:
   step that ran *upward* (both fixed). And an interpolation-resolved `to_str`
   from another module is emitted without importing it — worked around in the
   harness by calling `to_str` explicitly, recorded as an open defect.
-- **`range` is unusable outside `core.range`**, which the heap's sift-down
+- **`range` is unusable outside `std.core.range`**, which the heap's sift-down
   needed. Exporting `Range` and its `next` fixes it and *costs every program in
   the repository the whole module*, because reachability follows names and every
   iterating program uses the name `next`. Tried, measured (81 files of example
@@ -12983,7 +13083,7 @@ emitted call was rustc's E0308.
   where one of them is generic.
 
 **`swap` for a list, and the index rule it made someone write down (user decision
-2026-09-22).** `swap(list, i, j) -> Bool` in `core.list`, `false` when either index
+2026-09-22).** `swap(list, i, j) -> Bool` in `std.core.list`, `false` when either index
 is out of range and then nothing moved. HEAP_QUALIFIER.md item 4, and three of
 `demo/heap.sv`'s four errors — the demo is now down to one.
 
@@ -12993,11 +13093,11 @@ is out of range and then nothing moved. HEAP_QUALIFIER.md item 4, and three of
   [backend-parity] does not allow. `canbe linear` comes free because the exchange
   is total: nothing enters the list, nothing leaves, so nothing can be dropped,
   which is what makes it the one positional write a list of obligations can have.
-- **The `set`/`replace` corner needed no decision**: `core.list`'s own prose had
+- **The `set`/`replace` corner needed no decision**: `std.core.list`'s own prose had
   already settled it before the plan asked — a positional write has nowhere to put
   the displaced value when the index misses, and every answer either drops it or
   confuses "displaced" with "bounced".
-- **`[col-bounds]` existed as a label and nowhere else.** `core.list` referenced it;
+- **`[col-bounds]` existed as a label and nowhere else.** `std.core.list` referenced it;
   no spec defined it. It is now a rule, and it says what std actually does: a read
   answers an optional, `swap` answers a `Bool`, a scalar `set` is a no-op answering
   `None`, and a list has no positional write at all. Not uniform, deliberately —
@@ -13111,7 +13211,7 @@ log, and every live document now points at it instead.
   comparator arrives as an argument), so `needs_compare` lost those four names;
   the sorted *collections* and the canonical `cmp(Str, Str)` still ask for the
   file, which is how the code-point correction still happens.
-- The cost in emitted code: every program using `core.list` now carries the four
+- The cost in emitted code: every program using `std.core.list` now carries the four
   wrappers (they used to be intrinsics and emit nothing), and each comparison goes
   through one indirect call. Four tests in `carry_tests.rs` — which now loads
   **real std** rather than a mirror of it, since what is under test is std's own
@@ -13413,7 +13513,7 @@ the operator rule that goes with it.
   unconstrained slot, the alias, and the refusal) — 17 there now.
 
 **Ordering round (second plan), step 2 — `Hashed` is a pair, and overlapping
-spreads merge (2026-09-22).** User decisions 16, 18 and 19. `core.compare`'s
+spreads merge (2026-09-22).** User decisions 16, 18 and 19. `std.core.compare`'s
 `Hashed<T>` now declares `hash` *and* `eq`, which is what a hash container
 actually needs — it buckets by `hash` and confirms the bucket hit by `eq`, so the
 pair is the unit. `Ordered<T>` stays a single member (decision 17: no sorted
@@ -13432,7 +13532,7 @@ container consults equality).
   `eq` is the ordinary missing-implicit error — and what it buys is that
   `?cmp: (T, T) -> Int` stays the spelling for asking for less.
 - **The surprise was the test preludes.** Three test files mirror
-  `core.compare` by hand (`compare_tests.rs`, `collection_tests.rs` twice), so the
+  `std.core.compare` by hand (`compare_tests.rs`, `collection_tests.rs` twice), so the
   group change had to be made four times or a test asserting the new rule passed
   for the wrong reason — which is exactly what happened first: the
   resolve-every-member test saw no error because its prelude's `Hashed` still had
@@ -13468,7 +13568,7 @@ name whose `eq` is `cmp(a, b) == 0`.
   the generator table that decides): the table is `Ordered → cmp`,
   `Eq → eq`, `Hashed → hash, eq`. Sorted containers never consult equality — both
   hosts collapse by the comparator — so an `eq` in `Ordered` is a member nothing
-  reads. Step 2 makes `core.compare` say so.
+  reads. Step 2 makes `std.core.compare` say so.
 - **The table is the compiler's, in one place** (`salvo_syntax::auto_members`):
   the desugar pass expands a clause from it and the checker tests a member
   against it. It duplicates what std declares because the expansion runs per
@@ -13601,7 +13701,7 @@ struct.
 - **One new std canonical fell out of the sweep**: `eq@Bytes`, because `Bytes`
   is an `intrinsic type` programs compare with `==` (structural, byte for byte
   on both hosts). A good check on the design — the sweep found the gap the way a
-  user would, and `@`-scoping it to `Bytes` in `core.bytes` is exactly the shape
+  user would, and `@`-scoping it to `Bytes` in `std.core.bytes` is exactly the shape
   a std canonical should have.
 - **A fn-typed field no longer bars a struct from equality**, only from the
   *structural* one: `: auto Eq<self>` names the field and refuses, and
@@ -13609,7 +13709,7 @@ struct.
   6's new capability, and it needed a third validation kind (`eq_ineligible`)
   beside the hashable/orderable pair — floats pass it, since Salvo owns float
   equality [kt-float-eq].
-- **The sweep**: `std/time.sv`'s three time types and `std/core/{set,map}.sv`'s
+- **The sweep**: `lib/std/time.sv`'s three time types and `lib/std/core/{set,map}.sv`'s
   prose, `examples/collections` (source, README and both generated trees),
   `examples/time`'s regenerated output, the equality/ordering e2e pair on both
   backends, four collection tests and one operator test rewritten around the new
@@ -13623,7 +13723,7 @@ struct.
 
 **Ordering round, step 3b — `default` obligations generate the structural
 implementations (2026-09-21, night).** *(Superseded 2026-09-28: `auto` is
-gone and the structural implementations are `compfn`s in `core.auto`, asked for
+gone and the structural implementations are `compfn`s in `std.core.auto`, asked for
 with `: Ordered<self> by auto`; the `auto` spellings in this and the following
 entries are historical — see the comptime entry at the top of the log.)*
 `struct Point : auto Ordered<self>, auto Hashed<self>` [cmp-auto] writes `cmp@Point`, `hash@Point` *and*
@@ -13716,7 +13816,7 @@ plus a sweep, not three things at once.
 **Ordering round, step 1 — the three capability groups exist (2026-09-21,
 night).** The first installment of ORDERING.md's build plan, and it is
 deliberately additive: nothing about the operators changed yet, so this landed
-without touching a single existing program. `std/core/compare.sv` declares
+without touching a single existing program. `lib/std/core/compare.sv` declares
 `params Ordered<T>` (`cmp -> Int`), `params Eq<T>` (`eq -> Bool`) and
 `params Hashed<T>` (`hash -> Long`), plus the canonical implementations for the
 intrinsic types as `intrinsic fn` overloads: `cmp` for
@@ -13881,7 +13981,7 @@ fixed**: the [group-obligation] examples in
 LANGUAGE_SPEC.md, ast.rs and parser.rs were stale twice over — they omitted
 the `self` argument ([group-self], `Yield<self, Str>`) and still showed
 `: Linear` as an obligation entry where the current language declares
-`linear struct` [linear-group] (user correction; std/core/fs.sv:195 is the
+`linear struct` [linear-group] (user correction; lib/std/core/fs.sv:195 is the
 reference). The parser test `parser_tests.rs:277` still parses the old
 spelling — deliberate there (it exercises the parse, not the checker), but
 worth a look when the obligation grammar next changes.
@@ -14236,7 +14336,7 @@ What it touched, and the two places it deliberately did *not*:
   (diagnostics now print `Never`), and the two name recognizers — the written
   type in `check.rs` and the deduction clause's consuming spelling in
   `parser.rs`, where `p: Never` is still the long form of `=> !p`.
-- `std/core/basic.sv`'s declaration, `throw`'s `-> Never`, the four inline `.sv`
+- `lib/std/core/basic.sv`'s declaration, `throw`'s `-> Never`, the four inline `.sv`
   preludes in the core tests, the diagnostic strings, the corpus and two insta
   snapshots (name plus a two-character span shift, nothing structural), and the
   label **[type-any-nothing] → [type-any-never]** with all 16 references.
@@ -14700,7 +14800,7 @@ each job, and what survived:
 
 Tests: **1178 (−2 net: the propagation and effect-member grant tests went
 with their subject; a parse-level deletion test arrived)**, fresh nextest
-1178/1178. With this, **`core.time`'s recorded "dedicated thread per waiting
+1178/1178. With this, **`std.core.time`'s recorded "dedicated thread per waiting
 actor" cost is gone** — the ROADMAP leftovers that pointed at SH-5(b)/(d)
 are settled.
 
@@ -15095,8 +15195,8 @@ runtimes, and the only part of that document that needed no user call.
   recorded defect.
 
 **Modules get visibility: private by default, `export` to let a declaration out
-(user decision 2026-09-18).** Prompted by a `core.time` leftover — `fire_after`
-is `DefaultTimer`'s plumbing and `import time` brought it into scope, because
+(user decision 2026-09-18).** Prompted by a `std.core.time` leftover — `fire_after`
+is `DefaultTimer`'s plumbing and `import std.time` brought it into scope, because
 Salvo had no module-private declarations. The user's call: **module members are
 private by default and must be explicitly `export`ed**, with `export` a word in
 front of the declaration (`export linear struct`, `export actor effect`, …).
@@ -15106,14 +15206,14 @@ declarations, **347 are used outside their own file** — std is a library, so a
 high export ratio is the expected shape, but it is worth knowing the modifier
 lands on 88% of them. The *directory*-grained alternative (siblings in one
 directory see each other) was measured too and saves only **9** declarations,
-because `core.*` is implicitly visible to all user code and so must export its
+because `std.core.*` is implicitly visible to all user code and so must export its
 surface either way. That settled the grain: file-private, which is what
 "module-private" already means [mod-file]. It also fits a grain the language
 had — `[qual-ctor-same-file]` and `linear struct`'s same-file discharge model
 were both file-scoped rules before this.
 
 Six sub-decisions were put to the user with recommendations and all six taken:
-file grain; the rule applies to implicit `core.*` too (or the motivating case
+file grain; the rule applies to implicit `std.core.*` too (or the motivating case
 does not hide); **contextual** keyword, not reserved (a variable may still be
 called `export`); top-level declarations only, so an exported struct exports its
 fields and an exported effect its members; a private type in an exported
@@ -15259,7 +15359,7 @@ up (the Rust side by directory scan, the Kotlin side needing its registry entry,
 as the guard insists).
 
 **With step 6, the second sequence is complete** — the `waitfor` package, the
-task kernel, `on_idle`, multi-effect handlers, `core.time` and the coupling
+task kernel, `on_idle`, multi-effect handlers, `std.core.time` and the coupling
 stance, all six built 2026-09-17/18. **TIME.md is deleted** per its charter, its
 outcomes living in [time-types], [time-ticker], [time-clock], [time-timer],
 [time-manual], [time-coupling], [waitfor-effect], [waitfor-dedicated],
@@ -15271,7 +15371,7 @@ each small and each user-directed:
 
 - **`==` and `!=` widen mixed numeric widths** [op-promote], which ordering and
   arithmetic already did. The split had no reading behind it — `n < 0` was fine
-  for a `Long` `n` while `n == 0` was an error, so `std/time.sv` had been
+  for a `Long` `n` while `n == 0` was an error, so `lib/std/time.sv` had been
   written with `0L` suffixes — and it cost one branch in the checker plus one
   case in the Kotlin emitter: `==` is the only comparison the JVM refuses to mix
   widths on, so a promoted operand renders as `(x).toLong()` there
@@ -15309,7 +15409,7 @@ each small and each user-directed:
 - **A hover lists the rest of the overload set** [lsp-hover-overloads]:
   "Also visible under this name", one line per declaration, with the module it
   came from and — for a member — the effect it belongs to. `read_to` in
-  `core.fs` was the case that prompted it. Two things this needed: an owned
+  `std.core.fs` was the case that prompted it. Two things this needed: an owned
   index in the LSP's `Analysis` (a `Resolution` borrows the program, so the
   slice hover wants is extracted while the resolution is alive), and a
   fn-shaped lookup in the renderer — `decl_at` covers only the declarations
@@ -15361,7 +15461,7 @@ in the order it was asked:
   So a handler owns the correlation; `DefaultClock` takes it **once at
   construction**, which makes the conversion a fixed affine map and therefore
   order-preserving.
-- **The module left `core`** (user decision): "I'm not sure the time module
+- **The module left `std.core`** (user decision): "I'm not sure the time module
   should be in core… clocks, instants, and durations all seem like they should
   be imported", with the filesystem to follow later. That turned out to need a
   language addition — see the next entry — because imports were per-name.
@@ -15420,11 +15520,11 @@ harnesses mount it beside the scheduler. Rules: [time-types], [time-ticker],
 [time-clock], [time-timer], [time-manual], [rs-time], [kt-time]. Tests:
 **1138 (+15)**.
 
-**Whole-module imports: `import time` (user decision 2026-09-18).** Moving the
-time surface out of `core` exposed the fact that `import` was **per name** —
-`import time.Duration`, `import time.millis`, a dozen lines for one module — so
+**Whole-module imports: `import std.time` (user decision 2026-09-18).** Moving the
+time surface out of `std.core` exposed the fact that `import` was **per name** —
+`import std.time.Duration`, `import std.time.millis`, a dozen lines for one module — so
 the user chose the addition that makes a non-implicit std surface cheap to
-reach: `import time` brings every name in the module, and in every module under
+reach: `import std.time` brings every name in the module, and in every module under
 it, by the same prefix match the name form already used.
 
 - **No new syntax and no star**: the reading is decided by the path. Every
@@ -15436,7 +15536,7 @@ it, by the same prefix match the name form already used.
 - **A bulk import never fights anything** (the user's call: "I don't think we
   need to complain with name collisions because we have the tools to
   disambiguate the function calls using the `@` syntax"). It enters at its own
-  ladder rung — above implicit `core.*`, below a named import and below the
+  ladder rung — above implicit `std.core.*`, below a named import and below the
   file's own module — and loses *silently* in both directions, so a file that
   declares its own `Duration` keeps it. Functions need nothing more: the
   overload ladder ranks them and `between@time(a, b)` names either.
@@ -15444,12 +15544,12 @@ it, by the same prefix match the name form already used.
   type reference has no `@` form to disambiguate with: the first module in
   order wins and the second **warns**, naming `import other.Name as …` as the
   remedy. A warning rather than an error, in the spirit of the decision.
-- **`import time as t` is refused** (an alias renames one imported *name*, and
+- **`import std.time as t` is refused** (an alias renames one imported *name*, and
   there are no module-qualified type references for a module alias to qualify)
-  and **`import core` is reported redundant** — the latter not merely tidiness:
+  and **`import std.core` is reported redundant** — the latter not merely tidiness:
   adding core's names at a second rung would put every core overload in the set
   twice, which is the shape the refinement matcher counts [qual-refn-match].
-- Precedent found while doing it: `std/random.sv` has been a non-core std
+- Precedent found while doing it: `lib/std/random.sv` has been a non-core std
   module all along, so the placement the user wanted needed no new machinery
   beyond the import form. Rule: [mod-import-module]; ten tests in
   `crates/salvo-core/tests/module_import_tests.rs`.
@@ -15625,7 +15725,7 @@ had to be decided while building it:
 
 - **The shape is `watch`'s, deliberately**: `intrinsic fn on_idle(p: Pool,
   notify: Reply<Idle>) [spawn]` plus `struct Idle { parked_gates: Int,
-  parked_tokens: Int }` in `core.actor`, a linear one-shot whose registration
+  parked_tokens: Int }` in `std.core.actor`, a linear one-shot whose registration
   *is* the obligation, `[spawn]`-gated like `pool`, and answered by the
   scheduler through the ordinary reply path. So `main` registers with `waitfor`
   and an actor with `replyto`, and neither needed a new context.
@@ -15815,7 +15915,7 @@ said (runtime shape first, statics second):
   pool's sole worker blocking on its own pool) is recorded in ROADMAP as the
   remaining gap.
 - **The surface**: `provenance qualifier Dedicated of Pool` and
-  `intrinsic fn thread() [spawn] -> Dedicated Pool` in `core.actor` — the
+  `intrinsic fn thread() [spawn] -> Dedicated Pool` in `std.core.actor` — the
   language needed no new vocabulary for either, which is the point of the
   qualifier being a *provenance* one. The `on` clause became **optional**
   (`pool: Option<Box<Expr>>` through parser, checker and both emitters,
@@ -16231,8 +16331,8 @@ another language will reach for.
 modifier (`ACTOR_MODIFIER`) and its new diagnostic; `EffectDecl::is_actor`;
 **fourteen rule labels** `[async-*]` → `[actor-*]`, plus `[rs-process]` →
 `[rs-actor]` and `[kt-process]` → `[kt-actor]`, across code, tests and four
-spec documents; `std/core/process.sv` → `std/core/actor.sv` (so the module is
-`core.actor`, which every generated program's mount table shows);
+spec documents; `lib/std/core/process.sv` → `lib/std/core/actor.sv` (so the module is
+`std.core.actor`, which every generated program's mount table shows);
 `SalvoProcess` → `SalvoActor` and `__Proc_H` → `__Actor_H` in both runtimes and
 both emitters — generated code appears in the user's own stack traces, which is
 exactly where a second name for one thing costs; the scheduler's internals
@@ -16354,7 +16454,7 @@ Rules: [actor-watch], [actor-deadlock-cycle], plus a propagation fix under
 **Three design points were settled before any code** (user decisions, D6-a/b/c
 presented with options and recommendations):
 
-- **D6-a, how `watch` is spelled: an `intrinsic fn` in `core.process`.**
+- **D6-a, how `watch` is spelled: an `intrinsic fn` in `std.core.process`.**
   SUPERVISION.md's S-2 put it "on the spawn effect", but `spawn` is a
   lowercase compiler-owned *capability* with no member list, so a member was
   never available. `intrinsic fn watch<E>(target: Addr<E>, on_exit:
@@ -16670,7 +16770,7 @@ qualifier-widening messages, two `once`/`linear` ones).
 (2026-09-15).** Both surface changes EFFECT_UNIFICATION.md decided, landed
 before any more emission was built on the old spellings. Tests: **995 (+2)**.
 
-**`Pid<E>` → `Addr<E>`**, mechanically, across 21 files: the `core.process`
+**`Pid<E>` → `Addr<E>`**, mechanically, across 21 files: the `std.core.process`
 declaration, the checker's constant and its five side tables and predicates
 (`addr_calls`, `use_addrs`, `addr_effect`, `addr_receiver`, `check_addr_call`),
 both backends' type maps and lowerings, every test, the spec rules (with
@@ -16904,7 +17004,7 @@ letting a correct program reach the handler path and be reported as an
 send-through-a-addr with diagnostics that name the missing piece — so the next
 slice's work list is readable from the compiler's own output.
 
-**Phase 5 step two, slice three: `core.process` and the linear opaque type
+**Phase 5 step two, slice three: `std.core.process` and the linear opaque type
 (user decisions 2026-09-15, three calls presented and answered in one
 round).** The types the asynchronous forms produce and consume now exist:
 `Addr<E>`, `linear intrinsic type Reply<T>` with `send` beside it, and `Pool`
@@ -17164,7 +17264,7 @@ had asked for and the ergonomic layer over them. Naming was theirs too:
 `read_to`, following `read_to_str`, with the *parameter type* picking the
 overload.
 
-**`core.bytes`** [bytes-type]: `intrinsic type Bytes canbe Mut`, and the pair
+**`std.core.bytes`** [bytes-type]: `intrinsic type Bytes canbe Mut`, and the pair
 is exactly `Str`/`Mut Str` — `Bytes` is read (`size`, `get`, `slice`,
 `index_of`, `to_str`, `to_hex`, `str_of_bytes`, `for b in data`), `Mut Bytes`
 is built (`add`, `append`, `set`, `clear`), and dropping the `Mut` reaches the
@@ -17174,7 +17274,7 @@ saying so), out-of-range reads answer `None`, `set` out of range does nothing,
 `==` is structural, `copy` really copies, and a buffer is deliberately **not
 hashable** — the Kotlin buffer is one mutable object, and a key that can change
 under its map is a bug no later diagnostic would catch. `to_bytes` and
-`str_of_bytes` moved here from `core.string`.
+`str_of_bytes` moved here from `std.core.string`.
 
 **The fill-a-buffer reads** [fs-read-to]: `read_to(s, buf: Mut Bytes, max) ->
 Ok Int`, `read_to(s, buf: Mut Str) -> Ok Long` (the `read_all` parallel) and
@@ -17325,8 +17425,8 @@ rule; the language docs' basic-types list and "Files" section carry bytes.
 
 **`MemFs` and `RestrictedFs` — the fs doubles (phase 4 item 6.4,
 2026-09-14).** std can now run a filesystem in memory and scope one to a
-directory, both in pure Salvo: `core.memfs`'s `MemFs of Fs` (no dependency, no
-host — a test registering it touches no disk) and `core.restrictedfs`'s
+directory, both in pure Salvo: `std.core.memfs`'s `MemFs of Fs` (no dependency, no
+host — a test registering it touches no disk) and `std.core.restrictedfs`'s
 `RestrictedFs(root: Str) [Fs] of Fs`, the interception customer O-R2 was built
 for. Each is its own module, so a program links neither unless it names it
 [mod-used-only], and `RestrictedFs` *must* be separate anyway: a dependent
@@ -17437,7 +17537,7 @@ the golden test. Three golden assertions moved to `close__2`, because a user's
 the first). Rules: LANGUAGE_SPEC.md [effect-available] rewritten; docs/language/
 "Two effects, one member name" gained the member-versus-fn half.
 
-**The filesystem surface — `core.fs` and `core.hostfs` (phase 4 item 6.3;
+**The filesystem surface — `std.core.fs` and `std.core.hostfs` (phase 4 item 6.3;
 user decision on the token shape, 2026-09-14).** std has a filesystem: an
 `Fs` effect carrying path *and* stream operations, linear stream tokens, a
 linear `FsError`, a `Lines` pass, the one-shots, and a host seam at the
@@ -17455,9 +17555,9 @@ whole fs surface: stream members keep their token (`=> s`), `close` consumes
 it (`=> !s`), and a token in a field (`Lines`) is read without projecting a
 `Mut` out of it [fs-token].
 
-**Two modules, and the split is load-bearing.** `core.fs` is the surface;
-`core.hostfs` holds `RawFs`, `platform handler HostRawFs` and
-`handler DefaultFs [RawFs] of Fs`. Reachability is name-based, and `core.fs`
+**Two modules, and the split is load-bearing.** `std.core.fs` is the surface;
+`std.core.hostfs` holds `RawFs`, `platform handler HostRawFs` and
+`handler DefaultFs [RawFs] of Fs`. Reachability is name-based, and `std.core.fs`
 declares a `next` and a `to_str`, so ordinary programs drag the surface in —
 harmless — while a *dependent handler* switches the whole program to the
 fused effect emission, which would have fused every Salvo program ever
@@ -17498,7 +17598,7 @@ ordinary fn now resolves to the *fn* wherever no instance of the owning
 effect is in scope. Without it, std declaring `Fs` claimed `close`, `write`,
 `read_line` and `position` program-wide: a program with a `close` of its own
 stopped compiling whether or not it touched a file — which is exactly what
-happened to a dozen tests the moment `core.fs` existed. The multi-owner case
+happened to a dozen tests the moment `std.core.fs` existed. The multi-owner case
 already read availability this way; this is the single-owner case of the same
 rule, recorded for the emitters as `fn_over_member_calls` for the same reason
 `local_calls` exists.
@@ -17509,7 +17609,7 @@ rule, recorded for the emitters as `fn_over_member_calls` for the same reason
 chose one overload set (option (a)) — see the entry above.
 
 Smaller findings, recorded rather than fixed: `rename` is a keyword, so the
-member is `rename_path`; `core.fs` is emitted (dead) in programs that never
+member is `rename_path`; `std.core.fs` is emitted (dead) in programs that never
 open a file, until reachability resolves calls through `call_fn`; and a
 pass's *type* must be visible for `for` to drive it, which reads as a missing
 import of something the value already has. All three are in ROADMAP.md.
@@ -17533,7 +17633,7 @@ together, and the second is why the first is worth having.
 
 **The [linear-group] amendment.** A linear type's discharge set was
 same-file consuming *fns*; it is now same-file consuming fns **and effect
-members** — phase 4's `close` is an `Fs` member, and `std/core/fs.sv`
+members** — phase 4's `close` is an `Fs` member, and `lib/std/core/fs.sv`
 declares the token and the effect together. Discharger status attaches to
 the **member declaration**, so *every* handler's implementation of a
 consuming member is a discharge context where `discard` terminates the
@@ -17661,7 +17761,7 @@ work**: it is a companion in the `platform/` tree of the module that
 `crate::platform_<M>::H::new(args)` (Rust), named through the declaring
 module rather than the using one, which is what lets std declare a handler a
 customer's `main` registers. **std's route is the same route**: std ships its
-own host files under `std/platform/…`, and the embedded loader now picks up
+own host files under `lib/platform/std/…`, and the embedded loader now picks up
 the active backend's extension there exactly as it does in a source
 directory — so FS-1's "the runtime file" became "std's own companion", and
 no backend registry keyed by handler name was needed. Nothing is emitted for
@@ -17701,13 +17801,13 @@ BACKEND_SPEC.rust.md [rs-platform-handler]; docs/language/ gained "A host
 implementation of an ordinary effect" under the platform layer.
 
 **std's route was verified end to end by hand**, since it has no shipped
-customer yet: a throwaway `std/core/testclock.sv` declaring
-`platform handler HostRawTestClock`, with `std/platform/core/testclock.kt`
+customer yet: a throwaway `lib/std/core/testclock.sv` declaring
+`platform handler HostRawTestClock`, with `lib/platform/std/core/testclock.kt`
 and `.rs` beside it, ran `now=7` through `salvo run` on both backends before
 being deleted again. That is what makes the remaining phase-4 work on this
 seam *only* its first customer: `HostRawFs` needs the declaration and the two
 shipped files, nothing more. (It also turned up the `include_dir!` gotcha
-below — a new file under `std/` is invisible until a `salvo-cli` source is
+below — a new file under `lib/std/` is invisible until a `salvo-cli` source is
 touched.)
 
 **Handler dependencies become an effect list, and the fusion stops
@@ -18013,8 +18113,8 @@ mangle-only-on-collision precedent; the predicate call site resolves the same
 declaration from the subject in hand, so the two agree by construction. Kotlin
 needed nothing — the JVM overloads on the parameter type.
 
-**What std gained**: `core.nonempty`, declaring `NonEmpty` over `Set`, `Map`,
-`SortedSet` and `SortedMap` beside `core.list`'s `of List<T>`, with the
+**What std gained**: `std.core.nonempty`, declaring `NonEmpty` over `Set`, `Map`,
+`SortedSet` and `SortedMap` beside `std.core.list`'s `of List<T>`, with the
 refinements that establish it (`add` for the sets, `put` for the maps) and the
 overloads that drop the optional — `min`/`max` on a `NonEmpty SortedSet`,
 `first_key`/`last_key` on a `NonEmpty SortedMap`. They live in a module of
@@ -18022,7 +18122,7 @@ their own for a mechanical reason worth remembering: an accessor overload has
 to **delegate** to the plain version, a scope selector names a module
 (`min@core.sorted`), and declared next to their targets the selector would
 re-pick the overload — a `NonEmpty` argument still ranks it first — and recurse
-forever. `core.list`'s `first` dodges that by delegating to `get` instead;
+forever. `std.core.list`'s `first` dodges that by delegating to `get` instead;
 `min` has no such alternative.
 
 That change also made an existing test *better*: the sorted-collections demo
@@ -18074,19 +18174,19 @@ through the ordinary intrinsic path, which is why deleting beat fixing; the
 spelling now fails to parse with "`Int` is a type, not a value". The corpus
 file it appeared in also had a stale array *literal*, fixed in passing.
 
-**Three claims over `List<T>`.** `NonEmpty` (in `core.list`) has a
+**Three claims over `List<T>`.** `NonEmpty` (in `std.core.list`) has a
 `qualifies`, so it can be tested — and it is the one that earns the machinery:
 `first(list: NonEmpty List<T>) -> proj(list) T` drops the optional.
 It arrives three ways: by construction (`non_empty_list`), by *refinement*
 (`refn add(...) => list: +NonEmpty`, since `add` may not promise it itself),
-and by `is`. `Sorted` (also `core.list`) has **no** `qualifies` — deciding
+and by `is`. `Sorted` (also `std.core.list`) has **no** `qualifies` — deciding
 whether a list happens to be sorted compares its elements, which nothing can
 do over an unconstrained `T` — so it is minted by `sort`/`mut_sort` only;
 `add_sorted` inserts at the order-preserving position and names `Sorted` in
 its **own** exhaustive deduction list, which it may do because it genuinely
 knows the claim survives, and `binary_search` is honest only because its
-parameter carries the claim. `Distinct` lives in **`core.set`**, not
-`core.list`: a constructor must sit beside its qualifier
+parameter carries the claim. `Distinct` lives in **`std.core.set`**, not
+`std.core.list`: a constructor must sit beside its qualifier
 [qual-ctor-same-file], and a set is what can honestly promise it, so
 `to_list(set)` mints it. Both backends answer the **lowest** index within an
 equal run (explicit lower bounds — Rust `partition_point` plus an equality
@@ -18106,7 +18206,7 @@ new coupling. The check fires on written claims (`check_sorted_list_claim` in
 invisible there.
 
 **Five bugs fixed on the way, all pre-existing.** (1) A `refinement` inside
-any `core` module could never match: `add_items` ran twice for a core module's
+any `std.core` module could never match: `add_items` ran twice for a core module's
 own files (`Level::Core` *and* `Level::Own`), putting every fn in the overload
 set twice, which ordinary resolution tolerated and the refn matcher — which
 counts matches — did not. (2) `List(first, ...rest)` **silently emitted
@@ -18220,7 +18320,7 @@ out of (D) for free and is order-insensitive on both backends for Set and Map
 `(Str, Int)[]` failed to parse — "expected `->` after effect list in function
 type", the parser having taken `[]` for an effect list. (2) An **effect member
 hijacked a same-named fn-typed local**: the emitters resolved calls through
-the program-wide `symbols.effect_of_fn`, so `std/core/seq.sv` reported "no
+the program-wide `symbols.effect_of_fn`, so `lib/std/core/seq.sv` reported "no
 handler for effect `Sink`" for a call to a local. Fixed with
 `Checked::local_calls` plus tightened member visibility in resolve.rs — the
 checker knows which it is, and the emitters now ask. (3) **Variadic arguments
@@ -18238,8 +18338,8 @@ with the recorded bare-generic-struct-literal gap; and the
 `array_by(3, i -> …)` now expresses properly — the recommendation is to delete
 the form, a user decision.
 
-**The accepted cost.** Name-based reachability now pulls `core.set`,
-`core.map` and `collections.rs` into every program, because the constructors
+**The accepted cost.** Name-based reachability now pulls `std.core.set`,
+`std.core.map` and `collections.rs` into every program, because the constructors
 and converters name each other across modules: hello-world went from ~300 to
 569 lines of allowed dead code. Both backends tolerate unused items, and the
 real fix — walking the checker's *resolved* call targets instead of matching
@@ -18343,7 +18443,7 @@ Salvo spelling ([rs-borrows]), so a top-level projection into it is a plain
 reborrow — verified by compiling and running the probe under rustc. Test:
 `a_proj_mut_parameter_is_refused_at_the_declaration` (widen_tests); spec:
 [proj-readonly] sub-bullet in LANGUAGE_SPEC.md, one sentence in
-the language docs' read-only rule. Nothing in std/examples wrote the spelling.
+the language docs' read-only rule. Nothing in lib/std/examples wrote the spelling.
 The same review reworded the over-broad prose (user-approved): the language docs'
 "passing a projection where an owned value is expected is an error" and the
 [proj-type] subtyping bullet now state the kept-aware rule the checker
@@ -18380,7 +18480,7 @@ checker and both emitters (`PassDriver.close` gone), `drives_in_place`
 extended to every named place (driving an exhausted pass again is now
 legal, zero iterations), linear temporaries refused as loop subjects,
 and the consuming-callback pattern (`drain(h, close)` / `drain(c,
-drop)`) replacing `?Linear<It>`, with std's `drop` in `core.seq` (in
+drop)`) replacing `?Linear<It>`, with std's `drop` in `std.core.seq` (in
 `basic` it made every `Int` user import the module — the multi-module
 golden caught it). **(5) Conditional containers**: struct generics take
 `canbe` (`StructDecl.generic_canbe`); `ty_own_linear` computes
@@ -18787,7 +18887,7 @@ site where every `is`-check name is classified, so one call covers type and
 qualifier checks alike.
 
 Tests: 822 (797 at the start of the batch). Examples regenerated: the only diff
-is `use crate::core_string::*;` in `core/list.rs` and its Kotlin twin, because
+is `use crate::std_core_string::*;` in `core/list.rs` and its Kotlin twin, because
 `to_str` returns `Str`.
 
 **L5: fields are tracked apart (phase 2, 2026-09-10).** Shared fate poisoned
@@ -19220,8 +19320,8 @@ the inference argument R5 used: *a source is not guaranteed to have a container
 behind it at all*. A `yield fn`'s machine, a composed pass out of `map_lazy`, a
 hand-written `zip` — the pass is all there is in each case, so a std function
 declaring `?iter` would exclude them by construction. So the container-shaped
-combinator stays something a **program** may write, and `std/` keeps taking
-passes; verified as already true (`grep`: every `?`-spread in `std/` is
+combinator stays something a **program** may write, and `lib/std/` keeps taking
+passes; verified as already true (`grep`: every `?`-spread in `lib/std/` is
 `?Yield<It, T>`, and the `List` fast paths are overloads on a concrete intrinsic
 type that ask for no `iter`). Recorded under [seq-iterator] so the next combinator
 author, and S-IO, inherit it.
@@ -19568,7 +19668,7 @@ exists.
   what these are — and nothing else moved: the Rust runtime's `SalvoPass<T>`
   trait and the generated `__Pass_<fn>` machines are internal to a backend and
   untouched. The user named three structs; the other two came with them, since
-  half a rename is worse than none. Pure rename, no semantics: `std/`, the
+  half a rename is worse than none. Pure rename, no semantics: `lib/std/`, the
   specs, the tests and every snapshot swept in one pass, the only snapshot
   churn being spans shifting by one character per name.
 - **`experiments/` is deleted; `examples/` replaces it.** The two directories
@@ -19643,7 +19743,7 @@ down where a newcomer meets it:
   (`"read ${read_size("a.txt", 3)}"`). Bind the call to a local first. Not a
   defect — the interpolation lexer re-lexes the fragment — but it is the first
   thing an example author trips over.
-- **`core.list` has no removal function**, so "a call that may empty the list"
+- **`std.core.list` has no removal function**, so "a call that may empty the list"
   had to be written as a declaration whose body does nothing. The example says
   so rather than pretending.
 - **`map_to`'s destination is moved and handed back** (`[it: Mut, f] Mut D`),
@@ -19782,7 +19882,7 @@ the shape is **refused** [iter-mut-param] rather than sided with: transitively,
 by the same `Mut`-at-any-depth test [fate-move-mode] uses, with a diagnostic
 naming the two remedies that work everywhere (yield the values and let the
 consumer collect them, or reach the outside through an effect). Nothing in
-`std/` or the corpus did this, so it landed without a sweep. Two follow-ons
+`lib/std/` or the corpus did this, so it landed without a sweep. Two follow-ons
 recorded rather than decided: **`once Iter<T>`** may be able to take one after
 all — one pass exists, so what remains is shared fate ([fate-link]), which
 needs I2c's representation split — and **sharing it properly on both backends**
@@ -19867,7 +19967,7 @@ error.*
 
 1. `f@module(args)` names the module whose overload is meant, if written
    [fn-overload-at].
-2. **The most specific scope that fits wins** [fn-overload-scope]: `core`,
+2. **The most specific scope that fits wins** [fn-overload-scope]: `std.core`,
    then this file's imports, then this module, then the fn's own scope
    (fn-typed locals, parameters, implicits, effect members), then inner
    scopes. Only the most specific rung with a candidate *fitting the
@@ -19938,7 +20038,7 @@ milestone of its own rather than an easy win.
 function surface.** A string is still immutable; what `Mut Str` adds is a
 string *under construction*, asked for explicitly (`mutable_str("he",
 "llo")` — a literal is never a builder) and mutated by exactly three
-functions (`append`, `set`, `clear`). Everything else in `core.string` takes
+functions (`append`, `set`, `clear`). Everything else in `std.core.string` takes
 a plain `Str`, and a builder reaches all of it by dropping its `Mut`.
 
 **That drop is the feature.** Every other qualifier erases, so widening only
@@ -20408,8 +20508,8 @@ around.
 `abort` → `throw`, `Aborted` → `Thrown`.** A pure rename of the E3 step-2
 feature, taken under the no-backwards-compatibility invariant: the old
 spelling simply stopped being the language, with no transitional
-diagnostic. What moved: the std module `std/core/abort.sv` →
-`std/core/throw.sv` (module `core.abort` → `core.throw`), the compiler's
+diagnostic. What moved: the std module `lib/std/core/abort.sv` →
+`lib/std/core/throw.sv` (module `std.core.abort` → `std.core.throw`), the compiler's
 known names (`ABORT_EFFECT`/`ABORTED_QUALIFIER` → `THROW_EFFECT`/
 `THROWN_QUALIFIER`, with `OK_QUALIFIER` untouched), `Checked::may_abort` →
 `may_throw` with `AbortSite` → `ThrowSite`, the Kotlin signal
@@ -20497,7 +20597,7 @@ Landed so far (each step left the tree green):
    below records as having once panicked the compiler.
 2. **std migrated off templates.** New `intrinsics.rs` per backend
    (`type_name`, `mut_type_name`, `fn_call`, `handler_member`); all ten
-   `std/**/*.{kotlin,rust}.sv` files deleted; `emit_define_handler` became
+   `lib/std/**/*.{kotlin,rust}.sv` files deleted; `emit_define_handler` became
    `emit_intrinsic_handler`, taking member signatures from the *effect*
    declaration. Dispatch is on the checker-resolved declaration (name +
    first parameter's base type name), which is what separates
@@ -20543,7 +20643,7 @@ Landed so far (each step left the tree green):
    because `fn main` must live there. The `rustc` invocation is unchanged.
    `module_mod_names` was extracted so `emit_program` and the skeleton
    renderer cannot disagree about what a module is called — a skeleton
-   naming `crate::core_console::…` where the crate calls it something else
+   naming `crate::std_core_console::…` where the crate calls it something else
    would be generated code that does not compile.
 
    *The skeletons* are rendered by the same `Emitter` and the same
@@ -20633,7 +20733,7 @@ Landed so far (each step left the tree green):
    body, so the contract under test is unchanged and the call stays on the
    named-call path rather than moving to `check_effect_call`. The
    `intrinsic` type stubs those tests relied on moved into a std-loaded
-   `core/prelude.sv` per harness (module `core.prelude`, implicitly
+   `core/prelude.sv` per harness (module `std.core.prelude`, implicitly
    imported), which is precisely the `is_std` split this document predicted
    would be needed. Tests whose *subject* was the define machinery were
    deleted outright — missing-define errors, core coverage, the
@@ -20897,7 +20997,7 @@ the new branch heads, per **leaf** of a `&&`/`||`/`!` condition so the
 diagnostic lands on the operand that is wrong, and lenient on `Unknown`
 and `Never` [type-unknown-lenient]. `Bool?` is rejected too — which way
 `None` should decide is exactly the guess the rule refuses to make, and
-guessing is how Kotlin/Rust divergence gets in. Nothing in `std/`, the
+guessing is how Kotlin/Rust divergence gets in. Nothing in `lib/std/`, the
 corpus, the inline test sources or the specs had to change: the whole
 suite went green on the new rule unmodified, which says the language was
 already being written as if the rule existed.
@@ -20972,7 +21072,7 @@ body's message types (chosen for consistency with `if`/`when` branch types,
 with generated code wrapping only when a union is present), a **`try` whose
 body cannot throw is an error** rather than `Thrown None`, **`main` may not
 declare `[Throw<M>]`**, and `Throw`/`Thrown` are **declared in std**
-(`std/core/throw.sv`) with the compiler knowing only their names.
+(`lib/std/core/throw.sv`) with the compiler knowing only their names.
 
 The roadmap said to hand-write and run the three deciding Rust shapes first;
 that paid for itself twice. It confirmed `?` on `ControlFlow` is stable and
@@ -21483,7 +21583,7 @@ being worked out, so compatibility machinery would only get in the way:
 syntax and rules change outright, with no deprecation periods, no
 grammars that accept both spellings, and no version gates. The
 obligation that replaces it is a *sweep*: every affected example gets
-rewritten in the same change (`std/`, test corpora, inline `.sv` sources
+rewritten in the same change (`lib/std/`, test corpora, inline `.sv` sources
 in Rust tests, the spec documents, README, and the syntax references in
 this file — it is a handoff document, not an archive, so stale syntax in
 prose is a bug and the change belongs in this decision log instead).
@@ -21616,7 +21716,7 @@ that still shape the code, and where to look for the mechanics.
 - **M7 — Polish.** Only reachable modules are emitted [mod-used-only]
   (name-usage reachability, deliberately conservative); per-module Kotlin
   packages + generated imports [kt-package] [kt-imports]; interop coverage
-  checked upfront for `core.*` and at reference sites (the `define` era's
+  checked upfront for `std.core.*` and at reference sites (the `define` era's
   rule, since deleted); backend-native companion files copy verbatim
   [backend-companion]. Decision under [type-array]: `T[]` stays
   `Array<T>` in Kotlin (no primitive-array specialization without
@@ -21750,7 +21850,7 @@ that still shape the code, and where to look for the mechanics.
       handler member can write `[count]` for the handler's state
       [doc-symbol-ref].
     - Fallout worth noting: the feature immediately caught a real
-      mis-attachment in `std/core/result.sv`, where an edit had turned the
+      mis-attachment in `lib/std/core/result.sv`, where an edit had turned the
       blank line between the module header and the qualifier's docs into a
       `//` line — so the whole header had become `qualifier Ok`'s
       documentation. Every std file's attachment was then checked.
@@ -21789,20 +21889,20 @@ that still shape the code, and where to look for the mechanics.
     [qual-of] rule *claimed* struct fields were). `canbe` clauses now
     reject user qualifiers, which is the `with` confusion [canbe-optin]
     already warns about.
-  - Two real bugs fell out: `core.string`'s `char_at(index: Positive Int)`
+  - Two real bugs fell out: `std.core.string`'s `char_at(index: Positive Int)`
     used an undeclared qualifier lifted from a docs/language/ example — no
     caller could ever have satisfied it — now plain `Int`; and four
     std-less test preludes never declared `Int`/`Str`.
-  - `Ok`/`Err`/`ok`/`err` now live in **`core.result`**, not
-    `core.basic` (the user's initial suggestion; deviation raised and
-    approved on the dead-code grounds): `core.basic` declares `Int`, so
+  - `Ok`/`Err`/`ok`/`err` now live in **`std.core.result`**, not
+    `std.core.basic` (the user's initial suggestion; deviation raised and
+    approved on the dead-code grounds): `std.core.basic` declares `Int`, so
     every program reaches it, and putting code there emits a dead
     `core/basic.{kt,rs}` into
     every output [mod-used-only]. Deliberately no `Result` alias — the
     union *is* the result. Every demo that hand-rolled the tags now uses
     std's, which is also what verifies the module end-to-end (the unions,
     qualifiers, and loops demos compile and run under `kotlinc`/`rustc`
-    with `ok`/`err` imported from `salvo.core.result`).
+    with `ok`/`err` imported from `salvo.std.core.result`).
     `crates/salvo-syntax/tests/corpus/qualifiers.sv` deliberately keeps
     its own `Ok`/`Err` and `type Result<S, T>` (user decision): it is a
     *parser* corpus — it also names an undeclared `Person` and `Pair` —
@@ -21811,7 +21911,7 @@ that still shape the code, and where to look for the mechanics.
   `[type-array]`. Arrays already had literals, indexing, and native
   `for` iteration on both backends; only functions were missing, which
   is why the language docs' `CyclicRandom` example (`values.size()` on a
-  `T[]`) did not compile. New `core.array` module mirrors `core.list`
+  `T[]`) did not compile. New `std.core.array` module mirrors `std.core.list`
   minus construction (literals are the constructor) and mutation
   (fixed size): `size`, `get`, `first`, `iter`, with the same
   `<T canbe linear>` opt-in pattern (measuring/iterating a linear array
@@ -21847,7 +21947,7 @@ that still shape the code, and where to look for the mechanics.
   handler/effect/import diagnostics carry `module.Item` suggestions from
   a whole-program declaration index; rendered as `help:` lines, JSON
   `imports`, and LSP quickfixes. std gained `random`
-  (`DefaultRandom`), the first non-`core` module — and exposed
+  (`DefaultRandom`), the first non-`std.core` module — and exposed
   [kt-handler-template-return]: value-returning handler-member templates
   emit `return run { … }`.
 - **Numeric literal suffixes [lit-numeric]**: `1` Int, `1L` Long, `1.2`
@@ -21901,7 +22001,7 @@ that still shape the code, and where to look for the mechanics.
 The first stage of the shared-fate roadmap (see the L1 section below for
 the decided model). What landed:
 
-- **`intrinsic fn copy<T>(value: T) -> T`** in `std/core/basic.sv` => value
+- **`intrinsic fn copy<T>(value: T) -> T`** in `lib/std/core/basic.sv` => value
   [intrinsic-fn] [copy-fn]: parser already accepted `intrinsic fn`
   (body-less like `external`); the declaration flows through
   Symbols/resolve/checker unchanged — the `[value]` deduction is the
@@ -22436,10 +22536,10 @@ Each was reproduced before it was fixed, and the repro is kept: it is the
 argument for the rule that closed it. Defects still open are in
 [ROADMAP.md](ROADMAP.md).
 
-### ~~A hang in `salvo test --src std` was unbounded~~ — found and closed 2026-10-03
+### ~~A hang in `salvo test --src lib` was unbounded~~ — found and closed 2026-10-03
 
-`std_tests_pass` ran `salvo test --src std` with `.output()`, so a scheduler
-bug in `std/runtime.sv` (the lost wakeup above) stalled `cargo test` for 30
+`std_tests_pass` ran `salvo test --src lib` with `.output()`, so a scheduler
+bug in `lib/std/runtime.sv` (the lost wakeup above) stalled `cargo test` for 30
 minutes with no output. It now has a 240 s limit and fails naming the hang. A
 killed run can leave the harness program it started still running.
 
@@ -22595,7 +22695,7 @@ fn main() [use] {
 }
 ```
 
-Both backends, twice: `std/core/seq.sv: no handler for effect 'Tally' in scope`.
+Both backends, twice: `lib/std/core/seq.sv: no handler for effect 'Tally' in scope`.
 `salvo analyze` was **clean** — the checker was right and silent.
 
 **The second half was silently wrong output**, which the first half's noise hid:
@@ -22618,7 +22718,7 @@ compile-and-run case rather than a text assertion.
 
 **Root cause: the checker and the emitters asked different questions.** The
 checker's availability rule [effect-available] consults `scope.effect_members`,
-which is **import-scoped** — inside `std/core/seq.sv` a program's `Tally` is not
+which is **import-scoped** — inside `lib/std/core/seq.sv` a program's `Tally` is not
 there at all, so `add(out, x)` resolved to std's own `add` and the fall-through
 that records `fn_over_member_calls` was never reached. The emitters consult
 `Symbols::effect_of_fn`, which is **program-wide**, and take the member path
@@ -23304,7 +23404,7 @@ derived from parameter X" — lifetime elision by another name), so
 zero-copy accessors (`first(persons)` returning a linked element)
 work across call boundaries? Adding it later is purely a relaxation
 (more programs expressible, nothing breaks). Evaluate against real
-std/user code: if the intra-function `copy` costs never show up in
+lib/std/user code: if the intra-function `copy` costs never show up in
 practice, independent returns may be the permanently right answer.
 
 - **DECISION L7a** — whether to add it at all, and the annotation
@@ -23644,7 +23744,7 @@ arrives later as an explicit effect (likely a compiler intrinsic).
 #### The design as decided
 
 ```
-qualifier Thrown<M> of M            // mirrors `Err<T> of T` in core.result
+qualifier Thrown<M> of M            // mirrors `Err<T> of T` in std.core.result
 
 effect Throw<M> {                    // intrinsic; message is moved, like `err`
     fn throw(message: M) [] -> Never => !message
@@ -23660,7 +23760,7 @@ try { body } : Ok T | Thrown M
   if-expressions". So no `Try` handler to register, no `[Try]` in
   signatures, and — see below — no collision with the fusion.
 - **Both arms are qualified: `Ok T | Thrown M`** (user decision
-  2026-09-04), reusing `Ok` from `core.result` so ordinary `is` checks and
+  2026-09-04), reusing `Ok` from `std.core.result` so ordinary `is` checks and
   exhaustive `when` work on the outcome exactly as they do on a result.
   `Err` is deliberately *not* reused: a throw is not an error value.
 - **`Thrown M` is parameterized by a message type** (user decision
@@ -24339,7 +24439,7 @@ with almost no emitter work.
 #### R2 as built (2026-09-08): `for` reads the declaration
 
 Done, green (full suite 767, both toolchains' e2e recompiling the rewritten
-sources to the same stdout). `std/core/iterator.sv` now declares the
+sources to the same stdout). `lib/std/core/iterator.sv` now declares the
 designated group — `params Yield<T> { fn next(s: Mut Self) => s: Mut
 Emitted T | Finished }`, replacing `params Iterator<St, T>` — and a pass is
 **a type declaring `: Yield<T>`**, full stop.
@@ -24537,7 +24637,7 @@ alone implies neither.
 #### R4 part 1 as built (2026-09-08): `Linear` designated
 
 Done and green. `Linear` is a designated obligation group in
-`std/core/basic.sv` — `params Linear<It> { fn close(it: It) -> None }` — and => !it
+`lib/std/core/basic.sv` — `params Linear<It> { fn close(it: It) -> None }` — and => !it
 a type declares `: Linear<self>`.
 
 - **The mandatory `close` came free** from [group-obligation]: declaring
@@ -24809,7 +24909,7 @@ is an owned value and not a projection of the pass. Without that, `filter`'s
 its fate"). A native container loop still links — there the binding really is a
 projection.
 
-**The payoff.** `std/core/seq.sv` lost 44 lines and reads as ordinary Salvo:
+**The payoff.** `lib/std/core/seq.sv` lost 44 lines and reads as ordinary Salvo:
 
 ```
 fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {
@@ -25676,7 +25776,7 @@ caller was expecting. C (share on both backends) is what someone writing
 run-time panic surface. So A now, C reconsidered under "Roadmap: shared mutable
 state (`Cell`)", where it is recorded as a customer of that machinery.
 
-**Nothing in `std/` or the test corpus does this**, so the rule landed with no
+**Nothing in `lib/std/` or the test corpus does this**, so the rule landed with no
 sweep: three tests in `fn_effect_tests.rs` (direct, transitive through a struct
 field, and a control that an *immutable* parameter of the same shape is fine —
 and that a `Mut` parameter on an ordinary fn is untouched).
@@ -25874,7 +25974,7 @@ Consequences of the decision, whichever way it goes:
 
 Built and verified so far:
 
-- **`std/core/iterator.sv`** declares the protocol in Salvo rather than in
+- **`lib/std/core/iterator.sv`** declares the protocol in Salvo rather than in
   the compiler: `qualifier Emitted<T> of T` with its constructor, a fieldless
   `struct Finished {}`, and
   `params Iterator<St, T> { fn next(st: Mut St) -> Emitted T | Finished }`. => st: Mut
@@ -26102,8 +26202,8 @@ what a fixed shape buys.
   reference at all, so there was no import machinery to reuse. There is now
   still none: the file is `iter_effects.rs` at the crate root (mounted like
   `unions.rs`) / `iter_effects.kt` in the root `salvo` package, and it names
-  effect traits by **absolute path** — `crate::core_console::Console`,
-  `salvo.core.console.Console`. Both languages accept a fully-qualified type
+  effect traits by **absolute path** — `crate::std_core_console::Console`,
+  `salvo.std.core.console.Console`. Both languages accept a fully-qualified type
   anywhere a name goes, so the file imports nothing and cannot collide with
   anything. Modules that *mention* a pass trait pick it up through the glob they
   already have (`use crate::iter_effects::*;`, `import salvo.*`), gated on a
@@ -26605,7 +26705,7 @@ nested `for`) before the general lowering is written.
 
 ### I5 as built (2026-09-08): the combinator surface, and what it uncovered
 
-The surface is the user's decision, in `std/core/seq.sv`:
+The surface is the user's decision, in `lib/std/core/seq.sv`:
 
 - `map` / `filter` / `reduce` — **eager**, unchanged, returning `Mut List<U>`.
 - `map_lazy` / `filter_lazy` — return `Iter<U>`. Laziness is *asked for*, which
@@ -27188,8 +27288,8 @@ What landed (rules [name-casing] [name-dot] [name-dot-import]
   parameters). No existing Salvo source violated it — std and the
   corpora were already consistent.
 - **Resolve**: casing-aware import splitting (trailing uppercase segments
-  are the item, so `import env.types.Environment.Id` works while
-  `import core.list.size` keeps its old positional meaning); an unaliased
+  are the item, so `import std.env.types.Environment.Id` works while
+  `import std.core.list.size` keeps its old positional meaning); an unaliased
   namespace import brings dot-named members (`want` matches the `Ns.`
   prefix); `ModuleItems::name_ref` exchanges a synthesized dotted lookup
   key for the declaration's own `&'p str`; `check_dot_names` enforces the
@@ -27289,7 +27389,7 @@ next.
 ### S-Str — a mutable string, and the string function surface — **LANDED 2026-09-06**
 
 See the entry at the top of this file for what the drop coercion turned out
-to need. The surface as built, all in `std/core/string.sv` with lowerings in
+to need. The surface as built, all in `lib/std/core/string.sv` with lowerings in
 each backend's `intrinsics.rs`:
 
 - `intrinsic type Str canbe Mut`; `intrinsic fn mutable_str(...parts: Str[])
@@ -27313,7 +27413,7 @@ above).
 
 ### S-Seq — `map`, `filter`, `reduce` over anything iterable — **LANDED 2026-09-06**
 
-Built as decided (`std/core/iterable.sv` + `std/core/seq.sv`), rule
+Built as decided (`lib/std/core/iterable.sv` + `lib/std/core/seq.sv`), rule
 [seq-iterable]:
 
 ```
@@ -27381,7 +27481,7 @@ renders as. `salvo_reduce` is a loop rather than `Iterator::fold`, because
 that convention borrows the accumulator and `fold` passes it by value.
 
 Everything else landed as decided: eager `Mut List` results, the group in
-its own implicitly visible `core.iterable`, and the identity
+its own implicitly visible `std.core.iterable`, and the identity
 `intrinsic fn iter<T>(it: Iter<T>)` that makes an `Iter` iterable and chains
 compose.
 
@@ -27423,8 +27523,8 @@ what becomes visible outside it does.
 
 - Rust's `scheduler.rs` went from 2,720 lines to about 590, Kotlin's
   `scheduler.kt` from 1,994 to about 380: entry-point shims and a proxy
-  registry. The host's runtime code is `std/platform/runtime.{rs,kt}` and
-  `std/platform/runtime/{routing,streams}.{rs,kt}`.
+  registry. The host's runtime code is `lib/platform/std/runtime.{rs,kt}` and
+  `lib/platform/std/runtime/{routing,streams}.{rs,kt}`.
 - Benchmarks (runtime D6, `bench/scheduler`, `tools/bench-scheduler.sh`):
   the budget was 1.5× the pre-port numbers on each backend. Quiet-machine
   numbers after the port, in ms, with the budget:
@@ -27442,7 +27542,7 @@ what becomes visible outside it does.
 
 1. Benchmarks (D6). 2. Forged identities share one dead entry. 3. The host
 stream table in its own runtime file. 4. The group protocol (frames 4–9) into
-`std/net.sv` (D5). 5. E8 (std's own module) and E6 (`Never` platform members).
+`lib/std/net.sv` (D5). 5. E8 (std's own module) and E6 (`Never` platform members).
 6. `Deque`, an intrinsic beside `List` (D3). 7. E2 (fn values at the platform
 boundary) and E5 (platform types); 7b E1 (generic platform types and fns).
 8. E3, `Parker`. 9. Monitor re-entry agrees on both backends. 10. E4
@@ -27456,7 +27556,7 @@ virtual runtime under `test actor` (D11). 16. Docs, and this retirement.
 17. Optional, open: the other collections onto generic platform types.
 
 Not built as planned: **E7** (`Addr`, `Reply`, `Pool` as Salvo types) and the
-intrinsic-to-Salvo half of **E8** (`core.actor`'s and `net`'s intrinsics
+intrinsic-to-Salvo half of **E8** (`std.core.actor`'s and `net`'s intrinsics
 becoming Salvo calls into the runtime) are ROADMAP item 0; **E10** (owned
 mutable fn values) was met by the `Body` platform type over `body_of`,
 emitter-generated only; **E9** was rejected (below); `std.test`'s
@@ -27582,7 +27682,7 @@ grow the language in ways that pay off outside the runtime too.
   without being declared.
 
   ```
-  // std/runtime.sv
+  // lib/std/runtime.sv
   use HostRuntime()          // the platform handler: threads, guarded, here, …
   use Scheduler()            // the monitor holding Sched
 
@@ -27621,18 +27721,18 @@ grow the language in ways that pay off outside the runtime too.
   platform type can carry an obligation the checker enforces (a host reply,
   for example).
 - **E6. Platform members that return `Never`**, for `exit_with`. Small.
-- **E7. `Addr<E>`, `Reply<T>` and `Pool` as Salvo types** in `core.actor`
+- **E7. `Addr<E>`, `Reply<T>` and `Pool` as Salvo types** in `std.core.actor`
   instead of intrinsic types: `Addr<E>` a struct over an index, with `E` as
   a phantom parameter; `Reply<T>` a linear struct; `Pool` a struct
   over an index. Host code still sees them through the generated ABI types
   (ABI D4). Needs phantom type parameters to be accepted, which I have not
   checked.
-- **E8. A std-internal module**: `std/runtime.sv` exports to the rest of std
-  but cannot be imported by programs. With it, `core.actor`'s `pool`,
+- **E8. A std-internal module**: `lib/std/runtime.sv` exports to the rest of std
+  but cannot be imported by programs. With it, `std.core.actor`'s `pool`,
   `thread`, `watch`, `on_idle` and `send`, `time`'s `fire_after` and `net`'s
   private intrinsics become ordinary Salvo functions calling the runtime,
   instead of intrinsics whose lowering calls it. That is 38 intrinsic
-  declarations today (10 in `core.actor`, 25 in `net`, 3 in `time`), most of
+  declarations today (10 in `std.core.actor`, 25 in `net`, 3 in `time`), most of
   which would stop being intrinsics. Small, and it needs no decision while
   only std can use it.
 - **E9. Closures instead of erasure — revised 2026-10-01: rejected for
@@ -28051,9 +28151,9 @@ found two problems:
 
 The approach before templates, hand-written host files (`<m>.kt` / `<m>.rs`),
 avoided both but had a problem of its own: the files float free. They refer to
-types (`Union7<…>`, `U7_1(…)`, `salvo.core.checked.Checked`) that exist only in
+types (`Union7<…>`, `U7_1(…)`, `salvo.std.core.checked.Checked`) that exist only in
 the compiler's output, so the host's tooling cannot see them and a change in
-emission breaks them silently until the next build. `std/platform/fs/host.kt`
+emission breaks them silently until the next build. `lib/platform/std/fs/host.kt`
 shows it:
 
 ```kotlin
@@ -28153,15 +28253,15 @@ export type FsError = NotFound | PermissionDenied | …
 export platform handler HostRawFs of RawFs     // members return `… | FsError`
 ```
 
-Today `NotFound` is defined once, in the emitted `fs.kt` (`package salvo.fs`,
+Today `NotFound` is defined once, in the emitted `fs.kt` (`package salvo.std.fs`,
 `data class NotFound(val path: String)` plus its wire codec and comparisons),
 inside the build output. The implementation file in the platform root needs
 `NotFound` to compile, but the build output does not exist when the IDE opens
 the root, and it is not part of the host project anyway.
 
 So the definition has to be somewhere the host project can see, and **only
-there**: if the platform root defines `salvo.fs.NotFound` and the emitted
-`fs.kt` does too, Kotlin reports a redeclaration (both are `package salvo.fs`),
+there**: if the platform root defines `salvo.std.fs.NotFound` and the emitted
+`fs.kt` does too, Kotlin reports a redeclaration (both are `package salvo.std.fs`),
 and Rust has two unrelated types. "Defined in the generated host tree" means:
 
 - the platform root gets a generated file holding `data class NotFound(…)`,
@@ -28248,7 +28348,7 @@ Also decided:
   `FsError` could instead be a sealed interface extending `Union7`. Checked
   with kotlinc on 2026-10-01: it cannot. Kotlin allows a subtype of a sealed
   interface only in the sealed interface's package, and `Union7` is in package
-  `salvo` while `FsError` would be in `salvo.fs`. Even in the same package, a
+  `salvo` while `FsError` would be in `salvo.std.fs`. Even in the same package, a
   `Union7.U1` value is not an `FsError` (the cast fails at run time), so every
   value Salvo builds would need per-name arm classes, which is the per-name
   representation D5 set aside.
@@ -28570,8 +28670,8 @@ reads the checker's answer and writes it into the node.
 | `while x is T (n) { }` | `Loop` whose body begins with a `let` of the subject (evaluated once per iteration) and a `Switch` that breaks on the failing arm; the binding is a `Narrow` | `is-bind-once` |
 | `f(x)`, `x.f(a)`, `f@m(x)`, `cmp@Person(a, b)` (the `cmp` declared in `Person`'s body or by its `: Ordered<self>` obligation) | `Call { target: Ref, type_args, args }` | `call_fn`, `dot_calls`, `call_type_args` |
 | `println(x)` (effect member) | `MemberCall { instance: Expr, member: MemberRef, args }` | `member_calls`, `effect_calls` |
-| `a < b`, `a == b`, `a != b` | `Call` to the resolved `cmp`/`eq`, **always**: on `Int` that is `core.compare::cmp(Int, Int)`, a declaration marked `intrinsic`, from which the backend reconstructs `<` | `comparisons` (`CompareVia::Call`, or `Implicit` for a forwarded `?cmp`) |
-| `a + b`, `a and b`, `!x`, `-x` on scalars | `Call` to the operator's fn declaration (`core.basic::add(Int, Int)`, intrinsic), the same way | `expr_ty` |
+| `a < b`, `a == b`, `a != b` | `Call` to the resolved `cmp`/`eq`, **always**: on `Int` that is `std.core.compare::cmp(Int, Int)`, a declaration marked `intrinsic`, from which the backend reconstructs `<` | `comparisons` (`CompareVia::Call`, or `Implicit` for a forwarded `?cmp`) |
+| `a + b`, `a and b`, `!x`, `-x` on scalars | `Call` to the operator's fn declaration (`std.core.basic::add(Int, Int)`, intrinsic), the same way | `expr_ty` |
 | `"${a}/${n}"` | `Concat([…])` of `Str`-typed expressions: a literal, or a `Call` to the resolved `to_str` for each `${…}` | `interp_to_str`, `interp_implicit` |
 | `?cmp`, `?hash`, `?to_str` at a call | ordinary trailing arguments: a `Ref` to a fn, a `Lambda` adapter, or a forwarded parameter | `implicit_args` (recursive) |
 | implicit parameters on a declaration | ordinary trailing parameters | `implicit_params` |
@@ -28579,7 +28679,7 @@ reads the checker's answer and writes it into the node.
 | `use H(args)` | `Let` of a `Construct` (handler) + the instance binding | `use_effects`, `use_deps` |
 | a value placed into a union arm | `MakeUnion { ty, arm, value }` | `Coercion::WrapUnion` |
 | `None` as unit vs absent | `Unit` vs `MakeNone { ty }` | `Coercion::NoneUnit`, `WrapOption` |
-| `copy(x)` | `Call` to `core.basic::copy` with the type's plan attached | `copyplan` |
+| `copy(x)` | `Call` to `std.core.basic::copy` with the type's plan attached | `copyplan` |
 | comptime, `by auto`, stamps | ordinary declarations (already expanded before checking) | `comptime` |
 | `iter fn` | ordinary struct + minter + `next` (already desugared in the syntax crate) | `desugar` |
 | qualifiers on types (`Mut`, `NonEmpty`, `Idx(xs)`) | erased, except `Mut` where a backend needs it (kept as a type flag) | `erase` |
@@ -28707,11 +28807,11 @@ pub struct MemberRef { pub interface: DeclId, pub index: usize }
 ```
 
 Text form: `module::name(param types)`, with the parameter types written only
-when the module overloads the name: `core.compare::cmp(Int, Int)`,
-`core.list::add(Mut List<T>, T)`, `main::bumped`. That is readable and stable
+when the module overloads the name: `std.core.compare::cmp(Int, Int)`,
+`std.core.list::add(Mut List<T>, T)`, `main::bumped`. That is readable and stable
 across runs; the `DeclId` behind it is the module and item index.
 
-An intrinsic is not a kind of reference. `core.compare::cmp(Int, Int)` points
+An intrinsic is not a kind of reference. `std.core.compare::cmp(Int, Int)` points
 at a declaration that happens to say `intrinsic`; the backend looks the
 declaration up, sees the flag, and lowers it from its own table
 (`intrinsics.rs`, keyed as now by name and receiver type) instead of calling
@@ -28788,7 +28888,7 @@ the faces it implements. Platform handlers and platform fns are declarations
 with no body and a `platform` flag; the backend binds them to host code
 exactly as now.
 
-**Actors.** The scheduler is Salvo (`std/runtime`), so `spawn`, `send`,
+**Actors.** The scheduler is Salvo (`lib/std/runtime`), so `spawn`, `send`,
 `replyto` and `waitfor` are mostly calls into it. What each emitter generates
 today, per actor effect, is three declarations: the message union (one arm
 per `send` member, carrying its arguments), the dispatch fn (decode a message,
@@ -28834,16 +28934,16 @@ module main
 struct Box canbe Mut { n: Int, tag: Str }
 
 fn main::bumped(lent_mut b: Box) -> Int {
-  assign b.n = call core.basic::add(Int, Int)(read b.n, 1)
+  assign b.n = call std.core.basic::add(Int, Int)(read b.n, 1)
   return read b.n
 }
 
 fn main::label(lent s: Str, lent n: Int) -> Str {
-  return concat(call core.basic::to_str(Str)(read s), "/", call core.basic::to_str(Int)(read n))
+  return concat(call std.core.basic::to_str(Str)(read s), "/", call std.core.basic::to_str(Int)(read n))
 }
 
 fn main::consume(moved items: List<Int>) -> Int {
-  return call core.list::size(read items)                 // size is `platform fn`; lent
+  return call std.core.list::size(read items)                 // size is `platform fn`; lent
 }
 
 struct __Iter_countdown_Int canbe Mut { from: Int, at: Int }
@@ -28853,33 +28953,33 @@ fn main::countdown(lent from: Int) -> __Iter_countdown_Int {
 }
 
 fn main::next#1(lent_mut __p: __Iter_countdown_Int) -> Emitted Int | Finished {
-  branch#1 if call core.basic::le(Int, Int)(call core.compare::cmp(Int, Int)(read __p.at, 0), 0) {
-    return make_union[Emitted Int | Finished]#2(call core.iterator::finished())
+  branch#1 if call std.core.basic::le(Int, Int)(call std.core.compare::cmp(Int, Int)(read __p.at, 0), 0) {
+    return make_union[Emitted Int | Finished]#2(call std.core.iterator::finished())
   }
-  assign __p.at = call core.basic::sub(Int, Int)(read __p.at, 1)
-  return make_union[Emitted Int | Finished]#1(call core.iterator::emitted<Int>(call core.basic::add(Int, Int)(read __p.at, 1)))
+  assign __p.at = call std.core.basic::sub(Int, Int)(read __p.at, 1)
+  return make_union[Emitted Int | Finished]#1(call std.core.iterator::emitted<Int>(call std.core.basic::add(Int, Int)(read __p.at, 1)))
 }
 
 fn main::main() -> None {
-  bind#1 let console: core.console::Console = construct core.console::StdConsole {}
+  bind#1 let console: std.core.console::Console = construct std.core.console::StdConsole {}
   bind#2 let b: Mut Box = construct Box { n: 1, tag: "t" }
-  member core.console::Console.println(read console, concat("1. ",
-      call core.basic::to_str(Int)(read b.n), " ",
-      call core.basic::to_str(Int)(call main::bumped(read b))))
+  member std.core.console::Console.println(read console, concat("1. ",
+      call std.core.basic::to_str(Int)(read b.n), " ",
+      call std.core.basic::to_str(Int)(call main::bumped(read b))))
   member Console.println(read console, concat("2. ",
-      call core.basic::to_str(Str)(call main::label(read b.tag, call main::bumped(read b)))))
-  bind#3 let xs: List<Int> = call core.list::List<Int>([3, 2, 1])
-  bind#4 let twin: List<Int> = call core.basic::copy<List<Int>>[plan: identity](read xs)
+      call std.core.basic::to_str(Str)(call main::label(read b.tag, call main::bumped(read b)))))
+  bind#3 let xs: List<Int> = call std.core.list::List<Int>([3, 2, 1])
+  bind#4 let twin: List<Int> = call std.core.basic::copy<List<Int>>[plan: identity](read xs)
   member Console.println(read console, concat("3. ",
-      call core.basic::to_str(Int)(call main::consume(!read xs)), " ",
-      call core.basic::to_str(Int)(call core.list::size(read twin))))
+      call std.core.basic::to_str(Int)(call main::consume(!read xs)), " ",
+      call std.core.basic::to_str(Int)(call std.core.list::size(read twin))))
   bind#5 let __pass: Mut __Iter_countdown_Int = call main::countdown(3)
   loop#1 {
     bind#6 let __step: Emitted Int | Finished = call main::next#1(read __pass)
     switch#1 read __step {
       arm#1 (Emitted Int) {
         narrow#1[switch#1.arm#1] x: Int = __step
-        member Console.println(read console, concat("4. ", call core.basic::to_str(Int)(read x)))
+        member Console.println(read console, concat("4. ", call std.core.basic::to_str(Int)(read x)))
       }
       arm#2 (Finished) { break }
     }
@@ -29182,7 +29282,7 @@ as `BorrowAs`; and element containers by prefix and by handle anchors.
 
 ## Design record: command-line parsing (ARG_PARSE.md, retired 2026-10-20)
 
-The working document for `std/args` (user request 2026-10-20: "how to
+The working document for `lib/std/args` (user request 2026-10-20: "how to
 implement CLI parsing in Salvo … as type-safe as is reasonable, as well as
 allow inter-argument validation"), decided in four rounds the same day and
 built in phases 0–2 (the decision-log entries from "Check defaults against
@@ -29241,7 +29341,7 @@ case). AP-7 validation (above). AP-8 errors (all, help as an outcome). AP-9
 exit status (a `Process` effect). AP-10 value parsers (one `from_str`, made
 possible by return-type overloading). AP-11 lexing (bundles, attached
 values, `=`, `--`, lone `-`, negative numbers as values, no abbreviations;
-`--no-x` deferred). AP-12 the user's `std/args/parse.sv` (deleted, round 2).
+`--no-x` deferred). AP-12 the user's `lib/std/args/parse.sv` (deleted, round 2).
 
 **The derive's design (§10).** §10.1 short names and positionals, as
 comptime qualifiers; §10.1a the spelling `Short('p') Int` probed and found
@@ -29330,7 +29430,7 @@ Set(hash by auto, eq by auto)`, stamping a bounded comptime fn at the type the
 call binds. What it would replace is one line: `fn my_hash(p: P) -> Long by
 hash@auto`, then `hash = my_hash`. (`fn my_hash(…) by auto` does *not* work:
 `by auto` picks the comptime fn of the declared fn's own name.) Tuples do not
-need it: `core.compare` has had Salvo `hash`/`eq`/`cmp` for pairs and triples
+need it: `std.core.compare` has had Salvo `hash`/`eq`/`cmp` for pairs and triples
 since 2026-10-06. The open decisions:
 1. **The identity a call-site stamp carries** (the user's concern: implicit
    parameters bind *by name* into slots, [cmp-binder] [cmp-carry]). An
@@ -29347,7 +29447,7 @@ since 2026-10-06. The open decisions:
    refuse such types across module boundaries). Prerequisite: the existing
    cross-module aliasing defect (fixed 2026-10-20, [cmp-carry]).
 2. **Where the stamp lives**: the calling module, the target's (impossible
-   for `core` types, against [fn-attached]), or a synthetic module. It must
+   for `std.core` types, against [fn-attached]), or a synthetic module. It must
    not join the caller's overload set (it would become the default `?hash` and
    collide with a hand-written one), which means a hidden `FnDecl` against
    [comptime-instantiate]. Also: redundancy with an existing `hash@P`, and
@@ -29375,7 +29475,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2052 under `cargo test` on 2026-10-14; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2054 under `cargo test` on 2026-10-14; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -30106,7 +30206,7 @@ cache, with per-test timings.
   [fn-type-named]; a subject comptime `[when]` refusing an `else`
   [when-exhaustive]; four [test-decl] tests — the declaration with its
   string name, an interpolated name refused, `export test` refused, and `test`
-  still an ordinary identifier; one std snapshot for `core.compare` [cmp-groups] — three
+  still an ordinary identifier; one std snapshot for `std.core.compare` [cmp-groups] — three
   `params` groups beside the `intrinsic fn` overloads that implement them for
   the intrinsic types; four [mod-export] parser tests — the flag set only on
   the declaration it precedes, `export` staying an ordinary name for a variable
@@ -30114,9 +30214,9 @@ cache, with per-test timings.
   modifiers, and the three non-declaration refusals; three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
-  four things a rename may not repeat; two std snapshots for `core.iterable`
+  four things a rename may not repeat; two std snapshots for `std.core.iterable`
   and
-  `core.seq` [implicit-group]; three refinement parser tests [qual-refn]:
+  `std.core.seq` [implicit-group]; three refinement parser tests [qual-refn]:
   a refinement in a qualifier body with its docs and its `+`/`-` entries, a
   top-level `refn` as an item of its own, and the four things a refinement
   may not say — effects, a return type, an unsigned qualifier, a missing
@@ -30143,7 +30243,7 @@ cache, with per-test timings.
   `defer` in `control_flow.sv`, `throw`/`try` in `effects.sv`, an effectful
   fn type in `functions.sv`) - std +
   docs/language/-corpus parse-clean assertions with
-  insta AST snapshots (`tests/corpus/*.sv`, plus `std/core/result.sv`),
+  insta AST snapshots (`tests/corpus/*.sv`, plus `lib/std/core/result.sv`),
   error-reporting tests,
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int),
@@ -30193,7 +30293,7 @@ cache, with per-test timings.
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
   package prefix `k_<tag>.salvo…`), runs them in parallel, and stamps each
   case separately — so the count fell from 151 with no coverage change
-  (2026-09-12; 121 cases as of the coupling stance — **every example in `examples/` is a case**, so the `expected.txt` each one asserts is the same file the Rust backend asserts; among them the four time cases, the whole surface under one `import time`, a real deadline, virtual time through `ManualTime`'s two faces, and the three coupling postures with the unified test clock (`data: in time` / `scripted: 500 1000` / `unified: napped 2s, fired at 2000ms`) [time-types] [time-timer] [time-manual] [time-coupling] — and the obligation queue — a process parking reply
+  (2026-09-12; 121 cases as of the coupling stance — **every example in `examples/` is a case**, so the `expected.txt` each one asserts is the same file the Rust backend asserts; among them the four time cases, the whole surface under one `import std.time`, a real deadline, virtual time through `ManualTime`'s two faces, and the three coupling postures with the unified test clock (`data: in time` / `scripted: 500 1000` / `unified: napped 2s, fired at 2000ms`) [time-types] [time-timer] [time-manual] [time-coupling] — and the obligation queue — a process parking reply
   tokens in `Mut List<Reply<Str>>` state, answering one with `remove_first` and
   draining the rest on shutdown (`second closed: end of day` / `first served
   ada`) [linear-container] [linear-state] — and the death watch: a process that faults, a
@@ -30639,7 +30739,7 @@ cache, with per-test timings.
   file refused naming the annex, a production build ignoring the annex,
   duplicate names refused, the report identical on both backends with timings
   normalized, a green run's exit code, and **std's own suite** run as
-  `salvo test --src std` [std-shadow]).
+  `salvo test --src lib` [std-shadow]).
 - `salvo-testkit`: 1 - the hygiene test
   (`stale_debug_objects_are_pruned`), which deletes orphaned `.rcgu.o`
   debug objects from `target/debug/deps` on every full run (see gotchas:
@@ -30650,6 +30750,20 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A blanket rewrite of `import time` hits the tests' own `time`**
+  (2026-10-14, the `std.` prefix). Inline test programs declare project
+  modules named after std's (`heap.sv` in carry_tests, `time/clock.sv` in
+  module_import_tests, the harness tests' `heap`); a regex over every
+  `import <std name>` rewrote those too, and the failures read like resolver
+  bugs. Before rewriting a test file, list the files it declares.
+
+- **No emitted module may be exactly `std`** (2026-10-14). A module path is
+  mangled into a Rust module name by joining segments (`std.core.list` is
+  `std_core_list`), so only a module named `std` itself would mount as
+  `pub mod std;` and make every `use std::…` in the crate ambiguous with the
+  standard crate. Nothing declares `lib/std.sv` today; if something ever does,
+  the Rust emitter has to rename it.
 
 - **A name lookup "by name" leaks across programs** (2026-10-14, ROADMAP
   0s). A `by` path matched against every module of the program let a
@@ -30865,7 +30979,7 @@ snapshot diffs.
   overflows — at compile time, on every derive. Collect in the visit and let
   the outer walk recurse.
 
-- **Writing a derive in Salvo** (2026-10-20, `std/args`): a stamped body
+- **Writing a derive in Salvo** (2026-10-20, `lib/std/args`): a stamped body
   resolves names in the *stamping* module first and in the template's file
   after [comptime-hygiene], so a helper may stay private — but a *type* a
   same-module rule keys on ([struct-opaque] field access, a constructive
@@ -30928,7 +31042,7 @@ snapshot diffs.
 - **Changing `crates/salvo-backend-kotlin/runtime/wire.kt` touches ~35 files**
   (2026-10-20): the five Kotlin golden snapshots, every
   `examples/*/kotlin/wire.kt` (identical copies — `cp` them), and the
-  `salvo/wire.sv.kt` host files of `std/platform` and `modules/aws/salvo/platform`
+  `salvo/wire.sv.kt` host files of `lib/platform` and `modules/aws/salvo/platform`
   (`salvo platform generate --backend '*'` in each root rewrites these GENERATED
   files). It also misses every Kotlin stamp, so the next full run is ~8 minutes.
 
@@ -30943,16 +31057,16 @@ snapshot diffs.
   template's warnings, or every `by` site would repeat them.
 - **A git worktree under `tmp/` can vanish between agent tool calls**
   (2026-10-20): to test the tree without an untracked file (the user's
-  in-progress `std/args/parse.sv`), use an `rsync` copy into `tmp/` with its
+  in-progress `lib/std/args/parse.sv`), use an `rsync` copy into `tmp/` with its
   own `--target-dir`, not `git worktree add`. Give that target dir as an
   **absolute** path: a relative `CARGO_TARGET_DIR=../x` puts `..` into the
   test scratch paths, and seven LSP/platform tests then fail comparing URIs
   and paths (2026-10-20). `cp -cR target/tmp/salvo-e2e-cache` into the copy's
   target keeps the toolchain stamps warm.
-- **An untracked `.sv` file in `std/` is part of every std build**
-  (2026-10-20): `std/` is embedded whole, so a work-in-progress std module
+- **An untracked `.sv` file in `lib/std/` is part of every std build**
+  (2026-10-20): `lib/std/` is embedded whole, so a work-in-progress std module
   that trips a backend bug (here the Kotlin `T?` codec, fixed 2026-10-20) fails
-  every Kotlin test that builds std. Check `git status std/` before reading
+  every Kotlin test that builds std. Check `git status lib/std/` before reading
   a mass Kotlin failure as a regression.
 
 - **A type-named fn has no snake_case call-site fallback** (2026-10-19,
@@ -30968,7 +31082,7 @@ snapshot diffs.
   (2026-10-19, [cli-platform]/[platform-abi]): the command's own doc says
   "existing files are never touched," which includes the ABI glue files
   the build itself maintains, not just the hand-written skeleton stubs —
-  so a std/dependency source change that reaches the ABI (e.g. a renamed
+  so a lib/std/dependency source change that reaches the ABI (e.g. a renamed
   fn) leaves the checked-in `.sv.kt`/`.sv.rs` stale with no in-place fix.
   Regenerate into a scratch copy of the tree (`cp -r`, delete the
   `.sv.{kt,rs}` files there, run `generate` in the copy) and diff/copy the
@@ -31043,10 +31157,10 @@ snapshot diffs.
   site that picks a binding kind from `is_proj && is_mut` must ask
   `is_mut_borrow` instead, or a read renders `&mut *` over a `&`.
 
-- **`salvo` embeds `std/` at build time** (2026-10-06): after editing a
-  `.sv` under `std/`, `cargo build` before `salvo run`/`compile`, or the run
+- **`salvo` embeds `lib/std/` at build time** (2026-10-06): after editing a
+  `.sv` under `lib/std/`, `cargo build` before `salvo run`/`compile`, or the run
   uses the old std (and a fix looks like it did nothing). `salvo platform
-  generate --src std` and `salvo test --src std` read the files on disk.
+  generate --src lib` and `salvo test --src lib` read the files on disk.
 
 - **A stale test driver can hang the suite instead of failing it**
   (2026-10-06): after deleting scheduler shims, the first full run sat in
@@ -31114,9 +31228,9 @@ snapshot diffs.
   (`CACHEDIR.TAG`) are now skipped, as source discovery already skipped them.
 
 - **The embedded std is compiled in: rebuild before regenerating example
-  trees** (2026-09-30). After editing `std/platform/stream/host.kt`, `salvo
+  trees** (2026-09-30). After editing `lib/platform/std/stream/host.kt`, `salvo
   compile` in each example changed nothing until `cargo build` re-embedded
-  `std/`. A regeneration that shows no diff right after a std edit is a stale
+  `lib/std/`. A regeneration that shows no diff right after a std edit is a stale
   binary, not a clean one.
 
 - **Overriding `HOME` hides rustup** (2026-09-29, the aws demo). Pointing `HOME`
@@ -31133,11 +31247,11 @@ snapshot diffs.
   resolved against whichever file bound it.
 
 - **Check `git status` before trusting a std-checking test failure**
-  (2026-09-29). An uncommitted edit to `std/heap.sv` (a sketch with `heapify`
+  (2026-09-29). An uncommitted edit to `lib/std/heap.sv` (a sketch with `heapify`
   commented out) made every test that loads the on-disk std — the CLI
   `run`/`analyze` tests, the LSP tests — fail with a `heap.sv` type error that
   no change in the session had touched. The embedded std is compiled in at
-  build time from `std/`, so a dirty `std/` is a dirty compiler. The sketches
+  build time from `lib/std/`, so a dirty `lib/std/` is a dirty compiler. The sketches
   were stashed (`git stash list`) rather than reverted; the fix for the day
   was to look at the diff before bisecting the session's own changes.
 - **A dependency loads *before* the project's tree, or [std-shadow] misfires**
@@ -31312,8 +31426,8 @@ snapshot diffs.
   overload family whose members call one another.
 - **A name that is both a type former and a fn name breaks reachability by
   name** (2026-09-27). `iter T` mentions `iter`, and `iter` is every container
-  module's minter, so `reach.rs`'s name-based dependency scan pulled `core.set`,
-  `core.map`, `core.sorted` and `core.string` into every program that wrote the
+  module's minter, so `reach.rs`'s name-based dependency scan pulled `std.core.set`,
+  `std.core.map`, `std.core.sorted` and `std.core.string` into every program that wrote the
   placeholder. Skip type-former keywords in the scan; `proj` was already skipped
   by never being a fn name.
 - **A pre-pass that checks bodies before their callees are resolved must run
@@ -31399,7 +31513,7 @@ snapshot diffs.
   something else entirely. The second version walked backwards from each
   declaration to the nearest preceding struct of that name. The tell that
   something is wrong is a failure in a test whose subject you did not touch.
-- **Putting a type in a `core` signature links its module into every program**
+- **Putting a type in a `std.core` signature links its module into every program**
   (2026-09-26). `swap` answering a `Checked<Bool>` means every program that uses a
   list now emits `core/checked.{rs,kt}` — visible as a diff in *every* golden and
   every example. Harmless (both backends tolerate unused items) and worth knowing
@@ -31466,7 +31580,7 @@ snapshot diffs.
   (`preserve` inside a deduction clause, `send fn`); it cannot work in a
   position where an ordinary identifier is also legal. The corollary for
   future syntax: a new word after a type or before a type is a reserved word,
-  and the cheap check is whether `cargo run -- analyze --src std` still passes
+  and the cheap check is whether `cargo run -- analyze --src lib` still passes
   after adding the form to one std signature. (`cargo run -- lang tm-grammar`
   must be regenerated with it, and a test enforces the partition.)
 
@@ -31528,12 +31642,12 @@ snapshot diffs.
   `cond_depth` guard, which looked like "swap loses the claim" and was really
   "*establishing* anything inside a branch is ignored".
 
-- **The embedded std is stale until `salvo-cli` is rebuilt.** `std/` is
+- **The embedded std is stale until `salvo-cli` is rebuilt.** `lib/std/` is
   compiled into the binary with `include_dir!`, and editing a `.sv` file does
   not make cargo rebuild the crate — so `cargo run -- compile` keeps emitting
   the *previous* std until some Rust source of `salvo-cli` changes. This cost a
   confusing half-hour regenerating `examples/`: the checked-in output matched
-  what the CLI produced and the codegen tests (which read `std/` from disk) still
+  what the CLI produced and the codegen tests (which read `lib/std/` from disk) still
   called it stale. `touch crates/salvo-cli/src/main.rs` before regenerating
   anything after a std edit — and note that the *tests* never see this, which is
   exactly why the two disagreed.
@@ -31788,7 +31902,7 @@ snapshot diffs.
   wrap (`hosttime.{rs,kt}`); the general fix — the companion-file collision
   check extended to runtime files — is in ROADMAP.
 - **Overload mangling is program-wide, so a std name renames user symbols.**
-  Adding `times` to `std/time.sv` changed an unrelated program's emitted
+  Adding `times` to `lib/std/time.sv` changed an unrelated program's emitted
   `times` to `times__2` — even though the module was never imported, because
   mangling keys on the name across the whole program. Harmless for behaviour
   and loud in the tests, but it is a reason to keep short generic names out of
@@ -31854,7 +31968,7 @@ snapshot diffs.
   compile, the question to ask is where the parameter type is supposed to come
   from (2026-09-16).
 - **Adding a name to std rewrites whoever already used it.** `remove_first`
-  landed in `core.list` and immediately broke two analyze tests that declared
+  landed in `std.core.list` and immediately broke two analyze tests that declared
   helpers of that name: their calls started resolving to std's overload, and an
   expected diagnostic disappeared. Nothing was wrong with either side — it is
   the no-backwards-compatibility invariant applying to *std growth*, so budget
@@ -32109,14 +32223,14 @@ snapshot diffs.
   a decode failure is recorded and re-reported by `close`). When a double
   exists to be byte-exact, store bytes: converting at the boundary is a
   smaller promise than it looks (2026-09-14).
-- **`include_dir!` does not notice a *new* file in `std/`.** The embedded
+- **`include_dir!` does not notice a *new* file in `lib/std/`.** The embedded
   standard library is `include_dir!("…/std")`, and cargo re-runs it only when
-  a crate source changes — so adding `std/core/x.sv` (or a
-  `std/platform/…` host companion) and rebuilding produces a binary that has
+  a crate source changes — so adding `lib/std/core/x.sv` (or a
+  `lib/platform/std/…` host companion) and rebuilding produces a binary that has
   never heard of it, and the failure reads like a language bug ("no function
   named … is in scope"). Touch a file in `salvo-cli` to force the rebuild.
   Found 2026-09-14 while verifying the std route of [platform-handler];
-  whoever ships `std/platform/core/fs.*` meets it first.
+  whoever ships `lib/platform/std/core/fs.*` meets it first.
 - **"A file exists" is not evidence of what is *in* it.** Kotlin's
   `entry_hint` decided the JVM launch class from the presence of an emitted
   `platform/<M>.kt`, which was equivalent to "the host owns `main`" only
@@ -32208,7 +32322,7 @@ snapshot diffs.
 - **Two concurrent `cargo run`s deadlock on the build lock.** Comparing the
   backends with process substitution (`diff <(cargo run … rust) <(cargo run
   … kotlin)`) hangs; run them one after the other.
-- **The std module names are load-bearing.** `core.list` appears in user
+- **The std module names are load-bearing.** `std.core.list` appears in user
   syntax (`f@core.list(x)`), so a module rename is a language change, not a
   file rename. Renaming the *functions* inside it was the whole of
   increment A; renaming the module was never on the table.
@@ -32452,7 +32566,7 @@ snapshot diffs.
   legal signature, generic over a `T` that may be linear — while the call-site
   check must not be, since instantiating that `T` with a linear type *is* the
   store. Treating an opted `T` as linear at declaration sites made std itself
-  illegal (nine errors inside `core.list` and `core.array`), which is a fast
+  illegal (nine errors inside `std.core.list` and `std.core.array`), which is a fast
   signal: if a new rule fires in std, the rule is being asked at the wrong
   place.
 - **(R4 part 2) Reading a composite is not storing into one.** The first
@@ -32547,19 +32661,19 @@ snapshot diffs.
   all.** `iter_effects.rs`/`iter_effects.kt` are the first generated files with
   cross-module references, and the question "how do they import the effect
   traits" had an answer that removed the question: name them in full
-  (`crate::core_console::Console`, `salvo.core.console.Console`). Both
+  (`crate::std_core_console::Console`, `salvo.std.core.console.Console`). Both
   languages accept a fully-qualified type anywhere, so there is no import
   ordering, no alias collision, and nothing to keep in sync with the module
   emitter.
 
-- **Adding a file to `std/` does not always reach the CLI.** The embedded
+- **Adding a file to `lib/std/` does not always reach the CLI.** The embedded
   standard library is `include_dir!("$CARGO_MANIFEST_DIR/../../std")` in
   `salvo-cli/src/analysis.rs`, and there is no `build.rs` emitting
   `rerun-if-changed` for that tree — so a *new* `.sv` file can leave the
   binary compiled against the old set. The tell is the file count in the
   CLI's own output ("analyzed 12 file(s) (1 user, 11 std)"): if it did not
   go up, touch `analysis.rs` and rebuild. Found while adding
-  `std/core/iterator.sv` (2026-09-07); editing an *existing* std file is
+  `lib/std/core/iterator.sv` (2026-09-07); editing an *existing* std file is
   fine, since its content is part of the macro's input.
 
 - **Probe the *current* behaviour before designing the rule.** The overload
@@ -32928,14 +33042,14 @@ snapshot diffs.
   — where the failure was an `E0631` in *generated* code and only for
   *annotated* lambdas. The fix that sticks is one function computing the
   convention, called by both sides [rs-fn-param-convention].
-- **A new file under `std/` needs a touch to be seen.** `std/` is embedded
+- **A new file under `lib/std/` needs a touch to be seen.** `lib/std/` is embedded
   into the CLI with `include_dir`, which has no rerun-if-changed trigger for
   *added* files: `cargo run -- analyze` kept reporting "7 std files" after
-  `std/core/throw.sv` appeared. `touch crates/salvo-cli/src/main.rs` (or any
+  `lib/std/core/throw.sv` appeared. `touch crates/salvo-cli/src/main.rs` (or any
   edit to the crate) picks it up.
 - **A std module may be named after a target-language keyword, but only
-  because the emitters already escape identifiers.** `core.throw` emits
-  ``package salvo.core.`throw` `` on Kotlin — backticks are legal in a
+  because the emitters already escape identifiers.** `std.core.throw` emits
+  ``package salvo.std.core.`throw` `` on Kotlin — backticks are legal in a
   package declaration *and* in the matching import, verified with `kotlinc`
   before committing to the name — and a plain `mod`/`#[path]` pair on Rust,
   where `throw` is not a keyword at all. The escape comes free from
@@ -33158,8 +33272,8 @@ snapshot diffs.
   copied out of a docs/language/ example with no `Positive` qualifier
   anywhere, and no call could have satisfied it if there had been one.
 - Where a std declaration *lives* is a code-size decision, not just
-  taste. `ok`/`err` in `core.basic` would have emitted a dead
-  `core/basic.{kt,rs}` into every program, because `core.basic` declares
+  taste. `ok`/`err` in `std.core.basic` would have emitted a dead
+  `core/basic.{kt,rs}` into every program, because `std.core.basic` declares
   `Int` and [mod-used-only] reachability is name-based: every file
   reaches it. Put anything that *emits code* in a module whose names only
   its users mention.
@@ -33193,7 +33307,7 @@ snapshot diffs.
   `type_base_name` (AST types) must agree on conventions (`T?` compares
   as its value arm, arrays as `[]`).
 - (sweep) `HashMap` iteration order leaked into user-visible behavior:
-  implicit `core.*` modules were added to each scope in hash order, which
+  implicit `std.core.*` modules were added to each scope in hash order, which
   ordered overload candidates. Anything that feeds resolution or
   diagnostics must iterate deterministically (`core_modules` is sorted
   now).
@@ -33245,15 +33359,15 @@ snapshot diffs.
   bodied fns would have been strictly worse (a non-`Mut` parameter can
   still have `Mut` *contents* mutated through it — the `h.tags` case the
   fate analysis already tracks).
-- (std) Analyzing `--src std` double-loads the standard library (the CLI
+- (std) Analyzing `--src lib` double-loads the standard library (the CLI
   always loads its embedded copy) and trips every [mod-collision] check.
   Expected artifact of pointing the tool at its own std — use an ordinary
   project directory to see std diagnostics.
 - (arrays) The CLI embeds std with `include_dir` at *build* time: adding a
-  file under `std/` does not invalidate the crate, so the new module is
+  file under `lib/std/` does not invalidate the crate, so the new module is
   silently invisible to `cargo run -- compile` (the tell is the file count
   in "parsed N file(s)"). Touch a `salvo-cli` source file to force the
-  rebuild. The backend test crates read `std/` from disk and see new
+  rebuild. The backend test crates read `lib/std/` from disk and see new
   files immediately, which makes the discrepancy easy to misread.
 - (optionals) A new strictness rule is also a *documentation* audit: the
   interpolation ban immediately flagged three docs/language/ examples that
@@ -33671,7 +33785,7 @@ snapshot diffs.
 - (N1) Import paths split *positionally* (last segment = item), so
   two-segment item names needed the split to become casing-aware:
   trailing uppercase segments are the item, and a lowercase last segment
-  stays a value (`import core.list.size`). The synthesized dotted key is
+  stays a value (`import std.core.list.size`). The synthesized dotted key is
   short-lived, so `ModuleItems::name_ref` exchanges it for the
   declaration's own `&'p str` before it enters the scope maps.
 

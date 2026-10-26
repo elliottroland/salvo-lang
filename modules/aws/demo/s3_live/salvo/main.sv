@@ -14,11 +14,11 @@
 import aws
 import aws.s3
 import aws.s3.host
-import fs
-import fs.path
-import fs.host
-import stream
-import stream.host
+import std.fs
+import std.fs.path
+import std.fs.host
+import std.stream
+import std.stream.host
 
 fn describe(e: S3Failure) [] -> Str => e {
     if e is AwsError {

@@ -8,8 +8,8 @@ parser, and the parser's result is the struct itself, so the program reads
 its options as typed fields and the compiler checks every use:
 
 ```
-import args
-import process
+import std.args
+import std.process
 
 // Serve files over HTTP.
 struct Serve : FromArgs<self> by args {
@@ -241,7 +241,7 @@ A rule between options that no type says, `--min` at most `--max`, is a
 can demand, and throws an `ArgError` when the rule is broken:
 
 ```
-import throw
+import std.throw
 
 struct Range : FromArgs<self> by args {
     min: Int = 0

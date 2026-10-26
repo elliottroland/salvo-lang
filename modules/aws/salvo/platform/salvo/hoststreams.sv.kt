@@ -51,19 +51,19 @@ class SalvoIn(val source: String, val input: java.io.InputStream, var position: 
 
 object SalvoStreams {
     /** [stream-handle] A handle for a new stream, unique in the process. */
-    fun freshHandle(): Long = salvo.runtime.streams.freshHandle()
+    fun freshHandle(): Long = salvo.std.runtime.streams.freshHandle()
 
     /** [stream-table] Registers a readable stream, answering its handle. */
     fun registerIn(source: String, input: java.io.InputStream, position: Long): Long =
-        salvo.runtime.streams.registerIn(source, salvo.platform.runtime.streams.HostIn(input), position)
+        salvo.std.runtime.streams.registerIn(source, salvo.platform.std.runtime.streams.HostIn(input), position)
 
     /** [stream-table] Registers a writable stream, answering its handle. */
     fun registerOut(source: String, output: java.io.OutputStream, position: Long): Long =
-        salvo.runtime.streams.registerOut(source, salvo.platform.runtime.streams.HostOut(output), position)
+        salvo.std.runtime.streams.registerOut(source, salvo.platform.std.runtime.streams.HostOut(output), position)
 
     /** [stream-table] Takes the readable stream [handle] out of the table for host code to read. */
     fun takeIn(handle: Long): SalvoIn {
-        val e = salvo.runtime.streams.takeForHost(handle)
+        val e = salvo.std.runtime.streams.takeForHost(handle)
         val f = e.failed
         val failed = if (f == null) null else if (f.utf8) SalvoFault.Utf8 else SalvoFault.Failed(f.message)
         val input = java.io.SequenceInputStream(java.io.ByteArrayInputStream(e.ahead.toByteArray()), e.host.input)

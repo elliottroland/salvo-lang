@@ -3,11 +3,11 @@ package salvo.main
 import salvo.*
 
 fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
-    return (salvo.core.list.sizePlatform(list) > 0)
+    return (salvo.std.core.list.sizePlatform(list) > 0)
 }
 
 fun head(list: List<Int>): Int {
-    val first: Int? = salvo.core.list.getPlatform(list, 0)
+    val first: Int? = salvo.std.core.list.getPlatform(list, 0)
     return kotlin.run {
         val __pick_1: Int? = first
         (if ((__pick_1 != null)) {
@@ -33,13 +33,13 @@ fun describe__CelsiusInt(temp: Int): String {
 
 fun sum(list: List<Int>): Int {
     var total: Int = 0
-    for (n in salvo.platform.core.list.each(list)) {
+    for (n in salvo.platform.std.core.list.each(list)) {
         total = (total + n)
     }
     return total
 }
 
-fun compact(list: salvo.platform.core.list.MutList<Int>) {
+fun compact(list: salvo.platform.std.core.list.MutList<Int>) {
 }
 
 data class Request(
@@ -80,30 +80,30 @@ fun handle__FreshRequest(request: Request): String {
 }
 
 fun main() {
-    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
-    val __handle_2: salvo.core.console.Console = __use_1
-    val xs: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
-    salvo.core.list.addPlatform(xs, 3)
-    salvo.core.console.println(__handle_2, "1. head after add: ${head(xs)}")
+    val __use_1: salvo.std.core.console.__Platform_StdConsole = salvo.std.core.console.__Platform_StdConsole()
+    val __handle_2: salvo.std.core.console.Console = __use_1
+    val xs: salvo.platform.std.core.list.MutList<Int> = mutableListOf<Int>()
+    salvo.std.core.list.addPlatform(xs, 3)
+    salvo.std.core.console.println(__handle_2, "1. head after add: ${head(xs)}")
     val maybeEmpty: List<Int> = listOf<Int>(7, 8)
-    if (salvo.core.list.NonEmpty_qualifies(maybeEmpty)) {
-        salvo.core.console.println(__handle_2, "2. checked at run time, head is ${head(maybeEmpty)}")
+    if (salvo.std.core.list.NonEmpty_qualifies(maybeEmpty)) {
+        salvo.std.core.console.println(__handle_2, "2. checked at run time, head is ${head(maybeEmpty)}")
     }
     val plain: Int = 21
     val warm: Int = celsius(21)
-    salvo.core.console.println(__handle_2, "2. ${describe__Int(plain)} vs ${describe__CelsiusInt(warm)}")
+    salvo.std.core.console.println(__handle_2, "2. ${describe__Int(plain)} vs ${describe__CelsiusInt(warm)}")
     kotlin.run {
-        salvo.core.console.println(__handle_2, "2. widened: ${describe__Int(warm)}")
+        salvo.std.core.console.println(__handle_2, "2. widened: ${describe__Int(warm)}")
     }
-    salvo.core.console.println(__handle_2, "3. sum ${sum(xs)}, head still ${head(xs)}")
+    salvo.std.core.console.println(__handle_2, "3. sum ${sum(xs)}, head still ${head(xs)}")
     compact(xs)
-    salvo.core.list.addPlatform(xs, 9)
-    salvo.core.console.println(__handle_2, "3. after compact and add, head is ${head(xs)}")
+    salvo.std.core.list.addPlatform(xs, 9)
+    salvo.std.core.console.println(__handle_2, "3. after compact and add, head is ${head(xs)}")
     val session: Request = authenticate(Request(path = "/orders", touches = 0))
     val fresh: Request = freshen(Request(path = "/health", touches = 0))
-    salvo.core.console.println(__handle_2, "4. before: ${handle__AuthenticatedRequest(session)} / ${handle__FreshRequest(fresh)}")
+    salvo.std.core.console.println(__handle_2, "4. before: ${handle__AuthenticatedRequest(session)} / ${handle__FreshRequest(fresh)}")
     touch(session)
     touch(fresh)
-    salvo.core.console.println(__handle_2, "4. after:  ${handle__AuthenticatedRequest(session)} / ${handle__Request(fresh)}")
+    salvo.std.core.console.println(__handle_2, "4. after:  ${handle__AuthenticatedRequest(session)} / ${handle__Request(fresh)}")
 }
 

@@ -456,7 +456,7 @@ fun close(c: Cursor) {}
     let dir = work_dir("ptype_wire");
     project(&dir);
     fs::write(dir.join("host.sv"), HOST_SV).unwrap();
-    fs::write(dir.join("main.sv"), "import host\nimport codec\n\nfn main() [] {\n    let _b = encode(new_tally(1))\n}\n").unwrap();
+    fs::write(dir.join("main.sv"), "import host\nimport std.codec\n\nfn main() [] {\n    let _b = encode(new_tally(1))\n}\n").unwrap();
     let out = salvo_in(&dir, &["analyze", "--src", "."]);
     let all = String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
     assert!(all.contains("`Tally` is declared `noremote`"), "{all}");
@@ -1655,7 +1655,7 @@ fn the_checked_in_host_projects_are_current_and_compile() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     for (name, root) in [("std", "platform"), ("aws", "salvo/platform")] {
-        let src = if name == "std" { repo.join("std") } else { repo.join("modules/aws") };
+        let src = if name == "std" { repo.join("lib") } else { repo.join("modules/aws") };
         let copy = tmp.join(format!("host_project_{name}"));
         copy_project(&src, &copy);
         let out = salvo_in(&copy, &["platform", "generate", "--backend", "*"]);
@@ -1974,10 +1974,10 @@ fn main() [use] {
             "kotlinc",
             "kt",
             vec![
-                ("TODO(\"implement names\")", "return salvo.platform.core.set.canonicalSet(listOf(\"b\", \"a\", \"c\"))"),
-                ("TODO(\"implement sorted\")", "return salvo.platform.core.sorted.canonicalSortedSet(listOf(\"\\uFF61\", \"\\uD83D\\uDE00\"))"),
-                ("TODO(\"implement ages\")", "return salvo.platform.core.map.canonicalMap(listOf(\"x\" to 1, \"y\" to 2))"),
-                ("TODO(\"implement bag\")", "return Bag(tags = salvo.platform.core.set.canonicalSet(listOf(\"a\", \"b\")))"),
+                ("TODO(\"implement names\")", "return salvo.platform.std.core.set.canonicalSet(listOf(\"b\", \"a\", \"c\"))"),
+                ("TODO(\"implement sorted\")", "return salvo.platform.std.core.sorted.canonicalSortedSet(listOf(\"\\uFF61\", \"\\uD83D\\uDE00\"))"),
+                ("TODO(\"implement ages\")", "return salvo.platform.std.core.map.canonicalMap(listOf(\"x\" to 1, \"y\" to 2))"),
+                ("TODO(\"implement bag\")", "return Bag(tags = salvo.platform.std.core.set.canonicalSet(listOf(\"a\", \"b\")))"),
             ],
         ),
         (
@@ -1985,10 +1985,10 @@ fn main() [use] {
             "rustc",
             "rs",
             vec![
-                ("todo!(\"implement names\")", "crate::platform_core_set::canonical_set(vec![\"b\".to_string(), \"a\".to_string(), \"c\".to_string()])"),
-                ("todo!(\"implement sorted\")", "crate::platform_core_sorted::canonical_sorted_set(vec![\"\\u{FF61}\".to_string(), \"\\u{1F600}\".to_string()])"),
-                ("todo!(\"implement ages\")", "crate::platform_core_map::canonical_map(vec![(\"x\".to_string(), 1), (\"y\".to_string(), 2)])"),
-                ("todo!(\"implement bag\")", "Bag { tags: crate::platform_core_set::canonical_set(vec![\"a\".to_string(), \"b\".to_string()]) }"),
+                ("todo!(\"implement names\")", "crate::platform_std_core_set::canonical_set(vec![\"b\".to_string(), \"a\".to_string(), \"c\".to_string()])"),
+                ("todo!(\"implement sorted\")", "crate::platform_std_core_sorted::canonical_sorted_set(vec![\"\\u{FF61}\".to_string(), \"\\u{1F600}\".to_string()])"),
+                ("todo!(\"implement ages\")", "crate::platform_std_core_map::canonical_map(vec![(\"x\".to_string(), 1), (\"y\".to_string(), 2)])"),
+                ("todo!(\"implement bag\")", "Bag { tags: crate::platform_std_core_set::canonical_set(vec![\"a\".to_string(), \"b\".to_string()]) }"),
             ],
         ),
     ];

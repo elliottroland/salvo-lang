@@ -10,15 +10,15 @@ linear struct Ticket wire {
 }
 
 fn main::issue(lent console: Console; lent id: Int, moved seat: Str) -> Ticket {
-  call core.console::println(read console, concat("1. issued #", call core.basic::to_str(Int)(read id), " for ", read seat))
+  call std.core.console::println(read console, concat("1. issued #", call std.core.basic::to_str(Int)(read id), " for ", read seat))
   return construct Ticket { id: read id, seat: !read seat }
 }
 
 fn main::redeem(lent console: Console; moved ticket: Ticket) -> None {
   obligation gain-params [ticket]
-  call core.console::println(read console, concat("1. redeemed #", call core.basic::to_str(Int)(read ticket.id)))
+  call std.core.console::println(read console, concat("1. redeemed #", call std.core.basic::to_str(Int)(read ticket.id)))
   obligation release [ticket]
-  call core.basic::discard<Ticket>(!read ticket)
+  call std.core.basic::discard<Ticket>(!read ticket)
 }
 
 fn main::one_use(lent console: Console) -> None {
@@ -26,11 +26,11 @@ fn main::one_use(lent console: Console) -> None {
   obligation gain [ticket]
   obligation release [ticket]
   call main::redeem(read console, !read ticket)
-  call core.console::println(read console, "2. gone after one use")
+  call std.core.console::println(read console, "2. gone after one use")
 }
 
 fn main::describe(lent console: Console; lent ticket: Ticket) -> None {
-  call core.console::println(read console, concat("3. still holding #", call core.basic::to_str(Int)(read ticket.id), " (", read ticket.seat, ")"))
+  call std.core.console::println(read console, concat("3. still holding #", call std.core.basic::to_str(Int)(read ticket.id), " (", read ticket.seat, ")"))
 }
 
 fn main::borrow_then_use(lent console: Console) -> None {
@@ -46,7 +46,7 @@ fn main::read_a_field(lent console: Console) -> None {
   bind#1 let ticket: Ticket = call main::issue(read console, 3, "1A")
   obligation gain [ticket]
   bind#2 let seat: Str = read ticket.seat
-  call core.console::println(read console, concat("4. read ", read seat, ", and #", call core.basic::to_str(Int)(read ticket.id), " is still owed"))
+  call std.core.console::println(read console, concat("4. read ", read seat, ", and #", call std.core.basic::to_str(Int)(read ticket.id), " is still owed"))
   obligation release [ticket]
   call main::redeem(read console, !read ticket)
 }
@@ -69,16 +69,16 @@ fn main::generic_handoff(lent console: Console) -> None {
 fn main::scrap(moved ticket: Ticket) -> None {
   obligation gain-params [ticket]
   obligation release [ticket]
-  call core.basic::discard<Ticket>(!read ticket)
+  call std.core.basic::discard<Ticket>(!read ticket)
 }
 
 fn main::a_queue_of_tickets(lent console: Console) -> None {
-  bind#1 let queue: Mut Deque<Ticket> = call core.deque::mut_deque_of()<Ticket>()
+  bind#1 let queue: Mut Deque<Ticket> = call std.core.deque::mut_deque_of()<Ticket>()
   obligation gain [queue]
-  call core.deque::add_last<Ticket>(read queue, call main::issue(read console, 5, "2B"))
-  call core.deque::add_last<Ticket>(read queue, call main::issue(read console, 6, "2C"))
-  call core.console::println(read console, concat("6. queued ", call core.basic::to_str(Int)(call core.deque::size<Ticket>(drop_mut(read queue)))))
-  bind#2 let first: Ticket? = call core.deque::remove_first<Ticket>(read queue)
+  call std.core.deque::add_last<Ticket>(read queue, call main::issue(read console, 5, "2B"))
+  call std.core.deque::add_last<Ticket>(read queue, call main::issue(read console, 6, "2C"))
+  call std.core.console::println(read console, concat("6. queued ", call std.core.basic::to_str(Int)(call std.core.deque::size<Ticket>(drop_mut(read queue)))))
+  bind#2 let first: Ticket? = call std.core.deque::remove_first<Ticket>(read queue)
   obligation gain [first.arms{0}]
   switch#3 read first {
     arm#0 (arm 0) {
@@ -95,7 +95,7 @@ fn main::a_queue_of_tickets(lent console: Console) -> None {
     }
   }
   loop#5 {
-    bind#7 let __subject~2: Ticket? = call core.deque::remove_first<Ticket>(read queue)
+    bind#7 let __subject~2: Ticket? = call std.core.deque::remove_first<Ticket>(read queue)
     obligation gain [__subject~2.arms{0}]
     branch#9 cond#0 !(check#6 (read __subject~2 is arm 0)) {
       break
@@ -107,8 +107,8 @@ fn main::a_queue_of_tickets(lent console: Console) -> None {
     call main::redeem(read console, !read next)
   }
   obligation release [queue]
-  call core.deque::drain<Ticket>(drop_mut(!read queue), fn main::scrap)
-  call core.console::println(read console, "6. queue drained")
+  call std.core.deque::drain<Ticket>(drop_mut(!read queue), fn main::scrap)
+  call std.core.console::println(read console, "6. queue drained")
 }
 
 fn main::main() -> None {

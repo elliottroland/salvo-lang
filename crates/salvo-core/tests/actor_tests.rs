@@ -2,7 +2,7 @@
 //! asynchronous surface's *checker* rules: what a `spawn` needs to be legal,
 //! what a `replyto` may target, where a `waitfor` may stand, and how an `Addr`
 //! is called. The forms' syntax is tested in `salvo-syntax`; the types they
-//! produce and consume are `core.actor`'s ([actor-types]).
+//! produce and consume are `std.core.actor`'s ([actor-types]).
 //!
 //! The shape every test here rests on: a process is a handler bound
 //! asynchronously, so almost every rule is one `use` already had, moved to
@@ -12,7 +12,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// A stand-in for `core.actor` and the little of std these tests need.
+/// A stand-in for `std.core.actor` and the little of std these tests need.
 /// `intrinsic` is std-only [intrinsic-std-only], so it is loaded as a std
 /// file rather than pasted into the source under test.
 const STD_PRELUDE: &str = "\
@@ -99,7 +99,7 @@ fn diagnostics(src: &str) -> Vec<(bool, String)> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );

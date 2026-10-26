@@ -51,16 +51,16 @@ pub fn harness_source(tests: &[TestCase]) -> String {
          // synthesized into the source set, compiled with the program, and\n\
          // prints the protocol the runner renders as the report.\n\
          //\n\
-         // No `import test`: the harness is a test file, so `std.test` is\n\
+         // No `import std.test`: the harness is a test file, so `std.test` is\n\
          // implicitly available [test-implicit-import] — and an explicit import\n\
          // of it beside an `import <module>.test` was ambiguous.\n",
     );
     // One import per annex module: the synthesized test fns are exported from
     // the annex they were written in [test-run].
-    // `core`'s annexes are visible without one, like `core` itself.
+    // `std.core`'s annexes are visible without one, like `std.core` itself.
     let mut annexes: Vec<String> = tests
         .iter()
-        .filter(|t| t.tested.0.first().map(String::as_str) != Some("core"))
+        .filter(|t| !t.tested.is_std_core())
         .map(|t| format!("{}.test", t.tested))
         .collect();
     annexes.sort();
@@ -75,7 +75,7 @@ pub fn harness_source(tests: &[TestCase]) -> String {
         .iter()
         .any(|t| matches!(t.kind, salvo_syntax::ast::TestKind::Actor { .. }));
     if actor {
-        out.push_str("import test.actor\n");
+        out.push_str("import std.test.actor\n");
     }
     out.push_str(if actor {
         "\nfn main() [use, spawn] {\n    use StdConsole()\n"
@@ -201,14 +201,14 @@ mod tests {
         assert_eq!(src.matches("import heap.test").count(), 1);
     }
 
-    /// [test-actor] An actor test's program imports `test.actor`, may spawn,
+    /// [test-actor] An actor test's program imports `std.test.actor`, may spawn,
     /// and starts the virtual runtime with the test's seed before each test.
     #[test]
     fn an_actor_test_starts_the_virtual_runtime() {
         let mut t = case("ticks", "__salvo_test_heap_test_0");
         t.kind = salvo_syntax::ast::TestKind::Actor { seed: 5 };
         let src = harness_source(&[t]);
-        assert!(src.contains("import test.actor\n"), "{src}");
+        assert!(src.contains("import std.test.actor\n"), "{src}");
         assert!(src.contains("fn main() [use, spawn] {"), "{src}");
         assert!(src.contains("begin_actor_test(5L)"), "{src}");
         assert!(!src.contains("trapped_by"), "{src}");

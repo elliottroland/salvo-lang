@@ -44,7 +44,7 @@ fn check_errors(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
@@ -83,7 +83,7 @@ fn messages(src: &str) -> Vec<String> {
 
 /// [intrinsic-std-only] The base-type declarations the checker needs.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
-/// is loaded as a *std* file (module `core.prelude`, implicitly imported)
+/// is loaded as a *std* file (module `std.core.prelude`, implicitly imported)
 /// rather than pasted into the source under test.
 const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Store<T> canbe Mut\n";
 
@@ -479,7 +479,7 @@ fn export_namespace_distributes_visibility() {
 // at parse time).
 #[test]
 fn import_inside_namespace_is_rejected() {
-    let src = "namespace X {\n    import core.Str\n}\n";
+    let src = "namespace X {\n    import std.core.Str\n}\n";
     let (_module, diags) = salvo_syntax::parse_module(src);
     assert!(
         diags.iter().any(|d| d.message.contains("cannot appear inside a `namespace`")),

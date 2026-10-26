@@ -37,7 +37,7 @@ pub fn fn_call(
     let elem = || type_args.first().map(String::as_str).unwrap_or("Any");
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("kotlin.TODO()");
     Some(match (name, recv) {
-        // core.basic -----------------------------------------------------
+        // std.core.basic -----------------------------------------------------
         // [op-convert] The explicit numeric conversions. Kotlin's `toX()`
         // agrees with Rust's `as` case by case: float→int truncates toward
         // zero and saturates (NaN → 0), Long→Int keeps the low 32 bits,
@@ -54,7 +54,7 @@ pub fn fn_call(
         // into 0..255 exactly as `as i32` does.
         ("to_byte", Some("Int")) => format!("({}).toUByte()", a(0)),
         ("to_int", Some("Byte")) => format!("({}).toInt()", a(0)),
-        // core.compare ---------------------------------------------------
+        // std.core.compare ---------------------------------------------------
         // [cmp-groups] The canonical `cmp`/`eq`/`hash` at each intrinsic type.
         //
         // Every one of these is `Comparable` on the JVM *except* `Str`, whose
@@ -109,7 +109,7 @@ pub fn fn_call(
         // [runtime-handles] An addr and a pool are `Int` indices already.
         ("addr_index", Some("Addr")) | ("pool_index", Some("Pool")) | ("addr_of", Some("Int"))
         | ("pool_of", Some("Int")) => format!("({})", a(0)),
-        // core.actor ---------------------------------------------------
+        // std.core.actor ---------------------------------------------------
         // [actor-replyto] [kt-actor] Answering a request: the token is
         // consumed and the payload crosses the seam as the runtime's `Any?`.
         ("send", Some("Reply")) => format!("{}.send({})", a(0), a(1)),
@@ -138,7 +138,7 @@ pub fn fn_call(
         // `Long` of nanoseconds — the whole of the host's contribution to the
         // time surface, matching `time.rs` number for number.
         // [stream-handle] One counter for every stream table in the process.
-        // core.list ------------------------------------------------------
+        // std.core.list ------------------------------------------------------
         // The element type is spelled out: `listOf()` with no arguments
         // leaves kotlinc with nothing to infer from
         // [backend-intrinsic].
@@ -176,14 +176,14 @@ pub fn fn_call(
         ("array_by", Some("Int")) => {
             format!("Array<{}>({}, {})", elem(), a(0), a(1))
         }
-        // core.set -------------------------------------------------------
+        // std.core.set -------------------------------------------------------
         // [col-key-eligible] An owned read of a snapshot element. Identity
         // is the copy here because element/key types are the immutable
         // intrinsic types, which is what `copy` of a generic cannot assume
         // [kt-copy].
         ("snapshot_at", Some("List")) => format!("{}.getOrNull({})", a(0), a(1)),
 
-        // core.array -----------------------------------------------------
+        // std.core.array -----------------------------------------------------
         // [fn-variadic] The variadic tail *is* the array; a `...spread`
         // arrives as `*arr`, which `arrayOf` re-wraps into an array of the
         // same elements.
@@ -197,8 +197,8 @@ pub fn fn_call(
         ("size", Some("[]")) => format!("{}.size", a(0)),
 
 
-        // core.bytes is platform code since 2026-10-04 [platform-value-type]:
-        // `std/platform/core/bytes.{rs,kt}`.
+        // std.core.bytes is platform code since 2026-10-04 [platform-value-type]:
+        // `lib/platform/std/core/bytes.{rs,kt}`.
 
         _ => return None,
     })

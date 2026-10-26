@@ -166,8 +166,7 @@ pub fn expand_program<M: ModuleSlot>(files: &[SourceFile], modules: &mut [M], pe
 /// files are a std that `prefix` recorded the expansion of
 /// (`comptime::expand_comptime_prefix`), already expanded: only the files
 /// after it are stamped. The std files' own expansion output is the
-/// prefix's, which the caller adds; this one reports the rest. The caller
-/// checks `prefix.admits` first.
+/// prefix's, which the caller adds; this one reports the rest.
 pub fn expand_program_after(
     files: &[SourceFile],
     modules: &mut [Arc<Module>],

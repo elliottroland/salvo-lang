@@ -20,7 +20,7 @@ All numbers include the usual arithmetic operations, on **numeric operands only*
 
 `x += e` and its three siblings (`-=`, `*=`, `/=`) are shorthand for `x = x + e`, so they follow the same operand rules — `+=` on a `Str` is refused like `+` is — and they are statements rather than expressions, so they do not chain. `x++` and `x--` remain for a step of one, where the value of the expression matters. An assignment's left side must be a *place*: a variable, a field path, or a subscript.
 
-Mixed widths widen implicitly **within** a class: `Int + Long` computes at `Long`, `Float < Double` compares at `Double` — the compiler records the promotion and each backend renders it its own way. Mixing the integer and float classes never happens implicitly: `1 + 2.5` is a type error naming the explicit conversions — `to_int`, `to_long`, `to_float` and `to_double`, declared in `core.basic` for every source width, truncating toward zero and saturating at the target's bounds identically on both backends (`to_int(Long)` keeps the low 32 bits).
+Mixed widths widen implicitly **within** a class: `Int + Long` computes at `Long`, `Float < Double` compares at `Double` — the compiler records the promotion and each backend renders it its own way. Mixing the integer and float classes never happens implicitly: `1 + 2.5` is a type error naming the explicit conversions — `to_int`, `to_long`, `to_float` and `to_double`, declared in `std.core.basic` for every source width, truncating toward zero and saturating at the target's bounds identically on both backends (`to_int(Long)` keeps the low 32 bits).
 
 ```
 let count = 42          // Int, the default for a whole number
@@ -64,7 +64,7 @@ set(text, 0, 'H')          // answers whether it wrote; ignorable
 println(text)              // Hello, world
 ```
 
-Everything else in `core.string` takes a plain `Str`, and a `Mut Str` reaches all of it by *dropping* its `Mut` like any other qualifier — `size(text)`, `trim(text)`, `text == other` all work. The difference from every other qualifier is invisible in Salvo and matters to the backends: `Mut` is the one qualifier a target may render as a different type (a `StringBuilder` on the JVM), so dropping it there is a real conversion rather than a widening. The compiler records the drop and each backend renders what it needs, which is what keeps `text == other` a comparison of *characters* on both targets.
+Everything else in `std.core.string` takes a plain `Str`, and a `Mut Str` reaches all of it by *dropping* its `Mut` like any other qualifier — `size(text)`, `trim(text)`, `text == other` all work. The difference from every other qualifier is invisible in Salvo and matters to the backends: `Mut` is the one qualifier a target may render as a different type (a `StringBuilder` on the JVM), so dropping it there is a real conversion rather than a widening. The compiler records the drop and each backend renders what it needs, which is what keeps `text == other` a comparison of *characters* on both targets.
 
 **An interpolation may hold a string literal**, and that literal may interpolate in turn: `"${name ?: "unknown"}"` is an ordinary thing to write, and the inner quotes belong to the inner literal. Escapes work inside it as anywhere else.
 
@@ -110,14 +110,14 @@ let ratio: Double? = from_str("2.5e-1") // 0.25
 let on: Bool? = from_str("yes")         // None: only `true` and `false`
 ```
 
-`core.string` has it for `Str`, `Int`, `Long`, `Double` and `Bool`, under the
+`std.core.string` has it for `Str`, `Int`, `Long`, `Double` and `Bool`, under the
 named functions `parse_int`, `parse_long`, `parse_double` and `parse_bool`.
 They accept the same text on every backend: an optional sign, digits, and for
 a `Double` a fraction and an exponent. Whitespace, `NaN`, `inf`, hex and type
 suffixes are refused everywhere, rather than accepted by whichever host
 happens to. A generic function that needs a reader asks for `?FromStr<T>`.
 
-The behavior of Strings are governed by the module `core.string`.
+The behavior of Strings are governed by the module `std.core.string`.
 
 ## Tuples and Unions
 
@@ -231,7 +231,7 @@ type Code = Kms | "QueueDoesNotExist" | Other Str
 if code is Kms { … }
 ```
 
-**Open sets.** Many sets of values are open: a service may add a code this program has never heard of. `Other`, a qualifier in `core`, is the open arm: `"A" | "B" | Other Str` is the listed values and any other string. A value reaches the `Other` arm only by being built with `other("…")`, so everything else still has to be one of the listed literals; `is Other` narrows to the rest.
+**Open sets.** Many sets of values are open: a service may add a code this program has never heard of. `Other`, a qualifier in `std.core`, is the open arm: `"A" | "B" | Other Str` is the listed values and any other string. A value reaches the `Other` arm only by being built with `other("…")`, so everything else still has to be one of the listed literals; `is Other` narrows to the rest.
 
 **At run time a literal is its base.** A union of one base type's literals is that base type on both backends — `Direction` is a `String` — and the `Other` arm, being a `Str` too, collapses with them. In a union that mixes bases, each base's literals share one arm: `"name" | 3 | "other" | Person` is a `Str | Int | Person` at run time, its arms in the order they first appear. Since two literals of one base are the same host type, two overloads that differ only in literal types (`fn pick(x: "A")` and `fn pick(x: "B")`) are refused; take the union in one function and `when` over it. `"a" | Str` is a warning — every `Str` is already an arm — pointing at `Other Str`.
 

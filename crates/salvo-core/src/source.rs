@@ -9,18 +9,56 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// Dotted module path, e.g. `core.string`.
+/// Dotted module path, e.g. `std.core.string`.
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModulePath(pub Vec<String>);
 
+/// [std-root] The reserved first segment of every standard-library module:
+/// `std.time`, `std.core.list`. Only a `std = true` tree (and the embedded
+/// library) may declare a module under it.
+pub const STD_ROOT: &str = "std";
+
+/// [mod-visibility] The second segment of the implicitly visible part of std:
+/// `std.core.*`.
+pub const CORE: &str = "core";
+
 impl ModulePath {
-    /// The path a rendered module name spells (`core.list`).
+    /// The path a rendered module name spells (`std.core.list`).
     pub fn parse(text: &str) -> ModulePath {
         ModulePath(text.split('.').map(str::to_string).collect())
     }
 
+    /// [std-root] A standard-library module path: `std` followed by `segs`
+    /// (`ModulePath::std(&["core", "list"])` is `std.core.list`).
+    pub fn std(segs: &[&str]) -> ModulePath {
+        ModulePath(std::iter::once(STD_ROOT).chain(segs.iter().copied()).map(str::to_string).collect())
+    }
+
+    /// [std-root] Whether the path is under the reserved `std` root.
+    pub fn is_std_rooted(&self) -> bool {
+        self.0.first().is_some_and(|s| s == STD_ROOT)
+    }
+
+    /// [mod-visibility] Whether the path is in `std.core.*`, the part of std
+    /// every file sees without importing it.
+    pub fn is_std_core(&self) -> bool {
+        self.0.len() >= 2 && self.0[0] == STD_ROOT && self.0[1] == CORE
+    }
+
+    /// [std-root] The path below `std` (`["time"]` for `std.time`), when the
+    /// path is under the reserved root.
+    pub fn std_rest(&self) -> Option<&[String]> {
+        self.is_std_rooted().then(|| &self.0[1..])
+    }
+
+    /// [mod-std-internal] Whether the path is std's runtime: `std.runtime` or
+    /// anything under it.
+    pub fn is_std_internal(&self) -> bool {
+        self.0.len() >= 2 && self.0[0] == STD_ROOT && self.0[1] == crate::resolve::STD_INTERNAL
+    }
+
     /// [mod-suffix] Whether a written module reference names this module: the
-    /// full path, or any **suffix** of it (`list` for `core.list`, `mem` for
+    /// full path, or any **suffix** of it (`list` for `std.core.list`, `mem` for
     /// `fs.mem`). One rule for every place a module is referenced — `@module`
     /// selectors, `by`, `import` — with a reference that fits two modules
     /// refused as ambiguous rather than defaulted (user decision 2026-09-29).
@@ -30,7 +68,7 @@ impl ModulePath {
             && self.0[self.0.len() - segs.len()..].iter().map(|s| s.as_str()).eq(segs.iter().copied())
     }
 
-    /// [mod-suffix] The same over rendered text (`core.list` against `list`).
+    /// [mod-suffix] The same over rendered text (`std.core.list` against `list`).
     pub fn text_matches_suffix(module: &str, reference: &str) -> bool {
         module == reference || module.ends_with(&format!(".{reference}"))
     }
@@ -571,7 +609,7 @@ impl SourceSet {
     /// file on disk takes over — std-ness included, so its `intrinsic`
     /// declarations stay legal [intrinsic-std-only].
     ///
-    /// This is what makes `salvo test --src std` test *the checkout* rather
+    /// This is what makes `salvo test --src lib` test *the checkout* rather
     /// than the std compiled into the binary (user decision 2026-09-23), and
     /// without it the two copies would collide as duplicate declarations
     /// [mod-collision] — a confusing error for what is a reasonable thing to
@@ -647,7 +685,7 @@ impl SourceSet {
     /// modules it declares, as [std-shadow] lets a source tree do; any other
     /// dependency declaring a module the embedded standard library also
     /// declares is refused, naming the file — a library must not be able to
-    /// redefine `core.list` on its users. Call this **before** the project's
+    /// redefine `std.core.list` on its users. Call this **before** the project's
     /// own tree is added, so the project's [std-shadow] sees the merged std.
     ///
     /// Returns one rendered message per problem.
@@ -871,20 +909,20 @@ mod tests {
     }
 
     /// [std-shadow] A tree declaring std's own modules replaces them, std-ness
-    /// included — which is what `salvo test --src std` rests on.
+    /// included — which is what `salvo test --src lib` rests on.
     #[test]
     fn a_source_tree_can_shadow_std() {
         let mut sources = SourceSet::default();
-        sources.add("std/heap.sv", ModulePath(vec!["heap".into()]), "embedded".into(), true);
-        sources.add("std/core/list.sv", ModulePath(vec!["core".into(), "list".into()]), "embedded".into(), true);
-        sources.add("heap.sv", ModulePath(vec!["heap".into()]), "on disk".into(), false);
+        sources.add("std/heap.sv", ModulePath::std(&["heap"]), "embedded".into(), true);
+        sources.add("std/core/list.sv", ModulePath::std(&["core", "list"]), "embedded".into(), true);
+        sources.add("std/heap.sv", ModulePath::std(&["heap"]), "on disk".into(), false);
         let notes = sources.apply_std_shadow();
         assert_eq!(notes.len(), 1, "{notes:?}");
-        assert!(notes[0].contains("`heap`"), "{notes:?}");
+        assert!(notes[0].contains("`std.heap`"), "{notes:?}");
         let heap: Vec<&SourceFile> = sources
             .files
             .iter()
-            .filter(|f| f.module.to_string() == "heap")
+            .filter(|f| f.module.to_string() == "std.heap")
             .collect();
         assert_eq!(heap.len(), 1);
         assert_eq!(heap[0].content, "on disk");
@@ -894,7 +932,7 @@ mod tests {
         assert!(sources
             .files
             .iter()
-            .any(|f| f.module.to_string() == "core.list" && f.is_std));
+            .any(|f| f.module.to_string() == "std.core.list" && f.is_std));
     }
 
     #[test]

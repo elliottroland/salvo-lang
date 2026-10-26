@@ -7,7 +7,7 @@
 //   map-str    10^5 puts of Str keys, then 10^6 gets
 //   remove     10^6 adds, 9·10^5 removes, then a full walk
 //   sorted     2·10^4 adds to a SortedSet<Int>, then 10^6 lookups
-import time
+import std.time
 
 fn ms_since(start: Long) [] -> Long {
     return (monotonic_nanos() - start) / 1000000

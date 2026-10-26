@@ -447,7 +447,7 @@ pub enum Coercion {
 }
 
 /// The effect whose operation is non-resumptive [throw]. Declared in std
-/// (`std/throw.sv`, module `throw`), known by name to the compiler: it has no
+/// (`lib/std/throw.sv`, module `throw`), known by name to the compiler: it has no
 /// handler
 /// — `try` delimits it — and it is not threaded as an effect parameter.
 pub const THROW_EFFECT: &str = "Throw";
@@ -458,27 +458,27 @@ pub const THROW_EFFECT: &str = "Throw";
 /// emitters name the generated machine identically, which is how a mint at an
 /// argument and a `for` over the same origin agree.
 pub const ORIGIN_PASS_PREFIX: &str = "__Pass_";
-/// The value arm of a `try` outcome, from `core.result` [try].
+/// The value arm of a `try` outcome, from `std.core.result` [try].
 pub const OK_QUALIFIER: &str = "Ok";
 /// The message arm of a `try` outcome, from module `throw` [try].
 pub const THROWN_QUALIFIER: &str = "Thrown";
-/// [actor-spawn-expr] The handle a `spawn` produces, from `core.actor`:
+/// [actor-spawn-expr] The handle a `spawn` produces, from `std.core.actor`:
 /// known by name to the compiler because its type argument is an **effect**,
 /// which is the one sanctioned exception to [effect-not-data] (user decision
 /// 2026-09-15).
 pub const ADDR_TYPE: &str = "Addr";
-/// [actor-replyto] The linear one-shot answer token, from `core.actor`.
+/// [actor-replyto] The linear one-shot answer token, from `std.core.actor`.
 pub const REPLY_TYPE: &str = "Reply";
 /// [actor-mailbox] The std struct a handler's `mailbox { … }` slot builds,
-/// from `core.actor`: the slot is that struct's literal with the type elided.
+/// from `std.core.actor`: the slot is that struct's literal with the type elided.
 pub const MAILBOX_TYPE: &str = "Mailbox";
 
 /// [actor-spawn-expr] The thread pool a spawn names in its `on` clause,
-/// from `core.actor`.
+/// from `std.core.actor`.
 pub const POOL_TYPE: &str = "Pool";
 
 /// [waitfor-dedicated] The provenance qualifier `thread()` mints, from
-/// `core.actor`: a pool of one thread, which the `on` clause consumes, and
+/// `std.core.actor`: a pool of one thread, which the `on` clause consumes, and
 /// the only placement a `[waitfor]`-carrying handler may be spawned onto.
 pub const DEDICATED_QUALIFIER: &str = "Dedicated";
 
@@ -2296,7 +2296,7 @@ fn file_checker<'r, 'p>(
         .program
         .files
         .iter()
-        .map(|f| f.is_std && f.module.0.first().is_some_and(|m| m == crate::resolve::STD_INTERNAL))
+        .map(|f| f.is_std && f.module.is_std_internal())
         .collect();
     checker
 }
@@ -2421,7 +2421,7 @@ fn program_checks(program: &Program, symbols: &Symbols<'_>, out: &mut Checked, p
 /// state by another name.
 fn check_module_uses(program: &Program, out: &mut Checked) {
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
-        let runtime = file.is_std && file.module.0.first().is_some_and(|m| m == crate::resolve::STD_INTERNAL);
+        let runtime = file.is_std && file.module.is_std_internal();
         if runtime {
             continue;
         }
@@ -2438,28 +2438,32 @@ fn check_module_uses(program: &Program, out: &mut Checked) {
     }
 }
 
-/// [runtime-layers] The runtime's core (`std/runtime.sv`, module `runtime`)
-/// implements the actor forms, and its services (`runtime.*`, the deadline
+/// [runtime-layers] The runtime's core (`lib/std/runtime.sv`, module `std.runtime`)
+/// implements the actor forms, and its services (`std.runtime.*`, the deadline
 /// wheel) are actors built on it: the core importing a service would let the
 /// scheduler depend on something that depends on the scheduler. Refused at
 /// the import.
 fn check_runtime_layers(program: &Program, out: &mut Checked) {
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
-        let core = file.is_std && file.module.0.len() == 1 && file.module.0[0] == crate::resolve::STD_INTERNAL;
+        let core = file.is_std && file.module == crate::ModulePath::std(&[crate::resolve::STD_INTERNAL]);
         if !core {
             continue;
         }
         for item in &ast.items {
             let Item::Import(import) = item else { continue };
             let path: Vec<&str> = import.path.iter().map(|p| p.name.as_str()).collect();
-            if path.len() >= 2 && path[0] == crate::resolve::STD_INTERNAL && path[1].starts_with(|c: char| c.is_lowercase()) {
+            if path.len() >= 3
+                && path[0] == crate::STD_ROOT
+                && path[1] == crate::resolve::STD_INTERNAL
+                && path[2].starts_with(|c: char| c.is_lowercase())
+            {
                 out.errors.push(crate::diag::FileDiagnostic::error(
                     file_idx,
                     import.span,
                     format!(
                         "the runtime's core may not import its service `{}`: services are \
                          built on the core, which never calls them [runtime-layers]",
-                        path[..2].join(".")
+                        path[..3].join(".")
                     ),
                 ));
             }
@@ -3441,7 +3445,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // maps back to what was written — through the copies it was copied
             // from — so the error lands on the construct (`print_help(args.
             // [field])`), not on the field the copy was for (found 2026-10-20,
-            // a TODO in std/args/parse.sv). The label still names the copy.
+            // a TODO in lib/std/args/parse.sv). The label still names the copy.
             let mut at = span;
             let mut guard = 0;
             // The copies, innermost first, in the code's own terms.
@@ -4772,7 +4776,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let saved = self.enter_generics(&q.generics);
                     if iface {
                         // [comptime-qualifier] A comptime qualifier's subject is a
-                        // `core.comptime` type, the one ordinary position one may
+                        // `std.core.comptime` type, the one ordinary position one may
                         // be named in.
                         self.in_comptime_decl = q.comptime;
                         self.check_fn_slots(&q.name.name, &q.fn_slots, &q.generics);
@@ -7912,7 +7916,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///    module's overloads and no others; naming a module with no fitting
     ///    overload is an error rather than a silent fallback.
     /// 2. **The most specific *scope* wins.** Functions arrive from ever
-    ///    more specific places — `core`, then this file's imports, then this
+    ///    more specific places — `std.core`, then this file's imports, then this
     ///    module — and only the most specific rung that has a fitting
     ///    candidate competes. That is what makes a module's own `map` mean
     ///    *its* `map`, whatever std declares.
@@ -7921,7 +7925,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///    ambiguity error naming the remedies, never a pick.
     ///
     /// Scope beats signature, so a broad overload in this module hides a
-    /// precise one in `core` — deliberately, because the alternative is a
+    /// precise one in `std.core` — deliberately, because the alternative is a
     /// rule nobody can predict without knowing std's surface. When that
     /// happens the call gets a **warning** naming the discarded candidate,
     /// and writing `@module` on the call silences it (either module: naming
@@ -7964,7 +7968,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 })
                 .collect();
             // [mod-suffix] A suffix that fits two modules is refused rather than
-            // guessed: `size@list` with a `core.list` and a `shop.list` both
+            // guessed: `size@list` with a `std.core.list` and a `shop.list` both
             // declaring `size` names both.
             if matches!(sel, Selector::Module(_)) {
                 let mut modules: Vec<&str> = selected.iter().map(|&i| viable[i].module.as_str()).collect();
@@ -8026,8 +8030,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // not tell apart anyway; the general one names modules.
         // One *declaration* is one candidate, however many routes reach it: a
         // fn can arrive both as an implicitly available name and as a member of
-        // the file's own module (std's `test` in an annex, `core.list` inside
-        // `core.list`), which is two entries for one function. Deduping here is
+        // the file's own module (std's `test` in an annex, `std.core.list` inside
+        // `std.core.list`), which is two entries for one function. Deduping here is
         // what makes step 2's "no single winner is an error" mean what it says —
         // it compares *alternatives*, and these are not.
         Self::dedupe_by_declaration(&mut pool, viable);
@@ -8079,18 +8083,20 @@ impl<'p, 'r> Checker<'p, 'r> {
         // in a disambiguation spelling is worse than noise: a reader takes it as
         // evidence that something here is ambiguous. Warned, not refused — it is
         // still a correct program, and the remedy is deleting three characters.
-        if let Some(Selector::Module(_)) = at {
+        // It echoes the selector as written: `@core.list` is a suffix of
+        // `std.core.list` [mod-suffix], and the reader looks for what they wrote.
+        if let Some(Selector::Module(written)) = at {
             if self
                 .unqualified_winner(viable)
                 .is_some_and(|un| std::ptr::eq(viable[un].decl, viable[winner].decl))
             {
+                let written = written.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(".");
                 self.warn(
                     span,
                     format!(
-                        "this `@{}` is not needed: `{name}({})` resolves to the same \
+                        "this `@{written}` is not needed: `{name}({})` resolves to the same \
                          function without it, and no refinement of it disagrees here \
                          [fn-overload-at]",
-                        viable[winner].module,
                         shown_args()
                     ),
                 );
@@ -8708,7 +8714,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return None;
         }
         // [fn-overload-scope] The most specific rung first, exactly as the
-        // winner is chosen — otherwise a `core` candidate would be typing
+        // winner is chosen — otherwise a `std.core` candidate would be typing
         // the arguments of a call that resolves in this module.
         let top = pool.iter().map(|c| c.rung).max()?;
         let at_top: Vec<usize> = (0..pool.len()).filter(|&i| pool[i].rung == top).collect();
@@ -11596,7 +11602,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// this file and that file's span, a position in this file it does not
     /// occupy (found 2026-10-20, when the interface pass changed which
     /// writer came last: `list_dir`'s body overwrote `read_all`'s `Str` in
-    /// `std/fs/mem.sv` with a callee's `Int`).
+    /// `lib/std/fs/mem.sv` with a callee's `Int`).
     fn foreign_ref(&self, r: &TypeRef) -> bool {
         self.resolution
             .type_ref_files
@@ -14424,7 +14430,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// effect declared in that file** (the amendment the bare-members
     /// decision entailed, user decision 2026-09-14, FILE_SYSTEM.md §5.8):
     /// phase 4's `close(s: InStream)` is an `Fs` member, not a free fn, and
-    /// `std/core/fs.sv` declares the token and the effect together.
+    /// `lib/std/core/fs.sv` declares the token and the effect together.
     ///
     /// Any of these is a legal terminal for the obligation. `discard` is
     /// legal only inside one of them — and for a member that means inside
@@ -19458,7 +19464,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .scope
                 .name_origins
                 .get(q.name.name.as_str())
-                .is_some_and(|ms| ms.iter().any(|m| m.0.first().map(|s| s.as_str()) == Some("net")))
+                .is_some_and(|ms| ms.iter().any(|m| m.std_rest().and_then(|r| r.first()).is_some_and(|s| s == "net")))
     }
 
     /// Lowers the base of a named type: substitutions, generic parameters,
@@ -20168,7 +20174,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// value; a group constrains a *named* type and is resolved statically
     /// (user decision 2026-09-08). A rule in its own right, not a
     /// consequence of one.
-    /// [comptime-fields] `core.comptime`'s types (`Type`, `Field`, `Struct`,
+    /// [comptime-fields] `std.core.comptime`'s types (`Type`, `Field`, `Struct`,
     /// …) exist at compile time only: what a `comptime fn` may know about a
     /// type, never a value a program holds. Naming one in an ordinary type
     /// position is refused where it is written; a `comptime struct`'s own
@@ -21686,7 +21692,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [comptime-qualifier] A `comptime qualifier`: its subject is
-    /// `core.comptime`'s `Field` or `Struct`, it has no body (nothing runs at
+    /// `std.core.comptime`'s `Field` or `Struct`, it has no body (nothing runs at
     /// compile time to test it), no type parameters and no fn slots, and its
     /// value slots hold constants (`Int`, `Char`, `Str`).
     fn check_comptime_qualifier_decl(&mut self, q: &'p QualifierDecl) {
@@ -25935,7 +25941,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // [iter-resolve] A `Ty::Named` carries no module, so unifying the
             // protocol shape by *name* cannot tell two same-named structs
-            // apart: with a user `Range` beside `core.range`'s, the loop drove
+            // apart: with a user `Range` beside `std.core.range`'s, the loop drove
             // the wrong module's `next` and emitted a call the target compiler
             // rejected (E0308) — wrong output, not a diagnostic. Compare the
             // **declarations** instead: the subject's name resolved in *this*

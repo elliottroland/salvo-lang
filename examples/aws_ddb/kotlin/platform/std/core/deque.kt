@@ -1,0 +1,56 @@
+// [platform-value-type] std's double-ended queue, for `std.core.deque`'s
+// `platform type Deque<T> canbe Mut` (ROADMAP 0.7): Kotlin's `ArrayDeque`,
+// one class for both kinds.
+package salvo.platform.std.core.deque
+
+typealias Deque<T> = kotlin.collections.ArrayDeque<T>
+typealias MutDeque<T> = kotlin.collections.ArrayDeque<T>
+
+// [platform-iterable] The host's loop over a deque, front to back.
+fun <T> each(d: Deque<T>): Iterable<T> = d
+
+fun <T> emptyDeque(): MutDeque<T> = kotlin.collections.ArrayDeque()
+
+fun <T> dequeFrom(first: T, rest: Array<T>): MutDeque<T> {
+    val d = kotlin.collections.ArrayDeque<T>(rest.size + 1)
+    d.addLast(first)
+    d.addAll(rest)
+    return d
+}
+
+fun <T> intoMut(d: Deque<T>): MutDeque<T> = d
+
+// [linear-container] Ending one that still holds elements would drop them.
+fun <T> endEmpty(d: MutDeque<T>) {
+    check(d.isEmpty()) { "salvo: a deque was ended with elements in it" }
+}
+
+fun <T> addLast(d: MutDeque<T>, elem: T) = d.addLast(elem)
+
+fun <T> addFirst(d: MutDeque<T>, elem: T) = d.addFirst(elem)
+
+fun <T> removeFirst(d: MutDeque<T>): T? = d.removeFirstOrNull()
+
+fun <T> removeLast(d: MutDeque<T>): T? = d.removeLastOrNull()
+
+fun <T> removeAt(d: MutDeque<T>, index: Int): T? =
+    if (index >= 0 && index < d.size) d.removeAt(index) else null
+
+fun <T> get(d: Deque<T>, index: Int): T? = d.getOrNull(index)
+
+// [col-idx] The total read and write: the index was proven in range.
+fun <T> getAt(d: Deque<T>, index: Int): T = d[index]
+
+// [ref-handle] The mints: a handle is the element itself on Kotlin, so `at`
+// is its `get` (and the proven one its `getAt`).
+fun <T> at(d: Deque<T>, index: Int): T? = d.getOrNull(index)
+
+fun <T> atProven(d: Deque<T>, index: Int): T = d[index]
+
+fun <T> replace(d: MutDeque<T>, index: Int, value: T): T = d.set(index, value)
+
+fun <T> first(d: Deque<T>): T? = d.firstOrNull()
+
+fun <T> last(d: Deque<T>): T? = d.lastOrNull()
+
+fun <T> size(d: Deque<T>): Int = d.size

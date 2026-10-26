@@ -1,7 +1,7 @@
 //! [cmp-groups] Comparison, equality and hashing as **params groups**.
 //!
 //! The ordering round's foundation (user decisions 2026-09-21): `Ordered`,
-//! `Eq` and `Hashed` are ordinary `params` groups in `core.compare`, so a
+//! `Eq` and `Hashed` are ordinary `params` groups in `std.core.compare`, so a
 //! capability is "a fn of this shape is in scope" and nothing more. Which
 //! means these tests are mostly about the machinery the language already has
 //! — [implicit-resolve] picking the canonical overload for the type a call
@@ -10,7 +10,7 @@
 //! three groups. Nothing here is new *mechanism*; what is new is that the
 //! three capabilities are expressed with it rather than being built in.
 //!
-//! The prelude mirrors `std/core/compare.sv`: the same three groups, and the
+//! The prelude mirrors `lib/std/core/compare.sv`: the same three groups, and the
 //! canonical overloads for the intrinsic types this file compares.
 
 use std::path::Path;
@@ -18,7 +18,7 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 /// [intrinsic-std-only] Loaded as a *std* file, since only std writes
-/// `intrinsic` — and `core.*` is implicitly visible, which is how a canonical
+/// `intrinsic` — and `std.core.*` is implicitly visible, which is how a canonical
 /// `cmp` is in scope without an import.
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\n",
@@ -40,7 +40,7 @@ const STD_PRELUDE: &str = concat!(
 );
 
 /// [obligation-by] The structural `comptime fn`s `by auto` stamps, mirroring
-/// `std/core/auto.sv`'s struct half: the tests here are about what a `by`
+/// `lib/std/core/auto.sv`'s struct half: the tests here are about what a `by`
 /// clause does to a type, not about the bodies.
 const AUTO_PRELUDE: &str = concat!(
     "export intrinsic fn mix_hash(seed: Long, value: Long) [] -> Long => seed, value\n",
@@ -73,13 +73,13 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/compare.sv",
-        SourceSet::classify(Path::new("core/compare.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/compare.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
     sources.add(
         "std/core/auto.sv",
-        SourceSet::classify(Path::new("core/auto.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/auto.sv")).unwrap(),
         AUTO_PRELUDE.to_string(),
         true,
     );
@@ -900,7 +900,7 @@ struct Point : Ordered<Int> by auto {
 
 /// [obligation-by] [comptime-instantiate] [comptime-refuse] What a stamped body
 /// needs of the type is checked where the type is declared: a float field has no
-/// `hash` (reported at the field, in the copy's terms), and `core.auto`'s `hash`
+/// `hash` (reported at the field, in the copy's terms), and `std.core.auto`'s `hash`
 /// refuses a mutable struct (reported at the clause).
 #[test]
 fn a_default_obligation_validates_the_fields() {
@@ -1662,7 +1662,7 @@ fn a_by_path_names_only_the_modules_its_file_can_see() {
     let imported = format!("import auto\n\n{point}\nfn main() [] {{\n    let x = helper()\n}}\n");
     let errs = errors_in(&[auto, ("main.sv", &imported)]);
     assert!(
-        errs.iter().any(|e| e.contains("`by auto` names 2 modules") && e.contains("`core.auto`") && e.contains("`auto`")),
+        errs.iter().any(|e| e.contains("`by auto` names 2 modules") && e.contains("`std.core.auto`") && e.contains("`auto`")),
         "the file's own ambiguity: {errs:?}"
     );
     let settled = errors_in(&[auto, ("main.sv", &imported.replace("by auto", "by core.auto"))]);
@@ -1677,24 +1677,24 @@ fn a_by_path_names_only_the_modules_its_file_can_see() {
 
 /// Like `errors_in`, but the test source is loaded as a **std** file, so it
 /// may write `intrinsic` — the context an obligation on `Int`/`Str`/etc.
-/// actually lives in (`std/core/basic.sv`).
+/// actually lives in (`lib/std/core/basic.sv`).
 fn errors_in_std_file(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/compare.sv",
-        SourceSet::classify(Path::new("core/compare.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/compare.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
     sources.add(
         "std/core/auto.sv",
-        SourceSet::classify(Path::new("core/auto.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/auto.sv")).unwrap(),
         AUTO_PRELUDE.to_string(),
         true,
     );
     sources.add(
         "std/core/widget.sv",
-        SourceSet::classify(Path::new("core/widget.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/widget.sv")).unwrap(),
         src.to_string(),
         true,
     );

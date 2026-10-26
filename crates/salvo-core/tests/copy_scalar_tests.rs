@@ -16,7 +16,7 @@ const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Long
 /// `(errors, warnings)`.
 fn diagnostics(src: &str) -> (Vec<String>, Vec<String>) {
     let mut sources = SourceSet::default();
-    sources.add("std/core/prelude.sv", SourceSet::classify(Path::new("core/prelude.sv")).unwrap(), STD_PRELUDE.to_string(), true);
+    sources.add("std/core/prelude.sv", SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(), STD_PRELUDE.to_string(), true);
     sources.add("main.sv", SourceSet::classify(Path::new("main.sv")).unwrap(), src.to_string(), false);
     let mut modules = Vec::with_capacity(sources.files.len());
     for file in &sources.files {

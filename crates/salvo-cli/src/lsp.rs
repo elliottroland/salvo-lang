@@ -1544,7 +1544,7 @@ impl Server<'_> {
             .flatten();
         // [lsp-hover-overloads] Same-named declarations visible here — the
         // effect-member case is the one that matters most (`read_to` of
-        // `core.fs` has three), and it arrives through this path rather than
+        // `std.core.fs` has three), and it arrives through this path rather than
         // the fn-ref one, since a member has no `FnKey`.
         let others = decl_name
             .and_then(|name| self.overload_section(analysis, file_idx, &name, target, link));
@@ -1561,7 +1561,7 @@ impl Server<'_> {
     /// argument type [fn-overload-rank], effect members of the same name
     /// [effect-member-overload], and both mixed, since a call site cannot tell
     /// a member from a fn. Showing only the one the cursor resolved to hides
-    /// the choice that was made: `read_to` in `core.fs` has three, and a
+    /// the choice that was made: `read_to` in `std.core.fs` has three, and a
     /// reader hovering it needs to see which three.
     ///
     /// `here` is the resolved declaration, left out of the list; everything
@@ -3275,7 +3275,7 @@ fn module_file(analysis: &Analysis, module: &ModulePath) -> Option<usize> {
 /// segment of a whole-module import [mod-import-module], the segments before
 /// the item of a named one. The module part is one name however many
 /// segments it has, so the hover covers all of it: `fs.mem` in
-/// `import fs.mem.MemFs`, whichever segment the cursor is on.
+/// `import std.fs.mem.MemFs`, whichever segment the cursor is on.
 fn module_at(
     analysis: &Analysis,
     checked: &Checked,

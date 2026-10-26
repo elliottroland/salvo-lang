@@ -555,8 +555,8 @@ final class Generator {
         out.append("//\n");
         out.append(header(""));
         out.append("\nimport aws\n");
-        if (!streaming.isEmpty()) out.append("import stream\n");
-        if (usesTime) out.append("import time.Instant\n");
+        if (!streaming.isEmpty()) out.append("import std.stream\n");
+        if (usesTime) out.append("import std.time.Instant\n");
 
         for (Map.Entry<ShapeId, String> e : enums.entrySet()) {
             out.append('\n').append(salvoEnum(model.expectShape(e.getKey(), EnumShape.class)));
@@ -935,7 +935,7 @@ final class Generator {
             return "{ let mut __es: Vec<_> = " + ref + ".iter().map(|(k, v)| (" + k + ", "
                     + rsFromSdk(target(m.getValue()), "v") + ")).collect(); "
                     + "__es.sort_by(|a, b| a.0.cmp(&b.0)); "
-                    + "crate::platform_core_map::canonical_map(__es) }";
+                    + "crate::platform_std_core_map::canonical_map(__es) }";
         }
         if (t instanceof StringShape) return ref + ".to_string()";
         if (t instanceof BlobShape) return ref + ".as_ref().to_vec()";
@@ -984,7 +984,7 @@ final class Generator {
         out.append(header(""));
         out.append("\n#![allow(unused_imports, dead_code, deprecated)]\n");
         out.append("\nuse crate::aws::*;\nuse ").append(rsSalvoModule()).append("::*;\nuse ")
-                .append(rsSalvoModule()).append("_host::*;\nuse crate::unions::*;\nuse crate::core_checked::Checked;\n");
+                .append(rsSalvoModule()).append("_host::*;\nuse crate::unions::*;\nuse crate::std_core_checked::Checked;\n");
         out.append("use ").append(crate).append("::error::ProvideErrorMetadata;\n\n");
 
         out.append("// `threadsafe platform handler Host").append(effect).append("`: the SDK client is cheap to\n")
@@ -1150,7 +1150,7 @@ final class Generator {
                 out.append("        ").append(rsIdent(salvoField(m))).append(": ").append(rsReadField(m, "v")).append(",\n");
             }
             // Last: moving the body out of `v` ends every borrow above.
-            out.append("        ").append(rsIdent(salvoField(body))).append(": crate::stream::InStream {\n")
+            out.append("        ").append(rsIdent(salvoField(body))).append(": crate::std_stream::InStream {\n")
                     .append("            handle: salvo_register_body(\"").append(bodySource(op)).append("\", v.")
                     .append(rsAccessor(body)).append(", rt),\n        },\n");
             out.append("    }\n}\n");
@@ -1214,7 +1214,7 @@ final class Generator {
         from.put("Ns", "x.iter().map(|s| s.to_string()).collect()");
         from.put("Bs", "x.iter().map(|b| b.as_ref().to_vec()).collect()");
         from.put("M", "{ let mut __es: Vec<_> = x.iter().map(|(k, e)| (k.clone(), from_sdk_attribute_value(e))).collect(); "
-                + "__es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }");
+                + "__es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) }");
         from.put("L", "x.iter().map(|e| from_sdk_attribute_value(e)).collect()");
         from.put("Bool", "*x");
         from.put("Null", "*x");
@@ -1349,13 +1349,13 @@ final class Generator {
 
                 /// A Smithy timestamp as a `time.Instant`: nanoseconds since the epoch,
                 /// saturating outside `Instant`'s range (1678–2262).
-                fn salvo_instant(t: &%1$s) -> crate::time::Instant {
+                fn salvo_instant(t: &%1$s) -> crate::std_time::Instant {
                     let nanos = t.as_nanos().clamp(i64::MIN as i128, i64::MAX as i128) as i64;
-                    crate::time::Instant { nanos }
+                    crate::std_time::Instant { nanos }
                 }
 
                 /// A `time.Instant` as a Smithy timestamp.
-                fn salvo_date_time(at: &crate::time::Instant) -> %1$s {
+                fn salvo_date_time(at: &crate::std_time::Instant) -> %1$s {
                     %1$s::from_nanos(at.nanos as i128).expect("an i64 of nanoseconds is a valid timestamp")
                 }
                 """.formatted(dt);
@@ -1545,7 +1545,7 @@ final class Generator {
             Shape key = target(m.getKey());
             String k = key instanceof EnumShape ? "k" + d + ".value" : "k" + d;
             String sortKey = key instanceof EnumShape ? "it.key.value" : "it.key";
-            return "salvo.platform.core.map.canonicalMap(" + v + ".entries.sortedBy { " + sortKey + " }.map { (k" + d + ", v" + d + ") -> " + k + " to "
+            return "salvo.platform.std.core.map.canonicalMap(" + v + ".entries.sortedBy { " + sortKey + " }.map { (k" + d + ", v" + d + ") -> " + k + " to "
                     + ktFromSdk(target(m.getValue()), "v" + d, d + 1) + " })";
         }
         if (t instanceof BlobShape) return "salvo.SalvoBytes(" + v + ")";
@@ -1647,7 +1647,7 @@ final class Generator {
         }
         String okType = output(op).map(o -> structs.get(o.getId())).orElse("Unit");
         String errType = "Union2<" + errorStruct() + ", AwsError>";
-        String answerType = "Union2<" + okType + ", salvo.core.checked.Checked<" + errType + ">>";
+        String answerType = "Union2<" + okType + ", salvo.std.core.checked.Checked<" + errType + ">>";
         String obj = opObject(op);
         out.append("        scope.launch {\n");
         String request = input(op).map(in -> "toSdk" + structs.get(in.getId()) + "(input"
@@ -1658,7 +1658,7 @@ final class Generator {
             out.append("            if (length == null || length < 0) {\n")
                     .append("                body.closeInput()\n")
                     .append("                val failed: ").append(answerType)
-                    .append(" = ").append(obj).append(".err(salvo.core.checked.Checked(").append(ktFailure("AwsError"))
+                    .append(" = ").append(obj).append(".err(salvo.std.core.checked.Checked(").append(ktFailure("AwsError"))
                     .append("(AwsError(code = \"MissingContentLength\", message = \"")
                     .append(missingLengthText(op)).append("\"))))\n")
                     .append("                host.send(failed)\n")
@@ -1692,11 +1692,11 @@ final class Generator {
             }
         }
         out.append("            } catch (e: aws.smithy.kotlin.runtime.ServiceException) {\n")
-                .append("                ").append(obj).append(".err(salvo.core.checked.Checked(").append(ktFailure(errorStruct()))
+                .append("                ").append(obj).append(".err(salvo.std.core.checked.Checked(").append(ktFailure(errorStruct()))
                 .append("(").append(kotlinExtra(op, "salvoFailure(e)"))
                 .append(")))\n");
         out.append("            } catch (e: Exception) {\n")
-                .append("                ").append(obj).append(".err(salvo.core.checked.Checked(").append(ktFailure("AwsError"))
+                .append("                ").append(obj).append(".err(salvo.std.core.checked.Checked(").append(ktFailure("AwsError"))
                 .append("(salvoAwsError(e))))\n            }\n");
         if (outStream != null) {
             out.append("            if (!sent && answer != null) host.send(answer)\n        }\n    }\n");
@@ -1706,7 +1706,7 @@ final class Generator {
             out.append("            val problem = upload.finish()\n")
                     .append("            body.closeInput()\n")
                     .append("            val result: ").append(answerType).append(" = problem?.let {\n")
-                    .append("                ").append(obj).append(".err(salvo.core.checked.Checked(").append(ktFailure("AwsError"))
+                    .append("                ").append(obj).append(".err(salvo.std.core.checked.Checked(").append(ktFailure("AwsError"))
                     .append("(AwsError(code = \"StreamFailed\", message = it))))\n")
                     .append("            } ?: answer\n")
                     .append("            host.send(result)\n        }\n    }\n");
@@ -1767,7 +1767,7 @@ final class Generator {
         if (members.isEmpty()) return out.append(")\n").toString();
         out.append('\n');
         for (MemberShape m : members) {
-            String value = m.equals(body) ? "salvo.stream.InStream(bodyHandle)" : ktReadField(m, "v");
+            String value = m.equals(body) ? "salvo.std.stream.InStream(bodyHandle)" : ktReadField(m, "v");
             out.append("    ").append(ktIdent(salvoField(m))).append(" = ").append(value).append(",\n");
         }
         out.append(")\n");
@@ -1794,11 +1794,11 @@ final class Generator {
         return """
 
                 /** A Smithy timestamp as a `time.Instant`: nanoseconds since the epoch. */
-                private fun salvoInstant(t: aws.smithy.kotlin.runtime.time.Instant): salvo.time.Instant =
-                    salvo.time.Instant(nanos = t.epochSeconds * 1_000_000_000L + t.nanosecondsOfSecond)
+                private fun salvoInstant(t: aws.smithy.kotlin.runtime.time.Instant): salvo.std.time.Instant =
+                    salvo.std.time.Instant(nanos = t.epochSeconds * 1_000_000_000L + t.nanosecondsOfSecond)
 
                 /** A `time.Instant` as a Smithy timestamp. */
-                private fun salvoDateTime(at: salvo.time.Instant): aws.smithy.kotlin.runtime.time.Instant =
+                private fun salvoDateTime(at: salvo.std.time.Instant): aws.smithy.kotlin.runtime.time.Instant =
                     aws.smithy.kotlin.runtime.time.Instant.fromEpochSeconds(
                         Math.floorDiv(at.nanos, 1_000_000_000L),
                         Math.floorMod(at.nanos, 1_000_000_000L).toInt(),
@@ -1909,7 +1909,7 @@ final class Generator {
         Map<String, String> from = new LinkedHashMap<>();
         from.put("B", "salvo.SalvoBytes(v.value)");
         from.put("Bs", "v.value.map { salvo.SalvoBytes(it) }");
-        from.put("M", "salvo.platform.core.map.canonicalMap(v.value.entries.sortedBy { it.key }"
+        from.put("M", "salvo.platform.std.core.map.canonicalMap(v.value.entries.sortedBy { it.key }"
                 + ".map { (k, e) -> k to fromSdkAttributeValue(e) })");
         from.put("L", "v.value.map { fromSdkAttributeValue(it) }");
         StringBuilder out = new StringBuilder();

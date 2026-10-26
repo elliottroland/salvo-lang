@@ -15,7 +15,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
-/// Module `core.prelude`: `core.*` is implicitly imported, so the test source
+/// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
 const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn first<T>(list: List<T>) [] -> proj(list) T? => list\nexport intrinsic fn to_upper(s: Str) [] -> Str => s\nexport intrinsic fn note(s: Str) [] -> None => s\nexport qualifier Ok<T> of T\nexport qualifier Err<T> of T\nexport fn ok<T>(value: T) [] -> +Ok T\n=> !value {\n    return value\n}\nexport fn err<T>(value: T) [] -> +Err T\n=> !value {\n    return value\n}\n";
 
@@ -23,7 +23,7 @@ fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );

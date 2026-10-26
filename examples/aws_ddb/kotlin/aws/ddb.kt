@@ -4,16 +4,16 @@ import salvo.*
 
 data class GetItemInput(
     val tableName: String,
-    val key: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>,
+    val key: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>,
     val attributesToGet: List<String>? = null,
     val consistentRead: Boolean? = null,
     val returnConsumedCapacity: String? = null,
     val projectionExpression: String? = null,
-    val expressionAttributeNames: salvo.platform.core.map.Map<String, String>? = null,
+    val expressionAttributeNames: salvo.platform.std.core.map.Map<String, String>? = null,
 )
 
 data class GetItemOutput(
-    val item: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
+    val item: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
     val consumedCapacity: ConsumedCapacity? = null,
 )
 
@@ -23,9 +23,9 @@ data class ConsumedCapacity(
     val readCapacityUnits: Double? = null,
     val writeCapacityUnits: Double? = null,
     val table: Capacity? = null,
-    val localSecondaryIndexes: salvo.platform.core.map.Map<String, Capacity>? = null,
-    val globalSecondaryIndexes: salvo.platform.core.map.Map<String, Capacity>? = null,
-    val vectorIndexes: salvo.platform.core.map.Map<String, VectorCapacity>? = null,
+    val localSecondaryIndexes: salvo.platform.std.core.map.Map<String, Capacity>? = null,
+    val globalSecondaryIndexes: salvo.platform.std.core.map.Map<String, Capacity>? = null,
+    val vectorIndexes: salvo.platform.std.core.map.Map<String, VectorCapacity>? = null,
 )
 
 data class Capacity(
@@ -71,15 +71,15 @@ object __Codec_ThrottlingReason : salvo.WireCodec<ThrottlingReason> {
 
 data class PutItemInput(
     val tableName: String,
-    val item: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>,
-    val expected: salvo.platform.core.map.Map<String, ExpectedAttributeValue>? = null,
+    val item: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>,
+    val expected: salvo.platform.std.core.map.Map<String, ExpectedAttributeValue>? = null,
     val returnValues: String? = null,
     val returnConsumedCapacity: String? = null,
     val returnItemCollectionMetrics: String? = null,
     val conditionalOperator: String? = null,
     val conditionExpression: String? = null,
-    val expressionAttributeNames: salvo.platform.core.map.Map<String, String>? = null,
-    val expressionAttributeValues: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
+    val expressionAttributeNames: salvo.platform.std.core.map.Map<String, String>? = null,
+    val expressionAttributeValues: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
     val returnValuesOnConditionCheckFailure: String? = null,
 )
 
@@ -91,32 +91,32 @@ data class ExpectedAttributeValue(
 )
 
 data class PutItemOutput(
-    val attributes: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
+    val attributes: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
     val consumedCapacity: ConsumedCapacity? = null,
     val itemCollectionMetrics: ItemCollectionMetrics? = null,
 )
 
 data class ItemCollectionMetrics(
-    val itemCollectionKey: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
+    val itemCollectionKey: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
     val sizeEstimateRangeGb: List<Double>? = null,
 )
 
 data class DeleteItemInput(
     val tableName: String,
-    val key: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>,
-    val expected: salvo.platform.core.map.Map<String, ExpectedAttributeValue>? = null,
+    val key: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>,
+    val expected: salvo.platform.std.core.map.Map<String, ExpectedAttributeValue>? = null,
     val conditionalOperator: String? = null,
     val returnValues: String? = null,
     val returnConsumedCapacity: String? = null,
     val returnItemCollectionMetrics: String? = null,
     val conditionExpression: String? = null,
-    val expressionAttributeNames: salvo.platform.core.map.Map<String, String>? = null,
-    val expressionAttributeValues: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
+    val expressionAttributeNames: salvo.platform.std.core.map.Map<String, String>? = null,
+    val expressionAttributeValues: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
     val returnValuesOnConditionCheckFailure: String? = null,
 )
 
 data class DeleteItemOutput(
-    val attributes: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
+    val attributes: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
     val consumedCapacity: ConsumedCapacity? = null,
     val itemCollectionMetrics: ItemCollectionMetrics? = null,
 )
@@ -128,17 +128,17 @@ data class QueryInput(
     val attributesToGet: List<String>? = null,
     val limit: Int? = null,
     val consistentRead: Boolean? = null,
-    val keyConditions: salvo.platform.core.map.Map<String, Condition>? = null,
-    val queryFilter: salvo.platform.core.map.Map<String, Condition>? = null,
+    val keyConditions: salvo.platform.std.core.map.Map<String, Condition>? = null,
+    val queryFilter: salvo.platform.std.core.map.Map<String, Condition>? = null,
     val conditionalOperator: String? = null,
     val scanIndexForward: Boolean? = null,
-    val exclusiveStartKey: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
+    val exclusiveStartKey: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
     val returnConsumedCapacity: String? = null,
     val projectionExpression: String? = null,
     val filterExpression: String? = null,
     val keyConditionExpression: String? = null,
-    val expressionAttributeNames: salvo.platform.core.map.Map<String, String>? = null,
-    val expressionAttributeValues: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
+    val expressionAttributeNames: salvo.platform.std.core.map.Map<String, String>? = null,
+    val expressionAttributeValues: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
 )
 
 data class Condition(
@@ -147,10 +147,10 @@ data class Condition(
 )
 
 data class QueryOutput(
-    val items: List<salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>>? = null,
+    val items: List<salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>>? = null,
     val count: Int = 0,
     val scannedCount: Int = 0,
-    val lastEvaluatedKey: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
+    val lastEvaluatedKey: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
     val consumedCapacity: ConsumedCapacity? = null,
 )
 
@@ -415,7 +415,7 @@ data class TableDescription(
     val tableName: String? = null,
     val keySchema: List<KeySchemaElement>? = null,
     val tableStatus: String? = null,
-    val creationDateTime: salvo.time.Instant? = null,
+    val creationDateTime: salvo.std.time.Instant? = null,
     val provisionedThroughput: ProvisionedThroughputDescription? = null,
     val tableSizeBytes: Long? = null,
     val itemCount: Long? = null,
@@ -448,7 +448,7 @@ object __Codec_TableDescription : salvo.WireCodec<TableDescription> {
         salvo.OptCodec(salvo.StrCodec).enc(v.tableName, out)
         salvo.OptCodec(salvo.ListCodec(__Codec_KeySchemaElement)).enc(v.keySchema, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.tableStatus, out)
-        salvo.OptCodec(salvo.time.__Codec_Instant).enc(v.creationDateTime, out)
+        salvo.OptCodec(salvo.std.time.__Codec_Instant).enc(v.creationDateTime, out)
         salvo.OptCodec(__Codec_ProvisionedThroughputDescription).enc(v.provisionedThroughput, out)
         salvo.OptCodec(salvo.LongCodec).enc(v.tableSizeBytes, out)
         salvo.OptCodec(salvo.LongCodec).enc(v.itemCount, out)
@@ -474,12 +474,12 @@ object __Codec_TableDescription : salvo.WireCodec<TableDescription> {
         salvo.OptCodec(salvo.StrCodec).enc(v.multiRegionConsistency, out)
         salvo.OptCodec(salvo.ListCodec(__Codec_VectorIndexDescription)).enc(v.vectorIndexes, out)
     }
-    override fun dec(inp: salvo.WireIn): TableDescription = TableDescription(salvo.OptCodec(salvo.ListCodec(__Codec_AttributeDefinition)).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_KeySchemaElement)).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.time.__Codec_Instant).dec(inp), salvo.OptCodec(__Codec_ProvisionedThroughputDescription).dec(inp), salvo.OptCodec(salvo.LongCodec).dec(inp), salvo.OptCodec(salvo.LongCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(__Codec_BillingModeSummary).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_LocalSecondaryIndexDescription)).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_GlobalSecondaryIndexDescription)).dec(inp), salvo.OptCodec(__Codec_StreamSpecification).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_ReplicaDescription)).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_GlobalTableWitnessDescription)).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(__Codec_RestoreSummary).dec(inp), salvo.OptCodec(__Codec_SSEDescription).dec(inp), salvo.OptCodec(__Codec_ArchivalSummary).dec(inp), salvo.OptCodec(__Codec_TableClassSummary).dec(inp), salvo.OptCodec(salvo.BoolCodec).dec(inp), salvo.OptCodec(__Codec_OnDemandThroughput).dec(inp), salvo.OptCodec(__Codec_TableWarmThroughputDescription).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_VectorIndexDescription)).dec(inp))
+    override fun dec(inp: salvo.WireIn): TableDescription = TableDescription(salvo.OptCodec(salvo.ListCodec(__Codec_AttributeDefinition)).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_KeySchemaElement)).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.std.time.__Codec_Instant).dec(inp), salvo.OptCodec(__Codec_ProvisionedThroughputDescription).dec(inp), salvo.OptCodec(salvo.LongCodec).dec(inp), salvo.OptCodec(salvo.LongCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(__Codec_BillingModeSummary).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_LocalSecondaryIndexDescription)).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_GlobalSecondaryIndexDescription)).dec(inp), salvo.OptCodec(__Codec_StreamSpecification).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_ReplicaDescription)).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_GlobalTableWitnessDescription)).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(__Codec_RestoreSummary).dec(inp), salvo.OptCodec(__Codec_SSEDescription).dec(inp), salvo.OptCodec(__Codec_ArchivalSummary).dec(inp), salvo.OptCodec(__Codec_TableClassSummary).dec(inp), salvo.OptCodec(salvo.BoolCodec).dec(inp), salvo.OptCodec(__Codec_OnDemandThroughput).dec(inp), salvo.OptCodec(__Codec_TableWarmThroughputDescription).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_VectorIndexDescription)).dec(inp))
 }
 
 data class ProvisionedThroughputDescription(
-    val lastIncreaseDateTime: salvo.time.Instant? = null,
-    val lastDecreaseDateTime: salvo.time.Instant? = null,
+    val lastIncreaseDateTime: salvo.std.time.Instant? = null,
+    val lastDecreaseDateTime: salvo.std.time.Instant? = null,
     val numberOfDecreasesToday: Long? = null,
     val readCapacityUnits: Long? = null,
     val writeCapacityUnits: Long? = null,
@@ -487,26 +487,26 @@ data class ProvisionedThroughputDescription(
 
 object __Codec_ProvisionedThroughputDescription : salvo.WireCodec<ProvisionedThroughputDescription> {
     override fun enc(v: ProvisionedThroughputDescription, out: salvo.WireOut) {
-        salvo.OptCodec(salvo.time.__Codec_Instant).enc(v.lastIncreaseDateTime, out)
-        salvo.OptCodec(salvo.time.__Codec_Instant).enc(v.lastDecreaseDateTime, out)
+        salvo.OptCodec(salvo.std.time.__Codec_Instant).enc(v.lastIncreaseDateTime, out)
+        salvo.OptCodec(salvo.std.time.__Codec_Instant).enc(v.lastDecreaseDateTime, out)
         salvo.OptCodec(salvo.LongCodec).enc(v.numberOfDecreasesToday, out)
         salvo.OptCodec(salvo.LongCodec).enc(v.readCapacityUnits, out)
         salvo.OptCodec(salvo.LongCodec).enc(v.writeCapacityUnits, out)
     }
-    override fun dec(inp: salvo.WireIn): ProvisionedThroughputDescription = ProvisionedThroughputDescription(salvo.OptCodec(salvo.time.__Codec_Instant).dec(inp), salvo.OptCodec(salvo.time.__Codec_Instant).dec(inp), salvo.OptCodec(salvo.LongCodec).dec(inp), salvo.OptCodec(salvo.LongCodec).dec(inp), salvo.OptCodec(salvo.LongCodec).dec(inp))
+    override fun dec(inp: salvo.WireIn): ProvisionedThroughputDescription = ProvisionedThroughputDescription(salvo.OptCodec(salvo.std.time.__Codec_Instant).dec(inp), salvo.OptCodec(salvo.std.time.__Codec_Instant).dec(inp), salvo.OptCodec(salvo.LongCodec).dec(inp), salvo.OptCodec(salvo.LongCodec).dec(inp), salvo.OptCodec(salvo.LongCodec).dec(inp))
 }
 
 data class BillingModeSummary(
     val billingMode: String? = null,
-    val lastUpdateToPayPerRequestDateTime: salvo.time.Instant? = null,
+    val lastUpdateToPayPerRequestDateTime: salvo.std.time.Instant? = null,
 )
 
 object __Codec_BillingModeSummary : salvo.WireCodec<BillingModeSummary> {
     override fun enc(v: BillingModeSummary, out: salvo.WireOut) {
         salvo.OptCodec(salvo.StrCodec).enc(v.billingMode, out)
-        salvo.OptCodec(salvo.time.__Codec_Instant).enc(v.lastUpdateToPayPerRequestDateTime, out)
+        salvo.OptCodec(salvo.std.time.__Codec_Instant).enc(v.lastUpdateToPayPerRequestDateTime, out)
     }
-    override fun dec(inp: salvo.WireIn): BillingModeSummary = BillingModeSummary(salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.time.__Codec_Instant).dec(inp))
+    override fun dec(inp: salvo.WireIn): BillingModeSummary = BillingModeSummary(salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.std.time.__Codec_Instant).dec(inp))
 }
 
 data class LocalSecondaryIndexDescription(
@@ -587,7 +587,7 @@ data class ReplicaDescription(
     val onDemandThroughputOverride: OnDemandThroughputOverride? = null,
     val warmThroughput: TableWarmThroughputDescription? = null,
     val globalSecondaryIndexes: List<ReplicaGlobalSecondaryIndexDescription>? = null,
-    val replicaInaccessibleDateTime: salvo.time.Instant? = null,
+    val replicaInaccessibleDateTime: salvo.std.time.Instant? = null,
     val replicaTableClassSummary: TableClassSummary? = null,
     val globalTableSettingsReplicationMode: String? = null,
 )
@@ -604,11 +604,11 @@ object __Codec_ReplicaDescription : salvo.WireCodec<ReplicaDescription> {
         salvo.OptCodec(__Codec_OnDemandThroughputOverride).enc(v.onDemandThroughputOverride, out)
         salvo.OptCodec(__Codec_TableWarmThroughputDescription).enc(v.warmThroughput, out)
         salvo.OptCodec(salvo.ListCodec(__Codec_ReplicaGlobalSecondaryIndexDescription)).enc(v.globalSecondaryIndexes, out)
-        salvo.OptCodec(salvo.time.__Codec_Instant).enc(v.replicaInaccessibleDateTime, out)
+        salvo.OptCodec(salvo.std.time.__Codec_Instant).enc(v.replicaInaccessibleDateTime, out)
         salvo.OptCodec(__Codec_TableClassSummary).enc(v.replicaTableClassSummary, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.globalTableSettingsReplicationMode, out)
     }
-    override fun dec(inp: salvo.WireIn): ReplicaDescription = ReplicaDescription(salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(__Codec_ProvisionedThroughputOverride).dec(inp), salvo.OptCodec(__Codec_OnDemandThroughputOverride).dec(inp), salvo.OptCodec(__Codec_TableWarmThroughputDescription).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_ReplicaGlobalSecondaryIndexDescription)).dec(inp), salvo.OptCodec(salvo.time.__Codec_Instant).dec(inp), salvo.OptCodec(__Codec_TableClassSummary).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp))
+    override fun dec(inp: salvo.WireIn): ReplicaDescription = ReplicaDescription(salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(__Codec_ProvisionedThroughputOverride).dec(inp), salvo.OptCodec(__Codec_OnDemandThroughputOverride).dec(inp), salvo.OptCodec(__Codec_TableWarmThroughputDescription).dec(inp), salvo.OptCodec(salvo.ListCodec(__Codec_ReplicaGlobalSecondaryIndexDescription)).dec(inp), salvo.OptCodec(salvo.std.time.__Codec_Instant).dec(inp), salvo.OptCodec(__Codec_TableClassSummary).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp))
 }
 
 data class ProvisionedThroughputOverride(
@@ -667,15 +667,15 @@ object __Codec_ReplicaGlobalSecondaryIndexDescription : salvo.WireCodec<ReplicaG
 
 data class TableClassSummary(
     val tableClass: String? = null,
-    val lastUpdateDateTime: salvo.time.Instant? = null,
+    val lastUpdateDateTime: salvo.std.time.Instant? = null,
 )
 
 object __Codec_TableClassSummary : salvo.WireCodec<TableClassSummary> {
     override fun enc(v: TableClassSummary, out: salvo.WireOut) {
         salvo.OptCodec(salvo.StrCodec).enc(v.tableClass, out)
-        salvo.OptCodec(salvo.time.__Codec_Instant).enc(v.lastUpdateDateTime, out)
+        salvo.OptCodec(salvo.std.time.__Codec_Instant).enc(v.lastUpdateDateTime, out)
     }
-    override fun dec(inp: salvo.WireIn): TableClassSummary = TableClassSummary(salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.time.__Codec_Instant).dec(inp))
+    override fun dec(inp: salvo.WireIn): TableClassSummary = TableClassSummary(salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.std.time.__Codec_Instant).dec(inp))
 }
 
 data class GlobalTableWitnessDescription(
@@ -694,7 +694,7 @@ object __Codec_GlobalTableWitnessDescription : salvo.WireCodec<GlobalTableWitnes
 data class RestoreSummary(
     val sourceBackupArn: String? = null,
     val sourceTableArn: String? = null,
-    val restoreDateTime: salvo.time.Instant,
+    val restoreDateTime: salvo.std.time.Instant,
     val restoreInProgress: Boolean,
 )
 
@@ -702,17 +702,17 @@ object __Codec_RestoreSummary : salvo.WireCodec<RestoreSummary> {
     override fun enc(v: RestoreSummary, out: salvo.WireOut) {
         salvo.OptCodec(salvo.StrCodec).enc(v.sourceBackupArn, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.sourceTableArn, out)
-        salvo.time.__Codec_Instant.enc(v.restoreDateTime, out)
+        salvo.std.time.__Codec_Instant.enc(v.restoreDateTime, out)
         salvo.BoolCodec.enc(v.restoreInProgress, out)
     }
-    override fun dec(inp: salvo.WireIn): RestoreSummary = RestoreSummary(salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.time.__Codec_Instant.dec(inp), salvo.BoolCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): RestoreSummary = RestoreSummary(salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.std.time.__Codec_Instant.dec(inp), salvo.BoolCodec.dec(inp))
 }
 
 data class SSEDescription(
     val status: String? = null,
     val sseType: String? = null,
     val kmsMasterKeyArn: String? = null,
-    val inaccessibleEncryptionDateTime: salvo.time.Instant? = null,
+    val inaccessibleEncryptionDateTime: salvo.std.time.Instant? = null,
 )
 
 object __Codec_SSEDescription : salvo.WireCodec<SSEDescription> {
@@ -720,24 +720,24 @@ object __Codec_SSEDescription : salvo.WireCodec<SSEDescription> {
         salvo.OptCodec(salvo.StrCodec).enc(v.status, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.sseType, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.kmsMasterKeyArn, out)
-        salvo.OptCodec(salvo.time.__Codec_Instant).enc(v.inaccessibleEncryptionDateTime, out)
+        salvo.OptCodec(salvo.std.time.__Codec_Instant).enc(v.inaccessibleEncryptionDateTime, out)
     }
-    override fun dec(inp: salvo.WireIn): SSEDescription = SSEDescription(salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.time.__Codec_Instant).dec(inp))
+    override fun dec(inp: salvo.WireIn): SSEDescription = SSEDescription(salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.std.time.__Codec_Instant).dec(inp))
 }
 
 data class ArchivalSummary(
-    val archivalDateTime: salvo.time.Instant? = null,
+    val archivalDateTime: salvo.std.time.Instant? = null,
     val archivalReason: String? = null,
     val archivalBackupArn: String? = null,
 )
 
 object __Codec_ArchivalSummary : salvo.WireCodec<ArchivalSummary> {
     override fun enc(v: ArchivalSummary, out: salvo.WireOut) {
-        salvo.OptCodec(salvo.time.__Codec_Instant).enc(v.archivalDateTime, out)
+        salvo.OptCodec(salvo.std.time.__Codec_Instant).enc(v.archivalDateTime, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.archivalReason, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.archivalBackupArn, out)
     }
-    override fun dec(inp: salvo.WireIn): ArchivalSummary = ArchivalSummary(salvo.OptCodec(salvo.time.__Codec_Instant).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp))
+    override fun dec(inp: salvo.WireIn): ArchivalSummary = ArchivalSummary(salvo.OptCodec(salvo.std.time.__Codec_Instant).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp))
 }
 
 data class VectorIndexDescription(
@@ -801,7 +801,7 @@ object AttributeValue {
         val value: String,
     )
     data class B(
-        val value: salvo.platform.core.bytes.Bytes,
+        val value: salvo.platform.std.core.bytes.Bytes,
     )
     data class Ss(
         val value: List<String>,
@@ -810,10 +810,10 @@ object AttributeValue {
         val value: List<String>,
     )
     data class Bs(
-        val value: List<salvo.platform.core.bytes.Bytes>,
+        val value: List<salvo.platform.std.core.bytes.Bytes>,
     )
     data class M(
-        val value: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>,
+        val value: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>,
     )
     data class L(
         val value: List<Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>,
@@ -901,7 +901,7 @@ data class DdbError(
     val message: String,
     val status: Int,
     val requestId: String? = null,
-    val item: salvo.platform.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
+    val item: salvo.platform.std.core.map.Map<String, Union10<AttributeValue.S, AttributeValue.N, AttributeValue.B, AttributeValue.Ss, AttributeValue.Ns, AttributeValue.Bs, AttributeValue.M, AttributeValue.L, AttributeValue.Bool, AttributeValue.Null>>? = null,
     val throttlingReasons: List<ThrottlingReason>? = null,
 )
 
@@ -973,30 +973,30 @@ class __Mon_DdbCalls(
 }
 
 class FakeDdb : Ddb, DdbCalls {
-    var recorded: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
+    var recorded: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     override fun getItem(input: GetItemInput, reply: salvo.SalvoReply) {
-        salvo.core.list.addPlatform(recorded, "get_item")
-        reply.send(Union2.U1<GetItemOutput, salvo.core.checked.Checked<Union2<DdbError, salvo.aws.AwsError>>>(salvo.core.result.ok(GetItemOutput(item = null, consumedCapacity = null))))
+        salvo.std.core.list.addPlatform(recorded, "get_item")
+        reply.send(Union2.U1<GetItemOutput, salvo.std.core.checked.Checked<Union2<DdbError, salvo.aws.AwsError>>>(salvo.std.core.result.ok(GetItemOutput(item = null, consumedCapacity = null))))
     }
     override fun putItem(input: PutItemInput, reply: salvo.SalvoReply) {
-        salvo.core.list.addPlatform(recorded, "put_item")
-        reply.send(Union2.U1<PutItemOutput, salvo.core.checked.Checked<Union2<DdbError, salvo.aws.AwsError>>>(salvo.core.result.ok(PutItemOutput(attributes = null, consumedCapacity = null, itemCollectionMetrics = null))))
+        salvo.std.core.list.addPlatform(recorded, "put_item")
+        reply.send(Union2.U1<PutItemOutput, salvo.std.core.checked.Checked<Union2<DdbError, salvo.aws.AwsError>>>(salvo.std.core.result.ok(PutItemOutput(attributes = null, consumedCapacity = null, itemCollectionMetrics = null))))
     }
     override fun deleteItem(input: DeleteItemInput, reply: salvo.SalvoReply) {
-        salvo.core.list.addPlatform(recorded, "delete_item")
-        reply.send(Union2.U1<DeleteItemOutput, salvo.core.checked.Checked<Union2<DdbError, salvo.aws.AwsError>>>(salvo.core.result.ok(DeleteItemOutput(attributes = null, consumedCapacity = null, itemCollectionMetrics = null))))
+        salvo.std.core.list.addPlatform(recorded, "delete_item")
+        reply.send(Union2.U1<DeleteItemOutput, salvo.std.core.checked.Checked<Union2<DdbError, salvo.aws.AwsError>>>(salvo.std.core.result.ok(DeleteItemOutput(attributes = null, consumedCapacity = null, itemCollectionMetrics = null))))
     }
     override fun query(input: QueryInput, reply: salvo.SalvoReply) {
-        salvo.core.list.addPlatform(recorded, "query")
-        reply.send(Union2.U2<QueryOutput, salvo.core.checked.Checked<Union2<DdbError, salvo.aws.AwsError>>>(salvo.core.result.err(salvo.core.checked.checked(Union2.U2<DdbError, salvo.aws.AwsError>(salvo.aws.AwsError(code = "NotStubbed", message = "FakeDdb cannot answer query"))))))
+        salvo.std.core.list.addPlatform(recorded, "query")
+        reply.send(Union2.U2<QueryOutput, salvo.std.core.checked.Checked<Union2<DdbError, salvo.aws.AwsError>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U2<DdbError, salvo.aws.AwsError>(salvo.aws.AwsError(code = "NotStubbed", message = "FakeDdb cannot answer query"))))))
     }
     override fun createTable(input: CreateTableInput, reply: salvo.SalvoReply) {
-        salvo.core.list.addPlatform(recorded, "create_table")
-        reply.send(Union2.U1<CreateTableOutput, salvo.core.checked.Checked<Union2<DdbError, salvo.aws.AwsError>>>(salvo.core.result.ok(CreateTableOutput(tableDescription = null))))
+        salvo.std.core.list.addPlatform(recorded, "create_table")
+        reply.send(Union2.U1<CreateTableOutput, salvo.std.core.checked.Checked<Union2<DdbError, salvo.aws.AwsError>>>(salvo.std.core.result.ok(CreateTableOutput(tableDescription = null))))
     }
     override fun deleteTable(input: DeleteTableInput, reply: salvo.SalvoReply) {
-        salvo.core.list.addPlatform(recorded, "delete_table")
-        reply.send(Union2.U1<DeleteTableOutput, salvo.core.checked.Checked<Union2<DdbError, salvo.aws.AwsError>>>(salvo.core.result.ok(DeleteTableOutput(tableDescription = null))))
+        salvo.std.core.list.addPlatform(recorded, "delete_table")
+        reply.send(Union2.U1<DeleteTableOutput, salvo.std.core.checked.Checked<Union2<DdbError, salvo.aws.AwsError>>>(salvo.std.core.result.ok(DeleteTableOutput(tableDescription = null))))
     }
     override fun calls(): List<String> {
         return recorded.toMutableList()

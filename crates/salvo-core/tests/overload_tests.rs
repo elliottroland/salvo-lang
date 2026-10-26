@@ -2,7 +2,7 @@
 //! three steps, and two ways for the caller to override it:
 //!
 //! * [fn-overload-scope] functions arrive from ever more specific scopes —
-//!   `core`, then this file's imports, then this module — and only the most
+//!   `std.core`, then this file's imports, then this module — and only the most
 //!   specific scope that *fits the arguments* competes. Scope beats signature,
 //!   with a **warning** when it discards a more specific signature;
 //! * [fn-overload-rank] within a scope, the most specific signature wins: a
@@ -22,7 +22,7 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 use salvo_syntax::diag::Severity;
 
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on,
-/// loaded as *std* files (only std may write `intrinsic`), one per `core`
+/// loaded as *std* files (only std may write `intrinsic`), one per `std.core`
 /// module so the tests can name them with `@`.
 const STD_LIST: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Char\nexport intrinsic type Any\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn of_list<T>(...elems: T[]) [] -> Mut List<T>\nexport intrinsic fn size<T>(list: List<T>) [] -> Int => list\n";
 const STD_STRING: &str = "export intrinsic fn size(str: Str) [] -> Int => str\n";
@@ -34,7 +34,7 @@ fn checked_files(files: &[(&str, &str)]) -> salvo_core::Checked {
         ("std/core/list.sv", STD_LIST),
         ("std/core/string.sv", STD_STRING),
     ] {
-        let rel = name.trim_start_matches("std/");
+        let rel = name;
         sources.add(
             name,
             SourceSet::classify(Path::new(rel)).unwrap(),
@@ -267,7 +267,7 @@ fn an_un_inferred_argument_produces_no_ambiguity() {
 
 // ===== [fn-overload-ambiguous] scope does not decide =====
 
-/// A module's own overload does **not** beat `core`'s: two declarations that
+/// A module's own overload does **not** beat `std.core`'s: two declarations that
 /// both fit and that the ranking cannot separate are an ambiguity, and the call
 /// names the place it means (user decision 2026-09-26, reversing the
 /// scope-precedence rule of 2026-09-07). The remedy is in the diagnostic.
@@ -281,7 +281,7 @@ fn an_own_overload_does_not_silently_beat_core() {
     let msgs = messages(&src);
     assert!(
         msgs.iter().any(|m| m.contains("ambiguous call to `size(")
-            && m.contains("size@core.list(...)")
+            && m.contains("size@std.core.list(...)")
             && m.contains("size@main(...)")),
         "{msgs:?}"
     );
@@ -392,7 +392,7 @@ fn at_module_accepts_an_unambiguous_suffix() {
         ),
     ]);
     assert!(
-        msgs.iter().any(|m| m.contains("`@list` is ambiguous") && m.contains("`core.list`") && m.contains("`shop.list`")),
+        msgs.iter().any(|m| m.contains("`@list` is ambiguous") && m.contains("`std.core.list`") && m.contains("`shop.list`")),
         "{msgs:?}"
     );
 }

@@ -28,13 +28,13 @@ Conventions:
 
 * [type-basic] **The basic types** are the scalars `Byte`, `Int`, `Long`,
   `Float`, `Double`, `Bool` and `Char`: the `intrinsic type`s of
-  `std/core/basic.sv` (user decision 2026-10-06; `salvo_core::types::BASIC_TYPES`).
+  `lib/std/core/basic.sv` (user decision 2026-10-06; `salvo_core::types::BASIC_TYPES`).
   Every operator the checker allows on a basic type is the host's own, and the
   IR writes it as an operator [ir-op]; their `cmp`/`eq` exist to be passed as
   values to generic code [implicit-forward].
   * **`Str` is not a basic type** (nor `Bytes`, nor `None`): `Str` is a
-    `platform type` of `std/core/string.sv`, `Bytes` one of
-    `std/core/bytes.sv`, and `None` the unit. Every operation on one of
+    `platform type` of `lib/std/core/string.sv`, `Bytes` one of
+    `lib/std/core/bytes.sv`, and `None` the unit. Every operation on one of
     them is a call of the function it resolves to — intrinsic or not, which
     is the backend's business — never an operator in the IR.
   * Each backend maps all of them natively.
@@ -52,11 +52,11 @@ Conventions:
     `str_of_bytes(data) -> Str?` (strict UTF-8: invalid bytes are `None`,
     never a replacement character) [bytes-type].
 * [bytes-type] (Since 2026-10-04 a value platform type
-  [platform-value-type]: `std/platform/core/bytes.{rs,kt}` implements it,
+  [platform-value-type]: `lib/platform/std/core/bytes.{rs,kt}` implements it,
   Rust as `Vec<u8>`, Kotlin as the shipped `salvo.SalvoBytes`; `bytes_of` and
   `mut_bytes` are Salvo over `empty_bytes`, and a `for` over a buffer goes
   through its `BytesYield` pass — the native loop each backend had is gone.)
-  **`Bytes` is std's byte buffer** (`core.bytes`, user decision
+  **`Bytes` is std's byte buffer** (`std.core.bytes`, user decision
   2026-09-15), and the payload type of every byte-shaped API — *not*
   `List<Byte>`, which boxed every octet on the JVM and carried a list's
   surface rather than a buffer's.
@@ -243,7 +243,7 @@ Conventions:
 * [interp-struct] **A struct interpolates by opting in** (user decision
   2026-09-28, comptime round 1, replacing the 2026-09-11 default-on
   derivation): `struct Person : ToStr<self> by auto { … }` stamps the
-  field-wise `to_str` from `core.auto` — `Person { name: ann, age: 3 }`,
+  field-wise `to_str` from `std.core.auto` — `Person { name: ann, age: 3 }`,
   Salvo's struct-literal shape, identical on both backends and deliberately not
   Rust's `Debug` or a data class's `toString`. With no `to_str` at all, `${p}`
   is an error naming the clause as the remedy. The stamped body interpolates
@@ -251,7 +251,7 @@ Conventions:
   by [interp-float], a nested struct with its own opt-in — renders inside it,
   where the old derivation stopped at natively renderable fields.
 * [str-parse] **Reading a scalar from a string** (the CLI design record X11, Q4,
-  user decision 2026-10-20). `core.string` has `parse_int`, `parse_long`,
+  user decision 2026-10-20). `std.core.string` has `parse_int`, `parse_long`,
   `parse_double` and `parse_bool`, each returning `None` for text that does
   not spell a value, and one `from_str` overloaded by return type
   [fn-overload-return] for `Str?`, `Int?`, `Long?`, `Double?` and `Bool?`,
@@ -267,7 +267,7 @@ Conventions:
     optional sign and decimal digits. Nothing else is accepted.
   * `parse_bool` accepts the spellings Salvo writes, `true` and `false`, and
     no others. It is written in Salvo, not on the platform.
-  * The `from_str` overloads all live in `core.string`. The alternative, one
+  * The `from_str` overloads all live in `std.core.string`. The alternative, one
     per type in that type's module, was only needed while overloads could
     not differ by return type alone.
 * [type-tuple] `(A, B, C)` is a tuple type; tuples can be destructured in
@@ -344,7 +344,7 @@ Conventions:
     listed literal type. A literal it does not list is an error naming the
     listed values (with `other(…)` offered when the union is open); a plain
     base value must be narrowed first. A value reaches an `Other` arm only
-    through `core.other`'s `other(…)` — `Other` is an ordinary
+    through `std.core.other`'s `other(…)` — `Other` is an ordinary
     `provenance qualifier Other<T> of T` with no rules of its own.
   * **Narrowing**: `is "A"` (the check is the literal alone), `is Kms` for
     a named literal sub-union, `is Other` for the rest; `when` over a
@@ -462,7 +462,7 @@ Conventions:
   there is one and `value is absent` / `assertion failed` / `unreachable`
   otherwise.
   * The **location is the module path**, not the file's display name: a name
-    depends on how the file was loaded (`std/core/list.sv` from the embedded
+    depends on how the file was loaded (`lib/std/core/list.sv` from the embedded
     library, `core/list.sv` from a directory walk), and emitted output must not
     depend on the loader.
   * The **mechanism stays each host's own trap** — a panic on Rust
@@ -662,7 +662,7 @@ Conventions:
     it — and `array_by` says the same thing through the ordinary intrinsic
     path. Deleting beat fixing because the form bought nothing the
     constructor does not.
-  * std's `core.array` mirrors `core.list`'s function surface minus
+  * std's `std.core.array` mirrors `std.core.list`'s function surface minus
     mutation (arrays are fixed-size): `array_of`, `size`, `get`, `first`,
     `iter` (user decision 2026-09-02). `for` iterates arrays natively —
     `iter_elem_ty` handles `Ty::Array` before the implicit-`iter` lookup.
@@ -676,11 +676,11 @@ Conventions:
     inline: an immediately applied lambda literal has no expected type, and
     kotlinc then demands an explicit parameter type.
 * [checked-type] **`Checked<T>` is std's "you must look at this"**: a
-  `linear struct` in `core.checked` wrapping a value whose obligation is
+  `linear struct` in `std.core.checked` wrapping a value whose obligation is
   discharged by `detach` (read it) or `ignore` (say you meant not to). Dropping
   one is the ordinary linear error [linear-group], which is the whole mechanism —
   no new rule, just the obligation applied to an *answer*.
-  * In `core` because std's own returns carry it ([col-bounds]'s `swap`, the
+  * In `std.core` because std's own returns carry it ([col-bounds]'s `swap`, the
     whole filesystem's `Err Checked<FsError>` [fs-surface]), and a type in a
     returned position must be visible wherever the function is.
   * **Looking without discharging is a field read**, `e.value` — the obligation
@@ -694,7 +694,7 @@ Conventions:
   out-of-range index is an ordinary outcome in Salvo, reported the way the
   operation's own shape allows, and identically on both backends — never a panic,
   an exception, or a wrapped-around read. (The label was referenced by
-  `core.list` before it was written down; defined 2026-09-22 with `swap`.)
+  `std.core.list` before it was written down; defined 2026-09-22 with `swap`.)
   * A **read** answers an optional: `get` on a list, an array or a `Bytes`,
     `char_at` on a `Str`, `slice`/`substring` for a range. Both ends count, and a
     negative index is out of range rather than counted from the back.
@@ -772,7 +772,7 @@ Conventions:
   * A **literal** (`[1, 2, 3]`) claims nothing, deliberately unexamined so far:
     the convention is about the constructors (ROADMAP.md records the question).
 * [col-nonempty] std declares `qualifier NonEmpty<T> of List<T>` in
-  `core.list` (2026-09-13), with a `qualifies` of `size(list) > 0`, the
+  `std.core.list` (2026-09-13), with a `qualifies` of `size(list) > 0`, the
   by-construction constructor of [col-of-nonempty], and a
   `first(list: NonEmpty List<T>) -> proj(list) T` overload that drops
   the optional — ranked above the plain `first` by [fn-overload-rank].
@@ -796,12 +796,12 @@ Conventions:
     with a `...spread` in one variadic call is unsupported, so
     `List(first, ...rest)` cannot be its body (recorded in ROADMAP.md).
   * **One name, one subject type.** A qualifier name is unique within a module
-    *and* across the implicitly visible `core` modules, so there is no
+    *and* across the implicitly visible `std.core` modules, so there is no
     `NonEmpty` over `Set`/`Map`/`SortedSet`/`SortedMap`; that needs same-name
     different-subject qualifiers, a DECISION in ROADMAP.md.
 * [col-sorted-list] std declares
   `qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T>` in
-  `core.list` — a **state claim** over a list, and a different mechanic from
+  `std.core.list` — a **state claim** over a list, and a different mechanic from
   the `SortedSet`/`SortedMap` types [col-sorted], which are a representation.
   A `Sorted List<T>` still reaches the whole list surface.
   * **The claim names the ordering it was sorted by** (user decision
@@ -848,10 +848,10 @@ Conventions:
     infers it (a constructor's `+Q` lives beside the return type rather than
     in it, so the inferred path re-applies it before checking).
 * [col-distinct] std declares `qualifier Distinct<T> of List<T>` in
-  **`core.set`**, not `core.list`: a constructor must sit beside its qualifier
+  **`std.core.set`**, not `std.core.list`: a constructor must sit beside its qualifier
   [qual-ctor-same-file], and a *set* is what can honestly promise the claim —
   `to_list(set)` answers `-> +Distinct List<T>`. Mint-only, like `Sorted`.
-  `to_list` over a `SortedSet` lives in `core.sorted` and so cannot mint it.
+  `to_list` over a `SortedSet` lives in `std.core.sorted` and so cannot mint it.
 * [col-reversed] `reversed(list)` walks a list back to front — an **iterator**
   [iter-protocol], not a copy: `: Yield<self, proj T>`, so `for x in
   reversed(xs)` borrows each element [yield-proj] and `xs` stays usable.
@@ -873,7 +873,7 @@ Conventions:
     (`Emitted Enumerated<T>`), which body inference cannot see through a
     generic constructor — the exact case the written form exists for
     [proj-infer].
-* [col-idx] `core.index` declares `qualifier Idx<C canbe linear>(c: C) of
+* [col-idx] `std.core.index` declares `qualifier Idx<C canbe linear>(c: C) of
   Int` [qual-depend] — `0 <= index < size(c)`, about one particular
   container — with **total overloads** consuming it: `get(list, index:
   Idx(list) Int) -> proj(list) T` (no `None` arm), its handle twin `at(list,
@@ -900,14 +900,14 @@ Conventions:
     positions when it is matched [qual-refn-match] (`refn add<T>(list: Mut
     List<T>, …)` inside `Idx<C>`). The writes it refines are exported
     platform fns or Salvo fns, since the owner has to see them, and
-    `+Idx` is trusted only in `core.index`, so `indices`/`rev_indices` live
-    there and `core.list`'s searches return `(Idx(list) Int)?` proven by
+    `+Idx` is trusted only in `std.core.index`, so `indices`/`rev_indices` live
+    there and `std.core.list`'s searches return `(Idx(list) Int)?` proven by
     `indices` or a test.
   * The **total read is the host's own** (`get_at`), not the optional `get`
     and `!`: a `T?` with `T` optional flattens on the JVM, so `!` read a
     stored `None` of a `List<Str?>` as absence and trapped (the recorded
     defect, fixed 2026-10-05). Same on `Deque`.
-  `core.map`'s `KeyOf` has its total `get` too (landed with `preserve`
+  `std.core.map`'s `KeyOf` has its total `get` too (landed with `preserve`
   [qual-preserve], which is what lets a claim survive the `put`s between
   the test and the read). **The index iterators mint the claim**:
   `indices(list)` and `rev_indices(list)` emit `Idx(list) Int` elements —
@@ -915,7 +915,7 @@ Conventions:
   refinement-types design, total end to end — and `binary_search`'s found
   arm is `(+Idx(list) Int)?`, so narrowing the optional is the last check
   the result ever needs.
-* [buffer-type] **`core.buffer`'s `IntBuffer` and `LongBuffer`** (user
+* [buffer-type] **`std.core.buffer`'s `IntBuffer` and `LongBuffer`** (user
   decisions 2026-10-05, ROADMAP §0j 6g; built 2026-10-05): `iterable platform
   type IntBuffer canbe Mut : Iter<self, Int>`, a fixed-length run (Kotlin
   `IntArray`, Rust `Vec<i32>`; `LongBuffer` over `Long`, `LongArray`,
@@ -927,10 +927,10 @@ Conventions:
   (Kotlin `copyOf`); `noremote` like every platform type; no `==`. The
   operations are Salvo over private `int_*`/`long_*` platform fns, since two
   platform fns of one module may not overload.
-* [ref-notsame] `core.ref` declares `qualifier NotSame<T>(a: T) of T`
+* [ref-notsame] `std.core.ref` declares `qualifier NotSame<T>(a: T) of T`
   [qual-depend] — `b` is a different element from `a` — the proof that two
   bound mutable handles cannot alias [elem-distinct] (user decision
-  2026-10-10, retiring `core.index`'s `NotEq` on indices: a proof about the
+  2026-10-10, retiring `std.core.index`'s `NotEq` on indices: a proof about the
   *handles* holds whatever their container's `at` does, where `i != j` only
   meant distinct elements for list indexing). Its predicate is the private
   intrinsic `same(a, b)` — reference identity, `===` on Kotlin,
@@ -940,7 +940,7 @@ Conventions:
   roots); a write *through* either handle leaves it standing (identity, not
   contents: it survives calls like provenance does), rebinding either
   strips it.
-* [col-update] `core.list`'s **in-place update** (step ③ of the
+* [col-update] `std.core.list`'s **in-place update** (step ③ of the
   group-borrowing ladder, user decisions 2026-09-24): `update(list:
   List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) -> None)` hands the
   callback the mutable element handle [ref-handle] — nothing copied, moved
@@ -950,7 +950,7 @@ Conventions:
   sibling `update2` was retired with `NotEq`, 2026-10-10: the caller writes
   `if b is NotSame(a) { f(a, b) }` [ref-notsame].) Note the parameters carry no container `Mut`: element
   mutability is the element type's [ref-handle].
-* [col-locate] `core.list` declares `params Ref<C, L, T> { fn at(c: C,
+* [col-locate] `std.core.list` declares `params Ref<C, L, T> { fn at(c: C,
   l: L) -> ref(c) Mut T? }` (user decision 2026-09-24, ④a slice 3′; renamed
   from `Locate` with the `ref(c)` rework, 2026-10-08): what a
   **position-based** algorithm needs, as a params group [implicit-group] —
@@ -965,7 +965,7 @@ Conventions:
   list, the entry's slot for a map.
 * [col-salvo] **Most of the list surface is Salvo** (2026-10-03, user
   request): over the intrinsics `get`, `size`, `add`, `swap`, and two new
-  ones, `core.list` writes `last`, `is_empty`, `remove_front(list, n)` /
+  ones, `std.core.list` writes `last`, `is_empty`, `remove_front(list, n)` /
   `remove_back(list, n)` and `remove_front_while(list, keep)` /
   `remove_back_while(list, keep)` (each answering the removed elements as a
   `Mut List<T>`, in list order, and `canbe linear`), `sub_list(list, from, to)`
@@ -988,7 +988,7 @@ Conventions:
     element type too, since a **qualifier's type parameter may `canbe
     linear`** (user decision 2026-10-05): `qualifier Idx<C canbe linear>(c:
     C) of Int` claims an index of a list of obligations. Since 2026-10-05 a
-    platform fn of `core.list` (the host writes; `core.index`'s `Idx` refines
+    platform fn of `std.core.list` (the host writes; `std.core.index`'s `Idx` refines
     it to keep the claims) [col-idx].
 * [str-mut-results] **A list made from a string is the caller's own**:
   `split` and `lines` answer `Mut List<Str>` (2026-10-03, user request).
@@ -1013,7 +1013,7 @@ Conventions:
   members, the one-shots, `MemFs`, `RestrictedFs(root: Path)`. The host layer
   below (`RawFs`) and the `FsError` structs keep text: the first is the
   platform boundary, the second a report.
-* [col-span] `core.string` declares `struct Span { start: Int, end: Int }`
+* [col-span] `std.core.string` declares `struct Span { start: Int, end: Int }`
   — a struct, not a tuple, because a qualifier cannot apply to a tuple
   [qual-union-arm] — and `qualifier SpanOf(str: Str) of Span`
   [qual-depend]: `0 <= start <= end <= size(str)`, the parse-don't-validate
@@ -1023,7 +1023,7 @@ Conventions:
   value slots (a second `SpanOf` over `Span` would be a duplicate
   [qual-overload]; recorded in ROADMAP.md).
 * [col-deque] **`Deque<T canbe linear> canbe Mut` is std's double-ended
-  queue** (user decision 2026-10-02, runtime D3), `core.deque`: O(1) at
+  queue** (user decision 2026-10-02, runtime D3), `std.core.deque`: O(1) at
   both ends. Surface: `deque_of`/`mut_deque_of` (both shapes) and
   `deque_by`/`mut_deque_by` [col-by]; `add_first`, `add_last`,
   `remove_first`, `remove_last` and `remove_at` (O(n)) moving elements in and
@@ -1125,7 +1125,7 @@ Conventions:
     always been and only a container that says something *different* about its
     keys grows an argument to say it in.
   * **A tuple or a list is a key** since recursive implicit resolution
-    (2026-10-06) [implicit-recursive]: `core.compare` declares `hash`/`eq`/`cmp`
+    (2026-10-06) [implicit-recursive]: `std.core.compare` declares `hash`/`eq`/`cmp`
     in Salvo for `List<T>` and for pairs and triples, each taking its parts'
     own by implicit, so `Mut Set<(Int, Str)>` carries `(hash, eq)` like any
     other key. (Until then this was a deliberate, diagnosed limitation of
@@ -1204,14 +1204,14 @@ Conventions:
   * Neither backend's native rendering is used, because they disagree with
     each other and with Salvo: Rust's `Debug` for a map quotes string keys
     and writes `:`, Kotlin's `toString` writes `a=1`. A set's and a map's
-    `to_str` are Salvo (`core.set`, `core.map`, `core.sorted`; the maps' since
+    `to_str` are Salvo (`std.core.set`, `std.core.map`, `std.core.sorted`; the maps' since
     2026-10-06, over a key `?to_str` and a value `?to_str`
     [implicit-same-name]), so each element renders by its own `to_str`.
 * [col-map-entries] **`entries(map)` and `values(map)`** (2026-10-06) walk a
   map in insertion order without copying: `entries` emits `MapEntry<K, V>`
   (`{ key: proj K, value: proj V }`), a view struct as [col-enumerate]'s
   `Enumerated` is, and `values` emits `proj(map) V`. They step through the
-  host's slots (`slot_count`, `key_at`, `value_at`, private to `core.map`),
+  host's slots (`slot_count`, `key_at`, `value_at`, private to `std.core.map`),
   skipping removed ones.
 * [col-map-eq] **`==` on a set or a map compares contents, in any order**
   (2026-10-06): `eq` for `Set`, `Map`, `SortedSet` and `SortedMap` is Salvo —
@@ -1283,7 +1283,7 @@ Conventions:
   auto` stamp the structural ones [obligation-by], and what a stamped body
   needs of the type is checked where the type is declared, so the error names
   the field rather than surfacing at a distant `Set<Point>`:
-  * `core.auto`'s `hash` **refuses** a `canbe Mut` struct [comptime-refuse] — a
+  * `std.core.auto`'s `hash` **refuses** a `canbe Mut` struct [comptime-refuse] — a
     value that can change while a collection holds it corrupts the collection's
     lookup or order, which is the classic silent-corruption bug made a compile
     error;
@@ -1292,7 +1292,7 @@ Conventions:
     `Double`/`Float` have `eq` and neither `cmp` nor `hash` (Rust's `f64` is not
     `Eq`, `Hash` or `Ord`), so `: Eq<self> by auto` on a struct holding one
     works and `: Hashed<self> by auto` reports the field; a nested struct must
-    have its own; a **`List` or a tuple** resolves `core.compare`'s Salvo
+    have its own; a **`List` or a tuple** resolves `std.core.compare`'s Salvo
     `eq`/`cmp`/`hash` for it, which take the element types' own (an element
     struct's *declared* `cmp` is what orders a list of them, since 2026-10-06
     [implicit-recursive]). Ordering is lexicographic, with a shorter list
@@ -1662,10 +1662,10 @@ Conventions:
   types**, and which one a use means is decided by the subject — the way a
   function overload is decided by its arguments (user decision 2026-09-13).
   std declares `NonEmpty` five times over, each **beside the container it
-  claims** (2026-09-26): `of List<T>` in `core.list`, `of Set<T>` in
-  `core.set`, `of Map<K, V>` in `core.map`, and `of SortedSet<T>` /
-  `of SortedMap<K, V>` in `core.sorted`.
-  * The four gathered in a `core.nonempty` of their own until 2026-09-26, for
+  claims** (2026-09-26): `of List<T>` in `std.core.list`, `of Set<T>` in
+  `std.core.set`, `of Map<K, V>` in `std.core.map`, and `of SortedSet<T>` /
+  `of SortedMap<K, V>` in `std.core.sorted`.
+  * The four gathered in a `std.core.nonempty` of their own until 2026-09-26, for
     one reason: `min(NonEmpty SortedSet<T>)` has to delegate to the plain
     `min`, and `min@core.sorted(set)` re-picks the `NonEmpty` overload — a
     selector names a module, and within it the qualified argument still ranks
@@ -1683,7 +1683,7 @@ Conventions:
   * **Same name *and* same subject is not an overload but a replacement.** A
     module declaring its own `NonEmpty of List<T>` shadows std's, exactly as
     before; two in *one* module are a duplicate ("nothing at a use site could
-    tell them apart"), as are two in different implicitly visible `core`
+    tell them apart"), as are two in different implicitly visible `std.core`
     modules.
   * A use whose subject **no** declaration of that name accepts is the same
     error as a single inapplicable declaration ("does not apply to `Int`"),
@@ -1768,7 +1768,7 @@ Conventions:
   `name: Type` entries in its block — making it a **dependent claim**: a
   fact about the subject's relationship to another value (user decisions
   2026-09-23; the refinement-types sequence, step 2). std's first is
-  `core.map`'s `qualifier KeyOf<K, V>(map: Map<K, V>) of K`.
+  `std.core.map`'s `qualifier KeyOf<K, V>(map: Map<K, V>) of K`.
   * **The runtime tier is a dependent `qualifies`**: the subject first,
     then one parameter per value slot, each matching its slot's type —
     `KeyOf`'s is exactly `contains_key`. Tested with the **filled block**:
@@ -1832,7 +1832,7 @@ Conventions:
 * [qual-const] A qualifier's value slot may be filled with a **constant**
   — the third slot kind, after fn identities [cmp-carry] and places
   [qual-depend] (user decisions 2026-09-23; the refinement-types sequence,
-  step 6): `core.range`'s `qualifier InRange(lo: Int, hi: Int) of Int`,
+  step 6): `std.core.range`'s `qualifier InRange(lo: Int, hi: Int) of Int`,
   used as `InRange(0, 65535) Int`. Compile-time known, so nothing tracks
   it and nothing can invalidate it; the dependent `qualifies` receives the
   constants as ordinary arguments (`n is InRange(0, 100)` lowers to
@@ -2020,23 +2020,23 @@ Conventions:
   (`"A" | "B" | Other Str`): there a plain value must be narrowed to a listed
   literal or wrapped explicitly with `other(…)` [type-literal], never
   auto-wrapped into the open arm.
-* [qual-result-tags] std ships the result tags in `core.result`:
+* [qual-result-tags] std ships the result tags in `std.core.result`:
   `provenance qualifier Ok<T> of T`, `provenance qualifier Err<T> of T` (provenance
   as of 2026-09-23 [qual-subject]), and their constructors
   `ok`/`err` (2026-09-03), so `-> Ok Int | Err Str` needs no local
   declarations. Nothing about them is intrinsic — they are ordinary
   constructive qualifiers, erased like all others [qual-erasure], and a
   file may still declare its own.
-  * Own module rather than part of `core.basic`: `core.basic` declares
+  * Own module rather than part of `std.core.basic`: `std.core.basic` declares
     `Int`, so every program reaches it, and `ok`/`err` living there would
     emit a dead `core/basic.{kt,rs}` into every output
-    [mod-used-only]. `core.result` is reached only by programs that
+    [mod-used-only]. `std.core.result` is reached only by programs that
     mention its names.
   * There is no `Result` type: the union *is* the result. A `type
     Result<T, E> = Ok T | Err E` alias would only hide the arms.
 * [result-errs] **The accumulating outcome, `Ok T | Errs NonEmpty List<E>`**
   (the CLI design record X12, Q11, the arm's name `Errs`; built 2026-10-20), in
-  `core.result`: every error, not the first. `provenance qualifier Errs<T> of
+  `std.core.result`: every error, not the first. `provenance qualifier Errs<T> of
   T`, its constructors `errs(e)` (one error) and `Errs(list)`, and
   `both(a, b)` (both values as a pair) and `map2(a, b, f)`, which keep
   collecting after a failure: two failures give `a`'s errors then `b`'s.
@@ -2138,7 +2138,7 @@ Conventions:
   found on `std.heap`'s `push`).
 
   ```
-  // `add` makes the list non-empty (core.list's refinement says so) and the
+  // `add` makes the list non-empty (std.core.list's refinement says so) and the
   // sift only swaps, so the heap comes back non-empty — reported, not claimed.
   export fn push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) -> None
   => heap: +Heap NonEmpty Mut, !elem { … }
@@ -2435,10 +2435,10 @@ Conventions:
   2026-10-05), not operators — `&`, `|`, `^` and `>>` already mean other
   things: `bit_and`, `bit_or`, `bit_xor`, `bit_not`, `bit_shl`, `bit_shr`
   (arithmetic) and `bit_ushr` (logical), each an `intrinsic fn` for `Int` and
-  `Long` in `core.basic`. A shift count is taken modulo the width (the JVM's
+  `Long` in `std.core.basic`. A shift count is taken modulo the width (the JVM's
   rule), so both backends agree for every count, negative ones included.
   `mix_hash` is ordinary Salvo over [op-wrap] since.
-* [op-convert] `core.basic` declares the explicit conversions the
+* [op-convert] `std.core.basic` declares the explicit conversions the
   operators point at: `to_int`, `to_long`, `to_float`, `to_double`, one
   overload per source width [intrinsic-fn]. Truncating conversions
   truncate toward zero and **saturate** at the target's bounds
@@ -2968,7 +2968,7 @@ Conventions:
     same-named `T` is a different variable).
 * [fn-overload-scope] **Scope says which functions are *visible*, never which
   one a call means** (user decision 2026-09-26, replacing the scope-precedence
-  rule of 2026-09-07). Functions arrive from `core`, from this file's imports
+  rule of 2026-09-07). Functions arrive from `std.core`, from this file's imports
   and from this module, and **every** one that fits the arguments competes on
   signature alone [fn-overload-rank]; no single most specific candidate is an
   error naming the places [fn-overload-ambiguous].
@@ -2985,7 +2985,7 @@ Conventions:
     that means to work with a shadowing overload throughout.
   * **One declaration is one candidate.** A fn reachable by two routes — an
     implicitly available name that is also a member of the file's own module
-    (std's `test` inside an annex, `core.list` inside `core.list`) — is not an
+    (std's `test` inside an annex, `std.core.list` inside `std.core.list`) — is not an
     ambiguity: the pool is deduped by declaration before ranking.
   * The rungs above the overload set are unchanged, and they *shadow* rather
     than compete: a fn-typed local, parameter or implicit **is** the function
@@ -3276,7 +3276,7 @@ Conventions:
   * **Both lookups match the subject by declaration, not by type name** (fixed
     2026-09-25): a `Ty::Named` carries no module, so two same-named structs in
     two modules are one type as far as unification is concerned — a user
-    `Range` beside `core.range`'s drove the *other* module's `next`, or minted
+    `Range` beside `std.core.range`'s drove the *other* module's `next`, or minted
     with the other module's `iter`, and the emitted program was rejected by
     both target compilers (E0308 / an argument type mismatch). Wrong output
     rather than a diagnostic, so [backend-never-wrong]-grade. Each side's name
@@ -3357,7 +3357,7 @@ Conventions:
   subject. The language gets no special case (the rule is a declaration, not
   a name list); the fast path is the emitters'.
 * [iter-protocol] The pull iteration protocol is declared in std
-  (`std/core/iterator.sv`), not built into the compiler: an **iterator
+  (`lib/std/core/iterator.sv`), not built into the compiler: an **iterator
   struct** is a value some `next` accepts, and `next` reports
   `Emitted T | Finished` (user decision 2026-09-07; the names were
   `Next`/`Stopped` in the design; "pass" was the term until 2026-09-27, when
@@ -3690,7 +3690,7 @@ Conventions:
     pass eq = … explicitly`) and a chain that needs itself is refused at once
     as a cycle.
   * std's `List` and tuple `eq`/`cmp`/`hash`/`to_str` are Salvo on it
-    (`core.compare`, `core.basic`); the host's structural comparisons are
+    (`std.core.compare`, `std.core.basic`); the host's structural comparisons are
     gone. A tuple takes one implicit per part, of one name at different types
     [implicit-same-name].
   * Not yet: the carried identity is still a flat name [cmp-carry] — a
@@ -3793,7 +3793,7 @@ Conventions:
     hand-written `intrinsic fn` [intrinsic-std-only]. So an intrinsic
     type's obligation is always the bare, checked-promise form (`intrinsic
     type Int : Ordered<self>, Hashed<self>, ToStr<self>` in
-    `std/core/basic.sv`), satisfied by the hand-written `cmp`/`hash`/
+    `lib/std/core/basic.sv`), satisfied by the hand-written `cmp`/`hash`/
     `to_str` already in scope; writing `by auto` there is an error naming
     the reason (there is no body to stamp) rather than silently stamping
     nothing and failing later with a misleading missing-member message.
@@ -4770,10 +4770,10 @@ Conventions:
     pushes); an emitter whose `use` *rewrites* the entries already in scope
     saves and restores the whole environment instead.
 
-### Comparison, equality and hashing (std, `core.compare`)
+### Comparison, equality and hashing (std, `std.core.compare`)
 
 * [cmp-groups] The three capabilities are **params groups**, not traits (user
-  decisions 2026-09-21, the ordering round): `core.compare` declares
+  decisions 2026-09-21, the ordering round): `std.core.compare` declares
   `Ordered<T> { fn cmp(a: T, b: T) -> Int }`,
   `Eq<T> { fn eq(a: T, b: T) -> Bool }` and
   `Hashed<T> { fn hash(value: T) -> Long }`. Having a capability is "a fn of
@@ -4862,8 +4862,8 @@ Conventions:
   * The selector is **erased**: the checker records which declaration a
     selected name means, and both backends emit an ordinary call of it.
   * For the intrinsic types the canonicals stay plain std overloads: `Int` is
-    declared in `core.basic` and `cmp(Int, Int)` in `core.compare`, so neither
-    route is available — and `core.*` is implicitly visible everywhere, which
+    declared in `std.core.basic` and `cmp(Int, Int)` in `std.core.compare`, so neither
+    route is available — and `std.core.*` is implicitly visible everywhere, which
     is the travelling that attachment exists to provide.
 * [obligation-by] **`by X` on an obligation clause stamps every member of the
   group from `X`'s `comptime fn`s** (user decisions 2026-09-28, the comptime
@@ -4875,8 +4875,8 @@ Conventions:
   ```
 
   `X` is a **module**, named by any unambiguous suffix of its path
-  [mod-suffix] so `by auto` reaches `core.auto` as `size@list` reaches
-  `core.list`, or a `comptime fn` named directly [fn-by]. **A name that is
+  [mod-suffix] so `by auto` reaches `std.core.auto` as `size@list` reaches
+  `std.core.list`, or a `comptime fn` named directly [fn-by]. **A name that is
   both** is refused as ambiguous rather than defaulted, and each reading has a
   spelling (user decisions 2026-09-29): `by @auto` is the module — a module
   stands on the right of an `@`, as it does in `size@list` — and `by
@@ -4891,13 +4891,13 @@ Conventions:
     2026-10-14, ROADMAP 0s): both readings consider the modules visible from
     the file the clause is written in — its own module, the modules it
     imports (whole, or an item of them), and the implicitly visible ones
-    (`core.*`; in a test annex the tested module and `test`/`throw`) — and
+    (`std.core.*`; in a test annex the tested module and `test`/`throw`) — and
     the comptime fns declared in them. A module the file does not see is no
     candidate, so a project module `auto` is no second reading of std's own
     `by auto` (std sees only std; it reported "`by auto` names 2 modules" at
     every std site before) nor of a project file that does not import it. A
     file that imports it has its own ambiguity, reported as before; `by
-    core.auto` settles it. A path that names nothing visible but would name
+    std.core.auto` settles it. A path that names nothing visible but would name
     an unimported module or comptime fn says which import to add.
     `ModuleScope::modules` (every module whose declarations the resolver
     added to the file's scope) is the set; the expansion keeps it per file
@@ -4997,7 +4997,7 @@ Conventions:
   forms (terminology fixed 2026-10-20, replacing "concrete"):
   * **Stamped** — its type parameter carries a **kind bound spelled as the
     narrowing it is**, `comptime fn cmp<T is Struct>(a: T, b: T) -> Int` or `<T
-    is Union>`, against an arm of `core.comptime`'s `Kind` — at most one, and a
+    is Union>`, against an arm of `std.core.comptime`'s `Kind` — at most one, and a
     module's same-named comptime fns of different kinds are the overloads a
     `by` picks between by the target's kind. A stamped fn is **not callable**:
     it exists only to be instantiated by `by`, and the expansion removes it
@@ -5016,7 +5016,7 @@ Conventions:
     obligation (comptime round 2).
   * Like an `intrinsic fn` either form writes its effect list, deductions and
     return type; an instantiation reached by implicit resolution must be
-    effect-free [implicit-fn-only]. `core.auto` holds `cmp`, `eq`, `hash` and
+    effect-free [implicit-fn-only]. `std.core.auto` holds `cmp`, `eq`, `hash` and
     `to_str` for structs and unions; a user module may hold its own, reached by
     `by mymodule`.
 * [comptime-generic-fn] **An expanded-in-place comptime fn may be generic**
@@ -5045,9 +5045,9 @@ Conventions:
   declarations the expansion reads the one the file's scope resolves the
   name to (since 2026-10-20 [comptime-instantiate]), and only for a name the
   file does not see the old ladder: the file's own, then an imported one,
-  then `core`'s. Before the rule an unimported struct was walked silently.
+  then `std.core`'s. Before the rule an unimported struct was walked silently.
 * [comptime-fields] **What a comptime fn may know about a type is a declared
-  model, `core.comptime`** (user decision 2026-09-29, round 8): compile-time
+  model, `std.core.comptime`** (user decision 2026-09-29, round 8): compile-time
   structs, readable and hoverable, never values —
 
   ```
@@ -5097,7 +5097,7 @@ Conventions:
   and `comptime qualifier Named(name: Str) of Struct`, written before a
   struct declaration, ahead of its modifiers and on its line or the line
   above (`Named("rm") export struct Remove`), as Kotlin places annotations.
-  * **Its subject is `core.comptime`'s `Field` or `Struct`** (`Arm` and
+  * **Its subject is `std.core.comptime`'s `Field` or `Struct`** (`Arm` and
     `Union` when a use appears), which is the one ordinary position a
     comptime type may be named in. It has **no body** — nothing runs at
     compile time to test it — no type parameters and no fn slots, and its
@@ -5147,7 +5147,7 @@ Conventions:
   in each copy (so `return lit.value` fits a slot of the union), `lit.name`
   (its text, a literal of the union of the members' texts, testable with
   `[if lit.name is "json"]`), `lit.index`, `lit.first` and `lit.last`.
-  `.value` on any other binder is an error. `core.comptime` models it as
+  `.value` on any other binder is an error. `std.core.comptime` models it as
   `comptime struct Literal { value: Value, name: Str, index: Int, first:
   Bool, last: Bool }`.
 * [comptime-default] **`field.default` is the field's declared default**
@@ -5164,7 +5164,7 @@ Conventions:
     without re-checking it, and the IR lowers the declaration's own
     expression in the declaring file.
   * Only a field has one: `arm.default` is an error, as a value and in a
-    head. `core.comptime` models it as `Field.default: Value?`, with
+    head. `std.core.comptime` models it as `Field.default: Value?`, with
     `comptime struct Value {}` for a declared value.
   * A default that mentions the struct's own type parameters is lowered
     with them unsubstituted; no std or test struct has one.
@@ -5216,7 +5216,7 @@ Conventions:
     `is` also as `!is` — combined with `&&`, `||`, `!` and parentheses
     [comptime-logic].
   * `[when field.kind] { is Struct { … } is Union { … } is Tuple { … } is FnType
-    { … } is Opaque { … } }` — an ordinary `when` over `core.comptime`'s `Kind`,
+    { … } is Opaque { … } }` — an ordinary `when` over `std.core.comptime`'s `Kind`,
     **exhaustive** over its arms and, like every `when` with a subject, taking
     no `else` [when-exhaustive], so that a kind added to the language is an
     error in every comptime fn that did not consider it. `is Opaque` matches either of its arms, `Basic` and
@@ -5292,7 +5292,7 @@ Conventions:
     binders; a literal is compared as above.
 * [comptime-kind] **A type and its kind are separate projections** (user
   decision 2026-10-20): `field.kind` / `T.kind` is the kind — an arm of
-  `core.comptime`'s `Kind`, `Struct | Union | Tuple | FnType | Opaque` — and
+  `std.core.comptime`'s `Kind`, `Struct | Union | Tuple | FnType | Opaque` — and
   `field.type` is the type itself. A kind is tested only on `.kind` (`[if
   field.kind is Struct]`, `[when field.kind]`), where the word after `is` is
   read only against the kinds; after a type, `is` compares types. So a program
@@ -5376,7 +5376,7 @@ Conventions:
   (the `by`), in the caller's terms: the literal text with `${T.name}`-style
   names substituted, prefixed "`P` refused:". Spelled with the bang and parens
   of `assert!`/`unreachable!` [assert-fn] — a place that fails (user decision
-  2026-09-29). Legal only inside a comptime fn. `core.auto`'s `hash` refuses a
+  2026-09-29). Legal only inside a comptime fn. `std.core.auto`'s `hash` refuses a
   `canbe Mut` struct this way (`[if T.mutable]`), which is the rule `canbe
   hashed` used to carry and the compiler used to check. In an
   expanded-in-place fn there is no stamped type and no `by`: the refusal names
@@ -5389,7 +5389,7 @@ Conventions:
     stamp the template is another file's text, so the `by` site stays where
     it lands.
   * **So do the checker's errors in its copies** (2026-10-20, a TODO in
-    std/args/parse.sv): a copy of an expanded-in-place fn that does not
+    lib/std/args/parse.sv): a copy of an expanded-in-place fn that does not
     type-check is reported on the failing code as written, through every
     copy it was copied from (`StampRegion::written_from`), prefixed with
     which copy it was in the code's own terms — "when `field` is `groups`
@@ -5439,7 +5439,7 @@ Conventions:
   instantiation [comptime-bound]. One specialization per (comptime fn, type), pushed into the target's
   module beside the type on both backends. The expansion runs over the whole
   source set before resolution (`salvo_core::comptime`), so a `by auto` in any
-  file reads `core.auto` and the target's declaration.
+  file reads `std.core.auto` and the target's declaration.
   * **Names are looked up through each file's scope** (2026-10-20, PIPELINE.md
     step 6): the expansion resolves the unstamped program first
     (`resolve::resolve_sources`) and keeps, per file, which module's struct,
@@ -5447,14 +5447,14 @@ Conventions:
     struct of the same name, as in the checker [type-identity]. A clause
     stamps the declaration it is written on and the group its own file sees.
     A name the file does not see falls back to the old program-wide ladder
-    (own module, an imported one, `core`, the first), which a template's own
+    (own module, an imported one, `std.core`, the first), which a template's own
     names still need [comptime-hygiene]. **In a std file the ladder considers
     std's declarations only** (user decision 2026-10-14, ROADMAP 0s): std
     sees only std, so a project declaration never fills a gap in std's
     expansion. (So does the test for which names an expanded-in-place fn's
-    roots are.) What a project can still reach std through is a module under
-    `core`, implicitly visible to std until std's modules take the `std.`
-    prefix.
+    roots are.) With [std-root] nothing is left for a project to reach std
+    through: a project cannot declare a module under `std`, so nothing it
+    writes is implicitly visible to std.
   * **Spans**: every node of a stamped body is given a synthetic span **past
     the end of the file**, one fresh region per unrolled copy, so the checker's
     span-keyed side tables never see two copies as one node. The `Stamp` on
@@ -5797,12 +5797,12 @@ Conventions:
 * [fs-module] The filesystem is **imported, not implicit** (user decision
   2026-09-26): module `fs` holds the surface, and `fs.host`, `fs.mem` and
   `fs.restricted` hold the implementations. A whole-module import names one
-  module [mod-import-module], so `import fs` is the surface alone and each
+  module [mod-import-module], so `import std.fs` is the surface alone and each
   implementation is its own line — which is the whole point of the split: a
   test that fakes the filesystem never mentions the host's, and a program that
   never opens a file links none of it.
-  * It left `core` because nothing in `core` needs it and everything in `core`
-    is visible everywhere. `core.fs` used to be dragged into any program that
+  * It left `std.core` because nothing in `std.core` needs it and everything in `std.core`
+    is visible everywhere. `std.core.fs` used to be dragged into any program that
     iterates or interpolates (it declares a `next` and a `to_str`), which is
     what [mod-used-only]'s name-based half does; an imported module cannot be.
     Measured on `examples/throw-and-release`, which throws and never opens a
@@ -5813,7 +5813,7 @@ Conventions:
   `effect RawFs` (the path operations and the opens; plain `Long` handles into
   the host stream table [stream-table], bare `FsError`s),
   `platform handler HostRawFs of RawFs` (std ships
-  `std/platform/fs/host.{kt,rs}` [platform-handler]) and
+  `lib/platform/std/fs/host.{kt,rs}` [platform-handler]) and
   `handler DefaultFs [RawFs] of Fs`, which mints the tokens, wraps failures
   in `Checked<FsError>` and discharges in Salvo — the host never holds an
   obligation.
@@ -5874,7 +5874,7 @@ Conventions:
 
 * [throw] `throw(message)` leaves the enclosing delimiter instead of
   resuming. It is declared in std (module `throw`, imported rather than
-  implicit — `import throw`, so a program that never throws links none of it;
+  implicit — `import std.throw`, so a program that never throws links none of it;
   a **test annex** gets it without writing one, because the harness and not
   the author puts `[Throw<Failure>]` on a test body [test-implicit-import],
   2026-09-26) as the sole member of
@@ -5908,7 +5908,7 @@ Conventions:
   `[Try]` in signatures, and no collision with the fusion.
   * It is an **expression** of type `Ok T | Thrown M`, where `T` is the
     body's value type and `M` the message type. Both arms are qualified,
-    reusing `Ok` from `core.result`, so `is`, `when` and exhaustiveness
+    reusing `Ok` from `std.core.result`, so `is`, `when` and exhaustiveness
     need no new rules — the outcome is structurally an `Ok T | Err M`.
     `Err` is deliberately *not* reused: a throw is not an error value.
   * **`M` is the union of the message types the body performs** (user
@@ -6659,7 +6659,7 @@ docs/language/ remains the source of truth for everything that does.
     a one-shot linear token for the death of an *identity*; a pool has no
     lifecycle and emits a recurring *stream*. So the sink is an ordinary actor
     of an ordinary protocol — `actor effect Faults { send fn faulted(fault:
-    Fault) }` in `core.actor` — and needs no new mechanism at all.
+    Fault) }` in `std.core.actor` — and needs no new mechanism at all.
   * **What reaches it**: a faulted **task**, which has no addr to watch, and a
     faulted **actor nobody was watching**. Per-addr `watch` is untouched — the
     sink is the net *beneath* supervision, not its replacement, which is the
@@ -6848,7 +6848,7 @@ docs/language/ remains the source of truth for everything that does.
     call is an error — there is no argument slot to fill. `replyto!` keeps its
     gate in this position.
 * [actor-types] The three types the forms produce and consume live in
-  **`core.actor`**, all `intrinsic` because each is a handle into the
+  **`std.core.actor`**, all `intrinsic` because each is a handle into the
   scheduler its backend ships:
   * **`eff[E]`** — what a `spawn` hands back, and the whole of what one
     actor knows about another. Named for what the design's own prose calls
@@ -6883,7 +6883,7 @@ docs/language/ remains the source of truth for everything that does.
     a capability. **`intrinsic fn thread() [spawn] -> Dedicated Pool`** is the
     other one: a pool of exactly one thread, and the placement a
     `[waitfor]`-carrying handler needs [waitfor-dedicated]. `Dedicated` is a
-    `provenance qualifier` on `Pool`, declared in `core.actor` like any other
+    `provenance qualifier` on `Pool`, declared in `std.core.actor` like any other
     — the compiler owns no new vocabulary for it — and the `on` clause
     consumes a value carrying it.
   * An addr is **never linear and freely copied**: a send to a dead actor is
@@ -6930,7 +6930,7 @@ docs/language/ remains the source of truth for everything that does.
     `IoError { message: Str }` already accepts): print it in a diagnostic, do
     not branch on it. The struct rather than a bare `Str` is the growth point
     for a `kind` when a non-fault death becomes expressible.
-  * **The runtime builds it**: `watch` is Salvo (`core.actor`), taking the
+  * **The runtime builds it**: `watch` is Salvo (`std.core.actor`), taking the
     core's token out of the reply token (`reply_token` [runtime-handles]) and
     registering it with `runtime.watch`; the scheduler, Salvo too, answers it
     with `erase(Exit { reason })` — so a watcher's payload is an ordinary
@@ -7088,8 +7088,8 @@ docs/language/ remains the source of truth for everything that does.
 ## Time (std, module `time`)
 
 Built 2026-09-18 (step 5 of the second sequence), on the user's decisions of
-the same day. **Not part of `core`**: the surface is imported, and one
-`import time` [mod-import-module] brings all of it.
+the same day. **Not part of `std.core`**: the surface is imported, and one
+`import std.time` [mod-import-module] brings all of it.
 
 * [time-types] **Three types, one representation**: `Duration` (a span),
   `Instant` (a point on the wall clock, nanoseconds since the Unix epoch) and
@@ -7264,8 +7264,8 @@ the same day. **Not part of `core`**: the surface is imported, and one
 ## Command-line arguments (std, `args`)
 
 Built 2026-10-18, on the user's decision of the same day (effect over global
-state). **Not part of `core`** (user decision, moved out the same day): the
-surface is imported — `import args` brings `Args`, `args()` and `HostArgs`
+state). **Not part of `std.core`** (user decision, moved out the same day): the
+surface is imported — `import std.args` brings `Args`, `args()` and `HostArgs`
 [mod-import-module].
 
 * [cli-args] **`effect Args { fn args() -> List<Str> }`** is the process's
@@ -7286,7 +7286,7 @@ surface is imported — `import args` brings `Args`, `args()` and `HostArgs`
   * **`threadsafe platform handler HostArgs() of Args`** is the host's argv,
     read the one way each backend offers. Stateless, so sharing it across
     threads needs no synchronization [threadsafe-platform]. Std ships both
-    host implementations (`std/platform/args.{rs,kt}`).
+    host implementations (`lib/platform/std/args.{rs,kt}`).
   * **The Salvo `main` signature is unchanged** by this effect (user decision:
     a `main(args)` entry form was considered and rejected). On the JVM, argv
     arrives only through `fun main(args: Array<String>)`, so when a program
@@ -7504,7 +7504,7 @@ between endpoints and delivers what arrives into the scheduler.
 * [net-host] `threadsafe platform handler HostTcpTransport(bind: NodeEndpoint)
   of Transport` is std's first `threadsafe` host [threadsafe-platform] — a
   transport is reached from every pool at once — with one class per backend
-  in `std/platform/net.{rs,kt}`, both signing the contract. The wire is
+  in `lib/platform/std/net.{rs,kt}`, both signing the contract. The wire is
   identical on both: one TCP connection per peer, opened lazily by the first
   `deliver`; it opens with a **hello** (the sender's endpoint) and then carries
   frames, each a 4-byte big-endian length and that many bytes. `listen` runs
@@ -8031,8 +8031,8 @@ between endpoints and delivers what arrives into the scheduler.
     declaration.
     * **Why it is free**, probed before deciding: the lend is *strictly more
       permissive* than its absence. A candidate whose result holds no borrow
-      simply does not use the lifetime, so `core.set`'s snapshotting `iter`
-      fills a lent slot exactly as `core.list`'s borrowing one does. No program
+      simply does not use the lifetime, so `std.core.set`'s snapshotting `iter`
+      fills a lent slot exactly as `std.core.list`'s borrowing one does. No program
       that compiled without the lend stops compiling with it.
     * **One shared lifetime, not one per parameter.** The opaque return's hidden
       lifetime has to *be* one of the parameters', and separate lifetimes leave
@@ -9525,7 +9525,7 @@ between endpoints and delivers what arrives into the scheduler.
     FnMut(&T) -> T>` field, members call `(self.copy)(&v)`, the `use` site
     passes a `move` adapter; `copy` at a retagged element position is the
     identity [rs-proj-arm].
-* [copy-fn] `core.copy` — `intrinsic fn copy<T>(value: proj T) -> T =>
+* [copy-fn] `std.core.copy` — `intrinsic fn copy<T>(value: proj T) -> T =>
   value` — duplicates a value: the argument is kept untouched, and the
   result is a fresh owned value with no fate links. The parameter says
   `proj T` because a projection is exactly what `copy` is *for* — and
@@ -9635,7 +9635,7 @@ between endpoints and delivers what arrives into the scheduler.
     decided by the expression's type alone, with no path in it. Each
     obligation errors once: a value reported at a merge or an assignment
     owes nothing after it.
-* [linear-discard] `core.discard` —
+* [linear-discard] `std.core.discard` —
   `intrinsic fn discard<T canbe linear>(value: T) -> None` — deliberately => !value
   drops a value, consuming it. For a **linear** value it is the
   obligation's **terminal**, legal only inside a *discharger* of the
@@ -9872,8 +9872,41 @@ between endpoints and delivers what arrives into the scheduler.
 
 ## Modules, imports, files
 
-* [mod-file] `.sv` files are modules; the module path is the file path (no
-  in-file module declaration).
+* [mod-file] `.sv` files are modules; the module path is the file path under
+  the source root (no in-file module declaration). The standard library is no
+  exception: its tree is `lib/std/` with `lib/` as its source root
+  (`lib/salvo.toml`), so `lib/std/core/list.sv` is module `std.core.list`
+  [std-root].
+* [std-root] **`std` is a reserved root** (user decision 2026-10-14, TF-8):
+  every standard-library module is under it — `std.time`, `std.fs.mem`,
+  `std.core.list`, `std.runtime`, `std.test`, `std.throw` — and only the
+  standard library declares modules there: the embedded copy, a tree whose
+  manifest says `[project] std = true` (its test annexes included), or a
+  `std = true` dependency.
+  * A module of any other tree whose path starts with `std` is an error at
+    the file, naming the reason ("module `std.core.extra.auto` is under `std`,
+    which is reserved for the standard library …"), and it is not implicitly
+    visible [mod-visibility] — so std, which sees only `std.core.*` and what
+    it imports, sees only std, whatever the project declares.
+  * **The bare spelling is refused with the corrected path named**: an import
+    whose first segment is no module's root while `std.<first>` is std's
+    (`import time`, `import core.list`, `import fs.mem.MemFs`) is "the
+    standard library's modules are under `std`: write `import std.time`".
+    It resolves nothing — not a fallback that still accepts the old path. A
+    project's own module `time` is the project's: the rule applies only when
+    nothing else answers to the first segment. A bare `import runtime` is
+    refused as [mod-std-internal] rather than corrected towards it.
+  * Selectors are unchanged [mod-suffix]: `size@list`, `between@time`,
+    `by auto` and `@core.list` are suffixes of `std.core.list`,
+    `std.time.between`'s module and `std.core.auto`.
+  * Emitted names carry the root like any segment: Kotlin package
+    `salvo.std.core.list`, Rust module `std_core_list`, output file
+    `std/core/list.<ext>`, std's host files at
+    `lib/platform/std/core/list.<ext>` (packages `salvo.platform.std.…`,
+    modules `platform_std_…`) [platform-root].
+  * `ModulePath::std`, `is_std_rooted`, `is_std_core` and `is_std_internal`
+    (`salvo-core/src/source.rs`) are the one place the root is spelled;
+    `resolve.rs` reports both errors.
 * [mod-file-name] A `.sv` file name's stem may not contain a dot: the
   module path comes from the directory layout [mod-file], so `list.ext.sv`
   would be indistinguishable from `list/ext.sv`. `SourceSet::classify`
@@ -9888,8 +9921,10 @@ between endpoints and delivers what arrives into the scheduler.
   file or a directory subtree; blank lines and `#` comments ignored.
   The root itself is exempt from the hidden/cache rules.
 * [mod-visibility] Code sees: everything declared in its own module (all
-  its `.sv` files), and everything **exported** [mod-export] by `core.*`
-  (implicit) or by whatever it imports.
+  its `.sv` files), and everything **exported** [mod-export] by `std.core.*`
+  (implicit) or by whatever it imports. The implicit part is std's: a module
+  under `std.core` that a non-std tree declares is refused and not visible
+  [std-root].
 * [struct-opaque] **`opaque struct S { … }`** (user decisions 2026-10-05,
   ROADMAP §0j step 6c; built 2026-10-05): an ordinary struct in its
   declaring module and that module's `*.test.sv` annex (module `m.test`
@@ -9970,40 +10005,41 @@ between endpoints and delivers what arrives into the scheduler.
 * [mod-import] `import path.Name` / `import path.Name as Alias`; aliasing
   resolves ambiguity. Unresolved/ambiguous imports are errors.
   * Import prefixes match module paths exactly or as a leading path
-    (`import core.Str` finds `core.string`).
+    (`import std.core.Str` finds `std.core.string`).
 * [mod-suffix] **A module *selector* names a module by any unambiguous suffix
   of its path** (user decision 2026-09-29), and the rule is the same for every
   selector: `size@list` for `size@core.list` [fn-overload-at], `by auto` for
-  `core.auto` [obligation-by]. A suffix that fits two modules is refused naming
-  both — "`@list` is ambiguous: it is a suffix of `core.list` and `shop.list`"
+  `std.core.auto` [obligation-by]. A suffix that fits two modules is refused naming
+  both — "`@list` is ambiguous: it is a suffix of `std.core.list` and `shop.list`"
   — and the remedy is more of the path. The full path always works. **An
   `import` is not a selector and stays fully qualified** [mod-import]
   [mod-import-module]: it says where a name comes from, so it writes the whole
-  path. Chosen over requiring the full path at selectors (`by core.auto`,
-  verbose at the most common clause) and over special-casing `by`, so that a
-  later `std.` prefix on std's modules changes no selector that did not spell
-  it.
-  * A shadow copy of std (the repository root opened as a workspace loads
-    `std/` again as `std.core.auto` beside the embedded `core.auto`, ROADMAP
-    §4) is not a second candidate for `by`: same content, module ending in the
-    std module's path, the copy is skipped [std-shadow].
+  path. Chosen over requiring the full path at selectors (`by std.core.auto`,
+  verbose at the most common clause) and over special-casing `by`, so that the
+  `std.` prefix on std's modules [std-root] changed no selector that did not
+  spell it (`@core.list` included).
+  * The comptime expansion's skip of a "shadow copy" of std (a std file loaded
+    a second time as a user file, under a longer path) is gone with [std-root]:
+    such a copy is not visible to std, so it is no second candidate for a std
+    `by` site.
   * `ModulePath::matches_suffix` / `text_matches_suffix` in `salvo-core` are
     the one predicate; the selector sites in the checker and the comptime
     expansion read it. A `by` path matches among the modules its file can see
     only [obligation-by] (2026-10-14).
-* [mod-std-internal] **`runtime` is std's own module** (2026-10-02; user
-  decisions of 2026-10-01, runtime E8): `std/runtime.sv`, and any
-  module under `std/runtime/`, may be imported by std's files and by no
+* [mod-std-internal] **`std.runtime` is std's own module** (2026-10-02; user
+  decisions of 2026-10-01, runtime E8): `lib/std/runtime.sv`, and any
+  module under `lib/std/runtime/`, may be imported by std's files and by no
   others — whole or by name, whatever it exports. The scheduler every
   program runs on is written there (the runtime record), and its private
   declarations are where the language allows the exceptions a runtime
   needs (user guidance 2026-10-01). A program importing it is refused at the
   import, naming the rule. The path is the marker (`STD_INTERNAL` in
-  `resolve.rs`): no syntax, and a program cannot declare a module of that
-  path either, since std's own would collide with it.
+  `resolve.rs`, the segment after `std`): no syntax, and a program cannot
+  declare a module of that path either, since it is under the reserved root
+  [std-root].
 * [runtime-layers] **The runtime is a core and its services** (user decision
-  2026-10-02): `std/runtime.sv` (module `runtime`) implements the actor forms
-  and may not use them; the modules under `std/runtime/` (`runtime.timers`)
+  2026-10-02): `lib/std/runtime.sv` (module `std.runtime`) implements the actor forms
+  and may not use them; the modules under `lib/std/runtime/` (`std.runtime.timers`)
   are services built on it, which may. The core importing a service is
   refused at the import, which keeps the dependency one-way — the scheduler
   never depends on something that depends on the scheduler. The core exports
@@ -10015,9 +10051,9 @@ between endpoints and delivers what arrives into the scheduler.
   `pool_index(Pool) -> Int` and `pool_of(Int) -> Pool` as intrinsics (an `as`
   cast on Rust, nothing on Kotlin), and `reply_token<T>(Reply<T>) -> Token?`
   (2026-10-06), the core's token taken out of a reply token (`None` for one
-  minted on another node), which is how `core.actor`'s `watch` and `on_idle`
+  minted on another node), which is how `std.core.actor`'s `watch` and `on_idle`
   are Salvo. A program cannot import `runtime`
-  [mod-export], so it cannot forge a handle; std's `core.actor` and `net` are
+  [mod-export], so it cannot forge a handle; std's `std.core.actor` and `net` are
   Salvo over `runtime.routing` through them. `Addr`, `Reply` and `Pool` stay
   `intrinsic type`s: the backends generate the actor machinery and name them
   throughout, so a platform type would buy nothing (user decision 2026-10-05,
@@ -10044,13 +10080,13 @@ between endpoints and delivers what arrives into the scheduler.
   target-specific needs (Rust's string and sequence helpers, Kotlin's throw
   signal, byte buffer and comparison runtime).
 * [runtime-sched] **The scheduler is Salvo** (runtime steps, steps 1–15,
-  complete 2026-10-03): the core `std/runtime.sv`, its services under
-  `std/runtime/` (`timers`, `routing`, `streams`), and the host's part —
+  complete 2026-10-03): the core `lib/std/runtime.sv`, its services under
+  `lib/std/runtime/` (`timers`, `routing`, `streams`), and the host's part —
   `RuntimeHost` [runtime-host], the platform types and fns in
-  `std/platform/runtime.{rs,kt}` and `std/platform/runtime/*` — is the whole
+  `lib/platform/std/runtime.{rs,kt}` and `lib/platform/std/runtime/*` — is the whole
   of it. Each backend's `runtime/scheduler.*` is the entry points generated
   code calls, as shims onto the core, plus the host's registry of proxies.
-  Driven by `std/runtime.test.sv`. The pieces: the `Scheduler` monitor (an actor table of `linear struct
+  Driven by `lib/std/runtime.test.sv`. The pieces: the `Scheduler` monitor (an actor table of `linear struct
   ActorRec canbe Mut` records, each with a `Slot<Body>` and a `Mut
   Deque<Dyn>` mailbox), pools of worker threads that park when idle, send
   with back-pressure (a sender parks on a full mailbox, woken by the next
@@ -10079,7 +10115,7 @@ between endpoints and delivers what arrives into the scheduler.
     moved to the service `runtime.routing` the same day [addr-routable].
     The core calls back `granted(addr, from)` when
     a message that came over the wire leaves a mailbox and `flush_frames()`
-    before an activation. A watch is answered with `core.actor`'s `Exit` and
+    before an activation. A watch is answered with `std.core.actor`'s `Exit` and
     an idle hook with its `Idle`, built by the core. The runtime module is
     reached by any program using an actor form (by source text outside
     comments, an over-approximation), and an emitter refuses a build that
@@ -10135,12 +10171,12 @@ between endpoints and delivers what arrives into the scheduler.
   between an unpark and the park consumed the unpark, and the park never
   returned; found 2026-10-03).
   * Found building it: a std tree on disk that shadows the embedded one
-    ([std-shadow], `salvo test --src std`) brought its platform files *beside*
+    ([std-shadow], `salvo test --src lib`) brought its platform files *beside*
     the embedded copies, and the duplicate was refused as a collision; the
     shadowing copy now replaces the embedded one at the same output path.
   * The test harness may import `runtime.test`, since it runs std's annexes.
-* [mod-import-module] `import time` imports a whole **module** — every name
-  in it (user decision 2026-09-18, with `core.time` moved out to module
+* [mod-import-module] `import std.time` imports a whole **module** — every name
+  in it (user decision 2026-09-18, with `std.core.time` moved out to module
   `time`: a std surface that is not implicitly visible needs one line to
   reach, not one line per name).
   * **One module, not the tree under it** (user decision 2026-09-26):
@@ -10156,11 +10192,11 @@ between endpoints and delivers what arrives into the scheduler.
     has a module prefix in front of it. A single-segment path can only be
     a module, so an unknown one says so and lists the importable modules
     rather than reporting the `module.item` shape.
-  * `import core` names no module of its own (`core.list`, `core.string` and
+  * `import std.core` names no module of its own (`std.core.list`, `std.core.string` and
     the rest are separate modules) and is **redundant** rather than unknown:
-    everything under `core` is visible anyway [mod-visibility].
+    everything under `std.core` is visible anyway [mod-visibility].
   * **A bulk import never fights anything.** It enters at its own ladder
-    rung — above implicit `core.*`, below a named import and below this
+    rung — above implicit `std.core.*`, below a named import and below this
     module's own declarations [fn-overload-scope] — and loses *silently*
     both ways, because a convenience import must not break a file that
     declares its own `Span`.
@@ -10170,10 +10206,10 @@ between endpoints and delivers what arrives into the scheduler.
     **type** name is there nothing to disambiguate with, so the first in
     module order wins and the second **warns**, naming the named-import
     remedy.
-  * **No alias**: `import time as t` is an error. An alias renames one
+  * **No alias**: `import std.time as t` is an error. An alias renames one
     imported name, and there are no module-qualified type references for a
     module alias to qualify.
-  * `import core` is redundant — reported as a warning rather than adding
+  * `import std.core` is redundant — reported as a warning rather than adding
     every core name at a second rung, which would put each core overload
     into the set twice (the shape [qual-refn-match] is sensitive to).
 * [obligation-spelling] **Obligations are lowercase keywords** (user
@@ -10298,7 +10334,7 @@ between endpoints and delivers what arrives into the scheduler.
     The Rust backend flattens dot-names, and overload mangling embeds the
     same spelling [rs-fn-mangling] [fn-emit-name], so the ban is
     checked against the whole scope — own module (all its files),
-    `core.*`, and imports — not just the declaring file. No encoding
+    `std.core.*`, and imports — not just the declaring file. No encoding
     escapes this: Rust identifiers are `[A-Za-z0-9_]`, so every encoding
     is also a legal name.
   * The name is carried as *one dotted string*, so scope keys, checker
@@ -10387,18 +10423,18 @@ between endpoints and delivers what arrives into the scheduler.
 * [mod-collision] Non-fn name collisions are errors, not last-win —
   same-name fns form overload sets and are exempt. Reported: a same-kind
   same-name duplicate within one module; the same name declared in two
-  implicitly visible `core.*` modules; an import colliding with an
+  implicitly visible `std.core.*` modules; an import colliding with an
   own-module declaration or another import (`as` renames resolve it).
   Deliberate shadowing stays silent: own-module declarations and
-  explicit imports override implicit `core.*` visibility.
+  explicit imports override implicit `std.core.*` visibility.
   * Kinds are per-namespace (struct/effect/handler/qualifier/type
     alias/opaque type): same-name declarations of different kinds do
     not collide.
 * [type-name-shadow] **A type name is one name whatever kind declares it**:
   a struct, a type alias or an opaque type. An own declaration or an import
-  of a type name shadows an implicit `core` one of *any* of the three kinds,
+  of a type name shadows an implicit `std.core` one of *any* of the three kinds,
   as it always shadowed one of its own kind [mod-collision]. Until 2026-10-20
-  a user `type Field = …` sat beside `core.comptime`'s `comptime struct
+  a user `type Field = …` sat beside `std.core.comptime`'s `comptime struct
   Field`, and a use of `Field` meant one or the other depending on which
   table the lookup read first: two lines of one fn read it differently
   (`AddCtx::shadow_core_type` in resolve.rs; ROADMAP §2d item 4).
@@ -10458,7 +10494,7 @@ between endpoints and delivers what arrives into the scheduler.
     name edge — only the pure-fn case is precise enough to narrow.
   * Why the split: a *name* resolves to every module declaring it, so under the
     old name-only rule a program that merely iterated — using the name `next` —
-    pulled in `core.range` and whatever it dragged, because `core.range`
+    pulled in `std.core.range` and whatever it dragged, because `std.core.range`
     declares a `next` too. The ten checked-in examples lost **11,562 lines** of
     generated code to the narrowing, with nothing added.
   * The two errors point opposite ways, which is why the fn side draws on every
@@ -10493,8 +10529,8 @@ replaced the working document TESTING.md).
   `runtime.random_double()`, two draws of the scheduler's Lehmer generator
   as one double in [0, 1). Seeded by OS entropy on first use, and by the test's
   seed in an actor test, so its draws repeat there [test-actor]. Not
-  cryptographic. `core.console`'s `StdConsole` is a `threadsafe platform
-  handler` with its host files in `std/platform/core/console.{rs,kt}`; std
+  cryptographic. `std.core.console`'s `StdConsole` is a `threadsafe platform
+  handler` with its host files in `lib/platform/std/core/console.{rs,kt}`; std
   declares no `intrinsic handler` any more.
 * [console] **`Console` is the program's standard streams** (user request
   2026-10-20): `print(message)` writes standard output and `printerr(message)`
@@ -10624,7 +10660,7 @@ replaced the working document TESTING.md).
     a test inherits the test's own `use` permission [test-body]. Effect
     polymorphism would remove the ceremony and does not exist (ROADMAP.md).
   * These are ordinary functions that `throw` [test-fail], so a test *about*
-    them reads its own failure off a `try` — which is what `std/test.test.sv`,
+    them reads its own failure off a `try` — which is what `lib/std/test.test.sv`,
     the test module's own annex, does.
 * [test-recover] (`std.test`'s `trapped_by` is Salvo since 2026-10-04: a call
   of `runtime.trap_boundary`, the runtime's fault boundary for a lent body,
@@ -10731,7 +10767,7 @@ replaced the working document TESTING.md).
   manifest above, it needs `--src` or `--main` as before. The language server
   discovers **per document**, analysing each open document under its own
   project — one analysis per project root — so a workspace holding several
-  projects (this repository: `std/`, every `examples/*/`, `demo/`) checks each
+  projects (this repository: `lib/`, every `examples/*/`, `demo/`) checks each
   as its own program. A document with no manifest above it is analysed under
   the workspace root, as before, and — in a workspace that does hold projects
   — carries an information diagnostic saying so.
@@ -10746,15 +10782,18 @@ replaced the working document TESTING.md).
   exists to stop. A protocol added or removed relocks without error. Std
   shares the predicate (`effect_has_wire_form`) with both emitters, so what is
   locked is exactly what carries a `__PROTO_E` constant [protocol-hash].
-* [std-shadow] (`std/salvo.toml` says `std = true` [manifest], which marks the
+* [std-shadow] (`lib/salvo.toml` says `std = true` [manifest], which marks the
   whole tree std — a new module the embedded copy lacks included — and is what
-  makes the repository root openable in an editor.) A source tree may **replace** modules of the embedded standard
-  library: every module a loaded file declares that an embedded std file also
-  declares drops the embedded copy, and the disk file takes over with its
-  std-ness (so its `intrinsic` declarations stay legal). This is what
-  `salvo test --src std` rests on — it tests the checkout, not the std
-  compiled into the binary — and without it the two copies would collide as
-  duplicate declarations [mod-collision].
+  makes the repository root openable in an editor. Its source root is `lib/`
+  itself, so the tree's module paths are `std.…` [std-root], and its platform
+  root is `lib/platform`.) A `std = true` tree may **replace** modules of the
+  embedded standard library: every module a loaded file declares that an
+  embedded std file also declares drops the embedded copy, and the disk file
+  takes over with its std-ness (so its `intrinsic` declarations stay legal).
+  This is what `salvo test --src lib` rests on — it tests the checkout, not
+  the std compiled into the binary — and without it the two copies would
+  collide as duplicate declarations [mod-collision]. Any other tree cannot
+  declare std's modules at all [std-root].
 * [manifest-deps] **A project's dependencies are other projects, named under
   `[dependencies]` and found by name under `[build] modules`** (user decisions
   2026-09-29; the 2026-09-29 manifest entry had parked "dependencies between
@@ -10773,7 +10812,7 @@ replaced the working document TESTING.md).
   * **Std-ness follows the dependency's own manifest.** A dependency
     declaring a module the embedded std also declares is refused, naming the
     file and the fix (`[project] std = true` in *its* manifest) — a library
-    must not redefine `core.list` on its users. With `std = true` it *is* a
+    must not redefine `std.core.list` on its users. With `std = true` it *is* a
     standard library: its files are std and replace the embedded copies they
     name, as [std-shadow] lets a tree do. `mark_std_tree` and
     `apply_std_shadow` leave dependency files alone; `add_dependency` has
@@ -10841,8 +10880,8 @@ replaced the working document TESTING.md).
   * Two kinds live here. `copy` [copy-fn] and `discard`
     [linear-discard] dispatch on the argument's *type or shape*, which is
     the whole reason they are intrinsics, and each backend lowers them
-    itself. Everything else std declares — the `core.list`, `core.array`
-    and `core.string` surface — is a table entry.
+    itself. Everything else std declares — the `std.core.list`, `std.core.array`
+    and `std.core.string` surface — is a table entry.
   * A call's type arguments reach the lowering ([call-type-args]), which
     is how Kotlin's list constructors spell out an element type kotlinc
     cannot infer from an empty argument list (`mutableListOf<Int>()`).
@@ -10939,7 +10978,7 @@ replaced the working document TESTING.md).
     implicit, so a collection prints only where its element does; and
     **`drain` is Salvo** over `into_mut`, `remove_first` and `end_empty` (a
     host fn that traps on a non-empty container), so no effectful callback
-    crosses the boundary. A `core` platform fn's Rust type parameters are
+    crosses the boundary. A `std.core` platform fn's Rust type parameters are
     bounded `Clone` for a plain `T` and not at all for a `T canbe linear` —
     an element may then be a borrow — and a struct's carry none (the derives
     bound their own impls). std's Rust wrappers take a lent fn value as
@@ -10949,7 +10988,7 @@ replaced the working document TESTING.md).
     anything else found by address. `for` over a `List`, `Str` or `Bytes`
     stays the backends' native loop [iter-for-native]. A platform
     fn's Rust wrapper is called through its module's path
-    (`crate::core_string::size_platform`), since two modules' wrappers of
+    (`crate::std_core_string::size_platform`), since two modules' wrappers of
     one name are ambiguous through glob imports.
   * [platform-iterable] **`iterable platform type List<T> canbe Mut :
     Iter<self, It, T>`: a `for` over one is the host's own loop** (user decision
@@ -10988,7 +11027,7 @@ replaced the working document TESTING.md).
     host keeps one representation for every identity: std's `Set`/`Map` are
     an insertion-ordered slab (entries, tombstones, the digest each was filed
     under, a bucket index), the sorted pair a sorted list searched by
-    bisection, in `std/platform/core/{set,map,sorted}.{kt,rs}`. A value type
+    bisection, in `lib/platform/std/core/{set,map,sorted}.{kt,rs}`. A value type
     with slots promises no `Hash` on Rust, since it is not a key
     [col-key-eligible]. `linear` refuses slots.
     * **Consequence for generic code**: a generic fn that looks an element up
@@ -11165,7 +11204,7 @@ replaced the working document TESTING.md).
   names one directory for every backend, `[kotlin] platform` / `[rust]
   platform` one per backend, over it; paths are relative to the manifest.
   Both backends may share a root — the extensions keep the files apart, as in
-  `modules/aws` (`platform = "salvo/platform"`) and `std/`
+  `modules/aws` (`platform = "salvo/platform"`) and `lib/std/`
   (`platform = "platform"`) — or each may have its own, inside the source
   tree or beside it (`kotlin/`, `rust/`).
   * A program with a `platform handler` or a `platform fn`
@@ -11184,7 +11223,7 @@ replaced the working document TESTING.md).
   * In the output a host file is always `platform/<module path>.<ext>`
     (`SourceSet::platform_output_path`), whatever root it came from: the
     emitted code names it there.
-  * A dependency's roots are its own manifest's; std's are `std/salvo.toml`'s,
+  * A dependency's roots are its own manifest's; std's are `lib/std/salvo.toml`'s,
     read by the embedded loader as well as from a checkout.
 * [platform-tree] The host implementations live in the backend's **platform
   root** [platform-root], mirroring the source layout: `app/entry.kt` under
@@ -11206,7 +11245,7 @@ replaced the working document TESTING.md).
     names `salvo platform generate` rather than leaving the target toolchain
     to report a missing class against generated code [backend-never-wrong].
   * The tree is not the *customer's* alone: std ships its host classes
-    under its own root too (`std/platform/fs/host.kt`), which is how a std
+    under its own root too (`lib/platform/std/fs/host.kt`), which is how a std
     `platform handler` is implemented. The embedded std is loaded with the
     active backend's extension, exactly as a source directory is.
   * Both backends' host files may coexist in one root, because discovery
@@ -11722,13 +11761,13 @@ replaced the working document TESTING.md).
   the name, as `module.Item` paths (`FileDiagnostic::suggested_imports`).
   * Computed from a whole-program declaration index
     (`Resolution::declared_in`); effect members map to their owning
-    *effect* (importing the effect brings its members). `core.*` modules
+    *effect* (importing the effect brings its members). `std.core.*` modules
     are never suggested — they are implicitly visible, so an unknown
     name cannot be fixed by importing from core.
   * Attached at: unknown handler in `use`, unknown effect in an effect
     list, and unresolved imports (which suggest the correct module path
-    for the item, e.g. `import std.random.Random` -> `import
-    random.Random`).
+    for the item, e.g. `import std.rand.Random` -> `import
+    std.random.Random`).
   * Rendering: text mode appends one ``help: add `import …` `` line per
     suggestion; `--format json` adds an `"imports"` array (only when
     non-empty); the LSP carries them on `Diagnostic.data` and serves
@@ -11795,9 +11834,11 @@ replaced the working document TESTING.md).
     as one error (in JSON mode it goes to stderr, beside an array without
     it); the language server shows it at the start of the document analysed.
     Hidden warnings say nothing.
-  * One construction reaches it today: a project module under `core`, which
-    std sees implicitly (until the `std.` prefix), can make std's `by auto`
-    name two modules (`errors_in_the_embedded_std_are_one_line`).
+  * A project cannot reach it since [std-root] (its module under `std.core` is
+    refused and not visible). One construction is left: a `std = true`
+    *dependency* adding a module under `std.core`, which std sees implicitly,
+    can make std's `by auto` name two modules
+    (`errors_in_the_embedded_std_are_one_line`).
   * `salvo_core::diag::{hidden_std_file, hide_std_diagnostics,
     render_shown}` are the one filter.
 * [cli-run] `salvo run [--backend NAME|*] [--src DIR] [--main FILE]
@@ -12088,17 +12129,18 @@ replaced the working document TESTING.md).
   the files after std are parsed and comptime-expanded: the world reads
   std's tables as they were before std was stamped, scopes are built for the
   stamped files only, and std's own expansion output (diagnostics, hovers,
-  `[when]` arms) is the front's. The comptime gate: std sees only std
-  [obligation-by] [comptime-instantiate] — a `by` path names only the modules
-  its file can see, and a name std's scope does not see falls back to std's
-  declarations alone — so the one way a project reaches std's expansion is a
-  module under `core`, which std sees implicitly. A program with a project
-  module under `core` (`StdComptime::admits`) is expanded whole, std
-  reparsed; asked with the rest of the gate, before anything is parsed.
+  `[when]` arms) is the front's. There is **no comptime gate** (since
+  2026-10-14): std sees only std [obligation-by] [comptime-instantiate] — a
+  `by` path names only the modules its file can see, a name std's scope does
+  not see falls back to std's declarations alone, and what std sees
+  implicitly is `std.core.*`, which no project can declare [std-root] — so
+  nothing a project writes changes std's expansion, and the front stands in
+  for every program its files match (`std_front_applies`).
   (Until 2026-10-14 the gate recorded every name std's stamping asked about
   and every `by` path it matched, and refused a project declaring one or
   having a module path one matched — a project module `auto` was refused,
-  and std expanded with errors inside it.)
+  and std expanded with errors inside it; then, briefly,
+  `StdComptime::admits` refused only a project module under `core`.)
   With std's modules shared, `check_once` takes std's written keys from the
   cache and computes the project's, merging the by-span keys as gathering
   them together would. An analysis through the front reports what one

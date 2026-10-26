@@ -13,7 +13,7 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 /// [intrinsic-std-only] The capability groups and the intrinsic canonicals, as
-/// `std/core/compare.sv` declares them, plus the list surface a heap is built
+/// `lib/std/core/compare.sv` declares them, plus the list surface a heap is built
 /// on.
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\n",
@@ -91,7 +91,7 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/compare.sv",
-        SourceSet::classify(Path::new("core/compare.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/compare.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
@@ -481,7 +481,7 @@ fn run(xs: Mut List<Person>) [] -> Int => xs: Mut {
 // ===== the `Sorted` claim [col-sorted-list] =====
 
 /// The `Sorted` tests run against **std's own** declarations rather than a
-/// mirror of them: what is under test is the shape `core.list` gives
+/// mirror of them: what is under test is the shape `std.core.list` gives
 /// `sort`/`add_sorted`/`binary_search`, which a hand-written prelude could only
 /// restate. (The precedent for loading std in a `salvo-core` test is
 /// `diag_tests`' `check_errors`.)
@@ -491,7 +491,7 @@ fn std_errors(src: &str) -> Vec<String> {
 
 /// [`std_errors`] over several program files.
 fn std_errors_in(files: &[(&str, &str)]) -> Vec<String> {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let io_errors = sources.add_dir(&std_dir, "rs", true, false);
     assert!(io_errors.is_empty(), "failed to read std: {io_errors:?}");

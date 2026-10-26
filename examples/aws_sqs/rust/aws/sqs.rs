@@ -1,16 +1,16 @@
 use crate::aws::AwsError;
-use crate::core_bytes::Bytes;
-use crate::core_checked::Checked;
-use crate::core_map::Map;
-use crate::core_list::add_platform;
-use crate::core_result::ok;
+use crate::std_core_bytes::Bytes;
+use crate::std_core_checked::Checked;
+use crate::std_core_map::Map;
+use crate::std_core_list::add_platform;
+use crate::std_core_result::ok;
 
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CreateQueueInput {
     pub queue_name: String,
-    pub attributes: Option<crate::core_map::Map<String, String>>,
-    pub tags: Option<crate::core_map::Map<String, String>>,
+    pub attributes: Option<crate::std_core_map::Map<String, String>>,
+    pub tags: Option<crate::std_core_map::Map<String, String>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -69,8 +69,8 @@ pub struct SendMessageInput {
     pub queue_url: String,
     pub message_body: String,
     pub delay_seconds: Option<i32>,
-    pub message_attributes: Option<crate::core_map::Map<String, crate::aws_sqs::MessageAttributeValue>>,
-    pub message_system_attributes: Option<crate::core_map::Map<String, crate::aws_sqs::MessageSystemAttributeValue>>,
+    pub message_attributes: Option<crate::std_core_map::Map<String, crate::aws_sqs::MessageAttributeValue>>,
+    pub message_system_attributes: Option<crate::std_core_map::Map<String, crate::aws_sqs::MessageSystemAttributeValue>>,
     pub message_deduplication_id: Option<String>,
     pub message_group_id: Option<String>,
 }
@@ -78,9 +78,9 @@ pub struct SendMessageInput {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MessageAttributeValue {
     pub string_value: Option<String>,
-    pub binary_value: Option<crate::core_bytes::Bytes>,
+    pub binary_value: Option<crate::std_core_bytes::Bytes>,
     pub string_list_values: Option<Vec<String>>,
-    pub binary_list_values: Option<Vec<crate::core_bytes::Bytes>>,
+    pub binary_list_values: Option<Vec<crate::std_core_bytes::Bytes>>,
     pub data_type: String,
 }
 
@@ -106,9 +106,9 @@ impl crate::wire::__Wire for MessageAttributeValue {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MessageSystemAttributeValue {
     pub string_value: Option<String>,
-    pub binary_value: Option<crate::core_bytes::Bytes>,
+    pub binary_value: Option<crate::std_core_bytes::Bytes>,
     pub string_list_values: Option<Vec<String>>,
-    pub binary_list_values: Option<Vec<crate::core_bytes::Bytes>>,
+    pub binary_list_values: Option<Vec<crate::std_core_bytes::Bytes>>,
     pub data_type: String,
 }
 
@@ -207,9 +207,9 @@ pub struct Message {
     pub receipt_handle: Option<String>,
     pub md5_of_body: Option<String>,
     pub body: Option<String>,
-    pub attributes: Option<crate::core_map::Map<String, String>>,
+    pub attributes: Option<crate::std_core_map::Map<String, String>>,
     pub md5_of_message_attributes: Option<String>,
-    pub message_attributes: Option<crate::core_map::Map<String, crate::aws_sqs::MessageAttributeValue>>,
+    pub message_attributes: Option<crate::std_core_map::Map<String, crate::aws_sqs::MessageAttributeValue>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -432,28 +432,28 @@ impl FakeSqs {
 
 impl crate::aws_sqs::__Stateful_Sqs for FakeSqs {
     fn create_queue(&mut self, input: crate::aws_sqs::CreateQueueInput, reply: crate::scheduler::SalvoReply) {
-        crate::core_list::add_platform::<String>(&mut self.recorded, String::from("create_queue"));
-        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::CreateQueueOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::core_result::ok::<crate::aws_sqs::CreateQueueOutput>(crate::aws_sqs::CreateQueueOutput { queue_url: None })));
+        crate::std_core_list::add_platform::<String>(&mut self.recorded, String::from("create_queue"));
+        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::CreateQueueOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::std_core_result::ok::<crate::aws_sqs::CreateQueueOutput>(crate::aws_sqs::CreateQueueOutput { queue_url: None })));
     }
     fn get_queue_url(&mut self, input: crate::aws_sqs::GetQueueUrlInput, reply: crate::scheduler::SalvoReply) {
-        crate::core_list::add_platform::<String>(&mut self.recorded, String::from("get_queue_url"));
-        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::GetQueueUrlOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::core_result::ok::<crate::aws_sqs::GetQueueUrlOutput>(crate::aws_sqs::GetQueueUrlOutput { queue_url: None })));
+        crate::std_core_list::add_platform::<String>(&mut self.recorded, String::from("get_queue_url"));
+        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::GetQueueUrlOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::std_core_result::ok::<crate::aws_sqs::GetQueueUrlOutput>(crate::aws_sqs::GetQueueUrlOutput { queue_url: None })));
     }
     fn send_message(&mut self, input: crate::aws_sqs::SendMessageInput, reply: crate::scheduler::SalvoReply) {
-        crate::core_list::add_platform::<String>(&mut self.recorded, String::from("send_message"));
-        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::SendMessageOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::core_result::ok::<crate::aws_sqs::SendMessageOutput>(crate::aws_sqs::SendMessageOutput { md5_of_message_body: None, md5_of_message_attributes: None, md5_of_message_system_attributes: None, message_id: None, sequence_number: None })));
+        crate::std_core_list::add_platform::<String>(&mut self.recorded, String::from("send_message"));
+        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::SendMessageOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::std_core_result::ok::<crate::aws_sqs::SendMessageOutput>(crate::aws_sqs::SendMessageOutput { md5_of_message_body: None, md5_of_message_attributes: None, md5_of_message_system_attributes: None, message_id: None, sequence_number: None })));
     }
     fn receive_message(&mut self, input: crate::aws_sqs::ReceiveMessageInput, reply: crate::scheduler::SalvoReply) {
-        crate::core_list::add_platform::<String>(&mut self.recorded, String::from("receive_message"));
-        (reply).send(std::boxed::Box::<crate::unions::Union2<crate::aws_sqs::ReceiveMessageOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>::new(crate::unions::Union2::U1(crate::core_result::ok::<crate::aws_sqs::ReceiveMessageOutput>(crate::aws_sqs::ReceiveMessageOutput { messages: None }))));
+        crate::std_core_list::add_platform::<String>(&mut self.recorded, String::from("receive_message"));
+        (reply).send(std::boxed::Box::<crate::unions::Union2<crate::aws_sqs::ReceiveMessageOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>::new(crate::unions::Union2::U1(crate::std_core_result::ok::<crate::aws_sqs::ReceiveMessageOutput>(crate::aws_sqs::ReceiveMessageOutput { messages: None }))));
     }
     fn delete_message(&mut self, input: crate::aws_sqs::DeleteMessageInput, reply: crate::scheduler::SalvoReply) {
-        crate::core_list::add_platform::<String>(&mut self.recorded, String::from("delete_message"));
-        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::core_result::ok::<()>(())));
+        crate::std_core_list::add_platform::<String>(&mut self.recorded, String::from("delete_message"));
+        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<(), crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::std_core_result::ok::<()>(())));
     }
     fn delete_queue(&mut self, input: crate::aws_sqs::DeleteQueueInput, reply: crate::scheduler::SalvoReply) {
-        crate::core_list::add_platform::<String>(&mut self.recorded, String::from("delete_queue"));
-        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::core_result::ok::<()>(())));
+        crate::std_core_list::add_platform::<String>(&mut self.recorded, String::from("delete_queue"));
+        crate::scheduler::salvo_reply_wire::<crate::unions::Union2<(), crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::std_core_result::ok::<()>(())));
     }
 }
 

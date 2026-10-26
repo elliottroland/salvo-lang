@@ -1,0 +1,12 @@
+package salvo.std.core.basic
+
+import salvo.*
+
+fun<A, B> toStr__TupleAB(value: kotlin.Pair<A, B>, toStr: (A) -> String, toStr__1: (B) -> String): String {
+    return "(${toStr(value.first)}, ${toStr__1(value.second)})"
+}
+
+fun<A, B, C> toStr__TupleABC(value: kotlin.Triple<A, B, C>, toStr: (A) -> String, toStr__1: (B) -> String, toStr__2: (C) -> String): String {
+    return "(${toStr(value.first)}, ${toStr__1(value.second)}, ${toStr__2(value.third)})"
+}
+

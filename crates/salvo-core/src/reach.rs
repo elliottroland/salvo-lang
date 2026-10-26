@@ -11,8 +11,8 @@
 //!   `next`/`iter` actually resolved to, so the edge follows *that*. A
 //!   name-based edge cannot: it resolves a *name* to every module
 //!   declaring it, so a program that merely iterates — using the name
-//!   `next` — pulled in `core.range` and whatever it drags, because
-//!   `core.range` declares a `next` too.
+//!   `next` — pulled in `std.core.range` and whatever it drags, because
+//!   `std.core.range` declares a `next` too.
 //! * **By name**, for everything else: a type, struct, effect, handler,
 //!   qualifier or `params` group a file mentions is looked up in that
 //!   file's resolved scope (`ModuleScope::name_origins`) and every module
@@ -79,26 +79,21 @@ pub fn reachable_modules<'p>(
     reachable_from(program, resolution, checked, roots, true)
 }
 
-/// [runtime-sched] The runtime module (`std/runtime.sv`), when the program
+/// [runtime-sched] The runtime module (`lib/std/runtime.sv`), when the program
 /// has one.
 pub fn runtime_module(program: &Program) -> Option<&ModulePath> {
     program
         .units()
-        .find(|u| u.file.is_std && u.file.module.0.len() == 1 && u.file.module.0[0] == crate::resolve::STD_INTERNAL)
+        .find(|u| u.file.is_std && u.file.module == ModulePath::std(&[crate::resolve::STD_INTERNAL]))
         .map(|u| &u.file.module)
 }
 
-/// [runtime-sched] The routing service (`std/runtime/routing.sv`), which the
+/// [runtime-sched] The routing service (`lib/std/runtime/routing.sv`), which the
 /// host's scheduler shims call: it ships wherever the runtime does.
 pub fn routing_module(program: &Program) -> Option<&ModulePath> {
     program
         .units()
-        .find(|u| {
-            u.file.is_std
-                && u.file.module.0.len() == 2
-                && u.file.module.0[0] == crate::resolve::STD_INTERNAL
-                && u.file.module.0[1] == "routing"
-        })
+        .find(|u| u.file.is_std && u.file.module == ModulePath::std(&[crate::resolve::STD_INTERNAL, "routing"]))
         .map(|u| &u.file.module)
 }
 
@@ -126,7 +121,7 @@ pub fn streams_closure<'p>(
     checked: &crate::check::Checked,
     reachable: &HashSet<&'p ModulePath>,
 ) -> HashSet<&'p ModulePath> {
-    let Some(m) = program.units().find(|u| u.file.is_std && u.file.module.0 == ["runtime", "streams"]).map(|u| &u.file.module) else {
+    let Some(m) = program.units().find(|u| u.file.is_std && u.file.module == ModulePath::std(&[crate::resolve::STD_INTERNAL, "streams"])).map(|u| &u.file.module) else {
         return HashSet::new();
     };
     if !reachable.contains(m) {

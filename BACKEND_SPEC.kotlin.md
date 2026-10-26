@@ -2,7 +2,7 @@
 
 The Kotlin interpretation of [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md). Load
 this file (only) when working on the Kotlin backend
-(`crates/salvo-backend-kotlin`, `std/**/*.kotlin.sv`).
+(`crates/salvo-backend-kotlin`, `lib/std/**/*.kotlin.sv`).
 
 Conventions:
 
@@ -27,7 +27,7 @@ Conventions:
 ## Output layout
 
 * [kt-package] Each module emits into its own Kotlin package
-  `salvo.<module.path>` (`core.console` → `package salvo.core.console`),
+  `salvo.<module.path>` (`std.core.console` → `package salvo.std.core.console`),
   as `<module/path>.kt`. Cross-module name collisions are gone; the
   generated `unions.kt` lives in the root package `salvo`.
   * [mod-used-only] Only reachable modules that produce code are emitted;
@@ -37,7 +37,7 @@ Conventions:
     is accepted and then unreachable — `import salvo.`throw`.*` is
     "unresolved reference" — so escaping would ship code that does not
     compile [backend-never-wrong]. std's own `throw` module is the customer,
-    found the day it left `core` (2026-09-26). Identifiers keep the backquote
+    found the day it left `std.core` (2026-09-26). Identifiers keep the backquote
     form; only path segments mangle, because a package is not an identifier
     position.
 * [kt-ir] **The Kotlin emitter reads the IR** (IR record; the AST emitter it
@@ -339,7 +339,7 @@ Conventions:
   comparator, `salvo.__salvoCompare` (runtime file `compare.kt`, emitted only
   when something needs it): `cmp(Str, Str)` reaches it, since `String.compareTo`
   is the wrong order (UTF-16 code units; Salvo's is code points). A `List`'s and
-  a tuple's `cmp` are Salvo (`core.compare`, 2026-10-06), and the generated
+  a tuple's `cmp` are Salvo (`std.core.compare`, 2026-10-06), and the generated
   `TupleN` classes carry nothing for ordering.
 * [struct-spread] `P {...p, f: v}` emits as `p.copy(f = v)`. The shallow
   copy aliases `Mut` fields where Rust deep-clones, which is
@@ -423,7 +423,7 @@ Conventions:
   property for both shapes of its struct, declared at the **plain** `T`'s
   rendering (`var items: List<Int>`): a `Mut` struct stores a
   `MutList`/`MutableList` there, which is a `List`. A read the checker typed
-  `Mut` casts back (`(b.items as salvo.platform.core.list.MutList<Int>)`,
+  `Mut` casts back (`(b.items as salvo.platform.std.core.list.MutList<Int>)`,
   under the fn's `@Suppress("UNCHECKED_CAST")` [kt-suppress-cast]); an
   assignment target is the property itself. A type whose `Mut` rendering is
   *not* a subtype of the plain one (`Mut Str`, a `StringBuilder`) is a
@@ -998,9 +998,9 @@ nothing but the monitor.
   | `T?` | `T?` [kt-union-nullable] |
   | a union of *n* ≥ 2 runtime arms | `salvo.UnionN<A, …>`, arms `UnionN.Uk(value)` in runtime-arm order, tested `is UnionN.Uk<*, …>` [kt-union-wrappers] [union-arm-identity]; nullable when it has a `None` arm |
   | `struct S { f: T }` | `data class S(val f: T)` with the field names in camel case [kt-camel]; a dot-name `A.B` is `A.B`, nested in an `object` [kt-nested-dot-name]; a keyword is back-quoted |
-  | `Checked<T>` | `salvo.core.checked.Checked(value)` |
+  | `Checked<T>` | `salvo.std.core.checked.Checked(value)` |
   | `Reply<T>` parameter | `salvo.SalvoReply`; `.hosted()` answers the host reply whose `send(v)` may run on any thread, exactly once [platform-reply] |
-  | `InStream` / `OutStream` | `salvo.stream.InStream(handle: Long)`; the table is Salvo (`runtime.streams`); host code reaches it through `hoststreams.kt`'s `SalvoStreams.registerIn/registerOut` and `takeIn` (a `SalvoIn` reader whose failures are `SalvoFaultException`) [stream-table] |
+  | `InStream` / `OutStream` | `salvo.std.stream.InStream(handle: Long)`; the table is Salvo (`runtime.streams`); host code reaches it through `hoststreams.kt`'s `SalvoStreams.registerIn/registerOut` and `takeIn` (a `SalvoIn` reader whose failures are `SalvoFaultException`) [stream-table] |
   | `platform handler H(p: T) of E` | `class H(p: T) : EPlatform`, every member `override`n [kt-platform-handler] |
 
 * [kt-abi] [platform-abi] **The Kotlin host project** is `emit_abi`: the
@@ -1058,7 +1058,7 @@ nothing but the monitor.
     names it, and taking the handler's declared constructor parameters.
   * A `use` whose declaring module has no host companion is a codegen error
     naming `salvo platform generate` [backend-never-wrong]; std's companion
-    is shipped in `std/platform/` rather than generated [platform-tree].
+    is shipped in `lib/platform/std/` rather than generated [platform-tree].
   * The skeleton imports the **packages its own signatures need**: the
     declaring module's, the effect's when that lives elsewhere, and the root
     `salvo` package when a member's result is a union wrapper. Missed until
@@ -1216,10 +1216,10 @@ nothing but the monitor.
 * [kt-runtime-host] **The scheduler itself is Salvo** (2026-10-03,
   [runtime-sched]): std's `runtime` module and its services, emitted like any
   module. What Kotlin writes by hand is in std's platform root:
-  `std/platform/runtime.kt` (`HostRuntime`, `Parker` over its own
+  `lib/platform/std/runtime.kt` (`HostRuntime`, `Parker` over its own
   `AtomicBoolean` token and `LockSupport`, daemon threads, the fault boundary,
   `Dyn`/`Body`/`Slot`, the `here` thread-local) and
-  `std/platform/runtime/{routing,streams}.kt` (frame codecs, `HostIn` over an
+  `lib/platform/std/runtime/{routing,streams}.kt` (frame codecs, `HostIn` over an
   `InputStream`). `scheduler.kt` is the entry points generated code calls
   (`SalvoSched.spawn`, `send`, `mint`, …) as calls into the core, plus the
   registry of proxies (`ConcurrentHashMap`s) the wire codecs read; about 380
@@ -1227,7 +1227,7 @@ nothing but the monitor.
 * [kt-keyed] [platform-slots] **The keyed collections are std's host
   classes** (2026-10-06, ROADMAP §0j step 7; `keyed.kt` and the `LinkedHashMap`
   / `TreeMap` paths are gone): `SalvoSet`/`SalvoMap` in
-  `std/platform/core/{set,map}.kt` (a slot list in first-insertion order with
+  `lib/platform/std/core/{set,map}.kt` (a slot list in first-insertion order with
   tombstones, each entry's digest cached, a `HashMap<Long, MutableList<Int>>`
   bucket index) and `SalvoSortedSet`/`SalvoSortedMap` in `sorted.kt` (sorted
   `ArrayList`s searched by bisection), the type aliases `Set`/`MutSet`, … naming
@@ -1500,7 +1500,7 @@ nothing but the monitor.
     holds a `String` and cannot construct the `Faults` *message* (a generated
     class no Salvo fn can name), so the *pool creation site* hands over the
     constructor; `Faulted` is named unqualified, safely, since a file reaching
-    `pool(n, sink)` star-imports `core.actor`. Dispatched on **arity**, since
+    `pool(n, sink)` star-imports `std.core.actor`. Dispatched on **arity**, since
     both `pool` overloads take an `Int` first.
   * **[actor-watch] [actor-on-idle] `Exit` and `Idle` are the scheduler's
     own**: it is Salvo and builds both, so `watch`/`on_idle` hand it only the
@@ -1563,7 +1563,7 @@ Reported as codegen errors, never silent wrong code:
 * `copy` of a type with nested mutability or an unknown/generic type
   [kt-copy].
 
-* [ref-notsame] `NotSame`'s predicate, `core.ref`'s private intrinsic
+* [ref-notsame] `NotSame`'s predicate, `std.core.ref`'s private intrinsic
   `same(a, b)`, is reference identity: `(a === b)`. Exact for a handle:
   its element is a `canbe Mut` object, never a boxed scalar, and ownership
   means two slots never hold one object.

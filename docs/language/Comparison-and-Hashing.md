@@ -1,6 +1,6 @@
 # Comparison, equality and hashing
 
-Three capabilities are declared exactly this way, in `core.compare`:
+Three capabilities are declared exactly this way, in `std.core.compare`:
 
 ```
 params Ordered<T> { fn cmp(a: T, b: T) -> Int }
@@ -100,8 +100,8 @@ struct Point : Ordered<self> by auto, Hashed<self> by auto { x: Int, y: Int }
 ```
 
 `by X` on an obligation says where the members come from: `X` is a module
-holding a `comptime fn` per member (`auto` is `core.auto`, nameable without an
-import because it is in `core`), and each is instantiated at this type. What
+holding a `comptime fn` per member (`auto` is `std.core.auto`, nameable without an
+import because it is in `std.core`), and each is instantiated at this type. What
 comes out is an ordinary function declared on `Point` — `cmp@Point` names it,
 it travels with the type, and its body is the per-field comparison you would
 have written: lexicographic by field declaration order (so field order is
@@ -145,14 +145,14 @@ and the error lands on the field it is about: a `Double` field has no `cmp`,
 so `: Ordered<self> by auto` on a struct holding one reports
 `in `cmp` from `auto` for `Reading.value: Double`: no matching overload for
 `cmp(Double, Double)`` at that field, not at a distant `SortedSet<Reading>`.
-A `canbe Mut` struct is **refused** by `core.auto`'s `hash` — a value that can
+A `canbe Mut` struct is **refused** by `std.core.auto`'s `hash` — a value that can
 change while a collection holds it corrupts the collection — and the refusal
 lands at the clause.
 
 Writing a member by hand *and* stamping it is a duplicate: keep one.
 
 Nothing is stamped unless you ask. A struct with no `cmp` cannot be compared,
-one with no `to_str` does not interpolate, and being in `core` only means
+one with no `to_str` does not interpolate, and being in `std.core` only means
 `auto` can be named — so a type says `: ToStr<self> by auto` to print in its
 literal's shape. How a `comptime fn` is written, for a convention of your own, is
 [Compile-time functions](Compile-Time-Functions.md).
@@ -294,6 +294,6 @@ Written as a plain `Set<T>`, the parameter would ask for the `hash` of a bare
 `T`, which nothing can answer.
 
 A keyed container over a **tuple or a list** works the same way:
-`core.compare` declares `hash`, `eq` and `cmp` for them in Salvo, each taking
+`std.core.compare` declares `hash`, `eq` and `cmp` for them in Salvo, each taking
 its parts' own, so `Mut Set<(Int, Str)>()` is keyed by `(hash, eq)` like any
 other set.

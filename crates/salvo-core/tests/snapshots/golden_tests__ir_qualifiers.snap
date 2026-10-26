@@ -5,11 +5,11 @@ expression: text
 module main
 
 qualifies fn main::NonEmpty.qualifies<T>(lent list: List<T>) -> Bool {
-  return (call core.list::size<T>(read list) > 0)
+  return (call std.core.list::size<T>(read list) > 0)
 }
 
 fn main::head(lent list: List<Int>) -> Int {
-  bind#1 let first: Int? = call core.list::get(List<T>, Int)<Int>(read list, 0)
+  bind#1 let first: Int? = call std.core.list::get(List<T>, Int)<Int>(read list, 0)
   return branch#7 cond#0 true {
     bind#2 let __pick~1: Int? = read first
     value branch#3 cond#0 check#6 (read __pick~1 is arm 0) {
@@ -26,11 +26,11 @@ fn main::celsius(lent degrees: Int) -> Int {
 }
 
 fn main::describe(Int)(lent temp: Int) -> Str {
-  return concat(call core.basic::to_str(Int)(read temp), " (no unit)")
+  return concat(call std.core.basic::to_str(Int)(read temp), " (no unit)")
 }
 
 fn main::describe(Celsius Int)(lent temp: Int) -> Str {
-  return concat(call core.basic::to_str(Int)(read temp), "°C")
+  return concat(call std.core.basic::to_str(Int)(read temp), "°C")
 }
 
 fn main::sum(lent list: List<Int>) -> Int {
@@ -76,27 +76,27 @@ fn main::handle(Fresh Request)(lent request: Request) -> Str {
 fn main::main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
-  bind#3 let xs: Mut List<Int> = call core.list::Mut_List()<Int>()
-  call core.list::add<Int>(read xs, 3)
-  call core.console::println(read __handle~2, concat("1. head after add: ", call core.basic::to_str(Int)(call main::head(drop_mut(read xs)))))
-  bind#4 let maybe_empty: List<Int> = call core.list::List(T, T[])<Int>(7, array[Int[]](8))
-  branch#5 cond#0 call core.list::NonEmpty.qualifies(read maybe_empty) {
-    call core.console::println(read __handle~2, concat("2. checked at run time, head is ", call core.basic::to_str(Int)(call main::head(read maybe_empty))))
+  bind#3 let xs: Mut List<Int> = call std.core.list::Mut_List()<Int>()
+  call std.core.list::add<Int>(read xs, 3)
+  call std.core.console::println(read __handle~2, concat("1. head after add: ", call std.core.basic::to_str(Int)(call main::head(drop_mut(read xs)))))
+  bind#4 let maybe_empty: List<Int> = call std.core.list::List(T, T[])<Int>(7, array[Int[]](8))
+  branch#5 cond#0 call std.core.list::NonEmpty.qualifies(read maybe_empty) {
+    call std.core.console::println(read __handle~2, concat("2. checked at run time, head is ", call std.core.basic::to_str(Int)(call main::head(read maybe_empty))))
   }
   bind#6 let plain: Int = 21
   bind#7 let warm: Int = call main::celsius(21)
-  call core.console::println(read __handle~2, concat("2. ", call main::describe(Int)(read plain), " vs ", call main::describe(Celsius Int)(read warm)))
+  call std.core.console::println(read __handle~2, concat("2. ", call main::describe(Int)(read plain), " vs ", call main::describe(Celsius Int)(read warm)))
   branch#8 cond#0 true {
-    call core.console::println(read __handle~2, concat("2. widened: ", call main::describe(Int)(read warm)))
+    call std.core.console::println(read __handle~2, concat("2. widened: ", call main::describe(Int)(read warm)))
   }
-  call core.console::println(read __handle~2, concat("3. sum ", call core.basic::to_str(Int)(call main::sum(drop_mut(read xs))), ", head still ", call core.basic::to_str(Int)(call main::head(drop_mut(read xs)))))
+  call std.core.console::println(read __handle~2, concat("3. sum ", call std.core.basic::to_str(Int)(call main::sum(drop_mut(read xs))), ", head still ", call std.core.basic::to_str(Int)(call main::head(drop_mut(read xs)))))
   call main::compact(read xs)
-  call core.list::add<Int>(read xs, 9)
-  call core.console::println(read __handle~2, concat("3. after compact and add, head is ", call core.basic::to_str(Int)(call main::head(drop_mut(read xs)))))
+  call std.core.list::add<Int>(read xs, 9)
+  call std.core.console::println(read __handle~2, concat("3. after compact and add, head is ", call std.core.basic::to_str(Int)(call main::head(drop_mut(read xs)))))
   bind#10 let session: Mut Request = call main::authenticate(construct Mut Request { path: "/orders", touches: 0 })
   bind#11 let fresh: Mut Request = call main::freshen(construct Mut Request { path: "/health", touches: 0 })
-  call core.console::println(read __handle~2, concat("4. before: ", call main::handle(Authenticated Request)(drop_mut(read session)), " / ", call main::handle(Fresh Request)(drop_mut(read fresh))))
+  call std.core.console::println(read __handle~2, concat("4. before: ", call main::handle(Authenticated Request)(drop_mut(read session)), " / ", call main::handle(Fresh Request)(drop_mut(read fresh))))
   call main::touch(read session)
   call main::touch(read fresh)
-  call core.console::println(read __handle~2, concat("4. after:  ", call main::handle(Authenticated Request)(drop_mut(read session)), " / ", call main::handle(Request)(drop_mut(read fresh))))
+  call std.core.console::println(read __handle~2, concat("4. after:  ", call main::handle(Authenticated Request)(drop_mut(read session)), " / ", call main::handle(Request)(drop_mut(read fresh))))
 }

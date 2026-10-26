@@ -5,53 +5,53 @@ pub mod unions;
 pub mod hosttime;
 #[path = "wire.rs"]
 pub mod wire;
-#[path = "core/basic.rs"]
-pub mod core_basic;
-#[path = "core/checked.rs"]
-pub mod core_checked;
-#[path = "core/compare.rs"]
-pub mod core_compare;
-#[path = "core/console.rs"]
-pub mod core_console;
-#[path = "core/index.rs"]
-pub mod core_index;
-#[path = "core/iterator.rs"]
-pub mod core_iterator;
-#[path = "core/list.rs"]
-pub mod core_list;
-#[path = "core/map.rs"]
-pub mod core_map;
-#[path = "core/set.rs"]
-pub mod core_set;
-#[path = "core/sorted.rs"]
-pub mod core_sorted;
-#[path = "core/string.rs"]
-pub mod core_string;
-#[path = "platform/core/console.rs"]
-pub mod platform_core_console;
-#[path = "platform/core/list.rs"]
-pub mod platform_core_list;
-#[path = "platform/core/map.rs"]
-pub mod platform_core_map;
-#[path = "platform/core/set.rs"]
-pub mod platform_core_set;
-#[path = "platform/core/sorted.rs"]
-pub mod platform_core_sorted;
-#[path = "platform/core/string.rs"]
-pub mod platform_core_string;
+#[path = "std/core/basic.rs"]
+pub mod std_core_basic;
+#[path = "std/core/checked.rs"]
+pub mod std_core_checked;
+#[path = "std/core/compare.rs"]
+pub mod std_core_compare;
+#[path = "std/core/console.rs"]
+pub mod std_core_console;
+#[path = "std/core/index.rs"]
+pub mod std_core_index;
+#[path = "std/core/iterator.rs"]
+pub mod std_core_iterator;
+#[path = "std/core/list.rs"]
+pub mod std_core_list;
+#[path = "std/core/map.rs"]
+pub mod std_core_map;
+#[path = "std/core/set.rs"]
+pub mod std_core_set;
+#[path = "std/core/sorted.rs"]
+pub mod std_core_sorted;
+#[path = "std/core/string.rs"]
+pub mod std_core_string;
+#[path = "platform/std/core/console.rs"]
+pub mod platform_std_core_console;
+#[path = "platform/std/core/list.rs"]
+pub mod platform_std_core_list;
+#[path = "platform/std/core/map.rs"]
+pub mod platform_std_core_map;
+#[path = "platform/std/core/set.rs"]
+pub mod platform_std_core_set;
+#[path = "platform/std/core/sorted.rs"]
+pub mod platform_std_core_sorted;
+#[path = "platform/std/core/string.rs"]
+pub mod platform_std_core_string;
 
-use crate::core_list::add_platform;
-use crate::core_list::get_platform;
-use crate::core_console::println;
-use crate::core_list::size_platform;
+use crate::std_core_list::add_platform;
+use crate::std_core_list::get_platform;
+use crate::std_core_console::println;
+use crate::std_core_list::size_platform;
 
 
 pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
-    return (crate::core_list::size_platform::<T>(list) > 0i32);
+    return (crate::std_core_list::size_platform::<T>(list) > 0i32);
 }
 
 pub fn head(list: &Vec<i32>) -> i32 {
-    let mut first: Option<i32> = crate::core_list::get_platform::<i32>(list, 0i32).copied();
+    let mut first: Option<i32> = crate::std_core_list::get_platform::<i32>(list, 0i32).copied();
     return {
         let mut __pick_1 = &first;
         if __pick_1.is_some() {
@@ -130,29 +130,29 @@ pub fn handle__FreshRequest(request: &crate::Request) -> String {
 }
 
 pub fn main() {
-    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
-    let __handle_2 = crate::core_console::Console::shared(__use_1);
+    let mut __use_1: crate::std_core_console::__Platform_StdConsole = crate::std_core_console::__Platform_StdConsole::new();
+    let __handle_2 = crate::std_core_console::Console::shared(__use_1);
     let mut xs: Vec<i32> = vec![];
-    crate::core_list::add_platform::<i32>(&mut xs, 3i32);
-    crate::core_console::println(&__handle_2, &format!("1. head after add: {}", crate::head(&xs)));
+    crate::std_core_list::add_platform::<i32>(&mut xs, 3i32);
+    crate::std_core_console::println(&__handle_2, &format!("1. head after add: {}", crate::head(&xs)));
     let mut maybe_empty: Vec<i32> = vec![7i32, 8i32];
-    if crate::core_list::NonEmpty__List_qualifies(&maybe_empty) {
-        crate::core_console::println(&__handle_2, &format!("2. checked at run time, head is {}", crate::head(&maybe_empty)));
+    if crate::std_core_list::NonEmpty__List_qualifies(&maybe_empty) {
+        crate::std_core_console::println(&__handle_2, &format!("2. checked at run time, head is {}", crate::head(&maybe_empty)));
     };
     let mut plain: i32 = 21i32;
     let mut warm: i32 = crate::celsius(21i32);
-    crate::core_console::println(&__handle_2, &format!("2. {} vs {}", crate::describe__Int(plain), crate::describe__CelsiusInt(warm)));
+    crate::std_core_console::println(&__handle_2, &format!("2. {} vs {}", crate::describe__Int(plain), crate::describe__CelsiusInt(warm)));
     {
-        crate::core_console::println(&__handle_2, &format!("2. widened: {}", crate::describe__Int(warm)));
+        crate::std_core_console::println(&__handle_2, &format!("2. widened: {}", crate::describe__Int(warm)));
     };
-    crate::core_console::println(&__handle_2, &format!("3. sum {}, head still {}", crate::sum(&xs), crate::head(&xs)));
+    crate::std_core_console::println(&__handle_2, &format!("3. sum {}, head still {}", crate::sum(&xs), crate::head(&xs)));
     crate::compact(&mut xs);
-    crate::core_list::add_platform::<i32>(&mut xs, 9i32);
-    crate::core_console::println(&__handle_2, &format!("3. after compact and add, head is {}", crate::head(&xs)));
+    crate::std_core_list::add_platform::<i32>(&mut xs, 9i32);
+    crate::std_core_console::println(&__handle_2, &format!("3. after compact and add, head is {}", crate::head(&xs)));
     let mut session: crate::Request = crate::authenticate(crate::Request { path: String::from("/orders"), touches: 0i32 });
     let mut fresh: crate::Request = crate::freshen(crate::Request { path: String::from("/health"), touches: 0i32 });
-    crate::core_console::println(&__handle_2, &format!("4. before: {} / {}", crate::handle__AuthenticatedRequest(&session), crate::handle__FreshRequest(&fresh)));
+    crate::std_core_console::println(&__handle_2, &format!("4. before: {} / {}", crate::handle__AuthenticatedRequest(&session), crate::handle__FreshRequest(&fresh)));
     crate::touch(&mut session);
     crate::touch(&mut fresh);
-    crate::core_console::println(&__handle_2, &format!("4. after:  {} / {}", crate::handle__AuthenticatedRequest(&session), crate::handle__Request(&fresh)));
+    crate::std_core_console::println(&__handle_2, &format!("4. after:  {} / {}", crate::handle__AuthenticatedRequest(&session), crate::handle__Request(&fresh)));
 }

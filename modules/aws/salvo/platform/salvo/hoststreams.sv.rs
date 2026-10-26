@@ -59,18 +59,18 @@ impl SalvoIn {
 
 /// [stream-table] Registers a readable stream, answering its handle.
 pub fn salvo_stream_register_in(source: String, input: Box<dyn std::io::Read + Send>, position: i64) -> i64 {
-    crate::runtime_streams::register_in(source, crate::platform_runtime_streams::HostIn { input }, position)
+    crate::std_runtime_streams::register_in(source, crate::platform_std_runtime_streams::HostIn { input }, position)
 }
 
 /// [stream-table] Registers a writable stream, answering its handle.
 pub fn salvo_stream_register_out(source: String, output: Box<dyn std::io::Write + Send>, position: i64) -> i64 {
-    crate::runtime_streams::register_out(source, crate::platform_runtime_streams::HostOut { output }, position)
+    crate::std_runtime_streams::register_out(source, crate::platform_std_runtime_streams::HostOut { output }, position)
 }
 
 /// [stream-table] Takes the readable stream `handle` out of the table for
 /// host code to read; traps for a foreign handle [stream-provider].
 pub fn salvo_stream_take_in(handle: i64) -> std::sync::Arc<Mutex<SalvoIn>> {
-    let e = crate::runtime_streams::take_for_host(handle);
+    let e = crate::std_runtime_streams::take_for_host(handle);
     let failed = e.failed.map(|f| if f.utf8 { SalvoFault::Utf8 } else { SalvoFault::Failed(f.message) });
     let input: Box<dyn std::io::Read + Send> =
         Box::new(std::io::Read::chain(std::io::Cursor::new(e.ahead), e.host.input));
@@ -79,5 +79,5 @@ pub fn salvo_stream_take_in(handle: i64) -> std::sync::Arc<Mutex<SalvoIn>> {
 
 /// [stream-handle] A handle for a new stream, unique in the process.
 pub fn salvo_fresh_handle() -> i64 {
-    crate::runtime_streams::fresh_handle()
+    crate::std_runtime_streams::fresh_handle()
 }

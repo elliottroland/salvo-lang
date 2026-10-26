@@ -1,5 +1,5 @@
-use crate::core_string::Mut_Str;
-use crate::core_string::append_platform;
+use crate::std_core_string::Mut_Str;
+use crate::std_core_string::append_platform;
 
 
 #[derive(Clone, Debug, PartialEq)]
@@ -120,11 +120,11 @@ impl crate::wire::__Wire for AwsError {
 }
 
 pub fn to_str(value: &crate::aws::ProfileCredentials) -> String {
-    let mut out: String = crate::core_string::Mut_Str(vec![String::from("ProfileCredentials {")]);
-    crate::core_string::append_platform(&mut out, &String::from(" "));
-    crate::core_string::append_platform(&mut out, &format!("profile: {}", value.profile));
-    crate::core_string::append_platform(&mut out, &String::from(", "));
-    crate::core_string::append_platform(&mut out, &format!("path: {}", value.path));
-    crate::core_string::append_platform(&mut out, &String::from(" }"));
+    let mut out: String = crate::std_core_string::Mut_Str(vec![String::from("ProfileCredentials {")]);
+    crate::std_core_string::append_platform(&mut out, &String::from(" "));
+    crate::std_core_string::append_platform(&mut out, &format!("profile: {}", value.profile));
+    crate::std_core_string::append_platform(&mut out, &String::from(", "));
+    crate::std_core_string::append_platform(&mut out, &format!("path: {}", value.path));
+    crate::std_core_string::append_platform(&mut out, &String::from(" }"));
     return out;
 }

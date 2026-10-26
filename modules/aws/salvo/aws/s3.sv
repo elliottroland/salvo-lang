@@ -12,8 +12,8 @@
 // edit — regenerate with `./gradlew generate` in `modules/aws/codegen`.
 
 import aws
-import stream
-import time.Instant
+import std.stream
+import std.time.Instant
 
 // ObjectCannedACL, one literal per value the model names.
 //

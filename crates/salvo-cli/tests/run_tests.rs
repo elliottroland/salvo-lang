@@ -118,7 +118,7 @@ fn run_compiles_and_runs_with_each_backend() {
 /// and the *same* list prints on both backends — the parity the two hosts'
 /// different argv conventions are reconciled to.
 const ARGS_PROGRAM: &str = r#"
-import args
+import std.args
 
 fn main() [use] -> None {
     use StdConsole()
@@ -556,8 +556,8 @@ fn process_exit_and_env_run_on_both_backends() {
     let Some(__stamp) = e2e_stamp("process_exit_and_env_run_on_both_backends", &["rustc", "kotlinc"]) else {
         return;
     };
-    const SRC: &str = r#"import process
-import env
+    const SRC: &str = r#"import std.process
+import std.env
 
 fn pick(c: Bool) [Process] -> Int {
     let x: Int = if c { exit(9) } else { 3 }
@@ -827,7 +827,7 @@ fn whynot_messages_run_on_both_backends() {
         return;
     };
     let dir = work_dir("whynot");
-    const SRC: &str = r#"import args
+    const SRC: &str = r#"import std.args
 
 qualifier Even of Int {
     // @whynot [n] is odd
@@ -1176,7 +1176,7 @@ fn a_derived_parser_reads_a_command_line_on_both_backends() {
     let Some(__stamp) = e2e_stamp("a_derived_parser_reads_a_command_line_on_both_backends", &["rustc", "kotlinc"]) else {
         return;
     };
-    const SRC: &str = r#"import args
+    const SRC: &str = r#"import std.args
 
 // Serve files.
 struct Serve : FromArgs<self> by args {
@@ -1291,8 +1291,8 @@ fn args_or_exit_ends_the_process_with_help_or_errors_on_both_backends() {
     let Some(__stamp) = e2e_stamp("args_or_exit_ends_the_process_with_help_or_errors_on_both_backends", &["rustc", "kotlinc"]) else {
         return;
     };
-    const SRC: &str = r#"import args
-import process
+    const SRC: &str = r#"import std.args
+import std.process
 
 // Copy a file.
 struct Copy : FromArgs<self> by args {
@@ -1444,7 +1444,7 @@ fn derived_option_groups_run_on_both_backends() {
     let Some(__stamp) = e2e_stamp("derived_option_groups_run_on_both_backends", &["rustc", "kotlinc"]) else {
         return;
     };
-    const SRC: &str = r#"import args
+    const SRC: &str = r#"import std.args
 
 // Network options.
 struct Net : FromArgs<self> by args {
@@ -1550,7 +1550,7 @@ Where to read:
       --file <FILE>
       --from-stdin         Read standard input.
 "#;
-    const CLASH: &str = r#"import args
+    const CLASH: &str = r#"import std.args
 
 struct Net : FromArgs<self> by args {
     host: Str = "a"
@@ -1598,7 +1598,7 @@ fn derived_sub_commands_run_on_both_backends() {
     let Some(__stamp) = e2e_stamp("derived_sub_commands_run_on_both_backends", &["rustc", "kotlinc"]) else {
         return;
     };
-    const SRC: &str = r#"import args
+    const SRC: &str = r#"import std.args
 
 // Manage a repository.
 struct Git : FromArgs<self> by args {
@@ -1812,7 +1812,7 @@ fn a_throwing_fn_value_is_delimited_on_both_backends() {
     let Some(__stamp) = e2e_stamp("a_throwing_fn_value_is_delimited_on_both_backends", &["rustc", "kotlinc"]) else {
         return;
     };
-    const SRC: &str = r#"import throw
+    const SRC: &str = r#"import std.throw
 
 fn check(n: Int) [Throw<Str>] -> Int {
     if n < 0 {
@@ -1909,9 +1909,9 @@ fn the_validation_hook_runs_on_both_backends() {
     let Some(__stamp) = e2e_stamp("the_validation_hook_runs_on_both_backends", &["rustc", "kotlinc"]) else {
         return;
     };
-    const SRC: &str = r#"import args
-import process
-import throw
+    const SRC: &str = r#"import std.args
+import std.process
+import std.throw
 
 struct Range : FromArgs<self> by args {
     // Smallest.
@@ -1986,7 +1986,7 @@ fn a_sub_union_throw_is_caught_on_both_backends() {
     let Some(__stamp) = e2e_stamp("a_sub_union_throw_is_caught_on_both_backends", &["rustc", "kotlinc"]) else {
         return;
     };
-    const SRC: &str = r#"import throw
+    const SRC: &str = r#"import std.throw
 
 struct A { x: Int }
 struct B { y: Int }
@@ -2611,16 +2611,16 @@ fn a_dependency_is_loaded_from_the_modules_directory() {
     assert!(!lock.contains("Bucket"), "{lock}");
 
     // A dependency may not redefine std unless its manifest says it is std.
-    fs::create_dir_all(aws.join("core")).unwrap();
-    fs::write(aws.join("core/list.sv"), "export fn size2() -> Int { return 0 }\n").unwrap();
+    fs::create_dir_all(aws.join("std/core")).unwrap();
+    fs::write(aws.join("std/core/list.sv"), "export fn size2() -> Int { return 0 }\n").unwrap();
     let out = salvo_in(&dir, &["analyze"]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains("`core.list`") && stderr.contains("std = true") && stderr.contains("[manifest-deps]"),
+        stderr.contains("`std.core.list`") && stderr.contains("std = true") && stderr.contains("[manifest-deps]"),
         "{stderr}"
     );
-    fs::remove_dir_all(aws.join("core")).unwrap();
+    fs::remove_dir_all(aws.join("std")).unwrap();
 
     // The declared version has to be the dependency's own.
     fs::write(
@@ -2697,15 +2697,15 @@ fn a_stream_from_another_provider_traps() {
     let dir = work_dir("stream_provider");
     let program = |imports: &str, uses: &str| {
         format!(
-            "import stream\n{imports}\n\nfn main() [use] {{\n    use StdConsole()\n{uses}\
+            "import std.stream\n{imports}\n\nfn main() [use] {{\n    use StdConsole()\n{uses}\
              \n    let s = InStream {{ handle: 987654 }}\n    let line = read_line(s)\n    \
              println(\"read ${{line is None}}\")\n    let closed = close(s)\n    when closed {{\n        \
              is Ok {{ println(\"closed\") }}\n        is Err {{ ignore(closed) }}\n    }}\n}}\n"
         )
     };
     for (label, imports, uses) in [
-        ("host", "import stream.host", "    use HostRawStreams()\n    use DefaultStreams()"),
-        ("mem", "import fs.mem", "    use MemFs()"),
+        ("host", "import std.stream.host", "    use HostRawStreams()\n    use DefaultStreams()"),
+        ("mem", "import std.fs.mem", "    use MemFs()"),
     ] {
         fs::write(dir.join("main.sv"), program(imports, uses)).unwrap();
         for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
@@ -2748,12 +2748,12 @@ fn streams_pipe_without_blocking_on_both_backends() {
     __stamp.verified();
 }
 
-const PIPE_PROGRAM: &str = r#"import fs
-import fs.path
-import fs.host
-import fs.mem
-import stream
-import stream.host
+const PIPE_PROGRAM: &str = r#"import std.fs
+import std.fs.path
+import std.fs.host
+import std.fs.mem
+import std.stream
+import std.stream.host
 
 fn describe(r: Ok Long | Err Checked<StreamError>) [] -> Str => !r {
     when r {
@@ -3158,10 +3158,10 @@ fn type_names_clash_across_modules_on_both_backends() {
     let Some(__stamp) = e2e_stamp("type_names_clash", &["rustc", "kotlinc"]) else { return };
     let dir = work_dir("type_clash");
     fs::create_dir_all(dir.join("lib")).unwrap();
-    fs::write(dir.join("lib/a.sv"), r#"import codec
+    fs::write(dir.join("lib/a.sv"), r#"import std.codec
 // A `Token` with a wire form and auto equality, and an effect named like
 // std's `time.Clock`.
-import net
+import std.net
 
 export struct Token : Hashed<self> by auto { id: Int }
 
@@ -3372,7 +3372,7 @@ fn the_roadmap_0c_emitter_gaps_build_on_both_backends() {
     let Some(__stamp) = e2e_stamp("roadmap_0c", &["rustc", "kotlinc"]) else { return };
     let dir = work_dir("roadmap_0c");
     fs::create_dir_all(dir.join("lib")).unwrap();
-    fs::write(dir.join("lib/conf.sv"), r#"import time.Duration
+    fs::write(dir.join("lib/conf.sv"), r#"import std.time.Duration
 
 // [rs-default-path] A default naming a type the user's file does not import.
 export struct Conf { d: Duration = Duration { nanos: 5L } }
@@ -3389,7 +3389,7 @@ export handler Circle() of Table {
 "#).unwrap();
     fs::write(dir.join("main.sv"), r#"import lib.conf
 import lib.shapes
-import throw
+import std.throw
 
 struct Node { id: Int, label: Str }
 struct A { x: Int }

@@ -10,7 +10,7 @@ use std::path::Path;
 use salvo_core::{Program, SourceSet};
 
 fn example_program(dir: &Path) -> Program {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
@@ -70,7 +70,7 @@ export linear struct Problem { code: Int }\n\
 export fn close(p: Problem) -> None => !p { discard(p) }\n\
 export fn attempt() -> Ok Int | Err Problem { return Err Problem { code: 1 } }\n\
 export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
@@ -106,7 +106,7 @@ export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
 #[test]
 fn ir_linear_check_catches_a_leak_across_a_throwing_call() {
     let src = "\
-import throw.Throw\n\
+import std.throw.Throw\n\
 export linear struct Handle { fd: Int }\n\
 export fn close(x: Handle) -> None => !x { discard(x) }\n\
 export fn open_handle(fd: Int) -> Handle { return Handle { fd: fd } }\n\
@@ -228,7 +228,7 @@ fn leaks_of(src: &str) -> Vec<String> {
 /// The checker's error messages on `src` (with std), and the IR check's leak
 /// messages.
 fn errors_and_leaks_of(src: &str) -> (Vec<String>, Vec<String>) {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");

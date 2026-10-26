@@ -8,7 +8,7 @@ import salvo.*
 
 data class PutObjectInput(
     val acl: String? = null,
-    val body: salvo.stream.InStream,
+    val body: salvo.std.stream.InStream,
     val bucket: String,
     val cacheControl: String? = null,
     val contentDisposition: String? = null,
@@ -36,7 +36,7 @@ data class PutObjectInput(
     val grantWriteAcp: String? = null,
     val key: String,
     val writeOffsetBytes: Long? = null,
-    val metadata: salvo.platform.core.map.Map<String, String>? = null,
+    val metadata: salvo.platform.std.core.map.Map<String, String>? = null,
     val serverSideEncryption: String? = null,
     val storageClass: String? = null,
     val websiteRedirectLocation: String? = null,
@@ -49,7 +49,7 @@ data class PutObjectInput(
     val requestPayer: String? = null,
     val tagging: String? = null,
     val objectLockMode: String? = null,
-    val objectLockRetainUntilDate: salvo.time.Instant? = null,
+    val objectLockRetainUntilDate: salvo.std.time.Instant? = null,
     val objectLockLegalHoldStatus: String? = null,
     val objectLockEventHold: String? = null,
     val objectLockEventHoldDurationDays: Int? = null,
@@ -113,9 +113,9 @@ object __Codec_PutObjectOutput : salvo.WireCodec<PutObjectOutput> {
 data class GetObjectInput(
     val bucket: String,
     val ifMatch: String? = null,
-    val ifModifiedSince: salvo.time.Instant? = null,
+    val ifModifiedSince: salvo.std.time.Instant? = null,
     val ifNoneMatch: String? = null,
-    val ifUnmodifiedSince: salvo.time.Instant? = null,
+    val ifUnmodifiedSince: salvo.std.time.Instant? = null,
     val key: String,
     val range: String? = null,
     val responseCacheControl: String? = null,
@@ -123,7 +123,7 @@ data class GetObjectInput(
     val responseContentEncoding: String? = null,
     val responseContentLanguage: String? = null,
     val responseContentType: String? = null,
-    val responseExpires: salvo.time.Instant? = null,
+    val responseExpires: salvo.std.time.Instant? = null,
     val versionId: String? = null,
     val sseCustomerAlgorithm: String? = null,
     val sseCustomerKey: String? = null,
@@ -138,9 +138,9 @@ object __Codec_GetObjectInput : salvo.WireCodec<GetObjectInput> {
     override fun enc(v: GetObjectInput, out: salvo.WireOut) {
         salvo.StrCodec.enc(v.bucket, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.ifMatch, out)
-        salvo.OptCodec(salvo.time.__Codec_Instant).enc(v.ifModifiedSince, out)
+        salvo.OptCodec(salvo.std.time.__Codec_Instant).enc(v.ifModifiedSince, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.ifNoneMatch, out)
-        salvo.OptCodec(salvo.time.__Codec_Instant).enc(v.ifUnmodifiedSince, out)
+        salvo.OptCodec(salvo.std.time.__Codec_Instant).enc(v.ifUnmodifiedSince, out)
         salvo.StrCodec.enc(v.key, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.range, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.responseCacheControl, out)
@@ -148,7 +148,7 @@ object __Codec_GetObjectInput : salvo.WireCodec<GetObjectInput> {
         salvo.OptCodec(salvo.StrCodec).enc(v.responseContentEncoding, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.responseContentLanguage, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.responseContentType, out)
-        salvo.OptCodec(salvo.time.__Codec_Instant).enc(v.responseExpires, out)
+        salvo.OptCodec(salvo.std.time.__Codec_Instant).enc(v.responseExpires, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.versionId, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.sseCustomerAlgorithm, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.sseCustomerKey, out)
@@ -158,16 +158,16 @@ object __Codec_GetObjectInput : salvo.WireCodec<GetObjectInput> {
         salvo.OptCodec(salvo.StrCodec).enc(v.expectedBucketOwner, out)
         salvo.OptCodec(salvo.StrCodec).enc(v.checksumMode, out)
     }
-    override fun dec(inp: salvo.WireIn): GetObjectInput = GetObjectInput(salvo.StrCodec.dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.time.__Codec_Instant).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.time.__Codec_Instant).dec(inp), salvo.StrCodec.dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.time.__Codec_Instant).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.IntCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp))
+    override fun dec(inp: salvo.WireIn): GetObjectInput = GetObjectInput(salvo.StrCodec.dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.std.time.__Codec_Instant).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.std.time.__Codec_Instant).dec(inp), salvo.StrCodec.dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.std.time.__Codec_Instant).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.IntCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp))
 }
 
 data class GetObjectOutput(
-    val body: salvo.stream.InStream,
+    val body: salvo.std.stream.InStream,
     val deleteMarker: Boolean? = null,
     val acceptRanges: String? = null,
     val expiration: String? = null,
     val restore: String? = null,
-    val lastModified: salvo.time.Instant? = null,
+    val lastModified: salvo.std.time.Instant? = null,
     val contentLength: Long? = null,
     val eTag: String? = null,
     val checksumCrc32: String? = null,
@@ -191,7 +191,7 @@ data class GetObjectOutput(
     val contentType: String? = null,
     val websiteRedirectLocation: String? = null,
     val serverSideEncryption: String? = null,
-    val metadata: salvo.platform.core.map.Map<String, String>? = null,
+    val metadata: salvo.platform.std.core.map.Map<String, String>? = null,
     val sseCustomerAlgorithm: String? = null,
     val sseCustomerKeyMd5: String? = null,
     val ssekmsKeyId: String? = null,
@@ -202,7 +202,7 @@ data class GetObjectOutput(
     val partsCount: Int? = null,
     val tagCount: Int? = null,
     val objectLockMode: String? = null,
-    val objectLockRetainUntilDate: salvo.time.Instant? = null,
+    val objectLockRetainUntilDate: salvo.std.time.Instant? = null,
     val objectLockLegalHoldStatus: String? = null,
     val objectLockEventHold: String? = null,
     val objectLockEventHoldDurationDays: Int? = null,
@@ -270,13 +270,13 @@ open class __Platform_S3(private val impl: S3Platform) : S3 {
 
 // Factories for the host: one per arm of the union [platform-factory].
 object PutObject {
-    fun ok(value: PutObjectOutput): Union2<PutObjectOutput, salvo.core.checked.Checked<Union2<S3Error, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: salvo.core.checked.Checked<Union2<S3Error, salvo.aws.AwsError>>): Union2<PutObjectOutput, salvo.core.checked.Checked<Union2<S3Error, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: PutObjectOutput): Union2<PutObjectOutput, salvo.std.core.checked.Checked<Union2<S3Error, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.std.core.checked.Checked<Union2<S3Error, salvo.aws.AwsError>>): Union2<PutObjectOutput, salvo.std.core.checked.Checked<Union2<S3Error, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object GetObject {
-    fun ok(value: GetObjectOutput): Union2<GetObjectOutput, salvo.core.checked.Checked<Union2<S3Error, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: salvo.core.checked.Checked<Union2<S3Error, salvo.aws.AwsError>>): Union2<GetObjectOutput, salvo.core.checked.Checked<Union2<S3Error, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: GetObjectOutput): Union2<GetObjectOutput, salvo.std.core.checked.Checked<Union2<S3Error, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.std.core.checked.Checked<Union2<S3Error, salvo.aws.AwsError>>): Union2<GetObjectOutput, salvo.std.core.checked.Checked<Union2<S3Error, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 

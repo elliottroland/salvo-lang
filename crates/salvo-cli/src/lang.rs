@@ -396,7 +396,7 @@ pub fn tm_grammar() -> String {
           "match": "\\b({control})\\b"
         }},
         {{
-          "comment": "[comptime-fields] `type:` is a field name (`Field.type` in core.comptime), not the keyword",
+          "comment": "[comptime-fields] `type:` is a field name (`Field.type` in std.core.comptime), not the keyword",
           "name": "keyword.declaration.salvo",
           "match": "\\b({declaration})\\b(?!\\s*:)"
         }},

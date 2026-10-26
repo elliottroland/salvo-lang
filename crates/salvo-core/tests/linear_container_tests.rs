@@ -18,7 +18,7 @@
 //!
 //! The std surface here is a stub (`intrinsic` is std-only
 //! [intrinsic-std-only]), mirroring the real declarations in
-//! `std/core/list.sv` and `std/core/map.sv`.
+//! `lib/std/core/list.sv` and `lib/std/core/map.sv`.
 
 use std::path::Path;
 
@@ -69,7 +69,7 @@ fn diagnostics(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );

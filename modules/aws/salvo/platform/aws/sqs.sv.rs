@@ -3,16 +3,16 @@
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 51417dfa7690428a
 use crate::aws::AwsError;
-use crate::core_bytes::Bytes;
-use crate::core_checked::Checked;
-use crate::core_map::Map;
+use crate::std_core_bytes::Bytes;
+use crate::std_core_checked::Checked;
+use crate::std_core_map::Map;
 
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CreateQueueInput {
     pub queue_name: String,
-    pub attributes: Option<crate::core_map::Map<String, String>>,
-    pub tags: Option<crate::core_map::Map<String, String>>,
+    pub attributes: Option<crate::std_core_map::Map<String, String>>,
+    pub tags: Option<crate::std_core_map::Map<String, String>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -71,8 +71,8 @@ pub struct SendMessageInput {
     pub queue_url: String,
     pub message_body: String,
     pub delay_seconds: Option<i32>,
-    pub message_attributes: Option<crate::core_map::Map<String, crate::aws_sqs::MessageAttributeValue>>,
-    pub message_system_attributes: Option<crate::core_map::Map<String, crate::aws_sqs::MessageSystemAttributeValue>>,
+    pub message_attributes: Option<crate::std_core_map::Map<String, crate::aws_sqs::MessageAttributeValue>>,
+    pub message_system_attributes: Option<crate::std_core_map::Map<String, crate::aws_sqs::MessageSystemAttributeValue>>,
     pub message_deduplication_id: Option<String>,
     pub message_group_id: Option<String>,
 }
@@ -80,9 +80,9 @@ pub struct SendMessageInput {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MessageAttributeValue {
     pub string_value: Option<String>,
-    pub binary_value: Option<crate::core_bytes::Bytes>,
+    pub binary_value: Option<crate::std_core_bytes::Bytes>,
     pub string_list_values: Option<Vec<String>>,
-    pub binary_list_values: Option<Vec<crate::core_bytes::Bytes>>,
+    pub binary_list_values: Option<Vec<crate::std_core_bytes::Bytes>>,
     pub data_type: String,
 }
 
@@ -108,9 +108,9 @@ impl crate::wire::__Wire for MessageAttributeValue {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MessageSystemAttributeValue {
     pub string_value: Option<String>,
-    pub binary_value: Option<crate::core_bytes::Bytes>,
+    pub binary_value: Option<crate::std_core_bytes::Bytes>,
     pub string_list_values: Option<Vec<String>>,
-    pub binary_list_values: Option<Vec<crate::core_bytes::Bytes>>,
+    pub binary_list_values: Option<Vec<crate::std_core_bytes::Bytes>>,
     pub data_type: String,
 }
 
@@ -209,9 +209,9 @@ pub struct Message {
     pub receipt_handle: Option<String>,
     pub md5_of_body: Option<String>,
     pub body: Option<String>,
-    pub attributes: Option<crate::core_map::Map<String, String>>,
+    pub attributes: Option<crate::std_core_map::Map<String, String>>,
     pub md5_of_message_attributes: Option<String>,
-    pub message_attributes: Option<crate::core_map::Map<String, crate::aws_sqs::MessageAttributeValue>>,
+    pub message_attributes: Option<crate::std_core_map::Map<String, crate::aws_sqs::MessageAttributeValue>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -411,10 +411,10 @@ impl<T: SqsPlatformSync> __Stateless_Sqs for __Platform_Sqs<T> {
 pub struct CreateQueue;
 
 impl CreateQueue {
-    pub fn ok(value: crate::aws_sqs::CreateQueueOutput) -> crate::unions::Union2<crate::aws_sqs::CreateQueueOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
+    pub fn ok(value: crate::aws_sqs::CreateQueueOutput) -> crate::unions::Union2<crate::aws_sqs::CreateQueueOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_sqs::CreateQueueOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
+    pub fn err(value: crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_sqs::CreateQueueOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -423,10 +423,10 @@ impl CreateQueue {
 pub struct GetQueueUrl;
 
 impl GetQueueUrl {
-    pub fn ok(value: crate::aws_sqs::GetQueueUrlOutput) -> crate::unions::Union2<crate::aws_sqs::GetQueueUrlOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
+    pub fn ok(value: crate::aws_sqs::GetQueueUrlOutput) -> crate::unions::Union2<crate::aws_sqs::GetQueueUrlOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_sqs::GetQueueUrlOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
+    pub fn err(value: crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_sqs::GetQueueUrlOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -435,10 +435,10 @@ impl GetQueueUrl {
 pub struct SendMessage;
 
 impl SendMessage {
-    pub fn ok(value: crate::aws_sqs::SendMessageOutput) -> crate::unions::Union2<crate::aws_sqs::SendMessageOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
+    pub fn ok(value: crate::aws_sqs::SendMessageOutput) -> crate::unions::Union2<crate::aws_sqs::SendMessageOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_sqs::SendMessageOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
+    pub fn err(value: crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_sqs::SendMessageOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -447,10 +447,10 @@ impl SendMessage {
 pub struct ReceiveMessage;
 
 impl ReceiveMessage {
-    pub fn ok(value: crate::aws_sqs::ReceiveMessageOutput) -> crate::unions::Union2<crate::aws_sqs::ReceiveMessageOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
+    pub fn ok(value: crate::aws_sqs::ReceiveMessageOutput) -> crate::unions::Union2<crate::aws_sqs::ReceiveMessageOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_sqs::ReceiveMessageOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
+    pub fn err(value: crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_sqs::ReceiveMessageOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -459,10 +459,10 @@ impl ReceiveMessage {
 pub struct DeleteMessage;
 
 impl DeleteMessage {
-    pub fn ok(value: ()) -> crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
+    pub fn ok(value: ()) -> crate::unions::Union2<(), crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>) -> crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
+    pub fn err(value: crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>) -> crate::unions::Union2<(), crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -471,10 +471,10 @@ impl DeleteMessage {
 pub struct DeleteQueue;
 
 impl DeleteQueue {
-    pub fn ok(value: ()) -> crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
+    pub fn ok(value: ()) -> crate::unions::Union2<(), crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>) -> crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
+    pub fn err(value: crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>) -> crate::unions::Union2<(), crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }

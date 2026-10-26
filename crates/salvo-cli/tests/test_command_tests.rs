@@ -319,7 +319,7 @@ fn a_green_run_succeeds() {
 }
 
 /// [std-shadow] std's own suite, run the way a session runs it: the checkout's
-/// `std/` replaces the copy compiled into the binary, so these tests exercise
+/// `lib/` replaces the copy compiled into the binary, so these tests exercise
 /// the working tree.
 #[test]
 fn std_tests_pass() {
@@ -344,7 +344,7 @@ fn std_tests_pass() {
         // [kt-std-library] The compiled std is cached in the test target.
         .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
         .current_dir(&repo)
-        .args(["test", "--src", "std", "--target"])
+        .args(["test", "--src", "lib", "--target"])
         .arg(&target)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -354,7 +354,7 @@ fn std_tests_pass() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "stdout: {stdout}\nstderr: {stderr}");
-    assert!(stdout.contains("heap :: "), "no heap tests ran: {stdout}");
+    assert!(stdout.contains("std.heap :: "), "no heap tests ran: {stdout}");
     assert!(
         !stdout.contains("FAILED") && !stdout.contains("failed"),
         "{stdout}"
@@ -489,7 +489,7 @@ fn wait_with_limit(mut child: std::process::Child, secs: u64) -> std::process::O
             let _ = child.wait();
             let stdout = out_thread.join().unwrap_or_default();
             panic!(
-                "`salvo test --src std` ran past {secs}s and was killed — a hang\nstdout: {}",
+                "`salvo test --src lib` ran past {secs}s and was killed — a hang\nstdout: {}",
                 String::from_utf8_lossy(&stdout)
             );
         }
@@ -519,7 +519,7 @@ fn actor_tests_run_on_the_virtual_runtime() {
     fs::write(dir.join("calc.sv"), CALC).unwrap();
     fs::write(
         dir.join("calc.test.sv"),
-        r#"import time
+        r#"import std.time
 
 actor effect Hoard {
     send fn ask(out: Reply<Int>) => !out

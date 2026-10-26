@@ -87,13 +87,13 @@ pub(crate) fn platform_adapter_name(name: &str) -> String {
 }
 
 /// [rs-crate] The Rust module name of every emitted Salvo module: the path
-/// parts joined with `_` (`core.console` -> `core_console`), made unique by
+/// parts joined with `_` (`std.core.console` -> `core_console`), made unique by
 /// suffixing. Returns the names taken so far as well, so later mounts
 /// (companions, platform hosts) keep clear of them.
 ///
 /// One function rather than two because `platform_skeletons` has to address
 /// exactly the modules `emit_program` mounts: a skeleton naming
-/// `crate::core_console::…` where the crate calls it something else would
+/// `crate::std_core_console::…` where the crate calls it something else would
 /// be generated code that does not compile.
 pub(crate) fn module_mod_names(
     emitted_modules: &HashSet<&ModulePath>,

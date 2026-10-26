@@ -156,7 +156,7 @@ class SalvoBytes {
     /**
      * Native `for` support: `for b in data` is Kotlin's own loop
      * [kt-iter-native], as it is for a list or a string, so iterating a buffer
-     * allocates no pass. The `BytesYield` pass in `core.bytes` is still what
+     * allocates no pass. The `BytesYield` pass in `std.core.bytes` is still what
      * the combinators (`map`, `filter`, `reduce`) drive.
      */
     operator fun iterator(): Iterator<UByte> = object : Iterator<UByte> {

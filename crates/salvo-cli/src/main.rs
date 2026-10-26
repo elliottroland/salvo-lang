@@ -87,7 +87,7 @@ enum Command {
         target: Option<PathBuf>,
         /// Debug: print the parsed AST and stop before code generation.
         /// Bare `--emit-ast` prints the user modules; `--emit-ast=MODULE`
-        /// prints one module (std included), e.g. `--emit-ast=core.list`.
+        /// prints one module (std included), e.g. `--emit-ast=std.core.list`.
         #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "")]
         emit_ast: Option<String>,
     },
@@ -785,7 +785,7 @@ fn assemble(
         return Err(ExitCode::FAILURE);
     }
     // [std-shadow] A source tree declaring std's own modules replaces them,
-    // which is what `salvo test --src std` rests on.
+    // which is what `salvo test --src lib` rests on.
     for note in sources.apply_std_shadow() {
         if verbose {
             eprintln!("note: {note}");

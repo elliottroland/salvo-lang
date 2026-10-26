@@ -33,12 +33,12 @@ class HostDdb(private val config: AwsConfig) : DdbPlatform {
     override fun getItem(input: GetItemInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<GetItemOutput, salvo.core.checked.Checked<Union2<DdbError, AwsError>>> = try {
+            val answer: Union2<GetItemOutput, salvo.std.core.checked.Checked<Union2<DdbError, AwsError>>> = try {
                 GetItem.ok(fromSdkGetItemOutput(client.getItem(toSdkGetItemInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                GetItem.err(salvo.core.checked.Checked(DdbFailures.ddbError((((salvoFailure(e)).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ProvisionedThroughputExceededException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.RequestLimitExceeded) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ThrottlingException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it })))
+                GetItem.err(salvo.std.core.checked.Checked(DdbFailures.ddbError((((salvoFailure(e)).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ProvisionedThroughputExceededException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.RequestLimitExceeded) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ThrottlingException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it })))
             } catch (e: Exception) {
-                GetItem.err(salvo.core.checked.Checked(DdbFailures.awsError(salvoAwsError(e))))
+                GetItem.err(salvo.std.core.checked.Checked(DdbFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -47,12 +47,12 @@ class HostDdb(private val config: AwsConfig) : DdbPlatform {
     override fun putItem(input: PutItemInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<PutItemOutput, salvo.core.checked.Checked<Union2<DdbError, AwsError>>> = try {
+            val answer: Union2<PutItemOutput, salvo.std.core.checked.Checked<Union2<DdbError, AwsError>>> = try {
                 PutItem.ok(fromSdkPutItemOutput(client.putItem(toSdkPutItemInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                PutItem.err(salvo.core.checked.Checked(DdbFailures.ddbError(((((salvoFailure(e)).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ConditionalCheckFailedException) it.copy(item = e.item?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ProvisionedThroughputExceededException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.RequestLimitExceeded) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ThrottlingException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it })))
+                PutItem.err(salvo.std.core.checked.Checked(DdbFailures.ddbError(((((salvoFailure(e)).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ConditionalCheckFailedException) it.copy(item = e.item?.let { salvo.platform.std.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ProvisionedThroughputExceededException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.RequestLimitExceeded) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ThrottlingException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it })))
             } catch (e: Exception) {
-                PutItem.err(salvo.core.checked.Checked(DdbFailures.awsError(salvoAwsError(e))))
+                PutItem.err(salvo.std.core.checked.Checked(DdbFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -61,12 +61,12 @@ class HostDdb(private val config: AwsConfig) : DdbPlatform {
     override fun deleteItem(input: DeleteItemInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<DeleteItemOutput, salvo.core.checked.Checked<Union2<DdbError, AwsError>>> = try {
+            val answer: Union2<DeleteItemOutput, salvo.std.core.checked.Checked<Union2<DdbError, AwsError>>> = try {
                 DeleteItem.ok(fromSdkDeleteItemOutput(client.deleteItem(toSdkDeleteItemInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                DeleteItem.err(salvo.core.checked.Checked(DdbFailures.ddbError(((((salvoFailure(e)).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ConditionalCheckFailedException) it.copy(item = e.item?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ProvisionedThroughputExceededException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.RequestLimitExceeded) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ThrottlingException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it })))
+                DeleteItem.err(salvo.std.core.checked.Checked(DdbFailures.ddbError(((((salvoFailure(e)).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ConditionalCheckFailedException) it.copy(item = e.item?.let { salvo.platform.std.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ProvisionedThroughputExceededException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.RequestLimitExceeded) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ThrottlingException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it })))
             } catch (e: Exception) {
-                DeleteItem.err(salvo.core.checked.Checked(DdbFailures.awsError(salvoAwsError(e))))
+                DeleteItem.err(salvo.std.core.checked.Checked(DdbFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -75,12 +75,12 @@ class HostDdb(private val config: AwsConfig) : DdbPlatform {
     override fun query(input: QueryInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<QueryOutput, salvo.core.checked.Checked<Union2<DdbError, AwsError>>> = try {
+            val answer: Union2<QueryOutput, salvo.std.core.checked.Checked<Union2<DdbError, AwsError>>> = try {
                 Query.ok(fromSdkQueryOutput(client.query(toSdkQueryInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                Query.err(salvo.core.checked.Checked(DdbFailures.ddbError((((salvoFailure(e)).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ProvisionedThroughputExceededException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.RequestLimitExceeded) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ThrottlingException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it })))
+                Query.err(salvo.std.core.checked.Checked(DdbFailures.ddbError((((salvoFailure(e)).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ProvisionedThroughputExceededException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.RequestLimitExceeded) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it }).let { if (e is aws.sdk.kotlin.services.dynamodb.model.ThrottlingException) it.copy(throttlingReasons = e.throttlingReasons?.let { it.map { e1 -> fromSdkThrottlingReason(e1) } }) else it })))
             } catch (e: Exception) {
-                Query.err(salvo.core.checked.Checked(DdbFailures.awsError(salvoAwsError(e))))
+                Query.err(salvo.std.core.checked.Checked(DdbFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -89,12 +89,12 @@ class HostDdb(private val config: AwsConfig) : DdbPlatform {
     override fun createTable(input: CreateTableInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<CreateTableOutput, salvo.core.checked.Checked<Union2<DdbError, AwsError>>> = try {
+            val answer: Union2<CreateTableOutput, salvo.std.core.checked.Checked<Union2<DdbError, AwsError>>> = try {
                 CreateTable.ok(fromSdkCreateTableOutput(client.createTable(toSdkCreateTableInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                CreateTable.err(salvo.core.checked.Checked(DdbFailures.ddbError(salvoFailure(e))))
+                CreateTable.err(salvo.std.core.checked.Checked(DdbFailures.ddbError(salvoFailure(e))))
             } catch (e: Exception) {
-                CreateTable.err(salvo.core.checked.Checked(DdbFailures.awsError(salvoAwsError(e))))
+                CreateTable.err(salvo.std.core.checked.Checked(DdbFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -103,12 +103,12 @@ class HostDdb(private val config: AwsConfig) : DdbPlatform {
     override fun deleteTable(input: DeleteTableInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<DeleteTableOutput, salvo.core.checked.Checked<Union2<DdbError, AwsError>>> = try {
+            val answer: Union2<DeleteTableOutput, salvo.std.core.checked.Checked<Union2<DdbError, AwsError>>> = try {
                 DeleteTable.ok(fromSdkDeleteTableOutput(client.deleteTable(toSdkDeleteTableInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                DeleteTable.err(salvo.core.checked.Checked(DdbFailures.ddbError(salvoFailure(e))))
+                DeleteTable.err(salvo.std.core.checked.Checked(DdbFailures.ddbError(salvoFailure(e))))
             } catch (e: Exception) {
-                DeleteTable.err(salvo.core.checked.Checked(DdbFailures.awsError(salvoAwsError(e))))
+                DeleteTable.err(salvo.std.core.checked.Checked(DdbFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -170,7 +170,7 @@ private fun toSdkGetItemInput(v: GetItemInput): aws.sdk.kotlin.services.dynamodb
 }
 
 private fun fromSdkGetItemOutput(v: aws.sdk.kotlin.services.dynamodb.model.GetItemResponse): GetItemOutput = GetItemOutput(
-    item = v.item?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) },
+    item = v.item?.let { salvo.platform.std.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) },
     consumedCapacity = v.consumedCapacity?.let { fromSdkConsumedCapacity(it) },
 )
 
@@ -180,9 +180,9 @@ private fun fromSdkConsumedCapacity(v: aws.sdk.kotlin.services.dynamodb.model.Co
     readCapacityUnits = v.readCapacityUnits,
     writeCapacityUnits = v.writeCapacityUnits,
     table = v.table?.let { fromSdkCapacity(it) },
-    localSecondaryIndexes = v.localSecondaryIndexes?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkCapacity(v1) }) },
-    globalSecondaryIndexes = v.globalSecondaryIndexes?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkCapacity(v1) }) },
-    vectorIndexes = v.vectorIndexes?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkVectorCapacity(v1) }) },
+    localSecondaryIndexes = v.localSecondaryIndexes?.let { salvo.platform.std.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkCapacity(v1) }) },
+    globalSecondaryIndexes = v.globalSecondaryIndexes?.let { salvo.platform.std.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkCapacity(v1) }) },
+    vectorIndexes = v.vectorIndexes?.let { salvo.platform.std.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkVectorCapacity(v1) }) },
 )
 
 private fun toSdkConsumedCapacity(v: ConsumedCapacity): aws.sdk.kotlin.services.dynamodb.model.ConsumedCapacity = aws.sdk.kotlin.services.dynamodb.model.ConsumedCapacity {
@@ -257,13 +257,13 @@ private fun toSdkExpectedAttributeValue(v: ExpectedAttributeValue): aws.sdk.kotl
 }
 
 private fun fromSdkPutItemOutput(v: aws.sdk.kotlin.services.dynamodb.model.PutItemResponse): PutItemOutput = PutItemOutput(
-    attributes = v.attributes?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) },
+    attributes = v.attributes?.let { salvo.platform.std.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) },
     consumedCapacity = v.consumedCapacity?.let { fromSdkConsumedCapacity(it) },
     itemCollectionMetrics = v.itemCollectionMetrics?.let { fromSdkItemCollectionMetrics(it) },
 )
 
 private fun fromSdkItemCollectionMetrics(v: aws.sdk.kotlin.services.dynamodb.model.ItemCollectionMetrics): ItemCollectionMetrics = ItemCollectionMetrics(
-    itemCollectionKey = v.itemCollectionKey?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) },
+    itemCollectionKey = v.itemCollectionKey?.let { salvo.platform.std.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) },
     sizeEstimateRangeGb = v.sizeEstimateRangeGb?.let { it.map { e1 -> e1 } },
 )
 
@@ -287,7 +287,7 @@ private fun toSdkDeleteItemInput(v: DeleteItemInput): aws.sdk.kotlin.services.dy
 }
 
 private fun fromSdkDeleteItemOutput(v: aws.sdk.kotlin.services.dynamodb.model.DeleteItemResponse): DeleteItemOutput = DeleteItemOutput(
-    attributes = v.attributes?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) },
+    attributes = v.attributes?.let { salvo.platform.std.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) },
     consumedCapacity = v.consumedCapacity?.let { fromSdkConsumedCapacity(it) },
     itemCollectionMetrics = v.itemCollectionMetrics?.let { fromSdkItemCollectionMetrics(it) },
 )
@@ -323,10 +323,10 @@ private fun toSdkCondition(v: Condition): aws.sdk.kotlin.services.dynamodb.model
 }
 
 private fun fromSdkQueryOutput(v: aws.sdk.kotlin.services.dynamodb.model.QueryResponse): QueryOutput = QueryOutput(
-    items = v.items?.let { it.map { e1 -> salvo.platform.core.map.canonicalMap(e1.entries.sortedBy { it.key }.map { (k2, v2) -> k2 to fromSdkAttributeValue(v2) }) } },
+    items = v.items?.let { it.map { e1 -> salvo.platform.std.core.map.canonicalMap(e1.entries.sortedBy { it.key }.map { (k2, v2) -> k2 to fromSdkAttributeValue(v2) }) } },
     count = (v.count ?: error("missing required member Count")),
     scannedCount = (v.scannedCount ?: error("missing required member ScannedCount")),
-    lastEvaluatedKey = v.lastEvaluatedKey?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) },
+    lastEvaluatedKey = v.lastEvaluatedKey?.let { salvo.platform.std.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkAttributeValue(v1) }) },
     consumedCapacity = v.consumedCapacity?.let { fromSdkConsumedCapacity(it) },
 )
 
@@ -851,7 +851,7 @@ private fun fromSdkAttributeValue(v: aws.sdk.kotlin.services.dynamodb.model.Attr
     is aws.sdk.kotlin.services.dynamodb.model.AttributeValue.Ss -> Union10.U4(AttributeValue.Ss(value = v.value))
     is aws.sdk.kotlin.services.dynamodb.model.AttributeValue.Ns -> Union10.U5(AttributeValue.Ns(value = v.value))
     is aws.sdk.kotlin.services.dynamodb.model.AttributeValue.Bs -> Union10.U6(AttributeValue.Bs(value = v.value.map { salvo.SalvoBytes(it) }))
-    is aws.sdk.kotlin.services.dynamodb.model.AttributeValue.M -> Union10.U7(AttributeValue.M(value = salvo.platform.core.map.canonicalMap(v.value.entries.sortedBy { it.key }.map { (k, e) -> k to fromSdkAttributeValue(e) })))
+    is aws.sdk.kotlin.services.dynamodb.model.AttributeValue.M -> Union10.U7(AttributeValue.M(value = salvo.platform.std.core.map.canonicalMap(v.value.entries.sortedBy { it.key }.map { (k, e) -> k to fromSdkAttributeValue(e) })))
     is aws.sdk.kotlin.services.dynamodb.model.AttributeValue.L -> Union10.U8(AttributeValue.L(value = v.value.map { fromSdkAttributeValue(it) }))
     is aws.sdk.kotlin.services.dynamodb.model.AttributeValue.Bool -> Union10.U9(AttributeValue.Bool(value = v.value))
     is aws.sdk.kotlin.services.dynamodb.model.AttributeValue.Null -> Union10.U10(AttributeValue.Null(value = v.value))
@@ -876,11 +876,11 @@ private fun salvoFailure(e: aws.smithy.kotlin.runtime.ServiceException): DdbErro
 }
 
 /** A Smithy timestamp as a `time.Instant`: nanoseconds since the epoch. */
-private fun salvoInstant(t: aws.smithy.kotlin.runtime.time.Instant): salvo.time.Instant =
-    salvo.time.Instant(nanos = t.epochSeconds * 1_000_000_000L + t.nanosecondsOfSecond)
+private fun salvoInstant(t: aws.smithy.kotlin.runtime.time.Instant): salvo.std.time.Instant =
+    salvo.std.time.Instant(nanos = t.epochSeconds * 1_000_000_000L + t.nanosecondsOfSecond)
 
 /** A `time.Instant` as a Smithy timestamp. */
-private fun salvoDateTime(at: salvo.time.Instant): aws.smithy.kotlin.runtime.time.Instant =
+private fun salvoDateTime(at: salvo.std.time.Instant): aws.smithy.kotlin.runtime.time.Instant =
     aws.smithy.kotlin.runtime.time.Instant.fromEpochSeconds(
         Math.floorDiv(at.nanos, 1_000_000_000L),
         Math.floorMod(at.nanos, 1_000_000_000L).toInt(),

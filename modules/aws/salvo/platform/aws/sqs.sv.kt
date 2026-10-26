@@ -8,8 +8,8 @@ import salvo.*
 
 data class CreateQueueInput(
     val queueName: String,
-    val attributes: salvo.platform.core.map.Map<String, String>? = null,
-    val tags: salvo.platform.core.map.Map<String, String>? = null,
+    val attributes: salvo.platform.std.core.map.Map<String, String>? = null,
+    val tags: salvo.platform.std.core.map.Map<String, String>? = null,
 )
 
 data class CreateQueueOutput(
@@ -51,17 +51,17 @@ data class SendMessageInput(
     val queueUrl: String,
     val messageBody: String,
     val delaySeconds: Int? = null,
-    val messageAttributes: salvo.platform.core.map.Map<String, MessageAttributeValue>? = null,
-    val messageSystemAttributes: salvo.platform.core.map.Map<String, MessageSystemAttributeValue>? = null,
+    val messageAttributes: salvo.platform.std.core.map.Map<String, MessageAttributeValue>? = null,
+    val messageSystemAttributes: salvo.platform.std.core.map.Map<String, MessageSystemAttributeValue>? = null,
     val messageDeduplicationId: String? = null,
     val messageGroupId: String? = null,
 )
 
 data class MessageAttributeValue(
     val stringValue: String? = null,
-    val binaryValue: salvo.platform.core.bytes.Bytes? = null,
+    val binaryValue: salvo.platform.std.core.bytes.Bytes? = null,
     val stringListValues: List<String>? = null,
-    val binaryListValues: List<salvo.platform.core.bytes.Bytes>? = null,
+    val binaryListValues: List<salvo.platform.std.core.bytes.Bytes>? = null,
     val dataType: String,
 )
 
@@ -78,9 +78,9 @@ object __Codec_MessageAttributeValue : salvo.WireCodec<MessageAttributeValue> {
 
 data class MessageSystemAttributeValue(
     val stringValue: String? = null,
-    val binaryValue: salvo.platform.core.bytes.Bytes? = null,
+    val binaryValue: salvo.platform.std.core.bytes.Bytes? = null,
     val stringListValues: List<String>? = null,
-    val binaryListValues: List<salvo.platform.core.bytes.Bytes>? = null,
+    val binaryListValues: List<salvo.platform.std.core.bytes.Bytes>? = null,
     val dataType: String,
 )
 
@@ -148,9 +148,9 @@ data class Message(
     val receiptHandle: String? = null,
     val md5OfBody: String? = null,
     val body: String? = null,
-    val attributes: salvo.platform.core.map.Map<String, String>? = null,
+    val attributes: salvo.platform.std.core.map.Map<String, String>? = null,
     val md5OfMessageAttributes: String? = null,
-    val messageAttributes: salvo.platform.core.map.Map<String, MessageAttributeValue>? = null,
+    val messageAttributes: salvo.platform.std.core.map.Map<String, MessageAttributeValue>? = null,
 )
 
 data class DeleteMessageInput(
@@ -266,37 +266,37 @@ open class __Platform_Sqs(private val impl: SqsPlatform) : Sqs {
 
 // Factories for the host: one per arm of the union [platform-factory].
 object CreateQueue {
-    fun ok(value: CreateQueueOutput): Union2<CreateQueueOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<CreateQueueOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: CreateQueueOutput): Union2<CreateQueueOutput, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<CreateQueueOutput, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object GetQueueUrl {
-    fun ok(value: GetQueueUrlOutput): Union2<GetQueueUrlOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<GetQueueUrlOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: GetQueueUrlOutput): Union2<GetQueueUrlOutput, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<GetQueueUrlOutput, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object SendMessage {
-    fun ok(value: SendMessageOutput): Union2<SendMessageOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<SendMessageOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: SendMessageOutput): Union2<SendMessageOutput, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<SendMessageOutput, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object ReceiveMessage {
-    fun ok(value: ReceiveMessageOutput): Union2<ReceiveMessageOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<ReceiveMessageOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: ReceiveMessageOutput): Union2<ReceiveMessageOutput, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<ReceiveMessageOutput, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object DeleteMessage {
-    fun ok(value: Unit): Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: Unit): Union2<Unit, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<Unit, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object DeleteQueue {
-    fun ok(value: Unit): Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: Unit): Union2<Unit, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<Unit, salvo.std.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 

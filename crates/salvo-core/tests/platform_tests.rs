@@ -11,7 +11,7 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
-/// Module `core.prelude`: `core.*` is implicitly imported, so the test source
+/// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
 const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n";
 
@@ -24,7 +24,7 @@ fn check_files(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );

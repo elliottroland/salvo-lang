@@ -3,26 +3,26 @@
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 51417dfa7690428a
 use crate::aws::AwsError;
-use crate::core_bytes::Bytes;
-use crate::core_checked::Checked;
-use crate::time::Instant;
-use crate::core_map::Map;
+use crate::std_core_bytes::Bytes;
+use crate::std_core_checked::Checked;
+use crate::std_time::Instant;
+use crate::std_core_map::Map;
 
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct GetItemInput {
     pub table_name: String,
-    pub key: crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>,
+    pub key: crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>,
     pub attributes_to_get: Option<Vec<String>>,
     pub consistent_read: Option<bool>,
     pub return_consumed_capacity: Option<String>,
     pub projection_expression: Option<String>,
-    pub expression_attribute_names: Option<crate::core_map::Map<String, String>>,
+    pub expression_attribute_names: Option<crate::std_core_map::Map<String, String>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct GetItemOutput {
-    pub item: Option<crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
+    pub item: Option<crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
     pub consumed_capacity: Option<crate::aws_ddb::ConsumedCapacity>,
 }
 
@@ -33,9 +33,9 @@ pub struct ConsumedCapacity {
     pub read_capacity_units: Option<f64>,
     pub write_capacity_units: Option<f64>,
     pub table: Option<crate::aws_ddb::Capacity>,
-    pub local_secondary_indexes: Option<crate::core_map::Map<String, crate::aws_ddb::Capacity>>,
-    pub global_secondary_indexes: Option<crate::core_map::Map<String, crate::aws_ddb::Capacity>>,
-    pub vector_indexes: Option<crate::core_map::Map<String, crate::aws_ddb::VectorCapacity>>,
+    pub local_secondary_indexes: Option<crate::std_core_map::Map<String, crate::aws_ddb::Capacity>>,
+    pub global_secondary_indexes: Option<crate::std_core_map::Map<String, crate::aws_ddb::Capacity>>,
+    pub vector_indexes: Option<crate::std_core_map::Map<String, crate::aws_ddb::VectorCapacity>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -101,15 +101,15 @@ impl crate::wire::__Wire for ThrottlingReason {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PutItemInput {
     pub table_name: String,
-    pub item: crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>,
-    pub expected: Option<crate::core_map::Map<String, crate::aws_ddb::ExpectedAttributeValue>>,
+    pub item: crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>,
+    pub expected: Option<crate::std_core_map::Map<String, crate::aws_ddb::ExpectedAttributeValue>>,
     pub return_values: Option<String>,
     pub return_consumed_capacity: Option<String>,
     pub return_item_collection_metrics: Option<String>,
     pub conditional_operator: Option<String>,
     pub condition_expression: Option<String>,
-    pub expression_attribute_names: Option<crate::core_map::Map<String, String>>,
-    pub expression_attribute_values: Option<crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
+    pub expression_attribute_names: Option<crate::std_core_map::Map<String, String>>,
+    pub expression_attribute_values: Option<crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
     pub return_values_on_condition_check_failure: Option<String>,
 }
 
@@ -123,35 +123,35 @@ pub struct ExpectedAttributeValue {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PutItemOutput {
-    pub attributes: Option<crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
+    pub attributes: Option<crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
     pub consumed_capacity: Option<crate::aws_ddb::ConsumedCapacity>,
     pub item_collection_metrics: Option<crate::aws_ddb::ItemCollectionMetrics>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ItemCollectionMetrics {
-    pub item_collection_key: Option<crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
+    pub item_collection_key: Option<crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
     pub size_estimate_range_gb: Option<Vec<f64>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DeleteItemInput {
     pub table_name: String,
-    pub key: crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>,
-    pub expected: Option<crate::core_map::Map<String, crate::aws_ddb::ExpectedAttributeValue>>,
+    pub key: crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>,
+    pub expected: Option<crate::std_core_map::Map<String, crate::aws_ddb::ExpectedAttributeValue>>,
     pub conditional_operator: Option<String>,
     pub return_values: Option<String>,
     pub return_consumed_capacity: Option<String>,
     pub return_item_collection_metrics: Option<String>,
     pub condition_expression: Option<String>,
-    pub expression_attribute_names: Option<crate::core_map::Map<String, String>>,
-    pub expression_attribute_values: Option<crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
+    pub expression_attribute_names: Option<crate::std_core_map::Map<String, String>>,
+    pub expression_attribute_values: Option<crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
     pub return_values_on_condition_check_failure: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DeleteItemOutput {
-    pub attributes: Option<crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
+    pub attributes: Option<crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
     pub consumed_capacity: Option<crate::aws_ddb::ConsumedCapacity>,
     pub item_collection_metrics: Option<crate::aws_ddb::ItemCollectionMetrics>,
 }
@@ -164,17 +164,17 @@ pub struct QueryInput {
     pub attributes_to_get: Option<Vec<String>>,
     pub limit: Option<i32>,
     pub consistent_read: Option<bool>,
-    pub key_conditions: Option<crate::core_map::Map<String, crate::aws_ddb::Condition>>,
-    pub query_filter: Option<crate::core_map::Map<String, crate::aws_ddb::Condition>>,
+    pub key_conditions: Option<crate::std_core_map::Map<String, crate::aws_ddb::Condition>>,
+    pub query_filter: Option<crate::std_core_map::Map<String, crate::aws_ddb::Condition>>,
     pub conditional_operator: Option<String>,
     pub scan_index_forward: Option<bool>,
-    pub exclusive_start_key: Option<crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
+    pub exclusive_start_key: Option<crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
     pub return_consumed_capacity: Option<String>,
     pub projection_expression: Option<String>,
     pub filter_expression: Option<String>,
     pub key_condition_expression: Option<String>,
-    pub expression_attribute_names: Option<crate::core_map::Map<String, String>>,
-    pub expression_attribute_values: Option<crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
+    pub expression_attribute_names: Option<crate::std_core_map::Map<String, String>>,
+    pub expression_attribute_values: Option<crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -185,10 +185,10 @@ pub struct Condition {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct QueryOutput {
-    pub items: Option<Vec<crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>>,
+    pub items: Option<Vec<crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>>,
     pub count: i32,
     pub scanned_count: i32,
-    pub last_evaluated_key: Option<crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
+    pub last_evaluated_key: Option<crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
     pub consumed_capacity: Option<crate::aws_ddb::ConsumedCapacity>,
 }
 
@@ -574,7 +574,7 @@ pub struct TableDescription {
     pub table_name: Option<String>,
     pub key_schema: Option<Vec<crate::aws_ddb::KeySchemaElement>>,
     pub table_status: Option<String>,
-    pub creation_date_time: Option<crate::time::Instant>,
+    pub creation_date_time: Option<crate::std_time::Instant>,
     pub provisioned_throughput: Option<crate::aws_ddb::ProvisionedThroughputDescription>,
     pub table_size_bytes: Option<i64>,
     pub item_count: Option<i64>,
@@ -670,8 +670,8 @@ impl crate::wire::__Wire for TableDescription {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProvisionedThroughputDescription {
-    pub last_increase_date_time: Option<crate::time::Instant>,
-    pub last_decrease_date_time: Option<crate::time::Instant>,
+    pub last_increase_date_time: Option<crate::std_time::Instant>,
+    pub last_decrease_date_time: Option<crate::std_time::Instant>,
     pub number_of_decreases_today: Option<i64>,
     pub read_capacity_units: Option<i64>,
     pub write_capacity_units: Option<i64>,
@@ -699,7 +699,7 @@ impl crate::wire::__Wire for ProvisionedThroughputDescription {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BillingModeSummary {
     pub billing_mode: Option<String>,
-    pub last_update_to_pay_per_request_date_time: Option<crate::time::Instant>,
+    pub last_update_to_pay_per_request_date_time: Option<crate::std_time::Instant>,
 }
 
 impl crate::wire::__Wire for BillingModeSummary {
@@ -826,7 +826,7 @@ pub struct ReplicaDescription {
     pub on_demand_throughput_override: Option<crate::aws_ddb::OnDemandThroughputOverride>,
     pub warm_throughput: Option<crate::aws_ddb::TableWarmThroughputDescription>,
     pub global_secondary_indexes: Option<Vec<crate::aws_ddb::ReplicaGlobalSecondaryIndexDescription>>,
-    pub replica_inaccessible_date_time: Option<crate::time::Instant>,
+    pub replica_inaccessible_date_time: Option<crate::std_time::Instant>,
     pub replica_table_class_summary: Option<crate::aws_ddb::TableClassSummary>,
     pub global_table_settings_replication_mode: Option<String>,
 }
@@ -948,7 +948,7 @@ impl crate::wire::__Wire for ReplicaGlobalSecondaryIndexDescription {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TableClassSummary {
     pub table_class: Option<String>,
-    pub last_update_date_time: Option<crate::time::Instant>,
+    pub last_update_date_time: Option<crate::std_time::Instant>,
 }
 
 impl crate::wire::__Wire for TableClassSummary {
@@ -987,7 +987,7 @@ impl crate::wire::__Wire for GlobalTableWitnessDescription {
 pub struct RestoreSummary {
     pub source_backup_arn: Option<String>,
     pub source_table_arn: Option<String>,
-    pub restore_date_time: crate::time::Instant,
+    pub restore_date_time: crate::std_time::Instant,
     pub restore_in_progress: bool,
 }
 
@@ -1013,7 +1013,7 @@ pub struct SSEDescription {
     pub status: Option<String>,
     pub sse_type: Option<String>,
     pub kms_master_key_arn: Option<String>,
-    pub inaccessible_encryption_date_time: Option<crate::time::Instant>,
+    pub inaccessible_encryption_date_time: Option<crate::std_time::Instant>,
 }
 
 impl crate::wire::__Wire for SSEDescription {
@@ -1035,7 +1035,7 @@ impl crate::wire::__Wire for SSEDescription {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArchivalSummary {
-    pub archival_date_time: Option<crate::time::Instant>,
+    pub archival_date_time: Option<crate::std_time::Instant>,
     pub archival_reason: Option<String>,
     pub archival_backup_arn: Option<String>,
 }
@@ -1167,7 +1167,7 @@ impl crate::wire::__Wire for AttributeValueN {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AttributeValueB {
-    pub value: crate::core_bytes::Bytes,
+    pub value: crate::std_core_bytes::Bytes,
 }
 
 impl crate::wire::__Wire for AttributeValueB {
@@ -1215,7 +1215,7 @@ impl crate::wire::__Wire for AttributeValueNs {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AttributeValueBs {
-    pub value: Vec<crate::core_bytes::Bytes>,
+    pub value: Vec<crate::std_core_bytes::Bytes>,
 }
 
 impl crate::wire::__Wire for AttributeValueBs {
@@ -1231,7 +1231,7 @@ impl crate::wire::__Wire for AttributeValueBs {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AttributeValueM {
-    pub value: crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>,
+    pub value: crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1313,7 +1313,7 @@ pub struct DdbError {
     pub message: String,
     pub status: i32,
     pub request_id: Option<String>,
-    pub item: Option<crate::core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
+    pub item: Option<crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>>,
     pub throttling_reasons: Option<Vec<crate::aws_ddb::ThrottlingReason>>,
 }
 
@@ -1454,10 +1454,10 @@ impl<T: DdbPlatformSync> __Stateless_Ddb for __Platform_Ddb<T> {
 pub struct GetItem;
 
 impl GetItem {
-    pub fn ok(value: crate::aws_ddb::GetItemOutput) -> crate::unions::Union2<crate::aws_ddb::GetItemOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
+    pub fn ok(value: crate::aws_ddb::GetItemOutput) -> crate::unions::Union2<crate::aws_ddb::GetItemOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_ddb::GetItemOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
+    pub fn err(value: crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_ddb::GetItemOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -1466,10 +1466,10 @@ impl GetItem {
 pub struct PutItem;
 
 impl PutItem {
-    pub fn ok(value: crate::aws_ddb::PutItemOutput) -> crate::unions::Union2<crate::aws_ddb::PutItemOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
+    pub fn ok(value: crate::aws_ddb::PutItemOutput) -> crate::unions::Union2<crate::aws_ddb::PutItemOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_ddb::PutItemOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
+    pub fn err(value: crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_ddb::PutItemOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -1478,10 +1478,10 @@ impl PutItem {
 pub struct DeleteItem;
 
 impl DeleteItem {
-    pub fn ok(value: crate::aws_ddb::DeleteItemOutput) -> crate::unions::Union2<crate::aws_ddb::DeleteItemOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
+    pub fn ok(value: crate::aws_ddb::DeleteItemOutput) -> crate::unions::Union2<crate::aws_ddb::DeleteItemOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_ddb::DeleteItemOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
+    pub fn err(value: crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_ddb::DeleteItemOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -1490,10 +1490,10 @@ impl DeleteItem {
 pub struct Query;
 
 impl Query {
-    pub fn ok(value: crate::aws_ddb::QueryOutput) -> crate::unions::Union2<crate::aws_ddb::QueryOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
+    pub fn ok(value: crate::aws_ddb::QueryOutput) -> crate::unions::Union2<crate::aws_ddb::QueryOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_ddb::QueryOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
+    pub fn err(value: crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_ddb::QueryOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -1502,10 +1502,10 @@ impl Query {
 pub struct CreateTable;
 
 impl CreateTable {
-    pub fn ok(value: crate::aws_ddb::CreateTableOutput) -> crate::unions::Union2<crate::aws_ddb::CreateTableOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
+    pub fn ok(value: crate::aws_ddb::CreateTableOutput) -> crate::unions::Union2<crate::aws_ddb::CreateTableOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_ddb::CreateTableOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
+    pub fn err(value: crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_ddb::CreateTableOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -1514,10 +1514,10 @@ impl CreateTable {
 pub struct DeleteTable;
 
 impl DeleteTable {
-    pub fn ok(value: crate::aws_ddb::DeleteTableOutput) -> crate::unions::Union2<crate::aws_ddb::DeleteTableOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
+    pub fn ok(value: crate::aws_ddb::DeleteTableOutput) -> crate::unions::Union2<crate::aws_ddb::DeleteTableOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_ddb::DeleteTableOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
+    pub fn err(value: crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_ddb::DeleteTableOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }

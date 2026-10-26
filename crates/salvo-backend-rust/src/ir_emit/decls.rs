@@ -1131,7 +1131,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.f = super::body::FnState::default();
         // [rs-fn-field] A fn whose result holds its callbacks takes them owned.
         let stores = self.stores_callbacks(f);
-        let core_platform = f.kind == FnKind::Platform && f.id.module.0.first().is_some_and(|m| m == "core") && self.s.program.files.iter().any(|x| x.module == f.id.module && x.is_std);
+        let core_platform = f.kind == FnKind::Platform && f.id.module.is_std_core() && self.s.program.files.iter().any(|x| x.module == f.id.module && x.is_std);
         let bound = if f.kind == FnKind::Platform && !core_platform { "Send + 'static" } else { "Clone" };
         let erased_fn = self.s.ast_fn(&f.id).is_some_and(|af| {
             let fi = self.s.program.files.iter().position(|x| x.module == f.id.module).unwrap_or(0);
@@ -1363,7 +1363,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let module = f.id.module.clone();
         let args: Vec<String> = f.params.iter().skip(f.effect_params).map(|p| rs_ident(&p.local.0)).collect();
         let anchor = self.f.loc.as_ref().map(|(a, _)| rs_ident(a)).unwrap_or_default();
-        let list = matches!(module.0.as_slice(), [a, b] if a == "core" && (b == "list" || b == "deque"));
+        let list = matches!(module.0.as_slice(), [s, a, b] if s == "std" && a == "core" && (b == "list" || b == "deque"));
         // [ref-handle] std's mints `at` / `at_proven` are host primitives
         // whose position is the backend's own: the index, bounds-checked or
         // proven; the entry's slot.
@@ -1374,11 +1374,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return format!("{pad}{} as usize\n", args[1]);
         }
         // [ref-handle] A map's position is its entry's slot.
-        if matches!(module.0.as_slice(), [a, b] if a == "core" && b == "map") && (f.name == "get" || f.name == "at") {
+        if matches!(module.0.as_slice(), [s, a, b] if s == "std" && a == "core" && b == "map") && (f.name == "get" || f.name == "at") {
             return format!("{pad}crate::{}::slot_of({})\n", host_mod_name(&module), args.join(", "));
         }
         // The total read's lowering: the key's presence is proved.
-        if matches!(module.0.as_slice(), [a, b] if a == "core" && b == "map") && (f.name == "get_present" || f.name == "at_present") {
+        if matches!(module.0.as_slice(), [s, a, b] if s == "std" && a == "core" && b == "map") && (f.name == "get_present" || f.name == "at_present") {
             return format!("{pad}crate::{}::slot_of({}).expect(\"salvo: a `KeyOf` key is present\")\n", host_mod_name(&module), args.join(", "));
         }
         let call = format!("crate::{}::{}({})", host_mod_name(&module), rs_ident(&f.name), args.join(", "));

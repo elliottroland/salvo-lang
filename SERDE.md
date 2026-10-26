@@ -486,7 +486,7 @@ the price is the sweep and a token on every ordinary construction.
 ## 5. SD-3 — The derived codec, and how a hand-written one takes over
 
 > **Superseded in part (2026-09-28).** The comptime rounds (COMPLETED.md's log, "Comptime, first slice") adopted this section's *shape-changing alternative*:
-> `auto` is gone, the structural functions are `comptime fn`s in `core.auto` asked
+> `auto` is gone, the structural functions are `comptime fn`s in `std.core.auto` asked
 > for with `by auto`, and the JSON pair is to be `comptime fn to_json<T is Struct>` /
 > `from_json` in a `json` module spelled `by json` (ROADMAP §2c). Option A's
 > "grow `auto`" is no longer available; Option B (the record layer) stands as
@@ -800,7 +800,7 @@ each way. A `MemDdb` handler in Salvo (a `Map<Str, Map<Str, Item>>` behind
 the same effect) is the test double, as `MemFs` is for `Fs`.
 
 - *Cost.* One effect, two host skeletons the customer fills (or std ships a
-  reference host under `std/platform/`, as it does for `net`), one double.
+  reference host under `lib/platform/std/`, as it does for `net`), one double.
 - *Trade-offs.* The codec never touches the SDK; the program is testable
   without a table; the errors are `Checked` [checked-type] so a failed write
   cannot be dropped in silence. Conditional expressions and transactions are
@@ -825,7 +825,7 @@ program says `[Store<PersonItem>]` and never sees an `Item`.
   library once SD-3 lands, not as a language feature.
 
 **Recommendation (the user's call).** Option A, with `MemDdb` beside it and a
-reference host in `std/platform/`, and the `Store<T>` layer recorded as the
+reference host in `lib/platform/std/`, and the `Store<T>` layer recorded as the
 library that grows on top.
 
 ---
@@ -845,7 +845,7 @@ waits on ROADMAP §4's manifest DECISION and should be folded into it.
 | SD-3 | Derived codec and customization | §0.1, §0.2, §0.3 | `auto` grows `Json<T>` and `Attr<T>` (`to_json`/`of_json`, `to_attr`/`of_attr`); the record layer (a second struct plus two exhaustive conversions) is the documented customization; no attributes, no partial-auto |
 | SD-4 | Representation rules | §0.2, §0.3 | Unions tagged by arm name under `type`; `None` omitted; defaults always written; unknown keys ignored unless collected; declared field names with a per-struct casing convention; erased qualifiers re-tested on read |
 | SD-5 | Evolution and the mixed fleet | §0.3, §0.4 | `Extra<V>` bag per persisted struct (preservation); derived `changes(old, new)` for partial `UpdateItem` writes; compatibility lock in the manifest when it lands. Two-stage paid once, to deploy the first preserving version |
-| SD-6 | The store client | §0.1 | `platform effect Ddb` over `Item`/`Attr` with `Checked` errors, `MemDdb` double, reference host in `std/platform/`; a `Store<T>` library on top later |
+| SD-6 | The store client | §0.1 | `platform effect Ddb` over `Item`/`Attr` with `Checked` errors, `MemDdb` double, reference host in `lib/platform/std/`; a `Store<T>` library on top later |
 
 What this document does not claim: that any of it removes the two-stage commit
 for binaries already deployed (§7's first paragraph), or that a hand-written

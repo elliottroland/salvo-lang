@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use std::fmt;
 
 /// [type-basic] The basic types: the scalar `intrinsic type`s of
-/// `core.basic`. `Str` is not one — it is a platform type of `core.string`.
+/// `std.core.basic`. `Str` is not one — it is a platform type of `std.core.string`.
 pub const BASIC_TYPES: [&str; 7] = ["Byte", "Int", "Long", "Float", "Double", "Char", "Bool"];
 
 /// [ref-handle] The two projection qualifier names: `proj` (a read-only
@@ -428,7 +428,7 @@ impl Ty {
     }
 
     /// [type-basic] Whether this is a basic type — one of the scalar
-    /// `intrinsic type`s `core.basic` declares — qualifiers ignored. Every
+    /// `intrinsic type`s `std.core.basic` declares — qualifiers ignored. Every
     /// operator on a basic type is the host's own; on anything else (`Str`
     /// included) an operator is a call to the function it resolved to.
     pub fn is_basic(&self) -> bool {

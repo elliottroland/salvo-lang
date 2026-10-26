@@ -8,8 +8,8 @@
 // text. The comments for the reader below are kept apart from them by a
 // blank line, which ends a doc comment.
 
-import args
-import process
+import std.args
+import std.process
 
 // A toy file server.
 struct Tool : FromArgs<self> by args {

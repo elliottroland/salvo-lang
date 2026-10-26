@@ -1,5 +1,5 @@
-import net
-import time
+import std.net
+import std.time
 
 // ============================================================ the fleet ====
 //

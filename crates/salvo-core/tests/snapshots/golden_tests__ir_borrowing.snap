@@ -12,7 +12,7 @@ struct Fighter canbe Mut wire {
 
 fn main::named(lent roster: List<Fighter>, lent name: Str) -> proj Fighter? borrows [roster] {
   foreach#1 f: proj Fighter in read roster {
-    branch#2 cond#0 call core.compare::eq(Str, Str)(read f.name, read name) {
+    branch#2 cond#0 call std.core.compare::eq(Str, Str)(read f.name, read name) {
       return present(read f)
     }
   }
@@ -29,7 +29,7 @@ fn main::window(lent roster: List<Fighter>) -> Mut Window borrows [roster] {
 }
 
 fn main::peek(lent w: Window) -> proj Fighter? borrows [w] {
-  return call core.list::get(List<T>, Int)<Fighter>(borrow_as[proj List<Fighter> -> List<Fighter>](read w.roster), read w.at)
+  return call std.core.list::get(List<T>, Int)<Fighter>(borrow_as[proj List<Fighter> -> List<Fighter>](read w.roster), read w.at)
 }
 
 fn main::heal(lent_mut f: Mut Fighter) -> None {
@@ -93,14 +93,14 @@ fn main::spend(lent_mut camp: Mut Camp, lent n: Int) -> None {
 }
 
 fn main::hoist(lent_mut camp: Mut Camp, moved banner: Str) -> None {
-  call core.list::add<Str>(read camp.banners, !read banner)
+  call std.core.list::add<Str>(read camp.banners, !read banner)
   return none[None]
 }
 
 fn main::main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
-  bind#3 let roster: List<Fighter> = call core.list::List(T, T[])<Fighter>(construct Fighter { name: "Ada", hp: 30, energy: 4 }, array[Fighter[]](construct Fighter { name: "Bo", hp: 8, energy: 9 }))
+  bind#3 let roster: List<Fighter> = call std.core.list::List(T, T[])<Fighter>(construct Fighter { name: "Ada", hp: 30, energy: 4 }, array[Fighter[]](construct Fighter { name: "Bo", hp: 8, energy: 9 }))
   bind#10 let ada: proj Fighter = branch#9 cond#0 true {
     bind#4 let __pick~3: proj Fighter? = call main::named(read roster, "Ada")
     value branch#5 cond#0 check#8 (read __pick~3 is arm 0) {
@@ -110,13 +110,13 @@ fn main::main() -> None {
       value unreachable() at main:191:39
     }
   }
-  call core.console::println(read __handle~2, concat("1. found ", read ada.name, ", hp ", call core.basic::to_str(Int)(read ada.hp)))
-  bind#11 let names: Mut List<Str> = call core.list::Mut_List()<Str>()
-  call core.list::add<Str>(read names, call core.basic::copy<Str>(read ada.name))
-  call core.console::println(read __handle~2, concat("1. copied out ", call core.list::to_str<Str>(drop_mut(read names), fn core.basic::to_str(Str))))
+  call std.core.console::println(read __handle~2, concat("1. found ", read ada.name, ", hp ", call std.core.basic::to_str(Int)(read ada.hp)))
+  bind#11 let names: Mut List<Str> = call std.core.list::Mut_List()<Str>()
+  call std.core.list::add<Str>(read names, call std.core.basic::copy<Str>(read ada.name))
+  call std.core.console::println(read __handle~2, concat("1. copied out ", call std.core.list::to_str<Str>(drop_mut(read names), fn std.core.basic::to_str(Str))))
   bind#12 let w: Mut Window = call main::window(read roster)
   assign w.at = 1
-  call core.console::println(read __handle~2, concat("1. window at ", call core.basic::to_str(Int)(read w.at), ": ", branch#20 cond#0 true {
+  call std.core.console::println(read __handle~2, concat("1. window at ", call std.core.basic::to_str(Int)(read w.at), ": ", branch#20 cond#0 true {
     bind#19 let __proj~9: proj Fighter = branch#18 cond#0 true {
       bind#13 let __pick~6: proj Fighter? = call main::peek(drop_mut(read w))
       value branch#14 cond#0 check#17 (read __pick~6 is arm 0) {
@@ -128,16 +128,16 @@ fn main::main() -> None {
     }
     value !read __proj~9.name
   }))
-  bind#21 let pass: Mut ListYield<Fighter> = call core.list::iter<Fighter>(read roster)
-  bind#22 let standing: Mut List<proj Fighter> = call core.seq::filter(Mut It, (T) -> Bool)<ListYield<Fighter>, proj Fighter>(read pass, lambda(lent f: Fighter) -> Bool {
+  bind#21 let pass: Mut ListYield<Fighter> = call std.core.list::iter<Fighter>(read roster)
+  bind#22 let standing: Mut List<proj Fighter> = call std.core.seq::filter(Mut It, (T) -> Bool)<ListYield<Fighter>, proj Fighter>(read pass, lambda(lent f: Fighter) -> Bool {
     return (read f.hp > 10)
-  }, fn core.list::next(Mut ListYield<T>))
-  call core.console::println(read __handle~2, concat("1. ", call core.basic::to_str(Int)(call core.list::size<proj Fighter>(drop_mut(read standing))), " of ", call core.basic::to_str(Int)(call core.list::size<Fighter>(read roster)), " still standing"))
-  bind#23 let bench: Mut List<Fighter> = call core.list::Mut_List(T, T[])<Fighter>(construct Fighter { name: "Cy", hp: 12, energy: 2 }, array[Fighter[]]())
-  call core.list::add<Fighter>(read bench, construct Fighter { name: "Dee", hp: 6, energy: 7 })
-  call core.console::println(read __handle~2, concat("2. bench ", call core.basic::to_str(Int)(call core.list::size<Fighter>(drop_mut(read bench))), ", front ", branch#31 cond#0 true {
+  }, fn std.core.list::next(Mut ListYield<T>))
+  call std.core.console::println(read __handle~2, concat("1. ", call std.core.basic::to_str(Int)(call std.core.list::size<proj Fighter>(drop_mut(read standing))), " of ", call std.core.basic::to_str(Int)(call std.core.list::size<Fighter>(read roster)), " still standing"))
+  bind#23 let bench: Mut List<Fighter> = call std.core.list::Mut_List(T, T[])<Fighter>(construct Fighter { name: "Cy", hp: 12, energy: 2 }, array[Fighter[]]())
+  call std.core.list::add<Fighter>(read bench, construct Fighter { name: "Dee", hp: 6, energy: 7 })
+  call std.core.console::println(read __handle~2, concat("2. bench ", call std.core.basic::to_str(Int)(call std.core.list::size<Fighter>(drop_mut(read bench))), ", front ", branch#31 cond#0 true {
     bind#30 let __proj~13: proj Fighter = branch#29 cond#0 true {
-      bind#24 let __pick~10: proj Fighter? = call core.list::get(List<T>, Int)<Fighter>(drop_mut(read bench), 0)
+      bind#24 let __pick~10: proj Fighter? = call std.core.list::get(List<T>, Int)<Fighter>(drop_mut(read bench), 0)
       value branch#25 cond#0 check#28 (read __pick~10 is arm 0) {
         narrow#26[branch#25.cond#0] __picked~11: proj Fighter = __pick~10
         value !read __picked~11
@@ -147,9 +147,9 @@ fn main::main() -> None {
     }
     value !read __proj~13.name
   }, " (a reading, not a handle)"))
-  bind#32 let squad: List<Mut Fighter> = call core.list::List(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Ada", hp: 30, energy: 4 }, array[Mut Fighter[]](construct Mut Fighter { name: "Bo", hp: 8, energy: 9 }))
+  bind#32 let squad: List<Mut Fighter> = call std.core.list::List(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Ada", hp: 30, energy: 4 }, array[Mut Fighter[]](construct Mut Fighter { name: "Bo", hp: 8, energy: 9 }))
   bind#39 let boss: ref<List<Mut Fighter>> Mut Fighter = branch#38 cond#0 true {
-    bind#33 let __pick~14: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, 0)
+    bind#33 let __pick~14: ref<List<Mut Fighter>> Mut Fighter? = call std.core.list::at(List<T>, Int)<Mut Fighter>(read squad, 0)
     value branch#34 cond#0 check#37 (read __pick~14 is arm 0) {
       narrow#35[branch#34.cond#0] __picked~15: ref<List<Mut Fighter>> Mut Fighter = __pick~14
       value !read __picked~15
@@ -158,11 +158,11 @@ fn main::main() -> None {
     }
   }
   assign boss.hp = (read boss.hp + 1)
-  bind#40 let n: Int = call core.list::size<Mut Fighter>(read squad)
+  bind#40 let n: Int = call std.core.list::size<Mut Fighter>(read squad)
   assign boss.hp = (read boss.hp + read n)
-  call core.console::println(read __handle~2, concat("2. ", branch#48 cond#0 true {
+  call std.core.console::println(read __handle~2, concat("2. ", branch#48 cond#0 true {
     bind#47 let __proj~20: proj Mut Fighter = branch#46 cond#0 true {
-      bind#41 let __pick~17: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
+      bind#41 let __pick~17: proj Mut Fighter? = call std.core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
       value branch#42 cond#0 check#45 (read __pick~17 is arm 0) {
         narrow#43[branch#42.cond#0] __picked~18: proj Mut Fighter = __pick~17
         value !read __picked~18
@@ -171,9 +171,9 @@ fn main::main() -> None {
       }
     }
     value !read __proj~20.name
-  }, " at ", call core.basic::to_str(Int)(branch#56 cond#0 true {
+  }, " at ", call std.core.basic::to_str(Int)(branch#56 cond#0 true {
     bind#55 let __proj~24: proj Mut Fighter = branch#54 cond#0 true {
-      bind#49 let __pick~21: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
+      bind#49 let __pick~21: proj Mut Fighter? = call std.core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
       value branch#50 cond#0 check#53 (read __pick~21 is arm 0) {
         narrow#51[branch#50.cond#0] __picked~22: proj Mut Fighter = __pick~21
         value !read __picked~22
@@ -192,10 +192,10 @@ fn main::main() -> None {
       value unreachable() at main:238:28
     }
   }))
-  call main::rally_at<Int>(read squad, 1, fn core.list::at(List<T>, Int))
-  call core.console::println(read __handle~2, concat("2. after the searches: ", call core.basic::to_str(Int)(branch#70 cond#0 true {
+  call main::rally_at<Int>(read squad, 1, fn std.core.list::at(List<T>, Int))
+  call std.core.console::println(read __handle~2, concat("2. after the searches: ", call std.core.basic::to_str(Int)(branch#70 cond#0 true {
     bind#69 let __proj~31: proj Mut Fighter = branch#68 cond#0 true {
-      bind#63 let __pick~28: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
+      bind#63 let __pick~28: proj Mut Fighter? = call std.core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
       value branch#64 cond#0 check#67 (read __pick~28 is arm 0) {
         narrow#65[branch#64.cond#0] __picked~29: proj Mut Fighter = __pick~28
         value !read __picked~29
@@ -204,9 +204,9 @@ fn main::main() -> None {
       }
     }
     value !read __proj~31.hp
-  }), " ", call core.basic::to_str(Int)(branch#78 cond#0 true {
+  }), " ", call std.core.basic::to_str(Int)(branch#78 cond#0 true {
     bind#77 let __proj~35: proj Mut Fighter = branch#76 cond#0 true {
-      bind#71 let __pick~32: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 1)
+      bind#71 let __pick~32: proj Mut Fighter? = call std.core.list::get(List<T>, Int)<Mut Fighter>(read squad, 1)
       value branch#72 cond#0 check#75 (read __pick~32 is arm 0) {
         narrow#73[branch#72.cond#0] __picked~33: proj Mut Fighter = __pick~32
         value !read __picked~33
@@ -219,7 +219,7 @@ fn main::main() -> None {
   bind#79 let i: Int = 0
   bind#80 let j: Int = 1
   bind#87 let a: ref<List<Mut Fighter>> Mut Fighter = branch#86 cond#0 true {
-    bind#81 let __pick~36: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
+    bind#81 let __pick~36: ref<List<Mut Fighter>> Mut Fighter? = call std.core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
     value branch#82 cond#0 check#85 (read __pick~36 is arm 0) {
       narrow#83[branch#82.cond#0] __picked~37: ref<List<Mut Fighter>> Mut Fighter = __pick~36
       value !read __picked~37
@@ -228,7 +228,7 @@ fn main::main() -> None {
     }
   }
   bind#94 let d: ref<List<Mut Fighter>> Mut Fighter = branch#93 cond#0 true {
-    bind#88 let __pick~39: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read j)
+    bind#88 let __pick~39: ref<List<Mut Fighter>> Mut Fighter? = call std.core.list::at(List<T>, Int)<Mut Fighter>(read squad, read j)
     value branch#89 cond#0 check#92 (read __pick~39 is arm 0) {
       narrow#90[branch#89.cond#0] __picked~40: ref<List<Mut Fighter>> Mut Fighter = __pick~39
       value !read __picked~40
@@ -236,29 +236,29 @@ fn main::main() -> None {
       value unreachable() at main:260:29
     }
   }
-  branch#95 cond#0 call core.ref::NotSame.qualifies(read d, read a) {
+  branch#95 cond#0 call std.core.ref::NotSame.qualifies(read d, read a) {
     assign a.hp = (read a.hp + 1)
     assign d.hp = (read d.hp + 1)
     call main::duel(borrow_as[ref<List<Mut Fighter>> Mut Fighter -> Mut Fighter](read a), borrow_as[ref<List<Mut Fighter>> Mut Fighter -> Mut Fighter](read d))
     assign a.energy = (read a.energy + 100)
     assign d.energy = (read d.energy + 200)
   }
-  branch#96 cond#0 call core.index::Idx.qualifies(read i, read squad, fn core.list::size) {
-    branch#97 cond#0 call core.index::Idx.qualifies(read j, read squad, fn core.list::size) {
-      call core.list::update<Fighter>(read squad, read i, lambda(lent f: Mut Fighter) -> None {
+  branch#96 cond#0 call std.core.index::Idx.qualifies(read i, read squad, fn std.core.list::size) {
+    branch#97 cond#0 call std.core.index::Idx.qualifies(read j, read squad, fn std.core.list::size) {
+      call std.core.list::update<Fighter>(read squad, read i, lambda(lent f: Mut Fighter) -> None {
         assign f.energy = (read f.energy + 1)
       })
-      call core.console::println(read __handle~2, concat("3. ", call core.basic::to_str(Int)(branch#99 cond#0 true {
-        bind#98 let __proj~42: proj Mut Fighter = call core.list::get(List<T>, Idx(list) Int)<Mut Fighter>(read squad, read i)
+      call std.core.console::println(read __handle~2, concat("3. ", call std.core.basic::to_str(Int)(branch#99 cond#0 true {
+        bind#98 let __proj~42: proj Mut Fighter = call std.core.list::get(List<T>, Idx(list) Int)<Mut Fighter>(read squad, read i)
         value !read __proj~42.energy
-      }), " ", call core.basic::to_str(Int)(branch#101 cond#0 true {
-        bind#100 let __proj~43: proj Mut Fighter = call core.list::get(List<T>, Idx(list) Int)<Mut Fighter>(read squad, read j)
+      }), " ", call std.core.basic::to_str(Int)(branch#101 cond#0 true {
+        bind#100 let __proj~43: proj Mut Fighter = call std.core.list::get(List<T>, Idx(list) Int)<Mut Fighter>(read squad, read j)
         value !read __proj~43.energy
       }), " (total reads: `Idx` survived)"))
     }
   }
   call main::strike(read squad, branch#107 cond#0 true {
-    bind#102 let __pick~44: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
+    bind#102 let __pick~44: ref<List<Mut Fighter>> Mut Fighter? = call std.core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
     value branch#103 cond#0 check#106 (read __pick~44 is arm 0) {
       narrow#104[branch#103.cond#0] __picked~45: ref<List<Mut Fighter>> Mut Fighter = __pick~44
       value !read __picked~45
@@ -266,7 +266,7 @@ fn main::main() -> None {
       value unreachable() at main:282:35
     }
   }, branch#113 cond#0 true {
-    bind#108 let __pick~47: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read j)
+    bind#108 let __pick~47: ref<List<Mut Fighter>> Mut Fighter? = call std.core.list::at(List<T>, Int)<Mut Fighter>(read squad, read j)
     value branch#109 cond#0 check#112 (read __pick~47 is arm 0) {
       narrow#110[branch#109.cond#0] __picked~48: ref<List<Mut Fighter>> Mut Fighter = __pick~47
       value !read __picked~48
@@ -275,7 +275,7 @@ fn main::main() -> None {
     }
   })
   call main::strike(read squad, branch#119 cond#0 true {
-    bind#114 let __pick~50: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
+    bind#114 let __pick~50: ref<List<Mut Fighter>> Mut Fighter? = call std.core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
     value branch#115 cond#0 check#118 (read __pick~50 is arm 0) {
       narrow#116[branch#115.cond#0] __picked~51: ref<List<Mut Fighter>> Mut Fighter = __pick~50
       value !read __picked~51
@@ -283,7 +283,7 @@ fn main::main() -> None {
       value unreachable() at main:285:35
     }
   }, branch#125 cond#0 true {
-    bind#120 let __pick~53: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
+    bind#120 let __pick~53: ref<List<Mut Fighter>> Mut Fighter? = call std.core.list::at(List<T>, Int)<Mut Fighter>(read squad, read i)
     value branch#121 cond#0 check#124 (read __pick~53 is arm 0) {
       narrow#122[branch#121.cond#0] __picked~54: ref<List<Mut Fighter>> Mut Fighter = __pick~53
       value !read __picked~54
@@ -291,9 +291,9 @@ fn main::main() -> None {
       value unreachable() at main:285:67
     }
   })
-  call core.console::println(read __handle~2, concat("4. ", call core.basic::to_str(Int)(branch#133 cond#0 true {
+  call std.core.console::println(read __handle~2, concat("4. ", call std.core.basic::to_str(Int)(branch#133 cond#0 true {
     bind#132 let __proj~59: proj Mut Fighter = branch#131 cond#0 true {
-      bind#126 let __pick~56: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
+      bind#126 let __pick~56: proj Mut Fighter? = call std.core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
       value branch#127 cond#0 check#130 (read __pick~56 is arm 0) {
         narrow#128[branch#127.cond#0] __picked~57: proj Mut Fighter = __pick~56
         value !read __picked~57
@@ -302,9 +302,9 @@ fn main::main() -> None {
       }
     }
     value !read __proj~59.hp
-  }), " hp / ", call core.basic::to_str(Int)(branch#141 cond#0 true {
+  }), " hp / ", call std.core.basic::to_str(Int)(branch#141 cond#0 true {
     bind#140 let __proj~63: proj Mut Fighter = branch#139 cond#0 true {
-      bind#134 let __pick~60: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
+      bind#134 let __pick~60: proj Mut Fighter? = call std.core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
       value branch#135 cond#0 check#138 (read __pick~60 is arm 0) {
         narrow#136[branch#135.cond#0] __picked~61: proj Mut Fighter = __pick~60
         value !read __picked~61
@@ -314,9 +314,9 @@ fn main::main() -> None {
     }
     value !read __proj~63.energy
   }), " energy after striking itself"))
-  bind#142 let team: Mut Squad = construct Mut Squad { banner: "Red", members: call core.list::List(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Cy", hp: 12, energy: 2 }, array[Mut Fighter[]](construct Mut Fighter { name: "Dee", hp: 6, energy: 7 })) }
+  bind#142 let team: Mut Squad = construct Mut Squad { banner: "Red", members: call std.core.list::List(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Cy", hp: 12, energy: 2 }, array[Mut Fighter[]](construct Mut Fighter { name: "Dee", hp: 6, energy: 7 })) }
   call main::rotate(read team.members, branch#148 cond#0 true {
-    bind#143 let __pick~64: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read team.members, read i)
+    bind#143 let __pick~64: ref<List<Mut Fighter>> Mut Fighter? = call std.core.list::at(List<T>, Int)<Mut Fighter>(read team.members, read i)
     value branch#144 cond#0 check#147 (read __pick~64 is arm 0) {
       narrow#145[branch#144.cond#0] __picked~65: ref<List<Mut Fighter>> Mut Fighter = __pick~64
       value !read __picked~65
@@ -324,7 +324,7 @@ fn main::main() -> None {
       value unreachable() at main:293:49
     }
   }, branch#154 cond#0 true {
-    bind#149 let __pick~67: ref<List<Mut Fighter>> Mut Fighter? = call core.list::at(List<T>, Int)<Mut Fighter>(read team.members, read j)
+    bind#149 let __pick~67: ref<List<Mut Fighter>> Mut Fighter? = call std.core.list::at(List<T>, Int)<Mut Fighter>(read team.members, read j)
     value branch#150 cond#0 check#153 (read __pick~67 is arm 0) {
       narrow#151[branch#150.cond#0] __picked~68: ref<List<Mut Fighter>> Mut Fighter = __pick~67
       value !read __picked~68
@@ -332,9 +332,9 @@ fn main::main() -> None {
       value unreachable() at main:293:88
     }
   })
-  call core.console::println(read __handle~2, concat("4. ", read team.banner, ": ", call core.basic::to_str(Int)(branch#162 cond#0 true {
+  call std.core.console::println(read __handle~2, concat("4. ", read team.banner, ": ", call std.core.basic::to_str(Int)(branch#162 cond#0 true {
     bind#161 let __proj~73: proj Mut Fighter = branch#160 cond#0 true {
-      bind#155 let __pick~70: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read team.members, 0)
+      bind#155 let __pick~70: proj Mut Fighter? = call std.core.list::get(List<T>, Int)<Mut Fighter>(read team.members, 0)
       value branch#156 cond#0 check#159 (read __pick~70 is arm 0) {
         narrow#157[branch#156.cond#0] __picked~71: proj Mut Fighter = __pick~70
         value !read __picked~71
@@ -343,9 +343,9 @@ fn main::main() -> None {
       }
     }
     value !read __proj~73.energy
-  }), " ", call core.basic::to_str(Int)(branch#170 cond#0 true {
+  }), " ", call std.core.basic::to_str(Int)(branch#170 cond#0 true {
     bind#169 let __proj~77: proj Mut Fighter = branch#168 cond#0 true {
-      bind#163 let __pick~74: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read team.members, 1)
+      bind#163 let __pick~74: proj Mut Fighter? = call std.core.list::get(List<T>, Int)<Mut Fighter>(read team.members, 1)
       value branch#164 cond#0 check#167 (read __pick~74 is arm 0) {
         narrow#165[branch#164.cond#0] __picked~75: proj Mut Fighter = __pick~74
         value !read __picked~75
@@ -355,9 +355,9 @@ fn main::main() -> None {
     }
     value !read __proj~77.energy
   })))
-  bind#171 let camp: Mut Camp = construct Mut Camp { supplies: 10, banners: call core.list::Mut_List(T, T[])<Str>("red", array[Str[]]()) }
+  bind#171 let camp: Mut Camp = construct Mut Camp { supplies: 10, banners: call std.core.list::Mut_List(T, T[])<Str>("red", array[Str[]]()) }
   alias#172 banners: Mut List<Str> = camp.banners
   call main::spend(read camp, 3)
   call main::hoist(read camp, "blue")
-  call core.console::println(read __handle~2, concat("5. supplies ", call core.basic::to_str(Int)(read camp.supplies), ", banners ", call core.list::to_str<Str>(drop_mut(read banners), fn core.basic::to_str(Str))))
+  call std.core.console::println(read __handle~2, concat("5. supplies ", call std.core.basic::to_str(Int)(read camp.supplies), ", banners ", call std.core.list::to_str<Str>(drop_mut(read banners), fn std.core.basic::to_str(Str))))
 }

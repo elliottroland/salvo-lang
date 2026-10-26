@@ -14,7 +14,7 @@ unprefixed entries in its block — and its `qualifies` takes them as
 parameters after the subject:
 
 ```
-// core.map — the claim that a key is present in one particular map.
+// std.core.map — the claim that a key is present in one particular map.
 qualifier KeyOf<K, V>(map: Map<K, V>) of K {
     fn qualifies(key: K, map: Map<K, V>) -> Bool {
         return contains_key(map, key)
@@ -51,7 +51,7 @@ type, and let mutation of what it depends on take it away.
 ## Consuming one: total operations
 
 A signature can *demand* the claim, which is how an operation loses its
-"maybe". `core.index` declares an index claim, and each container a `get` that
+"maybe". `std.core.index` declares an index claim, and each container a `get` that
 needs it:
 
 ```
@@ -105,7 +105,7 @@ back in with a **`preserve` entry** — either as a refinement on someone
 else's function, or in a function's own clause:
 
 ```
-// core.map, inside the qualifier that owns the claim: writing under a key
+// std.core.map, inside the qualifier that owns the claim: writing under a key
 // never removes one.
 refn put(map: Mut Map<K, V>, key: K, value: V) => map: preserve KeyOf
 ```
@@ -125,9 +125,9 @@ let v = get(m, k)           // the total overload: an Int, not an Int?
 `Idx` is preserved across a list's `add`, `swap` and `replace`, a deque's
 `add_first`, `add_last` and `replace`, and a buffer's `replace` and `clear`, for
 the same reason — growth keeps every existing index valid, and an exchange or a
-write in place moves no boundary. All of those refinements live in `core.index`,
+write in place moves no boundary. All of those refinements live in `std.core.index`,
 beside the claim, since only the claim's owner may say that a call keeps it.
-`core.list`'s `update` preserves it too, which is what makes a sequence of
+`std.core.list`'s `update` preserves it too, which is what makes a sequence of
 in-place writes stay total ([Mutable handles](Mutable-Handles.md)).
 
 ## The other slot kinds
@@ -137,7 +137,7 @@ one of them:
 
 * **A place** — everything above.
 * **A constant**, compile-time known, so nothing can invalidate it:
-  `core.range` declares `qualifier InRange(lo: Int, hi: Int) of Int`, used as
+  `std.core.range` declares `qualifier InRange(lo: Int, hi: Int) of Int`, used as
   `InRange(0, 65535) Int`. A constant is an `Int`, a `Char` or a `Str`
   literal, of the slot's own type: `qualifier Prefix(p: Str) of Str` is
   written `Prefix("arn:") Str`, and `qualifier Initial(c: Char) of Str`

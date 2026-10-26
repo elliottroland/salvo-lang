@@ -7,7 +7,7 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Checked, Program, SourceSet, Symbols};
 
 /// [intrinsic-std-only] Base types the checker needs, loaded as a std file
-/// (module `core.prelude`, implicitly imported) rather than pasted into the
+/// (module `std.core.prelude`, implicitly imported) rather than pasted into the
 /// sources under test. Added *after* the user files so their file indices —
 /// which these tests assert on — stay stable.
 const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n";
@@ -22,7 +22,7 @@ fn check_files(files: &[(&str, &str)]) -> (Program, Checked) {
     }
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
@@ -253,7 +253,7 @@ fn incompatible_generic_bindings_still_reject() {
 /// Runs the checker on a source *with std loaded* (the new rules only
 /// fire on known types) and returns the rendered errors.
 fn check_errors(src: &str) -> Vec<String> {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
     let io_errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(io_errors.is_empty(), "failed to read std: {io_errors:?}");

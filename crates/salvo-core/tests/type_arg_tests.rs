@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
-/// Module `core.prelude`: `core.*` is implicitly imported, so the test source
+/// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
 const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn empty_list<T>() [] -> Mut List<T>\nexport intrinsic fn of_list<T>(...elems: T[]) [] -> Mut List<T>\n";
 
@@ -24,7 +24,7 @@ fn checked(src: &str) -> (Program, salvo_core::Checked) {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
-        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
         true,
     );
@@ -280,7 +280,7 @@ fn a_written_type_argument_still_decides() {
 /// Before this check, an omitted argument silently bound to `Ty::Unknown`
 /// and rode [type-unknown-lenient] for every later read through the field —
 /// no checking at all (defect closed 2026-10-19 via `List<Arg>` for a
-/// generic `Arg<T>` in `std/args/parse.sv`).
+/// generic `Arg<T>` in `lib/std/args/parse.sv`).
 #[test]
 fn a_generic_struct_in_a_type_position_must_supply_its_type_argument() {
     let msgs = messages(
@@ -330,7 +330,7 @@ fn a_bare_struct_literal_type_name_is_exempt_from_the_arity_check() {
 /// substituted parameter type when the call is otherwise unambiguous — no
 /// need to write `Arg<Int>` when `add(list: Mut List<Arg<Int>>, elem:
 /// Arg<Int>)` already pins `T = Int` (fixed 2026-10-19 alongside the
-/// [generic-arity] check, via `std/args/parse.sv`'s
+/// [generic-arity] check, via `lib/std/args/parse.sv`'s
 /// `args.ints.add(Arg { ... })`).
 #[test]
 fn a_struct_literal_call_argument_infers_its_type_argument_from_the_parameter() {

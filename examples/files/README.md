@@ -79,7 +79,7 @@ appended.
 
 | layer | what it is |
 |---|---|
-| `HostRawFs` | a `platform handler`: the host class shipped per backend (`std/platform/core/hostfs.{kt,rs}`), plain `Long` handles, no obligations in it |
+| `HostRawFs` | a `platform handler`: the host class shipped per backend (`lib/platform/std/core/hostfs.{kt,rs}`), plain `Long` handles, no obligations in it |
 | `DefaultFs [RawFs]` | ordinary Salvo: mints the linear tokens, maps host failures into `FsError`, discharges in Salvo |
 | `RestrictedFs(root) [Fs]` | ordinary Salvo, and an interceptor: policy in the opens, pass-throughs for the streams |
 | `MemFs` | ordinary Salvo, no dependency, no host: the whole surface faked in memory |

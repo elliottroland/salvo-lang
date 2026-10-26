@@ -10,7 +10,7 @@ use crate::aws::*;
 use crate::aws_s3::*;
 use crate::aws_s3_host::*;
 use crate::unions::*;
-use crate::core_checked::Checked;
+use crate::std_core_checked::Checked;
 use aws_sdk_s3::error::ProvideErrorMetadata;
 
 // `threadsafe platform handler HostS3`: the SDK client is cheap to
@@ -245,7 +245,7 @@ fn from_sdk_get_object_output(v: aws_sdk_s3::operation::get_object::GetObjectOut
         content_type: v.content_type().map(|x| x.to_string()),
         website_redirect_location: v.website_redirect_location().map(|x| x.to_string()),
         server_side_encryption: v.server_side_encryption().map(|x| x.as_str().to_string()),
-        metadata: v.metadata().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), v.to_string())).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }),
+        metadata: v.metadata().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), v.to_string())).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_std_core_map::canonical_map(__es) }),
         sse_customer_algorithm: v.sse_customer_algorithm().map(|x| x.to_string()),
         sse_customer_key_md5: v.sse_customer_key_md5().map(|x| x.to_string()),
         ssekms_key_id: v.ssekms_key_id().map(|x| x.to_string()),
@@ -261,7 +261,7 @@ fn from_sdk_get_object_output(v: aws_sdk_s3::operation::get_object::GetObjectOut
         object_lock_event_hold: v.object_lock_event_hold().map(|x| x.as_str().to_string()),
         object_lock_event_hold_duration_days: v.object_lock_event_hold_duration_days().map(|x| *(&x)),
         object_lock_event_hold_duration_years: v.object_lock_event_hold_duration_years().map(|x| *(&x)),
-        body: crate::stream::InStream {
+        body: crate::std_stream::InStream {
             handle: salvo_register_body("S3 GetObject body", v.body, rt),
         },
     }
@@ -325,13 +325,13 @@ fn salvo_expand_home(path: &str) -> String {
 
 /// A Smithy timestamp as a `time.Instant`: nanoseconds since the epoch,
 /// saturating outside `Instant`'s range (1678–2262).
-fn salvo_instant(t: &aws_sdk_s3::primitives::DateTime) -> crate::time::Instant {
+fn salvo_instant(t: &aws_sdk_s3::primitives::DateTime) -> crate::std_time::Instant {
     let nanos = t.as_nanos().clamp(i64::MIN as i128, i64::MAX as i128) as i64;
-    crate::time::Instant { nanos }
+    crate::std_time::Instant { nanos }
 }
 
 /// A `time.Instant` as a Smithy timestamp.
-fn salvo_date_time(at: &crate::time::Instant) -> aws_sdk_s3::primitives::DateTime {
+fn salvo_date_time(at: &crate::std_time::Instant) -> aws_sdk_s3::primitives::DateTime {
     aws_sdk_s3::primitives::DateTime::from_nanos(at.nanos as i128).expect("an i64 of nanoseconds is a valid timestamp")
 }
 

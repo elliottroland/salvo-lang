@@ -4,7 +4,7 @@
 //! (user decisions 2026-09-28, the comptime rounds; COMPLETED.md's log).
 //!
 //! Runs before resolution, over the whole source set, because a `by auto` in
-//! any file reads `core.auto`'s compfns and the target type's declaration,
+//! any file reads `std.core.auto`'s compfns and the target type's declaration,
 //! neither of which resolution has looked at yet. What it leaves behind:
 //!
 //! - one stamped fn per (`by` site, group member), declared on the target type
@@ -37,7 +37,7 @@ use crate::source::{ModulePath, SourceFile};
 pub struct CompHover {
     pub file: usize,
     pub span: Span,
-    /// Markdown: a code line with the name and its `core.comptime` type, then
+    /// Markdown: a code line with the name and its `std.core.comptime` type, then
     /// a sentence.
     pub text: String,
     /// [doc-module] The module a `by` site took its comptime fn from, when
@@ -108,33 +108,6 @@ impl StdComptime {
         self.files
     }
 
-    /// [lsp-std-front] Whether stamping std inside `files` gives what
-    /// stamping it alone gave. std sees only std [obligation-by]: a `by`
-    /// path names only the modules its file can see, and a name std's scope
-    /// does not see falls back to std's declarations alone. What a project
-    /// can still reach std through is a module under `core`, which every
-    /// file sees implicitly (until std's modules take the `std.` prefix,
-    /// ROADMAP 0s): a program with one (a copy of a std file aside, which
-    /// the expansion skips) is expanded whole, as without the front.
-    pub fn admits(&self, files: &[SourceFile]) -> bool {
-        (self.files..files.len())
-            .all(|idx| shadow_copy(files, idx) || files[idx].module.0.first().is_none_or(|s| s != "core"))
-    }
-}
-
-/// [std-shadow] The repository root opened as a workspace loads `std/` a
-/// second time as user files (`std.core.auto` beside the embedded
-/// `core.auto`, ROADMAP §4). A copy — same content, module ending in the std
-/// module's path — is not a second candidate for `by auto`.
-fn shadow_copy(files: &[SourceFile], idx: usize) -> bool {
-    let f = &files[idx];
-    !f.is_std
-        && files.iter().any(|g| {
-            g.is_std
-                && g.content == f.content
-                && f.module.matches_suffix(&g.module.0.iter().map(|s| s.as_str()).collect::<Vec<_>>())
-                && f.module.0.len() > g.module.0.len()
-        })
 }
 
 /// [lsp-std-front] Whether the per-file stamping has anything to do in a
@@ -175,7 +148,11 @@ pub fn expand_comptime_prefix<M: crate::expand::ModuleSlot>(
 /// expanded: the world reads std's tables from the prefix, scopes are
 /// resolved for the later files only, and only the later files are stamped.
 /// The std files' own output (diagnostics, hovers, `[when]` arms) is the
-/// prefix's, not repeated here. Sound when `prefix.admits(files)`.
+/// prefix's, not repeated here. Sound for every program: std sees only std
+/// [obligation-by] — a `by` path names only the modules its file can see, a
+/// name std's scope does not see falls back to std's declarations alone, and
+/// what std sees implicitly is `std.core.*`, which no project can declare
+/// [std-root].
 pub fn expand_comptime_after(
     files: &[SourceFile],
     modules: &mut [std::sync::Arc<Module>],
@@ -201,9 +178,6 @@ fn run<M: crate::expand::ModuleSlot>(
     let mut tables = Tables::default();
     for idx in start..files.len() {
         let (file, module) = (&files[idx], modules[idx].borrow());
-        if shadow_copy(files, idx) {
-            continue;
-        }
         for item in &module.items {
             match item {
                 Item::Fn(f) if f.compfn.as_ref().is_some_and(|c| c.bound.is_some()) => {
@@ -258,12 +232,7 @@ fn run<M: crate::expand::ModuleSlot>(
         std_modules: files.iter().filter(|f| f.is_std).map(|f| f.module.clone()).collect(),
         own: std::cell::RefCell::new(ModulePath(Vec::new())),
         imports: std::cell::RefCell::new(Vec::new()),
-        module_paths: files
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| !shadow_copy(files, *i))
-            .map(|(_, f)| f.module.clone())
-            .collect(),
+        module_paths: files.iter().map(|f| f.module.clone()).collect(),
     };
 
     for file_idx in start..files.len() {
@@ -549,7 +518,7 @@ fn run<M: crate::expand::ModuleSlot>(
 }
 
 /// [comptime-fields] Walks a comptime fn's written body and records, for
-/// every comptime name, its type in `core.comptime`'s terms: the bound
+/// every comptime name, its type in `std.core.comptime`'s terms: the bound
 /// parameter (`T is Struct`), an `[for …]`/`[when …]` binder (`field: Field`,
 /// `arm: Arm`), and the projections (`field.name: Str`, `field.type: Type`,
 /// `T.fields: List<Field>`, `T.name: Str`). Read-only over the original AST,
@@ -1058,7 +1027,7 @@ fn comp_ty_text(ct: &CompTy) -> String {
 /// field's (or arm's) type and name range over the fields of whatever `T` is
 /// stamped at, which nothing knows where the fn is declared: such a dispatch
 /// is refused there (user decision 2026-10-20). `[when f.kind]` stays — its
-/// range is `core.comptime`'s `Kind`, the same everywhere — and since its
+/// range is `std.core.comptime`'s `Kind`, the same everywhere — and since its
 /// coverage is known from the arms alone, it is checked here too.
 fn unchecked_subject_whens(f: &FnDecl) -> Vec<Diagnostic> {
     use salvo_syntax::visit::{self as v, Visitor};
@@ -1420,7 +1389,7 @@ impl World {
     /// [type-identity] [comptime-root-visible] Which of a name's
     /// declarations the file being expanded means: its own module's, else
     /// one from a module it imports (the module itself, or the item by
-    /// name), else one from `core` (implicitly visible), else the first.
+    /// name), else one from `std.core` (implicitly visible), else the first.
     /// [obligation-by] A std file considers std's declarations only.
     fn pick_decl<'a, D>(&self, name: &str, all: &[&'a (ModulePath, D)]) -> Option<&'a (ModulePath, D)> {
         let std_only: Vec<&'a (ModulePath, D)>;
@@ -1445,7 +1414,7 @@ impl World {
         };
         all.iter()
             .find(|(m, _)| imported(m))
-            .or_else(|| all.iter().find(|(m, _)| m.0.first().is_some_and(|s| s == "core")))
+            .or_else(|| all.iter().find(|(m, _)| m.is_std_core() && self.std_modules.contains(m)))
             .or_else(|| all.first())
             .copied()
     }
@@ -1678,7 +1647,7 @@ impl World {
     ) -> Option<FnDecl> {
         let path: Vec<&str> = by.path.iter().map(|p| p.name.as_str()).collect();
         // The module reading: any unambiguous suffix of the path [mod-suffix],
-        // so `by auto` reaches `core.auto` as `size@list` reaches `core.list`
+        // so `by auto` reaches `std.core.auto` as `size@list` reaches `std.core.list`
         // — among the modules the stamping file can see [obligation-by]: its
         // own, what it imports, what is implicitly visible. A project module
         // `auto` is no second candidate for std's `by auto`, nor for a file
@@ -2824,7 +2793,7 @@ impl<'w> Expander<'w> {
     }
 
     /// [comptime-kind] A type a comptime test compares against must name
-    /// types: a declared type (not one of `core.comptime`'s compile-time
+    /// types: a declared type (not one of `std.core.comptime`'s compile-time
     /// structs), `None`, or a type parameter in scope. A kind word that
     /// names no type is the old kind-test spelling, and says so.
     fn check_type_names(&mut self, ty: &Type, span: Span, allowed: &[String]) -> bool {
