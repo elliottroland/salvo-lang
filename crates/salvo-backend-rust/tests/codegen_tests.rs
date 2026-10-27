@@ -17020,6 +17020,64 @@ fn rustc_compiles_and_runs_a_fn_value_by_name_ranked_as_a_call() {
     run_rust_files(&files, "by-name-ranked", "int\nint\nany\n");
 }
 
+/// [fn-erased-variance] [implicit-override] [fn-value-select] A **written** fn
+/// value fits contravariantly in erased qualifiers (user decision 2026-10-14,
+/// ROADMAP 0x option (b)): a `render_row(xs: List<Int>)` fills a `(NonEmpty
+/// List<Int>) -> Str` as an override and as a by-name argument, and a
+/// `shout(s: Str)` a `(Ok Str) -> Str` — passed as written, with no adapter,
+/// since neither qualifier is rendered.
+const ERASED_VARIANCE_DEMO: &str = r#"
+fn to_str<T>(x: T) [] -> Str => x { return "?" }
+fn render_row(xs: List<Int>) [] -> Str => xs { return to_str(xs, to_str = to_str@main) }
+fn apply(f: (xs: NonEmpty List<Int>) -> Str, xs: NonEmpty List<Int>) [] -> Str => f, xs { return f(xs) }
+fn shout(s: Str) [] -> Str => s { return "${s}!" }
+fn apply_ok(f: (s: Ok Str) -> Str, s: Ok Str) [] -> Str => f, s { return f(s) }
+fn main() [use] {
+    use StdConsole()
+    let xss = List(List(1, 2), List(3))
+    println(to_str(xss, to_str = render_row))
+    println(apply(render_row, List(1, 2)))
+    println(apply_ok(shout, ok("hi")))
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_a_written_fn_value_across_erased_qualifiers() {
+    let files = generate(&[("main.sv", ERASED_VARIANCE_DEMO)]);
+    run_rust_files(&files, "erased-variance", "[[?, ?], [?]]\n[?, ?]\nhi!\n");
+}
+
+/// [fn-erased-variance] A difference the backends render stays invariant
+/// (option (a), not chosen): a `count(xs: List<Int>)` does not fill a
+/// `(Mut List<Int>) -> Int`, as an override or by name — `&Vec` is not
+/// `&mut Vec` — and the messages are the ones it always had.
+#[test]
+fn a_written_fn_value_does_not_fit_across_mut() {
+    let errors = expect_errors(
+        r#"
+fn count(xs: List<Int>) [] -> Int => xs { return size(xs) }
+fn measure_all(xs: Mut List<Int>, ?measure: (xs: Mut List<Int>) -> Int) [] -> Int => xs: Mut { return measure(xs) }
+fn apply_mut(f: (xs: Mut List<Int>) -> Int, xs: Mut List<Int>) [] -> Int => f, xs: Mut { return f(xs) }
+fn main() [use] {
+    use StdConsole()
+    let ys = Mut List(1, 2)
+    println("${measure_all(ys, measure = count)}")
+    println("${apply_mut(count, ys)}")
+}
+"#,
+    );
+    assert!(
+        errors.iter().any(|e| e.contains(
+            "`measure` does not fit here: expects `(Mut List<Int>) -> Int`, found `(List<Int>) -> Int`"
+        )),
+        "{errors:?}"
+    );
+    assert!(
+        errors.iter().any(|e| e.contains("no matching overload for `apply_mut((List<Int>) -> Int, Mut List<Int>)`")),
+        "{errors:?}"
+    );
+}
+
 /// [rs-path] A handle bound from a lending effect member outlives a read of the container: the member answers a path.
 const LEND_HANDLE_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }

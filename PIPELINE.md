@@ -1981,3 +1981,11 @@ log current so the work can resume after a context reset). Newest last.
   `demo/`, `--src lib` none; nothing rewritten, no DECISION. Fixed on the
   way: an `@`-written fn value as a call argument now takes the parameter's
   expected type (`apply(tag@main, 1)` with a generic `tag<T>`).
+- **0x: done** (committed "Let a written fn value fit across erased
+  qualifiers"; user decision 2026-10-14, option (b)). A written fn value (an
+  override, a by-name argument, a fn-typed local) fits a fn type
+  contravariantly in erased qualifiers [fn-erased-variance]: `is_subtype`'s fn
+  arm compares parameters with `types::fn_param_fits`, `unify` binds through
+  the stripped bases; `Mut`, `proj`, `ref`, `once`, `linear` and effects stay
+  invariant, results stay covariant. No adapter, no emitted-code change.
+  Options (a) (adapters where the rendering differs) and (c) not chosen.

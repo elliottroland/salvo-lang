@@ -5735,7 +5735,37 @@ fn kotlinc_compiles_and_runs_a_fn_value_by_name_ranked_as_a_call() -> KotlinCase
     kotlin_case(files, "by-name-ranked", BY_NAME_RANKED_OUTPUT)
 }
 
+/// [fn-erased-variance] [implicit-override] [fn-value-select] A **written** fn
+/// value fits contravariantly in erased qualifiers (user decision 2026-10-14,
+/// ROADMAP 0x option (b)): a `render_row(xs: List<Int>)` fills a `(NonEmpty
+/// List<Int>) -> Str` as an override and as a by-name argument, and a
+/// `shout(s: Str)` a `(Ok Str) -> Str` — passed as written, with no adapter,
+/// since neither qualifier is rendered.
+const ERASED_VARIANCE_DEMO: &str = r#"
+fn to_str<T>(x: T) [] -> Str => x { return "?" }
+fn render_row(xs: List<Int>) [] -> Str => xs { return to_str(xs, to_str = to_str@main) }
+fn apply(f: (xs: NonEmpty List<Int>) -> Str, xs: NonEmpty List<Int>) [] -> Str => f, xs { return f(xs) }
+fn shout(s: Str) [] -> Str => s { return "${s}!" }
+fn apply_ok(f: (s: Ok Str) -> Str, s: Ok Str) [] -> Str => f, s { return f(s) }
+fn main() [use] {
+    use StdConsole()
+    let xss = List(List(1, 2), List(3))
+    println(to_str(xss, to_str = render_row))
+    println(apply(render_row, List(1, 2)))
+    println(apply_ok(shout, ok("hi")))
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_written_fn_value_across_erased_qualifiers() -> KotlinCase {
+    let program = build_program(&[("main.sv", ERASED_VARIANCE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "erased-variance", "[[?, ?], [?]]\n[?, ?]\nhi!\n")
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_a_written_fn_value_across_erased_qualifiers,
     kotlinc_compiles_and_runs_a_fn_value_by_name_ranked_as_a_call,
     kotlinc_compiles_and_runs_implicits_chosen_as_calls_are,
     kotlinc_compiles_and_runs_safe_navigation,

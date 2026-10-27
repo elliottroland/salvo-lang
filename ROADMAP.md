@@ -741,43 +741,10 @@ resolved as calls are; COMPLETED.md).
 Record in COMPLETED.md ("A function passed by name is chosen as a call
 chooses", [fn-value-select]).
 
-### 0x — Open defect: a written override is checked invariantly (found 2026-10-14, DECISION)
+### 0x — Closed 2026-10-14: a written fn value fits across erased qualifiers
 
-[implicit-resolve]'s candidate test is parameter-contravariant (`fn_value_fits`):
-a resolved `size(List<T>)` fills `(Mut List<Int>) -> Int`. A **written**
-override is not — `fill_one_implicit` checks it with `is_subtype`, which
-compares fn parameters invariantly on purpose ("a backend renders a
-parameter's convention from its declared type"). Repro:
-
-```
-fn to_str<T>(x: T) [] -> Str => x { return "?" }
-fn render_row(xs: List<Int>) [] -> Str => xs { return to_str(xs, to_str = to_str@main) }
-fn main() [use] {
-    use StdConsole()
-    let xss = List(List(1, 2), List(3))
-    println(to_str(xss, to_str = render_row))
-    // error: `to_str` does not fit here: expects `(NonEmpty List<Int>) -> Str`,
-    // found `(List<Int>) -> Str`
-}
-```
-
-Not fixed as plain conformance, because the override is not the odd one out:
-**every** function passed by name is checked the same way — `apply(render_row,
-List(1, 2))` with `apply(f: (xs: NonEmpty List<Int>) -> Str, …)` is "no
-matching overload" too — so only resolution is contravariant. The question
-for the user: should a written fn value (an override, and a by-name argument)
-fit contravariantly as a resolved one does? The cost is in the backends: a
-resolved fill is passed through an adapter built from the resolved
-declaration's own parameter modes [implicit-intrinsic], while a written
-value is passed as written, so a `List<Int>` fn where a `Mut List<Int>` is
-expected would need the same adapter on Rust (`&Vec` against `&mut Vec`);
-a difference only in an erased claim (`NonEmpty`) needs none. Options: (a)
-contravariant everywhere a written fn value meets a fn type, with the
-adapter wherever the rendered convention differs; (b) contravariant only in
-erased qualifiers [qual-erasure] (this repro), invariant where the rendering
-differs; (c) leave it, the remedy being a lambda (`to_str = xs ->
-render_row(xs)`). Recommendation: (b) first — it is the case that costs no
-backend work and is the one met so far.
+Record in COMPLETED.md ("A written fn value fits contravariantly in erased
+qualifiers", [fn-erased-variance]).
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 

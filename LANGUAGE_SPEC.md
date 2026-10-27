@@ -3985,13 +3985,48 @@ Conventions:
   * A `with` naming something that is not an implicit parameter of the signature
     is an error: only a `?name` position is *filled*.
 
-* [implicit-resolve]* [implicit-resolve]'s candidate test is **parameter-contravariant**: a
+* [implicit-resolve]'s candidate test is **parameter-contravariant**: a
   visible `size(list: List<T>) -> Int` fills a position wanting
   `(Mut List<Int>) -> Int`, because reading a list that happens to be
   mutable is what it does. (`is_subtype` compares fn parameters invariantly
-  — deliberately, since a backend renders a parameter's convention from its
-  declared type — so this is a rule of implicit resolution, where the value
-  is only ever called by the callee that declared the position.)
+  but for erased qualifiers [fn-erased-variance] — deliberately, since a
+  backend renders a parameter's convention from its declared type — so the
+  full rule is one of implicit resolution, where the value is only ever
+  called by the callee that declared the position, through an adapter built
+  from the declaration's own modes [implicit-intrinsic].)
+* [fn-erased-variance] **A written fn value fits contravariantly in erased
+  qualifiers** (user decision 2026-10-14, ROADMAP 0x option (b)): wherever a
+  fn value meets a fn type by subtyping — an override `to_str = render_row`
+  [implicit-override], a function passed by name as an argument
+  [fn-value-select], a fn-typed local assigned or passed — a
+  parameter of the value may be the *less* qualified type where the two
+  differ only by qualifiers no backend renders: `render_row(xs: List<Int>)`
+  fills `(xs: NonEmpty List<Int>) -> Str`, and `shout(s: Str)` fills
+  `(s: Ok Str) -> Str`. The value assumes less of its argument than it is
+  given, and both spell the same target type, so it is passed as written —
+  no adapter (`types::fn_param_fits`).
+  * **Erased** is every declared qualifier, a claim (`NonEmpty`,
+    `Sorted(cmp)`, `Idx(c)`) or a provenance qualifier (`Ok`, `Other`)
+    [qual-erasure]; **not** the compiler's own, which choose a
+    representation or a convention: `Mut`, `proj` and `ref`, `once`,
+    `linear`, and an effect claim (`types::is_erased_qual`).
+  * At the parameter's **top level, on a non-union base** only: inside a
+    type argument it is the variance question (ROADMAP §7), and a union's
+    qualifiers can be the wrapper tags its runtime arms are told apart by
+    [union-arm-identity]. Everything else stays invariant: a `count(xs:
+    List<Int>)` does not fill `(xs: Mut List<Int>) -> Int` — `&Vec` is not
+    `&mut Vec` on Rust — and is refused as before ("`measure` does not fit
+    here: expects …, found …"; "no matching overload"). Contravariance
+    where the rendering differs, with an adapter, is option (a), not chosen;
+    leaving the lambda as the only remedy, option (c), was not chosen either.
+  * **Results** were already covariant in every droppable qualifier
+    (`is_subtype` on the return type), erased ones included, and stay so: a
+    value returning `NonEmpty List<Int>` fits `() -> List<Int>`. That is the
+    same direction [fn-contract] and [fn-effects] take at a boundary — the
+    value may promise more and demand less.
+  * Unification binds through the bases when a pattern's parameter carries
+    erased qualifiers the value's does not (`unify`'s fn arm), so the call
+    reaches the subtype test above instead of failing to bind.
 * [implicit-intrinsic] An `intrinsic fn` that fills an implicit is passed as
   an **adapter closure whose body is its lowering**: an intrinsic has no
   target-language function to reference (`::iter` does not exist in Kotlin,
@@ -4013,6 +4048,11 @@ Conventions:
   the callee is an error, and a positional argument cannot follow a named
   one. The `=` is unambiguous because assignment is a statement in Salvo,
   never an expression.
+  * The value given must fit the position's fn type by subtyping
+    (`fill_one_implicit`), which for a fn value is [fn-erased-variance]'s:
+    `to_str = render_row` with `render_row(xs: List<Int>)` fills
+    `?to_str: (x: NonEmpty List<Int>) -> Str` (2026-10-14; refused until
+    then, ROADMAP 0x).
 * [implicit-fn-only] Implicit parameters are declared on a **fn or an effect
   member** — a member is an ordinary signature, so it may have them (user
   decision 2026-09-06). They belong to the member's signature: the generated
@@ -8998,6 +9038,9 @@ between endpoints and delivers what arrives into the scheduler.
     *consuming* one is expected (the caller merely over-estimates the
     damage), never the reverse; mutation permission must be granted by
     the expectation (`contract_fits`).
+  * The parameter **types** at the boundary are invariant except in erased
+    qualifiers, where they are contravariant [fn-erased-variance]; the
+    result is covariant.
   * Effect lists on fn types are enforced as of E3 step 3 — see
     [fn-effects]. `once` inference remains open.
 * [fn-throw-value] **A fn value that may throw is delimited like a named

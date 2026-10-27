@@ -29192,9 +29192,12 @@ fn adopt_literal(expected: Option<&Ty>, lit: TypeLit) -> Option<Ty> {
 ///
 /// `is_subtype` compares fn parameters *invariantly* — deliberately
 /// conservative, since a backend renders a parameter's convention from its
-/// declared type and two conventions are two different target types. Here
-/// the rule the spec states applies, because the value is only ever *called*
-/// by the callee that declared the position: std's
+/// declared type and two conventions are two different target types — except
+/// in erased qualifiers, which no backend renders [fn-erased-variance]. Here
+/// the rule the spec states applies in full, because the value is only ever *called*
+/// by the callee that declared the position (and a resolved fill is passed
+/// through an adapter built from the declaration's own modes
+/// [implicit-intrinsic]): std's
 /// `iter(list: List<T>) -> Iter<T>` has to fill an `?Iterable<It, T>` whose
 /// `It` turned out to be a `Mut List<Int>`, and reading a list that happens
 /// to be mutable is exactly what it does.
@@ -29528,7 +29531,18 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             },
         ) => {
             pp.len() == ap.len()
-                && pp.iter().zip(ap).all(|(p, a)| unify(p, a, subst))
+                && pp.iter().zip(ap).all(|(p, a)| {
+                    // [fn-erased-variance] A value's parameter may carry fewer
+                    // erased qualifiers than the pattern's: bind through the
+                    // bases, and let `is_subtype` judge the fit.
+                    let mut trial = subst.clone();
+                    if unify(p, a, &mut trial) {
+                        *subst = trial;
+                        return true;
+                    }
+                    let (ps, as_) = (crate::types::strip_erased_quals(p), crate::types::strip_erased_quals(a));
+                    (ps != *p || as_ != *a) && unify(&ps, &as_, subst)
+                })
                 && unify(pr, ar, subst)
                 // [fn-contract] keeps <: consumes (inverted, like
                 // [once-fn]); mutation permission must be granted.

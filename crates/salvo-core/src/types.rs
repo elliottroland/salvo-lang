@@ -947,7 +947,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
             },
         ) => {
             pa.len() == pb.len()
-                && pa.iter().zip(pb).all(|(x, y)| compatible(x, y))
+                && pa.iter().zip(pb).all(|(x, y)| fn_param_fits(x, y))
                 && is_subtype(ra, rb)
                 && contract_fits(ca.as_deref(), cb.as_deref(), pa.len())
                 // [fn-effects] A fn value that performs *fewer* effects fits
@@ -1162,6 +1162,50 @@ pub fn moves_for_free(ty: &Ty) -> bool {
 
 pub fn compatible(a: &Ty, b: &Ty) -> bool {
     is_subtype(a, b) && is_subtype(b, a)
+}
+
+/// [fn-erased-variance] Whether a fn **value** whose parameter is `have` fits
+/// a fn type whose parameter is `want` (user decision 2026-10-14, ROADMAP 0x
+/// option (b)). Invariant — a backend renders a parameter's convention from
+/// its declared type, so two conventions are two target types — **except in
+/// erased qualifiers** [qual-erasure]: where the two differ only by
+/// qualifiers no backend renders, a value whose parameter is the *less*
+/// qualified type fits (`(List<Int>) -> Str` where `(NonEmpty List<Int>) ->
+/// Str` is wanted), since both spell the same target type and the value
+/// simply assumes less of its argument. No adapter is needed.
+///
+/// What counts as erased is [`is_erased_qual`]; the relaxation is at the
+/// parameter's top level, on a non-union base: inside type arguments
+/// variance is a separate question (ROADMAP §7), and a union's qualifiers can
+/// be the wrapper tags its runtime arms are told apart by [union-arm-identity].
+pub fn fn_param_fits(have: &Ty, want: &Ty) -> bool {
+    compatible(have, want)
+        || (is_subtype(want, have) && compatible(&strip_erased_quals(want), &strip_erased_quals(have)))
+}
+
+/// [fn-erased-variance] [qual-erasure] A qualifier no backend renders: every
+/// declared qualifier — a claim (`NonEmpty`, `Sorted(cmp)`, `Idx(c)`) or a
+/// provenance qualifier (`Ok`, `Other`) — and none of the compiler's own,
+/// which choose a representation or a convention: `Mut`, `proj` and `ref`
+/// (borrows), `once`, `linear`, and an effect claim.
+pub fn is_erased_qual(q: &Qual) -> bool {
+    !q.effect && !matches!(q.name.as_str(), "Mut" | "proj" | "ref" | "once" | "linear" | "Linear")
+}
+
+/// [fn-erased-variance] `t` without its top-level erased qualifiers, on a
+/// non-union base; anything else as it is.
+pub fn strip_erased_quals(t: &Ty) -> Ty {
+    match t {
+        Ty::Qualified { quals, base } if !matches!(**base, Ty::Union(_)) => {
+            let kept: Vec<Qual> = quals.iter().filter(|q| !is_erased_qual(q)).cloned().collect();
+            if kept.is_empty() {
+                (**base).clone()
+            } else {
+                Ty::Qualified { quals: kept, base: base.clone() }
+            }
+        }
+        other => other.clone(),
+    }
 }
 
 /// [fn-overload-rank] How two parameter *patterns* (the un-substituted
@@ -1817,6 +1861,34 @@ mod tests {
         let claimed = iter.clone().qualify(vec![Qual::effect("Logger", vec![])]);
         assert!(is_subtype(&iter, &claimed), "pure fits a claiming position");
         assert!(!is_subtype(&claimed, &iter), "a claim does not drop");
+    }
+
+    /// [fn-erased-variance] A fn value's parameter may lack an erased
+    /// qualifier the fn type's has, at the top level of a non-union base, and
+    /// nowhere else: not `Mut`, not the reverse direction, not inside a type
+    /// argument, not across a union — and `compatible` stays exact.
+    #[test]
+    fn a_fn_value_fits_contravariantly_in_erased_qualifiers_only() {
+        let fn_of = |p: Ty| Ty::Fn {
+            params: vec![p],
+            ret: Box::new(Ty::named("Str")),
+            contract: None,
+            effects: vec![],
+        };
+        let list = Ty::Named { name: "List".to_string(), args: vec![Ty::named("Int")] };
+        let ne = |t: &Ty| t.clone().qualify(vec![Qual::plain("NonEmpty", vec![])]);
+        let mutq = |t: &Ty| t.clone().qualify(vec![Qual::plain("Mut", vec![])]);
+        let (plain, claimed) = (fn_of(list.clone()), fn_of(ne(&list)));
+        assert!(is_subtype(&plain, &claimed), "a value asking less fits");
+        assert!(!is_subtype(&claimed, &plain), "a value asking more does not");
+        assert!(!compatible(&plain, &claimed), "type arguments stay invariant");
+        assert!(!is_subtype(&plain, &fn_of(mutq(&list))), "`Mut` is rendered");
+        assert!(is_subtype(&fn_of(mutq(&list)), &fn_of(ne(&mutq(&list)))), "`Mut` kept, claim dropped");
+        assert!(!is_subtype(&plain, &fn_of(ne(&mutq(&list)))), "`Mut` still required");
+        let nested = |t: Ty| Ty::Named { name: "List".to_string(), args: vec![t] };
+        assert!(!is_subtype(&fn_of(nested(list.clone())), &fn_of(nested(ne(&list)))), "not inside a type argument");
+        let opt = Ty::Union(vec![list.clone(), Ty::none()]);
+        assert!(!is_subtype(&fn_of(opt), &plain), "an optional is rendered differently");
     }
 }
 

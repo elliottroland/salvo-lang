@@ -35,6 +35,23 @@ fn do_something() {
 
 Lambdas can declare effects ([Effects and handlers](Effects-and-Handlers.md)) and deductions ([Deductions and ownership](Deductions-and-Ownership.md)), just like normal functions.
 
+### Which functions fit a function type
+
+A function passed where a function type is expected must take the parameter types it names, with one allowance: it may ask *less* of an argument by a qualifier that is only a compile-time claim — `NonEmpty`, `Sorted`, `Ok`, any qualifier a program declares:
+
+```
+fn render_row(xs: List<Int>) -> Str => xs { return "${size(xs)} items" }
+
+fn apply(f: (xs: NonEmpty List<Int>) -> Str, xs: NonEmpty List<Int>) -> Str => f, xs {
+    return f(xs)
+}
+
+apply(render_row, List(1, 2))        // fine: `render_row` reads any list
+to_str(xss, to_str = render_row)     // fine, and the same rule for an implicit
+```
+
+A qualifier that changes how the argument is passed is different: a `count(xs: List<Int>)` does not fit `(xs: Mut List<Int>) -> Int`, nor does a function taking an owned value fit one taking a `proj`. Wrap it in a lambda (`xs -> count(xs)`) where you mean it. The allowance applies to the parameter's outer qualifiers only, not to those inside a type argument (`List<NonEmpty List<Int>>`) or on a union's arms.
+
 ### Effects on function types
 
 A function *value* that performs an effect says so in its type, and the effect is supplied by whoever **calls** the value:

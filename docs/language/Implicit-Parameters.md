@@ -40,6 +40,12 @@ the parameter's own name, and the value can be either:
 sort(names, cmp = (a: Str, b: Str) -> size(a) - size(b))
 ```
 
+A function you supply fits the position as a function passed by name does
+([Lambdas and variadic arguments](Lambdas-and-Variadics.md#which-functions-fit-a-function-type)):
+it may ask less of its argument by a claim, so a `render_row(xs: List<Int>)`
+fills `?to_str: (x: NonEmpty List<Int>) -> Str`, but it must take `Mut`
+where the position passes `Mut`.
+
 A resolved implicit is exactly the function value you would get by passing
 that function by name: the same type (a constructor's gained claim, `->
 +Valid Range`, included), the same check of its contract, and its own

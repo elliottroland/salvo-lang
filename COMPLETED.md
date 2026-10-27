@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2078 tests, complete: the toolchain tests are
+cargo test                  # 2081 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,70 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-14 — A written fn value fits contravariantly in erased qualifiers
+
+User decision 2026-10-14 (ROADMAP 0x, option (b) of three). A **written** fn
+value (an override `to_str = render_row`, a by-name argument `apply(render_row,
+…)`, a fn-typed local) was checked against a fn type with `is_subtype`, whose
+fn arm compared parameters invariantly, so `render_row(xs: List<Int>)` was
+refused at `(NonEmpty List<Int>) -> Str` though a *resolved* fill of the same
+shape was accepted. Now a parameter of the value may be the less qualified type
+where the two differ only by qualifiers no backend renders
+[fn-erased-variance]; everywhere the rendering differs it stays invariant.
+Option (a), contravariance everywhere with an adapter wherever the rendered
+convention differs (`&Vec` against `&mut Vec` on Rust), was not chosen and
+remains possible later; option (c), leaving the lambda as the only remedy, was
+not chosen either.
+
+- **What is erased** (`types::is_erased_qual`): every declared qualifier, a
+  claim (`NonEmpty`, `Sorted(cmp)`, `Idx(c)`) or a provenance qualifier (`Ok`,
+  `Other`) [qual-erasure]. Not the compiler's own, the ones the backends read
+  to choose a representation or convention: `Mut`, `proj`, `ref`, `once`,
+  `linear`/`Linear`, and an effect claim. Only at the parameter's top level on
+  a non-union base (`types::strip_erased_quals`); inside a type argument it is
+  the variance question (ROADMAP §7), and a union's qualifiers can be its arm
+  tags [union-arm-identity].
+- **How**: `is_subtype`'s fn arm compares parameters with
+  `types::fn_param_fits(have, want)`: `compatible`, or `want <: have` with the
+  two `compatible` once erased qualifiers are stripped. **Results** keep
+  `is_subtype` (covariant in every droppable qualifier, erased ones included),
+  the direction [fn-contract] and [fn-effects] already take: the value may
+  promise more and demand less. `unify`'s fn arm got the twin: when a
+  parameter fails to bind, it binds through the stripped bases and leaves the
+  fit to `is_subtype` (see the gotcha).
+- **Reach of the `is_subtype` change** (every caller reviewed). `compatible`
+  asks both directions, so it stays exact on fn types, and with it type
+  arguments, arrays and named arguments stay invariant. Ranking (`spec_cmp`)
+  does not use `is_subtype`. Implicit resolution (`fn_value_fits`) was already
+  fully contravariant. What widened beyond the override and the by-name
+  argument, deliberately, is every other place a fn value meets a fn type by
+  subtyping (a `let g: (xs: NonEmpty List<Int>) -> Str = render_row`, a field,
+  a return); the rendering is the same there too. Two places now see *more*
+  overlap: a union with two fn arms that differ only by an erased parameter
+  qualifier reports "matches multiple arms" for a value fitting both, as a
+  `NonEmpty List<Int>` against `NonEmpty List<Int> | List<Int>` already does;
+  and two overloads on the return type alone whose fn return types differ
+  that way are the overlap error, correctly, since they erase to one target
+  type. Nothing narrowed.
+- No emitted code changed: the repro emits the same `&mut |__a0: &Vec<i32>|
+  crate::render_row(__a0)` (Rust) and `::renderRow` (Kotlin) as an exact fit.
+- Docs: [fn-erased-variance] (new), [implicit-resolve] (the invariance
+  remark), [implicit-override] (a written value fits by this rule),
+  [fn-contract] (parameter types at the boundary);
+  Lambdas-and-Variadics.md ("Which functions fit a function type", new),
+  Implicit-Parameters.md. A stray doubled `[implicit-resolve]*` label in
+  LANGUAGE_SPEC.md fixed.
+
+Tests (3 new; the Kotlin case is a registry entry): the 0x repro and
+`apply(render_row, List(1, 2))` against `f: (xs: NonEmpty List<Int>) -> Str`,
+plus `apply_ok(shout, ok("hi"))` for a provenance qualifier, compile-and-run
+on both backends (`erased-variance`: `[[?, ?], [?]]`, `[?, ?]`, `hi!`);
+`a_written_fn_value_does_not_fit_across_mut` (an override and a by-name
+argument at `(Mut List<Int>) -> Int`, with the messages they always had);
+`a_fn_value_fits_contravariantly_in_erased_qualifiers_only` (the unit test:
+not the reverse, not `Mut`, not inside a type argument, not an optional,
+`compatible` exact).
 
 ### 2026-10-14 — A function passed by name is chosen as a call chooses
 
@@ -29966,7 +30030,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2078 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2081 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -31258,6 +31322,22 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A fn-type subtyping rule needs its twin in `unify`** (2026-10-14, the
+  erased-qualifier variance). Making `is_subtype`'s fn arm accept a value
+  whose parameter lacks an erased qualifier fixed the override at once
+  (`fill_one_implicit` asks `is_subtype` directly), but a by-name *argument*
+  still reported "no matching overload": a call binds each argument against
+  its parameter pattern with `unify` first, and `unify`'s fn arm compares
+  parameters in the pattern's direction, where `NonEmpty List<Int>` demands
+  the qualifier of the argument. A relaxation of fn-type fit has to bind
+  through `unify` too, or the call never reaches the subtype test.
+
+- **A by-name value spelled with `@` got no expected type** (2026-10-14).
+  The argument loop of `resolve_named_call` hands the parameter's type to a
+  bare `Expr::Ident` naming a fn only, so `apply(tag@main, 1)` with a generic
+  `tag<T>` arrived as `(T) -> Str`. Every form of a fn named as a value has
+  to be listed there (`Expr::Scoped`, a type-selected `Expr::EffectScoped`).
 
 - **A piped stderr nobody reads blocks the child** (2026-10-14, the
   doubled-std test). A deadline test that spawns `salvo` with
