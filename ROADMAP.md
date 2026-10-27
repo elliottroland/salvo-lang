@@ -606,29 +606,43 @@ COMPLETED.md's decision log.
 Record in COMPLETED.md ("A re-pointed view gets a Rust variable per live
 range", [rs-repoint], [rs-proj-generic]). It left 0y.
 
-### 0y — Open defect: a fn parameter forwarded to a retagged slot fails rustc (found 2026-10-14)
+### 0y — Closed 2026-10-14: a fn value forwarded to a retagged slot is adapted
 
-A [backend-never-wrong] violation on Rust: a fn-typed **parameter** passed on
-to a slot whose element generic is retagged to a borrow [rs-proj-arm] keeps
-its own convention, so rustc refuses the call (E0308, "expected `&mut dyn
-FnMut(&&String) -> bool`, found `&mut dyn FnMut(&String) -> bool`"). Kotlin
-prints `1`:
+Moved to COMPLETED.md ("A fn value forwarded to a retagged slot is adapted").
+
+### 0z — Open defect: an element of a view list read through a generic `proj(list) T` fails rustc (found 2026-10-14)
+
+A [backend-never-wrong] violation on Rust: reading an element of a
+`List<proj Str>` (the result of `filter`) through a std fn whose result is
+`proj(list) T` or `Emitted (proj(p) T) | Finished` — `get`, `iter`'s `next`,
+so also `for v in iter(vs)` and any `?Yield` combinator over `iter(vs)` —
+checks clean and runs on Kotlin (`ab def ab ab def`), and rustc refuses it
+(E0308). Salvo collapses `proj (proj Str)` to `proj Str`, so the local is
+annotated `Option<&String>` / `Union2<&String, Finished>`; the callee renders
+`&'a T` with `T = &String`, so it answers `Option<&&String>` /
+`Union2<&&String, Finished>`. `for v in vs` over the list itself works.
 
 ```
-fn longs(ws: List<Str>, keep: (Str) -> Bool) [] -> Int => ws, keep {
-    let it = iter(ws)
-    return size(filter(it, keep))
-}
-
 fn main() [use] -> None {
     use StdConsole
-    println("${longs(List("ab", "c"), s -> size(s) > 1)}")
+    let ws = List("ab", "c", "def")
+    let vs = filter(iter(ws), s -> size(s) > 1)
+    for v in vs {
+        println(v)
+    }
+    let h = get(vs, 0) ?: unreachable!()
+    println(h)
+    for v in iter(vs) {
+        println(v)
+    }
 }
 ```
 
-A lambda at that slot peels the extra reference (`let s = *s;`) and a named fn
-gets an adapter closure; a fn *value* (a parameter, a fn-typed local) needs the
-same adapter, `&mut |__a0: &&String| keep(*__a0)`. Engineering, no decision.
+The likely fix is the emitter's: where the callee's `proj` over a variable
+meets an instantiation that is already a borrow, copy the outer reference out
+(a `&&String` read as `&String`; a shared reference is `Copy`), the way
+`deref_scalar` copies a Copy element out (`.copied()`, `U1(*__v)` in the
+`next` adapter). Engineering, no decision.
 
 ### 0q — Open defect: moving a field out of an indexed element fails rustc (found 2026-10-20)
 
@@ -1529,6 +1543,22 @@ container [interp-to-str], property testing's `?generate`, section 2c's
   pricing first (the case that raised this needs only `NonEmpty List<Int>` →
   `List<Int>` *inside* a type argument, which is qualifier-dropping at depth); and
   that the emitted Rust must not depend on it, since Rust has no variance.
+- **DECISION — a fn value over owned elements at a view-element slot**
+  (found 2026-10-14 with ROADMAP 0y). `any(vs, keep)` with `vs: Mut
+  List<proj Str>` (a `filter` result) and `keep: (Str) -> Bool` is refused
+  ("no matching overload"), as are `all`, `count`, `find_first`, `map`,
+  `filter`, `reduce` over `vs`: the slot is `(x: proj Str) -> Bool`, and
+  [fn-erased-variance] keeps `proj` invariant (it chooses a representation).
+  A lambda (`s -> keep(s)`) works, and so does a fn value over an iterator of
+  `vs` (`filter(iter(ws), keep)`, the retag). The question: may a fn value
+  whose parameter is the owned, kept `Str` fill a `proj Str` parameter
+  position — a kept parameter only reads its argument, which a view allows?
+  Options: (a) leave it refused, the lambda being the spelling; (b) admit it
+  for a *kept* (non-consuming, non-`Mut`) parameter, with the Rust backend
+  adapting the convention as it now does for a retagged slot
+  (`&mut |__a0: &&String| keep(*__a0)`, [rs-proj-arm]), Kotlin needing
+  nothing. Recommendation: (b), since the adapter already exists and today
+  the only spelling is a lambda that does nothing but call the fn.
 
 ### 8 — Mutating through a union arm (DECISION)
 

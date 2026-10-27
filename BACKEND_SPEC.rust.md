@@ -399,6 +399,16 @@ Conventions:
     bump), and calling the value still needs a local first (`let g = h.f`
     then `g(e)`) — `h.f(e)` is dot-notation for `f(h, e)` [fn-dot], which
     is a language rule, not a backend one;
+  * **a fn value a fn returns** is stored the same way (2026-10-14, found
+    with ROADMAP 0y): `-> std::sync::Arc<dyn Fn(&String) -> bool + Send +
+    Sync>`, and `return long` wraps
+    (`return std::sync::Arc::new(move |__a0: &String| crate::long(__a0));`).
+    An `Arc` does not coerce to a `&mut dyn FnMut`, so one passed to a
+    fn-typed parameter — a field, a call's result, a local bound from
+    either — is called through a closure typed by the instantiated slot:
+    `&mut |__a0: &String| (p.keep)(__a0)`,
+    `&mut { let __f = crate::picker(); move |__a0: &String| __f(__a0) }`
+    (bound once, so the call is evaluated once), `&mut |__a0: &String| (k)(__a0)`;
   * what this buys: a **hand-written composed pass** (a struct storing its
     source *and* its callback) builds on both targets, so composing iterators
     is available to anyone rather than only to generated std code.
@@ -742,6 +752,20 @@ the blanket rule:
   A value of a `proj`-arm union flowing into a position written as the
   owned union is adapted arm by arm the same way for Copy payloads, and is
   a codegen error otherwise (a hidden clone this backend refuses).
+  * **A fn value at a retagged position is adapted** (2026-10-14, ROADMAP
+    0y): a parameter, a local bound from a lambda or a named fn, a field
+    read, a forwarded implicit or a call's result keeps its own convention
+    (`&mut dyn FnMut(&String)`) where the slot is one reference deeper
+    (`&mut dyn FnMut(&&String)`, E0308), so it is wrapped in a closure that
+    peels the extra reference, as a lambda does, and converts each other
+    argument from the slot's pass mode to the value's own
+    [rs-fn-param-convention]: `&mut |__a0: &&String| keep(*__a0)`,
+    `&mut |__a0: &i32, __a1: &&String| f((*__a0).clone(), *__a1)`, and
+    `&mut |__a0: &&T| keep(*__a0)` in a generic body. A position is
+    retagged where the slot as instantiated (`call_subst`) is `proj` and
+    the value's own parameter is not (`fn_adapter` in `ir_emit/body.rs`).
+    Into a slot of the value's own convention the value passes as it is
+    (`&mut *keep`).
 * [rs-elem-mut] [ref-handle] **Mutable element handles** (P-3 + P-9, user
   decisions 2026-09-24) are **positions**, never a bound `&mut`:
   * A **statement-scoped** handle — `bump(at(es, 0) ?: unreachable!())` in a `&mut`

@@ -1699,6 +1699,123 @@ fn kotlinc_compiles_and_runs_re_pointed_views() -> KotlinCase {
     kotlin_case(files, "re-pointed-views", REPOINT_OUTPUT)
 }
 
+/// [backend-never-wrong] ROADMAP 0y: fn values forwarded into a slot whose
+/// element the call borrows — the program
+/// `rustc_compiles_and_runs_forwarded_fn_values` runs on Rust, where the
+/// forwarded parameter (and its neighbours) did not compile; the output is
+/// the same on both backends.
+const FORWARDED_FN_DEMO: &str = r#"
+struct Picker {
+    keep: (Str) -> Bool
+}
+
+fn long(s: Str) -> Bool {
+    return size(s) > 1
+}
+
+// The repro (ROADMAP 0y): a fn parameter forwarded to `filter` over an
+// iterator, whose element the call retags to a borrow.
+fn longs(ws: List<Str>, keep: (Str) -> Bool) [] -> Int => ws, keep {
+    let it = iter(ws)
+    return size(filter(it, keep))
+}
+
+// Received as a parameter and forwarded two levels down.
+fn longs2(ws: List<Str>, keep: (Str) -> Bool) [] -> Int => ws, keep {
+    return longs(ws, keep)
+}
+
+// A lambda stored in a local first.
+fn local_lambda(ws: List<Str>) [] -> Int => ws {
+    let k: (Str) -> Bool = s -> size(s) > 1
+    let it = iter(ws)
+    return size(filter(it, k))
+}
+
+// A named fn stored in a local first.
+fn local_named(ws: List<Str>) [] -> Int => ws {
+    let k: (Str) -> Bool = long
+    let it = iter(ws)
+    return size(filter(it, k))
+}
+
+// A field read, into a retagged slot and into a plain generic one.
+fn field(ws: List<Str>, p: Picker) [] -> Int => ws, p {
+    let it = iter(ws)
+    return size(filter(it, p.keep))
+}
+fn field_any(ws: List<Str>, p: Picker) [] -> Bool => ws, p {
+    return any(ws, p.keep)
+}
+
+// An implicit forwarded.
+fn longs_i(ws: List<Str>, ?keep: (x: Str) -> Bool) [] -> Int => ws {
+    let it = iter(ws)
+    return size(filter(it, keep))
+}
+
+// `map` and `reduce` over an iterator.
+fn lens(ws: List<Str>, f: (Str) -> Int) [] -> Int => ws, f {
+    let it = iter(ws)
+    let ns = map(it, f)
+    return reduce(ns, 0, (a, n) -> a + n)
+}
+fn total(ws: List<Str>, f: (Int, Str) -> Int) [] -> Int => ws, f {
+    let it = iter(ws)
+    return reduce(it, 0, f)
+}
+
+// A generic body forwarding its own fn parameter.
+fn glongs<T>(xs: List<T>, keep: (T) -> Bool) [] -> Int => xs, keep {
+    let it = iter(xs)
+    return size(filter(it, keep))
+}
+
+// A fn value a call answers: passed directly, and through a local.
+fn picker() [] -> (Str) -> Bool {
+    return long
+}
+fn from_call(ws: List<Str>) [] -> Int => ws {
+    let it = iter(ws)
+    return size(filter(it, picker()))
+}
+fn from_call_local(ws: List<Str>) [] -> Int => ws {
+    let k = picker()
+    let it = iter(ws)
+    return size(filter(it, k))
+}
+
+fn main() [use] -> None {
+    use StdConsole
+    let ws = List("ab", "c", "def")
+    println("param lambda ${longs(ws, s -> size(s) > 2)}")
+    println("param named ${longs(ws, long)}")
+    println("two levels ${longs2(ws, s -> size(s) > 1)}")
+    println("local lambda ${local_lambda(ws)}")
+    println("local named ${local_named(ws)}")
+    println("field ${field(ws, Picker { keep: long })}")
+    println("field any ${field_any(ws, Picker { keep: s -> size(s) > 2 })}")
+    println("implicit ${longs_i(ws, keep = long)}")
+    println("map ${lens(ws, s -> size(s))}")
+    println("reduce ${total(ws, (a, s) -> a + size(s))}")
+    println("generic ${glongs(ws, long)}")
+    println("call ${from_call(ws)}")
+    println("call local ${from_call_local(ws)}")
+    let k = picker()
+    println("call any ${any(ws, k)} ${any(ws, picker())} ${k("x")}")
+}
+"#;
+
+const FORWARDED_FN_OUTPUT: &str = "param lambda 1\nparam named 2\ntwo levels 2\nlocal lambda 2\nlocal named 2\nfield 2\nfield any true\nimplicit 2\nmap 6\nreduce 6\ngeneric 2\ncall 2\ncall local 2\ncall any true true false\n";
+
+fn kotlinc_compiles_and_runs_forwarded_fn_values() -> KotlinCase {
+    let program = build_program(&[("main.sv", FORWARDED_FN_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "forwarded-fn-values", FORWARDED_FN_OUTPUT)
+}
+
 fn kotlinc_compiles_and_runs_escapes_in_expression_position() -> KotlinCase {
     let program = build_program(&[("main.sv", ESCAPE_EXPR_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -6021,6 +6138,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_mutation_through_a_narrowed_mut_arm,
     kotlinc_compiles_and_runs_escapes_in_expression_position,
     kotlinc_compiles_and_runs_re_pointed_views,
+    kotlinc_compiles_and_runs_forwarded_fn_values,
     kotlinc_compiles_and_runs_a_lift_binding,
     kotlinc_compiles_and_runs_the_elvis_operator,
     kotlinc_compiles_and_runs_the_pipe_operator,

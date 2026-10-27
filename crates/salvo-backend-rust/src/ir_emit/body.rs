@@ -108,6 +108,10 @@ pub(crate) struct FnState {
     pub mut_alias: HashSet<String>,
     /// Locals a lambda or a `replyto` captures.
     pub captured: HashSet<String>,
+    /// [rs-fn-field] Fn-typed locals bound to a stored fn value (a call's result, a
+    /// field read): they hold an `Arc<dyn Fn>`, which is called through
+    /// rather than coerced to a `&mut dyn FnMut`.
+    pub arc_fns: HashSet<String>,
 }
 
 pub(crate) fn strip_all_pub(t: &Ty) -> Ty {
@@ -651,7 +655,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     let code = self.expr_stmt(e, indent);
                     return format!("{pad}{code};\n{pad}return;\n");
                 }
-                let code = self.value_into(e, &ret, indent);
+                // [rs-fn-field] A fn value returned is stored: the fn answers
+                // an `Arc<dyn Fn>`.
+                let code = if matches!(ret.strip_quals(), Ty::Fn { .. }) { self.fn_arg(e, &ret, FnPos::Stored, indent) } else { self.value_into(e, &ret, indent) };
                 format!("{pad}return {code};\n")
             }
             Stmt::Break => format!("{pad}break;\n"),
@@ -678,6 +684,19 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let pad = Self::pad(indent);
         let n = rs_local(&local.0);
         self.f.tys.insert(local.0.clone(), ty.clone());
+        // [rs-fn-field] A fn value a call answers, or a field holds, is an
+        // `Arc<dyn Fn>`.
+        let arc_fn = matches!(self.s.unalias(ty).strip_quals(), Ty::Fn { .. })
+            && match &value.kind {
+                ExprKind::Call { target: FnRef::Decl(id), .. } => !self.s.ast_fn(id).is_some_and(|f| f.intrinsic),
+                ExprKind::Read { place, .. } => !place.steps.is_empty() || self.f.arc_fns.contains(&place.root.0),
+                _ => false,
+            };
+        if arc_fn {
+            self.f.arc_fns.insert(local.0.clone());
+        } else {
+            self.f.arc_fns.remove(&local.0);
+        }
         // [effect-handle] A handle over a handler instance.
         let is_face = matches!(ty.strip_quals(), Ty::Named { name, .. } if self.s.symbols.effects.contains_key(name.as_str()));
         let handler_read = bare(value).filter(|r| {
@@ -2838,42 +2857,28 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::Read { place, .. } => {
                 let (text, kind) = self.place_text(place, indent);
                 // [rs-fn-param-convention] A callback whose own conventions
-                // differ from the slot's is adapted.
-                if place.steps.is_empty() && matches!(pos, FnPos::Param | FnPos::DynParam) {
-                    if let Some(lt) = self.f.tys.get(&place.root.0).cloned() {
-                        let lt = self.s.unalias(&lt);
-                        let (_, lm) = self.closure_params(&lt);
-                        let (sp, sm) = self.closure_params(slot);
-                        if lm.len() == sm.len() && lm != sm && !self.s.fn_ty_lends_mut(slot) {
-                            let names: Vec<String> = sp.iter().map(|(n, _)| n.clone()).collect();
-                            let conv: Vec<String> = names
-                                .iter()
-                                .zip(sm.iter().zip(&lm))
-                                .map(|(n, (s, l))| match (s, l) {
-                                    (PassMode::Moved, PassMode::Moved) | (PassMode::Lent, PassMode::Lent) | (PassMode::LentMut, PassMode::LentMut) => n.clone(),
-                                    (PassMode::Lent | PassMode::LentMut, PassMode::Moved) => format!("(*{n}).clone()"),
-                                    (PassMode::Moved, PassMode::Lent) => format!("&{n}"),
-                                    (PassMode::Moved, PassMode::LentMut) => format!("&mut {n}"),
-                                    (PassMode::LentMut, PassMode::Lent) => format!("&*{n}"),
-                                    (PassMode::Lent, PassMode::LentMut) => n.clone(),
-                                })
-                                .collect();
-                            let callee = if kind == Kind::SelfField { format!("({text})") } else { text.clone() };
-                            return format!("&mut |{}| {callee}({})", names.join(", "), conv.join(", "));
-                        }
+                // differ from the slot's is adapted; [rs-proj-arm] so is one
+                // whose slot the call retagged to a borrow. A stored callback
+                // (a field, an `Arc` binding) is always called through.
+                if matches!(pos, FnPos::Param | FnPos::DynParam) && !self.s.fn_ty_lends_mut(slot) {
+                    let direct = place.steps.is_empty() && matches!(kind, Kind::RefMut | Kind::Owned) && !self.f.arc_fns.contains(&place.root.0);
+                    let own = if place.steps.is_empty() { self.f.tys.get(&place.root.0).cloned() } else { None }.unwrap_or_else(|| a.ty.clone());
+                    let callee = if direct { text.clone() } else { format!("({text})") };
+                    if let Some(c) = self.fn_adapter(&own, slot, &callee, !direct) {
+                        return format!("&mut {c}");
                     }
                 }
                 match (pos, kind) {
                     (FnPos::Param | FnPos::DynParam, Kind::RefMut) if place.steps.is_empty() => format!("&mut *{text}"),
                     (FnPos::Param | FnPos::DynParam, Kind::Owned) if place.steps.is_empty() => format!("&mut {text}"),
                     (FnPos::Param | FnPos::DynParam, _) => {
-                        // A stored callback, called through.
+                        // A stored callback into a lending slot, called through.
                         let (ps, _) = self.closure_params(slot);
                         let names: Vec<String> = ps.iter().map(|(n, _)| n.clone()).collect();
                         let typed: Vec<String> = ps.iter().map(|(n, t)| format!("{n}: {t}")).collect();
                         format!("&mut |{}| ({text})({})", typed.join(", "), names.join(", "))
                     }
-                    (FnPos::Stored, Kind::Owned) if place.steps.is_empty() => format!("std::sync::Arc::new({text})"),
+                    (FnPos::Stored, Kind::Owned) if place.steps.is_empty() && !self.f.arc_fns.contains(&place.root.0) => format!("std::sync::Arc::new({text})"),
                     (FnPos::Owned, Kind::Owned) if place.steps.is_empty() => text,
                     (_, _) => format!("{text}.clone()"),
                 }
@@ -2881,11 +2886,81 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             _ => {
                 let v = self.value(a, indent);
                 match pos {
+                    // [rs-fn-field] A fn value a call answers (an `Arc<dyn Fn>`, as a fn
+                    // returning one renders) is bound once and called through.
+                    FnPos::Param | FnPos::DynParam if matches!(a.kind, ExprKind::Call { .. }) && !self.s.fn_ty_lends_mut(slot) => match self.fn_adapter(&a.ty, slot, "__f", true) {
+                        Some(c) => format!("&mut {{ let __f = {v}; move {c} }}"),
+                        None => format!("&mut {v}"),
+                    },
                     FnPos::Param | FnPos::DynParam => format!("&mut {v}"),
                     _ => v,
                 }
             }
         }
+    }
+
+    /// [rs-fn-param-convention] [rs-proj-arm] A closure adapting a fn value
+    /// of Salvo type `own`, called as `callee`, to the fn-typed `slot`: each
+    /// argument is converted from the slot's pass mode to the value's own,
+    /// and an argument the call retagged to a borrow (the instantiated slot
+    /// has `proj` where the value's own parameter does not) arrives one
+    /// reference deeper and is peeled first (`|__a0: &&String| keep(*__a0)`).
+    /// `None` when the value fits the slot as it is, unless `always` (a
+    /// stored callback, which is called through in any case).
+    fn fn_adapter(&mut self, own: &Ty, slot: &Ty, callee: &str, always: bool) -> Option<String> {
+        let own = self.s.unalias(own);
+        let (_, lm) = self.closure_params(&own);
+        let (sp, sm) = self.closure_params(slot);
+        let inst_slot = super::decls::subst_ty(slot, &self.f.call_subst);
+        let fn_params = |t: &Ty| -> Vec<Ty> {
+            match t.strip_quals() {
+                Ty::Fn { params, effects, .. } => salvo_core::threaded_effects(effects).iter().chain(params.iter()).cloned().collect(),
+                _ => Vec::new(),
+            }
+        };
+        let (inst_ps, own_ps) = (fn_params(&inst_slot), fn_params(&own));
+        let fits = lm.len() == sm.len();
+        let retag: Vec<bool> = (0..sm.len())
+            .map(|i| fits && sm[i] != PassMode::Moved && inst_ps.get(i).is_some_and(is_proj) && !own_ps.get(i).is_some_and(is_proj))
+            .collect();
+        let retagged = retag.iter().any(|r| *r);
+        if !always && !(fits && (lm != sm || retagged)) {
+            return None;
+        }
+        let names: Vec<String> = sp.iter().map(|(n, _)| n.clone()).collect();
+        let conv: Vec<String> = names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                if !fits {
+                    return n.clone();
+                }
+                let base = if retag[i] {
+                    let m = if inst_ps.get(i).is_some_and(is_mut_borrow) { "&mut *" } else { "" };
+                    format!("{m}*{n}")
+                } else {
+                    n.clone()
+                };
+                match (sm[i], lm[i]) {
+                    (PassMode::Moved, PassMode::Moved) | (PassMode::Lent, PassMode::Lent) | (PassMode::LentMut, PassMode::LentMut) => base,
+                    (PassMode::Lent | PassMode::LentMut, PassMode::Moved) => format!("(*{base}).clone()"),
+                    (PassMode::Moved, PassMode::Lent) => format!("&{base}"),
+                    (PassMode::Moved, PassMode::LentMut) => format!("&mut {base}"),
+                    (PassMode::LentMut, PassMode::Lent) => format!("&*{base}"),
+                    (PassMode::Lent, PassMode::LentMut) => base,
+                }
+            })
+            .collect();
+        // Typed where the instantiated slot is concrete (a stored callback
+        // or a retagged one says what arrives); otherwise the coercion to
+        // the slot's `dyn FnMut` types the parameters.
+        let concrete = !foreign_var(&inst_slot, &self.f.generics);
+        let params: Vec<String> = if concrete && (always || retagged) {
+            self.closure_params_at(slot, &inst_slot).0.iter().map(|(n, t)| format!("{n}: {t}")).collect()
+        } else {
+            names.clone()
+        };
+        Some(format!("|{}| {callee}({})", params.join(", "), conv.join(", ")))
     }
 
     /// The parameter names and Rust types a closure of fn type `t` takes.

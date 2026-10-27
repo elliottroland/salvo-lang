@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2083 tests, complete: the toolchain tests are
+cargo test                  # 2084 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,74 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-14 — A fn value forwarded to a retagged slot is adapted
+
+ROADMAP 0y, a [backend-never-wrong] violation on Rust: a fn-typed parameter
+passed on to `filter(iter(ws), keep)` checked clean and ran on Kotlin, and
+rustc refused it (E0308, "expected `&mut dyn FnMut(&&String) -> bool`, found
+`&mut dyn FnMut(&String) -> bool`").
+
+- **Cause.** A `?Yield` combinator over a list iterator retags its element
+  generic to a borrow [rs-proj-arm] (`filter::<ListYield<'_, String>,
+  &String>`), so its fn-typed slot is one reference deeper than the value's
+  own type. A lambda in that slot peels the reference (`let s = *s;`) and a
+  named fn's adapter closure does the same (`fn_value`), but a fn *value*
+  read from a place went through `fn_arg`'s `Read` arm, which adapted only a
+  difference in pass modes and otherwise passed `&mut *keep` as it was.
+- **Fix** (`fn_adapter` in `crates/salvo-backend-rust/src/ir_emit/body.rs`,
+  called from `fn_arg`): a position is retagged where the slot as the call
+  instantiates it (`call_subst`) is `proj` and the value's own parameter is
+  not; the value is then wrapped in a closure that peels each retagged
+  argument and converts the others from the slot's pass mode to the value's
+  own, the conversion the old pass-mode adapter did:
+  `&mut |__a0: &&String| keep(*__a0)`,
+  `&mut |__a0: &i32, __a1: &&String| f((*__a0).clone(), *__a1)`,
+  `&mut |__a0: &&T| keep(*__a0)` in a generic body. The closure's parameters
+  are typed when the instantiated slot names no foreign type variable.
+  Layering [core-layers]: the instantiation and both fn types were already in
+  the emitter's hands, so no core fact was added; Kotlin needs nothing.
+- **Neighbours checked** (one program, both backends, 14 lines of output).
+  Failed before and fixed: the repro (a parameter, `filter`), the same into
+  `map` over an iterator, a local bound from a lambda or a named
+  fn (E0631), a field read (E0425: the call-through closure was typed by the
+  uninstantiated slot, `&T`, which a plain generic slot such as `any`'s hit
+  too), a forwarded implicit (`?keep`), a generic body's own parameter, and a
+  fn value a call answers. Already worked: forwarding two levels down where
+  the inner slot is the value's own convention (`&mut *keep`), `reduce`'s
+  `(A, T)` slot (its pass modes differ, so the old adapter applied, and
+  rustc's deref coercion took `&&String` to `&String`; now it peels
+  explicitly), and lambdas and named fns at the retagged slot.
+- **Fixed on the way: fn values a fn returns.** No test returned one, and
+  none compiled on Rust: the signature said `Arc<dyn Fn … + Send + Sync>` and
+  the body returned a bare closure (E0308). A `return` of a fn value now goes
+  through `fn_arg` at the stored position (`Arc::new(move |__a0: &String|
+  crate::long(__a0))`); a fn value a call answers passed to a fn-typed
+  parameter is bound once and called through (`&mut { let __f =
+  crate::picker(); move |__a0: &&String| __f(*__a0) }`), since an `Arc` does
+  not coerce to `&mut dyn FnMut` (E0277); and a local bound from a call or a
+  field read is remembered as holding an `Arc` (`FnState::arc_fns`), so it is
+  called through too (`&mut |__a0: &String| (k)(__a0)`) and stored by
+  `.clone()`, not wrapped again. [rs-fn-field] records it.
+- **Not reachable**: a forwarded fn value consumed into a lazy adaptor
+  (`filtering(iter(ws), keep)`) — the checker refuses moving a view iterator
+  into it, so no retagged `Owned` slot arises today.
+- **Found, not fixed**: ROADMAP 0z (an element of a `List<proj Str>` read
+  through a generic `proj(list) T` result, `get(vs, 0)` or `next` of
+  `iter(vs)`, is `&&String` against an annotation of `&String`, E0308), and a
+  §7 DECISION (a `(Str) -> Bool` value at `any(vs, …)` over a view list is
+  refused by [fn-erased-variance], which keeps `proj` invariant).
+- Emitted-code change: none in the examples or the goldens; only programs
+  that did not compile change. Docs: [rs-proj-arm] (the adapter, a new
+  sub-bullet), [rs-fn-field] (returned fn values, calling an `Arc` through).
+
+Tests (1 new `#[test]`; the Kotlin case is a registry entry):
+`rustc_compiles_and_runs_forwarded_fn_values` and
+`kotlinc_compiles_and_runs_forwarded_fn_values`, the same program and output,
+the Rust one also asserting each adapter's shape (the parameter, the local,
+the field, the generic body, the mixed conversion, the plain generic slot,
+the returned `Arc`, the call bound once, the `Arc` local) and that a slot of
+the value's own convention still gets `&mut *keep`.
 
 ### 2026-10-14 — The error for an implicit that cannot be filled names its two ends
 
@@ -30155,7 +30223,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2083 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2084 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -31447,6 +31515,17 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A fn value has as many Rust shapes as places it can come from**
+  (2026-10-14, 0y). A lambda, a named fn, a `&mut dyn FnMut` parameter, a
+  closure local and an `Arc<dyn Fn>` (a field, a call's result, a local bound
+  from either) all reach the same Salvo slot, and Rust treats each
+  differently: only the first two are built at the slot and can take its
+  convention; the others need an adapter closure, and an `Arc` cannot even be
+  reborrowed as `&mut dyn FnMut`. When a slot's convention changes (a retag,
+  a pass mode), check every source, not just the lambda that made the change
+  visible: here a field read had been typed by the uninstantiated slot
+  (`&T`) all along, and returning a fn value had never compiled.
 
 - **A roadmap repro can have two causes, and the entry names only the one it
   saw** (2026-10-14, 0v). The re-pointing repro failed at `return out`, so the

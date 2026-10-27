@@ -2005,3 +2005,17 @@ log current so the work can resume after a context reset). Newest last.
   position written and the one that failed, the compact chain between
   (elided past four links) and the remedy. The 11-deep depth-cap case:
   3,115 → 764 bytes. No DECISION.
+- **0y: done** (committed "Adapt a forwarded fn value to a borrowed slot").
+  A fn *value* (a parameter, a local, a field read, a forwarded implicit, a
+  call's result) at a slot the call retags to a borrow [rs-proj-arm] is
+  wrapped in a closure that peels the extra reference and converts the other
+  arguments' pass modes (`fn_adapter` in the Rust emitter,
+  `&mut |__a0: &&String| keep(*__a0)`). Fixed on the way: a fn value a fn
+  returns is now stored as its `Arc<dyn Fn>` return type says, and an `Arc`
+  fn value (field, call result, a local bound from either) passed to a
+  fn-typed parameter is called through a closure typed by the instantiated
+  slot (a plain generic slot used to get the uninstantiated `&T`). Rust
+  backend only; no core fact, no emitted-code change in the examples. Found:
+  ROADMAP 0z (an element of a view list read through a generic `proj(list) T`
+  return, E0308) and a §7 DECISION (a fn value over owned elements at a
+  view-element slot is refused by [fn-erased-variance]).
