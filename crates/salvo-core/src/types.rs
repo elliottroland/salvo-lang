@@ -947,7 +947,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
             },
         ) => {
             pa.len() == pb.len()
-                && pa.iter().zip(pb).all(|(x, y)| fn_param_fits(x, y))
+                && pa.iter().zip(pb).enumerate().all(|(i, (x, y))| fn_param_fits(x, y) || (fn_param_reads_borrow(x, y) && fn_contract_keeps(ca.as_deref(), i)))
                 && is_subtype(ra, rb)
                 && contract_fits(ca.as_deref(), cb.as_deref(), pa.len())
                 // [fn-effects] A fn value that performs *fewer* effects fits
@@ -1181,6 +1181,36 @@ pub fn compatible(a: &Ty, b: &Ty) -> bool {
 pub fn fn_param_fits(have: &Ty, want: &Ty) -> bool {
     compatible(have, want)
         || (is_subtype(want, have) && compatible(&strip_erased_quals(want), &strip_erased_quals(have)))
+}
+
+/// [fn-kept-borrow] Whether a fn **value** whose parameter is the owned
+/// `have` may read the borrow `want` (user decision 2026-10-14, ROADMAP §7
+/// option (b)): `want` is `proj X` at its top level, on a non-union base, and
+/// `have` is the same `X` but for the `proj` (and, as [fn-erased-variance]
+/// allows, fewer erased qualifiers), with no qualifier on either a backend
+/// renders — no `Mut`, `ref`, `once`, `linear` or effect claim. Only half the
+/// rule: the value must also **keep** the parameter and not mutate it
+/// ([`fn_contract_keeps`]), since a consuming parameter would move out of a
+/// borrow. A backend adapts the convention where a borrow is passed
+/// differently from the owned value.
+pub fn fn_param_reads_borrow(have: &Ty, want: &Ty) -> bool {
+    let Ty::Qualified { quals, base } = want else { return false };
+    if matches!(**base, Ty::Union(_)) || !quals.iter().any(|q| q.name == "proj") || quals.iter().any(|q| q.name == "ref") {
+        return false;
+    }
+    if have.quals().iter().any(|q| is_proj_name(&q.name)) || matches!(have.strip_quals(), Ty::Union(_)) {
+        return false;
+    }
+    let owned = want.clone().remove_quals(&proj_names());
+    let plain = |t: &Ty| strip_erased_quals(t).quals().is_empty();
+    plain(have) && plain(&owned) && fn_param_fits(have, &owned)
+}
+
+/// [fn-kept-borrow] Whether a fn value with contract `c` keeps its parameter
+/// `i` without mutating it (an absent contract, or entry, keeps
+/// [deduce-default]).
+pub fn fn_contract_keeps(c: Option<&[FnParamContract]>, i: usize) -> bool {
+    c.and_then(|l| l.get(i)).is_none_or(|e| e.kept && !e.mutable)
 }
 
 /// [fn-erased-variance] [qual-erasure] A qualifier no backend renders: every
@@ -1889,6 +1919,34 @@ mod tests {
         assert!(!is_subtype(&fn_of(nested(list.clone())), &fn_of(nested(ne(&list)))), "not inside a type argument");
         let opt = Ty::Union(vec![list.clone(), Ty::none()]);
         assert!(!is_subtype(&fn_of(opt), &plain), "an optional is rendered differently");
+    }
+
+    /// [fn-kept-borrow] A fn value's owned parameter reads a `proj` one when
+    /// the value keeps it, composing with [fn-erased-variance]; not when it
+    /// consumes or mutates it, not across `Mut` or `ref`, not the reverse
+    /// direction, and `compatible` stays exact.
+    #[test]
+    fn a_kept_fn_parameter_reads_a_borrow() {
+        let contract = |kept: bool, mutable: bool| {
+            Some(vec![FnParamContract { name: Some("s".to_string()), kept, effect: QualEffect::KeepAll, mutable, lent: false }])
+        };
+        let fn_of = |p: Ty, c: Option<Vec<FnParamContract>>| Ty::Fn { params: vec![p], ret: Box::new(Ty::named("Bool")), contract: c, effects: vec![] };
+        let q = |t: &Ty, n: &str| t.clone().qualify(vec![Qual::plain(n, vec![])]);
+        let s = Ty::named("Str");
+        let view = q(&s, "proj");
+        let (owned, borrowed) = (fn_of(s.clone(), None), fn_of(view.clone(), None));
+        assert!(is_subtype(&owned, &borrowed), "a kept parameter reads a borrow");
+        assert!(is_subtype(&fn_of(s.clone(), contract(true, false)), &borrowed), "kept, written");
+        assert!(!is_subtype(&fn_of(s.clone(), contract(false, false)), &borrowed), "a consumed one does not");
+        assert!(!is_subtype(&borrowed, &owned), "nor the reverse");
+        assert!(!compatible(&owned, &borrowed), "compatible stays exact");
+        let list = Ty::Named { name: "List".to_string(), args: vec![s.clone()] };
+        assert!(is_subtype(&fn_of(list.clone(), None), &fn_of(q(&q(&list, "NonEmpty"), "proj"), None)), "with an erased claim dropped");
+        assert!(!is_subtype(&fn_of(list.clone(), None), &fn_of(q(&q(&list, "Mut"), "proj"), None)), "`Mut` stays invariant");
+        assert!(!is_subtype(&fn_of(q(&list, "Mut"), None), &fn_of(q(&q(&list, "Mut"), "proj"), None)), "a `Mut` parameter does not read a view");
+        assert!(!is_subtype(&owned, &fn_of(q(&s, "ref"), None)), "not a `ref` handle");
+        let nested = |t: Ty| Ty::Named { name: "List".to_string(), args: vec![t] };
+        assert!(!is_subtype(&fn_of(nested(s.clone()), None), &fn_of(nested(view.clone()), None)), "not inside a type argument");
     }
 }
 

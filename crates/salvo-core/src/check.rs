@@ -6025,6 +6025,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         else {
             return None;
         };
+        // [fn-kept-borrow] A consumed parameter handed a borrow.
+        if let Some(h) = consumed_borrow_hint(got, want, &format!("`{got_name}`")) {
+            return Some(h);
+        }
         if wp.len() != gp.len() || want.to_string() != got.to_string() {
             return None; // the printed types differ; they speak for themselves
         }
@@ -23752,9 +23756,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let listed_elsewhere = crate::literal::mentions_lit(ann)
                         && literal_refusal(ann, &value_ty, self.lit_spans.get(&self.key(value.span()))).is_some();
                     if !is_subtype(&value_ty, ann) && !listed_elsewhere {
+                        let what = match value {
+                            Expr::Ident(id) => format!("`{}`", id.name),
+                            _ => "this fn value".to_string(),
+                        };
+                        let why = consumed_borrow_hint(&value_ty, ann, &what).map(|h| format!(": {h}")).unwrap_or_default();
                         self.error(
                             value.span(),
-                            format!("expected `{ann}`, found `{value_ty}`"),
+                            format!("expected `{ann}`, found `{value_ty}`{why}"),
                         );
                     }
                 }
@@ -29278,6 +29287,67 @@ fn adopt_literal(expected: Option<&Ty>, lit: TypeLit) -> Option<Ty> {
     lists(e, &lit).then(|| Ty::Lit(lit))
 }
 
+/// [fn-kept-borrow] When a fn value of type `value` fails to fit `want` only
+/// because it **consumes** a parameter the position would hand a borrow, the
+/// diagnostic's text for it: what is consumed, what it would be given, and
+/// the remedies. `what` names the value (`` `eat` `` or "this fn value").
+fn consumed_borrow_hint(value: &Ty, want: &Ty, what: &str) -> Option<String> {
+    let (Ty::Fn { params: vp, contract: Some(vc), ret, effects }, Ty::Fn { params: wp, .. }) = (value.strip_quals(), want.strip_quals()) else {
+        return None;
+    };
+    if vp.len() != wp.len() {
+        return None;
+    }
+    let j = (0..vp.len()).find(|&j| crate::types::fn_param_reads_borrow(&vp[j], &wp[j]) && !crate::types::fn_contract_keeps(Some(vc), j))?;
+    let mut kept = vc.clone();
+    if let Some(e) = kept.get_mut(j) {
+        e.kept = true;
+        e.mutable = false;
+    }
+    let fixed = Ty::Fn { params: vp.clone(), ret: ret.clone(), contract: Some(kept), effects: effects.clone() };
+    if !is_subtype(&fixed, want) && !fn_value_fits(&fixed, want) {
+        return None;
+    }
+    let pname = vc.get(j).and_then(|e| e.name.clone()).unwrap_or_else(|| format!("#{}", j + 1));
+    Some(format!(
+        "{what} consumes its parameter `{pname}` (`=> !{pname}`), and here it would be given a \
+         borrowed `{}`, which cannot be given away. Keep the parameter, or pass a lambda \
+         that copies the argument [fn-kept-borrow]",
+        wp[j]
+    ))
+}
+
+/// [fn-kept-borrow] For a call candidate the arguments did not unify with:
+/// the hint of [`consumed_borrow_hint`] when a fn argument's consumed
+/// parameter is what kept it out — the candidate unifies once that argument
+/// keeps its parameters, and its position then hands the parameter a borrow.
+fn consumed_borrow_block(patterns: &[Ty], arg_tys: &[Ty], args: &[&Expr], generics: &[Ident]) -> Option<String> {
+    let gens: HashSet<String> = generics.iter().map(|g| g.name.clone()).collect();
+    for (i, a) in arg_tys.iter().enumerate() {
+        let Ty::Fn { params, ret, contract: Some(c), effects } = a.strip_quals() else { continue };
+        if c.iter().all(|e| e.kept && !e.mutable) {
+            continue;
+        }
+        let kept: Vec<crate::types::FnParamContract> = c.iter().cloned().map(|mut e| { e.kept = true; e.mutable = false; e }).collect();
+        let mut trial = arg_tys.to_vec();
+        trial[i] = Ty::Fn { params: params.clone(), ret: ret.clone(), contract: Some(kept), effects: effects.clone() };
+        let mut subst = HashMap::new();
+        if !patterns.iter().zip(&trial).all(|(p, t)| unify(p, t, &mut subst)) {
+            continue;
+        }
+        let Some(p) = patterns.get(i) else { continue };
+        let sp = substitute_vars(p, &subst, &gens);
+        let what = match args.get(i) {
+            Some(Expr::Ident(id)) => format!("`{}`", id.name),
+            _ => "this fn value".to_string(),
+        };
+        if let Some(h) = consumed_borrow_hint(a, &sp, &what) {
+            return Some(h);
+        }
+    }
+    None
+}
+
 /// [implicit-resolve] Whether a function *value* of type `candidate` fits a
 /// position that wants `want`: **parameters contravariant, result
 /// covariant**, plus the contract and effect variance [fn-contract]
@@ -29311,7 +29381,9 @@ fn fn_value_fits(candidate: &Ty, want: &Ty) -> bool {
             },
         ) => {
             cp.len() == wp.len()
-                && cp.iter().zip(wp).all(|(c, w)| is_subtype(w, c))
+                && cp.iter().zip(wp).enumerate().all(|(i, (c, w))| {
+                    is_subtype(w, c) || (crate::types::fn_param_reads_borrow(c, w) && crate::types::fn_contract_keeps(cc.as_deref(), i))
+                })
                 && is_subtype(cr, wr)
                 && crate::types::contract_fits(cc.as_deref(), wc.as_deref(), cp.len())
                 && ce.iter().all(|e| we.contains(e))
@@ -29634,6 +29706,22 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
                         return true;
                     }
                     let (ps, as_) = (crate::types::strip_erased_quals(p), crate::types::strip_erased_quals(a));
+                    // [fn-kept-borrow] A value's owned parameter may read a
+                    // borrow its pattern's variable is bound to: bind through
+                    // the owned type, and let `is_subtype` judge the fit and
+                    // the contract.
+                    if let Ty::Var(g) = p {
+                        if let Some(bound) = subst.get(g).cloned() {
+                            if crate::types::fn_param_reads_borrow(a, &bound) {
+                                let owned = crate::types::strip_erased_quals(&bound.remove_quals(&crate::types::proj_names()));
+                                let mut trial = subst.clone();
+                                if unify(&owned, &as_, &mut trial) {
+                                    *subst = trial;
+                                    return true;
+                                }
+                            }
+                        }
+                    }
                     (ps != *p || as_ != *a) && unify(&ps, &as_, subst)
                 })
                 && unify(pr, ar, subst)
@@ -31270,6 +31358,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut viable: Vec<Viable<'p>> = Vec::new();
 
         let mut proj_blocked: Vec<(String, String, usize, ProjBlock)> = Vec::new();
+        let mut consumed_blocked: Option<String> = None;
         for entry in &candidates {
             let (key, decl) = (entry.key, entry.decl);
             // [implicit-param] Implicits are never passed positionally, so
@@ -31368,6 +31457,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .zip(arg_tys)
                 .all(|(p, a)| unify(p, a, &mut subst));
             if !ok {
+                // [fn-kept-borrow] Remember when a fn argument's consumed
+                // parameter is what kept it out: unify again with that
+                // parameter kept, and see whether the position hands it a
+                // borrow.
+                if consumed_blocked.is_none() {
+                    consumed_blocked = consumed_borrow_block(&patterns, arg_tys, args, &decl.generics);
+                }
                 continue;
             }
             let callee_generics: HashSet<String> =
@@ -31492,6 +31588,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         shown.join(", ")
                     ),
                 );
+                return Ty::Unknown;
+            }
+            if let Some(hint) = consumed_blocked {
+                self.error(span, format!("no matching overload for `{name}({})`: {hint}", shown.join(", ")));
                 return Ty::Unknown;
             }
             // [proj-type] When a projection is all that stands between the

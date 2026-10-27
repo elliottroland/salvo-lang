@@ -1895,6 +1895,82 @@ fn kotlinc_compiles_and_runs_borrowed_element_reads() -> KotlinCase {
     kotlin_case(files, "borrowed-element-reads", BORROWED_ELEMENT_OUTPUT)
 }
 
+/// [fn-kept-borrow] A written fn value whose parameter is an owned `Str` it
+/// keeps reads a borrowed one (user decision 2026-10-14, ROADMAP §7 option
+/// (b)): each combinator over a `List<proj Str>` with a named fn, a forwarded
+/// parameter, a slot written `proj`, a fn-typed local, and std's resolved
+/// `hash`/`eq`/`cmp`/`to_str` over the view type. Kotlin needs nothing; the
+/// output is the same on both backends (`rustc_compiles_and_runs_kept_fns_over_views`).
+const KEPT_BORROW_DEMO: &str = r#"
+fn long(s: Str) -> Bool {
+    return size(s) > 1
+}
+
+fn longer(s: Str) -> Bool {
+    return size(s) > 2
+}
+
+fn len(s: Str) -> Int {
+    return size(s)
+}
+
+fn add_len(a: Int, s: Str) -> Int {
+    return a + size(s)
+}
+
+// A parameter forwarded into a view-element slot.
+fn keep_count(vs: List<proj Str>, keep: (Str) -> Bool) [] -> Int => vs, keep {
+    return count(vs, keep)
+}
+
+// A slot whose parameter is written `proj`.
+fn count_views(vs: List<proj Str>, keep: (x: proj Str) -> Bool) [] -> Int => vs, keep {
+    return reduce(vs, 0, (a, v) -> if keep(v) { a + 1 } else { a })
+}
+
+fn main() [use] -> None {
+    use StdConsole
+    let ws = List("def", "c", "ab")
+    let vs = filter(iter(ws), s -> size(s) > 1)
+    // Each combinator over the view list, with a named kept fn.
+    println("any ${any(vs, longer)} ${any(vs, s -> size(s) > 5)}")
+    println("all ${all(vs, long)} ${all(vs, longer)}")
+    println("count ${count(vs, longer)}")
+    let at = find_first(vs, longer) ?: unreachable!()
+    println("find_first ${at}")
+    let ns = map(vs, len)
+    println("map ${size(ns)} ${get(ns, 0) ?: 0} ${get(ns, 1) ?: 0}")
+    let fs = filter(vs, longer)
+    for f in fs {
+        println("filter ${f}")
+    }
+    println("reduce ${reduce(vs, 0, add_len)}")
+    // By a parameter, into a written `proj` slot, and through a local.
+    println("param ${keep_count(vs, longer)} ${keep_count(vs, long)}")
+    println("slot ${count_views(vs, longer)}")
+    let k: (proj Str) -> Bool = longer
+    println("local ${k(get(vs, 1) ?: unreachable!())} ${count_views(vs, k)}")
+    // Resolved implicits over the view type: `hash`, `eq`, `cmp`, `to_str`.
+    let m = to_map(vs, v -> (v, size(v)))
+    let n = get(m, "def") ?: unreachable!()
+    println("map ${n} ${size(m)} ${contains_key(m, "ab")}")
+    let st = to_set(vs)
+    println("set ${size(st)} ${contains(st, "ab")} ${contains(st, "zz")}")
+    println("list ${contains(vs, "ab")} ${eq(vs, vs)} ${cmp(vs, vs)}")
+    println("to_str ${to_str(vs)} ${to_str(sort(vs))}")
+}
+"#;
+
+const KEPT_BORROW_OUTPUT: &str = "any true false\nall true false\ncount 1\nfind_first 0\nmap 2 3 2\nfilter def\nreduce 5\nparam 1 2\nslot 1\nlocal false 1\nmap 3 2 true\nset 2 true false\nlist true true 0\nto_str [def, ab] [ab, def]\n";
+
+fn kotlinc_compiles_and_runs_kept_fns_over_views() -> KotlinCase {
+    let program = build_program(&[("main.sv", KEPT_BORROW_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "kept-fns-over-views", KEPT_BORROW_OUTPUT)
+}
+
 fn kotlinc_compiles_and_runs_escapes_in_expression_position() -> KotlinCase {
     let program = build_program(&[("main.sv", ESCAPE_EXPR_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -6219,6 +6295,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_re_pointed_views,
     kotlinc_compiles_and_runs_forwarded_fn_values,
     kotlinc_compiles_and_runs_borrowed_element_reads,
+    kotlinc_compiles_and_runs_kept_fns_over_views,
     kotlinc_compiles_and_runs_a_lift_binding,
     kotlinc_compiles_and_runs_the_elvis_operator,
     kotlinc_compiles_and_runs_the_pipe_operator,

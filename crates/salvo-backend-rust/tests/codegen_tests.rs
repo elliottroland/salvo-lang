@@ -9277,6 +9277,151 @@ fn rustc_compiles_and_runs_borrowed_element_reads() {
     run_rust_files(&files, "borrowed-element-reads", BORROWED_ELEMENT_OUTPUT);
 }
 
+// ===== [fn-kept-borrow] a kept owned parameter reads a borrowed argument =====
+
+/// [fn-kept-borrow] [rs-proj-arm] A written fn value whose parameter is an
+/// owned `Str` it keeps fills a slot whose parameter is `proj Str` (user
+/// decision 2026-10-14, ROADMAP §7 option (b)). Rust adapts the convention:
+/// a named fn's forwarding closure peels the element's extra reference
+/// (`|__a0: &&String| { let __a0 = *__a0; crate::longer(__a0) }`), a
+/// forwarded parameter goes through `fn_adapter` (`keep(*__a0)`), a slot
+/// written `proj` passes the borrow as it is (`|__a0: &String|
+/// crate::longer(__a0)`), and an owned key at a slot the call instantiates as
+/// a borrow is lent twice (`&&String::from("def")`). The resolved implicits
+/// over the view type (`hash`, `eq`, `cmp`, `to_str` of `Str`) take the same
+/// rule. `kotlinc_compiles_and_runs_kept_fns_over_views` runs the same program.
+const KEPT_BORROW_DEMO: &str = r#"
+fn long(s: Str) -> Bool {
+    return size(s) > 1
+}
+
+fn longer(s: Str) -> Bool {
+    return size(s) > 2
+}
+
+fn len(s: Str) -> Int {
+    return size(s)
+}
+
+fn add_len(a: Int, s: Str) -> Int {
+    return a + size(s)
+}
+
+// A parameter forwarded into a view-element slot.
+fn keep_count(vs: List<proj Str>, keep: (Str) -> Bool) [] -> Int => vs, keep {
+    return count(vs, keep)
+}
+
+// A slot whose parameter is written `proj`.
+fn count_views(vs: List<proj Str>, keep: (x: proj Str) -> Bool) [] -> Int => vs, keep {
+    return reduce(vs, 0, (a, v) -> if keep(v) { a + 1 } else { a })
+}
+
+fn main() [use] -> None {
+    use StdConsole
+    let ws = List("def", "c", "ab")
+    let vs = filter(iter(ws), s -> size(s) > 1)
+    // Each combinator over the view list, with a named kept fn.
+    println("any ${any(vs, longer)} ${any(vs, s -> size(s) > 5)}")
+    println("all ${all(vs, long)} ${all(vs, longer)}")
+    println("count ${count(vs, longer)}")
+    let at = find_first(vs, longer) ?: unreachable!()
+    println("find_first ${at}")
+    let ns = map(vs, len)
+    println("map ${size(ns)} ${get(ns, 0) ?: 0} ${get(ns, 1) ?: 0}")
+    let fs = filter(vs, longer)
+    for f in fs {
+        println("filter ${f}")
+    }
+    println("reduce ${reduce(vs, 0, add_len)}")
+    // By a parameter, into a written `proj` slot, and through a local.
+    println("param ${keep_count(vs, longer)} ${keep_count(vs, long)}")
+    println("slot ${count_views(vs, longer)}")
+    let k: (proj Str) -> Bool = longer
+    println("local ${k(get(vs, 1) ?: unreachable!())} ${count_views(vs, k)}")
+    // Resolved implicits over the view type: `hash`, `eq`, `cmp`, `to_str`.
+    let m = to_map(vs, v -> (v, size(v)))
+    let n = get(m, "def") ?: unreachable!()
+    println("map ${n} ${size(m)} ${contains_key(m, "ab")}")
+    let st = to_set(vs)
+    println("set ${size(st)} ${contains(st, "ab")} ${contains(st, "zz")}")
+    println("list ${contains(vs, "ab")} ${eq(vs, vs)} ${cmp(vs, vs)}")
+    println("to_str ${to_str(vs)} ${to_str(sort(vs))}")
+}
+"#;
+
+const KEPT_BORROW_OUTPUT: &str = "any true false\nall true false\ncount 1\nfind_first 0\nmap 2 3 2\nfilter def\nreduce 5\nparam 1 2\nslot 1\nlocal false 1\nmap 3 2 true\nset 2 true false\nlist true true 0\nto_str [def, ab] [ab, def]\n";
+
+#[test]
+fn rustc_compiles_and_runs_kept_fns_over_views() {
+    let files = generate(&[("main.sv", KEPT_BORROW_DEMO)]);
+    let main = &files.iter().find(|f| f.rel_path.ends_with("main.rs")).expect("main.rs").content;
+    for needle in [
+        "any::<&String>(&vs, &mut |__a0: &&String| { let __a0 = *__a0; crate::longer(__a0) })",
+        "reduce__List_A_Fn::<&String, i32>(&vs, 0i32, &mut |__a0: &i32, __a1: &&String| { let __a1 = *__a1; crate::add_len(*__a0, __a1) })",
+        "count::<&String>(vs, &mut |__a0: &&String| keep(*__a0))",
+        "crate::count_views(&vs, &mut |__a0: &String| crate::longer(__a0))",
+        "let mut k = |__a0: &String| crate::longer(__a0);",
+        "get_platform(&m, &&String::from(\"def\")",
+    ] {
+        assert!(main.contains(needle), "missing `{needle}` in:\n{main}");
+    }
+    run_rust_files(&files, "kept-fns-over-views", KEPT_BORROW_OUTPUT);
+}
+
+/// [fn-kept-borrow] Only a *kept* parameter reads a borrow: a fn consuming
+/// its parameter (`=> !s`) is refused at a view-element slot, by an overload,
+/// an annotated local and an override, with the reason and the remedies; and
+/// a `Mut` difference stays invariant ([fn-erased-variance]): neither a
+/// mutating `grow(xs: Mut List<Str>)` nor a reading `peek(xs: List<Str>)`
+/// fills a slot whose parameter is a `proj Mut` list.
+#[test]
+fn a_consuming_fn_does_not_read_a_borrow() {
+    let errors = expect_errors(
+        r#"
+fn eat(s: Str) -> Bool => !s {
+    return size(s) > 1
+}
+
+fn same(a: Str, b: Str) -> Bool => !a, b {
+    return a == b
+}
+
+fn grow(xs: Mut List<Str>) -> Bool => xs: Mut {
+    add(xs, "x")
+    return true
+}
+
+fn peek(xs: List<Str>) -> Bool => xs {
+    return size(xs) > 0
+}
+
+fn main() [use] -> None {
+    use StdConsole
+    let ws = List("ab", "c", "def")
+    let vs = filter(iter(ws), s -> size(s) > 1)
+    println("any ${any(vs, eat)}")
+    let k: (proj Str) -> Bool = eat
+    println("has ${contains(vs, "ab", eq = same)}")
+    let ls = List(Mut List("p"), Mut List("q"))
+    let big = filter(iter(ls), x -> size(x) > 0)
+    println("grow ${any(big, grow)}")
+    println("peek ${any(big, peek)}")
+}
+"#,
+    );
+    let consumed = "consumes its parameter `s` (`=> !s`), and here it would be given a borrowed `proj Str`, which cannot be given away. Keep the parameter, or pass a lambda that copies the argument [fn-kept-borrow]";
+    for needle in [
+        format!("no matching overload for `any(Mut List<proj Str>, (Str) -> Bool)`: `eat` {consumed}"),
+        format!("expected `(proj Str) -> Bool`, found `(Str) -> Bool`: `eat` {consumed}"),
+        "`eq` does not fit here: `same` consumes its parameter `a` (`=> !a`)".to_string(),
+        "no matching overload for `any(Mut List<proj Mut NonEmpty List<Str>>, (Mut List<Str>) -> Bool)`".to_string(),
+        "no matching overload for `any(Mut List<proj Mut NonEmpty List<Str>>, (List<Str>) -> Bool)`".to_string(),
+    ] {
+        assert!(errors.iter().any(|e| e.contains(&needle)), "missing `{needle}` in {errors:?}");
+    }
+}
+
 // ===== [proj-type] a borrowed union arm into a `proj`-typed parameter =====
 
 /// The phase-2b cut, closed 2026-09-12: a pass's `next` returns

@@ -1513,22 +1513,9 @@ container [interp-to-str], property testing's `?generate`, section 2c's
   pricing first (the case that raised this needs only `NonEmpty List<Int>` →
   `List<Int>` *inside* a type argument, which is qualifier-dropping at depth); and
   that the emitted Rust must not depend on it, since Rust has no variance.
-- **DECISION — a fn value over owned elements at a view-element slot**
-  (found 2026-10-14 with ROADMAP 0y). `any(vs, keep)` with `vs: Mut
-  List<proj Str>` (a `filter` result) and `keep: (Str) -> Bool` is refused
-  ("no matching overload"), as are `all`, `count`, `find_first`, `map`,
-  `filter`, `reduce` over `vs`: the slot is `(x: proj Str) -> Bool`, and
-  [fn-erased-variance] keeps `proj` invariant (it chooses a representation).
-  A lambda (`s -> keep(s)`) works, and so does a fn value over an iterator of
-  `vs` (`filter(iter(ws), keep)`, the retag). The question: may a fn value
-  whose parameter is the owned, kept `Str` fill a `proj Str` parameter
-  position — a kept parameter only reads its argument, which a view allows?
-  Options: (a) leave it refused, the lambda being the spelling; (b) admit it
-  for a *kept* (non-consuming, non-`Mut`) parameter, with the Rust backend
-  adapting the convention as it now does for a retagged slot
-  (`&mut |__a0: &&String| keep(*__a0)`, [rs-proj-arm]), Kotlin needing
-  nothing. Recommendation: (b), since the adapter already exists and today
-  the only spelling is a lambda that does nothing but call the fn.
+- **A fn value over owned elements at a view-element slot**: decided
+  2026-10-14 (option (b)) and built 2026-10-27 — COMPLETED.md ("A kept owned
+  parameter reads a borrow", [fn-kept-borrow]).
 
 ### 8 — Mutating through a union arm (DECISION)
 

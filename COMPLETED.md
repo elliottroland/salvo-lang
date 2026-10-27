@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2085 tests, complete: the toolchain tests are
+cargo test                  # 2088 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -141,6 +141,90 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-27 — A kept owned parameter reads a borrow (user decision)
+
+ROADMAP §7's DECISION, found with 0y: `any(vs, keep)` with `vs: List<proj
+Str>` and `keep: (Str) -> Bool` was refused ("no matching overload"), and so
+were `all`, `count`, `find_first`, `map`, `filter`, `reduce` over `vs`: the
+slot is `(x: proj Str) -> Bool`, and [fn-erased-variance] kept `proj`
+invariant. **User decision 2026-10-14, option (b)**: a written fn value
+whose parameter is an owned `T` and *kept* (its deduction keeps the
+parameter, [deduce-default] [fn-contract]) fits a slot whose parameter is
+`proj T` — a function that only reads a `Str` can read a borrowed one. A
+*consumed* parameter (`=> !x`) stays refused: it would move out of a
+borrow. Option (a), leaving it refused with the lambda as the only
+spelling, was not chosen.
+
+- **The rule** ([fn-kept-borrow], next to [fn-erased-variance]):
+  `types::fn_param_reads_borrow(have, want)` — `want` is `proj X` at its top
+  level on a non-union base (not `ref`), `have` is `X` without the `proj`
+  (composing with [fn-erased-variance]: fewer erased qualifiers allowed), and
+  neither carries a qualifier a backend renders (`Mut`, `ref`, `once`,
+  `linear`, an effect claim) — plus `types::fn_contract_keeps` on the
+  value's contract for that position (kept and not mutated; an absent
+  contract keeps). `is_subtype`'s fn arm admits a parameter when
+  `fn_param_fits` or both hold. Everything else stays invariant: a `Mut`
+  difference (`grow(xs: Mut List<Str>)` and `peek(xs: List<Str>)` at a
+  `proj Mut List<Str>` slot are both refused), a type argument
+  (`List<proj Str>`), a union, the reverse direction.
+- **Consistency.** Resolved implicits (`fn_value_fits`, fully
+  contravariant, which refused it because `proj Str <: Str` is false) take
+  the same disjunct, so std's `hash`, `eq`, `cmp`, `to_str` of `Str` now
+  fill the positions of a `Set<proj Str>`, a `Map<proj Str, V>`, `sort`,
+  `eq`, `cmp`, `to_str` of a view list (20 errors before, in the test
+  program, none now). `unify`'s fn fallback binds through the owned type
+  when the pattern's variable is bound to the borrow (it already unified
+  `Str` against a `T = proj Str`, since `X <: proj X`; the fallback covers
+  the composition with an erased claim).
+- **Diagnostics.** A consuming fn is refused with the reason
+  (`consumed_borrow_hint` in `check.rs`), from an overload ("no matching
+  overload for `any(Mut List<proj Str>, (Str) -> Bool)`: `eat` consumes its
+  parameter `s` (`=> !s`), and here it would be given a borrowed `proj Str`,
+  which cannot be given away. Keep the parameter, or pass a lambda that
+  copies the argument [fn-kept-borrow]"; the candidate is re-unified with the
+  argument's parameters kept, `consumed_borrow_block`), an annotated binding
+  (`expected … found …: …`) and an override (`fn_fit_reason`, "`eq` does
+  not fit here: `same` consumes its parameter `a` …").
+- **Census** (a temporary `SALVO_KEPT_OLD` switch disabled the rule and
+  `SALVO_KEPT_CENSUS` logged every pair it admitted; deleted). The warm
+  `cargo nextest run` (every program the suite checks, std's tests and the
+  e2e and corpus programs included) logged 261 admissions: 254 in the
+  deliberately doubled std of `analyze_doubled_std` (`proj ?` positions,
+  where the old rule left cascade errors such as "`proj ?` has no text form"
+  — those cascades are gone, [type-unknown-lenient]; the test passes), and 7
+  in two programs, `GENERIC_HOF` and `SEQ_SURFACE_DEMO` (`Str <- proj Str`,
+  `Int <- proj ?`, in trial fits that lose), whose generated Rust and Kotlin
+  are byte-identical old vs new. `salvo analyze` and `salvo compile` on both
+  backends of every example, `modules/aws` (and its two demos),
+  `bench/collections`, `bench/scheduler`, a copy of `demo/` and `analyze
+  --src lib`: no admissions, identical diagnostics and identical generated
+  code. Nothing previously accepted changes meaning.
+- **Kotlin** needs nothing (a borrow is the reference). **Rust** reuses the
+  retag adapters [rs-proj-arm]: a named fn's forwarding closure peels the
+  element (`&mut |__a0: &&String| { let __a0 = *__a0; crate::longer(__a0)
+  }`, every combinator; `reduce` peels only its element argument), a
+  forwarded parameter goes through `fn_adapter` (`&mut |__a0: &&String|
+  keep(*__a0)`). Two emitter changes: a slot whose parameter is *written*
+  `proj Str` passes the borrow by value, so the named fn's closure passes it
+  as it is (`|__a0: &String| crate::longer(__a0)`, rather than the
+  generic `&__a0` that compiles only by deref coercion), and an owned argument at a kept slot the call
+  instantiates as a borrow — a literal key of a `Map<proj Str, V>`'s `get`,
+  `contains` of a `Set<proj Str>` — is lent twice
+  (`get_platform(&m, &&String::from("def"), …)`, E0308 before; reachable only
+  through the implicits this rule admits).
+- Emitted-code change: none in the examples or the goldens.
+
+Tests (3 new `#[test]`s; the Kotlin case is a registry entry):
+`rustc_compiles_and_runs_kept_fns_over_views` and
+`kotlinc_compiles_and_runs_kept_fns_over_views` (`any`, `all`, `count`,
+`find_first`, `map`, `filter`, `reduce` over a `List<proj Str>` with named
+kept fns, a forwarded parameter, a written `proj` slot, a fn-typed local,
+and the resolved `hash`/`eq`/`cmp`/`to_str` over the view type; 14 lines,
+identical on both backends; the Rust one asserting each closure's shape and
+the twice-lent key); `a_consuming_fn_does_not_read_a_borrow` (the three
+consuming messages, the two `Mut` refusals); and the unit test
+`a_kept_fn_parameter_reads_a_borrow` in `types.rs`.
+
 ### 2026-10-27 — A borrow of a borrowed element is flattened on Rust
 
 ROADMAP 0z, a [backend-never-wrong] violation on Rust: reading an element of
@@ -185,10 +269,10 @@ and ran on Kotlin, and rustc refused it (E0308).
   in vs` over the list itself, `find_first(vs, …)` (an index), and `first`
   (rustc's deref coercion took the `&&String` argument to `println`; it is
   now flattened explicitly).
-- **Not reachable**: a `Map<proj Str, …>` keyed by the view (`to_map(vs, v
-  -> (v, v))`) — std's `?hash`/`?eq` are `(Str) -> …` and do not fit a
-  `(proj Str) -> …` position, which is the question of ROADMAP §7's
-  DECISION on a kept `(Str)` parameter at a `(proj Str)` slot.
+- **Not reachable then**: a `Map<proj Str, …>` keyed by the view (`to_map(vs,
+  v -> (v, v))`) — std's `?hash`/`?eq` are `(Str) -> …` and did not fit a
+  `(proj Str) -> …` position. [fn-kept-borrow] (the entry above) made it
+  reachable; it runs on both backends.
 - Emitted-code change: none in the examples or the goldens (the warm suite
   was green before the tests were added); only programs that did not
   compile change.
@@ -30281,7 +30365,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2085 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2088 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -31573,6 +31657,15 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Widening a fit widens every place that fit is consulted** (2026-10-27,
+  [fn-kept-borrow]). The decision was about fn values passed by name, but
+  the same predicate serves resolved implicits, so `Set<proj Str>`,
+  `Map<proj Str, V>` and `sort` of a view list became reachable at once —
+  and the first of them showed an emitter gap no earlier program could
+  reach (an owned key at a `key: &K` slot with `K = &String`). After a rule
+  change, probe the surfaces that newly type-check, not just the ones the
+  decision named, on both backends.
 
 - **A call the IR synthesizes states no type arguments** (2026-10-27, 0z).
   The `for` loop's mint and `next` calls, and the call inside a forwarding

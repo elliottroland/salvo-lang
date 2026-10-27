@@ -781,6 +781,22 @@ the blanket rule:
     the value's own parameter is not (`fn_adapter` in `ir_emit/body.rs`).
     Into a slot of the value's own convention the value passes as it is
     (`&mut *keep`).
+  * **A kept owned parameter at a borrowed slot** [fn-kept-borrow]
+    (2026-10-27, user decision 2026-10-14): a written `longer(s: Str)` at
+    `any(vs, …)` over a `List<proj Str>` (`T = &String`, the slot
+    `&mut dyn FnMut(&&String)`) is the same adaptation — a named fn's
+    forwarding closure peels the element (`&mut |__a0: &&String| { let
+    __a0 = *__a0; crate::longer(__a0) }`), a forwarded parameter goes
+    through `fn_adapter` (`&mut |__a0: &&String| keep(*__a0)`). A slot
+    whose parameter is *written* `proj Str` passes the borrow by value
+    (`&String`), which is what the kept parameter takes, so the closure
+    passes it on as it is (`|__a0: &String| crate::longer(__a0)`, not
+    `&__a0`). An **owned argument at a kept slot the call instantiates as a
+    borrow** — the key of a `Map<proj Str, V>`'s `get`, `contains` of a
+    `Set<proj Str>` (`key: &K`, `K = &String`) — is lent twice:
+    `get_platform(&m, &&String::from("def"), …)`. std's resolved `hash`,
+    `eq`, `cmp`, `to_str` of `Str` at those slots use the adapters the
+    resolved implicits already had.
 * [rs-elem-mut] [ref-handle] **Mutable element handles** (P-3 + P-9, user
   decisions 2026-09-24) are **positions**, never a bound `&mut`:
   * A **statement-scoped** handle — `bump(at(es, 0) ?: unreachable!())` in a `&mut`

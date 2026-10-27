@@ -2585,6 +2585,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if is_copy_ty(&a.ty) && p.mode != PassMode::LentMut && p.mode != PassMode::Lent {
             return self.value(a, indent);
         }
+        // [rs-proj-arm] [fn-kept-borrow] An owned argument at a kept slot the
+        // call instantiates as a borrow (`key: K` at `K = proj Str`, so
+        // `&&String`): the borrow of a borrow of it.
+        if p.mode == PassMode::Lent && !is_proj(&p.ty) && !is_copy_ty(&a.ty) && !is_proj(&self.storage_ty(a)) && !matches!(a.kind, ExprKind::BorrowAs { .. }) {
+            let inst = super::decls::subst_ty(&p.ty, &self.f.call_subst);
+            if is_proj(&inst) && !is_ref(&inst) {
+                let b = self.borrow(a, indent);
+                return format!("&{b}");
+            }
+        }
         match p.mode {
             PassMode::Moved => self.value_into(a, &p.ty, indent),
             PassMode::Lent => self.borrow(a, indent),
@@ -3167,6 +3177,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         };
         let mut args = Vec::new();
         let mut peel = String::new();
+        let slot_params: Vec<Ty> = match slot.strip_quals() {
+            Ty::Fn { params, effects, .. } => salvo_core::threaded_effects(effects).iter().chain(params.iter()).cloned().collect(),
+            _ => Vec::new(),
+        };
         for (i, ((n, _), m)) in ps.iter().zip(&modes).enumerate() {
             let mut t = if i < effects.len() { effects[i].clone() } else { params[i - effects.len()].clone() };
             let mut k = match m {
@@ -3175,16 +3189,24 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 PassMode::LentMut => Kind::RefMut,
             };
             // [rs-proj-generic] A borrowed element arrives one reference deeper.
+            let mut consume = *m == PassMode::Moved;
             if let Some(it) = inst_params.get(i).filter(|t| is_proj(t)) {
                 if *m != PassMode::Moved && !is_proj(&t) {
                     peel.push_str(&format!("let {n} = *{n}; "));
                     t = it.clone();
                     k = Kind::Ref;
+                } else if *m == PassMode::Moved && !is_proj(&t) && !is_copy_ty(&t) && slot_params.get(i).is_some_and(is_proj) {
+                    // [fn-kept-borrow] A slot whose parameter is written
+                    // `proj` passes the borrow itself (`&String`), which is
+                    // what the value's kept parameter takes.
+                    t = it.clone();
+                    k = Kind::Ref;
+                    consume = false;
                 }
             }
             self.f.kinds.insert(n.clone(), k);
             self.f.tys.insert(n.clone(), t.clone());
-            args.push(Expr { ty: t, span: e.span, kind: ExprKind::Read { place: Place { root: Local(n.clone()), steps: Vec::new() }, consume: *m == PassMode::Moved, moved: false } });
+            args.push(Expr { ty: t, span: e.span, kind: ExprKind::Read { place: Place { root: Local(n.clone()), steps: Vec::new() }, consume, moved: false } });
         }
         let want = match super::decls::subst_ty(slot, &self.f.call_subst).strip_quals() {
             Ty::Fn { ret: r, .. } if !super::body::foreign_var(r, &self.f.generics) || self.f.call_subst.is_empty() => (**r).clone(),

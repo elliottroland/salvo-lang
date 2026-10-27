@@ -2027,3 +2027,13 @@ log current so the work can resume after a context reset). Newest last.
   the IR states no type arguments (a `for` loop's `next`, a `?Yield`
   adapter). Rust backend only; no core fact, no emitted-code change in the
   examples.
+- **§7 DECISION (b), a kept fn parameter reads a borrow: done** (committed
+  "Let a kept fn parameter read a borrowed argument"). [fn-kept-borrow]: a
+  written fn value whose owned parameter `T` it keeps fits a `proj T` slot
+  (`types::fn_param_reads_borrow` + `fn_contract_keeps` in `is_subtype`'s fn
+  arm, the same disjunct in `fn_value_fits`, and `unify`'s fn fallback); a
+  consuming parameter is refused with its reason; `Mut`, `ref` and type
+  arguments stay invariant. Census: nothing previously accepted changes
+  meaning. Kotlin needs nothing; Rust reuses the retag adapters, plus a
+  written-`proj` slot passing the borrow as it is and an owned key lent twice
+  at a `K = proj Str` slot. No new DECISION.

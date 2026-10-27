@@ -4000,7 +4000,8 @@ Conventions:
   visible `size(list: List<T>) -> Int` fills a position wanting
   `(Mut List<Int>) -> Int`, because reading a list that happens to be
   mutable is what it does. (`is_subtype` compares fn parameters invariantly
-  but for erased qualifiers [fn-erased-variance] — deliberately, since a
+  but for erased qualifiers [fn-erased-variance] and a kept owned
+  parameter's borrow [fn-kept-borrow] — deliberately, since a
   backend renders a parameter's convention from its declared type — so the
   full rule is one of implicit resolution, where the value is only ever
   called by the callee that declared the position, through an adapter built
@@ -4024,7 +4025,8 @@ Conventions:
   * At the parameter's **top level, on a non-union base** only: inside a
     type argument it is the variance question (ROADMAP §7), and a union's
     qualifiers can be the wrapper tags its runtime arms are told apart by
-    [union-arm-identity]. Everything else stays invariant: a `count(xs:
+    [union-arm-identity]. Everything else stays invariant but for
+    [fn-kept-borrow] (a kept owned parameter reads a `proj`): a `count(xs:
     List<Int>)` does not fill `(xs: Mut List<Int>) -> Int` — `&Vec` is not
     `&mut Vec` on Rust — and is refused as before ("`measure` does not fit
     here: expects …, found …"; "no matching overload"). Contravariance
@@ -4038,6 +4040,38 @@ Conventions:
   * Unification binds through the bases when a pattern's parameter carries
     erased qualifiers the value's does not (`unify`'s fn arm), so the call
     reaches the subtype test above instead of failing to bind.
+* [fn-kept-borrow] **A kept owned parameter reads a borrow** (user decision
+  2026-10-14, ROADMAP §7 option (b); (a), leaving it refused with the lambda
+  as the spelling, was not chosen): a written fn value whose parameter is an
+  owned `T` and *kept* — its deduction keeps the parameter and does not
+  mutate it, which is the default [deduce-default] [fn-contract] — fits a
+  slot whose parameter is `proj T`. A function that only reads a `Str` can
+  read a borrowed one: `any(vs, longer)` with `vs: List<proj Str>` and
+  `longer(s: Str) -> Bool`, and so `all`, `count`, `find_first`, `map`,
+  `filter`, `reduce` over `vs`, a forwarded `(Str) -> Bool` parameter, a
+  fn-typed local `let k: (proj Str) -> Bool = longer`
+  (`types::fn_param_reads_borrow`, `types::fn_contract_keeps`, in
+  `is_subtype`'s fn arm).
+  * **A consumed parameter** (`=> !s`) stays refused: it would move out of
+    a borrow. The error names it ("`eat` consumes its parameter `s` (`=>
+    !s`), and here it would be given a borrowed `proj Str`, which cannot be
+    given away. Keep the parameter, or pass a lambda that copies the
+    argument"), from an overload, an annotated binding and an override.
+  * At the parameter's **top level, on a non-union base**, as
+    [fn-erased-variance]; it composes with it (an owned `List<Int>` reads a
+    `proj NonEmpty List<Int>`). Everything rendered stays invariant: no
+    `Mut` on either side (a `peek(xs: List<Str>)` does not read a `proj Mut
+    List<Str>`), no `ref` handle, no `once`, `linear` or effect claim, and
+    not inside a type argument (`(List<Str>) -> …` does not read a
+    `List<proj Str>`). Only this direction: a value over `proj Str` does not
+    fit a slot passing an owned `Str` by this rule.
+  * **Resolved implicits** take the same rule (`fn_value_fits`), so std's
+    `hash`, `eq`, `cmp` and `to_str` of `Str` fill the `?hash: (proj Str) ->
+    Long` positions of a `Set<proj Str>`, a `Map<proj Str, V>`, `sort`, `eq`
+    or `to_str` of a view list; `unify`'s fn arm binds through the owned type
+    when the pattern's variable is bound to the borrow.
+  * Kotlin passes the value as written (a borrow is the reference itself);
+    Rust adapts the convention with a closure (BACKEND_SPEC.rust.md).
 * [implicit-intrinsic] An `intrinsic fn` that fills an implicit is passed as
   an **adapter closure whose body is its lowering**: an intrinsic has no
   target-language function to reference (`::iter` does not exist in Kotlin,

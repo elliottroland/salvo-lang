@@ -50,7 +50,20 @@ apply(render_row, List(1, 2))        // fine: `render_row` reads any list
 to_str(xss, to_str = render_row)     // fine, and the same rule for an implicit
 ```
 
-A qualifier that changes how the argument is passed is different: a `count(xs: List<Int>)` does not fit `(xs: Mut List<Int>) -> Int`, nor does a function taking an owned value fit one taking a `proj`. Wrap it in a lambda (`xs -> count(xs)`) where you mean it. The allowance applies to the parameter's outer qualifiers only, not to those inside a type argument (`List<NonEmpty List<Int>>`) or on a union's arms.
+A second allowance is about borrows. A function whose parameter is an owned type it **keeps** (the default; see [Deductions and ownership](Deductions-and-Ownership.md)) fits a slot that hands it a `proj` of that type: it only reads its argument, and a borrowed value can be read. So a function over strings reads the elements of a view list:
+
+```
+fn longer(s: Str) -> Bool { return size(s) > 2 }
+
+let vs = filter(iter(ws), s -> size(s) > 1)   // a Mut List<proj Str>
+any(vs, longer)                              // fine: `longer` keeps `s`
+let short = filter(vs, longer)
+let m = to_map(vs, v -> (v, size(v)))        // std's `hash` and `eq` of `Str` read the keys
+```
+
+A function that **consumes** its parameter (`=> !s`) does not fit: it would give away a value it was only lent, and the error says so. Pass a lambda that copies (`s -> eat(copy(s))`) if that is what you mean.
+
+A qualifier that changes how the argument is passed is different: a `count(xs: List<Int>)` does not fit `(xs: Mut List<Int>) -> Int`, and a function reading a list does not fit a slot handing it a `proj Mut` one. Wrap it in a lambda (`xs -> count(xs)`) where you mean it. Both allowances apply to the parameter's outer qualifiers only, not to those inside a type argument (`List<NonEmpty List<Int>>`, `List<proj Str>`) or on a union's arms.
 
 ### Effects on function types
 
