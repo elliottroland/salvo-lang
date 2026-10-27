@@ -24,9 +24,11 @@ pub fn enum_key(name: &str, module: &crate::ModulePath) -> String {
 }
 
 /// [route-stub] The derived route over protocol `effect` (a type key): its
-/// name, and its key — keyed by the protocol's module, where it is placed.
+/// name, after the written name like every derived name (it is placed in the
+/// protocol's module, where no other protocol has that name), and its key —
+/// keyed by the protocol's module.
 pub fn route_name(effect: &str) -> String {
-    format!("__Route_{}", effect.replace(crate::typekey::SEP, "_").replace('.', "_"))
+    format!("__Route_{}", crate::typekey::plain(effect).replace('.', "_"))
 }
 
 pub fn route_key(effect: &str, module: &crate::ModulePath) -> String {
@@ -65,12 +67,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
         if id.kind() == crate::decl_id::DeclKind::Generated {
             return enum_key(name, id.module());
         }
-        for (k, m) in &ctx.symbols.key_modules {
-            if *m == id.module() && crate::typekey::plain(k) == name {
-                return k.to_string();
-            }
-        }
-        name.to_string()
+        ctx.symbols.key_of_id(*id).unwrap_or(name).to_string()
     };
     let mut ifaces: Vec<Iface> = Vec::new();
     for m in &program.modules {

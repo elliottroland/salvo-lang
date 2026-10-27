@@ -14,9 +14,11 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on,
 /// loaded as a *std* file since only std may write `intrinsic`.
+/// [decl-id] `Finished` too: the step protocol's is std's, and only std's
+/// first declaration of a name is that name.
 const STD_PRELUDE: &str =
     "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
-     export intrinsic fn copy<T>(value: T) [] -> T => value\n";
+     export intrinsic fn copy<T>(value: T) [] -> T => value\nexport struct Finished {}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -115,7 +117,6 @@ fn once_on_a_fn_type_still_works() {
 /// minimal prelude rather than the real `lib/std/core/iterator.sv`.
 const PROTOCOL: &str = r#"
 qualifier Emitted<T> of T
-struct Finished {}
 fn emitted<T>(value: T) [] -> +Emitted T => !value { return value }
 fn finished() [] -> Finished { return Finished {} }
 
@@ -195,7 +196,6 @@ fn driving_a_hand_written_pass_twice_is_legal() {
 fn a_next_without_a_yield_declaration_is_not_a_pass() {
     let errs = errors(
         "qualifier Emitted<T> of T\n\
-         struct Finished {}\n\
          fn emitted<T>(value: T) [] -> +Emitted T => !value { return value }\n\
          fn finished() [] -> Finished { return Finished {} }\n\
          params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\

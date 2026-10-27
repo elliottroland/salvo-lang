@@ -48,11 +48,11 @@ pub fn no_duplicate_paths(files: &[EmittedFile]) -> Result<(), Vec<String>> {
 
 
 /// [platform-abi] The name an item is kept by in ABI mode.
-pub fn abi_item_name(item: &Item) -> Option<&str> {
+pub fn abi_item_key<'a>(symbols: &'a salvo_core::Symbols<'_>, item: &'a Item) -> Option<&'a str> {
     match item {
-        Item::Struct(s) => Some(&s.name.name),
-        Item::Type(t) if t.alias.is_some() => Some(&t.name.name),
-        Item::Effect(e) => Some(&e.name.name),
+        Item::Struct(s) => Some(symbols.key_or(s, &s.name.name)),
+        Item::Type(t) if t.alias.is_some() => Some(symbols.key_or(t, &t.name.name)),
+        Item::Effect(e) => Some(symbols.key_or(e, &e.name.name)),
         _ => None,
     }
 }
@@ -175,10 +175,10 @@ pub fn is_project_module(program: &salvo_core::Program, module: &salvo_core::Mod
 
 /// [platform-abi] Whether a module's item is emitted: everything outside an
 /// ABI build, and in one only the platform declarations and the reached names.
-pub fn abi_emits(item: &Item, keep: Option<&std::collections::BTreeSet<String>>) -> bool {
+pub fn abi_emits(symbols: &salvo_core::Symbols<'_>, item: &Item, keep: Option<&std::collections::BTreeSet<String>>) -> bool {
     let Some(keep) = keep else { return true };
     let platform = matches!(item, Item::Handler(h) if h.platform)
         || matches!(item, Item::Fn(f) if f.platform)
         || matches!(item, Item::Type(t) if t.platform);
-    platform || abi_item_name(item).is_some_and(|n| keep.contains(n))
+    platform || abi_item_key(symbols, item).is_some_and(|n| keep.contains(n))
 }

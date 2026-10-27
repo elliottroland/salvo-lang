@@ -201,6 +201,23 @@ fn keyed_containers_and_generic_parameters_are_refused_for_now() {
     );
 }
 
+/// [protocol-hash] [decl-id] A protocol's hash does not depend on an unrelated
+/// type named like its type parameter: std's `ActorGroup<E>`'s `E` is the
+/// parameter whether or not the program declares a `struct E` (found by the
+/// A1 differential, which saw `ActorGroup`'s hash change with one).
+#[test]
+fn a_type_named_like_a_type_parameter_leaves_the_hash_alone() {
+    fn hash_of(src: &str) -> String {
+        let (prog, errs) = program(src);
+        assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+        let symbols = Symbols::collect(&prog);
+        let resolution = resolve(&prog);
+        let checked = check_program(&prog, &resolution, &symbols);
+        checked.protocol_hashes["ActorGroup"].clone()
+    }
+    assert_eq!(hash_of(""), hash_of("struct E { hp: Int }\n"), "the parameter, not the struct");
+}
+
 /// [protocol-hash] The hash is over the protocol's *shape*: a struct renamed
 /// hashes the same (names are not in the canonical form), a field reordered
 /// does not (the encoding is positional), and a member added does not.
@@ -212,7 +229,8 @@ fn protocol_hash_follows_shape_not_names() {
         let symbols = Symbols::collect(&prog);
         let resolution = resolve(&prog);
         let checked = check_program(&prog, &resolution, &symbols);
-        checked.protocol_hashes["Ledger"].clone()
+        // [decl-id] A user declaration's key names its module.
+        checked.protocol_hashes[salvo_core::typekey::keyed("Ledger", "main")].clone()
     }
     let base = hash_of(
         "struct Entry { who: Str, amount: Long }\n\

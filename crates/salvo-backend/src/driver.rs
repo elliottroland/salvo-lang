@@ -91,7 +91,7 @@ pub fn reach<'p>(
 ) -> Reach<'p> {
     let reachable = salvo_core::reachable_modules(program, resolution, checked);
     let closure = abi.then(|| salvo_core::abi::platform_closure(program, symbols));
-    let platform_effects = salvo_core::platform_effects(program, |m| abi || reachable.contains(m));
+    let platform_effects = salvo_core::platform_effects(program, symbols, |m| abi || reachable.contains(m));
     let mut abi_full: HashSet<&ModulePath> = match salvo_core::runtime_module(program) {
         Some(m) if abi && reachable.contains(m) => salvo_core::runtime_closure(program, resolution, checked),
         _ => HashSet::new(),
@@ -103,7 +103,7 @@ pub fn reach<'p>(
         .units()
         .filter(|u| {
             closure.as_ref().is_some_and(|c| {
-                u.ast.items.iter().any(|i| crate::emit_util::abi_item_name(i).is_some_and(|n| c.contains(n)))
+                u.ast.items.iter().any(|i| crate::emit_util::abi_item_key(symbols, i).is_some_and(|n| c.contains(n)))
                     || (crate::emit_util::is_project_module(program, &u.file.module)
                         && !salvo_core::platform_declarations(u.ast).is_empty())
             }) || (abi_full.contains(&u.file.module) && crate::emit_util::module_produces_code(u.ast))

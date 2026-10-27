@@ -4252,7 +4252,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.plan_factories(&ty, f.name.span);
                     }
                 }
-                Item::Type(t) if t.alias.is_some() && self.out.platform_closure_all.contains(&t.name.name) => {
+                Item::Type(t) if t.alias.is_some() && self.out.platform_closure_all.contains(self.symbols.key_or(t, &t.name.name)) => {
                     if t.generics.is_empty() {
                         let ty = self.lower_type(t.alias.as_ref().unwrap());
                         self.plan_factories(&ty, t.name.span);
@@ -25926,6 +25926,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         );
                     }
                     Ty::Unknown | Ty::Never => {}
+                    // [type-unknown-lenient] A name that resolved to no
+                    // declaration here but names a struct elsewhere (an
+                    // unimported one; resolution reported it) is not read
+                    // through: one mistake, one diagnostic.
+                    Ty::Named { name, .. } if !self.symbols.key_modules.contains_key(name.as_str()) && self.symbols.structs.keys().any(|k| crate::typekey::plain(k) == name.as_str()) => {}
                     // A generic parameter needs its own wording: adding an
                     // accessor cannot help, because nothing is known about
                     // `T` at all.

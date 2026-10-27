@@ -1,15 +1,18 @@
-//! [type-identity] The identity of a type declaration, as a string.
+//! [type-identity] [decl-id] The identity of a type declaration, as a string.
 //!
 //! Every struct, effect, type alias, intrinsic or platform type and handler
-//! has a **key**: its name, when no other module declares that name, and
-//! `Name§module.path` for every declaration of a clashing name but the first
-//! (std's come first, so std keeps its plain names, which both emitters and
-//! the hosts rely on). A `Ty::Named` carries the key of the declaration it
-//! resolved to, and the program-wide tables in `Symbols` are keyed by it, so
-//! two modules may declare one name and every stage after resolution still
-//! knows which one a type means. A key never reaches a user: diagnostics show
-//! [plain], and the emitters render the plain name, qualified by its module
-//! where the target needs it.
+//! has a **key**, the spelling of its `DeclId` that `Ty::Named` carries: std's
+//! first declaration of a name is the name itself (std's text is fixed, and
+//! both emitters and the hosts name std's types directly), and every other
+//! declaration is `Name§module.path`, whether or not another module declares
+//! the name. So a key is a function of the declaration alone: adding a file
+//! that declares the same name changes no existing key. The program-wide
+//! tables in `Symbols` are keyed by it (`Symbols::key_of_id` maps an id to
+//! its key), so two modules may declare one name and every stage after
+//! resolution still knows which one a type means. A key never reaches a user:
+//! diagnostics show [plain] ([shown_text] where a message is made), and the
+//! emitters render the plain name, qualified by its module where the name
+//! clashes and the target needs it: clashes are decided when rendering.
 
 use std::collections::HashSet;
 use std::sync::Mutex;
@@ -30,7 +33,43 @@ pub fn module_of(key: &str) -> Option<&str> {
     key.split_once(SEP).map(|(_, m)| m)
 }
 
-/// Whether [key] names a clashing declaration other than the first.
+/// [decl-id] Text with every key in it shown as the name it was written as:
+/// how a key reads in a diagnostic. A key is `Name§module.path`, and a
+/// module path is identifiers and dots, so what follows the separator up to
+/// the first other character (a backtick, a space, a `<`) is dropped.
+pub fn shown_text(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains(SEP) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != SEP {
+            out.push(c);
+            continue;
+        }
+        // The module path, and a final `.` only when an identifier follows.
+        while let Some(&n) = chars.peek() {
+            if n.is_alphanumeric() || n == '_' {
+                chars.next();
+            } else if n == '.' {
+                let mut ahead = chars.clone();
+                ahead.next();
+                if ahead.peek().is_some_and(|a| a.is_alphanumeric() || *a == '_') {
+                    chars.next();
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// Whether [key] names a declaration of its module (every one but std's
+/// first of its name).
 pub fn is_keyed(key: &str) -> bool {
     key.contains(SEP)
 }

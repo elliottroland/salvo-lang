@@ -576,7 +576,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.platform_interface(i, &sigs);
         // [platform-factory] [rs-platform-factory] a platform-handled member's
         // factories: the result's and the `Reply<T>` payloads' together.
-        if self.s.platform_effects.contains_key(&i.name) {
+        if self.s.platform_effects.contains_key(&self.s.key_of(&i.id, &i.name)) {
             for m in &i.members {
                 if !m.factories.is_empty() {
                     let code = self.factory_impl(&salvo_core::abi::upper_camel(&m.name), "", true, &m.factories);
@@ -704,7 +704,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [platform-abi] [rs-platform-handler] The host-facing traits and the
     /// `__Platform_E<T>` adapter of an effect some platform handler implements.
     fn platform_interface(&mut self, i: &InterfaceDecl, sigs: &[String]) {
-        let Some(how) = self.s.platform_effects.get(&i.name).cloned() else { return };
+        let Some(how) = self.s.platform_effects.get(&self.s.key_of(&i.id, &i.name)).cloned() else { return };
         let name = rs_ident(&i.name);
         let adapter = platform_adapter_name(&name);
         let mut out = format!("\n/// The adapter a `use` of a platform handler of `{}` constructs [platform-abi].\npub struct {adapter}<T>(pub T);\n", i.name);

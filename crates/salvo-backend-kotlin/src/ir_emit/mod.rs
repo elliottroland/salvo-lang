@@ -44,7 +44,7 @@ pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>
         for (file_idx, unit) in program.units().enumerate() {
             if wanted.contains(&unit.file.module) {
                 let keep = if abi && !reach.abi_full.contains(&unit.file.module) { reach.closure.as_ref() } else { None };
-                f.or(salvo_core::features::module_features(&symbols, &checked, file_idx, unit.ast, keep.is_some(), |i| salvo_backend::emit_util::abi_emits(i, keep)));
+                f.or(salvo_core::features::module_features(&symbols, &checked, file_idx, unit.ast, keep.is_some(), |i| salvo_backend::emit_util::abi_emits(&symbols, i, keep)));
             }
         }
         f.args && !abi
@@ -121,7 +121,7 @@ pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>
         for (file_idx, unit) in program.units().enumerate() {
             if wanted.contains(&unit.file.module) {
                 let keep = if abi && !reach.abi_full.contains(&unit.file.module) { reach.closure.as_ref() } else { None };
-                f.or(salvo_core::features::module_features(&symbols, &checked, file_idx, unit.ast, keep.is_some(), |i| salvo_backend::emit_util::abi_emits(i, keep)));
+                f.or(salvo_core::features::module_features(&symbols, &checked, file_idx, unit.ast, keep.is_some(), |i| salvo_backend::emit_util::abi_emits(&symbols, i, keep)));
             }
         }
         f
@@ -287,6 +287,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// The module's Kotlin; with `keep`, only the declarations named there
     /// and the platform items, as declarations [platform-abi].
     fn module_with(mut self, keep: Option<&BTreeSet<String>>) -> String {
+        // [decl-id] The closure holds keys: a declaration is kept by its id's.
+        let symbols = self.s.symbols;
+        let has = |keep: &BTreeSet<String>, id: &salvo_core::DeclId, name: &str| -> bool { keep.contains(symbols.key_of_id(*id).unwrap_or(name)) };
         let kept = |d: &Decl| -> bool {
             let Some(keep) = keep else { return true };
             match d {
@@ -295,14 +298,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 // to be emitted as a whole for `Ns.Arm` to resolve, even in an
                 // ABI file. The `emit_struct_namespace` path below emits the
                 // tree once per root.
-                Decl::Struct(x) => keep.contains(&x.name),
-                Decl::Union(x) => keep.contains(&x.name),
-                Decl::Interface(x) => keep.contains(&x.name),
+                Decl::Struct(x) => has(keep, &x.id, &x.name),
+                Decl::Union(x) => has(keep, &x.id, &x.name),
+                Decl::Interface(x) => has(keep, &x.id, &x.name),
                 Decl::Impl(h) => h.platform,
                 Decl::Fn(f) => f.kind == FnKind::Platform,
                 Decl::PlatformType(t) => t.platform,
                 Decl::Static(_) => false,
-                Decl::Enum(e) => matches!(e.kind, salvo_core::ir::EnumKind::Message { .. }) && keep.contains(e.name.trim_start_matches("__Msg_")),
+                Decl::Enum(e) => match &e.kind {
+                    salvo_core::ir::EnumKind::Message { interface } => has(keep, interface, e.name.trim_start_matches("__Msg_")),
+                    _ => false,
+                },
             }
         };
         let mut body = String::new();
@@ -850,7 +856,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         // [platform-abi] The host-facing interface and adapter, when a
         // platform impl implements this interface.
-        if let Some(impls) = self.s.platform_impls.get(&i.name).cloned() {
+        if let Some(impls) = self.s.platform_impls.get(self.s.symbols.key_of_id(i.id).unwrap_or(&i.name)).cloned() {
             self.out.push_str(&format!("\ninterface {}Platform{tps} {{\n", i.name));
             for m in &i.members {
                 let ps = self.params(&m.params);

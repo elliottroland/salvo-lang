@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2092 tests, complete: the toolchain tests are
+cargo test                  # 2094 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,95 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-27 — Every type is keyed by its module (A1, second part)
+
+The second half of A1 ([decl-id], PIPELINE.md §II.9): a type's key, the
+string `Ty::Named` carries, is now the spelling of its declaration's id, a
+function of the declaration alone. **std's first declaration of a name is
+the name; every other declaration is `Name§module`**, whether or not another
+module declares the name (the old rule kept the first declarer of *any*
+name plain, so adding a file could re-key an existing type). Part I §8 step
+5 piece 4 tried this rule and stopped at 58 failing tests; this time 45
+failed, all fixed at their cause:
+
+- **Messages printing keys** (`Counter§main`, `P§main`, `Tally§host`,
+  `Greet§lib`): `FileDiagnostic::error`/`warning` show every key in a
+  message as its written name (`typekey::shown_text`), so a message is
+  rendered once, where it is made; clashes are not spelled out in
+  diagnostics, as before.
+- **The deadlock graph** named protocols by written name and looked effects
+  up program-wide by it, while sends were recorded by key: its protocol
+  nodes are keys now (`face_key` through `Symbols::ref_key`), shown plain in
+  messages and in `deadlock::edges`.
+- **The platform ABI closure** walked written names program-wide: it
+  follows each name through its file's scope (`ref_key`) and holds keys;
+  `abi_emits`/`abi_item_key`, both emitters' `module_with` and the
+  checker's factory planning compare keys; the ABI stamp spells the written
+  name, so stamps are unchanged. `platform_effects` is keyed by key.
+- **Route names** were derived from the protocol's key (`__Route_Ping_lib`
+  for a clashing one): every derived name is after the written name now
+  (`__Route_Ping`, placed in the protocol's module), as `__Msg_E` was.
+- **Factory names** (`S3Error§aws.s3` split at its last `.` gave `s3`):
+  from the written name.
+- **Lookups of an id's key**: `Symbols::key_of_id` (a map filled by
+  `Symbols::collect`) replaces the searches of `key_modules` by plain name
+  and module in `actors::generate` and the Rust emitter's `key_of`; the
+  Kotlin emitter's platform interfaces look their impls up by key.
+- **Tests that declared a stand-in for a std type in the program under
+  test** (`effect Throw` in throw and linear-release tests, `struct
+  Finished` in once tests) relied on name identity: the stand-ins are in
+  the tests' std files now. `protocol_hash_follows_shape_not_names` reads
+  `Ledger§main`.
+
+**The differential** (`SALVO_XP_A1`, as in the first part, against
+c33b86d3, with every new key in the new side's dumps mapped back to its
+declaration's old key, and the tables that hold only keys differing from
+the written name filtered alike): 2,900 programs; beyond the key change,
+six differ, each a latent bug of the old plain-name lookups, now fixed:
+
+1. A program declaring its own `Clock` (shadowing std's) had std's `Clock`
+   and its member types (`Instant`, so module `std.time`) in its platform
+   closure: its host project carried std.time's declarations.
+2. A `std = true` tree's platform closure (a project declaring `Args`,
+   `Console`, … beside the embedded std) named the embedded std's
+   declarations for the project's own; the factories planned follow.
+3. **A protocol hash depended on an unrelated user type**: a program
+   declaring `struct E` hashed std's `ActorGroup<E>` and
+   `ActorGroupWatcher` with the struct in place of the type parameter
+   (`Symbols::ref_key`'s fast path took any declared name as itself), so
+   its nodes' hashes disagreed with every other program's
+   (`9b0d080d9466f3fe` against the `695f43128bdada4a` every example has).
+   Pinned by `a_type_named_like_a_type_parameter_leaves_the_hash_alone`;
+   the same with the struct in the protocol's own file is still wrong
+   (ROADMAP 0ab: written keys do not know type parameters).
+4. An unimported `Other { v: 1 }` typed its field from the invisible
+   declaration of that name (`Long`); now the literal is the default `Int`
+   (the program is refused anyway: `Other` is unresolved).
+5. The same with a field read on an unimported `Widget`: the old checker
+   read the invisible declaration's field. The new one first reported a
+   second error (`` `Widget` has no field `v` ``); a field read on a name
+   that resolved to nothing here but names a struct elsewhere is lenient
+   now [type-unknown-lenient], so the one diagnostic is the old one (a
+   name declared nowhere keeps its old second error).
+6. (Consequence of 1–2) the factories and the written types they lower.
+
+**Diagnostics changed**: only where an old message printed a key — the
+clashing, non-first declarations' messages (`Token§lib.b` read as `Token`
+now) — and none of the suite's expectations named one. **Emitted code**:
+every example's generated code, the goldens and the IR snapshots are
+byte-identical; the derived route over a *clashing* protocol is renamed as
+above, and a program with a user type `E` emits std's protocol hashes
+correctly.
+
+**Timings** (debug; c33b86d3, before A1, against this commit, same
+session): `SALVO_TIMINGS=1 salvo analyze --src examples/cluster/salvo`, five
+runs: parse ~22.7 → ~22.6ms, expand ~9.3 → ~10.6 (the ids' first
+computation, in the comptime resolution), resolve ~10.6 → ~9.8 (`resolve:
+symbols` 0.3 → 0.45 with the type ids, `resolve: decl ids` 0.6 from the
+memo), check ~183 → ~174, IR unchanged; `tools/lsp-timing.py`, three runs
+of four edits, medians of the summed top-level phases: `examples/cluster`
+~44 → ~42ms, `modules/aws` ~41 → ~41ms (this session's noise is ±5ms).
 
 ### 2026-10-27 — Every fn is identified by module, name and signature (A1, first part)
 
@@ -30439,7 +30528,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2092 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2094 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -31731,6 +31820,18 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A test's stand-in for a std declaration goes in the test's std file**
+  (A1, 2026-10-27): a type's key is its declaration's (`Name§main` for one
+  in `main.sv`), so a test declaring `effect Throw` or `struct Finished` in
+  the program under test gets *its own* type, not the one the compiler
+  knows by name (`THROW_EFFECT`, `"Finished"`). Put it in the std prelude
+  the test loads (`is_std`), as the intrinsic types already are.
+- **Look a written name up through its file's scope, never program-wide**
+  (A1): `Symbols::ref_key(&TypeRef)` answers the key a written reference
+  means; a table lookup by `base.name.name` finds whichever declaration of
+  that name the table holds — the deadlock graph, the ABI closure and a
+  protocol hash all did, and all were wrong for some program.
 
 - **A differential of two compilers runs in a worktree** (A1, 2026-10-27):
   `git worktree add --detach tmp/<name> HEAD`, the hook applied there too,

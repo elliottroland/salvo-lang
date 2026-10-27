@@ -181,7 +181,7 @@ fn run(
         for (file_idx, unit) in program.units().enumerate() {
             if wanted.contains(&unit.file.module) {
                 let keep = if abi && !reach.abi_full.contains(&unit.file.module) { reach.closure.as_ref() } else { None };
-                f.or(salvo_core::features::module_features(&symbols, &checked, file_idx, unit.ast, keep.is_some(), |i| salvo_backend::emit_util::abi_emits(i, keep)));
+                f.or(salvo_core::features::module_features(&symbols, &checked, file_idx, unit.ast, keep.is_some(), |i| salvo_backend::emit_util::abi_emits(&symbols, i, keep)));
             }
         }
         f
@@ -428,12 +428,7 @@ pub(crate) struct Shared<'p> {
 impl<'p> Shared<'p> {
     /// The symbol key of a declaration: the key the checker's types use.
     pub fn key_of(&self, id: &DeclId, name: &str) -> String {
-        for (k, m) in &self.symbols.key_modules {
-            if **m == *id.module() && salvo_core::typekey::plain(k) == name {
-                return k.to_string();
-            }
-        }
-        name.to_string()
+        self.symbols.key_of_id(*id).unwrap_or(name).to_string()
     }
 
     /// Whether a value of this type holds a borrow (`proj`/`ref` anywhere
@@ -657,7 +652,7 @@ impl<'p> Shared<'p> {
     /// parameter, on an interface rendered as a plain trait: it renders as
     /// its path face only, under its own name [rs-path].
     pub fn member_lends_mut(&self, iface: &InterfaceDecl, m: &salvo_core::ir::Member) -> bool {
-        if iface.actor || self.platform_effects.contains_key(&iface.name) || m.send {
+        if iface.actor || self.platform_effects.contains_key(&self.key_of(&iface.id, &iface.name)) || m.send {
             return false;
         }
         salvo_core::ir::build::refs::has_ref(&m.ret) && self.member_lend_param(m).is_some()
@@ -860,16 +855,22 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn module_with(mut self, keep: Option<&BTreeSet<String>>) -> String {
+        // [decl-id] The closure holds keys: a declaration is kept by its id's.
+        let symbols = self.s.symbols;
+        let has = |keep: &BTreeSet<String>, id: &salvo_core::DeclId, name: &str| -> bool { keep.contains(symbols.key_of_id(*id).unwrap_or(name)) };
         let kept = |d: &Decl| -> bool {
             let Some(keep) = keep else { return true };
             match d {
-                Decl::Struct(x) => keep.contains(&x.name),
-                Decl::Union(x) => keep.contains(&x.name),
-                Decl::Interface(x) => keep.contains(&x.name),
+                Decl::Struct(x) => has(keep, &x.id, &x.name),
+                Decl::Union(x) => has(keep, &x.id, &x.name),
+                Decl::Interface(x) => has(keep, &x.id, &x.name),
                 Decl::Impl(h) => h.platform,
                 Decl::Fn(_) | Decl::Static(_) | Decl::PlatformType(_) => false,
                 // A message enum travels with its interface.
-                Decl::Enum(e) => matches!(e.kind, salvo_core::ir::EnumKind::Message { .. }) && keep.contains(e.name.trim_start_matches("__Msg_")),
+                Decl::Enum(e) => match &e.kind {
+                    salvo_core::ir::EnumKind::Message { interface } => has(keep, interface, e.name.trim_start_matches("__Msg_")),
+                    _ => false,
+                },
             }
         };
         let mut body = String::new();

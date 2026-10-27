@@ -175,7 +175,7 @@ pub fn edges(program: &Program, symbols: &Symbols<'_>, out: &Checked) -> Vec<Str
     let mut lines: Vec<String> = Vec::new();
     for (from, tos) in build(program, symbols, out) {
         for (to, e) in tos {
-            lines.push(format!("{from} → {to} ({:?}, {})", e.kind, e.handler));
+            lines.push(crate::typekey::shown_text(&format!("{from} → {to} ({:?}, {})", e.kind, e.handler)).into_owned());
         }
     }
     lines
@@ -229,7 +229,7 @@ fn build(
             let plain_faces = !h.of.is_empty()
                 && h.of
                     .iter()
-                    .all(|of| base_name(of).is_some_and(is_plain));
+                    .all(|of| face_key(symbols, of).is_some_and(is_plain));
             if !plain_faces {
                 continue;
             }
@@ -249,7 +249,7 @@ fn build(
                 if has_deps || waits {
                     monitor_like.push((file_idx, h));
                     for of in &h.of {
-                        if let Some(n) = base_name(of) {
+                        if let Some(n) = face_key(symbols, of) {
                             monitor_of
                                 .entry(n.to_string())
                                 .or_default()
@@ -260,7 +260,7 @@ fn build(
                 continue;
             }
             for of in &h.of {
-                if let Some(n) = base_name(of) {
+                if let Some(n) = face_key(symbols, of) {
                     mixed_of
                         .entry(n.to_string())
                         .or_default()
@@ -318,7 +318,7 @@ fn build(
                 out.parking_handlers.contains(h.name.name.as_str()),
             ) || waits_of.contains_key(h.name.name.as_str());
             for (of, any) in h.of.iter().zip(h.of_any.iter()) {
-                let Some(name) = base_name(of).filter(|n| *any && is_actor(n)) else { continue };
+                let Some(name) = face_key(symbols, of).filter(|n| *any && is_actor(n)) else { continue };
                 routers_of
                     .entry(name.to_string())
                     .or_default()
@@ -329,7 +329,7 @@ fn build(
     for effect in routed.keys() {
         let handler = crate::ir::build::actors::route_name(effect);
         routers_of
-            .entry(crate::typekey::plain(effect).to_string())
+            .entry(effect.to_string())
             .or_default()
             .push(Router { node: servant_node(&handler), occupies: true });
     }
@@ -345,7 +345,7 @@ fn build(
             let served: Vec<&str> = h
                 .of
                 .iter()
-                .filter_map(|of| base_name(of))
+                .filter_map(|of| face_key(symbols, of))
                 .filter(|name| is_actor(name))
                 .collect();
             // [mixed-handler] A mixed handler's servant is a node of its
@@ -367,7 +367,7 @@ fn build(
                 && !h.of.is_empty()
                 && h.of
                     .iter()
-                    .all(|of| base_name(of).is_some_and(is_plain));
+                    .all(|of| face_key(symbols, of).is_some_and(is_plain));
             // [effect-any] A router `of any E` is a servant too: it is not a
             // member of `E` but a forwarder in front of them, so it is a node
             // of its own, and what leaves it is what it does *besides*
@@ -384,13 +384,13 @@ fn build(
                     .find(|(handler, _)| *handler == h.name.name)
                     .map(|(_, key)| *key);
                 let blocks = waits_of.get(h.name.name.as_str()).copied();
-                let own_faces: Vec<&str> = h.of.iter().filter_map(base_name).collect();
+                let own_faces: Vec<&str> = h.of.iter().filter_map(|of| face_key(symbols, of)).collect();
                 let forwards: Vec<&str> = h
                     .of
                     .iter()
                     .zip(h.of_any.iter())
                     .filter(|(_, any)| **any)
-                    .filter_map(|(of, _)| base_name(of))
+                    .filter_map(|(of, _)| face_key(symbols, of))
                     .collect();
                 let deps: Vec<(String, usize, Span, bool)> = deps_of(out, symbols, h)
                     .into_iter()
@@ -449,7 +449,7 @@ fn build(
             // which one a binding will choose [actor-deadlock-cycle].
             let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
             for (key, dep_span, any) in deps_of(out, symbols, h) {
-                let name = crate::typekey::plain(&key);
+                let name = key.as_str();
                 if !is_actor(&key) {
                     if let Some(mixed_handlers) = mixed_of.get(name) {
                         for mh in mixed_handlers {
@@ -556,7 +556,7 @@ fn build(
     // the route locks.
     for (effect, (file, span)) in routed {
         let handler = crate::ir::build::actors::route_name(effect);
-        let own_faces = [crate::typekey::plain(effect)];
+        let own_faces = [effect];
         let deps: Vec<(String, usize, Span, bool)> = out
             .use_deps
             .get(&(file, span))
@@ -588,12 +588,12 @@ fn build(
     // own-face dependency: it binds strictly outward, so it closes no cycle.
     for (file_idx, h) in monitor_like {
         let from = monitor_node(&h.name.name);
-        let own_faces: Vec<&str> = h.of.iter().filter_map(base_name).collect();
+        let own_faces: Vec<&str> = h.of.iter().filter_map(|of| face_key(symbols, of)).collect();
         let blocks = waits_of.get(h.name.name.as_str()).copied();
         let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
         let mut targets: Vec<(String, usize, Span)> = Vec::new();
         for (key, dep_span, any) in deps_of(out, symbols, h) {
-            let name = crate::typekey::plain(&key);
+            let name = key.as_str();
             if own_faces.contains(&name) {
                 continue;
             }
@@ -866,7 +866,7 @@ impl Servant<'_> {
         let mut targets: Vec<(String, usize, Span)> = Vec::new();
         let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
         for (key, file, dep_span, any) in self.deps {
-            let name = crate::typekey::plain(&key);
+            let name = key.as_str();
             if self.own_faces.contains(&name) {
                 continue;
             }
@@ -895,7 +895,7 @@ impl Servant<'_> {
             }
         }
         targets.extend(self.sends.into_iter().filter(|(target, _, _)| {
-            is_actor(target) && !self.forwards.contains(&crate::typekey::plain(target))
+            is_actor(target) && !self.forwards.contains(&target.as_str())
         }));
         for (target, file, span) in targets {
             let (kind, file, span) = match (self.gate, self.blocks) {
@@ -930,10 +930,12 @@ fn monitor_node(handler: &str) -> String {
     format!("{handler}'s lock")
 }
 
-/// The base name of a written type, for a handler's `of` clause.
-fn base_name(ty: &ast::Type) -> Option<&str> {
+/// [type-identity] [decl-id] The key of a written type, for a handler's
+/// `of` clause: what the graph's protocol nodes are named by, so two
+/// modules' protocols of one name are two nodes.
+fn face_key<'a>(symbols: &'a Symbols<'_>, ty: &'a ast::Type) -> Option<&'a str> {
     match ty {
-        ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
+        ast::Type::Named { base, .. } => Some(symbols.ref_key(base)),
         _ => None,
     }
 }

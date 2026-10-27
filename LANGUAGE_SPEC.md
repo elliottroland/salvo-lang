@@ -10696,17 +10696,27 @@ between endpoints and delivers what arrives into the scheduler.
   2026-10-03, option A): two modules may declare one name, and a program may
   use both so long as it never brings them into one scope unrenamed. Every
   struct, effect, alias, intrinsic or platform type and handler has a
-  **key** (`typekey`): its name when no other module declares the name, and
-  `Name§module` for every declaration of a clashing name but the first —
-  std's come first, so std keeps its plain names, which the emitters and the
-  hosts name directly. `Ty::Named` carries the key of the declaration the
+  **key** (`typekey`), the spelling of its id [decl-id]: std's first
+  declaration of a name is the name (std keeps its plain names, which the
+  emitters and the hosts name directly), and **every other declaration is
+  `Name§module`**, whether or not another module declares the name — so no
+  key changes when a file declaring the same name is added (2026-10-27,
+  PIPELINE.md §II.9 A1; until then the first declarer of any name kept it
+  plain). `Ty::Named` carries the key of the declaration the
   resolver chose, the program-wide tables in `Symbols` are keyed by it, and
   a written name is resolved in the scope of **the file that wrote it**
   (`Resolution::type_ref_files`), not of the file where it is lowered — a
   callee's signature, a field, an alias body. So `import lib.b.Token as
   BToken` is `lib.b`'s `Token` wherever it flows, and a `Token` from one
   module is refused where another's is expected.
-  * A key never reaches a user: diagnostics print the written name.
+  * A key never reaches a user: diagnostics print the written name — a
+    message built from a key is shown through `typekey::shown_text`, applied
+    where every diagnostic is made (`FileDiagnostic::error`/`warning`).
+  * Every program-wide reading of a declaration's types is by key, through
+    the scope of the file that wrote the name (`Symbols::ref_key`): the
+    deadlock graph's protocol nodes, the platform ABI closure and its stamp
+    (which spells the written name), the effects platform handlers
+    implement, a factory's name (from the written name).
   * The emitters render a clashing name with its module's path (Rust
     `crate::lib_b::Token`, Kotlin `salvo.lib.b.Token`; Kotlin leaves a
     module's own declaration bare, since it shadows star imports) and name
@@ -10765,6 +10775,10 @@ between endpoints and delivers what arrives into the scheduler.
     are keyed by it; a handler's member is not yet a key of the checker's
     tables (its facts are keyed by its name span) and in the IR still
     carries its handler's id.
+  * A type's identity in `Ty::Named` is its **key**, the id's spelling
+    [type-identity]: `Symbols::key_of_id` maps a type declaration's id to it,
+    so the IR and the emitters, which name declarations by id, read keys
+    without a search by name.
   * The IR's generated declarations (message, continuation and private
     enums, stubs, routes, dispatchers) are identified by their module and
     generated name, a module-level `use`'s statics by their local.

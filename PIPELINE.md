@@ -2631,3 +2631,34 @@ this log current so the work can resume after a context reset). Newest last.
   `DeclKind::Generated` ids by generated name, the anchor an `Origin` can
   point at; `DeclIndex::loc` is how a node key `(DeclId, NodeId)` finds its
   file for rendering.
+- **A1: done** (committed "Identify every fn by module, name and signature"
+  and "Key every type by its module"). The second part: a type's key, the
+  string `Ty::Named` carries, is the spelling of its id — std's first
+  declaration of a name is the name, every other declaration
+  `Name§module`, whatever else the program declares — so no key moves when
+  a file is added; `Symbols::key_of_id` maps a type's id to its key. The 45
+  sites that assumed key == written name (Part I §8 step 5 piece 4 counted
+  58) are fixed at their cause: diagnostics render keys as written names
+  where they are made (`FileDiagnostic`, `typekey::shown_text`); the
+  deadlock graph, the platform ABI closure and `platform_effects` read
+  written names through the file's scope (`Symbols::ref_key`); derived
+  names (routes, factories) come from the written name. The differential
+  (new keys mapped back to the old ones) found six latent plain-name bugs,
+  each fixed (COMPLETED.md "Every type is keyed by its module"), among them
+  a std protocol hash that depended on a user type named like its type
+  parameter. **Deviations:** (1) `Symbols::decl_keys`, `type_ref_keys`,
+  `visible_keys` and the key-keyed tables stay: a key is now a pure
+  function of the id, so keying by it is keying by the id; carrying a
+  `DeclId` in `Ty::Named` itself (347 sites, both emitters' name rendering)
+  was not done — a later piece if a stage needs a type's id without
+  `key_of_id`'s map; (2) std keeps first-declarer among std's own files (two
+  std modules declare `Fault`, two `Found`): stable for every user program,
+  re-keyable only by editing std itself; (3) diagnostics render every key
+  plain, clash or not, as they did; emitters keep deciding clashes from
+  `Symbols::clashing`.
+  **What A2 needs from A1:** the stamped fns, route stubs and actor glue
+  have ids to hang an `Origin` on (`DeclKind::Generated` by generated
+  name); `DeclIndex::loc` maps a `(DeclId, NodeId)` key back to its file;
+  handler members still carry their handler's id in the IR and are keyed by
+  name span in the checker — A3 should key them by their `HandlerMember`
+  ids (`DeclIndex::member`), which exist already.

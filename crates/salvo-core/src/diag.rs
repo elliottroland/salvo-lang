@@ -34,7 +34,7 @@ impl FileDiagnostic {
         FileDiagnostic {
             file,
             severity: Severity::Error,
-            message: message.into(),
+            message: shown(message.into()),
             span,
             suggested_imports: Vec::new(),
         }
@@ -48,7 +48,7 @@ impl FileDiagnostic {
         FileDiagnostic {
             file,
             severity: Severity::Warning,
-            message: message.into(),
+            message: shown(message.into()),
             span,
             suggested_imports: Vec::new(),
         }
@@ -196,5 +196,15 @@ mod tests {
         // Only warnings hidden: nothing to say.
         let warnings = vec![FileDiagnostic::warning(0, span, "a warning in the embedded std")];
         assert!(render_shown(&warnings, &files).is_empty());
+    }
+}
+
+/// [decl-id] A message as the user reads it: a type key in it is shown as
+/// its written name (`typekey::shown_text`), so a diagnostic built from a
+/// key never prints its module separator.
+fn shown(message: String) -> String {
+    match crate::typekey::shown_text(&message) {
+        std::borrow::Cow::Borrowed(_) => message,
+        std::borrow::Cow::Owned(s) => s,
     }
 }

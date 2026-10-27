@@ -120,3 +120,25 @@ fn only_a_duplicate_takes_an_ordinal() {
     let resolution = resolve(&p);
     assert!(resolution.errors.iter().any(|d| d.message.contains("duplicate fn `f(Int) -> Int`")), "{:?}", resolution.errors);
 }
+
+/// [decl-id] [type-identity] A type's key is its declaration's alone: a
+/// user declaration is `Name§module` whether or not another module declares
+/// the name, so adding one re-keys nothing.
+#[test]
+fn a_type_key_does_not_move_when_another_module_declares_the_name() {
+    let key = |p: &Program| {
+        let symbols = salvo_core::Symbols::collect(p);
+        let point = p.modules.iter().zip(&p.files).filter(|(_, f)| f.module.to_string() == "main").flat_map(|(m, _)| &m.items).find_map(|i| match i {
+            salvo_syntax::ast::Item::Struct(s) if s.name.name == "Point" => Some(s),
+            _ => None,
+        });
+        symbols.key_of(point.expect("main's Point")).map(str::to_string)
+    };
+    let alone = program(&[("main.sv", MAIN)]);
+    let beside = program(&[("a/geometry.sv", "export struct Point { y: Int }\n"), ("main.sv", MAIN)]);
+    assert_eq!(key(&alone).as_deref(), Some("Point§main"));
+    assert_eq!(key(&alone), key(&beside));
+    // std's own declarations keep their names.
+    let symbols = salvo_core::Symbols::collect(&alone);
+    assert!(symbols.key_modules.contains_key("Int"), "std's `Int` is keyed `Int`");
+}

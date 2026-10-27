@@ -18,7 +18,10 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Never\nexport intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\n";
+/// [decl-id] `Throw` too: the compiler's `Throw` is std's (a key is its
+/// declaration's, and only std's first declaration of a name is the name),
+/// so a test's stand-in for it lives in the std file.
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Never\nexport intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\nexport effect Throw<M> {\n    fn throw(message: M) -> Never => !message\n}\n";
 
 /// Parses + resolves + checks one file (no std) and returns every error
 /// message.
@@ -75,10 +78,6 @@ fn errors(src: &str) -> Vec<String> {
 }
 
 const PRELUDE: &str = r#"
-
-effect Throw<M> {
-    fn throw(message: M) -> Never => !message
-}
 
 qualifier Ok<T> of T
 qualifier Thrown<M> of M

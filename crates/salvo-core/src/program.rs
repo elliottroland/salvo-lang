@@ -99,6 +99,9 @@ pub struct Symbols<'p> {
     /// alias, intrinsic or platform type, handler), by the declaration's
     /// address: what `key_of` answers. See `typekey`.
     pub decl_keys: HashMap<usize, &'p str>,
+    /// [decl-id] The key of every type declaration, by its id: what the IR,
+    /// which names declarations by id, reads a key from.
+    pub id_keys: HashMap<crate::decl_id::DeclId, &'p str>,
     /// [type-identity] The module every key is declared in.
     pub key_modules: HashMap<&'p str, &'p ModulePath>,
     /// [type-identity] The names more than one module declares: an emitter
@@ -125,6 +128,11 @@ impl<'p> Symbols<'p> {
     /// another module declared that name first.
     pub fn key_of<D: TypeDeclaration>(&self, decl: &D) -> Option<&'p str> {
         self.decl_keys.get(&(decl as *const D as usize)).copied()
+    }
+
+    /// [decl-id] The key of the type declaration `id` names.
+    pub fn key_of_id(&self, id: crate::decl_id::DeclId) -> Option<&'p str> {
+        self.id_keys.get(&id).copied()
     }
 
     /// [type-identity] The key of a declaration, or [name] (its written
@@ -207,28 +215,58 @@ impl<'p> Symbols<'p> {
         for name in &cross {
             symbols.clashing.insert(name);
         }
+        // [decl-id] Which std module first declared each name: std's own
+        // text is fixed, so its first declarer is too.
+        let mut first_std_type: HashMap<&'p str, &'p ModulePath> = HashMap::new();
+        let mut first_std_handler: HashMap<&'p str, &'p ModulePath> = HashMap::new();
+        for unit in program.units().filter(|u| u.file.is_std) {
+            for item in &unit.ast.items {
+                let (name, table) = match item {
+                    Item::Struct(s) => (s.name.name.as_str(), &mut first_std_type),
+                    Item::Effect(e) => (e.name.name.as_str(), &mut first_std_type),
+                    Item::Type(t) => (t.name.name.as_str(), &mut first_std_type),
+                    Item::Handler(h) => (h.name.name.as_str(), &mut first_std_handler),
+                    _ => continue,
+                };
+                table.entry(name).or_insert(&unit.file.module);
+            }
+        }
         for unit in program.units() {
             let module: &'p ModulePath = &unit.file.module;
+            let std = unit.file.is_std;
+            // [decl-id] A key is a function of the declaration alone: std's
+            // first declaration of a name is the name, every other
+            // declaration `Name§module`, whatever else the program declares.
             let key_in = |name: &'p str, first: &HashMap<&'p str, &'p ModulePath>| -> &'p str {
                 match first.get(name) {
-                    Some(m) if *m != module => crate::typekey::keyed(name, &module.to_string()),
-                    _ => name,
+                    Some(m) if std && *m == module => name,
+                    _ => crate::typekey::keyed(name, &module.to_string()),
                 }
             };
+            let first_type = &first_std_type;
+            let first_handler = &first_std_handler;
             for item in &unit.ast.items {
-                let (addr, key) = match item {
-                    Item::Struct(s) => (s as *const StructDecl as usize, key_in(&s.name.name, &first_type)),
-                    Item::Effect(e) => (e as *const EffectDecl as usize, key_in(&e.name.name, &first_type)),
-                    Item::Type(t) => (t as *const TypeDecl as usize, key_in(&t.name.name, &first_type)),
+                use crate::decl_id::DeclKind;
+                let (addr, key, kind, name) = match item {
+                    Item::Struct(s) => (s as *const StructDecl as usize, key_in(&s.name.name, first_type), DeclKind::Struct, &s.name.name),
+                    Item::Effect(e) => (e as *const EffectDecl as usize, key_in(&e.name.name, first_type), DeclKind::Effect, &e.name.name),
+                    Item::Type(t) => (t as *const TypeDecl as usize, key_in(&t.name.name, first_type), DeclKind::Type, &t.name.name),
                     Item::Handler(h) if first_type.get(h.name.name.as_str()).is_some_and(|m| *m != module) => (
                         h as *const HandlerDecl as usize,
                         crate::typekey::keyed(&h.name.name, &module.to_string()),
+                        DeclKind::Handler,
+                        &h.name.name,
                     ),
-                    Item::Handler(h) => (h as *const HandlerDecl as usize, key_in(&h.name.name, &first_handler)),
+                    Item::Handler(h) => (h as *const HandlerDecl as usize, key_in(&h.name.name, first_handler), DeclKind::Handler, &h.name.name),
                     _ => continue,
                 };
                 symbols.decl_keys.insert(addr, key);
                 symbols.key_modules.insert(key, module);
+                // [decl-id] The id the key spells (a type is not overloaded:
+                // no signature, and the ordinal a duplicate would take is
+                // not a key of its own).
+                let id = crate::decl_id::DeclId::intern(crate::decl_id::DeclPath { module: module.clone(), kind, path: vec![name.clone()], sig: None, ordinal: 0 });
+                symbols.id_keys.entry(id).or_insert(key);
             }
         }
         let keys = symbols.decl_keys.clone();

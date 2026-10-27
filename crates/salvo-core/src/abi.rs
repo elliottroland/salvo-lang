@@ -17,8 +17,10 @@ use salvo_syntax::ast::{EffectRef, FnDecl, Item, Type};
 
 use crate::program::{Program, Symbols};
 
-/// The names of the structs, type aliases and effects the platform surface
-/// reaches. Empty when the project declares nothing platform.
+/// The keys of the structs, type aliases and effects the platform surface
+/// reaches [type-identity] [decl-id]: each written name is followed through
+/// the scope of the file that wrote it. Empty when the project declares
+/// nothing platform.
 pub fn platform_closure(program: &Program, symbols: &Symbols<'_>) -> BTreeSet<String> {
     closure(program, symbols, false)
 }
@@ -128,7 +130,8 @@ impl Walk<'_, '_> {
 
     fn effect_ref(&mut self, e: &EffectRef) {
         if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = e {
-            self.name(&r.name.name);
+            let key = self.symbols.ref_key(r).to_string();
+            self.name(&key);
             for a in &r.args {
                 self.ty(a);
             }
@@ -143,7 +146,8 @@ impl Walk<'_, '_> {
                         self.ty(a);
                     }
                 }
-                self.name(&base.name.name);
+                let key = self.symbols.ref_key(base).to_string();
+                self.name(&key);
                 for a in &base.args {
                     self.ty(a);
                 }
@@ -258,7 +262,11 @@ pub fn factory_name(ty: &crate::types::Ty) -> Option<String> {
             .find(|q| !q.effect && q.name != "Mut")
             .map(|q| snake(&q.name))
             .or_else(|| factory_name(base)),
-        Ty::Named { name, .. } => Some(snake(name.rsplit('.').next().unwrap_or(name))),
+        Ty::Named { name, .. } => {
+            // [decl-id] By the written name: a key's module is not part of it.
+            let name = crate::typekey::plain(name);
+            Some(snake(name.rsplit('.').next().unwrap_or(name)))
+        }
         Ty::Tuple(_) => Some("tuple".to_string()),
         Ty::Array(_) => Some("array".to_string()),
         Ty::Lit(l) => Some(snake(l.base())),
@@ -337,16 +345,18 @@ pub fn abi_stamp(program: &Program, symbols: &Symbols<'_>, owner: Option<&str>) 
         return None;
     }
     let reached = closure_where(program, symbols, &|u| owned_by(u, owner));
-    for name in &reached {
-        if let Some(st) = symbols.structs.get(name.as_str()) {
+    for key in &reached {
+        // [decl-id] The closure holds keys; the stamp spells the written name.
+        let name = crate::typekey::plain(key);
+        if let Some(st) = symbols.structs.get(key.as_str()) {
             let fields: Vec<String> = st.fields.iter().map(|f| format!("{}: {}", f.name.name, f.ty.as_ref().map(|t| t.to_string()).unwrap_or_else(|| "_".into()))).collect();
             let generics: Vec<&str> = st.generics.iter().map(|g| g.name.as_str()).collect();
             parts.push(format!("struct {name}<{}> {{ {} }}", generics.join(", "), fields.join(", ")));
-        } else if let Some(t) = symbols.type_aliases.get(name.as_str()) {
+        } else if let Some(t) = symbols.type_aliases.get(key.as_str()) {
             if let Some(alias) = &t.alias {
                 parts.push(format!("type {name} = {alias}"));
             }
-        } else if let Some(e) = symbols.effects.get(name.as_str()) {
+        } else if let Some(e) = symbols.effects.get(key.as_str()) {
             let text = program
                 .units()
                 .find(|u| u.ast.items.iter().any(|i| matches!(i, Item::Effect(x) if std::ptr::eq(x, *e))))

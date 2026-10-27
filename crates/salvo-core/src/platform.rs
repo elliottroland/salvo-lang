@@ -25,11 +25,12 @@ pub struct PlatformEffect {
     pub threadsafe: bool,
 }
 
-/// [platform-abi] Every effect some platform handler implements, by name (one
-/// face each: [platform-handler]), over the modules `include` admits — the
-/// reachable ones for a build, all of them for a host project.
+/// [platform-abi] Every effect some platform handler implements, by key (one
+/// face each: [platform-handler]) [decl-id], over the modules `include`
+/// admits — the reachable ones for a build, all of them for a host project.
 pub fn platform_effects(
     program: &Program,
+    symbols: &crate::Symbols<'_>,
     include: impl Fn(&ModulePath) -> bool,
 ) -> std::collections::BTreeMap<String, PlatformEffect> {
     let mut out: std::collections::BTreeMap<String, PlatformEffect> = Default::default();
@@ -41,7 +42,7 @@ pub fn platform_effects(
             let Some(salvo_syntax::ast::Type::Named { base, .. }) = h.of.first() else {
                 continue;
             };
-            let entry = out.entry(base.name.name.clone()).or_default();
+            let entry = out.entry(symbols.ref_key(base).to_string()).or_default();
             if h.threadsafe {
                 entry.threadsafe = true;
             } else {
