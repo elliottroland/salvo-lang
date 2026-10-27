@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2082 tests, complete: the toolchain tests are
+cargo test                  # 2083 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,56 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-14 — The error for an implicit that cannot be filled names its two ends
+
+Since implicits resolve as calls do (below), a winner whose own implicits
+cannot be filled is an error naming the chain (`ImplicitMiss::Unfilled`). It
+was worded per level: `try_nested` took the first error its nested fill
+reported and wrapped it ("`to_str` for `…` needs implicits of its own, and
+…"), and the position's error wrapped that again ("`?to_str: …` for `to_str`
+resolves to a `to_str` that cannot be completed: …"), so every level
+repeated the whole phrase of the level below with its full type. The 11-deep
+catch-all case reached the depth cap in a 3,115-byte line.
+
+- **Now the failure is structured** (`Unfilled { links, why }` in
+  `check.rs`): an implicit position that fails *inside* a nested fill
+  (`resolve_depth > 0`) records itself in `Checker::nested_miss` as one link
+  — its name and wanted fn type — with what went wrong (`UnfilledWhy`: no
+  candidate, a near miss with its reason, ambiguous with the candidates, the
+  depth cap, a cycle, or another refusal as worded), prepending itself to a
+  deeper `Unfilled`; `try_nested` hands it up; the outermost position words
+  it once (`unfilled_text`).
+- **The message**: the position written and the one that failed, why, the
+  wanted types between as a compact chain (each link's parameter types;
+  `` `?name: …` `` where the implicit's name changes; shown only when there is
+  a type between the two ends; past four links the first two, `… N more …`,
+  and the last), and the remedy (``pass `to_str = …` explicitly``; for
+  "nothing in scope", also ``declare a matching `fn to_str` ``). The format follows the
+  repo's other chain diagnostics (` → ` as in the effect-prerequisite and
+  deadlock cycles, `;` between clauses). Before and after, the plain chain:
+  - before: `` `?to_str: (NonEmpty List<Foo>) -> Str` for `to_str` resolves to a `to_str` that cannot be completed: `to_str` for `(NonEmpty List<Foo>) -> Str` needs implicits of its own, and no `to_str` fits `?to_str: (Foo) -> Str` for `to_str`: the `to_str` in scope is `(Int) -> Str`, and the position needs `(Foo) -> Str` ``
+  - after: `` `?to_str: (NonEmpty List<Foo>) -> Str` for `to_str` cannot be
+    completed: it needs `?to_str: (Foo) -> Str`, and no `to_str` fits (the
+    `to_str` in scope is `(Int) -> Str`, and the position needs `(Foo) ->
+    Str`); pass `to_str = …` explicitly ``
+  - the depth cap (11 deep, catch-all `to_str<T>`): 3,115 bytes before, 764
+    after — the outermost type once in full, then "it nests more than 8 levels
+    deep (the `to_str` for `?to_str: (NonEmpty List<NonEmpty List<Int>>) ->
+    Str` needs implicits of its own); chain: `<10-deep>` → `<9-deep>` → … 6
+    more … → `NonEmpty List<NonEmpty List<Int>>`; pass `to_str = …`
+    explicitly".
+- The same text serves a function passed by name whose implicits cannot be
+  filled ("`f` fits `W` here, but cannot be completed: …", no `name = …`
+  remedy there) and, unreachably today, a comparison operator's `eq`/`cmp`.
+- Docs: [implicit-recursive] (the message's shape and the cap's wording),
+  Implicit-Parameters.md (an example), ROADMAP §6's recorded wording.
+
+Tests (1 new): `an_unfillable_chain_error_stays_short_at_the_depth_cap` (the
+11-deep case: the outermost type printed once, the line under five times its
+length, three arrows, the elision); `an_unfillable_winner_is_an_error_naming_the_chain`
+rewritten for the new text and extended with a four-deep chain (the listed
+types) and a cycle (`show` needing itself).
 
 ### 2026-10-14 — A re-pointed view gets a Rust variable per live range
 
@@ -30105,7 +30155,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2082 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2083 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

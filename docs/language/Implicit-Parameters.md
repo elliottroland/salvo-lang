@@ -145,7 +145,19 @@ function — there is nothing to register.
   both and the remedies: pass the one you mean (`cmp = cmp@main`), or
   `rename` one. Only then are the chosen function's own implicits filled, by
   the same rule; if they cannot be, that is the error, and no other
-  candidate is tried instead.
+  candidate is tried instead. The error names the position you wrote and the
+  one that failed, with the types in between:
+
+  ```
+  error: `?to_str: (NonEmpty List<NonEmpty List<NonEmpty List<Foo>>>) -> Str` for `to_str`
+  cannot be completed: it needs `?to_str: (Foo) -> Str`, and no `to_str` fits (…);
+  chain: `NonEmpty List<NonEmpty List<NonEmpty List<Foo>>>` → `NonEmpty List<NonEmpty List<Foo>>`
+  → `NonEmpty List<Foo>` → `Foo`; pass `to_str = …` explicitly
+  ```
+
+  A chain longer than four is shortened in the middle (`… 6 more …`), and
+  one that would nest more than 8 levels deep, or that needs itself, is
+  refused the same way.
 - **An implicitly resolved function is effect-free.** A fn type without an
   effect list means "performs nothing", and an effectful function does not
   fit there — so resolution can never quietly add an effect to a caller.

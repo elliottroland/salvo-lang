@@ -3744,14 +3744,25 @@ Conventions:
   * **Only the chosen candidate's implicits are filled** (user decision
     2026-10-14): the candidate is chosen first, by the call's rule
     [implicit-resolve], and a failure among its own implicits is an error
-    naming the chain (`` `?to_str: (List<Foo>) -> Str` for `to_str` resolves
-    to a `to_str` that cannot be completed: `to_str` for `(List<Foo>) -> Str`
-    needs implicits of its own, and no `to_str` fits `?to_str: (Foo) -> Str`
-    … ``) — never a reason to take another candidate. With one candidate
-    filled per level, a resolution's cost is linear in its depth.
-  * **Depth cap 8** (`resolution of eq for … nests more than 8 levels deep;
-    pass eq = … explicitly`), kept (user, 2026-10-14), and a chain that needs
-    itself is refused at once as a cycle.
+    naming the chain — never a reason to take another candidate. With one
+    candidate filled per level, a resolution's cost is linear in its depth.
+  * **The error names the two ends once** (2026-10-14): the position written
+    and the one that failed, why it failed (nothing in scope, a near miss,
+    ambiguous, the depth cap, a cycle), the wanted types between as a compact
+    chain — each link's parameter types, `` `?name: …` `` where the name
+    changes — elided in the middle past four links, and the remedy:
+    `` `?to_str: (NonEmpty List<NonEmpty List<Foo>>) -> Str` for `to_str` cannot be
+    completed: it needs `?to_str: (Foo) -> Str`, and no `to_str` fits (…);
+    chain: `NonEmpty List<NonEmpty List<Foo>>` → `NonEmpty List<Foo>` → `Foo`;
+    pass `to_str = …` explicitly ``. A failure inside a nested fill is
+    recorded structurally (`check.rs`'s `Unfilled`, the opening
+    `try_nested`'s to report), not worded per level, so the message is a few
+    types long however deep the chain went; before, each level repeated the
+    whole phrase of the level below it, ~3 KB at the cap.
+  * **Depth cap 8** (`` it nests more than 8 levels deep (the `eq` for
+    `?eq: …` needs implicits of its own) ``), kept (user, 2026-10-14), and a
+    chain that needs itself is refused at once as a cycle (`` the `eq` for
+    `?eq: …` needs itself, a cycle ``); both name `eq = …` as the remedy.
   * std's `List` and tuple `eq`/`cmp`/`hash`/`to_str` are Salvo on it
     (`std.core.compare`, `std.core.basic`); the host's structural comparisons are
     gone. A tuple takes one implicit per part, of one name at different types

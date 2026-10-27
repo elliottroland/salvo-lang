@@ -3096,8 +3096,8 @@ fn an_unfillable_winner_is_an_error_naming_the_chain() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "{stderr}");
     assert!(
-        stderr.contains("resolves to a `to_str` that cannot be completed")
-            && stderr.contains("nests more than 8 levels deep; pass `to_str = …` explicitly"),
+        stderr.contains("` for `to_str` cannot be completed: it nests more than 8 levels deep (the `to_str` for `?to_str: (NonEmpty List<NonEmpty List<Int>>) -> Str` needs implicits of its own); chain: ")
+            && stderr.contains(" → … 6 more … → `NonEmpty List<NonEmpty List<Int>>`; pass `to_str = …` explicitly"),
         "{stderr}"
     );
 
@@ -3113,9 +3113,83 @@ fn an_unfillable_winner_is_an_error_naming_the_chain() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "{stderr}");
     assert!(
-        stderr.contains("`?to_str: (NonEmpty List<Foo>) -> Str` for `to_str` resolves to a `to_str` that cannot be completed: `to_str` for `(NonEmpty List<Foo>) -> Str` needs implicits of its own, and no `to_str` fits `?to_str: (Foo) -> Str`"),
+        stderr.contains("`?to_str: (NonEmpty List<Foo>) -> Str` for `to_str` cannot be completed: it needs `?to_str: (Foo) -> Str`, and no `to_str` fits (the `to_str` in scope is `(Int) -> Str`, and the position needs `(Foo) -> Str`); pass `to_str = …` explicitly"),
         "{stderr}"
     );
+    // Two links: the chain is the headline, and is not repeated.
+    assert!(!stderr.contains("chain:"), "{stderr}");
+
+    // A longer chain lists the wanted types between the two ends.
+    let dir = src_dir("implicit_unfillable_chain_listed");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Foo { n: Int }\n\
+         \n\
+         fn main() [use] {\n    use StdConsole()\n    println(\"${List(List(List(List(Foo { n: 1 }))))}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("it needs `?to_str: (Foo) -> Str`, and no `to_str` fits (")
+            && stderr.contains("; chain: `NonEmpty List<NonEmpty List<NonEmpty List<Foo>>>` → `NonEmpty List<NonEmpty List<Foo>>` → `NonEmpty List<Foo>` → `Foo`; pass `to_str = …` explicitly"),
+        "{stderr}"
+    );
+
+    // A candidate that needs itself at the same type is a cycle.
+    let dir = src_dir("implicit_unfillable_cycle");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Foo { n: Int }\n\
+         \n\
+         fn show(x: Foo, ?show: (Foo) -> Str) [] -> Str => x { return \"foo\" }\n\
+         \n\
+         fn shout(x: Foo, ?show: (Foo) -> Str) [] -> Str => x { return show(x) }\n\
+         \n\
+         fn main() [use] {\n    use StdConsole()\n    println(shout(Foo { n: 1 }))\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("`?show: (Foo) -> Str` for `shout` cannot be completed: the `show` for `?show: (Foo) -> Str` needs itself, a cycle; pass `show = …` explicitly"),
+        "{stderr}"
+    );
+}
+
+/// [implicit-recursive] The error for a chain that cannot be completed stays
+/// a few types long however deep the chain went: before 2026-10-14 every
+/// level repeated the whole phrase of the level below, and the 11-deep
+/// catch-all case reached the depth cap in a 3 KB line. Now the position
+/// written and the one that failed are named once, and the chain between is
+/// elided in the middle: at most four of its types are printed.
+#[test]
+fn an_unfillable_chain_error_stays_short_at_the_depth_cap() {
+    let dir = src_dir("implicit_unfillable_bounded");
+    fs::write(
+        dir.join("main.sv"),
+        "fn to_str<T>(x: T) [] -> Str => x { return \"?\" }\n\
+         \n\
+         fn main() [use] {\n    use StdConsole()\n    \
+         let deep = List(List(List(List(List(List(List(List(List(List(List(1)))))))))))\n    \
+         println(\"${deep}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    let line = stderr.lines().find(|l| l.starts_with("error:")).unwrap_or_else(|| panic!("{stderr}"));
+    // The outermost wanted type, printed once in full: the bound is a few
+    // times its length, not the depth times it.
+    let outer = "(NonEmpty List<NonEmpty List<NonEmpty List<NonEmpty List<NonEmpty List<NonEmpty List<NonEmpty List<NonEmpty List<NonEmpty List<NonEmpty List<Int>>>>>>>>>>) -> Str";
+    assert!(line.contains(&format!("`?to_str: {outer}` for `to_str` cannot be completed")), "{line}");
+    assert_eq!(line.matches(outer).count(), 1, "{line}");
+    assert!(line.len() < 5 * outer.len(), "{} bytes:\n{line}", line.len());
+    assert_eq!(line.matches(" → ").count(), 3, "{line}");
+    assert!(line.contains("… 6 more …"), "{line}");
+    assert_eq!(line.matches("needs implicits of its own").count(), 1, "{line}");
 }
 
 /// [implicit-recursive] The user's doubled-std recipe — a copy of `lib/std`

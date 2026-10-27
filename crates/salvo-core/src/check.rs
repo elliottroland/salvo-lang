@@ -1218,8 +1218,34 @@ enum ImplicitMiss {
     /// candidates, as shown in the diagnostic.
     Ambiguous(Vec<(String, String)>),
     /// [implicit-recursive] One was chosen, and its own implicits cannot be
-    /// filled: the chain, worded.
-    Unfilled(String),
+    /// filled: the chain down to the position that failed, and why.
+    Unfilled(Unfilled),
+}
+
+/// [implicit-recursive] Why the candidate chosen for a position could not be
+/// completed: the positions its resolution opened below the reported one,
+/// outermost first (each an implicit's name and wanted fn type), down to the
+/// one that failed, and how that one failed. Structured rather than worded
+/// per level, so the message names the two ends once and lists the types
+/// between them, however deep the chain went.
+struct Unfilled {
+    links: Vec<(String, Ty)>,
+    why: UnfilledWhy,
+}
+
+enum UnfilledWhy {
+    /// Nothing fits the last position: no fn of the name (`None`), or the
+    /// best near miss.
+    NoFit(Option<String>),
+    /// Several fit the last position and none is more specific.
+    Ambiguous(Vec<(String, String)>),
+    /// The last position's candidate needs implicits of its own past the
+    /// depth cap: the candidate's name.
+    Depth(String),
+    /// The last position's candidate needs itself: its name.
+    Cycle(String),
+    /// Another refusal while filling, as it was worded.
+    Other(String),
 }
 
 /// [op-order] [op-equality] What a comparison operator resolved to, for the
@@ -3082,6 +3108,9 @@ struct Checker<'p, 'r> {
     /// [implicit-recursive] The (fn, wanted type) pairs being resolved, for
     /// the cycle refusal.
     resolve_chain: Vec<(FnKey, String)>,
+    /// [implicit-recursive] Why a position inside a nested fill failed, for
+    /// the `try_nested` that opened it.
+    nested_miss: Option<Unfilled>,
     /// [comptime-generic] `resolve_implicit_fn_at` is answering for a call
     /// (an operator, an interpolation), which fills the found fn's own
     /// implicits, rather than for a fn value, which cannot yet.
@@ -3391,6 +3420,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             last_nested: Vec::new(),
             resolve_depth: 0,
             resolve_chain: Vec::new(),
+            nested_miss: None,
             resolve_as_call: false,
             renames: Vec::new(),
             warned_spare_lends: HashSet::new(),
@@ -6545,7 +6575,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         let fit = self.fn_value_fit(key, decl, want)?;
         let mut nested = Vec::new();
         if fit.fills && !self.resolve_as_call {
-            nested = self.try_nested(key, decl, &fit.binding, &fit.generics, want).map_err(|reason| (0, reason))?;
+            nested = self
+                .try_nested(key, decl, &fit.binding, &fit.generics, want)
+                .map_err(|u| (0, Self::unfilled_text(&decl.name.name, want, &u, false)))?;
         }
         Ok(FnValueAt { ty: fit.ty, nested, binding: fit.binding })
     }
@@ -7199,6 +7231,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                         imp.name, imp.name
                     );
                     let callee_name = callee;
+                    // [implicit-recursive] Inside a nested fill the failure is
+                    // the opening `try_nested`'s to report, as one more link of
+                    // its chain: recorded here, and the error below only marks
+                    // that the fill failed.
+                    if self.resolve_depth > 0 {
+                        let link = (imp.name.clone(), want.clone());
+                        let one = |why| Unfilled { links: vec![link.clone()], why };
+                        // The first failure of the fill is the one reported.
+                        let miss = match why {
+                            ImplicitMiss::Unknown => one(UnfilledWhy::NoFit(None)),
+                            ImplicitMiss::NearMiss(r) => one(UnfilledWhy::NoFit(Some(r))),
+                            ImplicitMiss::Ambiguous(c) => one(UnfilledWhy::Ambiguous(c)),
+                            ImplicitMiss::Unfilled(u) => {
+                                let mut links = vec![link.clone()];
+                                links.extend(u.links);
+                                Unfilled { links, why: u.why }
+                            }
+                        };
+                        self.nested_miss.get_or_insert(miss);
+                        self.error(span, format!("`?{}: {want}` cannot be filled", imp.name));
+                        return None;
+                    }
                     match why {
                         // Nothing of that name at all: the remedy is the message.
                         ImplicitMiss::Unknown => self.error(
@@ -7235,15 +7289,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                             )
                         }
                         // [implicit-recursive] The winner's own implicits cannot be
-                        // filled: the chain, and no other candidate stands in.
-                        ImplicitMiss::Unfilled(reason) => self.error(
-                            span,
-                            format!(
-                                "`?{}: {want}` for `{}` resolves to a `{}` that cannot be \
-                                 completed: {reason}",
-                                imp.name, callee_name, imp.name
-                            ),
-                        ),
+                        // filled: the two ends of the chain and the types between,
+                        // and no other candidate stands in.
+                        ImplicitMiss::Unfilled(u) => {
+                            let text = Self::unfilled_text(&imp.name, &want, &u, true);
+                            self.error(span, format!("`?{}: {want}` for `{}` cannot be completed: {text}", imp.name, callee_name))
+                        }
                     }
                 }
             }
@@ -7264,40 +7315,80 @@ impl<'p, 'r> Checker<'p, 'r> {
         binding: &HashMap<String, Ty>,
         generics: &HashSet<String>,
         want: &Ty,
-    ) -> Result<Vec<ImplicitArg>, String> {
+    ) -> Result<Vec<ImplicitArg>, Unfilled> {
         let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
         if implicits.is_empty() {
             return Ok(Vec::new());
         }
         let shown = format!("{want}");
         if self.resolve_depth >= 8 {
-            return Err(format!(
-                "resolution of `{}` for `{shown}` nests more than 8 levels deep; pass `{} = …` explicitly",
-                decl.name.name, decl.name.name
-            ));
+            return Err(Unfilled { links: Vec::new(), why: UnfilledWhy::Depth(decl.name.name.clone()) });
         }
         if self.resolve_chain.iter().any(|(k, w)| *k == key && *w == shown) {
-            let chain: Vec<String> = self.resolve_chain.iter().map(|(_, w)| w.clone()).collect();
-            return Err(format!(
-                "`{}` for `{shown}` needs itself ({} → {shown}): a cycle; pass `{} = …` explicitly",
-                decl.name.name,
-                chain.join(" → "),
-                decl.name.name
-            ));
+            return Err(Unfilled { links: Vec::new(), why: UnfilledWhy::Cycle(decl.name.name.clone()) });
         }
         self.resolve_depth += 1;
         self.resolve_chain.push((key, shown.clone()));
         let before = self.out.errors.len();
+        let saved_miss = self.nested_miss.take();
         let mut subst = binding.clone();
         let filled = self.fill_implicit_list(&implicits, &decl.name.name, &mut subst, generics, &[], Span::new(0, 0));
         self.resolve_chain.pop();
         self.resolve_depth -= 1;
+        let miss = std::mem::replace(&mut self.nested_miss, saved_miss);
         if self.out.errors.len() > before {
             let first = self.out.errors[before].message.clone();
             self.out.errors.truncate(before);
-            return Err(format!("`{}` for `{shown}` needs implicits of its own, and {first}", decl.name.name));
+            return Err(miss.unwrap_or(Unfilled { links: Vec::new(), why: UnfilledWhy::Other(first) }));
         }
-        filled.ok_or_else(|| format!("`{}` for `{shown}` could not be filled", decl.name.name))
+        filled.ok_or_else(|| Unfilled { links: Vec::new(), why: UnfilledWhy::Other(format!("`{}` for `{shown}` could not be filled", decl.name.name)) })
+    }
+
+    /// [implicit-recursive] The explanation of a position whose chosen
+    /// candidate could not be completed (`name` at `want`, the reported
+    /// one): the failure at the far end of the chain, the wanted types
+    /// between — compact, and elided in the middle past four — and the
+    /// remedy (`pass`: the position is an implicit, which `name = …` can
+    /// fill by hand). Bounded by a few types however deep the chain went.
+    fn unfilled_text(name: &str, want: &Ty, u: &Unfilled, pass: bool) -> String {
+        // A link's wanted type, compact: what the fn is asked to take.
+        let compact = |n: &str, t: &Ty| -> String {
+            let inner = match t.strip_quals() {
+                Ty::Fn { params, .. } if params.len() == 1 => format!("{}", params[0]),
+                Ty::Fn { params, .. } if !params.is_empty() => {
+                    format!("({})", params.iter().map(|p| format!("{p}")).collect::<Vec<_>>().join(", "))
+                }
+                other => format!("{other}"),
+            };
+            if n == name { format!("`{inner}`") } else { format!("`?{n}: {inner}`") }
+        };
+        let (last_name, last_want) = u.links.last().map(|(n, t)| (n.as_str(), t)).unwrap_or((name, want));
+        let at = format!("`?{last_name}: {last_want}`");
+        let failure = match &u.why {
+            UnfilledWhy::NoFit(None) => format!("it needs {at}, and no `{last_name}` is in scope"),
+            UnfilledWhy::NoFit(Some(r)) => format!("it needs {at}, and no `{last_name}` fits ({r})"),
+            UnfilledWhy::Ambiguous(c) => format!("it needs {at}, where {}", Self::implicit_ambiguity(last_name, c, None)),
+            UnfilledWhy::Depth(d) => format!("it nests more than 8 levels deep (the `{d}` for {at} needs implicits of its own)"),
+            UnfilledWhy::Cycle(d) => format!("the `{d}` for {at} needs itself, a cycle"),
+            UnfilledWhy::Other(m) => format!("at {at}, {m}"),
+        };
+        let mut links: Vec<String> = vec![compact(name, want)];
+        links.extend(u.links.iter().map(|(n, t)| compact(n, t)));
+        let chain = if links.len() < 3 {
+            String::new()
+        } else if links.len() <= 4 {
+            format!("; chain: {}", links.join(" → "))
+        } else {
+            let n = links.len();
+            format!("; chain: {} → {} → … {} more … → {}", links[0], links[1], n - 3, links[n - 1])
+        };
+        let remedy = match (&u.why, pass) {
+            (UnfilledWhy::NoFit(None), true) => format!("; declare a matching `fn {last_name}`, or pass `{name} = …` explicitly"),
+            (UnfilledWhy::NoFit(None), false) => format!("; declare a matching `fn {last_name}`"),
+            (_, true) => format!("; pass `{name} = …` explicitly"),
+            (_, false) => String::new(),
+        };
+        format!("{failure}{chain}{remedy}")
     }
 
     fn resolve_implicit_fn_at(
@@ -13988,8 +14079,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         "`{member}` is ambiguous for `{lb}`: {}",
                         Self::implicit_ambiguity(member, &cands, Some(&format!("`{member}@{{m}}(a, b)`")))
                     ),
-                    ImplicitMiss::Unfilled(reason) => {
-                        format!("the `{member}` it resolves to cannot be completed: {reason}")
+                    // Not reached today: an operator is a call, whose found
+                    // fn's implicits are filled at the call, not nested.
+                    ImplicitMiss::Unfilled(u) => {
+                        format!("the `{member}` it resolves to cannot be completed: {}", Self::unfilled_text(member, &want, &u, false))
                     }
                 };
                 self.error(

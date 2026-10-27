@@ -1998,3 +1998,10 @@ log current so the work can resume after a context reset). Newest last.
   splits a view local into a variable per live range (a shadowing `let`, or
   `let mut v;` before an `if` whose arms all re-point it). Found: ROADMAP 0y
   (a fn parameter forwarded to a retagged slot, E0308; not fixed).
+- **The overlong implicit-chain error: done** (committed "Shorten the error
+  for an implicit that cannot be filled"). `ImplicitMiss::Unfilled` carries
+  a structured `Unfilled { links, why }` (a nested position's failure is
+  recorded in `nested_miss`, not worded per level); `unfilled_text` names the
+  position written and the one that failed, the compact chain between
+  (elided past four links) and the remedy. The 11-deep depth-cap case:
+  3,115 → 764 bytes. No DECISION.

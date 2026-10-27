@@ -1463,9 +1463,10 @@ COMPLETED.md's comptime entry holds the argument):
    fully, in which case that one wins" of 2026-09-28 is superseded: since
    2026-10-14 the candidate is chosen first, by a call's rule, and only its
    implicits are filled.)
-2. **Depth cap 8**, worded "resolution of `cmp` for `<type>` nests more than 8
-   levels deep; pass `cmp = …` explicitly"; a chain that needs itself is refused
-   at once as a cycle, with the chain printed.
+2. **Depth cap 8**, worded "it nests more than 8 levels deep (the `cmp` for
+   `?cmp: …` needs implicits of its own)", with the chain and "pass `cmp = …`
+   explicitly"; a chain that needs itself is refused at once as a cycle, with
+   the chain printed (the message's shape: [implicit-recursive], 2026-10-14).
 3. **The carried identity is a tree** [cmp-carry], compared as one — two sets
    over `(Int, Person)` keyed by different `Person` hashes are different types —
    and **printed only where a level is not the canonical default**, so
