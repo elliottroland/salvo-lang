@@ -26,8 +26,10 @@ pub(crate) struct Bound {
 pub struct Lower<'a, 'p> {
     pub(crate) ctx: &'a Ctx<'p>,
     pub(crate) file_idx: usize,
-    #[allow(dead_code)]
-    pub(crate) fn_key: Option<DeclId>,
+    /// The declaration whose code this lowers (a fn, a qualifier's fn, a
+    /// handler's member), when it is one: what its body's facts are keyed
+    /// by [node-id].
+    pub(crate) decl: Option<DeclId>,
     pub(crate) scopes: Vec<HashMap<String, Bound>>,
     /// Inside a handler member: the handler's constructor parameters and
     /// state fields, in scope as locals.
@@ -70,14 +72,16 @@ pub struct Lower<'a, 'p> {
     /// [fate-poison] The flow-only facts of the fn being lowered (its
     /// `FnDecl::fate`).
     pub(crate) fate: FateFacts,
+    /// [node-id] The declaration the last key was in (`DeclIndex::key`).
+    key_hint: std::cell::Cell<usize>,
 }
 
 impl<'a, 'p> Lower<'a, 'p> {
-    pub fn new(ctx: &'a Ctx<'p>, file_idx: usize, fn_key: Option<DeclId>) -> Self {
+    pub fn new(ctx: &'a Ctx<'p>, file_idx: usize, decl: Option<DeclId>) -> Self {
         Lower {
             ctx,
             file_idx,
-            fn_key,
+            decl,
             scopes: vec![HashMap::new()],
             self_fields: Vec::new(),
             effect_env: Vec::new(),
@@ -98,6 +102,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             place_aliases: Vec::new(),
             scoped_aliases: Vec::new(),
             fate: FateFacts::default(),
+            key_hint: std::cell::Cell::new(0),
         }
     }
 
@@ -261,8 +266,10 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.scopes.iter().rev().find_map(|s| s.get(name))
     }
 
-    pub(crate) fn key(&self, span: Span) -> (usize, Span) {
-        (self.file_idx, span)
+    /// [node-id] The key of the node `span` holds, in this file: what the
+    /// checker recorded its facts under (`Checker::key`).
+    pub(crate) fn key(&self, span: Span) -> crate::check::Key {
+        self.ctx.checked.decls.key(self.file_idx, span, &self.key_hint)
     }
 
     pub(crate) fn ty_of(&mut self, span: Span) -> Ty {
@@ -286,33 +293,17 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     /// A fn body: the block, with a trailing expression that is the result
     /// where the fn returns a value and the block falls off its end.
-    pub fn fn_body(&mut self, block: &ast::Block, ret: &Ty, stamp: Option<&ast::Stamp>) -> Block {
+    pub fn fn_body(&mut self, block: &ast::Block, ret: &Ty) -> Block {
         for (n, t) in self.self_fields.clone() {
             self.bind(&n, t);
         }
         let value = !ret.is_none_ty() && !ret.is_unknown();
         // [fate-move-mode] What the decision reads about every binding in the
-        // body (an `is` binding has no statement of its own): the written
-        // ones inside it, and [origin] every one a stamp or an in-place
-        // expansion copied into it — the fn's own expansions, a run of the
-        // file's ids (facts are in span order: written first, then by
-        // expansion).
-        if let Some(facts) = self.ctx.facts_by_file.get(&self.file_idx) {
-            let mut ranges = Vec::new();
-            if block.span.is_written() {
-                ranges.push(((0, block.span.start, 0), (0, block.span.end, 0)));
-            }
-            if let (Some(first), Some(last)) = (stamp.and_then(|s| s.expansions.first()), stamp.and_then(|s| s.expansions.last())) {
-                ranges.push(((first.id, 0, 0), (last.id + 1, 0, 0)));
-            }
-            for (from, to) in ranges {
-                let at = facts.partition_point(|f| f.stamp.order_key() < from);
-                for fact in &facts[at..] {
-                    if fact.stamp.order_key() >= to {
-                        break;
-                    }
-                    self.note_fact(fact);
-                }
+        // body (an `is` binding has no statement of its own): the
+        // declaration's rows [node-id], written and copied alike.
+        if let Some(facts) = self.decl.and_then(|d| self.ctx.facts_by_decl.get(&d)) {
+            for fact in facts {
+                self.note_fact(fact);
             }
         }
         self.block(block, value)

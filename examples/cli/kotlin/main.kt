@@ -296,7 +296,7 @@ fun argSpec__SpecServe(): salvo.std.args.Spec {
     val exclusive__c5__c6__c7__c8: Boolean = false
     defaultText__c5__c6__c7__c8 = "${kotlin.run {
         val __default_1: Int = 8080
-        (if (!(salvo.std.core.range.InRange_qualifies(__default_1, 1, 65535))) throw AssertionError(("salvo: " + ("the default for field `port` is not `InRange(1, 65535) Int`") + " at main:157:1")) else Unit)
+        (if (!(salvo.std.core.range.InRange_qualifies(__default_1, 1, 65535))) throw AssertionError(("salvo: " + ("the default for field `port` is not `InRange(1, 65535) Int`") + " at main:36:16")) else Unit)
         __default_1
     }}"
     if (exclusive__c5__c6__c7__c8) {
@@ -344,7 +344,7 @@ fun argSpec__SpecServe(): salvo.std.args.Spec {
     val short__c36__c37__c38__c39: Char? = null
     val opt__c36__c37__c38__c39: salvo.std.args.OptSpec = salvo.std.args.OptSpec(field = "files", short = short__c36__c37__c38__c39, takesValue = !(switch__c36__c37__c38__c39), repeats = many__c36__c37__c38__c39, required = (required__c36__c37__c38__c39 && !(exclusive__c36__c37__c38__c39)), help = "Files to serve.", defaultText = defaultText__c36__c37__c38__c39, choices = choices__c36__c37__c38__c39, group = null)
     if (exclusive__c36__c37__c38__c39) {
-        throw AssertionError(("salvo: " + ("positional `files` is a choice of option groups") + " at main:157:1"))
+        throw AssertionError(("salvo: " + ("positional `files` is a choice of option groups") + " at main:49:16"))
     }
     salvo.std.core.list.addPlatform(args, salvo.std.args.ArgSpec(field = opt__c36__c37__c38__c39.field, help = opt__c36__c37__c38__c39.help, required = opt__c36__c37__c38__c39.required, many = opt__c36__c37__c38__c39.repeats))
     val name: String = salvo.std.args.commandName("Serve")
@@ -390,7 +390,7 @@ fun fromFound__Found_OkServeOrErrsNonEmptyListArgError(found: salvo.std.args.Fou
     }), port = salvo.std.args.eval(fun(): Int {
         return salvo.std.args.readValue(found, "port", kotlin.run {
             val __default_1: Int = 8080
-            (if (!(salvo.std.core.range.InRange_qualifies(__default_1, 1, 65535))) throw AssertionError(("salvo: " + ("the default for field `port` is not `InRange(1, 65535) Int`") + " at main:157:1")) else Unit)
+            (if (!(salvo.std.core.range.InRange_qualifies(__default_1, 1, 65535))) throw AssertionError(("salvo: " + ("the default for field `port` is not `InRange(1, 65535) Int`") + " at main:36:16")) else Unit)
             __default_1
         }, fun(v__c41__c42__c43__c44__c45__c46__c47__c48: Int): Int? {
             return (if (salvo.std.core.range.InRange_qualifies(v__c41__c42__c43__c44__c45__c46__c47__c48, 1, 65535)) {
@@ -423,7 +423,7 @@ fun fromFound__Found_OkServeOrErrsNonEmptyListArgError(found: salvo.std.args.Fou
         if (salvo.std.core.list.NonEmpty_qualifies(all__c68__c69__c70__c71__c72__c73__c74__c75)) {
             return all__c68__c69__c70__c71__c72__c73__c74__c75
         }
-        return throw AssertionError(("salvo: " + ("`files` was checked as required") + " at main:157:1"))
+        return throw AssertionError(("salvo: " + ("`files` was checked as required") + " at main:49:16"))
     }))))
 }
 
@@ -678,13 +678,13 @@ fun fromFound__Found_OkFetchOrErrsNonEmptyListArgError(found: salvo.std.args.Fou
         val v__c21__c22__c23__c24__c25__c26: String? = salvo.std.args.valueOf(found, "source")
         if (!((v__c21__c22__c23__c24__c25__c26 == null))) {
         }
-        return throw AssertionError(("salvo: " + ("`source` was checked as required") + " at main:157:1"))
+        return throw AssertionError(("salvo: " + ("`source` was checked as required") + " at main:73:5"))
     }), header = salvo.std.args.eval(fun(): List<String> {
         val all__c41__c42__c43__c44__c45__c46__c47__c48: List<String> = salvo.std.args.readAll(found, "header", { __a0 -> salvo.std.core.string.fromStr__Str_StrOpt(__a0) })
         kotlin.run {
             return all__c41__c42__c43__c44__c45__c46__c47__c48
         }
-        return throw AssertionError(("salvo: " + ("`header` was checked as required") + " at main:157:1"))
+        return throw AssertionError(("salvo: " + ("`header` was checked as required") + " at main:75:5"))
     }))))
 }
 

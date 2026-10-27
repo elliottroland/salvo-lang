@@ -86,8 +86,8 @@ pub fn module_features(
     // `thread` intrinsic. A `Reply` also carries the wire.
     let refs = crate::reach::used_names(ast);
     let mut tys: HashSet<String> = HashSet::new();
-    for ((f, _), t) in checked.expr_ty.iter() {
-        if *f == file_idx {
+    for (k, t) in checked.expr_ty.iter() {
+        if k.file() == file_idx {
             ty_root_names(t, &mut tys);
         }
     }
@@ -98,8 +98,8 @@ pub fn module_features(
     // `Arc<Mutex>` and needs no scheduler, so a program that only hands plain
     // handles around is not forced onto the runtime.
     let mut addr_of_actor = false;
-    for ((fi, _), t) in checked.expr_ty.iter() {
-        if *fi == file_idx && ty_has_actor_addr(t, symbols) {
+    for (k, t) in checked.expr_ty.iter() {
+        if k.file() == file_idx && ty_has_actor_addr(t, symbols) {
             addr_of_actor = true;
             break;
         }
@@ -116,19 +116,19 @@ pub fn module_features(
     if named("HostArgs") || named("Args") {
         f.args = true;
     }
-    let mine = |k: &&(usize, salvo_syntax::Span)| k.0 == file_idx;
+    let mine = |k: &&crate::check::Key| k.file() == file_idx;
     if checked.spawn_effects.keys().any(|k| mine(&k))
         || checked.use_addrs.keys().any(|k| mine(&k))
         || checked.addr_calls.keys().any(|k| mine(&k))
         || checked.task_mint_effects.keys().any(|k| mine(&k))
-        || checked.actor_gates.iter().any(|(_, k)| k.0 == file_idx)
+        || checked.actor_gates.iter().any(|(_, k)| k.file() == file_idx)
         || checked.facade_sends.keys().any(|k| mine(&k))
         || checked.replyto_members.keys().any(|k| mine(&k))
         || checked.self_sends.keys().any(|k| mine(&k))
-        || checked.waitfor_sites.iter().any(|(_, k)| k.0 == file_idx)
-        || checked.actor_sends.iter().any(|(_, _, k)| k.0 == file_idx)
-        || checked.task_sends.iter().any(|(_, _, k)| k.0 == file_idx)
-        || checked.handler_constructs.iter().any(|(_, _, k)| k.0 == file_idx)
+        || checked.waitfor_sites.iter().any(|(_, k)| k.file() == file_idx)
+        || checked.actor_sends.iter().any(|(_, _, k)| k.file() == file_idx)
+        || checked.task_sends.iter().any(|(_, _, k)| k.file() == file_idx)
+        || checked.handler_constructs.iter().any(|(_, _, k)| k.file() == file_idx)
     {
         f.scheduler = true;
     }

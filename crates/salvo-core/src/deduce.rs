@@ -250,6 +250,7 @@ pub(crate) fn infer<'p>(
             &checked.refinements,
             &proj_fields,
             expr_ty,
+            decls,
         );
         let contract = &states[&f.key];
         let before = errors.len();
@@ -293,6 +294,7 @@ pub(crate) fn infer<'p>(
                     &checked.refinements,
                     &proj_fields,
                     expr_ty,
+                    decls,
                 );
                 validate_contract(file_idx, m, &contract, &inferred, &mut errors);
             }
@@ -624,9 +626,12 @@ fn infer_body<'a, 'p>(
     refinements: &'a crate::refine::Refinements,
     proj_fields: &'a HashMap<String, HashSet<String>>,
     expr_ty: &'a HashMap<Key, Ty>,
+    decls: &'a crate::decl_id::DeclIndex,
 ) -> Vec<ParamDeduction> {
     let mut walk = Walk {
         file: f.file,
+        decls,
+        key_hint: std::cell::Cell::new(0),
         call_fn,
         fn_decls,
         states,
@@ -756,6 +761,9 @@ fn validate_contract(
 /// The body walker applying use-constraints to the parameter facts.
 struct Walk<'a, 'p> {
     file: usize,
+    /// [node-id] What the walk's keys are made with (`Walk::key`).
+    decls: &'a crate::decl_id::DeclIndex,
+    key_hint: std::cell::Cell<usize>,
     call_fn: &'a HashMap<Key, DeclId>,
     fn_decls: &'a HashMap<DeclId, &'p FnDecl>,
     states: &'a HashMap<DeclId, Vec<ParamDeduction>>,
@@ -818,6 +826,11 @@ fn param_for_arg(params: &[Param], i: usize) -> Option<usize> {
 }
 
 impl<'p> Walk<'_, 'p> {
+    /// [node-id] The key the checker recorded the node `span` holds under.
+    fn key(&self, span: Span) -> Key {
+        self.decls.key(self.file, span, &self.key_hint)
+    }
+
     fn mark_moved(&mut self, name: &str) {
         if let Some(p) = self.params.iter_mut().find(|p| p.param == name) {
             p.kept = false;
@@ -1130,7 +1143,7 @@ impl<'p> Walk<'_, 'p> {
                 // struct by key; the written name is only a fallback.
                 let struct_name: Option<String> = self
                     .expr_ty
-                    .get(&(self.file, *span))
+                    .get(&self.key(*span))
                     .and_then(|t| match t.strip_quals() {
                         Ty::Named { name, .. } => Some(name.clone()),
                         _ => None,
@@ -1339,7 +1352,7 @@ impl<'p> Walk<'_, 'p> {
 
         let resolved = self
             .call_fn
-            .get(&(self.file, span))
+            .get(&self.key(span))
             .and_then(|key| Some((*key, self.fn_decls.get(key)?, self.states.get(key)?)));
         let Some((callee_key, callee_decl, callee_state)) = resolved else {
             // [call-resolve] An effect-member call: not keyed by its `DeclId`, but the
@@ -1490,7 +1503,7 @@ impl<'p> Walk<'_, 'p> {
             Expr::Field { field, .. } => field.name.as_str(),
             _ => return None,
         };
-        let instance = self.effect_calls.get(&(self.file, span))?;
+        let instance = self.effect_calls.get(&self.key(span))?;
         let Ty::Named { name: effect, .. } = instance.strip_quals() else {
             return None;
         };

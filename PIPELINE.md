@@ -2783,6 +2783,48 @@ this log current so the work can resume after a context reset). Newest last.
   declaration's rows". Handler members are still keyed by name span in the
   checker (A1's note stands).
 
+- **A3: done** (committed "Key every fact by its declaration and node").
+  Built ([node-id]; COMPLETED.md "Every fact is keyed by its declaration and
+  node"): `check::Key` is `(DeclId, NodeId)` with the node's file and span
+  carried as origin data outside its equality. Node ids are numbered on the
+  tree after its last rewrite (`salvo_syntax::node_id::number`: the parse,
+  `expand_file`, each comptime-stamped file, the `salvo test` harness) and
+  ride on the span (`Span::node`, the ordinal in the file; `Span` equality
+  ignores it); `Module::node_ranges` gives each declaration's run, and
+  `DeclIndex::key(file, span)` the key — one field read by checker, IR
+  builder, deduction walk and readers alike, so no recomputation can drift.
+  A file's own nodes are keyed by a new `DeclKind::File` id; handler members
+  by their member ids (and their IR `FnDecl`s carry them); variable ids per
+  declaration; `Lower::fn_body` takes the declaration's rows; the `iter fn`
+  desugaring's nodes take their declaration's span; ROADMAP 0ac fixed
+  (`origin::landing`) and deadlock reports rendered through the stamp. The
+  differential (`SALVO_XP_A3`, removed; 8,088 outputs) found only latent
+  collisions of the old keys, now separated (5,965 `fn_refs` at `by` sites,
+  309 `def_refs` at test names, 30 `expr_ty` of the desugaring); IR, diagnostics
+  and emitted code unchanged except `examples/cli`'s trap locations (0ac).
+  **Deviations:** (1) the id rides on the span rather than in a field of each
+  node kind: every node has one span, every keying path passes it, and
+  `visit_mut` reaches them all; (2) expansion ids stay per file: a file's id
+  finds its stamp from a span alone (`origin::stamp_of`), which the location
+  rendering needs, and two stamps of one template in one file would share
+  every span-keyed position the per-file walk maps use (`fate_log`, the IR's
+  fate tables); (3) header expressions still ride the body walk (nothing
+  needed them out); (4) the two made-up spans that were keys became
+  synthetic keys (`Key::synthetic`), not nodes of the tree; (5) found, not
+  fixed: ROADMAP 0ad (a stamp's copy target in another file).
+  **What A4 needs:** a key is stable under edits above its declaration, but
+  what a row *says* is not: the span and file in a `Key`, and the spans in
+  row values (`DefSite`, `LocalDecl`, `handler_deps`, and the binding
+  "stamps" — `BindFact::stamp`, `FlowLink::stamp`, `FateRead::bind_span` —
+  which the IR flow pass and `Decision` use as binding identities) are
+  positions; a declaration's cached rows reused after code above it moved
+  must have them re-derived from the current tree (by node id: a
+  per-declaration node → span table) or made relative. The check cache still
+  partitions by file (`split_files` by `Key::file`); partitioning by
+  `Key::decl` is the change. Expansion ids per file make a stamp's spans
+  depend on the stamps before it in its file. The checker's per-walk maps
+  keyed by `Span` (`fate_log`, `fate_meta`) are per file walk.
+
 ## II.13. The call census (B1, 2026-10-27)
 
 Kept here, not in `tmp/`, because B2 and B3 work from it. The probe programs

@@ -10,8 +10,35 @@
 //! every phase that reports one (the checker, the deduction pass, the IR
 //! analyses), and no position is invented on the way.
 
-use salvo_syntax::ast::{ExpansionKind, Stamp};
+use salvo_syntax::ast::{ExpansionKind, Item, Module, Stamp};
 use salvo_syntax::Span;
+
+/// [origin] Where a node of `module`'s file is shown outside a diagnostic
+/// (a trap's `module:line:col`, a "moved at line N", a `salvo facts` row,
+/// an editor range): a written span is where it is; a copied one lands
+/// where a diagnostic about it would ([`render`]), through the stamp of the
+/// fn of the file whose expansions include it — a file's expansion ids are
+/// its own, so the id finds the fn. A copied span no stamp of the file
+/// records stays as it is.
+pub fn landing(module: &Module, span: Span) -> Span {
+    match stamp_of(module, span) {
+        Some((_, stamp)) => render(stamp, span, String::new()).0,
+        None => span,
+    }
+}
+
+/// [origin] The stamped fn of `module`'s file a copied `span` is in — its
+/// item index and its stamp — found by the span's expansion id (the file's
+/// own). `None` for a written span.
+pub fn stamp_of(module: &Module, span: Span) -> Option<(usize, &Stamp)> {
+    if span.is_written() {
+        return None;
+    }
+    module.items.iter().enumerate().find_map(|(i, item)| match item {
+        Item::Fn(f) => f.stamped.as_ref().filter(|s| s.expansion(span.expn).is_some()).map(|s| (i, s)),
+        _ => None,
+    })
+}
 
 /// [origin] [comptime-instantiate] [comptime-inline] Where a diagnostic at
 /// `span`, raised in the fn `stamp` is on, lands, and its message:

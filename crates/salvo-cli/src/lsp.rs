@@ -1003,12 +1003,13 @@ impl Server<'_> {
         // A fn name under the cursor hovers as the full signature,
         // including inferred deductions [fn-ref-table].
         let mut best_ref: Option<(Span, DeclId)> = None;
-        for ((file, span), key) in &checked.fn_refs {
+        for (k, key) in &checked.fn_refs {
+            let (file, span) = (&k.file(), &k.span);
             if *file != file_idx {
                 continue;
             }
             if span.holds(offset)
-                && best_ref.is_none_or(|(b, _)| span.len() < b.len())
+                && best_ref.is_none_or(|(b, _)| (span.len(), span.node) < (b.len(), b.node))
             {
                 best_ref = Some((*span, *key));
             }
@@ -1093,24 +1094,25 @@ impl Server<'_> {
             return Some(hover);
         }
 
-        let mut best: Option<(Span, &Ty)> = None;
-        for ((file, span), ty) in &checked.expr_ty {
-            if *file != file_idx || matches!(ty, Ty::Unknown) {
+        // [node-id] The smallest expression under the cursor; of two at one
+        // span, the outer (numbered first).
+        let mut best: Option<(salvo_core::check::Key, &Ty)> = None;
+        for (k, ty) in &checked.expr_ty {
+            if k.file() != file_idx || matches!(ty, Ty::Unknown) {
                 continue;
             }
-            if span.holds(offset)
-                && best.is_none_or(|(b, _)| span.len() < b.len())
-            {
-                best = Some((*span, ty));
+            if k.span.holds(offset) && best.is_none_or(|(b, _)| (k.span.len(), k.span.node) < (b.span.len(), b.span.node)) {
+                best = Some((*k, ty));
             }
         }
-        let (span, ty) = best?;
+        let (at, ty) = best?;
+        let span = at.span;
         // A fate-linked (derived) variable presents its compiler
         // qualifier: the type line carries a bare `proj`, and the
         // qualifier's parameters (roots, binding sites) follow as
         // on-request detail [fate-link] (progressive disclosure — user
         // decision 2026-09-02).
-        if let Some(reads) = checked.fate_reads.get(&(file_idx, span)) {
+        if let Some(reads) = checked.fate_reads.get(&at) {
             let roots: Vec<String> = reads
                 .iter()
                 .map(|r| {
@@ -1158,7 +1160,7 @@ impl Server<'_> {
         // it [doc-hover-narrowed].
         let declared = checked
             .repr_ty
-            .get(&(file_idx, span))
+            .get(&at)
             .filter(|d| **d != *ty)
             .map(|d| {
                 format!(
@@ -1283,6 +1285,8 @@ impl Server<'_> {
     /// manifest was found.
     fn site_location(&self, analysis: &Analysis, file: usize, span: Span) -> Option<(Url, Range)> {
         let target = analysis.program.files.get(file)?;
+        // [origin] A copied node is where it lands (`origin::landing`).
+        let span = analysis.program.modules.get(file).map_or(span, |m| salvo_core::origin::landing(m, span));
         if target.is_std && !target.is_shadow {
             let path = embedded_std_copy(&target.name, &target.content)?;
             let uri = Url::from_file_path(&path).ok()?;
@@ -1313,12 +1317,13 @@ impl Server<'_> {
         // (`def_refs`) or to a field (`field_refs`), else a declaration's
         // own name span in this file.
         let mut site: Option<(Span, DefSite)> = None;
-        for ((file, span), target) in checked.def_refs.iter().chain(&checked.field_refs) {
+        for (k, target) in checked.def_refs.iter().chain(&checked.field_refs) {
+            let (file, span) = (&k.file(), &k.span);
             if *file != file_idx {
                 continue;
             }
             if span.holds(offset)
-                && site.is_none_or(|(b, _)| span.len() < b.len())
+                && site.is_none_or(|(b, _)| (span.len(), span.node) < (b.len(), b.node))
             {
                 site = Some((*span, *target));
             }
@@ -1681,14 +1686,16 @@ impl Server<'_> {
         // The smallest name span containing the cursor wins, whichever
         // table it comes from.
         let mut best: Option<(Span, DefSite)> = None;
+        // [node-id] Of two references at one span, the node numbered first.
         let consider = |span: Span, site: DefSite, best: &mut Option<(Span, DefSite)>| {
             if span.holds(offset)
-                && best.is_none_or(|(b, _)| span.len() < b.len())
+                && best.is_none_or(|(b, _)| (span.len(), span.node) < (b.len(), b.node))
             {
                 *best = Some((span, site));
             }
         };
-        for ((file, span), key) in &checked.fn_refs {
+        for (k, key) in &checked.fn_refs {
+            let (file, span) = (&k.file(), &k.span);
             if *file != file_idx {
                 continue;
             }
@@ -1697,7 +1704,8 @@ impl Server<'_> {
             }
         }
         // Declared names and fields alike [lsp-definition].
-        for ((file, span), site) in checked.def_refs.iter().chain(&checked.field_refs) {
+        for (k, site) in checked.def_refs.iter().chain(&checked.field_refs) {
+            let (file, span) = (&k.file(), &k.span);
             if *file != file_idx {
                 continue;
             }
@@ -1981,8 +1989,8 @@ impl Server<'_> {
             checked
                 .expr_ty
                 .iter()
-                .filter(|((file, span), ty)| *file == view.file && span.is_written() && span.end == end && !matches!(ty, Ty::Unknown))
-                .min_by_key(|((_, span), _)| span.len())
+                .filter(|(k, ty)| k.file() == view.file && k.span.is_written() && k.span.end == end && !matches!(ty, Ty::Unknown))
+                .min_by_key(|(k, _)| (k.span.len(), k.span.node))
                 .and_then(|(_, ty)| receiver_name(ty))
         } else {
             None
@@ -2441,7 +2449,7 @@ fn when_missing_arms(analysis: &Analysis, checked: &salvo_core::Checked, file_id
         }
         return Some((missing, w.types));
     }
-    checked.when_arms.get(&(file_idx, span)).map(|m| (m.clone(), false))
+    checked.when_arms.get(&checked.key_at(file_idx, span)).map(|m| (m.clone(), false))
 }
 
 /// [lsp-completion] One item per missing arm (`is Str { }`), and one writing
@@ -2915,18 +2923,20 @@ fn resolve_rename_target(
     let mut best: Option<(Span, RenameTarget)> = None;
     let consider = |span: Span, target: RenameTarget, best: &mut Option<(Span, RenameTarget)>| {
         if span.holds(offset)
-            && best.is_none_or(|(b, _)| span.len() < b.len())
+            && best.is_none_or(|(b, _)| (span.len(), span.node) < (b.len(), b.node))
         {
             *best = Some((span, target));
         }
     };
-    for ((file, span), key) in &checked.fn_refs {
+    for (k, key) in &checked.fn_refs {
+        let (file, span) = (&k.file(), &k.span);
         if *file != file_idx {
             continue;
         }
         consider(*span, RenameTarget::Fn(*key), &mut best);
     }
-    for ((file, span), site) in checked.def_refs.iter().chain(&checked.field_refs) {
+    for (k, site) in checked.def_refs.iter().chain(&checked.field_refs) {
+        let (file, span) = (&k.file(), &k.span);
         if *file != file_idx {
             continue;
         }
@@ -2974,7 +2984,8 @@ fn rename_occurrences(
             let decl_site = fn_def_site(&analysis.program, checked, key)?;
             sites.push((decl_site.file, decl_site.span));
             // [origin] A copied node is not text of the file it is in.
-            for ((file, span), k) in &checked.fn_refs {
+            for (at, k) in &checked.fn_refs {
+                let (file, span) = (&at.file(), &at.span);
                 if *k == key && span.is_written() {
                     sites.push((*file, *span));
                 }
@@ -2982,7 +2993,8 @@ fn rename_occurrences(
         }
         RenameTarget::Def(site) => {
             sites.push((site.file, site.span));
-            for ((file, span), s) in checked.def_refs.iter().chain(&checked.field_refs) {
+            for (k, s) in checked.def_refs.iter().chain(&checked.field_refs) {
+                let (file, span) = (&k.file(), &k.span);
                 if *s == site && span.is_written() {
                     sites.push((*file, *span));
                 }
@@ -3281,10 +3293,11 @@ fn module_at(
     offset: u32,
 ) -> Option<(Span, ModulePath)> {
     let mut best: Option<(Span, ModulePath)> = None;
-    for ((file, span), module) in &checked.module_refs {
+    for (k, module) in &checked.module_refs {
+        let (file, span) = (&k.file(), &k.span);
         if *file == file_idx
             && span.holds(offset)
-            && best.as_ref().is_none_or(|(b, _)| span.len() < b.len())
+            && best.as_ref().is_none_or(|(b, _)| (span.len(), span.node) < (b.len(), b.node))
         {
             best = Some((*span, module.clone()));
         }
@@ -3985,6 +3998,8 @@ fn file_path(uri: &Url) -> Option<PathBuf> {
 struct DocView<'a> {
     file: usize,
     content: &'a str,
+    /// [origin] The file's module, where a copied node's stamp is.
+    module: Option<&'a salvo_syntax::ast::Module>,
 }
 
 impl DocView<'_> {
@@ -3993,8 +4008,10 @@ impl DocView<'_> {
         position_to_offset(self.content, position)
     }
 
-    /// A span of the file as a range of this document.
+    /// A span of the file as a range of this document: [origin] a copied
+    /// node's where it lands (`origin::landing`).
     fn range(&self, span: Span) -> Range {
+        let span = self.module.map_or(span, |m| salvo_core::origin::landing(m, span));
         span_to_range(self.content, span)
     }
 }
@@ -4020,7 +4037,7 @@ fn doc_view<'a>(analysis: &'a Analysis, path: &Path) -> Option<DocView<'a>> {
         .position(|f| (!f.is_std || f.is_shadow) && exact(f))
         .or_else(|| files.iter().position(exact))
     {
-        return Some(DocView { file, content: &files[file].content });
+        return Some(DocView { file, content: &files[file].content, module: analysis.program.modules.get(file).map(|m| &**m) });
     }
     // [lsp-std-source] Fallback for a std-copy path: the opened URI may be
     // canonicalized (macOS resolves `/var` to `/private/var`) while
@@ -4030,7 +4047,7 @@ fn doc_view<'a>(analysis: &'a Analysis, path: &Path) -> Option<DocView<'a>> {
     let file = files
         .iter()
         .position(|f| analysis.root.join(&f.name).canonicalize().ok() == Some(want.clone()))?;
-    Some(DocView { file, content: &files[file].content })
+    Some(DocView { file, content: &files[file].content, module: analysis.program.modules.get(file).map(|m| &**m) })
 }
 
 /// `diag` as the LSP sees it, at `span` of `content`.
@@ -4051,9 +4068,9 @@ fn to_lsp_diagnostic(diag: &FileDiagnostic, content: &str, span: Span) -> Diagno
 }
 
 fn span_to_range(content: &str, span: Span) -> Range {
-    // [origin] A copied node's range is its template's, not text of this
-    // document: placed at its end, where nothing is (as a copy's synthetic
-    // span past the end of the file was).
+    // [origin] A copied node no stamp places (`origin::landing` found
+    // none) has its template's range, not text of this document: placed at
+    // its end, where nothing is.
     if span.is_expanded() {
         let end = offset_to_position(content, content.len() as u32);
         return Range { start: end, end };

@@ -524,6 +524,8 @@ fn run<M: crate::expand::ModuleSlot>(
             .items
             .retain(|item| !matches!(item, Item::Fn(f) if f.compfn.as_ref().is_some_and(|c| c.bound.is_some())));
         module.items.extend(generated);
+        // [node-id] The file's tree is final.
+        salvo_syntax::node_id::number(module);
         out.extend(diags.into_iter().map(|d| (file_idx, d)));
     }
     let World { tables, .. } = world;

@@ -26,7 +26,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{Arc, Mutex, Weak};
 
-use salvo_syntax::ast::{FnDecl, Item, Module};
+use salvo_syntax::ast::{FnDecl, Item, Module, NodeRange};
+use salvo_syntax::Span;
 
 use crate::source::{ModulePath, SourceFile};
 
@@ -53,6 +54,10 @@ pub enum DeclKind {
     Generated,
     /// [mod-use] A module-level `use`, as the IR's static.
     Static,
+    /// [node-id] A file's own nodes, which no declaration holds (its
+    /// imports, renames, refinements and module-level `use`s): what their
+    /// facts are keyed by. Path empty.
+    File,
 }
 
 /// The parts of a [`DeclId`].
@@ -202,7 +207,27 @@ pub struct DeclIndex {
     /// group's members).
     members: Vec<Vec<Vec<DeclId>>>,
     locs: HashMap<DeclId, DeclLoc>,
+    /// [node-id] Per file: each declaration's run of node ordinals
+    /// (`Module::node_ranges`), by its first ordinal, with the
+    /// declaration's id — a file's own nodes under its `DeclKind::File` id.
+    nodes: Vec<Vec<NodeRun>>,
+    /// [node-id] Per file: its `DeclKind::File` id.
+    files: Vec<DeclId>,
 }
+
+/// [node-id] One declaration's node ordinals in its file.
+#[derive(Clone, Copy, Debug)]
+struct NodeRun {
+    first: u32,
+    end: u32,
+    decl: DeclId,
+}
+
+/// [node-id] A node's identity: its ordinal within its declaration, in the
+/// declaration's walk order (`salvo_syntax::node_id`). With the
+/// declaration's id, what a fact is keyed by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NodeId(pub u32);
 
 impl fmt::Debug for DeclIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -328,8 +353,28 @@ impl DeclIndex {
                     *m = index.assign(*m, DeclLoc { file: file_idx, item: item_idx, sub: i as u16 + 1 });
                 }
             }
+            // [node-id] The file's own id, after its declarations' (an
+            // ordinal only for two files of one module path).
+            let own = DeclId::intern(DeclPath { module: file.module.clone(), kind: DeclKind::File, path: Vec::new(), sig: None, ordinal: 0 });
+            let own = index.assign(own, DeclLoc { file: file_idx, item: usize::MAX, sub: 0 });
+            let runs = module
+                .node_ranges
+                .iter()
+                .map(|r: &NodeRange| {
+                    let decl = if r.item == NodeRange::FILE {
+                        own
+                    } else if r.sub == 0 {
+                        items.get(r.item as usize).copied().flatten().unwrap_or(own)
+                    } else {
+                        members.get(r.item as usize).and_then(|m| m.get(r.sub as usize - 1)).copied().unwrap_or(own)
+                    };
+                    NodeRun { first: r.first, end: r.first + r.len, decl }
+                })
+                .collect();
             index.items.push(items);
             index.members.push(members);
+            index.nodes.push(runs);
+            index.files.push(own);
         }
         // Forget the modules no longer alive, once they outnumber the rest.
         if memo.len() > 4 * files.len().max(64) {
@@ -369,6 +414,33 @@ impl DeclIndex {
     /// The id of the `sub - 1`th member of the item at (`file`, `item`).
     pub fn member(&self, file: usize, item: usize, sub: usize) -> Option<DeclId> {
         self.members.get(file)?.get(item)?.get(sub.checked_sub(1)?).copied()
+    }
+
+    /// [node-id] The declaration the node `span` holds is in, and the
+    /// node's id within it, for a node of file `file`. `hint` remembers the
+    /// last declaration found, since consecutive lookups are mostly in one.
+    /// `None` for a span no numbered node holds.
+    pub fn node_key(&self, file: usize, span: Span, hint: &std::cell::Cell<usize>) -> Option<(DeclId, NodeId)> {
+        if !span.is_numbered() {
+            return None;
+        }
+        let runs = self.nodes.get(file)?;
+        let at = hint.get();
+        let run = match runs.get(at) {
+            Some(r) if r.first <= span.node && span.node < r.end => r,
+            _ => {
+                let i = runs.partition_point(|r| r.first <= span.node).checked_sub(1)?;
+                hint.set(i);
+                &runs[i]
+            }
+        };
+        (span.node < run.end).then(|| (run.decl, NodeId(span.node - run.first)))
+    }
+
+    /// [node-id] The `DeclKind::File` id of file `file`: what its own nodes
+    /// are keyed by.
+    pub fn file_id(&self, file: usize) -> Option<DeclId> {
+        self.files.get(file).copied()
     }
 
     /// Where `id` is declared in this program.

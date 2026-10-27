@@ -1694,7 +1694,10 @@ fn run_test_pass(
     project: Option<&salvo_core::Project>,
 ) -> Result<TestPass, ExitCode> {
     let source = salvo_test::harness_source(tests);
-    let (ast, diagnostics) = salvo_syntax::parse_module_deferred(&source);
+    let (mut ast, diagnostics) = salvo_syntax::parse_module_deferred(&source);
+    // [node-id] The harness joins the program as it parsed: its tree is
+    // final, so it is numbered here.
+    salvo_syntax::node_id::number(&mut ast);
     if diagnostics.iter().any(|d| d.is_error()) {
         // A generated program that does not parse is a compiler bug, and the
         // source is printed with it so the bug is one read away.

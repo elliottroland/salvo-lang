@@ -72,7 +72,7 @@ pub use wire::{
     wire_blocker, WireBlock,
 };
 pub use resolve::{resolve, DefSite, ModuleScope, Resolution, STD_INTERNAL};
-pub use decl_id::{DeclId, DeclIndex, DeclKind, DeclLoc};
+pub use decl_id::{DeclId, DeclIndex, DeclKind, DeclLoc, NodeId};
 pub use source::{
     dependencies_with_reached_platform, CompanionFile, ModulePath, PlatformFile, PlatformRoots, SourceFile, SourceSet,
     PLATFORM_DIR, STD_ROOT, TEST_SUFFIX,

@@ -35,7 +35,7 @@ pub struct Ctx<'p> {
     pub decision: Decision,
     /// [fate-move-mode] Every file's binding facts, by stamp: what a body's
     /// decision reads about the bindings in it.
-    pub facts_by_file: HashMap<usize, Vec<&'p crate::check::BindFact>>,
+    pub facts_by_decl: HashMap<DeclId, Vec<&'p crate::check::BindFact>>,
     /// [ir-analyze] What the program's errors broke: those declarations are
     /// built without their code, a broken file not at all.
     pub gate: &'p super::gate::Gate,
@@ -44,12 +44,12 @@ pub struct Ctx<'p> {
 impl<'p> Ctx<'p> {
     /// [fate-move-mode] Whether the binding statement (or the loop, by its
     /// iterable) at `key` takes ownership: lowered as a move.
-    pub fn mode(&self, key: (usize, Span)) -> bool {
+    pub fn mode(&self, key: crate::check::Key) -> bool {
         self.decision.modes.contains(&key) || self.checked.by_value_loops.contains(&key)
     }
 
     /// [deduce-field] Whether the binding at `key` is a virtual place.
-    pub fn virtual_bind(&self, key: (usize, Span)) -> bool {
+    pub fn virtual_bind(&self, key: crate::check::Key) -> bool {
         self.decision.virtual_binds.contains_key(&key)
     }
 
@@ -59,8 +59,9 @@ impl<'p> Ctx<'p> {
     /// (its descendant links to the owner, not to what the owner took),
     /// one per root.
     pub fn bind_links(&self, file_idx: usize, at: Span) -> Option<(bool, Vec<crate::check::FlowLink>)> {
-        let fact = self.checked.bind_facts.get(&(file_idx, at))?;
-        let decided = |s: Span| self.decision.decided.contains(&(file_idx, s));
+        let hint = std::cell::Cell::new(0);
+        let fact = self.checked.bind_facts.get(&self.checked.decls.key(file_idx, at, &hint))?;
+        let decided = |s: Span| self.decision.decided.contains(&self.checked.decls.key(file_idx, s, &hint));
         let mut links: Vec<crate::check::FlowLink> = Vec::new();
         for l in &fact.links {
             if l.stamp != fact.stamp && decided(l.stamp) {
@@ -343,14 +344,14 @@ pub fn build_program_gated<'p>(
     gate: &'p super::gate::Gate,
 ) -> (Program, Vec<String>, HashSet<(usize, usize)>) {
     let _t = crate::timing::phase("ir build");
-    let mut facts_by_file: HashMap<usize, Vec<&crate::check::BindFact>> = HashMap::new();
-    for ((file, _), fact) in &checked.bind_facts {
-        facts_by_file.entry(*file).or_default().push(fact);
+    let mut facts_by_decl: HashMap<DeclId, Vec<&crate::check::BindFact>> = HashMap::new();
+    for (k, fact) in &checked.bind_facts {
+        facts_by_decl.entry(k.decl).or_default().push(fact);
     }
-    for v in facts_by_file.values_mut() {
+    for v in facts_by_decl.values_mut() {
         v.sort_by_key(|f| f.stamp);
     }
-    let mut ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program, &resolution.decls), decision: Decision::default(), facts_by_file, gate };
+    let mut ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program, &resolution.decls), decision: Decision::default(), facts_by_decl, gate };
     let mut out = Program { modules: Vec::new(), names: HashMap::new(), decision: Decision::default() };
     let mut errors = Vec::new();
     let mut failed: HashSet<(usize, usize)> = HashSet::new();
@@ -384,7 +385,7 @@ pub fn build_program_gated<'p>(
             let file_idx = built[i];
             let mut any = false;
             for decl in &m.decls {
-                any |= super::flow::decide(decl, file_idx, &mut ctx.decision);
+                any |= super::flow::decide(decl, file_idx, &checked.decls, &mut ctx.decision);
             }
             if any {
                 redo.push(i);

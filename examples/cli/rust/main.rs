@@ -433,7 +433,7 @@ pub fn arg_spec__SpecServe() -> crate::std_args::Spec {
     let mut exclusive__c5__c6__c7__c8: bool = false;
     default_text__c5__c6__c7__c8 = Some(format!("{}", {
         let mut __default_1: i32 = 8080i32;
-        if !(crate::std_core_range::InRange__Int_qualifies(__default_1, 1i32, 65535i32)) { panic!("salvo: {} at main:157:1", String::from("the default for field `port` is not `InRange(1, 65535) Int`")) };
+        if !(crate::std_core_range::InRange__Int_qualifies(__default_1, 1i32, 65535i32)) { panic!("salvo: {} at main:36:16", String::from("the default for field `port` is not `InRange(1, 65535) Int`")) };
         __default_1
     }));
     if exclusive__c5__c6__c7__c8 {
@@ -481,7 +481,7 @@ pub fn arg_spec__SpecServe() -> crate::std_args::Spec {
     let mut short__c36__c37__c38__c39: Option<char> = None;
     let mut opt__c36__c37__c38__c39: crate::std_args::OptSpec = crate::std_args::OptSpec { field: String::from("files"), short: short__c36__c37__c38__c39, takes_value: !(switch__c36__c37__c38__c39), repeats: many__c36__c37__c38__c39, required: (required__c36__c37__c38__c39 && !(exclusive__c36__c37__c38__c39)), help: Some(String::from("Files to serve.")), default_text: default_text__c36__c37__c38__c39, choices: choices__c36__c37__c38__c39, group: None };
     if exclusive__c36__c37__c38__c39 {
-        panic!("salvo: positional `files` is a choice of option groups at main:157:1");
+        panic!("salvo: positional `files` is a choice of option groups at main:49:16");
     };
     crate::std_core_list::add_platform::<crate::std_args::ArgSpec>(&mut args, crate::std_args::ArgSpec { field: (opt__c36__c37__c38__c39.field).clone(), help: (opt__c36__c37__c38__c39.help).clone(), required: opt__c36__c37__c38__c39.required, many: opt__c36__c37__c38__c39.repeats });
     let mut name: String = crate::std_args::command_name(&String::from("Serve"));
@@ -526,7 +526,7 @@ pub fn from_found__Found_OkServeOrErrsNonEmptyListArgError(found: &crate::std_ar
     } }), port: crate::std_args::eval({ let mut found = found.clone(); move || -> i32 {
         return crate::std_args::read_value::<i32, i32>(&found, &String::from("port"), Some({
             let mut __default_1: i32 = 8080i32;
-            if !(crate::std_core_range::InRange__Int_qualifies(__default_1, 1i32, 65535i32)) { panic!("salvo: {} at main:157:1", String::from("the default for field `port` is not `InRange(1, 65535) Int`")) };
+            if !(crate::std_core_range::InRange__Int_qualifies(__default_1, 1i32, 65535i32)) { panic!("salvo: {} at main:36:16", String::from("the default for field `port` is not `InRange(1, 65535) Int`")) };
             __default_1
         }), &mut |mut v__c41__c42__c43__c44__c45__c46__c47__c48| -> Option<i32> {
             if crate::std_core_range::InRange__Int_qualifies(v__c41__c42__c43__c44__c45__c46__c47__c48, 1i32, 65535i32) {
@@ -559,7 +559,7 @@ pub fn from_found__Found_OkServeOrErrsNonEmptyListArgError(found: &crate::std_ar
         if crate::std_core_list::NonEmpty__List_qualifies(&all__c68__c69__c70__c71__c72__c73__c74__c75) {
             return all__c68__c69__c70__c71__c72__c73__c74__c75;
         };
-        panic!("salvo: `files` was checked as required at main:157:1")
+        panic!("salvo: `files` was checked as required at main:49:16")
     } }) }));
 }
 
@@ -813,13 +813,13 @@ pub fn from_found__Found_OkFetchOrErrsNonEmptyListArgError(found: &crate::std_ar
         let mut v__c21__c22__c23__c24__c25__c26: Option<String> = crate::std_args::value_of(&found, &String::from("source"));
         if !(v__c21__c22__c23__c24__c25__c26.is_none()) {
         };
-        panic!("salvo: `source` was checked as required at main:157:1")
+        panic!("salvo: `source` was checked as required at main:73:5")
     } }), header: crate::std_args::eval({ let mut found = found.clone(); move || -> Vec<String> {
         let mut all__c41__c42__c43__c44__c45__c46__c47__c48: Vec<String> = crate::std_args::read_all::<String>(&found, &String::from("header"), &mut |__a0: &String| crate::std_core_string::from_str__Str_StrOpt(__a0));
         {
             return all__c41__c42__c43__c44__c45__c46__c47__c48;
         };
-        panic!("salvo: `header` was checked as required at main:157:1")
+        panic!("salvo: `header` was checked as required at main:75:5")
     } }) }));
 }
 

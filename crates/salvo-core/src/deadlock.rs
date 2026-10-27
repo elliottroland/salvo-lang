@@ -116,6 +116,22 @@ struct Edge {
 /// per cycle of gates, a warning per cycle that needs a back-pressure edge to
 /// close.
 pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked) {
+    let before = out.errors.len();
+    check_graph(program, symbols, out);
+    // [origin] An edge in copied code is reported where its origin says,
+    // attributed to the stamped fn, as the checker's diagnostics are.
+    let decls = out.decls.clone();
+    for e in &mut out.errors[before..] {
+        let Some(module) = program.modules.get(e.file) else { continue };
+        let Some((item, stamp)) = crate::origin::stamp_of(module, e.span) else { continue };
+        let (span, message) = crate::origin::render(stamp, e.span, std::mem::take(&mut e.message));
+        e.span = span;
+        e.message = message;
+        e.decl = decls.item(e.file, item);
+    }
+}
+
+fn check_graph(program: &Program, symbols: &Symbols<'_>, out: &mut Checked) {
     let graph = build(program, symbols, out);
     if graph.is_empty() {
         return;
@@ -274,16 +290,16 @@ fn build(
     // handler that waits, running its members inline). A fixpoint over the
     // recorded constructions, anchored at whatever brought the wait in.
     let mut waits_of: BTreeMap<&str, (usize, Span)> = BTreeMap::new();
-    for (handler, (file, span)) in &out.waitfor_sites {
-        waits_of.entry(handler.as_str()).or_insert((*file, *span));
+    for (handler, k) in &out.waitfor_sites {
+        waits_of.entry(handler.as_str()).or_insert((k.file(), k.span));
     }
     loop {
         let mut grew = false;
-        for (owner, constructed, (file, span)) in &out.handler_constructs {
+        for (owner, constructed, k) in &out.handler_constructs {
             if waits_of.contains_key(constructed.as_str())
                 && !waits_of.contains_key(owner.as_str())
             {
-                waits_of.insert(owner.as_str(), (*file, *span));
+                waits_of.insert(owner.as_str(), (k.file(), k.span));
                 grew = true;
             }
         }
@@ -302,11 +318,11 @@ fn build(
     // caller doing either occupies, as in a priced shareable handler
     // [monitor-handler]. A bare router's member is the caller's own code, so
     // the edge into it is the caller's edge, of the kind its edge to `E` has.
-    let mut routed: BTreeMap<&str, (usize, Span)> = BTreeMap::new();
-    for ((file, span), effect) in &out.route_uses {
-        let slot = routed.entry(effect.as_str()).or_insert((*file, *span));
-        if (*file, span.order_key()) < (slot.0, slot.1.order_key()) {
-            *slot = (*file, *span);
+    let mut routed: BTreeMap<&str, crate::check::Key> = BTreeMap::new();
+    for (k, effect) in &out.route_uses {
+        let slot = routed.entry(effect.as_str()).or_insert(*k);
+        if (k.file(), k.span.order_key()) < (slot.file(), slot.span.order_key()) {
+            *slot = *k;
         }
     }
     let mut routers_of: BTreeMap<String, Vec<Router>> = BTreeMap::new();
@@ -382,7 +398,7 @@ fn build(
                     .actor_gates
                     .iter()
                     .find(|(handler, _)| *handler == h.name.name)
-                    .map(|(_, key)| *key);
+                    .map(|(_, key)| (key.file(), key.span));
                 let blocks = waits_of.get(h.name.name.as_str()).copied();
                 let own_faces: Vec<&str> = h.of.iter().filter_map(|of| face_key(symbols, of)).collect();
                 let forwards: Vec<&str> = h
@@ -397,15 +413,15 @@ fn build(
                     .map(|(key, span, any)| (key, file_idx, span, any))
                     .collect();
                 let mut sends: Vec<(String, usize, Span)> = Vec::new();
-                for (handler, target, (file, span)) in &out.actor_sends {
+                for (handler, target, k) in &out.actor_sends {
                     if *handler == h.name.name {
-                        sends.push((target.clone(), *file, *span));
+                        sends.push((target.clone(), k.file(), k.span));
                     }
                 }
                 for task in tasks_reached(out, &h.name.name) {
-                    for (owner, target, (file, span)) in &out.task_sends {
+                    for (owner, target, k) in &out.task_sends {
                         if *owner == task {
-                            sends.push((target.clone(), *file, *span));
+                            sends.push((target.clone(), k.file(), k.span));
                         }
                     }
                 }
@@ -428,7 +444,7 @@ fn build(
                 .actor_gates
                 .iter()
                 .find(|(handler, _)| *handler == h.name.name)
-                .map(|(_, key)| *key);
+                .map(|(_, key)| (key.file(), key.span));
             // [actor-waitfor] The occupancy half, **inferred** since SH-5(d)
             // deleted the `[waitfor]` declaration (user decision 2026-09-19):
             // a handler waits when a member of its own contains a `waitfor`
@@ -482,9 +498,9 @@ fn build(
             }
             // Sends through an addr the handler holds: the peer half of the
             // graph, and the only place an own-protocol edge survives.
-            for (handler, target, (file, span)) in &out.actor_sends {
+            for (handler, target, k) in &out.actor_sends {
                 if *handler == h.name.name && is_actor(target) {
-                    targets.push((target.clone(), *file, *span));
+                    targets.push((target.clone(), k.file(), k.span));
                 }
             }
             // [task-mint] And the sends of every task this handler's mints
@@ -492,9 +508,9 @@ fn build(
             // blamed is the send inside the task body, which is the line that
             // closes the cycle.
             for task in tasks_reached(out, &h.name.name) {
-                for (owner, target, (file, span)) in &out.task_sends {
+                for (owner, target, k) in &out.task_sends {
                     if *owner == task && is_actor(target) {
-                        targets.push((target.clone(), *file, *span));
+                        targets.push((target.clone(), k.file(), k.span));
                     }
                 }
             }
@@ -554,12 +570,13 @@ fn build(
     // forward to `X` is no edge, as a written router's is not; what points
     // at it is every dependency on `any X` (`routers_of`), as occupancy:
     // the route locks.
-    for (effect, (file, span)) in routed {
+    for (effect, at) in routed {
+        let (file, span) = (at.file(), at.span);
         let handler = crate::ir::build::actors::route_name(effect);
         let own_faces = [effect];
         let deps: Vec<(String, usize, Span, bool)> = out
             .use_deps
-            .get(&(file, span))
+            .get(&at)
             .into_iter()
             .flatten()
             .filter_map(|t| match t.strip_quals() {
@@ -618,9 +635,9 @@ fn build(
             }
         }
         for task in tasks_reached(out, &h.name.name) {
-            for (owner, target, (file, span)) in &out.task_sends {
+            for (owner, target, k) in &out.task_sends {
                 if *owner == task && is_actor(target) {
-                    targets.push((target.clone(), *file, *span));
+                    targets.push((target.clone(), k.file(), k.span));
                 }
             }
         }

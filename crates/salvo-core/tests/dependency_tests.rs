@@ -221,8 +221,8 @@ fn module_selectors_are_recorded_with_their_resolved_module() {
     let mut refs: Vec<(String, String)> = checked
         .module_refs
         .iter()
-        .filter(|((file, _), _)| *file == main_idx)
-        .map(|((_, span), module)| (text(*span).to_string(), module.to_string()))
+        .filter(|(k, _)| k.file() == main_idx)
+        .map(|(k, module)| (text(k.span).to_string(), module.to_string()))
         .collect();
     refs.sort();
     assert_eq!(

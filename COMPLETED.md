@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2105 tests, complete: the toolchain tests are
+cargo test                  # 2111 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,129 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-28 — Every fact is keyed by its declaration and node (A3)
+
+**`Key = (file, Span)` became `(DeclId, NodeId)`** ([node-id], PIPELINE.md
+§II.9 Stage A piece A3; user decision P2): every `Checked` table, the IR
+builder's reads and the IR flow pass's `Decision` are keyed by the
+declaration a node is in ([decl-id]; a handler's or effect's member its own,
+a file's imports, renames, refinements and module-level `use`s its new
+`DeclKind::File` id) and the node's ordinal within it. The span stays on
+every node as its origin [origin]; the key carries the node's file and span
+for the readers that place a fact (the language server, `salvo facts`, the
+deadlock check, the check cache's per-file split), and they take no part in
+its equality.
+
+- **Where node ids come from: numbered on the tree, once, after its last
+  rewrite** (`salvo_syntax::node_id::number`), and carried on the span
+  (`Span::node`, the node's ordinal in its file); the module records each
+  declaration's run (`Module::node_ranges`: the file's own nodes, then each
+  item, a member after its container), and `DeclIndex::key(file, span)` maps
+  a span to `(DeclId, NodeId)` (a binary search over the file's runs, with
+  the last run as a hint). The parse (`parse_module`), each file's
+  expansions (`expand_file`), the comptime stamping of a file and the `salvo
+  test` harness number what they produce. **Why**: every node already has
+  exactly one span and every path that keys a fact passes one (the 171
+  `self.key(span)` sites of the checker, 95 of them through helpers taking a
+  `span`); `visit_mut`'s span hook already reaches every node, so one walk
+  numbers a declaration, uniformly for written, desugared and stamped nodes;
+  and the checker (`Checker::key`), the IR builder (`Lower::key`), the
+  deduction walk and every reader read the *same field of the same node*, so
+  nothing recomputes a key and nothing can drift. Rejected: an id field on
+  each of the AST's span-bearing structs (116 of them, every constructor, and
+  the 95 span-passing helpers rethreaded); a span → id map built by a walk on
+  each side (two lookups per key, and two walks that must agree); a key
+  derived from context (`own_fn`) rather than from the node (a fact recorded
+  at another declaration's node — a callee's name, a generated struct's field
+  — would be keyed by the walker's declaration). `Span`'s equality, hash and
+  order ignore `node`, so every structure that is about positions (the IR's
+  fate tables, the checker's per-walk span maps, the dedups) is as it was.
+  Cost: a span is 16 bytes (12).
+- **A span no numbered node holds has no key** — keying one panics in a
+  debug build (`DeclIndex::key`), which is how the suite found every site
+  that keyed a made-up span: two `Span::at` zero-width placeholders (the
+  `qualifies` call an `is` test implies, `PredicateCheck::implicits_at`, and
+  the `to_str` call an interpolated value implies) became synthetic keys of
+  their declaration (`Key::synthetic`), recorded in the fact or derived alike
+  by the checker and the builder; a module selector's covering span is keyed
+  as its first segment; and the `salvo test` harness (parsed deferred and
+  never expanded) is numbered where it joins the program.
+- **Per declaration, not per file**: the checker's variable ids restart at
+  each body and handler (`next_var_id`); a handler's member is keyed by its
+  member id, and its IR `FnDecl` carries that id instead of the handler's;
+  `Lower::fn_body`'s binding facts are the declaration's rows
+  (`facts_by_decl`), not its written range plus its run of expansion ids.
+  Expansion ids stay per file: being the file's, an id finds its stamped fn
+  from the span alone (`origin::stamp_of`), which the new location rendering
+  uses.
+- **The `iter fn` desugaring's nodes have their declaration's span** (the
+  generated `next` its name, the rest the whole `iter fn`): the one-byte
+  spans (`desugar::Spans`) existed only to keep span keys apart. The `0..0`
+  spans that remain are file-level diagnostic positions and a text
+  normalization in comptime, not keys.
+- **ROADMAP 0ac, fixed** (`origin::landing`): a location computed from a
+  copied node outside a diagnostic lands where a diagnostic would — a trap's
+  `module:line:col` (the IR builder's, and the Rust emitter's refusal
+  messages), "moved at line N" and the IR dump's notes, `salvo facts` rows, a
+  language-server range — and the deadlock check's reports are rendered
+  through the stamp and attributed to the stamped fn, as the checker's are.
+- **Readers**: the language server's smallest-span searches break ties by
+  the node's ordinal (two references can now share a span); `salvo facts`
+  lists one row per expression, a row repeating the one above once.
+- **Not done**: header expressions (parameter defaults, field defaults,
+  state initializers) are still walked with the bodies; nothing in A3 needed
+  them out. The check cache is still per file (A4).
+
+**The differential** (temporary, `SALVO_XP_A3`, hooks in `check_program`,
+`check_project`, `check_project_cached`, `build_program_gated` and
+`analyze_full`: every `Checked` table with its keys printed as `(file,
+span)`, the `salvo facts` dump, every built IR module's dump and the IR
+analyses' diagnostics; base a worktree of c61e5fed; both with
+`SALVO_E2E_FRESH=1 SALVO_SKIP_E2E=1`; 8,088 outputs of the programs the
+suite checks, worktree paths normalized). **Round A** (the keys, member ids,
+`fn_body`'s rows): every IR dump, diagnostic and facts dump identical; every
+table identical but at keys where old `(file, Span)` keys had merged
+distinct nodes, where the new table holds the old row and the rows the old
+key lost — **a latent collision, now separated**: 5,965 `fn_refs` keys (the
+`eq` and `hash` a `by` clause stamps are both named at the `by` site; only
+the later was recorded), 309 `def_refs` (the effect references a `test`
+expansion makes at the test's name), 30 `expr_ty` (two of the `iter fn`
+desugaring's one-byte spans landing on one byte). None changed an IR dump: no
+reader of those keys read the lost row. One program differs only by a path
+literal in its source. **Round B** (variable ids per declaration, the
+desugaring's spans): every IR dump, analysis diagnostic and checker
+diagnostic identical (958 programs' IR); the tables differ where they carry
+variable ids or the synthesized nodes' positions, as intended. **Round C**
+(0ac, the deadlock reports): only `salvo facts` rows of copied nodes (std's
+stamped `eq`/`hash`/`cmp` bodies, now at the field or `by` site) and the
+trap locations of `examples/cli`.
+
+**Diagnostics changed**: none in the suite. Reachable: a deadlock report at a
+copied send now renders through its origin. **Emitted code**: the trap
+strings of `examples/cli` (its args parsing is an expanded-in-place
+comptime fn): `at main:157:1` (the end of the file) became the field each
+copy is for (`main:36:16`, `main:49:16`, `main:73:5`, `main:75:5`) in
+`rust/main.rs` and `kotlin/main.kt`, and the `ir_cli` golden; nothing else.
+**Snapshots**: the parser's for `iter fn` expansions (spans only) and
+`facts_iteration` (the desugaring's rows at the declaration). **Found, not
+fixed**: ROADMAP 0ad (a stamp's copy for a field of another file's type
+renders in the stamping file; before A3 too).
+
+**Tests**: 2,111 (+6: `node_id_tests` in salvo-syntax — every node numbered
+once and each declaration one run; an ordinal outside a span's equality —
+and in salvo-core — a key does not move when code above its declaration
+changes; two stamps at one site keep their own references; a handler member
+keyed by its own id; a copied node listed where it lands).
+
+**Timings** (debug, c61e5fed's binary against this one, alternated, same
+session): `SALVO_TIMINGS=1 salvo analyze --src examples/cluster/salvo`, five
+runs each, medians: parse 24.2 → 24.1ms, expand 10.5 → 10.9 (the numbering
+walk), resolve 10.1 → 9.7, check 179.1 → 179.3, IR build 2.0 → 2.0, IR
+analyze 2.7 → 2.5; `tools/lsp-timing.py`, three rounds of four edits, medians
+of the summed top-level phases: `examples/cluster` 43.8 → 40.7ms,
+`modules/aws` 45.4 → 45.5ms (single runs of one binary spread 31–48ms).
+Warm `cargo nextest run`: 2,111 passed in 3m17 after the core change.
 
 ### 2026-10-27 — Every copied node keeps its origin (A2)
 
@@ -30727,7 +30850,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2105 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2111 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -32019,6 +32142,25 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A fact is keyed by its node, not its span** (A3, 2026-10-28,
+  [node-id]): key with `self.key(span)` from the span *of the node the fact
+  is about* (its `Span::node` is what is keyed); a span made by `Span::to`,
+  `Span::at` or `Span::new` is no node's, and keying it panics in a debug
+  build. A node invented after numbering needs a synthetic key
+  (`Key::synthetic`), recorded in the fact that needs it. A module that joins
+  a program without going through `expand_file` (the `salvo test` harness)
+  must be numbered (`node_id::number`), or every key in it panics.
+- **Two nodes may share a span** (A3): stamps named at one `by` site, what a
+  desugaring makes at its declaration. A reader picking "the smallest span
+  under the cursor" must break the tie (the language server uses the node's
+  ordinal), or a `HashMap`'s order picks for it. `Span ==` still compares
+  ranges: two such nodes are equal spans and different keys.
+- **The differential's program ids must not see the worktree's path** (A3):
+  a test program under `target/tmp/…` or naming `modules/aws` by absolute
+  path hashes differently in a worktree, and the A2-style comparison by
+  program content silently skipped 12 programs until the id stripped the
+  worktree prefix.
 
 - **A copied node's position is its template's** (A2, 2026-10-27,
   [origin]): `span.start` of a node with `span.expn != 0` is an offset of the

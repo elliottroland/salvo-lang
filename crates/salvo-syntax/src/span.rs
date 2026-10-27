@@ -11,37 +11,73 @@ use std::fmt;
 /// may be another file's — and carries the expansion's id, which the
 /// declaration's `Stamp` records (`ast::Expansion`): what it is a copy of,
 /// and where a diagnostic about it lands. Nothing invents a position. Two
-/// copies of one template are told apart by their ids, so a table keyed by
-/// span (`(file, Span)`) never sees them as one node; positions compare
+/// copies of one template are told apart by their ids; positions compare
 /// meaningfully only between spans of one expansion (`order_key`), and only
 /// a written span covers an offset of its file (`holds`).
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+///
+/// [node-id] The span is also where the node's **identity** rides: `node`,
+/// its ordinal in its file, assigned after the last rewrite of the tree
+/// (`node_id::number`), which the checker's fact keys are made of (a
+/// declaration and the node's ordinal within it, `salvo_core::check::Key`).
+/// It is identity, not origin, so spans compare, hash and order as origins:
+/// `node` takes no part in `==`, `Hash` or `Ord`.
+#[derive(Clone, Copy)]
 pub struct Span {
     pub start: u32,
     pub end: u32,
     /// [origin] The expansion this node was copied by: an id among its
     /// file's expansions, 0 for written code.
     pub expn: u32,
+    /// [node-id] The node's ordinal in its file ([`NO_NODE`] for a span no
+    /// node holds: one made after numbering, or by `to`/`at`).
+    pub node: u32,
+}
+
+/// [node-id] The `node` of a span no numbered node holds.
+pub const NO_NODE: u32 = u32::MAX;
+
+impl PartialEq for Span {
+    fn eq(&self, other: &Self) -> bool {
+        (self.start, self.end, self.expn) == (other.start, other.end, other.expn)
+    }
+}
+impl Eq for Span {}
+impl std::hash::Hash for Span {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (self.start, self.end, self.expn).hash(state)
+    }
+}
+impl Default for Span {
+    fn default() -> Self {
+        Span::new(0, 0)
+    }
 }
 
 impl Span {
     pub fn new(start: u32, end: u32) -> Self {
-        Span { start, end, expn: 0 }
+        Span { start, end, expn: 0, node: NO_NODE }
+    }
+
+    /// [node-id] Whether a numbered node holds this span.
+    pub fn is_numbered(self) -> bool {
+        self.node != NO_NODE
     }
 
     /// The smallest span covering both `self` and `other`, in `self`'s
-    /// expansion.
+    /// expansion. Not a node's.
     pub fn to(self, other: Span) -> Span {
         Span {
             start: self.start.min(other.start),
             end: self.end.max(other.end),
             expn: self.expn,
+            node: NO_NODE,
         }
     }
 
-    /// Another range of the code `self` is in: the same expansion.
+    /// Another range of the code `self` is in: the same expansion. Not a
+    /// node's.
     pub fn at(self, start: u32, end: u32) -> Span {
-        Span { start, end, expn: self.expn }
+        Span { start, end, expn: self.expn, node: NO_NODE }
     }
 
     /// [origin] The same range, copied by expansion `expn` (0: as written).

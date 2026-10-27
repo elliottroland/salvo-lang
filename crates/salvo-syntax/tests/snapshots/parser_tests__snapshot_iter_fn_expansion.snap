@@ -79,7 +79,7 @@ Module {
                         group: TypeRef {
                             name: Ident {
                                 name: "Yield",
-                                span: 41..42,
+                                span: 41..241,
                             },
                             args: [
                                 Named {
@@ -131,7 +131,7 @@ Module {
                     TypeRef {
                         name: Ident {
                             name: "Mut",
-                            span: 41..42,
+                            span: 41..241,
                         },
                         args: [],
                         value_args: [],
@@ -140,7 +140,7 @@ Module {
                         binder: false,
                         established: false,
                         alias: None,
-                        span: 41..42,
+                        span: 41..241,
                     },
                 ],
                 fields: [
@@ -151,7 +151,7 @@ Module {
                         annotations: [],
                         name: Ident {
                             name: "c",
-                            span: 43..44,
+                            span: 41..241,
                         },
                         ty: Some(
                             Named {
@@ -159,7 +159,7 @@ Module {
                                     TypeRef {
                                         name: Ident {
                                             name: "proj",
-                                            span: 43..44,
+                                            span: 41..241,
                                         },
                                         args: [],
                                         value_args: [],
@@ -168,7 +168,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 43..44,
+                                        span: 41..241,
                                     },
                                 ],
                                 base: TypeRef {
@@ -189,7 +189,7 @@ Module {
                         ),
                         canbe_mut: false,
                         default: None,
-                        span: 43..44,
+                        span: 41..241,
                     },
                     FieldDecl {
                         docs: [],
@@ -227,7 +227,7 @@ Module {
                 opaque: false,
                 noremote: false,
                 comptime: false,
-                span: 41..42,
+                span: 41..241,
             },
         ),
         Fn(
@@ -250,7 +250,7 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "iter",
-                    span: 42..43,
+                    span: 41..241,
                 },
                 type_name: None,
                 scoped_to: None,
@@ -304,7 +304,7 @@ Module {
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 42..43,
+                            span: 41..241,
                         },
                     ],
                 ),
@@ -390,16 +390,16 @@ Module {
                                                     kind: Named {
                                                         name: Ident {
                                                             name: "c",
-                                                            span: 43..44,
+                                                            span: 41..241,
                                                         },
                                                         value: Ident(
                                                             Ident {
                                                                 name: "c",
-                                                                span: 46..47,
+                                                                span: 41..241,
                                                             },
                                                         ),
                                                     },
-                                                    span: 43..44,
+                                                    span: 41..241,
                                                 },
                                                 StructLitField {
                                                     kind: Named {
@@ -424,17 +424,17 @@ Module {
                                                     span: 125..141,
                                                 },
                                             ],
-                                            span: 44..45,
+                                            span: 41..241,
                                         },
                                     ),
-                                    span: 45..46,
+                                    span: 41..241,
                                 },
                             ),
                         ],
-                        span: 42..43,
+                        span: 41..241,
                     },
                 ),
-                span: 42..43,
+                span: 41..241,
             },
         ),
         Fn(
@@ -616,7 +616,7 @@ Module {
                                                     base: Ident(
                                                         Ident {
                                                             name: "__p",
-                                                            span: 47..48,
+                                                            span: 41..241,
                                                         },
                                                     ),
                                                     field: Ident {
@@ -667,7 +667,7 @@ Module {
                                     base: Ident(
                                         Ident {
                                             name: "__p",
-                                            span: 48..49,
+                                            span: 41..241,
                                         },
                                     ),
                                     field: Ident {
@@ -682,7 +682,7 @@ Module {
                                         base: Ident(
                                             Ident {
                                                 name: "__p",
-                                                span: 49..50,
+                                                span: 41..241,
                                             },
                                         ),
                                         field: Ident {
@@ -718,7 +718,7 @@ Module {
                                                         base: Ident(
                                                             Ident {
                                                                 name: "__p",
-                                                                span: 50..51,
+                                                                span: 41..241,
                                                             },
                                                         ),
                                                         field: Ident {

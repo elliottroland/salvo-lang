@@ -753,28 +753,41 @@ same-file case was not. Fix: skip a reference whose name is a type
 parameter of an enclosing declaration when gathering written keys
 (`for_each_type_ref_from` would have to carry the generics in scope).
 
-### 0ac — Open defect: a location computed from a copied node names the end of the file (found 2026-10-27, A2)
+### 0ac — Closed 2026-10-28: a location computed from a copied node lands where a diagnostic would
 
-Since origins [origin], a node a stamp or an in-place expansion copied
-keeps its template's range and an expansion id; a diagnostic about it
-renders through the chain (`origin::render`). Four places compute a
-location from such a node *outside* a diagnostic and still place it at the
-end of the stamping file, as the synthetic spans past the end did
-(`salvo_syntax::span::span_line_col`, kept so that A2 changed no output):
+Fixed with A3 (`origin::landing`; COMPLETED.md "Every fact is keyed by its
+declaration and node"): traps, "moved at line N", the IR dump's notes,
+`salvo facts` rows, language-server ranges and the deadlock check's reports.
+The trap strings of `examples/cli` moved from the end of `main.sv` to the
+fields their copies were for.
 
-- a trap's `module:line:col` in emitted code ([assert-trap]: `Lower::location`,
-  the Rust emitter's `location`) — no stamped template in std or the suite
-  holds one today;
-- the flow pass's "moved at line N" inside a use-after-move message
-  (`FlowDiag::render`), and the IR dump's inline `module:line:col` notes;
-- `salvo facts`' rows for copied nodes (listed at the end, snippet `…`);
-- a language-server range for a copied node (`span_to_range`).
+### 0ad — Open defect: a stamp's copy for a field of another file's type lands in the stamping file (found 2026-10-28, A3)
 
-Fix: render each through the declaration's stamp, as diagnostics are (the
-`by` site, the field, or the written code of an in-place copy). The trap
-string's part changes emitted code for a template that traps, so it is its
-own change. No program the suite checks reaches any of the four (the A2
-differential: every rendered diagnostic and IR dump identical).
+A `fn cmp(a: P, b: P) -> Int by auto` whose `P` is declared in another file
+stamps one copy per field of `P`, and each copy's `ExpansionKind::Copy`
+records the field's span (`target`) but not its file. `origin::render`
+returns that span, and every renderer pairs it with the *stamping* file
+(the checker's `error`, the deduction pass, `ir::analyze`, the deadlock
+check, `origin::landing`), so the diagnostic is printed at the field's
+offsets in the wrong file:
+
+```
+// shapes.sv
+export struct P {
+    x: Int,
+    y: Double
+}
+// main.sv
+import shapes.P
+fn cmp(a: P, b: P) -> Int by auto
+```
+
+reports `in `cmp` from `auto` for `P.y: Double`: no matching overload for
+`cmp(Double, Double)` --> main.sv:3:18`, underlining `P) -> Int` (the same
+before A3). Fix: the copy's target carries its file (an `Origin` that is a
+`(file, Span)`, or the target declaration's id), and `render` answers the
+file with the span; a `by` clause on the type's own declaration never
+reaches it.
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 

@@ -232,7 +232,7 @@ fn main::arg_spec()() -> Spec<Serve> {
   bind#13 let exclusive__c5__c6__c7__c8: Bool = false
   assign default_text__c5__c6__c7__c8 = present(concat(call std.core.basic::to_str(Int)(branch#15 cond#0 true {
     bind#14 let __default~1: Int = 8080
-    assert(call std.core.range::InRange.qualifies(read __default~1, 1, 65535), "the default for field `port` is not `InRange(1, 65535) Int`") at main:157:1
+    assert(call std.core.range::InRange.qualifies(read __default~1, 1, 65535), "the default for field `port` is not `InRange(1, 65535) Int`") at main:36:16
     value !read __default~1
   })))
   branch#16 cond#0 read exclusive__c5__c6__c7__c8 {
@@ -280,7 +280,7 @@ fn main::arg_spec()() -> Spec<Serve> {
   bind#41 let short__c36__c37__c38__c39: Char? = none[None]
   bind#42 let opt__c36__c37__c38__c39: OptSpec = construct OptSpec { field: "files", short: !read short__c36__c37__c38__c39, takes_value: !(read switch__c36__c37__c38__c39), repeats: read many__c36__c37__c38__c39, required: (read required__c36__c37__c38__c39 && !(read exclusive__c36__c37__c38__c39)), help: present("Files to serve."), default_text: !read default_text__c36__c37__c38__c39, choices: drop_mut(!read choices__c36__c37__c38__c39), group: none[None] }
   branch#43 cond#0 read exclusive__c36__c37__c38__c39 {
-    unreachable("positional `files` is a choice of option groups") at main:157:1
+    unreachable("positional `files` is a choice of option groups") at main:49:16
   }
   call std.core.list::add<ArgSpec>(read args, construct ArgSpec { field: call std.core.basic::copy<Str>(read opt__c36__c37__c38__c39.field), help: call std.core.basic::copy<Str?>(read opt__c36__c37__c38__c39.help), required: read opt__c36__c37__c38__c39.required, many: read opt__c36__c37__c38__c39.repeats })
   bind#44 let name: Str = call std.args::command_name("Serve")
@@ -325,7 +325,7 @@ fn main::from_found(Found)(lent found: Found) -> Serve | List<UnknownOption | Mi
   }), port: call std.args::eval<Int>(lambda() -> Int captures [found] {
     return call std.args::read_value<Int, Int>(read found, "port", present(branch#16 cond#0 true {
       bind#15 let __default~1: Int = 8080
-      assert(call std.core.range::InRange.qualifies(read __default~1, 1, 65535), "the default for field `port` is not `InRange(1, 65535) Int`") at main:157:1
+      assert(call std.core.range::InRange.qualifies(read __default~1, 1, 65535), "the default for field `port` is not `InRange(1, 65535) Int`") at main:36:16
       value !read __default~1
     }), lambda(lent v__c41__c42__c43__c44__c45__c46__c47__c48: Int) -> Int? {
       value branch#17 cond#0 call std.core.range::InRange.qualifies(read v__c41__c42__c43__c44__c45__c46__c47__c48, 1, 65535) {
@@ -358,7 +358,7 @@ fn main::from_found(Found)(lent found: Found) -> Serve | List<UnknownOption | Mi
     branch#30 cond#0 call std.core.list::NonEmpty.qualifies(read all__c68__c69__c70__c71__c72__c73__c74__c75) {
       return !read all__c68__c69__c70__c71__c72__c73__c74__c75
     }
-    value unreachable("`files` was checked as required") at main:157:1
+    value unreachable("`files` was checked as required") at main:49:16
   }) }))
 }
 
@@ -612,13 +612,13 @@ fn main::from_found(Found)(lent found: Found) -> Fetch | List<UnknownOption | Mi
     bind#22 let v__c21__c22__c23__c24__c25__c26: Str? = call std.args::value_of(read found, "source")
     branch#23 cond#0 !(check#24 (read v__c21__c22__c23__c24__c25__c26 is none)) {
     }
-    value unreachable("`source` was checked as required") at main:157:1
+    value unreachable("`source` was checked as required") at main:73:5
   }), header: call std.args::eval<List<Str>>(lambda() -> List<Str> captures [found] {
     bind#25 let all__c41__c42__c43__c44__c45__c46__c47__c48: List<Str> = call std.args::read_all<Str>(read found, "header", fn std.core.string::from_str(Str))
     branch#26 cond#0 true {
       return !read all__c41__c42__c43__c44__c45__c46__c47__c48
     }
-    value unreachable("`header` was checked as required") at main:157:1
+    value unreachable("`header` was checked as required") at main:75:5
   }) }))
 }
 

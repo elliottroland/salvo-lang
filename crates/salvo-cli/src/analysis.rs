@@ -1228,14 +1228,14 @@ mod tests {
 
     /// The checker rows of the project's files (from file `n` on).
     fn rows<K: Copy, V: std::fmt::Debug>(
-        table: &HashMap<(usize, salvo_syntax::Span), V>,
+        table: &HashMap<salvo_core::check::Key, V>,
         n: usize,
         _k: std::marker::PhantomData<K>,
     ) -> Vec<String> {
         let mut out: Vec<String> = table
             .iter()
-            .filter(|((file, _), _)| *file >= n)
-            .map(|((file, span), v)| format!("{file} {}..{} {v:?}", span.start, span.end))
+            .filter(|(k, _)| k.file() >= n)
+            .map(|(k, v)| format!("{} {}..{} {v:?}", k.file(), k.span.start, k.span.end))
             .collect();
         out.sort();
         out

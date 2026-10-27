@@ -296,8 +296,10 @@ fn check_fn(f: &FnDecl, out: &mut Vec<FlowDiagnostic>) {
 /// borrow-mode there), and, for a fields-declaring call's survivor, whose
 /// local is still live. Adds to `out` (keyed by `file_idx`); answers whether
 /// it decided anything, so the builder knows to build the module again.
-pub fn decide(decl: &Decl, file_idx: usize, out: &mut Decision) -> bool {
+pub fn decide(decl: &Decl, file_idx: usize, decls: &crate::decl_id::DeclIndex, out: &mut Decision) -> bool {
     let mut any = false;
+    let hint = std::cell::Cell::new(0);
+    let key = |s: Span| decls.key(file_idx, s, &hint);
     let mut one = |f: &FnDecl| {
         let Some(body) = &f.body else { return };
         let mut w = Walker { fate: Some(&f.fate), deciding: true, ..Walker::default() };
@@ -308,15 +310,15 @@ pub fn decide(decl: &Decl, file_idx: usize, out: &mut Decision) -> bool {
         w.walk_block(body, &mut moved);
         for stamp in &w.decided {
             any = true;
-            out.decided.insert((file_idx, *stamp));
-            out.modes.insert((file_idx, *stamp));
+            out.decided.insert(key(*stamp));
+            out.modes.insert(key(*stamp));
             for o in f.fate.origins.get(&stamp).into_iter().flatten() {
-                out.modes.insert((file_idx, *o));
+                out.modes.insert(key(*o));
             }
         }
         for (stamp, place) in w.virtual_binds {
             any = true;
-            out.virtual_binds.insert((file_idx, stamp), place);
+            out.virtual_binds.insert(key(stamp), place);
         }
     };
     match decl {

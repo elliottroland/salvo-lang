@@ -5,6 +5,7 @@ pub mod doc;
 pub mod desugar;
 pub mod diag;
 pub mod lexer;
+pub mod node_id;
 pub mod parser;
 pub mod span;
 pub mod token;
@@ -43,6 +44,8 @@ pub fn parse_module(source: &str) -> (ast::Module, Vec<Diagnostic>) {
     // every consumer of a parsed module — resolve, the checker, both emitters,
     // the LSP — sees the shape it already supports.
     diagnostics.extend(desugar::expand_iter_fns(&mut module));
+    // [node-id] The tree is final for this parse.
+    node_id::number(&mut module);
     (module, diagnostics)
 }
 

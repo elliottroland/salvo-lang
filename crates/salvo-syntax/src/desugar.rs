@@ -88,45 +88,6 @@ pub fn expand_iter_fns(module: &mut Module) -> Vec<Diagnostic> {
     diags
 }
 
-/// Distinct spans for synthesized nodes, taken one byte at a time from inside
-/// the declaration they came from.
-///
-/// This is not cosmetic. The checker's side tables are keyed by span —
-/// `expr_ty`, `coerce`, `call_fn`, and `fn_refs` (which is how the emitters find
-/// a fn's effect list) — so two synthesized nodes sharing one span silently
-/// overwrite each other's entry. It cost an afternoon: the generated `iter`
-/// inherited the `iter fn`'s `[Console]` because their name spans were equal,
-/// and then a `copy` argument was typed as the struct literal that shared its
-/// span. Every span here still points *inside* the declaration, so a diagnostic
-/// that somehow escapes lands in the right place.
-struct Spans {
-    next: u32,
-    end: u32,
-}
-
-impl Spans {
-    fn new(decl: Span) -> Self {
-        Spans {
-            next: decl.start,
-            end: decl.end,
-        }
-    }
-
-    /// The next unused byte of the declaration, as a one-byte span. Falls back
-    /// to the declaration's start when a very short declaration runs out —
-    /// which cannot happen for anything the grammar accepts (`iter fn next(x: T)`
-    /// is already longer than the node count), but a wrap is better than a
-    /// panic.
-    fn take(&mut self) -> Span {
-        if self.next + 1 >= self.end {
-            self.next = self.end.saturating_sub(1);
-        }
-        let at = self.next;
-        self.next += 1;
-        Span::new(at, at + 1)
-    }
-}
-
 /// The generated `next`'s parameter name.
 const PASS: &str = "__p";
 
@@ -264,19 +225,17 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
         return None;
     }
 
-    // [iter-fn] Every generated declaration needs a **distinct name span**:
-    // the checker's side tables (`fn_refs` → `fn_effects`, deductions, the LSP's
-    // definition sites) are keyed by it, so two declarations sharing one span
-    // collide and the later wins — which showed up as the generated minter
-    // inheriting the `iter fn`'s effect list. Each borrows a different real
-    // token of the source, so diagnostics still land somewhere meaningful.
-    let mut spans = Spans::new(f.span);
-    let struct_span = spans.take();
-    let mint_span = spans.take();
+    // [iter-fn] [node-id] What the expansion makes has the declaration's
+    // own span: the `next` (whose body is the author's) its name, the rest
+    // the whole `iter fn`. Nodes sharing a span are still distinct nodes,
+    // which is what the checker's facts are keyed by.
+    let decl_span = f.span;
+    let struct_span = decl_span;
+    let mint_span = decl_span;
     let next_span = span;
-    let field_span = spans.take();
-    let lit_span = spans.take();
-    let ret_span = spans.take();
+    let field_span = decl_span;
+    let lit_span = decl_span;
+    let ret_span = decl_span;
     // [iter-fn] The struct is named by the `state Name { … }` block (user
     // decision 2026-10-20, R3/R4) and declared beside the fn, so it collides
     // with a same-named type, or another `iter fn`'s state, in that scope.
@@ -370,7 +329,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
             default: None,
             span: field_span,
         });
-        let read_span = spans.take();
+        let read_span = decl_span;
         lit_fields.push(StructLitField {
             kind: StructLitFieldKind::Named {
                 name: Ident {
@@ -562,7 +521,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
     let mut rewrite = Rewrite {
         params: held.clone(),
         state: state_names,
-        spans,
+        decl_span,
     };
     rewrite.block(&mut next_body);
     // [yield-proj] An `iter fn` emitting borrowed elements names the
@@ -871,9 +830,9 @@ struct Rewrite {
     /// Parameter name -> the field holding it.
     params: BTreeMap<String, String>,
     state: Vec<String>,
-    /// Distinct spans for the `__p` bases this rewrite synthesizes, continuing
-    /// the declaration's allocation so no two synthesized nodes collide.
-    spans: Spans,
+    /// The span of the `__p` bases this rewrite synthesizes: the
+    /// declaration's.
+    decl_span: Span,
 }
 
 impl Rewrite {
@@ -887,7 +846,7 @@ impl Rewrite {
         } else {
             return None;
         };
-        let base_span = self.spans.take();
+        let base_span = self.decl_span;
         Some(pass_field(&field, ident.span, base_span))
     }
 

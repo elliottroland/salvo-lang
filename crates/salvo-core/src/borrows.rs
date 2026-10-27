@@ -17,7 +17,7 @@ use crate::program::Program;
 /// produces an optional borrow.
 pub fn is_optional_derived_call(checked: &Checked, file_idx: usize, value: &Expr) -> bool {
     let Expr::Call { span, .. } = value else { return false };
-    if !checked.derived_calls.contains_key(&(file_idx, *span)) {
+    if !checked.derived_calls.contains_key(&checked.key_at(file_idx, *span)) {
         return false;
     }
     checked.ty_of(file_idx, *span).is_some_and(|t| t.strip_quals().has_none_arm())
@@ -28,7 +28,7 @@ pub fn is_optional_derived_call(checked: &Checked, file_idx: usize, value: &Expr
 /// anything else.
 pub fn call_borrowed_arms(program: &Program, checked: &Checked, file_idx: usize, call: &Expr) -> Vec<usize> {
     let Expr::Call { span, .. } = call else { return Vec::new() };
-    let Some(key) = checked.call_fn.get(&(file_idx, *span)).copied() else { return Vec::new() };
+    let Some(key) = checked.call_fn.get(&checked.key_at(file_idx, *span)).copied() else { return Vec::new() };
     let Some(decl) = checked.decls.fn_decl(&program.modules, key) else { return Vec::new() };
     let Some(Type::Union { arms, .. }) = decl.return_type.as_ref() else { return Vec::new() };
     arms.iter()

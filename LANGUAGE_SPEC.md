@@ -2748,7 +2748,7 @@ Conventions:
     [assert-trap], so "the fallthrough is dead" is carried in the IR
     rather than each emitter synthesizing its own unreachable `else`
     (`panic!` on Rust, `throw` on Kotlin). The checker records the verdict
-    (`Checked::when_exhaustive`, keyed by the `when`'s span) and the
+    (`Checked::when_exhaustive`, keyed by the `when`'s node [node-id]) and the
     builder reads it.
 * [when-condition] `when` is **always exhaustive**, and a *subject-less*
   `when` is the second way it can be: `when { cond { … } … else { … } }`,
@@ -4355,7 +4355,7 @@ Conventions:
     construction), the field is referenced **bare** in member bodies (ctor
     params and state both read bare — there is no `state.` receiver), and
     state is implicitly `Mut`. The inferred type is carried in a checker
-    side table keyed by the field-name span and read back at IR lowering, the
+    side table keyed by the field name's node and read back at IR lowering, the
     way `waitfor`'s inferred token type is [waitfor-infer] — the AST's
     `FieldDecl.ty` is `None` for an inferred field. A struct field and a
     qualifier override always write their type. An `iter fn`'s `state Name {
@@ -4363,8 +4363,8 @@ Conventions:
     an `iter fn`'s state is lowered to a struct before the checker runs,
     the field's initializer moves to the minter's returned struct literal, so
     the checker infers an untyped field's type *there* and records it at the
-    field-name span — the generated struct field, the `next` body's
-    `__p.<field>` reads, and the IR all read it back from that span.
+    generated struct field's name — the `next` body's `__p.<field>` reads
+    and the IR read it back from that node.
 * [effect-handler-multi] **A handler may implement several effects**, one face
   per effect: `handler ManualTime() of Timer, TimerCtl` (T-4(a), user decision
   2026-09-17; built 2026-09-18). One handler, one piece of state, one mailbox
@@ -5145,7 +5145,8 @@ Conventions:
     * Each stamped member gets a name span of its own (the group member's
       name under an expansion of its own, `ExpansionKind::Member`, whose
       diagnostics land at the `by` site [origin]), since one site stamps
-      several and a fn's implicits are keyed by its name.
+      several (a concrete target's members share the site's span, which
+      node keys tell apart [node-id]).
     * The obligation's match ignores the trailing implicits
       [group-obligation].
     * **Calls fill them**: a written call as always, an operator
@@ -5715,8 +5716,8 @@ Conventions:
     writes is implicitly visible to std.
   * **Spans are origins** [origin]: every node of a stamped body keeps its
     span in the template and carries a fresh expansion id, one per unrolled
-    copy, so the checker's span-keyed side tables never see two copies as
-    one node. The `Stamp` on the fn records the expansions; a diagnostic at a
+    copy; the checker's facts are keyed by node [node-id], so two copies are
+    two nodes whatever their spans. The `Stamp` on the fn records the expansions; a diagnostic at a
     copied node lands on the field or arm the copy was for, prefixed — "in
     `cmp` from `auto` for `Point.y: Double`: no matching overload for
     `cmp(Double, Double)`" at the field declaration — or, for the template's
@@ -5755,17 +5756,20 @@ Conventions:
     (`Span::order_key`, the order the synthetic spans had), a span contains
     another of its own expansion only, and only a written span covers an
     offset of its file (`Span::holds`) — so the language server never finds
-    a copied node under the cursor, and a range it reports for one is the
-    document's end (where the synthetic spans landed).
-  * Ids are the file's, in the order made; a fn's are a run of them (its
-    copied facts are found by that run, `Lower::fn_body`). A location
-    computed from a copied node outside a diagnostic (a trap's
-    `module:line:col`, "moved at line N", `salvo facts`' rows) is the file's
-    end, as before (ROADMAP 0ac: render it through the origin too).
-  * Not yet origins: the `iter fn` desugaring's one-byte spans inside the
-    declaration (`desugar::Spans`), which exist only to keep synthesized
-    nodes' keys apart, and the `0..0` placeholders; per-declaration node keys
-    (A3) remove the need for both.
+    a copied node under the cursor.
+  * Ids are the file's, in the order made; a fn's are a run of them. Being
+    the file's, an id finds the stamped fn it belongs to from the span alone
+    (`origin::stamp_of`).
+  * **A location outside a diagnostic lands where a diagnostic would**
+    (`origin::landing`, A3, ROADMAP 0ac): a trap's `module:line:col`
+    [assert-trap], "moved at line N" and the IR dump's notes, `salvo facts`'
+    rows, a language-server range, and the deadlock check's reports (which
+    are also prefixed and attributed to the stamped fn, as the checker's
+    diagnostics are). Until 2026-10-28 these were at the end of the file.
+  * What the `iter fn` desugaring makes has its declaration's own span (the
+    generated `next` its name, the rest the whole `iter fn`); it was given
+    distinct one-byte spans inside the declaration to keep span keys apart
+    until node keys [node-id].
 * [cmp-carry] A structure that **holds** an ordering (or a hash, or an
   equality) names it as a **fn-valued type argument**, fixed at construction
   (user decision 2026-09-21, the ordering round's decision 1). The identity lands *in
@@ -8130,8 +8134,8 @@ between endpoints and delivers what arrives into the scheduler.
   that *also* occurs outside `Addr` stays a generic.
   * Because the emitters match declarations by address between the resolver's
     scopes and the symbol table, both are rebuilt over the erased copy; the
-    checker's span-keyed side tables from the original still apply, since
-    erasure changes no span.
+    checker's side tables from the original still apply, since erasure
+    changes no node's span or id [node-id].
   * **One scope, one instance of an erased effect** (2026-09-27). `RouteSelector<A>`
     and `RouteSelector<B>` are one type in the output, so a `use` binding the second
     while the first is visible is refused, naming the remedy — a nested
@@ -10847,9 +10851,9 @@ between endpoints and delivers what arrives into the scheduler.
     `implicit_params`, `established_quals`, `param_mutations`,
     `deductions`, `call_fn`, `fn_refs`, `replyto_tasks`, `interp_to_str`,
     `ImplicitArg::Resolved`, `PassMember::Fn`, …) and the IR's references
-    are keyed by it; a handler's member is not yet a key of the checker's
-    tables (its facts are keyed by its name span) and in the IR still
-    carries its handler's id.
+    are keyed by it; a handler's member is its own declaration, so the facts
+    of its nodes are keyed by its member id [node-id], and its IR `FnDecl`
+    carries that id.
   * A type's identity in `Ty::Named` is its **key**, the id's spelling
     [type-identity]: `Symbols::key_of_id` maps a type declaration's id to it,
     so the IR and the emitters, which name declarations by id, read keys
@@ -10857,6 +10861,40 @@ between endpoints and delivers what arrives into the scheduler.
   * The IR's generated declarations (message, continuation and private
     enums, stubs, routes, dispatchers) are identified by their module and
     generated name, a module-level `use`'s statics by their local.
+* [node-id] **A fact is keyed by its declaration and node** (PIPELINE.md
+  §II.9 A3; user decision P2, 2026-10-27): `check::Key` is `(DeclId,
+  NodeId)` — the declaration the node is in [decl-id] (a member its own; a
+  file's own nodes, its imports, renames, refinements and module-level
+  `use`s, its `DeclKind::File` id) and the node's ordinal within it, in walk
+  order. The span is not the key: it is the node's origin [origin], carried
+  in the key for a reader that places a fact (the language server,
+  `salvo facts`, a diagnostic), and takes no part in its equality.
+  * **Numbered on the tree, once, after its last rewrite**
+    (`salvo_syntax::node_id::number`): the parse, each file's expansions and
+    the comptime stamping of a file each number what they produced, so the
+    ordinal is a field of every span-bearing node (`Span::node`, the node's
+    ordinal in its file) and the module records each declaration's run of
+    ordinals (`Module::node_ranges`); `DeclIndex::key` turns a node's span
+    into its key. The checker (`Checker::key`), the IR builder (`Lower::key`)
+    and every other reader read the same field, so nothing recomputes a key.
+    Uniform for written and made nodes: what a desugaring made and what a
+    stamp copied are numbered like written code. A span no numbered node
+    holds (a covering span made by `Span::to`) has no key — keying one is a
+    bug, a panic in a debug build.
+  * **Identity, not origin**: `Span`'s equality, hash and order ignore
+    `node`, so every span-keyed structure that is about positions is as it
+    was; two nodes at one span (two stamps named at one `by` site, the
+    expansions a `test` makes at its name) are two keys.
+  * **Stable**: an edit above a declaration moves its spans, not its keys —
+    what a per-declaration cache of facts stands on (A4).
+  * **Made nodes no tree holds** (`Key::synthetic`): the `qualifies` call an
+    `is` test implies, and the `to_str` call an interpolated value implies,
+    are keys of their declaration no written node has, derived from the node
+    they are made at — recorded in the fact that needs it
+    (`PredicateCheck::implicits_at`) or derived alike by both sides.
+  * **Variable ids are per declaration** (`Checker::next_var_id`, reset at
+    each body and handler): what a body's facts carry of them does not move
+    when another declaration of the file changes.
 * [mod-used-only] Only modules used by the program are transpiled. Roots are
   the user modules declaring `fn main` (all user modules for a library compile
   without one), and from there a module is reached **two ways** (user decision
@@ -11883,7 +11921,7 @@ replaced the working document TESTING.md).
   every answer the checker recorded. It infers nothing: where the checker
   left no answer, the node is `Unsupported` and an error names it, so a
   backend never renders a guess [backend-never-wrong]. Both backends read
-  the IR only; the checker's span-keyed tables are the builder's inputs.
+  the IR only; the checker's node-keyed tables [node-id] are the builder's inputs.
 * [ir-analyze] **The IR analyses run per declaration** (`ir::analyze`,
   `ir::gate`; PIPELINE.md R8 piece 9, 2026-10-20): the IR is built, and the
   flow pass [flow-use-after-move] and the linear check [ir-linear-check] run,
@@ -12158,8 +12196,8 @@ replaced the working document TESTING.md).
     errors.
 * [fn-ref-table] The checker records every fn-*name* reference —
   declaration names, call-site callees (incl. dot-notation), and
-  fn-by-name uses — as `Checked::fn_refs: (file, name span) -> DeclId`
-  [decl-id].
+  fn-by-name uses — as `Checked::fn_refs: Key -> DeclId`, keyed by the
+  name's node [node-id] [decl-id].
   The LSP's hover renders the referenced declaration as a full
   source-like signature with an explicit return type (`None` when
   omitted) and the *effective* deduction clause in the `=>` spelling: the
@@ -12595,7 +12633,7 @@ replaced the working document TESTING.md).
   handler, qualifier, type alias, opaque type, effect member — through
   `Checked::def_refs`, fed by `ModuleScope::def_sites` (visible name ->
   declaring file + identifier span, alias-aware); *field* accesses through
-  `Checked::field_refs`, keyed by the field-name span in `base.field`
+  `Checked::field_refs`, keyed by the field name's node in `base.field`
   (2026-09-03).
   * A field resolves to the struct's own declaration even when a predicate
     qualifier overrides its type [qual-field-override]: the override

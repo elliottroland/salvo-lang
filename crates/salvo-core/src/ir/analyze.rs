@@ -91,7 +91,11 @@ pub fn analyze_full(
                 _ => FileDiagnostic::error(file, span, message),
             };
             // [flow-use-after-move] A use of a moved value, naming the move.
-            for d in super::flow::check_one(decl) {
+            for mut d in super::flow::check_one(decl) {
+                // [origin] A move in copied code is named where it lands.
+                if let Some(m) = program.modules.get(file) {
+                    d.moved_at = crate::origin::landing(m, d.moved_at);
+                }
                 out.push(report(d.span, d.render(content)));
             }
             let linear_diags = if linear {
@@ -137,8 +141,9 @@ fn stamp_of<'p>(program: &'p Program, resolution: &Resolution, decl: &super::Dec
 /// binding that took ownership made: such a binding is the value's owner,
 /// and nothing derived from it shares fate with what it took.
 pub fn drop_owned_fate_reads(checked: &mut Checked, decision: &super::Decision) {
-    checked.fate_reads.retain(|&(file, _), reads| {
-        reads.retain(|r| !decision.decided.contains(&(file, r.bind_span)));
+    let decls = checked.decls.clone();
+    checked.fate_reads.retain(|k, reads| {
+        reads.retain(|r| !decision.decided.contains(&decls.key(k.file(), r.bind_span, &std::cell::Cell::new(0))));
         !reads.is_empty()
     });
 }

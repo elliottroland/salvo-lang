@@ -96,7 +96,7 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                             exported: t.exported,
                             type_params: type_params(&t.generics, &t.generic_canbe),
                             ty: ctx.written_ty(file_idx, alias),
-                            factories: ctx.checked.factories.get(&(file_idx, t.name.span)).cloned(),
+                            factories: ctx.checked.factories.get(&ctx.checked.key_at(file_idx, t.name.span)).cloned(),
                             span: t.span,
                         }));
                     }
@@ -261,12 +261,12 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
                     mode: modes.member_param(m, p),
                     variadic: p.variadic,
                     // [platform-check] a `Reply<T>` the host answers on.
-                    check: ctx.checked.boundary_checks.get(&(file_idx, p.name.span)).cloned(),
+                    check: ctx.checked.boundary_checks.get(&ctx.checked.key_at(file_idx, p.name.span)).cloned(),
                     span: p.span,
                 });
             }
             // [implicit-param] a member's implicits are trailing parameters.
-            if let Some(imps) = ctx.checked.implicit_members.get(&(file_idx, m.name.span)) {
+            if let Some(imps) = ctx.checked.implicit_members.get(&ctx.checked.key_at(file_idx, m.name.span)) {
                 for ip in imps {
                     params.push(Param { local: Local(ip.local.clone()), ty: erase(&ip.ty), mode: PassMode::Lent, variadic: false, check: None, span: ip.span });
                 }
@@ -274,11 +274,11 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
             // [platform-check] [platform-factory] the host boundary of a
             // platform-handled member: its result check, and the factories of
             // its result and reply payloads.
-            let result_check = ctx.checked.boundary_checks.get(&(file_idx, m.name.span)).cloned();
+            let result_check = ctx.checked.boundary_checks.get(&ctx.checked.key_at(file_idx, m.name.span)).cloned();
             let mut factories: Vec<crate::abi::Factories> = Vec::new();
-            factories.extend(ctx.checked.factories.get(&(file_idx, m.name.span)).cloned());
+            factories.extend(ctx.checked.factories.get(&ctx.checked.key_at(file_idx, m.name.span)).cloned());
             for p in &m.params {
-                factories.extend(ctx.checked.factories.get(&(file_idx, p.name.span)).cloned());
+                factories.extend(ctx.checked.factories.get(&ctx.checked.key_at(file_idx, p.name.span)).cloned());
             }
             Member {
                 name: m.name.name.clone(),
@@ -364,13 +364,18 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         .filter(|f| crate::linear::ty_own_linear(ctx.symbols, &std::collections::HashSet::new(), &f.ty))
         .map(|f| f.name.clone())
         .collect();
-    let member_fn = |f: &ast::FnDecl, errors: &mut Vec<String>| {
+    // [decl-id] A member is its own declaration: `sub` its position plus
+    // one, `init` after the fns (`DeclIndex::member`).
+    let item = ctx.item_of(id);
+    let member_fn = |f: &ast::FnDecl, sub: usize, errors: &mut Vec<String>| {
         let faces_n = crate::effects::handler_member_faces(&face_decls, f).len();
-        let mut d = fn_decl(ctx, file_idx, id.clone(), None, f, FnKind::Member { faces: faces_n }, None, &[], errors);
-        // Members are not keyed by their DeclId: build the body with the handler's scope.
+        let member = ctx.checked.decls.member(file_idx, item, sub).unwrap_or(id);
+        let mut d = fn_decl(ctx, file_idx, member, None, f, FnKind::Member { faces: faces_n }, None, &[], errors);
+        // A member's tables are not keyed by its DeclId (it has no fn
+        // entry): build the body with the handler's scope.
         let mut fate = FateFacts::default();
         d.body = f.body.as_ref().filter(|_| bodies).map(|b| {
-            let mut lower = Lower::new(ctx, file_idx, None);
+            let mut lower = Lower::new(ctx, file_idx, Some(member));
             lower.self_fields = self_fields.clone();
             lower.effect_env = statics.to_vec();
             lower.effect_env.extend(dep_locals.clone());
@@ -396,13 +401,13 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
             for p in &params {
                 lower.bind_owned(&p.local.0, p.ty.clone(), p.mode == PassMode::Moved);
             }
-            if let Some(imps) = ctx.checked.implicit_members.get(&(file_idx, f.name.span)) {
+            if let Some(imps) = ctx.checked.implicit_members.get(&ctx.checked.key_at(file_idx, f.name.span)) {
                 for ip in imps {
                     lower.bind(&ip.local, erase(&ip.ty));
                 }
             }
             let ret = f.return_type.as_ref().map(|t| ctx.written_ty(file_idx, t)).unwrap_or_else(Ty::none);
-            let block = lower.fn_body(b, &ret, f.stamped.as_ref());
+            let block = lower.fn_body(b, &ret);
             fate = std::mem::take(&mut lower.fate);
             errors.extend(lower.finish());
             block
@@ -412,8 +417,8 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         d.fate = fate;
         d
     };
-    let init = h.init.as_ref().map(|f| member_fn(f, errors));
-    let members: Vec<FnDecl> = h.fns.iter().map(|f| member_fn(f, errors)).collect();
+    let init = h.init.as_ref().map(|f| member_fn(f, h.fns.len() + 1, errors));
+    let members: Vec<FnDecl> = h.fns.iter().enumerate().map(|(i, f)| member_fn(f, i + 1, errors)).collect();
     let mailbox = h.mailbox.as_ref().filter(|_| bodies).map(|m| {
         let mut lower = Lower::new(ctx, file_idx, None);
         for (n, t) in &self_fields {
@@ -460,14 +465,14 @@ fn fn_decl(
     errors: &mut Vec<String>,
 ) -> FnDecl {
     let modes = Modes { symbols: ctx.symbols, checked: ctx.checked, program: ctx.program };
-    let mut lower = Lower::new(ctx, file_idx, key);
+    let mut lower = Lower::new(ctx, file_idx, Some(id));
     lower.effect_env.extend(statics.iter().cloned());
     // The tables are keyed by the fn's key; a qualifier fn has one through
     // its name span, a member none.
-    let table_key = key.or_else(|| ctx.checked.fn_refs.get(&(file_idx, f.name.span)).copied());
+    let table_key = key.or_else(|| ctx.checked.fn_refs.get(&ctx.checked.key_at(file_idx, f.name.span)).copied());
     // [effect-alias] [effect-prereq] A fn without a key (a qualifier's, a
     // member) has its expanded list by name span.
-    let declared_effects: Vec<Ty> = ctx.checked.decl_effects.get(&(file_idx, f.name.span)).cloned().unwrap_or_default();
+    let declared_effects: Vec<Ty> = ctx.checked.decl_effects.get(&ctx.checked.key_at(file_idx, f.name.span)).cloned().unwrap_or_default();
     let mut params: Vec<Param> = Vec::new();
     // [effect-fn-deps] Effects as values: leading parameters.
     let effects: Vec<Ty> = table_key
@@ -523,7 +528,7 @@ fn fn_decl(
                 implicit_params += 1;
             }
         }
-    } else if let Some(imps) = ctx.checked.implicit_members.get(&(file_idx, f.name.span)) {
+    } else if let Some(imps) = ctx.checked.implicit_members.get(&ctx.checked.key_at(file_idx, f.name.span)) {
         // A member or qualifier fn: keyed by its name span [implicit-param].
         for ip in imps {
             let ty = erase(&ip.ty);
@@ -572,7 +577,7 @@ fn fn_decl(
     } else if ctx.gate.body_broken(file_idx, ctx.item_of(id)) {
         None // [ir-analyze] a broken declaration's interface only
     } else {
-        f.body.as_ref().map(|b| lower.fn_body(b, &ret, f.stamped.as_ref()))
+        f.body.as_ref().map(|b| lower.fn_body(b, &ret))
     };
     let mut fate = std::mem::take(&mut lower.fate);
     fate.name_span = f.name.span;
@@ -608,8 +613,8 @@ fn fn_decl(
         holds,
         ref_anchors,
         throws,
-        result_check: if f.platform { ctx.checked.boundary_checks.get(&(file_idx, f.name.span)).cloned() } else { None },
-        factories: if f.platform { ctx.checked.factories.get(&(file_idx, f.name.span)).cloned() } else { None },
+        result_check: if f.platform { ctx.checked.boundary_checks.get(&ctx.checked.key_at(file_idx, f.name.span)).cloned() } else { None },
+        factories: if f.platform { ctx.checked.factories.get(&ctx.checked.key_at(file_idx, f.name.span)).cloned() } else { None },
         body,
         span: f.span,
         fate,

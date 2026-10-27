@@ -14,7 +14,7 @@ pub struct Ident {
 }
 
 /// A parsed source file.
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, PartialEq, Default)]
 pub struct Module {
     /// [doc-module] The module's own documentation: the first `//` comment
     /// run in the file, when it documents no declaration — a blank line
@@ -38,6 +38,37 @@ pub struct Module {
     /// namespace may share its name with a type, so it is not enough to look
     /// for a declaration [namespace].
     pub namespaces: Vec<String>,
+    /// [node-id] Every declaration's run of node ordinals, in numbering
+    /// order (`node_id::number`): the file's own nodes (its imports,
+    /// renames, refinements and module-level `use`s) first, then each
+    /// declaration, a member after its container's own nodes. Empty until
+    /// the module is numbered.
+    pub node_ranges: Vec<NodeRange>,
+}
+
+/// The tree, without the numbering (`node_ranges`): what the parser made.
+impl fmt::Debug for Module {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Module { docs, items, uses, namespaces, node_ranges: _ } = self;
+        f.debug_struct("Module").field("docs", docs).field("items", items).field("uses", uses).field("namespaces", namespaces).finish()
+    }
+}
+
+/// [node-id] One declaration's nodes: ordinals `first..first + len` of its
+/// file. `item` and `sub` say which declaration, as `DeclLoc` does (`sub` 0
+/// for the item, the member's position plus one for a member);
+/// [`NodeRange::FILE`] for the file's own nodes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct NodeRange {
+    pub first: u32,
+    pub len: u32,
+    pub item: u32,
+    pub sub: u32,
+}
+
+impl NodeRange {
+    /// The `item` of the file's own nodes, which no declaration holds.
+    pub const FILE: u32 = u32::MAX;
 }
 
 /// [mod-use] One module-level `use`.

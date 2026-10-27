@@ -738,7 +738,7 @@ fn the_flow_pass_decides_the_modes_and_the_ir_follows() {
     // Before the IR's decision every link is presented; after, none a
     // binding that took ownership made.
     let stamped = |c: &salvo_core::Checked, d: &salvo_core::ir::Decision| {
-        c.fate_reads.iter().filter(|((f, _), reads)| *f == file && reads.iter().any(|r| d.decided.contains(&(*f, r.bind_span)))).count()
+        c.fate_reads.iter().filter(|(k, reads)| k.file() == file && reads.iter().any(|r| d.decided.contains(&c.key_at(k.file(), r.bind_span)))).count()
     };
     let (diags, decision) = salvo_core::ir::analyze::analyze_full(&program, &symbols, &resolution, &checked, &[]);
     assert!(diags.is_empty(), "{:?}", diags.iter().map(|d| &d.message).collect::<Vec<_>>());

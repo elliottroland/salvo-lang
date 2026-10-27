@@ -112,6 +112,8 @@ pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Ve
         }
         module.items = kept;
     }
+    // [node-id] The file's tree is final until comptime stamps into it.
+    salvo_syntax::node_id::number(module);
     (found, diags)
 }
 

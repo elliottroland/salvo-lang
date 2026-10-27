@@ -26,8 +26,8 @@ use crate::types::{is_proj_name, Ty};
 #[derive(Clone)]
 pub struct MutLendUses {
     pub fns: HashSet<crate::DeclId>,
-    pub sites: HashSet<(usize, Span)>,
-    pub forwards: HashSet<(usize, Span)>,
+    pub sites: HashSet<crate::check::Key>,
+    pub forwards: HashSet<crate::check::Key>,
 }
 
 /// Seeds are `Checked::mut_lend_calls` resolved through `call_fn`; the
@@ -45,7 +45,7 @@ pub fn mut_lend_uses(program: &Program, checked: &Checked) -> MutLendUses {
     // checker marked as a mutable-handle bind (`handle_muts`) whose value
     // is a lending call demands the callee's locator variant exactly as a
     // statement-scoped use does.
-    let mut seeds_in: Vec<(usize, Span)> = checked.mut_lend_calls.iter().copied().collect();
+    let mut seeds_in: Vec<crate::check::Key> = checked.mut_lend_calls.iter().copied().collect();
     for (file_idx, module) in program.modules.iter().enumerate() {
         for item in &module.items {
             let bodies: Vec<&Block> = match item {
@@ -57,11 +57,11 @@ pub fn mut_lend_uses(program: &Program, checked: &Checked) -> MutLendUses {
                 let mut lets: Vec<(Span, &Expr)> = Vec::new();
                 collect_let_values(body, &mut lets);
                 for (span, value) in lets {
-                    if !checked.handle_muts.contains(&(file_idx, span)) {
+                    if !checked.handle_muts.contains(&checked.key_at(file_idx, span)) {
                         continue;
                     }
                     if let Some(call_span) = mut_lend_call_of(value) {
-                        seeds_in.push((file_idx, call_span));
+                        seeds_in.push(checked.key_at(file_idx, call_span));
                     }
                 }
             }
@@ -123,12 +123,12 @@ pub fn mut_lend_uses(program: &Program, checked: &Checked) -> MutLendUses {
                 e = operand;
             }
             let Expr::Call { span, .. } = e else { continue };
-            let Some(fk2) = checked.call_fn.get(&(checked.decls.file(fk), *span)) else {
+            let Some(fk2) = checked.call_fn.get(&checked.key_at(checked.decls.file(fk), *span)) else {
                 continue;
             };
             let Some(decl2) = fn_of(*fk2) else { continue };
             if decl2.derived_return.is_some() {
-                forwards.insert((checked.decls.file(fk), *span));
+                forwards.insert(checked.key_at(checked.decls.file(fk), *span));
                 if !decl2.intrinsic {
                     worklist.push(*fk2);
                 }

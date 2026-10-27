@@ -418,12 +418,12 @@ pub struct VirtualAt {
 /// bindings that take ownership (by stamp), the statements and loops the
 /// builder lowers as moves (`modes`: those bindings, and the loops they
 /// make iterate by value), and the bindings rendered as virtual places
-/// [deduce-field]. Keyed by (file index, span), as the checker's tables.
+/// [deduce-field]. Keyed as the checker's tables are [node-id].
 #[derive(Clone, Default, Debug)]
 pub struct Decision {
-    pub decided: std::collections::HashSet<(usize, Span)>,
-    pub modes: std::collections::HashSet<(usize, Span)>,
-    pub virtual_binds: std::collections::HashMap<(usize, Span), String>,
+    pub decided: std::collections::HashSet<crate::check::Key>,
+    pub modes: std::collections::HashSet<crate::check::Key>,
+    pub virtual_binds: std::collections::HashMap<crate::check::Key, String>,
 }
 
 #[derive(Clone)]

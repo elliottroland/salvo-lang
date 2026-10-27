@@ -98,15 +98,12 @@ fn take(p: Mut Countdown, count: Int) -> None
   82:20   `count`                        Int
   83:13   `break`                        Never
 fn halving(start: Int) -> Mut Halving
-  97:9    `…`                            Mut Halving
-  97:10   `…`                            Never
-  97:11   `…`                            Int
+  97:6    `fn halving(start: Int) -> …`  Never
+  97:6    `fn halving(start: Int) -> …`  Mut Halving
+  97:6    `fn halving(start: Int) -> …`  Int
   101:19  `start`                        Int
 fn next(__p: Mut Halving) -> Emitted Int | Finished
-  97:12   `…`                            Mut Halving
-  97:13   `…`                            Mut Halving
-  97:14   `…`                            Mut Halving
-  97:15   `…`                            Mut Halving
+  97:6    `fn halving(start: Int) -> …`  Mut Halving
   103:5   `if at <= 0 {…`                None
   103:8   `at <= 0`                      Bool
   103:8   `at`                           Int
@@ -127,15 +124,12 @@ fn halving_from_ten() -> Mut Halving
   113:12  `halving(10)`                  Mut Halving  -> main::halving
   113:20  `10`                           Int
 fn iter(bag: Bag) -> Mut BagIter
-  126:9   `…`                            Mut BagIter
-  126:10  `…`                            Never
-  126:11  `…`                            Bag
+  126:6   `fn iter(bag: Bag) -> Emitt…`  Never
+  126:6   `fn iter(bag: Bag) -> Emitt…`  Mut BagIter
+  126:6   `fn iter(bag: Bag) -> Emitt…`  Bag
   128:19  `0`                            Int
 fn next(__p: Mut BagIter) -> Emitted Int | Finished
-  126:12  `…`                            Mut BagIter
-  126:13  `…`                            Mut BagIter
-  126:14  `…`                            Mut BagIter
-  126:15  `…`                            Mut BagIter
+  126:6   `fn iter(bag: Bag) -> Emitt…`  Mut BagIter
   130:13  `get(bag.items, at)`           Int?  -> std.core.list::get(List<T>, Int)
   130:17  `bag.items`                    List<Int>
   130:17  `bag`                          proj Bag
@@ -154,23 +148,14 @@ fn next(__p: Mut BagIter) -> Emitted Int | Finished
   135:20  `copy(e)`                      Int  -> std.core.basic::copy
   135:25  `e`                            Int  [narrowed]
 fn fibs(count: Int) -> Mut Fibs
-  142:9   `…`                            Mut Fibs
-  142:10  `…`                            Never
-  142:11  `…`                            Int
+  142:6   `fn fibs(count: Int) [Conso…`  Never
+  142:6   `fn fibs(count: Int) [Conso…`  Mut Fibs
+  142:6   `fn fibs(count: Int) [Conso…`  Int
   144:18  `0`                            Int
   145:18  `1`                            Int
   146:21  `0`                            Int
 fn next(__p: Mut Fibs) -> Emitted Int | Finished
-  142:12  `…`                            Mut Fibs
-  142:13  `…`                            Mut Fibs
-  142:14  `…`                            Mut Fibs
-  142:15  `…`                            Mut Fibs
-  142:16  `…`                            Mut Fibs
-  142:17  `…`                            Mut Fibs
-  142:18  `…`                            Mut Fibs
-  142:19  `…`                            Mut Fibs
-  142:20  `…`                            Mut Fibs
-  142:21  `…`                            Mut Fibs
+  142:6   `fn fibs(count: Int) [Conso…`  Mut Fibs
   148:5   `if made >= count {…`          None
   148:8   `made >= count`                Bool
   148:8   `made`                         Int
@@ -198,14 +183,12 @@ fn next(__p: Mut Fibs) -> Emitted Int | Finished
   157:12  `emitted(now)`                 Emitted Int  -> std.core.iterator::emitted  [coerced]
   157:20  `now`                          Int
 fn naturals(from: Int) -> Mut Naturals
-  162:9   `…`                            Mut Naturals
-  162:10  `…`                            Never
-  162:11  `…`                            Int
+  162:6   `fn naturals(from: Int) -> …`  Never
+  162:6   `fn naturals(from: Int) -> …`  Mut Naturals
+  162:6   `fn naturals(from: Int) -> …`  Int
   164:19  `from`                         Int
 fn next(__p: Mut Naturals) -> Emitted Int | Finished
-  162:12  `…`                            Mut Naturals
-  162:13  `…`                            Mut Naturals
-  162:14  `…`                            Mut Naturals
+  162:6   `fn naturals(from: Int) -> …`  Mut Naturals
   166:15  `copy(at)`                     Int  -> std.core.basic::copy
   166:20  `at`                           Int
   167:5   `at`                           Int

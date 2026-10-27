@@ -636,7 +636,8 @@ impl<'a, 'p> Lower<'a, 'p> {
         if let Some(k) = info.to_str.copied() {
             let at = span.at(span.end, span.end);
             let mut args = vec![value];
-            args.extend(self.implicit_args_at(at));
+            let key = self.key(span).synthetic(crate::check::Key::INTERP_TEXT);
+            args.extend(self.implicit_args_keyed(key, at));
             return Some(Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Decl(k), type_args: Vec::new(), args, moved: false } });
         }
         self.native_text(value, span)
@@ -959,7 +960,13 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// [implicit-resolve] The arguments filling a callee's implicit
     /// positions, recorded at `at`.
     pub(crate) fn implicit_args_at(&mut self, at: Span) -> Vec<Expr> {
-        let Some(filled) = self.ctx.checked.implicit_args.get(&self.key(at)).cloned() else { return Vec::new() };
+        let key = self.key(at);
+        self.implicit_args_keyed(key, at)
+    }
+
+    /// [`Lower::implicit_args_at`] by the key the checker recorded them at.
+    pub(crate) fn implicit_args_keyed(&mut self, key: crate::check::Key, at: Span) -> Vec<Expr> {
+        let Some(filled) = self.ctx.checked.implicit_args.get(&key).cloned() else { return Vec::new() };
         self.implicit_list(&filled, &[], at)
     }
 
@@ -1177,7 +1184,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.block_expr(vec![Stmt::Let { id, local: tmp, ty: tt, value: target }], call, span)
     }
 
-    fn mark_consumed_by_contract(&mut self, mut args: Vec<Expr>, key: &(usize, Span)) -> Vec<Expr> {
+    fn mark_consumed_by_contract(&mut self, mut args: Vec<Expr>, key: &crate::check::Key) -> Vec<Expr> {
         if let Some(contract) = self.ctx.checked.fn_value_calls.get(key) {
             for (a, c) in args.iter_mut().zip(contract) {
                 if !c.kept {
@@ -1736,7 +1743,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             .and_then(|l| match self.ctx.program.modules[l.file].items.get(l.item) {
                 // [effect-alias] [effect-prereq] As the checker expanded it.
                 Some(ast::Item::Qualifier(q)) => q.fns.get((l.sub as usize).wrapping_sub(1)).map(|f| {
-                    self.ctx.checked.decl_effects.get(&(l.file, f.name.span)).map(|l| l.iter().map(erase).collect()).unwrap_or_default()
+                    self.ctx.checked.decl_effects.get(&self.ctx.checked.key_at(l.file, f.name.span)).map(|l| l.iter().map(erase).collect()).unwrap_or_default()
                 }),
                 _ => None,
             })
@@ -1749,7 +1756,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             args.push(self.slot_arg(a, Ty::Unknown, span));
         }
         if let Some(at) = check.implicits_at {
-            args.extend(self.implicit_args_at(at));
+            args.extend(self.implicit_args_keyed(at, at.span));
         }
         Expr { ty: bool_ty, span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: Vec::new(), args, moved: false } }
     }
@@ -2518,8 +2525,11 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     /// [assert-trap] The Salvo location a trap names: `module:line:col` —
     /// the module path, not the file name, which depends on the loader.
+    /// [origin] A node a stamp copied names the place a diagnostic about it
+    /// would (`origin::landing`).
     pub(crate) fn location(&self, span: Span) -> String {
         let file = &self.ctx.program.files[self.file_idx];
+        let span = crate::origin::landing(&self.ctx.program.modules[self.file_idx], span);
         let (line, col) = salvo_syntax::span::span_line_col(&file.content, span);
         format!("{}:{line}:{col}", file.module)
     }

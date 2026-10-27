@@ -59,6 +59,13 @@ pub fn dump_program(
     // appended after its module.
     let throws = check::throws_map(&ir);
     let file_content = |file_name: &str| -> Option<&str> { program.files.iter().find(|f| f.name == file_name).map(|f| f.content.as_str()) };
+    // [origin] A copied node's location is where it lands (`origin::landing`).
+    let landing = |file_name: &str, span: Span| -> Span {
+        match program.files.iter().position(|f| f.name == file_name) {
+            Some(i) => crate::origin::landing(&program.modules[i], span),
+            None => span,
+        }
+    };
     let mut text = String::new();
     for m in &ir.modules {
         if !text.is_empty() {
@@ -72,7 +79,7 @@ pub fn dump_program(
             for d in check::check_one(decl, &throws) {
                 let loc = match content {
                     Some(c) => {
-                        let (line, col) = salvo_syntax::span::span_line_col(c, d.span);
+                        let (line, col) = salvo_syntax::span::span_line_col(c, landing(&m.file_name, d.span));
                         format!("{}:{line}:{col}", m.path.0.join("."))
                     }
                     None => format!("{}:{}", m.path.0.join("."), d.span.start),
@@ -80,11 +87,12 @@ pub fn dump_program(
                 inline.push((d.span, format!("{loc}: {}", d.message)));
             }
             // [flow-use-after-move] A use of a moved value, inline the same way.
-            for d in flow::check_one(decl) {
+            for mut d in flow::check_one(decl) {
+                d.moved_at = landing(&m.file_name, d.moved_at);
                 let message = d.render(content.unwrap_or(""));
                 let loc = match content {
                     Some(c) => {
-                        let (line, col) = salvo_syntax::span::span_line_col(c, d.span);
+                        let (line, col) = salvo_syntax::span::span_line_col(c, landing(&m.file_name, d.span));
                         format!("{}:{line}:{col}", m.path.0.join("."))
                     }
                     None => format!("{}:{}", m.path.0.join("."), d.span.start),

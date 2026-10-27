@@ -30,8 +30,84 @@ use crate::resolve::{DefSite, ModuleScope, Resolution};
 use crate::source::ModulePath;
 use crate::types::{is_subtype, FnId, FnParamContract, Qual, QualEffect, Ty};
 
-/// Table key: (file index, expression span).
-pub type Key = (usize, Span);
+/// [node-id] A fact's key: the declaration the node is in and the node's id
+/// within it. Identity is `(decl, node)` alone; the file and the span ride
+/// along as the node's origin, for a reader that places the fact (the
+/// language server, `salvo facts`, a diagnostic) — they take no part in `==`
+/// or `Hash`, so a key does not move when code above its declaration does.
+#[derive(Clone, Copy)]
+pub struct Key {
+    pub decl: DeclId,
+    pub node: crate::decl_id::NodeId,
+    file: u32,
+    /// [origin] The node's span.
+    pub span: Span,
+}
+
+impl Key {
+    pub fn new(decl: DeclId, node: crate::decl_id::NodeId, file: usize, span: Span) -> Key {
+        Key { decl, node, file: file as u32, span }
+    }
+
+    /// The file the node is in.
+    pub fn file(&self) -> usize {
+        self.file as usize
+    }
+
+    /// What the `n` of [`Key::synthetic`] is for the `to_str` call an
+    /// interpolated value implies; a predicate check's `qualifies` call is
+    /// its qualifier's index (below it).
+    pub const INTERP_TEXT: u32 = 63;
+
+    /// [node-id] The `n`th node the checker makes at this one, which no
+    /// tree holds (a `qualifies` call an `is` test implies, the `to_str`
+    /// call an interpolated value does): a key of the same declaration no
+    /// written node has, recorded in the fact that needs it or derived from
+    /// the node's own key by both sides alike, so nothing recomputes it
+    /// differently.
+    pub fn synthetic(self, n: u32) -> Key {
+        debug_assert!(n < 64 && self.node.0 < (1 << 25), "[node-id] synthetic key out of range");
+        Key { node: crate::decl_id::NodeId(0x8000_0000 | (self.node.0 << 6) | n), ..self }
+    }
+}
+
+impl PartialEq for Key {
+    fn eq(&self, other: &Self) -> bool {
+        self.decl == other.decl && self.node == other.node
+    }
+}
+impl Eq for Key {}
+impl std::hash::Hash for Key {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.decl.hash(state);
+        self.node.hash(state);
+    }
+}
+
+/// Printed as its origin, `(file, span)`.
+impl std::fmt::Debug for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {:?})", self.file, self.span)
+    }
+}
+
+impl crate::decl_id::DeclIndex {
+    /// [node-id] The key of the node `span` holds in file `file`. A span no
+    /// numbered node holds (made after numbering, or by `Span::to`) has no
+    /// key: in a debug build that is a panic, the bug being whoever keyed
+    /// it; otherwise it falls back to the file's own id and the span's
+    /// start, as good a key as the span was.
+    pub fn key(&self, file: usize, span: Span, hint: &std::cell::Cell<usize>) -> Key {
+        match self.node_key(file, span, hint) {
+            Some((decl, node)) => Key::new(decl, node, file, span),
+            None => {
+                debug_assert!(false, "[node-id] no numbered node holds {span:?} in file {file}");
+                let decl = self.file_id(file).unwrap_or_else(|| DeclId::generated(&ModulePath(Vec::new()), &["<unnumbered>"]));
+                Key::new(decl, crate::decl_id::NodeId(u32::MAX - span.start), file, span)
+            }
+        }
+    }
+}
 
 /// [std-cache] The reusable result of checking the standard library on its
 /// own, for the language server (ROADMAP §5 step 3). std occupies the leading
@@ -69,6 +145,14 @@ pub struct StdCache {
     /// kept (`resolve::SpanKeys`): what a project's references are merged
     /// into.
     span_keys: crate::resolve::SpanKeys,
+}
+
+impl Checked {
+    /// [node-id] The key of the node `span` holds in file `file`, for a
+    /// reader holding a node.
+    pub fn key_at(&self, file: usize, span: Span) -> Key {
+        self.decls.key(file, span, &std::cell::Cell::new(0))
+    }
 }
 
 impl StdCache {
@@ -223,7 +307,8 @@ impl<'p> Selector<'p> {
             Selector::Module(path) => {
                 let first = path.first()?;
                 let last = path.last()?;
-                Some(first.span.at(first.span.start, last.span.end))
+                // [node-id] Keyed as its first segment's node.
+                Some(Span { end: last.span.end, ..first.span })
             }
             Selector::Type(_) => None,
         }
@@ -564,8 +649,9 @@ pub struct PredicateCheck {
     /// [qual-depend] [col-idx] Where the `qualifies` call's **implicit**
     /// arguments are recorded (`Checked::implicit_args`), when it has any:
     /// `Idx`'s `?size` is resolved at the container the test names. A
-    /// zero-width span at the first value argument, one per qualifier.
-    pub implicits_at: Option<Span>,
+    /// synthetic key at the first value argument, one per qualifier
+    /// (`Key::synthetic`) [node-id].
+    pub implicits_at: Option<Key>,
 }
 
 /// [qual-depend] A place handed to a dependent `qualifies`: the source
@@ -1541,7 +1627,7 @@ impl Checked {
     }
 
     pub fn ty_of(&self, file: usize, span: Span) -> Option<&Ty> {
-        self.expr_ty.get(&(file, span))
+        self.expr_ty.get(&self.key_at(file, span))
     }
 
     /// [unify-checker] The call-cluster facts at one call span, gathered in
@@ -2924,8 +3010,11 @@ struct Checker<'p, 'r> {
     /// the body performs on `h`) and, next, for inferring one. `None` is an
     /// unknown path — conservative, so it covers nothing.
     own_mut_paths: Vec<(String, Option<Vec<Step>>, bool)>,
-    /// Fresh-id counter for local bindings [fate-link].
+    /// Fresh-id counter for local bindings [fate-link], per declaration
+    /// [node-id].
     next_var_id: u32,
+    /// [node-id] The declaration the last key was in (`DeclIndex::key`).
+    key_hint: std::cell::Cell<usize>,
     /// [fate-poison] [fate-move-mode] Every binding's links by the fate key
     /// `record_fate_bind` is given (the bound name or an assignment's
     /// target), with the binding's span: written into `Checked::bind_facts`
@@ -3382,6 +3471,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             driven_origins: Vec::new(),
             own_mut_paths: Vec::new(),
             next_var_id: 0,
+            key_hint: std::cell::Cell::new(0),
             fate_log: HashMap::new(),
             fate_meta: HashMap::new(),
             parking_handlers,
@@ -3438,8 +3528,9 @@ impl<'p, 'r> Checker<'p, 'r> {
 }
 
 impl<'p, 'r> Checker<'p, 'r> {
+    /// [node-id] The key of the node `span` holds, in this file.
     fn key(&self, span: Span) -> Key {
-        (self.file_idx, span)
+        self.out.decls.key(self.file_idx, span, &self.key_hint)
     }
 
     /// An error, reported only when [report] (a check shared by the files of
@@ -3679,6 +3770,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// constructor parameters' defaults, the mailbox slot, the state
     /// initializers) and its members' bodies in the body pass.
     fn check_handler(&mut self, h: &'p ast::HandlerDecl) {
+        // [node-id] Variable ids are per declaration (`check_fn_body`).
+        self.next_var_id = 0;
         let saved = self.enter_generics(&h.generics);
         let (iface, body) = (self.pass.interface(), self.pass.body());
         let addr = h as *const ast::HandlerDecl as usize;
@@ -4298,7 +4391,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         made.retain(|f| !dropped.contains(&f.name));
         let union = crate::literal::collapse_ty(ty.strip_quals());
         self.out.factories.insert(
-            (self.file_idx, key),
+            self.key(key),
             Factories { arity: groups.len(), nullable, union, arms: made, dropped },
         );
     }
@@ -4355,7 +4448,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        self.out.boundary_checks.insert((self.file_idx, key), plan);
+        let at = self.key(key);
+        self.out.boundary_checks.insert(at, plan);
     }
 
     /// [platform-check] The check a value of `ty` needs when the host hands it
@@ -6737,8 +6831,24 @@ impl<'p, 'r> Checker<'p, 'r> {
         named: &'p [ast::NamedArg],
         span: Span,
     ) {
+        let at = self.key(span);
+        self.fill_implicits_keyed(implicits, callee, subst, callee_generics, named, span, at);
+    }
+
+    /// [`Checker::fill_implicits`], recorded at `at`.
+    #[allow(clippy::too_many_arguments)]
+    fn fill_implicits_keyed(
+        &mut self,
+        implicits: &[ImplicitParam],
+        callee: &str,
+        subst: &mut HashMap<String, Ty>,
+        callee_generics: &HashSet<String>,
+        named: &'p [ast::NamedArg],
+        span: Span,
+        at: Key,
+    ) {
         if let Some(filled) = self.fill_implicit_list(implicits, callee, subst, callee_generics, named, span) {
-            self.out.implicit_args.insert(self.key(span), filled);
+            self.out.implicit_args.insert(at, filled);
         }
     }
 
@@ -9882,6 +9992,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         saved_generics: HashSet<String>,
     ) {
         let FnSig { implicits, effects: fn_effects, can_use, can_spawn, ret_ty, .. } = sig;
+        // [node-id] Variable ids are per declaration: what a body's facts
+        // carry of them (`FateLink::elem_idx`, `distinct_pairs`) does not
+        // move when another declaration of the file changes.
+        self.next_var_id = 0;
         // [lsp-completion] Record locals of this body (params below, `let`/
         // binding locals in `declare_var`) against the body span.
         self.cur_fn_body = Some(body.span);
@@ -12143,7 +12257,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         {
             // [proj-infer] The result of a lending call holds borrows of the
             // lent arguments: an owned value (a pass) tied to them.
-            if let Some(lent) = self.out.lending_calls.get(&(self.file_idx, *span)).cloned() {
+            if let Some(lent) = self.out.lending_calls.get(&self.key(*span)).cloned() {
                 let mut links: Vec<FateLink> = Vec::new();
                 for idx in lent {
                     let arg: Option<&Expr> = if let Expr::Field { base, .. } = callee.as_ref() {
@@ -12166,7 +12280,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 return links;
             }
-            if let Some(sources) = self.out.derived_calls.get(&(self.file_idx, *span)).cloned() {
+            if let Some(sources) = self.out.derived_calls.get(&self.key(*span)).cloned() {
                 // [copy-scalar-free] A borrowed copy scalar *is* the value on
                 // both backends — `proj Int` is `Int`, which `Ty::qualify`
                 // already erases — so a call handing one back borrows nothing
@@ -12453,11 +12567,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             ArmText::Fn { key, implicits } => {
                 self.out.interp_to_str.insert(self.key(expr.span()), key);
-                // Filled where the emitters look for them, the zero-width
-                // span after the value.
+                // Filled where the IR builder looks for them: the `to_str`
+                // call the value implies, a node no tree holds [node-id]
+                // (origin: the zero-width span after the value).
                 if !implicits.is_empty() {
                     let at = expr.span().at(expr.span().end, expr.span().end);
-                    self.out.implicit_args.insert(self.key(at), implicits);
+                    let key = Key { span: at, ..self.key(expr.span()).synthetic(Key::INTERP_TEXT) };
+                    self.out.implicit_args.insert(key, implicits);
                 }
             }
             ArmText::Native => {}
@@ -13009,7 +13125,6 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// by the binding that made it, so the IR can drop the copies an
     /// ancestor that took ownership made.
     fn finish_fate(&mut self) {
-        let file_idx = self.file_idx;
         let meta = std::mem::take(&mut self.fate_meta);
         for (at, (bind_span, links)) in std::mem::take(&mut self.fate_log) {
             let links: Vec<FlowLink> = links
@@ -13020,7 +13135,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             let (eligible, origins) = meta.get(&at).cloned().unwrap_or_default();
-            self.out.bind_facts.insert((file_idx, at), BindFact { stamp: bind_span, links, eligible, origins });
+            let at = self.key(at);
+            self.out.bind_facts.insert(at, BindFact { stamp: bind_span, links, eligible, origins });
         }
     }
 
@@ -13125,7 +13241,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [proj-anywhere] `constructed_qualifier` by the call's span.
     fn constructed_qualifier_at(&self, span: Span) -> Option<String> {
-        let key = *self.out.call_fn.get(&(self.file_idx, span))?;
+        let key = *self.out.call_fn.get(&self.key(span))?;
         self.scope
             .fns
             .values()
@@ -13695,7 +13811,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         for l in &links {
-            let file_idx = self.file_idx;
             let mut loop_origin = None;
             // [fate-partial-move] A *proper* projection leaves the root
             // usable (the IR flow pass records what left, from the consuming
@@ -13711,7 +13826,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Moving data out of a `for`-loop binding means the loop
                 // iterates by value [fate-move-mode].
                 if let Some(origin) = loop_origin {
-                    self.loop_by_value((file_idx, origin));
+                    self.loop_by_value(self.key(origin));
                 }
                 continue;
             }
@@ -13719,17 +13834,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 loop_origin = var.for_origin;
                 // [flow-use-after-move] The IR marks the projection, not
                 // the root: the flow pass takes the root's move from here.
-                self.out.flow_moves.insert((file_idx, expr.span()));
+                let at = self.key(expr.span());
+                self.out.flow_moves.insert(at);
             }
             // Moving data out of a `for`-loop binding means the loop
             // iterates by value [fate-move-mode].
             if let Some(origin) = loop_origin {
-                self.loop_by_value((file_idx, origin));
+                self.loop_by_value(self.key(origin));
             }
         }
-        self.out
-            .moved_projections
-            .insert((self.file_idx, expr.span()));
+        let at = self.key(expr.span());
+        self.out.moved_projections.insert(at);
     }
 
     /// Whether a type's data is transitively mutable: `Mut` at any depth
@@ -17850,7 +17965,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         l.elem_idx,
                         false,
                     );
-                    self.out.handle_muts.insert((self.file_idx, l.bind_span));
+                    let at = self.key(l.bind_span);
+                    self.out.handle_muts.insert(at);
                 }
                 self.record_mutation(
                     id,
@@ -27237,9 +27353,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // generated iterator struct: the minter's literal
                             // entry *is* the initializer whose type the field
                             // takes. Infer it (no expectation), and record it
-                            // at the field-name span — the channel the `next`
-                            // body's `__p.<field>` reads and the IR read back,
-                            // the same one handler state uses.
+                            // at the struct field's name [node-id] — the
+                            // channel the `next` body's `__p.<field>` reads and
+                            // the IR read back, the same one handler state uses.
                             let vty = self.check_expr(value, None);
                             self.out
                                 .expr_ty
@@ -27885,13 +28001,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.generics = inner;
                 self.generics = saved;
                 if !implicits.is_empty() {
-                    let at = args.first().map(|(_, s)| s.at(s.start, s.start)).unwrap_or(span);
+                    let base = args.first().map(|(_, s)| *s).unwrap_or(span);
+                    let at = Key { span: base.at(base.start, base.start), ..self.key(base).synthetic(checks.len() as u32) };
                     let generics: HashSet<String> = qual_generics
                         .iter()
                         .chain(&qf.generics)
                         .map(|g| g.name.clone())
                         .collect();
-                    self.fill_implicits(&implicits, "qualifies", &mut slot_subst, &generics, &[], at);
+                    self.fill_implicits_keyed(&implicits, "qualifies", &mut slot_subst, &generics, &[], base.at(base.start, base.start), at);
                     implicits_at = Some(at);
                 }
             }

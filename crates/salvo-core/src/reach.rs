@@ -230,7 +230,7 @@ pub fn resolved_dep_files(checked: &crate::check::Checked, file_idx: usize) -> H
 /// the tables `resolved_dep_files` reads, kept at the declaration.
 pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> HashSet<crate::DeclId> {
     let mut out: HashSet<crate::DeclId> = HashSet::new();
-    let mine = |key: &&(usize, salvo_syntax::Span)| key.0 == file_idx;
+    let mine = |key: &&crate::check::Key| key.file() == file_idx;
     // Calls, and fn *names* used any other way (a fn passed by value, a
     // callee, a declaration site) [fn-ref-table].
     for (_, fn_key) in checked.call_fn.iter().filter(|(k, _)| mine(k)) {

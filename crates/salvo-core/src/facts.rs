@@ -68,15 +68,21 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, sou
     let mut c = Collect(Vec::new());
     v::walk_block(&mut c, body);
     let mut spans = c.0;
-    spans.sort_by_key(|s| (s.expn, s.start, std::cmp::Reverse(s.end)));
-    spans.dedup();
+    // [node-id] One row per expression, in source order and then walk
+    // order: expressions sharing a span (what a desugaring made, at its
+    // declaration's span) are each listed, a row repeating the one above
+    // once.
+    spans.sort_by_key(|s| (s.expn, s.start, std::cmp::Reverse(s.end), s.node));
+    let mut last_row = String::new();
     for span in spans {
-        let key = (file, span);
+        let key = checked.key_at(file, span);
         let Some(ty) = checked.expr_ty.get(&key) else { continue };
-        // [origin] A copied node's range is its template's: listed at the
-        // end of the file, with no text of its own.
-        let (line, col) = line_col(source, if span.is_expanded() { source.len() as u32 } else { span.start });
-        let mut row = format!("  {:<8}{:<30} {ty}", format!("{line}:{col}"), snippet(source, span));
+        // [origin] A copied node is listed where a diagnostic about it would
+        // land (`origin::landing`): its field or arm, the `by` site, or the
+        // written code an in-place copy stands for.
+        let at = crate::origin::landing(&program.modules[file], span);
+        let (line, col) = line_col(source, if at.is_expanded() { source.len() as u32 } else { at.start });
+        let mut row = format!("  {:<8}{:<30} {ty}", format!("{line}:{col}"), snippet(source, at));
         if let Some(target) = checked.call_fn.get(&key) {
             row.push_str(&format!("  -> {}", fn_name(program, &checked.decls, *target)));
         } else if let Some(m) = checked.member_calls.get(&key) {
@@ -104,8 +110,12 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, sou
         if !marks.is_empty() {
             row.push_str(&format!("  [{}]", marks.join(", ")));
         }
-        out.push_str(row.trim_end());
-        out.push('\n');
+        let row = row.trim_end().to_string();
+        if row != last_row {
+            out.push_str(&row);
+            out.push('\n');
+            last_row = row;
+        }
     }
 }
 
@@ -138,13 +148,7 @@ fn line_col(source: &str, at: u32) -> (usize, usize) {
 fn snippet(source: &str, span: Span) -> String {
     let (s, e) = (span.start as usize, (span.end as usize).min(source.len()));
     if span.is_expanded() || s >= e || s >= source.len() {
-        // A synthesized node (a desugaring's or a stamp's): no text of its own.
-        return "`…`".to_string();
-    }
-    // A desugaring's synthesized node borrows one byte of its declaration
-    // (`desugar::Spans`), usually from inside a longer token.
-    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
-    if e - s == 1 && (word(source[..s].chars().next_back()) || word(source[e..].chars().next())) {
+        // A copied node (a stamp's): no text of its own here.
         return "`…`".to_string();
     }
     let text = &source[s..e];

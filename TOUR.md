@@ -76,7 +76,7 @@ The pipeline, in the order the code runs it:
     │  salvo-core: expand (comptime stamping, by-auto), resolve (per-file scopes)
     ▼
  check_program ──► Checked        ← the whole output of the front half:
-    │                               about 100 side tables, mostly keyed by (file, span)
+    │                               about 100 side tables, mostly keyed by (declaration, node)
     │  salvo-core: erase (effect-only generics), reach (which modules)
     ▼
  salvo-backend::driver            ← check, erase, resolve, reach, in one place
@@ -88,8 +88,9 @@ The pipeline, in the order the code runs it:
 The two decisive facts about the design:
 
 * **The AST is never rewritten after checking.** The checker records what it
-  learned in `Checked`, keyed by `(file index, Span)`; an emitter walks the
-  original AST and looks each node up by its span.
+  learned in `Checked`, keyed by the node's declaration and its id in it
+  (`Key`, [node-id]); the IR builder walks the original AST and looks each
+  node up by that key.
 * **Both emitters are walkers that *decide* things as they go.** Some
   decisions come out of `Checked` (what a call resolved to). Others the
   emitter makes itself from local state (whether a name is a borrow in the
@@ -128,7 +129,7 @@ By what you would come looking for.
   stamps a `comptime fn` at a concrete type and unrolls `[for]`/`[when]`/`[if]`
   into an ordinary fn. Every stamped node keeps its span in the template and
   carries a fresh expansion id (`Span::expn`, recorded on the fn's `Stamp`)
-  so the span-keyed tables still tell copies apart; `origin.rs` renders a
+  and every node has an id of its own [node-id], so the tables tell copies apart; `origin.rs` renders a
   diagnostic at a copied node through that chain [origin].
 * `resolve.rs`: per-file scopes (`ModuleScope`): what names a file sees.
 * `erase.rs`: an effect-only generic (`ActorGroup<E>`) is erased for the
@@ -182,7 +183,13 @@ prerequisites are expanded by the checker where an effect list is lowered
 ## 4. The `Checked` tables: the checker's output
 
 `Checked` is a struct of maps and sets, almost all keyed by
-`Key = (usize, Span)`: *file index, source span of the node*. A few kinds, with
+`Key = (DeclId, NodeId)` [node-id]: *the declaration the node is in, and the
+node's ordinal within it*, numbered on the tree after its last rewrite
+(`salvo_syntax::node_id`; the ordinal rides on the node's `Span` as
+`Span::node`, so `Checker::key(span)` and `Lower::key(span)` read the same
+field). The key also carries the node's file and span as origin data, which
+take no part in its equality: a reader that places a fact (the language
+server, `salvo facts`) reads `key.file()` and `key.span`. A few kinds, with
 examples of what they say about the sample program.
 
 **What is this expression's type?**
@@ -200,10 +207,10 @@ emitter sees the difference and reads through the union's arm.
 **What did this name resolve to?**
 
 ```rust
-pub call_fn: HashMap<Key, FnKey>,      // call span → the fn declaration
-pub fn_refs: HashMap<Key, FnKey>,      // a fn used as a value
+pub call_fn: HashMap<Key, DeclId>,     // call node → the fn declaration
+pub fn_refs: HashMap<Key, DeclId>,     // a fn used as a value
 pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,   // what fills ?cmp, ?hash…
-pub interp_to_str: HashMap<Key, FnKey>,               // the to_str behind "${x}"
+pub interp_to_str: HashMap<Key, DeclId>,              // the to_str behind "${x}"
 pub member_calls: HashMap<Key, MemberCall>,  // effect-member calls (new)
 pub dot_calls: HashSet<Key>,                 // `x.f(a)` read as `f(x, a)` (new)
 ```
@@ -226,7 +233,7 @@ pub state_takes: HashSet<Key>,       // this read takes a handler's state field
 pub moved_projections: HashSet<Key>, // `s.field` moved out of a consumed root
 pub bind_facts: HashMap<Key, BindFact>,  // a binding's fate links, and whether it may take ownership
 pub derived_uses: HashMap<Key, …>,   // a derived value moved or mutated here
-pub deductions: HashMap<FnKey, Vec<ParamDeduction>>,  // per fn, per parameter
+pub deductions: HashMap<DeclId, Vec<ParamDeduction>>, // per fn, per parameter
 ```
 
 For `consume(xs)` the fn's `deductions` say `items: kept = false` (the clause
@@ -251,10 +258,12 @@ pub handle_muts, virtual_candidates, distinct_pairs, covered_calls …
 `check.rs` near the top of `Checked`; every field has a doc comment with the
 rule label that introduced it.
 
-A limit worth knowing: the tables hold **one value per span**. Comptime
-stamping (a fresh expansion id per copy, `Span::expn` [origin]) exists
-partly to keep that true. Any future
-pass that *invents* nodes must register table entries for them.
+A limit worth knowing: the tables hold **one value per node**. A node no
+tree holds (the `qualifies` call an `is` test implies, the `to_str` call an
+interpolated value implies) gets a synthetic key of its declaration
+(`Key::synthetic`), recorded in the fact that needs it. Any future pass that
+*invents* nodes after numbering must do the same; one built before numbering
+is numbered like written code.
 
 ## 5. Following the sample program through the tables
 
@@ -283,7 +292,7 @@ Core decides (`param_mode.rs`):
 pub enum PassMode { Moved, Lent, LentMut }
 
 // top-level fn: the deductions, then the declared type
-pub fn fn_param(&self, key: Option<FnKey>, param: &Param) -> PassMode {
+pub fn fn_param(&self, key: Option<DeclId>, param: &Param) -> PassMode {
     if param.variadic || is_fn_group(&param.ty) { return PassMode::Moved; }
     if matches!(param.ty, Type::Fn { .. }) {
         return if key.is_some_and(|k| self.owns_callbacks(k)) { Moved } else { Lent };
@@ -429,7 +438,7 @@ asking `effect_of_fn` ("is this name a member of some effect?"), which cannot
 see scopes. Now they ask the checker's answer:
 
 ```rust
-if let Some(call) = self.checked.member_calls.get(&(self.file_idx, span)).cloned() {
+if let Some(call) = self.checked.member_calls.get(&self.key(span)).cloned() {
     let effect: &str = self.symbols.effects.get_key_value(call.effect.as_str()) …;
     let member = self.symbols.effects.get(effect).and_then(|e| e.fns.get(call.index));
     // handler expression comes from `effect_calls` (the instance), args from the
@@ -646,7 +655,8 @@ emitter prints it with its ordinary block/let code. Kotlin, if it did not call
 the pass, is unaffected. Two things it has to do that side tables did not:
 
 * register `expr_ty` (and coercion/`repr_ty`) entries for the nodes it creates,
-  since the emitter will look them up by span, as comptime stamping does;
+  under keys of their own (`Key::synthetic`), since nothing numbers a node
+  made after the tree is numbered [node-id];
 * run after the demand table, because what counts as a borrow is a function of
   the modes.
 
