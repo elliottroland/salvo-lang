@@ -2019,3 +2019,11 @@ log current so the work can resume after a context reset). Newest last.
   ROADMAP 0z (an element of a view list read through a generic `proj(list) T`
   return, E0308) and a §7 DECISION (a fn value over owned elements at a
   view-element slot is refused by [fn-erased-variance]).
+- **0z: done** (committed "Flatten a borrow of a borrowed element on Rust").
+  A callee whose result is `proj T` rendered `&'a T`, instantiated at
+  `T = proj Str`, answers `&&String`; the call now copies the outer reference
+  out [rs-proj-flat] (`.copied()` on `get`/`last`, `*` on `first`, arm by arm
+  on a `next`), with the instantiation read off the arguments' types where
+  the IR states no type arguments (a `for` loop's `next`, a `?Yield`
+  adapter). Rust backend only; no core fact, no emitted-code change in the
+  examples.

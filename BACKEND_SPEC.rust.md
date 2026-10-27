@@ -648,6 +648,21 @@ the blanket rule:
     Before, the fast path answered owned clones while its type said view,
     so its result could not be returned as, or passed to, a
     `List<proj Str>` (E0308).
+  * [rs-proj-flat] **A borrow of a borrowed instantiation is copied flat**
+    (2026-10-27, ROADMAP 0z): a callee whose result is `proj T` over a
+    variable it renders `&'a T` (`get`, `last`, `first`, a pass's `next`)
+    answers `&&String` when the call instantiates `T = proj Str` (a
+    `List<proj Str>`), where the Salvo type is `proj Str` (`proj proj Str`
+    is `proj Str`, [proj-type]). A shared reference is `Copy`, so the call
+    copies the outer one out, as it copies a Copy element:
+    `get_platform(&vs, 0i32).copied()`, `(*first::<&String>(&vs))`, and a
+    `next` arm by arm (`Union2::U1(__v) => Union2::U1(*__v)`). The call's
+    instantiation is its type arguments, or, where the IR states none (a
+    `for` loop's `next`, a forwarding closure's call, a `?Yield` adapter),
+    what its arguments' types bind the variables to, as rustc infers them
+    (`Mut ListYield<T>` at `Mut ListYield<proj Str>`: `T = proj Str`). A
+    `ref` instantiation is not flattened. Before, every such read of a view
+    list's element was E0308 on Rust (Kotlin has no references to nest).
 
 * [rs-qualified-scalar] A **qualified scalar** parameter (`index: Idx(list)
   Int`) is a Copy scalar like any other: passed by value (`mut index: i32`),

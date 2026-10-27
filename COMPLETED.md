@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2084 tests, complete: the toolchain tests are
+cargo test                  # 2085 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,64 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-27 — A borrow of a borrowed element is flattened on Rust
+
+ROADMAP 0z, a [backend-never-wrong] violation on Rust: reading an element of
+a `List<proj Str>` (the result of `filter`) through a std fn whose result is
+a generic `proj(list) T` or `Emitted (proj(p) T) | Finished` checked clean
+and ran on Kotlin, and rustc refused it (E0308).
+
+- **Cause.** Salvo collapses `proj proj Str` to `proj Str` [proj-type], so
+  the local is `&String` (`Option<&String>`, `Union2<&String, Finished>`);
+  the callee renders its result `&'a T`, and at `T = &String` it answers
+  `&&String`. Where the call states its type arguments (`last::<&String>`)
+  the mismatch is in the annotation; where the IR states none (a `for`
+  loop's `next`, built by the IR builder with `type_args: []`, and a `?Yield`
+  adapter's forwarding call) rustc inferred `T = String` from the
+  annotation and refused the argument (`&mut ListYield<'_, &String>`).
+- **Fix** (`deref_scalar` and `call_subst_of` in
+  `crates/salvo-backend-rust/src/ir_emit/body.rs`, [rs-proj-flat]): where a
+  declared `proj T` over a variable meets an instantiation that is itself a
+  (non-`ref`) borrow, the outer reference is copied out, as a Copy element
+  already was: `get_platform(&vs, 0i32).copied()`,
+  `(*first::<&String>(&vs))`, `last::<&String>(&vs).copied()`, and a `next`
+  arm by arm (`match next__ListYield(&mut __pass_6) { Union2::U1(__v) =>
+  Union2::U1(*__v), Union2::U2(__v) => Union2::U2(__v) }`), in a `for` loop
+  and inside every `?Yield` adapter closure. The instantiation is the call's
+  type arguments, or, when the IR states none, what the arguments' types
+  bind the callee's variables to (`Mut ListYield<T>` at `Mut
+  ListYield<proj Str>`: `T = proj Str`; a parameter's own qualifiers are
+  not the variable's, so `proj T` at `proj Str` binds `T = Str`), as rustc
+  infers it. The previous session's partial edit (the `flat` test in
+  `deref_scalar`, effective only where type arguments were stated) was kept
+  and finished with the argument-side instantiation. Layering
+  [core-layers]: the arguments' Salvo types already carry the instantiation,
+  so no core fact was added (recording `type_args` on the IR's synthesized
+  `next`/mint calls was the alternative; it would have changed every
+  emitted `for` loop on both backends). Kotlin needs nothing.
+- **Neighbours checked** (one program, both backends, 21 lines of output).
+  Failed before and fixed: `get` and `last` of the view list, `for` over
+  `iter(vs)`, `map`/`filter`/`count`/`reduce`/`to_list` over `iter(vs)` (the
+  `?Yield` adapter), `for` over `iter(to_list(…))`, a `Map<Str, proj Str>`'s
+  `get`, `iter`/`get` of a `List<proj Str>` struct field, and the nested
+  `List<proj List<Str>>` (`get`, `for` over `iter`). Already worked: `for v
+  in vs` over the list itself, `find_first(vs, …)` (an index), and `first`
+  (rustc's deref coercion took the `&&String` argument to `println`; it is
+  now flattened explicitly).
+- **Not reachable**: a `Map<proj Str, …>` keyed by the view (`to_map(vs, v
+  -> (v, v))`) — std's `?hash`/`?eq` are `(Str) -> …` and do not fit a
+  `(proj Str) -> …` position, which is the question of ROADMAP §7's
+  DECISION on a kept `(Str)` parameter at a `(proj Str)` slot.
+- Emitted-code change: none in the examples or the goldens (the warm suite
+  was green before the tests were added); only programs that did not
+  compile change.
+
+Tests (1 new `#[test]`; the Kotlin case is a registry entry):
+`rustc_compiles_and_runs_borrowed_element_reads` and
+`kotlinc_compiles_and_runs_borrowed_element_reads`, the same program and
+output, the Rust one also asserting the flattened `get`, `last`, `first`, a
+`for` loop's `next` and a `?Yield` adapter, and the nested `get`.
 
 ### 2026-10-14 — A fn value forwarded to a retagged slot is adapted
 
@@ -30223,7 +30281,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2084 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2085 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -31515,6 +31573,16 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A call the IR synthesizes states no type arguments** (2026-10-27, 0z).
+  The `for` loop's mint and `next` calls, and the call inside a forwarding
+  closure, are built with `type_args: []`; an emitter decision that reads
+  the instantiation from the type arguments alone silently does nothing
+  there, and rustc then infers the variable from the result's annotation,
+  so the error points at the *argument* (`expected &mut ListYield<'_,
+  String>`), not at the result that is really one reference too deep. Read
+  the instantiation off the arguments' types (`call_subst_of`) when none is
+  stated.
 
 - **A fn value has as many Rust shapes as places it can come from**
   (2026-10-14, 0y). A lambda, a named fn, a `&mut dyn FnMut` parameter, a

@@ -12,7 +12,7 @@ use salvo_core::types::Ty;
 use salvo_core::ir::{ArmTest, Block, Expr, ExprKind, FnKind, FnRef, Justification, Lit, Local, Op, Param, PassMode, Place, Stmt, Step};
 
 use super::decls::{fn_ty_param_mode, FnPos};
-use super::{is_copy_ty, is_mut, is_mut_borrow, is_proj, ModuleEmitter};
+use super::{is_copy_ty, is_mut, is_mut_borrow, is_proj, is_ref, ModuleEmitter};
 use crate::emit::{escape_char, escape_format_text, escape_string, rs_ident, stateful_trait_name, stateless_trait_name};
 use crate::intrinsics::Spread;
 
@@ -3242,24 +3242,51 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [copy-scalar-free] A borrow of a Copy scalar is the scalar: a call
     /// whose declared result is a `proj` the instantiation made a scalar
     /// reads it out.
-    fn deref_scalar(&mut self, code: String, decl: &Ty, inst: &Ty) -> String {
+    ///
+    /// [rs-proj-flat] And a borrow of a borrow is the borrow: a declared
+    /// `proj T` (rendered `&T`) instantiated at a `T` that is itself a
+    /// borrow (`proj Str`, `&String`) answers `&&String`, where Salvo's type
+    /// is `proj Str` (`proj proj Str` is `proj Str`, [proj-type]); a shared
+    /// reference is `Copy`, so the outer one is copied out (`*`,
+    /// `.copied()`, `U1(*__v)`). `subst` is the call's instantiation.
+    fn deref_scalar(&mut self, code: String, decl: &Ty, inst: &Ty, subst: &HashMap<String, Ty>) -> String {
         // A borrow the instantiation reads as a value.
         let owned = |d: &Ty, i: &Ty| is_proj(d) && !is_proj(i);
+        // A borrow of a variable the instantiation made a borrow.
+        let flat = |d: &Ty, i: &Ty| {
+            let var = match d.strip_quals() {
+                Ty::Var(v) => Some(v),
+                Ty::Named { name, args } if args.is_empty() => Some(name),
+                _ => None,
+            };
+            is_proj(d) && is_proj(i) && var.is_some_and(|v| subst.get(v).is_some_and(|t| is_proj(t) && !is_ref(t)))
+        };
         if owned(decl, inst) {
             return if is_copy_ty(inst) { format!("(*{code})") } else { format!("({code}).clone()") };
         }
+        if flat(decl, inst) {
+            return format!("(*{code})");
+        }
         let (da, ia) = (decl.strip_quals().value_arms(), inst.strip_quals().value_arms());
-        if da.len() != ia.len() || !da.iter().zip(&ia).any(|(d, i)| owned(d, i)) {
+        if da.len() != ia.len() || !da.iter().zip(&ia).any(|(d, i)| owned(d, i) || flat(d, i)) {
             if let (Ty::Named { name: dn, args: dargs }, Ty::Named { name: inn, args: iargs }) = (decl.strip_quals(), inst.strip_quals()) {
-                if dn == "List" && inn == "List" && dargs.len() == 1 && iargs.len() == 1 && owned(&dargs[0], &iargs[0]) {
-                    let m = if is_copy_ty(&iargs[0]) { "copied" } else { "cloned" };
-                    return format!("{code}.into_iter().{m}().collect::<Vec<_>>()");
+                if dn == "List" && inn == "List" && dargs.len() == 1 && iargs.len() == 1 {
+                    if owned(&dargs[0], &iargs[0]) {
+                        let m = if is_copy_ty(&iargs[0]) { "copied" } else { "cloned" };
+                        return format!("{code}.into_iter().{m}().collect::<Vec<_>>()");
+                    }
+                    if flat(&dargs[0], &iargs[0]) {
+                        return format!("{code}.into_iter().copied().collect::<Vec<_>>()");
+                    }
                 }
             }
             return code;
         }
         let opt = decl.strip_quals().has_none_arm() && inst.strip_quals().has_none_arm();
         if da.len() == 1 {
+            if flat(da[0], ia[0]) {
+                return if opt { format!("{code}.copied()") } else { format!("(*{code})") };
+            }
             let m = if is_copy_ty(ia[0]) { "copied" } else { "cloned" };
             return if opt { format!("{code}.{m}()") } else if is_copy_ty(ia[0]) { format!("(*{code})") } else { format!("({code}).clone()") };
         }
@@ -3267,7 +3294,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let mut arms = Vec::new();
         for (i, (d, a)) in da.iter().zip(&ia).enumerate() {
             let p = format!("crate::unions::Union{n}::U{}(__v)", i + 1);
-            let v = if is_proj(d) && !is_proj(a) { if is_copy_ty(a) { "*__v" } else { "__v.clone()" } } else { "__v" };
+            let v = if flat(d, a) { "*__v" } else if is_proj(d) && !is_proj(a) { if is_copy_ty(a) { "*__v" } else { "__v.clone()" } } else { "__v" };
             let r = format!("crate::unions::Union{n}::U{}({v})", i + 1);
             if opt {
                 arms.push(format!("Some({p}) => Some({r})"));
@@ -3569,7 +3596,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     Some(nested) => self.convert_union(&code, &nested, &e.ty, false),
                     None => code,
                 };
-                self.deref_scalar(code, &ret, &e.ty)
+                let subst = call_subst_of(f, type_args, args);
+                self.deref_scalar(code, &ret, &e.ty, &subst)
             }
         }
     }
@@ -3675,7 +3703,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Some(code) => match self.s.fn_decl(id) {
                 Some(f) => {
                     let ret = self.callee_ret(&f);
-                    self.deref_scalar(code, &ret, &e.ty)
+                    let subst = call_subst_of(&f, type_args, args);
+                    self.deref_scalar(code, &ret, &e.ty, &subst)
                 }
                 None => code,
             },
@@ -3709,3 +3738,58 @@ fn lit_code(l: &Lit) -> String {
     }
 }
 
+/// [rs-proj-flat] A call's instantiation: the callee's type parameters to
+/// the call's type arguments, or, for a call the IR states none for (a
+/// `for` loop's `next`, a forwarding closure's call), to what the
+/// arguments' types bind them to, as rustc infers them: `Mut ListYield<T>`
+/// at a `Mut ListYield<proj Str>` binds `T` to `proj Str`, and `proj T` at
+/// a `proj Str` binds it to `Str` (the parameter's own qualifiers are not
+/// the variable's).
+fn call_subst_of(f: &salvo_core::ir::FnDecl, type_args: &[Ty], args: &[Expr]) -> HashMap<String, Ty> {
+    if !type_args.is_empty() {
+        if type_args.len() != f.type_params.len() {
+            return HashMap::new();
+        }
+        return f.type_params.iter().map(|t| t.name.clone()).zip(type_args.iter().cloned()).collect();
+    }
+    let tps: HashSet<String> = f.type_params.iter().map(|t| t.name.clone()).collect();
+    let mut map = HashMap::new();
+    if !tps.is_empty() && args.len() == f.params.len() {
+        for (p, a) in f.params.iter().zip(args) {
+            bind_type_vars(&p.ty, &a.ty, &tps, &mut map);
+        }
+    }
+    map
+}
+
+/// The variables of `tps` in `pat` bound to the parts of `conc` they stand
+/// for, qualifiers included except the ones `pat` itself writes there.
+fn bind_type_vars(pat: &Ty, conc: &Ty, tps: &HashSet<String>, map: &mut HashMap<String, Ty>) {
+    if conc.is_unknown() {
+        return;
+    }
+    let var = match pat.strip_quals() {
+        Ty::Var(v) => Some(v),
+        Ty::Named { name, args } if args.is_empty() && tps.contains(name) => Some(name),
+        _ => None,
+    };
+    if let Some(v) = var.filter(|v| tps.contains(*v)) {
+        let own: HashSet<String> = pat.quals().iter().map(|q| q.name.clone()).collect();
+        map.entry(v.clone()).or_insert_with(|| conc.clone().remove_quals(&own));
+        return;
+    }
+    match (pat.strip_quals(), conc.strip_quals()) {
+        (Ty::Named { name: pn, args: pa }, Ty::Named { name: cn, args: ca }) if pn == cn && pa.len() == ca.len() => {
+            for (p, c) in pa.iter().zip(ca) {
+                bind_type_vars(p, c, tps, map);
+            }
+        }
+        (Ty::Union(ps), Ty::Union(cs)) | (Ty::Tuple(ps), Ty::Tuple(cs)) if ps.len() == cs.len() => {
+            for (p, c) in ps.iter().zip(cs) {
+                bind_type_vars(p, c, tps, map);
+            }
+        }
+        (Ty::Array(p), Ty::Array(c)) => bind_type_vars(p, c, tps, map),
+        _ => {}
+    }
+}

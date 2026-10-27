@@ -1816,6 +1816,85 @@ fn kotlinc_compiles_and_runs_forwarded_fn_values() -> KotlinCase {
     kotlin_case(files, "forwarded-fn-values", FORWARDED_FN_OUTPUT)
 }
 
+/// [rs-proj-flat] [backend-never-wrong] ROADMAP 0z: an element of a view
+/// list (`List<proj Str>`) read through a std fn whose result is a generic
+/// `proj T` — `get`, `last`, `first`, a pass's `next` (`for` over `iter`,
+/// every `?Yield` combinator), a map's `get`, through a struct field and
+/// nested — runs on Rust as here; the output is the same on both backends
+/// (`rustc_compiles_and_runs_borrowed_element_reads`).
+const BORROWED_ELEMENT_DEMO: &str = r#"
+struct Bag {
+    names: List<proj Str>
+}
+
+// A `proj` element list in a struct field.
+fn show(b: Bag) [use] -> None {
+    use StdConsole
+    for n in iter(b.names) {
+        println("field for ${n}")
+    }
+    let g = get(b.names, 0) ?: unreachable!()
+    println("field get ${g}")
+}
+
+fn main() [use] -> None {
+    use StdConsole
+    let ws = List("ab", "c", "def")
+    let vs = filter(iter(ws), s -> size(s) > 1)
+    // The repro (ROADMAP 0z).
+    for v in vs {
+        println("list for ${v}")
+    }
+    let h = get(vs, 0) ?: unreachable!()
+    println("get ${h}")
+    for v in iter(vs) {
+        println("iter for ${v}")
+    }
+    // Its neighbours.
+    let l = last(vs) ?: unreachable!()
+    println("last ${l}")
+    if vs is NonEmpty {
+        println("first ${first(vs)}")
+    }
+    let ms = map(iter(vs), s -> size(s))
+    println("map ${size(ms)} ${get(ms, 1) ?: 0}")
+    let fs = filter(iter(vs), s -> size(s) > 2)
+    for f in fs {
+        println("filter ${f}")
+    }
+    println("count ${count(iter(vs))}")
+    let at = find_first(vs, s -> size(s) > 2) ?: unreachable!()
+    println("find_first ${at}")
+    println("reduce ${reduce(iter(vs), 0, (a, s) -> a + size(s))}")
+    let t = to_list(iter(vs))
+    for x in iter(t) {
+        println("to_list ${x}")
+    }
+    let m = to_map(vs, v -> (copy(v), v))
+    let mv = get(m, "def") ?: unreachable!()
+    println("map get ${mv}")
+    show(Bag {names: vs})
+    // Nested: a `List<proj List<Str>>`.
+    let ls = List(List("p", "q"), List("r"))
+    let big = filter(iter(ls), x -> size(x) > 0)
+    let fst = get(big, 0) ?: unreachable!()
+    println("nested get ${size(fst)}")
+    for b in iter(big) {
+        println("nested for ${size(b)}")
+    }
+}
+"#;
+
+const BORROWED_ELEMENT_OUTPUT: &str = "list for ab\nlist for def\nget ab\niter for ab\niter for def\nlast def\nfirst ab\nmap 2 3\nfilter def\ncount 2\nfind_first 1\nreduce 5\nto_list ab\nto_list def\nmap get def\nfield for ab\nfield for def\nfield get ab\nnested get 2\nnested for 2\nnested for 1\n";
+
+fn kotlinc_compiles_and_runs_borrowed_element_reads() -> KotlinCase {
+    let program = build_program(&[("main.sv", BORROWED_ELEMENT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "borrowed-element-reads", BORROWED_ELEMENT_OUTPUT)
+}
+
 fn kotlinc_compiles_and_runs_escapes_in_expression_position() -> KotlinCase {
     let program = build_program(&[("main.sv", ESCAPE_EXPR_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -6139,6 +6218,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_escapes_in_expression_position,
     kotlinc_compiles_and_runs_re_pointed_views,
     kotlinc_compiles_and_runs_forwarded_fn_values,
+    kotlinc_compiles_and_runs_borrowed_element_reads,
     kotlinc_compiles_and_runs_a_lift_binding,
     kotlinc_compiles_and_runs_the_elvis_operator,
     kotlinc_compiles_and_runs_the_pipe_operator,

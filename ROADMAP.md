@@ -610,39 +610,9 @@ range", [rs-repoint], [rs-proj-generic]). It left 0y.
 
 Moved to COMPLETED.md ("A fn value forwarded to a retagged slot is adapted").
 
-### 0z — Open defect: an element of a view list read through a generic `proj(list) T` fails rustc (found 2026-10-14)
+### 0z — Closed 2026-10-27: a borrow of a borrowed element is flattened on Rust
 
-A [backend-never-wrong] violation on Rust: reading an element of a
-`List<proj Str>` (the result of `filter`) through a std fn whose result is
-`proj(list) T` or `Emitted (proj(p) T) | Finished` — `get`, `iter`'s `next`,
-so also `for v in iter(vs)` and any `?Yield` combinator over `iter(vs)` —
-checks clean and runs on Kotlin (`ab def ab ab def`), and rustc refuses it
-(E0308). Salvo collapses `proj (proj Str)` to `proj Str`, so the local is
-annotated `Option<&String>` / `Union2<&String, Finished>`; the callee renders
-`&'a T` with `T = &String`, so it answers `Option<&&String>` /
-`Union2<&&String, Finished>`. `for v in vs` over the list itself works.
-
-```
-fn main() [use] -> None {
-    use StdConsole
-    let ws = List("ab", "c", "def")
-    let vs = filter(iter(ws), s -> size(s) > 1)
-    for v in vs {
-        println(v)
-    }
-    let h = get(vs, 0) ?: unreachable!()
-    println(h)
-    for v in iter(vs) {
-        println(v)
-    }
-}
-```
-
-The likely fix is the emitter's: where the callee's `proj` over a variable
-meets an instantiation that is already a borrow, copy the outer reference out
-(a `&&String` read as `&String`; a shared reference is `Copy`), the way
-`deref_scalar` copies a Copy element out (`.copied()`, `U1(*__v)` in the
-`next` adapter). Engineering, no decision.
+Moved to COMPLETED.md ("A borrow of a borrowed element is flattened on Rust", [rs-proj-flat]).
 
 ### 0q — Open defect: moving a field out of an indexed element fails rustc (found 2026-10-20)
 

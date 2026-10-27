@@ -9180,6 +9180,103 @@ fn rustc_compiles_and_runs_forwarded_fn_values() {
     run_rust_files(&files, "forwarded-fn-values", FORWARDED_FN_OUTPUT);
 }
 
+// ===== [rs-proj-flat] a borrowed element read through a generic `proj T` =====
+
+/// [rs-proj-flat] [backend-never-wrong] ROADMAP 0z: a std fn whose result is
+/// a generic `proj T` (rendered `&T`), called on a list of borrows
+/// (`T = &String`), answers `&&String` where Salvo's type is `proj Str`
+/// (`proj proj Str` is `proj Str`); the outer reference is copied out — on
+/// `get`/`last` (`.copied()`), `first` (`*`), and a pass's `next`, in a
+/// `for` loop and in every `?Yield` adapter (`U1(*__v)`). The call's
+/// instantiation is read off its arguments where the IR states no type
+/// arguments (a `for` loop's `next`, a forwarding closure's call).
+/// `kotlinc_compiles_and_runs_borrowed_element_reads` runs the same program.
+const BORROWED_ELEMENT_DEMO: &str = r#"
+struct Bag {
+    names: List<proj Str>
+}
+
+// A `proj` element list in a struct field.
+fn show(b: Bag) [use] -> None {
+    use StdConsole
+    for n in iter(b.names) {
+        println("field for ${n}")
+    }
+    let g = get(b.names, 0) ?: unreachable!()
+    println("field get ${g}")
+}
+
+fn main() [use] -> None {
+    use StdConsole
+    let ws = List("ab", "c", "def")
+    let vs = filter(iter(ws), s -> size(s) > 1)
+    // The repro (ROADMAP 0z).
+    for v in vs {
+        println("list for ${v}")
+    }
+    let h = get(vs, 0) ?: unreachable!()
+    println("get ${h}")
+    for v in iter(vs) {
+        println("iter for ${v}")
+    }
+    // Its neighbours.
+    let l = last(vs) ?: unreachable!()
+    println("last ${l}")
+    if vs is NonEmpty {
+        println("first ${first(vs)}")
+    }
+    let ms = map(iter(vs), s -> size(s))
+    println("map ${size(ms)} ${get(ms, 1) ?: 0}")
+    let fs = filter(iter(vs), s -> size(s) > 2)
+    for f in fs {
+        println("filter ${f}")
+    }
+    println("count ${count(iter(vs))}")
+    let at = find_first(vs, s -> size(s) > 2) ?: unreachable!()
+    println("find_first ${at}")
+    println("reduce ${reduce(iter(vs), 0, (a, s) -> a + size(s))}")
+    let t = to_list(iter(vs))
+    for x in iter(t) {
+        println("to_list ${x}")
+    }
+    let m = to_map(vs, v -> (copy(v), v))
+    let mv = get(m, "def") ?: unreachable!()
+    println("map get ${mv}")
+    show(Bag {names: vs})
+    // Nested: a `List<proj List<Str>>`.
+    let ls = List(List("p", "q"), List("r"))
+    let big = filter(iter(ls), x -> size(x) > 0)
+    let fst = get(big, 0) ?: unreachable!()
+    println("nested get ${size(fst)}")
+    for b in iter(big) {
+        println("nested for ${size(b)}")
+    }
+}
+"#;
+
+const BORROWED_ELEMENT_OUTPUT: &str = "list for ab\nlist for def\nget ab\niter for ab\niter for def\nlast def\nfirst ab\nmap 2 3\nfilter def\ncount 2\nfind_first 1\nreduce 5\nto_list ab\nto_list def\nmap get def\nfield for ab\nfield for def\nfield get ab\nnested get 2\nnested for 2\nnested for 1\n";
+
+#[test]
+fn rustc_compiles_and_runs_borrowed_element_reads() {
+    let files = generate(&[("main.sv", BORROWED_ELEMENT_DEMO)]);
+    let main = &files.iter().find(|f| f.rel_path.ends_with("main.rs")).expect("main.rs").content;
+    for needle in [
+        // `get` and `last` copy the outer reference out of the optional.
+        "let mut __pick_3: Option<&String> = crate::std_core_list::get_platform(&vs, 0i32).copied();",
+        "crate::std_core_list::last::<&String>(&vs).copied()",
+        "(*crate::std_core_list::first::<&String>(&vs))",
+        // A `for` loop's `next`, whose instantiation the arguments state.
+        "= (match crate::std_core_list::next__ListYield(&mut __pass_6) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) });",
+        // A `?Yield` adapter.
+        "&mut |__a0: &mut crate::std_core_list::ListYield<'_, &String>| (match crate::std_core_list::next__ListYield(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v),",
+        // Nested.
+        "let mut __pick_25: Option<&Vec<String>> = crate::std_core_list::get_platform(&big, 0i32).copied();",
+    ] {
+        assert!(main.contains(needle), "missing `{needle}` in:\n{main}");
+    }
+    run_rust_files(&files, "borrowed-element-reads", BORROWED_ELEMENT_OUTPUT);
+}
+
 // ===== [proj-type] a borrowed union arm into a `proj`-typed parameter =====
 
 /// The phase-2b cut, closed 2026-09-12: a pass's `next` returns
