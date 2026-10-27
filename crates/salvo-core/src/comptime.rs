@@ -15,11 +15,13 @@
 //! - no generic compfn at all: they are removed, since nothing downstream
 //!   could type `T.fields`.
 //!
-//! Spans: every node of a stamped body is given a **synthetic** span past the
-//! end of the target file, one fresh region per unrolled copy, so the checker's
-//! span-keyed side tables never see two copies as one node. The `Stamp` on the
-//! fn records the regions, and the checker redirects a diagnostic inside one to
-//! the field or arm the copy was for, prefixed with what was being stamped.
+//! Origins [origin]: every node of a stamped body keeps the span it has in the
+//! template, and carries a fresh **expansion** id (`Span::expn`), one per
+//! unrolled copy, so the checker's span-keyed side tables never see two copies
+//! as one node. The `Stamp` on the fn records each expansion (what it is a copy
+//! of, the field or arm it was for), and a diagnostic inside one renders through
+//! that chain (`crate::origin::render`): at the field or arm the copy was for,
+//! prefixed with what was being stamped.
 
 use std::collections::HashMap;
 
@@ -253,7 +255,8 @@ fn run<M: crate::expand::ModuleSlot>(
             })
             .collect();
         let mut diags: Vec<Diagnostic> = Vec::new();
-        let mut virtual_next = file.content.len() as u32 + 1;
+        // [origin] The file's expansion ids: 0 is written code.
+        let mut next_expn: u32 = 1;
         let mut generated: Vec<Item> = Vec::new();
 
         // [comptime-fields] Hovers over every comptime fn body, at the written
@@ -345,7 +348,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     // signature with `self` substituted is the declaration,
                     // and the stamp fills its body exactly as it fills a
                     // written one.
-                    let stamp = Stamper::new(&world, &target, &template, by, &mut virtual_next);
+                    let stamp = Stamper::new(&world, &target, &template, by, &mut next_expn);
                     let mut f = match stamp.member_decl(group, member) {
                         Ok(f) => f,
                         Err(errs) => {
@@ -355,7 +358,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     };
                     f.exported = exported;
                     f.scoped_to = Some(name.clone());
-                    let stamp = Stamper::new(&world, &target, &template, by, &mut virtual_next);
+                    let stamp = Stamper::new(&world, &target, &template, by, &mut next_expn);
                     match stamp.stamp_into(&mut f, Declared::Member { group: &group.name.name }) {
                         Ok(()) => {
                             if let Some(s) = &mut f.stamped {
@@ -436,7 +439,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     text: compfn_hover_text(&template, &module, Some(&target.name)),
                     module: Some(module.clone()),
                 });
-                let stamper = Stamper::new(&world, &target, &template, &by, &mut virtual_next);
+                let stamper = Stamper::new(&world, &target, &template, &by, &mut next_expn);
                 // [comptime-generic] A written declaration at a generic type
                 // would have to spell the generic additions itself; not yet.
                 if let Some(d) = stamper.generic_refused(by.span) {
@@ -461,9 +464,9 @@ fn run<M: crate::expand::ModuleSlot>(
                 // (callable) fn from then on. The roots it names are looked
                 // up directly.
                 let site = f.compfn.as_ref().map(|c| c.span).unwrap_or(f.span);
-                let mut ex = Expander::new(&world, None, site, &mut virtual_next);
+                let mut ex = Expander::new(&world, None, site, &mut next_expn);
                 ex.params = f.params.clone();
-                ex.written_limit = Some(file.content.len() as u32);
+                ex.in_place = true;
                 ex.fn_name = Some(f.name.name.clone());
                 ex.fn_generics = f.generics.iter().map(|g| g.name.clone()).collect();
                 let mut body = f.body.take();
@@ -484,7 +487,7 @@ fn run<M: crate::expand::ModuleSlot>(
                         None => when_arms.push(CompWhenArms { file: file_idx, span, missing, types, bodies }),
                     }
                 }
-                let (regions, mut errs) = ex.finish();
+                let (expansions, mut errs) = ex.finish();
                 // Warnings ride along; only an error drops the expansion.
                 diags.extend(errs.iter().filter(|d| !d.is_error()).cloned());
                 errs.retain(|d| d.is_error());
@@ -503,7 +506,7 @@ fn run<M: crate::expand::ModuleSlot>(
                         from: "this declaration".to_string(),
                         at_type: first_param_type_text(f),
                         site,
-                        regions,
+                        expansions,
                         roots,
                         template_file: None,
                     });
@@ -1939,7 +1942,8 @@ struct Stamper<'w> {
     target: &'w Target,
     template: &'w FnDecl,
     by: &'w ByRef,
-    virtual_next: &'w mut u32,
+    /// [origin] The file's next expansion id.
+    next_expn: &'w mut u32,
 }
 
 impl<'w> Stamper<'w> {
@@ -1948,14 +1952,14 @@ impl<'w> Stamper<'w> {
         target: &'w Target,
         template: &'w FnDecl,
         by: &'w ByRef,
-        virtual_next: &'w mut u32,
+        next_expn: &'w mut u32,
     ) -> Self {
         Stamper {
             world,
             target,
             template,
             by,
-            virtual_next,
+            next_expn,
         }
     }
 
@@ -2023,8 +2027,9 @@ impl<'w> Stamper<'w> {
     /// a generic target the additions [comptime-generic] makes: the target's
     /// type parameters, their `canbe` opt-ins and the implicit groups its
     /// fields need. No body: [`Stamper::stamp_into`] supplies it, as for a
-    /// written declaration. The member's spans move into virtual space, so a
-    /// diagnostic about the signature lands at the `by` site.
+    /// written declaration. The member's nodes are made by the stamp [origin]
+    /// (`ExpansionKind::Made`), so a diagnostic about the signature lands at
+    /// the `by` site.
     fn member_decl(self, group: &ParamsDecl, member: &FnDecl) -> Result<FnDecl, Vec<Diagnostic>> {
         let site = self.by.span;
         let generic = if self.target.generics.is_empty() {
@@ -2036,8 +2041,9 @@ impl<'w> Stamper<'w> {
             }
         };
         let mut f = member.clone();
-        let mut remap = Remap::fresh(&mut f, self.virtual_next);
-        visit_mut::walk_fn(&mut remap, &mut f);
+        let mut made = Retag::fresh(self.next_expn);
+        let mut expansions = vec![ExpansionRecord { id: made.expn, parent: 0, kind: ExpansionKind::Made }];
+        visit_mut::walk_fn(&mut made, &mut f);
         // `self`: the group's parameters stand for the target (at a generic
         // one, applied to its own parameters). Each is renamed apart first,
         // so a target parameter of the same name (`Ordered<T>` at
@@ -2059,21 +2065,18 @@ impl<'w> Stamper<'w> {
         visit_mut::walk_fn(&mut subst, &mut f);
         // [comptime-generic] One `by` site stamps several members (`Hashed`'s
         // `hash` and `eq`), and a generic stamp's implicits are looked up by
-        // its name's span: each gets a span of its own, which diagnostics
-        // redirect to the site.
-        let mut regions = Vec::new();
+        // its name's span: each gets an expansion of its own [origin], whose
+        // diagnostics land at the site.
         let name_span = if generic.is_some() {
-            let start = *self.virtual_next;
-            *self.virtual_next = start + 2;
-            regions.push(StampRegion {
-                start,
-                end: start + 1,
-                target: site,
-                label: format!("`{}` stamped at `{}`", self.template.name.name, self.target.name),
-                written_from: None,
-                written_label: None,
+            let named = Retag::fresh(self.next_expn);
+            expansions.push(ExpansionRecord {
+                id: named.expn,
+                parent: 0,
+                kind: ExpansionKind::Member {
+                    label: format!("`{}` stamped at `{}`", self.template.name.name, self.target.name),
+                },
             });
-            Span::new(start, start + 1)
+            member.name.span.in_expansion(named.expn)
         } else {
             site
         };
@@ -2097,7 +2100,7 @@ impl<'w> Stamper<'w> {
             from: self.by.text(),
             at_type: self.target.name.clone(),
             site,
-            regions,
+            expansions,
             roots: Vec::new(),
             template_file: None,
         });
@@ -2122,8 +2125,11 @@ impl<'w> Stamper<'w> {
     fn stamp_into(self, f: &mut FnDecl, declared: Declared<'_>) -> Result<(), Vec<Diagnostic>> {
         let site = f.by.as_ref().map(|b| b.span).unwrap_or(f.span);
         let mut inst = self.template.clone();
-        let mut remap = Remap::fresh(&mut inst, self.virtual_next);
-        visit_mut::walk_fn(&mut remap, &mut inst);
+        // [origin] The template copied whole: every node keeps its span in
+        // the template, under this stamp's expansion.
+        let mut whole = Retag::fresh(self.next_expn);
+        let template_expn = whole.expn;
+        visit_mut::walk_fn(&mut whole, &mut inst);
         let mut param = self.template.compfn.as_ref().and_then(|c| c.bound.as_ref()).map(|(_, id)| id.name.clone());
         // [comptime-generic] At a generic target (a clause's: a written
         // declaration there is refused) the template's own parameter is
@@ -2144,7 +2150,8 @@ impl<'w> Stamper<'w> {
                 base.args = self.target.generics.iter().map(|g| World::simple_named(g, site)).collect();
             }
         }
-        let mut ex = Expander::new(self.world, param.map(|p| (p, target)), site, self.virtual_next);
+        let mut ex = Expander::new(self.world, param.map(|p| (p, target)), site, self.next_expn);
+        ex.current = template_expn;
         let mut sig = SigSubst { ex: &mut ex };
         for p in &mut inst.params {
             visit_mut::walk_type(&mut sig, &mut p.ty);
@@ -2210,7 +2217,7 @@ impl<'w> Stamper<'w> {
         if let Some(b) = &mut inst.body {
             ex.expand_block(b);
         }
-        let (regions, mut errs) = ex.finish();
+        let (expansions, mut errs) = ex.finish();
         // A stamp reports errors at its `by` site; a template's warnings are
         // its author's business, not every stamping site's.
         errs.retain(|d| d.is_error());
@@ -2264,14 +2271,16 @@ impl<'w> Stamper<'w> {
         }
         f.body = inst.body;
         f.by = None;
-        let mut all = f.stamped.take().map(|s| s.regions).unwrap_or_default();
-        all.extend(regions);
+        let mut all = f.stamped.take().map(|s| s.expansions).unwrap_or_default();
+        all.push(ExpansionRecord { id: template_expn, parent: 0, kind: ExpansionKind::Template });
+        all.extend(expansions);
+        all.sort_by_key(|e| e.id);
         f.stamped = Some(Stamp {
             compfn: self.template.name.name.clone(),
             from: self.by.text(),
             at_type: self.target.name.clone(),
             site,
-            regions: all,
+            expansions: all,
             roots: Vec::new(),
             template_file: None,
         });
@@ -2431,84 +2440,24 @@ impl MutVisitor for RenameParams<'_> {
     }
 }
 
-/// Moves every span of a tree into a fresh virtual region: `new = base + (old
-/// - min)`, where `min` is the least span start the tree holds.
-struct Remap {
-    min: u32,
-    base: u32,
+/// [origin] Tags every span of a tree with a fresh expansion id: the nodes
+/// keep the ranges of the code they were copied from, and the id tells this
+/// copy apart from every other.
+struct Retag {
+    expn: u32,
 }
 
-impl Remap {
-    fn fresh<T>(tree: &mut T, virtual_next: &mut u32) -> Remap
-    where
-        T: SpanBounds,
-    {
-        let (min, max) = tree.bounds();
-        let base = *virtual_next;
-        *virtual_next = base + (max.saturating_sub(min)) + 2;
-        Remap { min, base }
-    }
-
-    fn fresh_for_type_ref(t: &mut TypeRef, virtual_next: &mut u32) -> Remap {
-        let mut b = Bounds { min: u32::MAX, max: 0 };
-        visit_mut::walk_type_ref(&mut b, t);
-        let (min, max) = if b.min == u32::MAX { (0, 0) } else { (b.min, b.max) };
-        let base = *virtual_next;
-        *virtual_next = base + (max.saturating_sub(min)) + 2;
-        Remap { min, base }
-    }
-
-    fn region_end(&self, max: u32) -> u32 {
-        self.base + (max - self.min) + 1
+impl Retag {
+    fn fresh(next_expn: &mut u32) -> Retag {
+        let expn = *next_expn;
+        *next_expn += 1;
+        Retag { expn }
     }
 }
 
-impl MutVisitor for Remap {
+impl MutVisitor for Retag {
     fn visit_span(&mut self, span: &mut Span) {
-        let len = span.end.saturating_sub(span.start);
-        let start = self.base + span.start.saturating_sub(self.min);
-        *span = Span::new(start, start + len);
-    }
-}
-
-/// The least and greatest span start in a tree.
-trait SpanBounds {
-    fn bounds(&mut self) -> (u32, u32);
-}
-
-struct Bounds {
-    min: u32,
-    max: u32,
-}
-
-impl MutVisitor for Bounds {
-    fn visit_span(&mut self, span: &mut Span) {
-        self.min = self.min.min(span.start);
-        self.max = self.max.max(span.start);
-    }
-}
-
-impl SpanBounds for FnDecl {
-    fn bounds(&mut self) -> (u32, u32) {
-        let mut b = Bounds { min: u32::MAX, max: 0 };
-        visit_mut::walk_fn(&mut b, self);
-        if b.min == u32::MAX {
-            (0, 0)
-        } else {
-            (b.min, b.max)
-        }
-    }
-}
-
-impl SpanBounds for Block {
-    fn bounds(&mut self) -> (u32, u32) {
-        let mut b = Bounds { min: u32::MAX, max: 0 };
-        visit_mut::walk_block(&mut b, self);
-        if b.min == u32::MAX {
-            (0, 0)
-        } else {
-            (b.min, b.max)
-        }
+        span.expn = self.expn;
     }
 }
 
@@ -2567,22 +2516,27 @@ struct Expander<'w> {
     /// The fn's parameters, for an expanded-in-place compfn's `[when …]` over one.
     params: Vec<Param>,
     site: Span,
-    virtual_next: &'w mut u32,
-    regions: Vec<StampRegion>,
+    /// [origin] The file's next expansion id.
+    next_expn: &'w mut u32,
+    /// [origin] The expansions made: the unrolled copies, and the nodes made
+    /// up, in the order made (ascending ids).
+    expansions: Vec<ExpansionRecord>,
+    /// [origin] The expansion the code being expanded is in: the template's
+    /// whole copy in a stamp, 0 (written) in an expanded-in-place fn, and the
+    /// copy itself while a copy is expanded — the parent of a copy made now.
+    current: u32,
     errors: Vec<Diagnostic>,
     rename_counter: u32,
-    /// [comptime-inline] For an **expanded-in-place** fn: the length of its
-    /// own file, so a diagnostic about a written construct lands where it is
-    /// written (a span below the limit, after undoing copies' remaps) rather
-    /// than on the declaration. `None` for a stamp, whose template lives in
-    /// another file — there the `by` site is where the author can act.
-    written_limit: Option<u32>,
+    /// [comptime-inline] Whether this is an **expanded-in-place** fn, whose
+    /// copies are of its own text: a diagnostic about a written construct
+    /// lands where it is written (after following the copies back to it)
+    /// rather than on the declaration. Not in a stamp, whose template lives
+    /// in another declaration — there the `by` site is where the author can
+    /// act.
+    in_place: bool,
     /// The expanded-in-place fn's name, which a `refuse!` names in place of
     /// a stamped type [comptime-refuse].
     fn_name: Option<String>,
-    /// Each copy's remap, `(base, end, min)`: how a span in a copy maps back
-    /// to the span it was copied from.
-    remaps: Vec<(u32, u32, u32)>,
     /// [comptime-generic-fn] An expanded-in-place fn's own type parameters:
     /// opaque inside it (kind `Generic`), and names a type test may use.
     fn_generics: Vec<String>,
@@ -2600,7 +2554,7 @@ struct Expander<'w> {
     /// [comptime-pattern] Per binder declaration (keyed by its written span
     /// and name): whether *any* copy used it — an unused binder warns once,
     /// and only if no copy used it.
-    binder_used: HashMap<(u32, String), (Span, bool)>,
+    binder_used: HashMap<((u32, u32), String), (Span, bool)>,
     /// [lsp-completion] Per `[when f.name]` / `[when f.type]` copy, at its
     /// written span: what that copy found uncovered (expanded-in-place fns
     /// only, where the span is the author's own).
@@ -2608,20 +2562,20 @@ struct Expander<'w> {
 }
 
 impl<'w> Expander<'w> {
-    fn new(world: &'w World, bound: Option<(String, Target)>, site: Span, virtual_next: &'w mut u32) -> Self {
+    fn new(world: &'w World, bound: Option<(String, Target)>, site: Span, next_expn: &'w mut u32) -> Self {
         Expander {
             world,
             bound,
             env: Vec::new(),
             params: Vec::new(),
             site,
-            virtual_next,
-            regions: Vec::new(),
+            next_expn,
+            expansions: Vec::new(),
+            current: 0,
             errors: Vec::new(),
             rename_counter: 0,
-            written_limit: None,
+            in_place: false,
             fn_name: None,
-            remaps: Vec::new(),
             fn_generics: Vec::new(),
             type_binders: Vec::new(),
             value_binders: Vec::new(),
@@ -2634,16 +2588,16 @@ impl<'w> Expander<'w> {
     /// [lsp-completion] Records a `[when]` copy's uncovered arms at the
     /// construct's written span — an expanded-in-place fn's own text only.
     fn record_when_arms(&mut self, span: Span, missing: Vec<String>, types: bool, bodies: Vec<Span>) {
-        if let Some(limit) = self.written_limit {
+        if self.in_place {
             let written = self.unmap(span);
-            if written.start < limit && written.end > written.start {
+            if written.is_written() && written.end > written.start {
                 let bodies = bodies.into_iter().map(|b| self.unmap(b)).collect();
                 self.when_arms.push((written, missing, types, bodies));
             }
         }
     }
 
-    fn finish(self) -> (Vec<StampRegion>, Vec<Diagnostic>) {
+    fn finish(mut self) -> (Vec<ExpansionRecord>, Vec<Diagnostic>) {
         // One mistake, one diagnostic: a condition in an unrolled body is
         // evaluated once per copy, and so is reported once per copy.
         let mut errors: Vec<Diagnostic> = Vec::new();
@@ -2659,35 +2613,31 @@ impl<'w> Expander<'w> {
             .filter(|(_, (_, used))| !*used)
             .map(|((_, name), (span, _))| (*span, name.clone()))
             .collect();
-        unused.sort_by_key(|(s, _)| s.start);
+        unused.sort_by_key(|(s, _)| s.order_key());
         for (span, name) in unused {
-            let at = match self.written_limit {
-                Some(limit) if span.start < limit => span,
-                _ => self.site,
-            };
+            let at = if self.in_place && span.is_written() { span } else { self.site };
             errors.push(Diagnostic::warning(
                 format!("pattern binder `{name}` is never used: write `*` in its place [comptime-pattern]"),
                 at,
             ));
         }
-        (self.regions, errors)
+        self.expansions.sort_by_key(|e| e.id);
+        (self.expansions, errors)
     }
 
-    /// The written span a span in a copy came from: copies nest, so undo
-    /// each remap whose region holds it until none does.
+    /// The span a span in a copy was copied from [origin]: copies nest, so
+    /// follow each copy back to the code it copied — the fn's own text in an
+    /// expanded-in-place fn, the template's whole copy in a stamp. What the
+    /// expansion made up is no copy, and stays.
     fn unmap(&self, mut span: Span) -> Span {
         let mut guard = 0;
-        while let Some((base, end, min)) = self
-            .remaps
+        while let Some(e) = self
+            .expansions
             .iter()
             .rev()
-            .find(|(base, end, _)| span.start >= *base && span.start < *end)
-            .copied()
+            .find(|e| e.id == span.expn && matches!(e.kind, ExpansionKind::Copy { .. }))
         {
-            let len = span.end.saturating_sub(span.start);
-            let start = min + (span.start - base);
-            span = Span::new(start, start + len);
-            let _ = end;
+            span = span.in_expansion(e.parent);
             guard += 1;
             if guard > 64 {
                 break;
@@ -2698,16 +2648,15 @@ impl<'w> Expander<'w> {
 
     /// Where a diagnostic about the construct at `span` lands.
     fn report_span(&self, span: Span) -> Span {
-        match self.written_limit {
-            Some(limit) => {
-                let written = self.unmap(span);
-                if written.start < limit && written.end > written.start {
-                    written
-                } else {
-                    self.site
-                }
+        if self.in_place {
+            let written = self.unmap(span);
+            if written.is_written() && written.end > written.start {
+                written
+            } else {
+                self.site
             }
-            None => self.site,
+        } else {
+            self.site
         }
     }
 
@@ -3245,7 +3194,7 @@ impl<'w> Expander<'w> {
         let scope: Vec<(String, Type, Span, usize)> = self.type_binders.drain(base..).collect();
         for (name, _, span, uses) in scope {
             let written = self.unmap(span);
-            let entry = self.binder_used.entry((written.start, name)).or_insert((written, false));
+            let entry = self.binder_used.entry(((written.expn, written.start), name)).or_insert((written, false));
             entry.1 |= uses > 0;
         }
         out.extend(block.stmts);
@@ -3295,7 +3244,7 @@ impl<'w> Expander<'w> {
                 for (name, _, span, uses) in lent {
                     if uses > 0 {
                         let written = self.unmap(span);
-                        self.binder_used.entry((written.start, name)).or_insert((written, false)).1 = true;
+                        self.binder_used.entry(((written.expn, written.start), name)).or_insert((written, false)).1 = true;
                     }
                 }
                 Some(x? && y?)
@@ -3475,29 +3424,30 @@ impl<'w> Expander<'w> {
     /// then substituted and expanded.
     fn copy(&mut self, template: &Block, binder: &str, b: &Binding) -> Block {
         let mut block = template.clone();
-        let mut remap = Remap::fresh(&mut block, self.virtual_next);
-        let (_, max) = block.bounds();
-        let end = remap.region_end(max);
-        visit_mut::walk_block(&mut remap, &mut block);
-        self.remaps.push((remap.base, end, remap.min));
-        self.regions.push(StampRegion {
-            start: remap.base,
-            end,
-            target: b.decl_span,
-            label: b.label.clone(),
-            written_from: self.written_limit.map(|_| remap.min),
-            written_label: self.written_limit.map(|_| {
-                if b.is_arm {
-                    format!("`{binder}` is `{}`", b.name)
-                } else {
-                    format!("`{binder}` is `{}` (`{}`)", b.name, b.ty)
-                }
-            }),
+        let mut copy = Retag::fresh(self.next_expn);
+        let id = copy.expn;
+        visit_mut::walk_block(&mut copy, &mut block);
+        self.expansions.push(ExpansionRecord {
+            id,
+            parent: self.current,
+            kind: ExpansionKind::Copy {
+                target: b.decl_span,
+                label: b.label.clone(),
+                written: self.in_place.then(|| {
+                    if b.is_arm {
+                        format!("`{binder}` is `{}`", b.name)
+                    } else {
+                        format!("`{binder}` is `{}` (`{}`)", b.name, b.ty)
+                    }
+                }),
+            },
         });
         self.rename_counter += 1;
         rename_locals(&mut block, self.rename_counter);
         self.env.push((binder.to_string(), b.clone()));
+        let enclosing = std::mem::replace(&mut self.current, id);
         self.expand_block(&mut block);
+        self.current = enclosing;
         self.env.pop();
         block
     }
@@ -3552,7 +3502,7 @@ impl<'w> Expander<'w> {
                     let scope: Vec<(String, crate::types::Const, Span, usize)> = self.value_binders.drain(base..).collect();
                     for (name, _, span, uses) in scope {
                         let written = self.unmap(span);
-                        let entry = self.binder_used.entry((written.start, name)).or_insert((written, false));
+                        let entry = self.binder_used.entry(((written.expn, written.start), name)).or_insert((written, false));
                         entry.1 |= uses > 0;
                     }
                 } else if let Some(chosen) = else_ {
@@ -3606,7 +3556,7 @@ impl<'w> Expander<'w> {
                 // every compfn that did not consider it.
                 if let Some(d) = kind_arms_incomplete(&arms, span) {
                     // At the written construct, as every expansion error is
-                    // (a copy's spans are virtual).
+                    // (a copy's nodes are the template's [origin]).
                     self.error(span, d.message);
                     return;
                 }
@@ -3732,10 +3682,10 @@ impl<'w> Expander<'w> {
                     // stamps at one union would key the checker's `is` tables on
                     // the same node, so each copy gets its own.
                     for c in &mut check {
-                        let mut remap = Remap::fresh_for_type_ref(c, self.virtual_next);
-                        visit_mut::walk_type_ref(&mut remap, c);
+                        let mut made = self.made();
+                        visit_mut::walk_type_ref(&mut made, c);
                     }
-                    let bspan = self.fresh_span();
+                    let bspan = span.in_expansion(self.made().expn);
                     branches.push(WhenBranch {
                         check,
                         binding: None,
@@ -3744,7 +3694,7 @@ impl<'w> Expander<'w> {
                         span: bspan,
                     });
                 }
-                let when_span = self.fresh_span();
+                let when_span = span.in_expansion(self.made().expn);
                 out.push(Stmt::Expr(Expr::When {
                     binding: None,
                     subject: Box::new(value),
@@ -3776,10 +3726,14 @@ impl<'w> Expander<'w> {
         }
     }
 
-    fn fresh_span(&mut self) -> Span {
-        let at = *self.virtual_next;
-        *self.virtual_next += 2;
-        Span::new(at, at + 1)
+    /// [origin] A fresh expansion for nodes the expansion makes up (the
+    /// `when` an `[when value]` unrolls into, its arms' tests): they keep the
+    /// range of what they were made from, and their diagnostics land at the
+    /// site.
+    fn made(&mut self) -> Retag {
+        let made = Retag::fresh(self.next_expn);
+        self.expansions.push(ExpansionRecord { id: made.expn, parent: self.current, kind: ExpansionKind::Made });
+        made
     }
 
     fn str_lit(&self, text: &str, span: Span) -> Expr {
@@ -4308,24 +4262,6 @@ fn arm_check(arm: &Type) -> Option<Vec<TypeRef>> {
         Type::Literal { value, span } => Some(vec![value.as_type_ref(*span)]),
         _ => None,
     }
-}
-
-/// [comptime-instantiate] Where a diagnostic about a stamped fn raised outside
-/// the checker's walk lands (the deduction pass's, at a parameter or a clause
-/// entry): a written span stays, a synthetic one — a clause member's
-/// signature [obligation-by], a copy in its body — goes to the field or arm
-/// its region is for, or the `by` site, prefixed as the checker prefixes a
-/// stamped body's errors.
-pub fn redirect_stamped(stamp: &Stamp, file_len: usize, span: Span, msg: String) -> (Span, String) {
-    if (span.start as usize) < file_len {
-        return (span, msg);
-    }
-    let region = stamp.regions.iter().rev().find(|r| span.start >= r.start && span.start < r.end);
-    let (at, label) = match region {
-        Some(r) => (r.target, r.label.as_str()),
-        None => (stamp.site, stamp.at_type.as_str()),
-    };
-    (at, format!("in `{}` from `{}` for `{label}`: {msg}", stamp.compfn, stamp.from))
 }
 
 /// The suffix [`rename_locals`] appends: `k` declared in a scoped comptime

@@ -56,8 +56,8 @@ pub fn check(program: &Program) -> Vec<IrDiagnostic> {
         }
     }
     // A leak reachable by more than one walk path reports once.
-    out.sort_by(|a, b| (a.span.start, &a.message).cmp(&(b.span.start, &b.message)));
-    out.dedup_by(|a, b| a.span.start == b.span.start && a.message == b.message);
+    out.sort_by(|a, b| (a.span.expn, a.span.start, &a.message).cmp(&(b.span.expn, b.span.start, &b.message)));
+    out.dedup_by(|a, b| (a.span.expn, a.span.start) == (b.span.expn, b.span.start) && a.message == b.message);
     out
 }
 
@@ -250,7 +250,7 @@ fn walk_block(block: &Block, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnos
                 // Reported once: the old obligation goes with the report, and
                 // the new value's `Gain` follows.
                 if place.steps.is_empty() {
-                    if let Some(at) = ctx.fate.assign_spans.get(&(value.span.start, value.span.end)) {
+                    if let Some(at) = ctx.fate.assign_spans.get(&value.span) {
                         let key = place_key(place);
                         if owed.remove(&key).is_some() && !key.starts_with("__") {
                             let x = written_name(&key);

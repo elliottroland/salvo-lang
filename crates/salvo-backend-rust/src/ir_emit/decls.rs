@@ -1135,7 +1135,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let bound = if f.kind == FnKind::Platform && !core_platform { "Send + 'static" } else { "Clone" };
         let erased_fn = self.s.ast_fn(&f.id).is_some_and(|af| {
             let fi = self.s.file_of(&f.id).unwrap_or(0);
-            self.s.erased.fns.contains(&(fi, af.name.span.start))
+            self.s.erased.fns.contains(&(fi, af.name.span))
         });
         let mut tps = if erased_fn { Vec::new() } else { self.generics(&f.type_params, bound) };
         self.f.generics = f.type_params.iter().map(|t| t.name.clone()).collect();

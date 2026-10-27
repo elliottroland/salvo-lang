@@ -38,7 +38,7 @@ pub struct Erased {
     /// without them, and called without a turbofish. Keyed by (module index,
     /// name span start), since overloads share a name and only one of them
     /// may erase (`eq<E>(a: Addr<E>, b: Addr<E>)` beside the ordinary `eq`s).
-    pub fns: HashSet<(usize, u32)>,
+    pub fns: HashSet<(usize, salvo_syntax::Span)>,
 }
 
 impl Erased {
@@ -263,7 +263,7 @@ pub fn erased_generics(program: &Program) -> Erased {
                     // A function's own name is never a type, so `current` is
                     // a name no type mentions.
                     Item::Fn(f) if all_effect_only("", &f.generics, &fn_types(f), &erased, &decls, false) => {
-                        erased.fns.insert((module_idx, f.name.span.start));
+                        erased.fns.insert((module_idx, f.name.span));
                     }
                     _ => {}
                 }
@@ -293,7 +293,7 @@ pub fn erase_effect_generics(program: &Program, erased: &Erased) -> Program {
                         s.generics.clear();
                         s.generic_canbe.clear();
                     }
-                    Item::Fn(f) if erased.fns.contains(&(module_idx, f.name.span.start)) => {
+                    Item::Fn(f) if erased.fns.contains(&(module_idx, f.name.span)) => {
                         f.generics.clear();
                         f.generic_canbe.clear();
                     }

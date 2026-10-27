@@ -5142,9 +5142,10 @@ Conventions:
     (`T` → `__Self`) when it shares a name with the target's, and the group's
     (`__Group0`) before `self` is substituted. A concrete field
     beside a generic one reaches its own member [implicit-resolve-body].
-    * Each stamped member gets a name span of its own (redirected to the `by`
-      site), since one site stamps several and a fn's implicits are keyed by
-      its name.
+    * Each stamped member gets a name span of its own (the group member's
+      name under an expansion of its own, `ExpansionKind::Member`, whose
+      diagnostics land at the `by` site [origin]), since one site stamps
+      several and a fn's implicits are keyed by its name.
     * The obligation's match ignores the trailing implicits
       [group-obligation].
     * **Calls fill them**: a written call as always, an operator
@@ -5639,24 +5640,26 @@ Conventions:
   * **Where expansion errors land** (2026-10-20): in an expanded-in-place fn
     every construct is the author's own text, so a mistake in it (a field name
     no field has, a binder that is not one) is reported **once, where it is
-    written** — the expansion undoes each unrolled copy's span remap to find
-    it, and drops the identical reports the other copies would make. In a
+    written** — the expansion follows each unrolled copy back to the code it
+    copied [origin] to find it, and drops the identical reports the other
+    copies would make. In a
     stamp the template is another file's text, so the `by` site stays where
     it lands.
   * **So do the checker's errors in its copies** (2026-10-20, a TODO in
     lib/std/args/parse.sv): a copy of an expanded-in-place fn that does not
     type-check is reported on the failing code as written, through every
-    copy it was copied from (`StampRegion::written_from`), prefixed with
+    copy it was copied from (the chain of its origin [origin]), prefixed with
     which copy it was in the code's own terms — "when `field` is `groups`
     (`Map<Str, ArgGroup>`): no matching overload …" at
     `print_help(args.[field])`, and "when `arm` is `Manual` and `field` is
-    `note` (`Str`): …" for nested walks (`StampRegion::written_label`). It
+    `note` (`Str`): …" for nested walks (each copy's
+    `ExpansionKind::Copy::written`). It
     used to land on the field's declaration, prefixed like a stamp's ("in
     `print_help` from `this declaration` for `ArgGroup.groups: …`"); a stamp's
     still does [comptime-instantiate].
 * [comptime-copy-warn] **A warning inside a comptime copy is reported
   once, where an error there would land** (ROADMAP §2d item 5, done
-  2026-10-20): redirected through the same mapping as errors (to the
+  2026-10-20): rendered through the same origin as errors [origin] (to the
   written code in an expanded-in-place fn, to the field or `by` site in a
   stamp), and held until the fn is checked. An **unused local** declared in
   a copy is reported only when every copy that declared it left it unused,
@@ -5710,20 +5713,59 @@ Conventions:
     roots are.) With [std-root] nothing is left for a project to reach std
     through: a project cannot declare a module under `std`, so nothing it
     writes is implicitly visible to std.
-  * **Spans**: every node of a stamped body is given a synthetic span **past
-    the end of the file**, one fresh region per unrolled copy, so the checker's
-    span-keyed side tables never see two copies as one node. The `Stamp` on
-    the fn records the regions; the checker redirects a diagnostic inside one
-    to the field or arm the copy was for and prefixes it — "in `cmp` from
-    `auto` for `Point.y: Double`: no matching overload for `cmp(Double,
-    Double)`" at the field declaration. (An expanded-in-place fn's copies are
-    redirected to the written code instead [comptime-inline].)
-    A diagnostic raised outside the checker's walk at a synthetic span — the
-    deduction pass's, at a clause member's parameter [obligation-by] — is
-    redirected the same way (`comptime::redirect_stamped`, 2026-10-14).
+  * **Spans are origins** [origin]: every node of a stamped body keeps its
+    span in the template and carries a fresh expansion id, one per unrolled
+    copy, so the checker's span-keyed side tables never see two copies as
+    one node. The `Stamp` on the fn records the expansions; a diagnostic at a
+    copied node lands on the field or arm the copy was for, prefixed — "in
+    `cmp` from `auto` for `Point.y: Double`: no matching overload for
+    `cmp(Double, Double)`" at the field declaration — or, for the template's
+    own text and what the stamp made, at the `by` site with the type ("in
+    `cmp` from `auto` for `Point`: …"). (An expanded-in-place fn's copies
+    land on the written code instead [comptime-inline].) Every phase renders
+    the same way: the checker's, the deduction pass's (at a clause member's
+    parameter [obligation-by]) and the IR analyses'. Until 2026-10-27 a copy
+    was given synthetic spans past the end of the file instead, and the
+    checker and the deduction pass each redirected them.
   * A stamped fn is an ordinary `FnDecl` for everything downstream:
     resolution, the duplicate check, mangling, export, both emitters. Its
     signature is the declaration's, never the template's [fn-by].
+* [origin] **Every copied node keeps its origin; nothing invents a source
+  position** (PIPELINE.md §II.4, A2, 2026-10-27). A node an expansion copied
+  keeps the span it has in the code it was copied from (a template's, which
+  may be another file's) and carries the expansion's id (`Span::expn`; 0 for
+  code as written). The declaration's `Stamp` records each expansion
+  (`ast::ExpansionRecord`): its parent (the copy it was itself made in, or 0) and
+  its kind — `Template` (the template copied whole for one stamp), `Copy`
+  (one unrolled `[for]`/`[when value]` copy: the field or arm it was for, its
+  label, and in an expanded-in-place fn which copy it is in the code's terms),
+  `Member` (a clause member's name at a generic target) or `Made` (nodes the
+  expansion made: a clause member's signature, an unrolled `when` and its
+  arms' tests).
+  * **A diagnostic renders by walking the chain** (`origin::render`), the
+    same for the checker, the deduction pass and the IR analyses: a written
+    span stays; a copy in an expanded-in-place fn lands on the code it
+    copies, "when `field` is … : …" [comptime-inline]; a copy in a stamp on
+    its field or arm, "in `f` from `x` for `T.f: F`: …"; anything else at the
+    `by` site, "in `f` from `x` for `T`: …" [comptime-instantiate]. It names
+    the stamped fn (`FileDiagnostic::decl`), which is what `ir::gate`
+    attributes it by [ir-analyze].
+  * **Positions compare within one expansion only**: spans order written
+    first, then by expansion in the order the expansions were made
+    (`Span::order_key`, the order the synthetic spans had), a span contains
+    another of its own expansion only, and only a written span covers an
+    offset of its file (`Span::holds`) — so the language server never finds
+    a copied node under the cursor, and a range it reports for one is the
+    document's end (where the synthetic spans landed).
+  * Ids are the file's, in the order made; a fn's are a run of them (its
+    copied facts are found by that run, `Lower::fn_body`). A location
+    computed from a copied node outside a diagnostic (a trap's
+    `module:line:col`, "moved at line N", `salvo facts`' rows) is the file's
+    end, as before (ROADMAP 0ac: render it through the origin too).
+  * Not yet origins: the `iter fn` desugaring's one-byte spans inside the
+    declaration (`desugar::Spans`), which exist only to keep synthesized
+    nodes' keys apart, and the `0..0` placeholders; per-declaration node keys
+    (A3) remove the need for both.
 * [cmp-carry] A structure that **holds** an ordering (or a hash, or an
   equality) names it as a **fn-valued type argument**, fixed at construction
   (user decision 2026-09-21, the ordering round's decision 1). The identity lands *in
@@ -11850,10 +11892,12 @@ replaced the working document TESTING.md).
   and nothing from the IR (no duplicate, no cascade). Emission is unchanged:
   a program with any error emits nothing (`check_for_emission` lists the
   checker's errors, then the IR's on the clean declarations).
-  * **Which declarations broke**, from the errors' spans. An error a
-    stamped fn's copy raised — redirected to the stamp's `by` site or a
-    region's target, with the "in `f` from `x` for `…`" prefix
-    [comptime-instantiate] — breaks that fn's body only. Otherwise every item
+  * **Which declarations broke**, from the errors' spans. An error raised at
+    a node a stamp copied — rendered by its origin at the stamp's `by` site,
+    a field or an arm [origin] [comptime-instantiate] — carries the stamped
+    fn's id (`FileDiagnostic::decl`) and breaks that fn's body only (it was
+    recognized by its "in `f` from `x` for `…`" prefix and span until
+    2026-10-27). Otherwise every item
     containing the error breaks: inside a fn's body, or a handler member's
     (or `init`'s), the body; anywhere else in a declaration, its interface (a
     fn's signature; a struct, type, effect, qualifier or `params`

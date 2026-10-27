@@ -212,7 +212,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// [fate-move-mode] What the flow pass's decision reads off a binding:
     /// whether it may take ownership, and the loops its roots are bound by.
     pub(crate) fn note_fact(&mut self, fact: &crate::check::BindFact) {
-        let stamp = (fact.stamp.start, fact.stamp.end);
+        let stamp = fact.stamp;
         if fact.eligible {
             self.fate.eligible.insert(stamp);
         }
@@ -239,7 +239,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 })
                 .collect();
             let table = if assign { &mut self.fate.assign_uses } else { &mut self.fate.uses };
-            table.entry((at.start, at.end)).or_default().extend(lowered);
+            table.entry(at).or_default().extend(lowered);
         }
         if assign {
             return;
@@ -253,7 +253,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     local: if c.survivor { self.lookup(&c.var).map(|b| b.local.0.clone()) } else { None },
                 })
                 .collect();
-            self.fate.virtual_at.entry((at.start, at.end)).or_default().extend(lowered);
+            self.fate.virtual_at.entry(at).or_default().extend(lowered);
         }
     }
 
@@ -286,20 +286,33 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     /// A fn body: the block, with a trailing expression that is the result
     /// where the fn returns a value and the block falls off its end.
-    pub fn fn_body(&mut self, block: &ast::Block, ret: &Ty) -> Block {
+    pub fn fn_body(&mut self, block: &ast::Block, ret: &Ty, stamp: Option<&ast::Stamp>) -> Block {
         for (n, t) in self.self_fields.clone() {
             self.bind(&n, t);
         }
         let value = !ret.is_none_ty() && !ret.is_unknown();
         // [fate-move-mode] What the decision reads about every binding in the
-        // body (an `is` binding has no statement of its own).
+        // body (an `is` binding has no statement of its own): the written
+        // ones inside it, and [origin] every one a stamp or an in-place
+        // expansion copied into it — the fn's own expansions, a run of the
+        // file's ids (facts are in span order: written first, then by
+        // expansion).
         if let Some(facts) = self.ctx.facts_by_file.get(&self.file_idx) {
-            let from = facts.partition_point(|f| f.stamp.start < block.span.start);
-            for fact in &facts[from..] {
-                if fact.stamp.start >= block.span.end {
-                    break;
+            let mut ranges = Vec::new();
+            if block.span.is_written() {
+                ranges.push(((0, block.span.start, 0), (0, block.span.end, 0)));
+            }
+            if let (Some(first), Some(last)) = (stamp.and_then(|s| s.expansions.first()), stamp.and_then(|s| s.expansions.last())) {
+                ranges.push(((first.id, 0, 0), (last.id + 1, 0, 0)));
+            }
+            for (from, to) in ranges {
+                let at = facts.partition_point(|f| f.stamp.order_key() < from);
+                for fact in &facts[at..] {
+                    if fact.stamp.order_key() >= to {
+                        break;
+                    }
+                    self.note_fact(fact);
                 }
-                self.note_fact(fact);
             }
         }
         self.block(block, value)
@@ -349,7 +362,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // move-mode assignment took ownership through), and the
                 // mutation an assignment through a projection is, for the
                 // flow pass.
-                let at = (v.span.start, v.span.end);
+                let at = v.span;
                 // [fate-move-mode] A mutation of a derived local through the
                 // target (`m.n = 1`).
                 self.note_uses(*span, v.span, true);

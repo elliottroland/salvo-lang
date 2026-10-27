@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2102 tests, complete: the toolchain tests are
+cargo test                  # 2105 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,103 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-27 — Every copied node keeps its origin (A2)
+
+**Origins replace synthetic spans** ([origin], PIPELINE.md §II.4, Stage A
+piece A2). A comptime copy used to be given spans past the end of its file,
+one region per unrolled copy (`StampRegion`), and its errors were moved back
+by two redirects (the checker's `redirect_stamped`, and
+`comptime::redirect_stamped` for the deduction pass); `ir::gate` recognized
+a stamped error by its "in `f` from `x` for `…`" prefix and its span.
+
+- **Where origins live: in the span, with the records on the stamped
+  declaration.** `Span` is `{ start, end, expn }`: a copied node keeps the
+  range of the code it was copied from (the template's, possibly another
+  file's) and carries an expansion id; `expn` 0 is written code. The fn's
+  `Stamp` holds the records (`ExpansionRecord { id, parent, kind }`, kind
+  `Template` — the template copied whole —, `Copy { target, label, written
+  }` — one unrolled copy —, `Member` — a clause member's name at a generic
+  target —, `Made` — a clause member's signature, an unrolled `when` and its
+  arms' tests). So `Origin { span, via }` of the plan is the span itself, its
+  `via` the id. **Why**: every node already has exactly one span; until A3
+  facts are keyed `(file, Span)`, and two copies of one template must stay
+  two keys, so the link has to be part of what the key hashes; and the
+  records are per declaration, which is what A3's `(DeclId, NodeId)` keys
+  and A4's per-declaration rows partition by — A3 keeps the span (with its
+  `expn`) as origin data and stops keying by it. A side table keyed by node
+  and `DeclId` was the alternative; without node ids (A3) it has no node key
+  that tells copies apart.
+- **Comptime retags instead of remapping** (`Retag`): one fresh id per copy
+  (`next_expn`, per file, from 1, in the order the old regions were
+  allocated, so `Span::order_key` — written first, then by expansion, then by
+  position — is the order the synthetic spans had). A copy's parent is the
+  expansion being expanded when it was made (`Expander::current`: the
+  template's whole copy in a stamp, 0 in an expanded-in-place fn).
+  `Remap`, `SpanBounds`, `virtual_next`, `written_limit`, `remaps` and
+  `fresh_span` are gone.
+- **One renderer** (`origin::render`, `origin::written`): a written span
+  stays; an in-place copy lands on the code it copies, "when `field` is …:";
+  a stamp's copy on its field or arm, "in `f` from `x` for `T.f: F`:";
+  anything else at the `by` site, "in `f` from `x` for `T`:". The checker
+  (`render_origin`; its `file_len` is gone), the deduction pass and — new —
+  the IR analyses (`ir::analyze`, through `stamp_of`) all call it, and tag
+  the diagnostic with the stamped fn (`FileDiagnostic::decl`).
+- **The gate attributes by that id** (`Gate::new` takes the `DeclIndex`):
+  a tagged error breaks its fn's body (`DeclIndex::loc`); no prefix match.
+- **Positions compare within one expansion only.** The IR's fate tables
+  keyed `(start, end)` are keyed by `Span`; `Span` orders by `order_key`;
+  `spans_overlap`, the IR's and the CLI's diagnostic sorts and dedups,
+  `erase`'s fn set, the written keys by span (`(Span, name)`), the deadlock
+  graph's first route use and the overload sites all include the id. The
+  IR builder's bind facts of a body (`Lower::fn_body`) are its written range
+  plus the fn's run of expansion ids (they were by position, which reached
+  some copies' facts by accident of layout; no IR dump changed). The
+  language server matches a cursor against written spans only
+  (`Span::holds`, `reaches`), places a range for a copied node at the
+  document's end (where it landed), leaves copied occurrences out of a
+  rename, and defines a generic clause member at its `by` site. The check
+  cache compares copied type nodes by equality (a body edit leaves the
+  template where it was).
+- **Not origins yet**: the `iter fn` desugaring's one-byte spans inside its
+  declaration (`desugar::Spans`) and the `0..0` placeholders exist only to
+  keep keys apart; A3's node ids remove the need, so they stay for it.
+  Route stubs and actor glue needed nothing: the IR derives them with their
+  interface's written spans and `DeclKind::Generated` ids. A location
+  computed from a copied node outside a diagnostic (a trap's
+  `module:line:col`, "moved at line N", `salvo facts`, a language-server
+  range) is still the file's end (`span_line_col`), as before: ROADMAP 0ac.
+
+**The differential** (temporary, `SALVO_XP_A2`, hooks in `check_program`,
+`check_project`, `check_project_cached`, `build_program_gated` and
+`analyze_full`: rendered diagnostics with their raw positions, every built
+IR module's dump and the build errors; base a worktree of 9faa346d; both
+with `SALVO_E2E_FRESH=1 SALVO_SKIP_E2E=1`): 3,839 outputs over every program
+the suite checks, **one difference**, a fix: an unresolved name inside an
+in-place copy (`append` in `a_copys_docs_are_tested_in_a_head`) printed at
+`main.sv:13:1` — the copy's span past the end, unprefixed, since the
+unresolved-name funnel bypassed the redirect — and now reads "when `f` is
+`a` (`Int`): no function named `append` is in scope" at `main.sv:9:9`, and
+breaks the fn's body rather than its file. Pinned by
+`an_unresolved_name_in_a_copy_lands_where_it_is_written`.
+
+**Diagnostics changed**: that one. Reachable but in no program of the suite:
+an IR analysis error in stamped code now renders through its origin (it was
+at the end of the file, unprefixed); a deduction error in an in-place copy
+takes the in-place form. **Emitted code**: unchanged (goldens, both codegen
+corpora, every example's generated code). **Tests**: 2,105 (+3:
+`a_stamped_body_keeps_the_template_spans` and
+`a_stamped_error_names_the_stamped_fn` in compare_tests,
+`an_unresolved_name_in_a_copy_lands_where_it_is_written` in comptime_tests).
+
+**Timings** (debug, 9faa346d's binary against this one, alternated, same
+session): `SALVO_TIMINGS=1 salvo analyze --src examples/cluster/salvo`, five
+runs each, medians: parse 22.5 → 23.8ms (spans are 12 bytes, not 8), expand
+10.5 → 10.4, resolve 9.7 → 10.1, check 172.3 → 170.0, IR unchanged;
+`tools/lsp-timing.py`, four runs of four edits, medians of the summed
+top-level phases: `examples/cluster` 54.0 → 56.4ms, `modules/aws` 45.1 →
+45.7ms (this session's noise is larger than either difference: single runs
+of one binary spread 30–65ms).
 
 ### 2026-10-27 — Every declared callee is named past locals, and calls through fn values are checked (B1 bugs)
 
@@ -30630,7 +30727,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2102 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2105 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -31922,6 +32019,21 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A copied node's position is its template's** (A2, 2026-10-27,
+  [origin]): `span.start` of a node with `span.expn != 0` is an offset of the
+  code it was copied from, often another file. Compare positions only
+  between spans of one expansion (`Span::order_key`, `Span::holds` for a
+  cursor offset), and key a table by the whole `Span`, never by `(start,
+  end)` — the IR's fate tables were, and two copies would have shared rows.
+  A span derived from another (`Span::new(a.start, b.end)`) loses the id:
+  use `a.at(…)` or `a.to(b)`.
+- **Every diagnostic funnel needs the origin, not just `error`** (A2): the
+  checker's unresolved-name funnel pushed its diagnostic directly, so an
+  unresolved name in a copy kept the copy's synthetic span and printed past
+  the end of the file; the A2 differential found it. A
+  new place that pushes a `FileDiagnostic` from inside a fn body must go
+  through `render_origin` (or `origin::render`).
 
 - **A bare Kotlin call is not the package's fun** (B1 bugs, 2026-10-27):
   Kotlin tries a local or parameter of the name holding a fn value, then a

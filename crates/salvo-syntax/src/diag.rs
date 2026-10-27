@@ -1,6 +1,6 @@
 //! Diagnostics (errors and warnings) with source spans.
 
-use crate::span::{line_col, Span};
+use crate::span::Span;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Severity {
@@ -39,7 +39,7 @@ impl Diagnostic {
     /// Renders the diagnostic against its source file, e.g.
     /// `error: unexpected token --> std/core/list.sv:3:7`.
     pub fn render(&self, file_name: &str, source: &str) -> String {
-        let (line, col) = line_col(source, self.span.start);
+        let (line, col) = crate::span::span_line_col(source, self.span);
         let sev = match self.severity {
             Severity::Error => "error",
             Severity::Warning => "warning",

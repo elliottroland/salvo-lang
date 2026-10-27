@@ -17,6 +17,8 @@
 
 use std::collections::HashMap;
 
+use salvo_syntax::Span;
+
 use crate::check::Checked;
 use crate::diag::FileDiagnostic;
 use crate::program::{Program, Symbols};
@@ -42,7 +44,7 @@ pub fn analyze_full(
     checked: &Checked,
     parse: &[FileDiagnostic],
 ) -> (Vec<FileDiagnostic>, super::Decision) {
-    let mut gate = super::gate::Gate::new(program, &checked.errors);
+    let mut gate = super::gate::Gate::new(program, &resolution.decls, &checked.errors);
     for d in parse.iter().filter(|d| d.is_error()) {
         gate.break_file(d.file);
     }
@@ -78,9 +80,19 @@ pub fn analyze_full(
             if !checkable.check(decl) {
                 continue;
             }
+            // [origin] A diagnostic at a node a stamp copied lands where its
+            // origin says, as the checker's do, attributed to the stamped fn.
+            let stamped = stamp_of(program, resolution, decl);
+            let report = |span: Span, message: String| match stamped {
+                Some((id, stamp)) if span.is_expanded() => {
+                    let (span, message) = crate::origin::render(stamp, span, message);
+                    FileDiagnostic::error(file, span, message).in_decl(Some(id))
+                }
+                _ => FileDiagnostic::error(file, span, message),
+            };
             // [flow-use-after-move] A use of a moved value, naming the move.
             for d in super::flow::check_one(decl) {
-                out.push(FileDiagnostic::error(file, d.span, d.render(content)));
+                out.push(report(d.span, d.render(content)));
             }
             let linear_diags = if linear {
                 super::check::check_one(decl, &throws)
@@ -99,14 +111,26 @@ pub fn analyze_full(
                         message.push_str(&format!(" with {}", named.join(" / ")));
                     }
                 }
-                out.push(FileDiagnostic::error(file, d.span, message));
+                out.push(report(d.span, message));
             }
         }
     }
     // A leak reachable by more than one walk path reports once.
-    out.sort_by(|a, b| (a.file, a.span.start, &a.message).cmp(&(b.file, b.span.start, &b.message)));
-    out.dedup_by(|a, b| a.file == b.file && a.span.start == b.span.start && a.message == b.message);
+    out.sort_by(|a, b| (a.file, a.span.expn, a.span.start, &a.message).cmp(&(b.file, b.span.expn, b.span.start, &b.message)));
+    out.dedup_by(|a, b| a.file == b.file && (a.span.expn, a.span.start) == (b.span.expn, b.span.start) && a.message == b.message);
     (out, ir.decision)
+}
+
+/// [origin] The stamp of the fn an IR declaration was built from, when a
+/// stamp copied its body: with it, a diagnostic at a copied node renders
+/// where its origin says.
+fn stamp_of<'p>(program: &'p Program, resolution: &Resolution, decl: &super::Decl) -> Option<(crate::DeclId, &'p salvo_syntax::ast::Stamp)> {
+    let super::Decl::Fn(f) = decl else { return None };
+    let loc = resolution.decls.loc(f.id)?;
+    match program.modules.get(loc.file)?.items.get(loc.item)? {
+        salvo_syntax::ast::Item::Fn(ast) if loc.sub == 0 => ast.stamped.as_ref().map(|s| (f.id, s)),
+        _ => None,
+    }
 }
 
 /// [fate-link] [fate-move-mode] The presentation table without the links a

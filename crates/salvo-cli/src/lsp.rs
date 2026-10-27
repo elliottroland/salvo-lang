@@ -955,8 +955,7 @@ impl Server<'_> {
         let mut best_comp: Option<&salvo_core::CompHover> = None;
         for h in &analysis.comptime_hovers {
             if h.file == file_idx
-                && h.span.start <= offset
-                && offset < h.span.end
+                && h.span.holds(offset)
                 && best_comp.is_none_or(|b| h.span.len() < b.span.len())
             {
                 best_comp = Some(h);
@@ -1008,8 +1007,7 @@ impl Server<'_> {
             if *file != file_idx {
                 continue;
             }
-            if span.start <= offset
-                && offset < span.end
+            if span.holds(offset)
                 && best_ref.is_none_or(|(b, _)| span.len() < b.len())
             {
                 best_ref = Some((*span, *key));
@@ -1100,8 +1098,7 @@ impl Server<'_> {
             if *file != file_idx || matches!(ty, Ty::Unknown) {
                 continue;
             }
-            if span.start <= offset
-                && offset < span.end
+            if span.holds(offset)
                 && best.is_none_or(|(b, _)| span.len() < b.len())
             {
                 best = Some((*span, ty));
@@ -1320,8 +1317,7 @@ impl Server<'_> {
             if *file != file_idx {
                 continue;
             }
-            if span.start <= offset
-                && offset < span.end
+            if span.holds(offset)
                 && site.is_none_or(|(b, _)| span.len() < b.len())
             {
                 site = Some((*span, *target));
@@ -1331,7 +1327,7 @@ impl Server<'_> {
             Some(found) => found,
             None => {
                 let items = &analysis.program.modules.get(file_idx)?.items;
-                let hit = |s: Span| s.start <= offset && offset < s.end;
+                let hit = |s: Span| s.holds(offset);
                 // [doc-comment] The cursor may be on an `import`'s item name
                 // (`import shapes.Point`), which is where a reader looks to
                 // learn what was imported. The name is not a *reference* the
@@ -1686,8 +1682,7 @@ impl Server<'_> {
         // table it comes from.
         let mut best: Option<(Span, DefSite)> = None;
         let consider = |span: Span, site: DefSite, best: &mut Option<(Span, DefSite)>| {
-            if span.start <= offset
-                && offset < span.end
+            if span.holds(offset)
                 && best.is_none_or(|(b, _)| span.len() < b.len())
             {
                 *best = Some((span, site));
@@ -1968,7 +1963,7 @@ impl Server<'_> {
             checked
                 .fn_body_effects
                 .iter()
-                .filter(|(file, span, _)| *file == view.file && span.start <= cursor_off && cursor_off <= span.end)
+                .filter(|(file, span, _)| *file == view.file && span.reaches(cursor_off))
                 .min_by_key(|(_, span, _)| span.len())
                 .map(|(_, _, tys)| {
                     tys.iter()
@@ -1986,7 +1981,7 @@ impl Server<'_> {
             checked
                 .expr_ty
                 .iter()
-                .filter(|((file, span), ty)| *file == view.file && span.end == end && !matches!(ty, Ty::Unknown))
+                .filter(|((file, span), ty)| *file == view.file && span.is_written() && span.end == end && !matches!(ty, Ty::Unknown))
                 .min_by_key(|((_, span), _)| span.len())
                 .and_then(|(_, ty)| receiver_name(ty))
         } else {
@@ -2059,8 +2054,8 @@ impl Server<'_> {
             let cursor_off = word as u32;
             let mut seen_locals: HashSet<String> = HashSet::new();
             for local in checked.local_decls.get(&view.file).into_iter().flatten() {
-                let in_scope = local.fn_body.start <= cursor_off
-                    && cursor_off <= local.fn_body.end
+                let in_scope = local.fn_body.reaches(cursor_off)
+                    && local.span.is_written()
                     // A parameter or state field is in scope for the whole
                     // body; an ordinary binding only after its declaration.
                     && (local.always_in_scope || local.span.start < cursor_off);
@@ -2409,7 +2404,8 @@ fn when_missing_arms(analysis: &Analysis, checked: &salvo_core::Checked, file_id
     }
     impl Finder {
         fn consider(&mut self, span: Span, bodies: &[Span], comptime: bool) {
-            let inside = span.start < self.offset && self.offset < span.end;
+            // [origin] Only written code is at an offset of the file.
+            let inside = span.is_written() && span.start < self.offset && self.offset < span.end;
             let in_body = bodies.iter().any(|b| b.start < self.offset && self.offset < b.end);
             if inside && !in_body && self.best.is_none_or(|(b, _)| span.len() < b.len()) {
                 self.best = Some((span, comptime));
@@ -2510,7 +2506,7 @@ fn struct_lit_at(program: &salvo_core::Program, file_idx: usize, offset: u32) ->
     impl Visitor for Finder {
         fn visit_expr(&mut self, expr: &Expr) {
             let Expr::StructLit { ty, fields, span } = expr else { return };
-            if !(span.start <= self.offset && self.offset <= span.end) {
+            if !span.reaches(self.offset) {
                 return;
             }
             // Smallest enclosing literal wins, same tie-break as every other
@@ -2776,8 +2772,8 @@ fn doc_ref_completions(analysis: &Analysis, view_file: usize, cursor: u32) -> Ve
     // `let`s), so a `[…]` ref auto-suggests "things there, as in normal code".
     if let Some(checked) = analysis.checked.as_ref() {
         for local in checked.local_decls.get(&view_file).into_iter().flatten() {
-            let in_scope = local.fn_body.start <= cursor
-                && cursor <= local.fn_body.end
+            let in_scope = local.fn_body.reaches(cursor)
+                && local.span.is_written()
                 && (local.always_in_scope || local.span.start < cursor);
             if in_scope && seen.insert(local.name.clone()) {
                 out.push(CompletionItem {
@@ -2878,9 +2874,15 @@ fn import_insert_position(content: &str) -> Position {
 /// lives in and the span of its *name*.
 fn fn_def_site(program: &Program, checked: &Checked, key: DeclId) -> Option<DefSite> {
     let decl = checked.decls.fn_decl(&program.modules, key)?;
+    // [origin] A stamped member's name may be one the stamp made (at a
+    // generic target): it is defined where its origin says, the `by` site.
+    let span = match &decl.stamped {
+        Some(stamp) if decl.name.span.is_expanded() => salvo_core::origin::render(stamp, decl.name.span, String::new()).0,
+        _ => decl.name.span,
+    };
     Some(DefSite {
         file: checked.decls.file(key),
-        span: decl.name.span,
+        span,
     })
 }
 
@@ -2912,8 +2914,7 @@ fn resolve_rename_target(
 ) -> Option<(Span, RenameTarget)> {
     let mut best: Option<(Span, RenameTarget)> = None;
     let consider = |span: Span, target: RenameTarget, best: &mut Option<(Span, RenameTarget)>| {
-        if span.start <= offset
-            && offset < span.end
+        if span.holds(offset)
             && best.is_none_or(|(b, _)| span.len() < b.len())
         {
             *best = Some((span, target));
@@ -2936,7 +2937,7 @@ fn resolve_rename_target(
     }
     // The cursor is on a declaration's own name, not a reference to it.
     let items = &analysis.program.modules.get(file_idx)?.items;
-    let hit = |s: Span| s.start <= offset && offset < s.end;
+    let hit = |s: Span| s.holds(offset);
     // A top-level fn is not a `DeclAt` [lsp-definition]; match its name span
     // directly, keyed by its `DeclId` so every overload (not just this
     // file's declaration) collects correctly.
@@ -2972,8 +2973,9 @@ fn rename_occurrences(
         RenameTarget::Fn(key) => {
             let decl_site = fn_def_site(&analysis.program, checked, key)?;
             sites.push((decl_site.file, decl_site.span));
+            // [origin] A copied node is not text of the file it is in.
             for ((file, span), k) in &checked.fn_refs {
-                if *k == key {
+                if *k == key && span.is_written() {
                     sites.push((*file, *span));
                 }
             }
@@ -2981,13 +2983,13 @@ fn rename_occurrences(
         RenameTarget::Def(site) => {
             sites.push((site.file, site.span));
             for ((file, span), s) in checked.def_refs.iter().chain(&checked.field_refs) {
-                if *s == site {
+                if *s == site && span.is_written() {
                     sites.push((*file, *span));
                 }
             }
         }
     }
-    sites.sort_unstable_by_key(|(file, span)| (*file, span.start));
+    sites.sort_unstable_by_key(|(file, span)| (*file, span.expn, span.start));
     sites.dedup();
     for (file, _) in &sites {
         let f = analysis.program.files.get(*file)?;
@@ -3281,8 +3283,7 @@ fn module_at(
     let mut best: Option<(Span, ModulePath)> = None;
     for ((file, span), module) in &checked.module_refs {
         if *file == file_idx
-            && span.start <= offset
-            && offset < span.end
+            && span.holds(offset)
             && best.as_ref().is_none_or(|(b, _)| span.len() < b.len())
         {
             best = Some((*span, module.clone()));
@@ -4050,6 +4051,13 @@ fn to_lsp_diagnostic(diag: &FileDiagnostic, content: &str, span: Span) -> Diagno
 }
 
 fn span_to_range(content: &str, span: Span) -> Range {
+    // [origin] A copied node's range is its template's, not text of this
+    // document: placed at its end, where nothing is (as a copy's synthetic
+    // span past the end of the file was).
+    if span.is_expanded() {
+        let end = offset_to_position(content, content.len() as u32);
+        return Range { start: end, end };
+    }
     Range {
         start: offset_to_position(content, span.start),
         end: offset_to_position(content, span.end),

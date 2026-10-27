@@ -348,7 +348,7 @@ pub fn build_program_gated<'p>(
         facts_by_file.entry(*file).or_default().push(fact);
     }
     for v in facts_by_file.values_mut() {
-        v.sort_by_key(|f| (f.stamp.start, f.stamp.end));
+        v.sort_by_key(|f| f.stamp);
     }
     let mut ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program, &resolution.decls), decision: Decision::default(), facts_by_file, gate };
     let mut out = Program { modules: Vec::new(), names: HashMap::new(), decision: Decision::default() };

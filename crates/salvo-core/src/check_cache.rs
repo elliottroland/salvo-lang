@@ -447,12 +447,14 @@ fn remap(pos: u32, old: &[(u32, u32)], new: &[(u32, u32)]) -> Option<u32> {
 fn node_map(old: &Module, old_bodies: &[(u32, u32)], new: &Module, new_bodies: &[(u32, u32)]) -> Option<HashMap<usize, usize>> {
     struct Collect<'o> {
         bodies: &'o [(u32, u32)],
-        out: Vec<(usize, u32)>,
+        out: Vec<(usize, Span)>,
     }
     impl Visitor for Collect<'_> {
         fn visit_type(&mut self, t: &ast::Type) {
-            let at = t.span().start;
-            if !self.bodies.iter().any(|(s, e)| *s <= at && at < *e) {
+            let at = t.span();
+            // [origin] A copied node is at its template's range, which no
+            // body of this file holds.
+            if at.is_expanded() || !self.bodies.iter().any(|(s, e)| *s <= at.start && at.start < *e) {
                 self.out.push((t as *const ast::Type as usize, at));
             }
         }
@@ -466,7 +468,14 @@ fn node_map(old: &Module, old_bodies: &[(u32, u32)], new: &Module, new_bodies: &
     }
     let mut map = HashMap::with_capacity(a.out.len());
     for ((oa, opos), (na, npos)) in a.out.into_iter().zip(b.out) {
-        if remap(opos, old_bodies, new_bodies) != Some(npos) {
+        // [origin] A copied node's range is its template's, which a body-only
+        // edit of this file leaves where it was.
+        let same = if opos.is_expanded() {
+            opos == npos
+        } else {
+            npos.is_written() && remap(opos.start, old_bodies, new_bodies) == Some(npos.start)
+        };
+        if !same {
             return None;
         }
         map.insert(oa, na);
@@ -480,6 +489,10 @@ fn remap_sites(rows: &mut Checked, changed: &HashMap<usize, (Vec<(u32, u32)>, Ve
     let mut ok = true;
     for site in rows.def_refs.values_mut().chain(rows.field_refs.values_mut()) {
         let Some((old, new)) = changed.get(&site.file) else { continue };
+        // [origin] A copied node's range is its template's: it does not move.
+        if site.span.is_expanded() {
+            continue;
+        }
         match (remap(site.span.start, old, new), remap(site.span.end, old, new)) {
             (Some(s), Some(e)) => site.span = Span::new(s, e),
             _ => ok = false,

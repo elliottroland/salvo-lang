@@ -126,8 +126,10 @@ By what you would come looking for.
   get a *key* (`Node§main`); `typekey.rs` is that scheme [type-identity].
 * `expand.rs`, `comptime.rs`: the pre-resolution expansions. `comptime.rs`
   stamps a `comptime fn` at a concrete type and unrolls `[for]`/`[when]`/`[if]`
-  into an ordinary fn, giving every stamped node a fresh synthetic span
-  (`fresh_span`) so the span-keyed tables still work.
+  into an ordinary fn. Every stamped node keeps its span in the template and
+  carries a fresh expansion id (`Span::expn`, recorded on the fn's `Stamp`)
+  so the span-keyed tables still tell copies apart; `origin.rs` renders a
+  diagnostic at a copied node through that chain [origin].
 * `resolve.rs`: per-file scopes (`ModuleScope`): what names a file sees.
 * `erase.rs`: an effect-only generic (`ActorGroup<E>`) is erased for the
   backends.
@@ -250,7 +252,8 @@ pub handle_muts, virtual_candidates, distinct_pairs, covered_calls …
 rule label that introduced it.
 
 A limit worth knowing: the tables hold **one value per span**. Comptime
-stamping (fresh spans per node) exists partly to keep that true. Any future
+stamping (a fresh expansion id per copy, `Span::expn` [origin]) exists
+partly to keep that true. Any future
 pass that *invents* nodes must register table entries for them.
 
 ## 5. Following the sample program through the tables

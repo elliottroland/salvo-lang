@@ -334,31 +334,31 @@ pub struct FateFacts {
     pub binds: std::collections::HashMap<u32, Vec<crate::check::FlowLink>>,
     /// The same for an assignment of a whole local, by the assigned value's
     /// span (an `Assign` has no id).
-    pub assigns: std::collections::HashMap<(u32, u32), Vec<crate::check::FlowLink>>,
+    pub assigns: std::collections::HashMap<Span, Vec<crate::check::FlowLink>>,
     /// [fate-move-mode] A move-mode binding, by its statement's `NodeId`:
     /// its name, and the links it took ownership through — each root is
     /// consumed at the binding (named by it), what was derived from it is
     /// poisoned.
     pub bound: std::collections::HashMap<u32, (String, Vec<crate::check::FlowLink>)>,
     /// The same for a move-mode assignment, by the assigned value's span.
-    pub assign_bound: std::collections::HashMap<(u32, u32), (String, Vec<crate::check::FlowLink>)>,
+    pub assign_bound: std::collections::HashMap<Span, (String, Vec<crate::check::FlowLink>)>,
     /// Mutation events on a root, by the span of the IR expression they
     /// happen at (a call, an iterated subject): applied after it.
-    pub mutations: std::collections::HashMap<(u32, u32), Vec<crate::check::FlowMutation>>,
+    pub mutations: std::collections::HashMap<Span, Vec<crate::check::FlowMutation>>,
     /// Mutation events of an assignment through a projection, by the
     /// assigned value's span: applied before the value (the checker's
     /// order — the target, then the value).
-    pub assign_mutations: std::collections::HashMap<(u32, u32), Vec<crate::check::FlowMutation>>,
+    pub assign_mutations: std::collections::HashMap<Span, Vec<crate::check::FlowMutation>>,
     /// [linear-obligation] Every written assignment of a whole local, by
     /// the assigned value's span: the statement's span (where "assigning
     /// drops the linear value" points). A builder-made assignment (a loop's
     /// result, a pick) has none.
-    pub assign_spans: std::collections::HashMap<(u32, u32), Span>,
+    pub assign_spans: std::collections::HashMap<Span, Span>,
     /// [flow-use-after-move] An assignment through a projection, by the
     /// assigned value's span: the span of the target's root as written
     /// (`p` in `p.hp = 5`), where a write into a moved or poisoned value
     /// is reported.
-    pub assign_targets: std::collections::HashMap<(u32, u32), Span>,
+    pub assign_targets: std::collections::HashMap<Span, Span>,
     /// [linear-obligation] A written loop's span, by its `Loop`/`ForEach`
     /// id: where a join over its exits points.
     pub loop_spans: std::collections::HashMap<u32, Span>,
@@ -370,22 +370,22 @@ pub struct FateFacts {
     /// [fate-move-mode] The bindings (by their stamp, the binding's span)
     /// that may take ownership — the checker's judgment where the binding
     /// is (`Checked::bind_facts`): the flow pass decides which do.
-    pub eligible: std::collections::HashSet<(u32, u32)>,
+    pub eligible: std::collections::HashSet<Span>,
     /// [fate-move-mode] Per binding stamp, the `for` loops (by iterable
     /// span) whose binding is one of its roots: taking ownership makes them
     /// iterate by value.
-    pub origins: std::collections::HashMap<(u32, u32), Vec<Span>>,
+    pub origins: std::collections::HashMap<Span, Vec<Span>>,
     /// [fate-move-mode] [fate-derived-readonly] Moves and mutations of a
     /// derived local, by the span of the IR expression they happen at: the
     /// local, the action, and the S1 error should its binding stay
     /// borrow-mode.
-    pub uses: std::collections::HashMap<(u32, u32), Vec<DerivedUseAt>>,
+    pub uses: std::collections::HashMap<Span, Vec<DerivedUseAt>>,
     /// The same for a mutation by an assignment through a projection, by
     /// the assigned value's span.
-    pub assign_uses: std::collections::HashMap<(u32, u32), Vec<DerivedUseAt>>,
+    pub assign_uses: std::collections::HashMap<Span, Vec<DerivedUseAt>>,
     /// [deduce-field] The bindings a mutation event at a span may leave as
     /// virtual places (`Checked::virtual_candidates`), by the event's span.
-    pub virtual_at: std::collections::HashMap<(u32, u32), Vec<VirtualAt>>,
+    pub virtual_at: std::collections::HashMap<Span, Vec<VirtualAt>>,
 }
 
 /// [fate-move-mode] A move or mutation of a derived local (`FateFacts::uses`).

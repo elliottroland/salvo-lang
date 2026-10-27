@@ -71,7 +71,7 @@ struct Annotator<'a, 'p> {
     own: &'a HashSet<String>,
     borrowed: &'a HashSet<String>,
     /// The written assignments of a whole local, by the value's span.
-    assigns: &'a std::collections::HashMap<(u32, u32), Span>,
+    assigns: &'a std::collections::HashMap<Span, Span>,
     /// [fate-link] The borrow-mode bindings' fate links, by statement id.
     binds: &'a std::collections::HashMap<u32, Vec<crate::check::FlowLink>>,
     /// [linear-state] In a handler member: the state fields holding obligations.
@@ -259,7 +259,7 @@ impl Annotator<'_, '_> {
             // obligation is the local's type's: a `T?` local owes as `T`).
             Stmt::Assign { place, value }
                 if place.steps.is_empty()
-                    && self.assigns.contains_key(&(value.span.start, value.span.end))
+                    && self.assigns.contains_key(&value.span)
                     // [linear-state] A state field's value belongs to the
                     // handler, which owes it across activations.
                     && !self.state.contains(&place.root.0)

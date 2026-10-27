@@ -1062,7 +1062,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         // [effect-generic-decl] a fn generic only over effects is emitted without them.
         let file_idx = self.s.decl_index.loc(f.id).map(|l| l.file);
         let erased_fn = file_idx.is_some_and(|fi| match self.s.program.modules[fi].items.get(self.s.decl_index.loc(f.id).map_or(usize::MAX, |l| l.item)) {
-            Some(salvo_syntax::ast::Item::Fn(af)) => self.s.erased.fns.contains(&(fi, af.name.span.start)),
+            Some(salvo_syntax::ast::Item::Fn(af)) => self.s.erased.fns.contains(&(fi, af.name.span)),
             _ => false,
         });
         let tps = if erased_fn { String::new() } else { self.type_params(&f.type_params) };

@@ -305,7 +305,7 @@ fn build(
     let mut routed: BTreeMap<&str, (usize, Span)> = BTreeMap::new();
     for ((file, span), effect) in &out.route_uses {
         let slot = routed.entry(effect.as_str()).or_insert((*file, *span));
-        if (*file, span.start) < (slot.0, slot.1.start) {
+        if (*file, span.order_key()) < (slot.0, slot.1.order_key()) {
             *slot = (*file, *span);
         }
     }

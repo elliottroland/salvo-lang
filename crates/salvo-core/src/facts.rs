@@ -68,12 +68,14 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, sou
     let mut c = Collect(Vec::new());
     v::walk_block(&mut c, body);
     let mut spans = c.0;
-    spans.sort_by_key(|s| (s.start, std::cmp::Reverse(s.end)));
+    spans.sort_by_key(|s| (s.expn, s.start, std::cmp::Reverse(s.end)));
     spans.dedup();
     for span in spans {
         let key = (file, span);
         let Some(ty) = checked.expr_ty.get(&key) else { continue };
-        let (line, col) = line_col(source, span.start);
+        // [origin] A copied node's range is its template's: listed at the
+        // end of the file, with no text of its own.
+        let (line, col) = line_col(source, if span.is_expanded() { source.len() as u32 } else { span.start });
         let mut row = format!("  {:<8}{:<30} {ty}", format!("{line}:{col}"), snippet(source, span));
         if let Some(target) = checked.call_fn.get(&key) {
             row.push_str(&format!("  -> {}", fn_name(program, &checked.decls, *target)));
@@ -135,7 +137,7 @@ fn line_col(source: &str, at: u32) -> (usize, usize) {
 /// The source text of a span on one line, shortened.
 fn snippet(source: &str, span: Span) -> String {
     let (s, e) = (span.start as usize, (span.end as usize).min(source.len()));
-    if s >= e || s >= source.len() {
+    if span.is_expanded() || s >= e || s >= source.len() {
         // A synthesized node (a desugaring's or a stamp's): no text of its own.
         return "`…`".to_string();
     }

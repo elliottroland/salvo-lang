@@ -224,7 +224,7 @@ pub(crate) fn infer<'p>(
             }),
             None => defaults(f.decl),
         };
-        redirect_stamped(program, f.decl, f.file, &mut errors[before..]);
+        redirect_stamped(f.decl, &f.key, &mut errors[before..]);
         states.insert(f.key, state);
     }
 
@@ -254,7 +254,7 @@ pub(crate) fn infer<'p>(
         let contract = &states[&f.key];
         let before = errors.len();
         validate_contract(f.file, f.decl, contract, &inferred, &mut errors);
-        redirect_stamped(program, f.decl, f.file, &mut errors[before..]);
+        redirect_stamped(f.decl, &f.key, &mut errors[before..]);
     }
 
     // [effect-handler] Handler members are declarations with bodies too, and
@@ -554,16 +554,20 @@ pub(crate) fn from_written(
         .collect()
 }
 
-/// [deduce-default] [comptime-instantiate] A stamped fn's contract errors at
-/// a synthetic span — a clause member's parameter [obligation-by] — land at
-/// the `by` site with the stamp's prefix, as its body's errors do.
-fn redirect_stamped(program: &Program, decl: &FnDecl, file: usize, errors: &mut [FileDiagnostic]) {
+/// [deduce-default] [comptime-instantiate] [origin] A stamped fn's contract
+/// errors at a copied node — a clause member's parameter [obligation-by] —
+/// land where its origin says, as its body's errors do, attributed to the
+/// fn.
+fn redirect_stamped(decl: &FnDecl, id: &DeclId, errors: &mut [FileDiagnostic]) {
     let Some(stamp) = &decl.stamped else { return };
-    let file_len = program.files[file].content.len();
     for e in errors {
-        let (span, message) = crate::comptime::redirect_stamped(stamp, file_len, e.span, std::mem::take(&mut e.message));
+        if e.span.is_written() {
+            continue;
+        }
+        let (span, message) = crate::origin::render(stamp, e.span, std::mem::take(&mut e.message));
         e.span = span;
         e.message = message;
+        e.decl = Some(*id);
     }
 }
 

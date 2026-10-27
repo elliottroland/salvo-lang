@@ -7,10 +7,10 @@
 //! reliable.
 //!
 //! The rule, as built:
-//! 1. **Which declarations broke**, from the errors' spans. An error a
-//!    stamped fn's copy raised (redirected to the stamp's `by` site or a
-//!    region target, with the "in `f` from `x` for `…`" prefix) belongs to
-//!    that fn's body only. Otherwise every item containing the error is
+//! 1. **Which declarations broke**, from the errors' spans. An error raised
+//!    at a node a stamp copied (rendered by its origin at the stamp's `by`
+//!    site, a field or an arm [origin]) carries the stamped fn's id, and
+//!    belongs to that fn's body only. Otherwise every item containing the error is
 //!    broken: inside a fn's body, or a handler member's, the body; anywhere
 //!    else in a declaration, its interface (a fn's signature, a struct's,
 //!    an effect's, a type's, a qualifier's, a handler's outside its member
@@ -51,10 +51,10 @@ pub struct Gate {
 impl Gate {
     /// The gate the error diagnostics among `diags` set (warnings are
     /// ignored).
-    pub fn new<'a>(program: &CoreProgram, diags: impl IntoIterator<Item = &'a FileDiagnostic>) -> Gate {
+    pub fn new<'a>(program: &CoreProgram, decls: &crate::decl_id::DeclIndex, diags: impl IntoIterator<Item = &'a FileDiagnostic>) -> Gate {
         let mut gate = Gate::default();
         for d in diags.into_iter().filter(|d| d.is_error()) {
-            gate.attribute(program, d);
+            gate.attribute(program, decls, d);
         }
         gate
     }
@@ -79,24 +79,20 @@ impl Gate {
         self.files.insert(file);
     }
 
-    fn attribute(&mut self, program: &CoreProgram, d: &FileDiagnostic) {
+    fn attribute(&mut self, program: &CoreProgram, decls: &crate::decl_id::DeclIndex, d: &FileDiagnostic) {
         let file = d.file;
         let (Some(source), Some(module)) = (program.files.get(file), program.modules.get(file)) else {
             return;
         };
-        // [comptime-instantiate] A stamped fn's copy reports at the stamp's
-        // `by` site or a region's target, which are written spans of
-        // another declaration (the struct the stamp is for).
-        for (i, item) in module.items.iter().enumerate() {
-            let Item::Fn(f) = item else { continue };
-            let Some(stamp) = &f.stamped else { continue };
-            let prefix = format!("in `{}` from `{}` for `", stamp.compfn, stamp.from);
-            if d.message.starts_with(&prefix) && (d.span == stamp.site || stamp.regions.iter().any(|r| r.target == d.span)) {
-                self.bodies.insert((file, i));
-                return;
-            }
+        // [origin] [comptime-instantiate] An error at a node a stamp copied
+        // is rendered at the stamp's `by` site, a field or an arm — written
+        // spans of another declaration (the struct the stamp is for) — and
+        // names the stamped fn it was raised in.
+        if let Some(loc) = d.decl.and_then(|id| decls.loc(id)) {
+            self.bodies.insert((loc.file, loc.item));
+            return;
         }
-        if d.span.start as usize >= source.content.len() {
+        if d.span.is_expanded() || d.span.start as usize >= source.content.len() {
             self.files.insert(file);
             return;
         }

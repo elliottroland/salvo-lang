@@ -189,7 +189,7 @@ impl FlowDiagnostic {
         if self.hole.is_some() || self.readonly {
             return self.message.clone();
         }
-        let (line, _) = salvo_syntax::span::line_col(content, self.moved_at.start);
+        let (line, _) = salvo_syntax::span::span_line_col(content, self.moved_at);
         if let Some(p) = &self.poison {
             return poison_message(&self.local, p, &format!(" at line {line}"));
         }
@@ -310,7 +310,7 @@ pub fn decide(decl: &Decl, file_idx: usize, out: &mut Decision) -> bool {
             any = true;
             out.decided.insert((file_idx, *stamp));
             out.modes.insert((file_idx, *stamp));
-            for o in f.fate.origins.get(&(stamp.start, stamp.end)).into_iter().flatten() {
+            for o in f.fate.origins.get(&stamp).into_iter().flatten() {
                 out.modes.insert((file_idx, *o));
             }
         }
@@ -350,7 +350,7 @@ struct Moved {
     /// [fate-move-mode] Deciding: the bindings a use on this path has made
     /// take ownership (by stamp) — from there on they hold no links, so no
     /// mutation can leave them a virtual place [deduce-field].
-    decided_here: std::collections::BTreeSet<(u32, u32)>,
+    decided_here: std::collections::BTreeSet<Span>,
 }
 
 /// Why a local is unusable, and where it happened: moved, poisoned
@@ -501,7 +501,7 @@ struct Walker<'f> {
     fate: Option<&'f FateFacts>,
     out: Vec<FlowDiagnostic>,
     /// Reported use spans: a read reached by several loop walks reports once.
-    reported: HashSet<(u32, u32)>,
+    reported: HashSet<Span>,
     /// Each local's declared type: a narrowing binding has its local's.
     decl_ty: HashMap<String, Ty>,
     /// A narrowing binding or alias of a whole local → that local.
@@ -524,7 +524,7 @@ struct Walker<'f> {
     lambdas: usize,
     /// [linear-state] The holes reported, by exit and field: a loop's walks
     /// reach an exit more than once.
-    holes: HashSet<(u32, u32, String)>,
+    holes: HashSet<(Span, String)>,
     /// [fate-move-mode] Deciding (`decide`) rather than checking: the walk
     /// reports nothing, and collects the bindings that take ownership and
     /// the virtual places.
@@ -534,7 +534,7 @@ struct Walker<'f> {
     /// [fate-derived-readonly] Checking: the spans of the uses refused as
     /// S1 errors, whose move is then not made (one mistake, one
     /// diagnostic).
-    refused: HashSet<(u32, u32)>,
+    refused: HashSet<Span>,
 }
 
 impl<'f> Walker<'f> {
@@ -575,7 +575,7 @@ impl<'f> Walker<'f> {
         if written.starts_with("__") {
             return false;
         }
-        if !self.reported.insert((span.start, span.end)) {
+        if !self.reported.insert(span) {
             return true;
         }
         // [fate-poison] [fate-move-mode] A poisoned value, or a root a
@@ -631,7 +631,7 @@ impl<'f> Walker<'f> {
             return;
         }
         let Some((gone, moved_at)) = parts.iter().find(|(p, _)| overlaps(p, &path)).cloned() else { return };
-        if !self.reported.insert((span.start, span.end)) {
+        if !self.reported.insert(span) {
             return;
         }
         let part = PartUse { place: show_place(&written, &path), moved: show_place(&written, &gone), whole: path.is_empty(), write: false };
@@ -656,7 +656,7 @@ impl<'f> Walker<'f> {
             return;
         }
         let Some((gone, moved_at)) = parts.iter().find(|(p, _)| p.len() < path.len() && is_prefix(p, &path)).cloned() else { return };
-        if !self.reported.insert((span.start, span.end)) {
+        if !self.reported.insert(span) {
             return;
         }
         let part = PartUse { place: show_place(&written, &path), moved: show_place(&written, &gone), whole: false, write: true };
@@ -750,7 +750,7 @@ impl<'f> Walker<'f> {
     fn mutations_at(&self, span: Span, assign: bool) -> Vec<FlowMutation> {
         let Some(fate) = self.fate else { return Vec::new() };
         let table = if assign { &fate.assign_mutations } else { &fate.mutations };
-        table.get(&(span.start, span.end)).cloned().unwrap_or_default()
+        table.get(&span).cloned().unwrap_or_default()
     }
 
     fn apply_mutations(&self, events: &[FlowMutation], span: Span, moved: &mut Moved) {
@@ -792,7 +792,7 @@ impl<'f> Walker<'f> {
         let mut refused = Vec::new();
         for u in uses {
             let Some(fate) = self.fate else { continue };
-            let eligible = |s: &Span| fate.eligible.contains(&(s.start, s.end));
+            let eligible = |s: &Span| fate.eligible.contains(&s);
             if self.deciding {
                 let mut chain = u.own.clone();
                 for s in self.chain(&u.local, moved) {
@@ -803,7 +803,7 @@ impl<'f> Walker<'f> {
                 for stamp in chain {
                     if eligible(&stamp) {
                         self.decided.insert(stamp);
-                        moved.decided_here.insert((stamp.start, stamp.end));
+                        moved.decided_here.insert(stamp);
                     }
                 }
                 continue;
@@ -814,8 +814,8 @@ impl<'f> Walker<'f> {
                 continue;
             }
             refused.push(u.local.clone());
-            self.refused.insert((span.start, span.end));
-            if self.reported.insert((u.at.start, u.at.end)) {
+            self.refused.insert(span);
+            if self.reported.insert(u.at) {
                 let local = written_name(&u.local).to_string();
                 self.out.push(FlowDiagnostic { span: u.at, message: u.message.clone(), local, moved_at: u.at, part: None, poison: None, hole: None, readonly: true });
             }
@@ -829,9 +829,9 @@ impl<'f> Walker<'f> {
     /// is gone.
     fn virtual_here(&mut self, span: Span, moved: &Moved) {
         let Some(fate) = self.fate else { return };
-        let Some(cands) = fate.virtual_at.get(&(span.start, span.end)) else { return };
+        let Some(cands) = fate.virtual_at.get(&span) else { return };
         for c in cands {
-            if moved.decided_here.contains(&(c.stamp.start, c.stamp.end)) {
+            if moved.decided_here.contains(&c.stamp) {
                 continue;
             }
             if let Some(l) = &c.local {
@@ -846,7 +846,7 @@ impl<'f> Walker<'f> {
     fn uses_at(&self, span: Span, assign: bool) -> Vec<DerivedUseAt> {
         let Some(fate) = self.fate else { return Vec::new() };
         let table = if assign { &fate.assign_uses } else { &fate.uses };
-        table.get(&(span.start, span.end)).cloned().unwrap_or_default()
+        table.get(&span).cloned().unwrap_or_default()
     }
 
     /// [fate-link] The links the checker gave a binding statement.
@@ -1008,7 +1008,7 @@ impl<'f> Walker<'f> {
                 // the root there (the checker read the target's base before
                 // R8 piece 2, so this was its consumed read).
                 if !place.steps.is_empty() {
-                    if let Some(&target) = self.fate.and_then(|f| f.assign_targets.get(&(value.span.start, value.span.end))) {
+                    if let Some(&target) = self.fate.and_then(|f| f.assign_targets.get(&value.span)) {
                         self.report_write_into(&place.root.0, &place.steps, target, moved);
                     }
                 }
@@ -1036,7 +1036,7 @@ impl<'f> Walker<'f> {
                     self.check_state_drop(&place.root.0, value.span, moved);
                     // [fate-move-mode] A move-mode assignment takes its
                     // value's roots first.
-                    let bound = self.fate.and_then(|f| f.assign_bound.get(&(value.span.start, value.span.end)));
+                    let bound = self.fate.and_then(|f| f.assign_bound.get(&value.span));
                     self.bind_away(bound, value.span, moved);
                     // [fate-poison] The old value is gone: what was derived
                     // from it is poisoned, and the local takes the new
@@ -1045,7 +1045,7 @@ impl<'f> Walker<'f> {
                     self.poison(&root, Some(&[]), "reassigned", value.span, None, moved);
                     self.revive(&place.root.0, moved);
                     self.revive_parts(&place.root.0, &[], moved);
-                    let links = self.fate.and_then(|f| f.assigns.get(&(value.span.start, value.span.end)));
+                    let links = self.fate.and_then(|f| f.assigns.get(&value.span));
                     moved.set_links(&root, links);
                 }
                 flow
@@ -1090,7 +1090,7 @@ impl<'f> Walker<'f> {
             if !moved.whole.contains_key(name) && !moved.parts.contains_key(name) {
                 continue;
             }
-            if !self.holes.insert((span.start, span.end, name.clone())) {
+            if !self.holes.insert((span, name.clone())) {
                 continue;
             }
             let message = format!(
@@ -1109,8 +1109,8 @@ impl<'f> Walker<'f> {
         if !fate.linear_state.iter().any(|n| n == local) || moved.whole.contains_key(local) {
             return;
         }
-        let Some(&span) = fate.assign_spans.get(&(value.start, value.end)) else { return };
-        if !self.holes.insert((span.start, span.end, local.to_string())) {
+        let Some(&span) = fate.assign_spans.get(&value) else { return };
+        if !self.holes.insert((span, local.to_string())) {
             return;
         }
         let message = format!(
@@ -1255,7 +1255,7 @@ impl<'f> Walker<'f> {
                 if !self.report_use(&place.root.0, e.span, moved) {
                     self.report_part_use(&place.root.0, &place.steps, e.span, moved);
                 }
-                if self.refused.contains(&(e.span.start, e.span.end)) {
+                if self.refused.contains(&e.span) {
                     // [fate-derived-readonly] Refused: the move is not made.
                 } else if *checker_moved && !(place.steps.is_empty() && crate::types::moves_for_free(&e.ty)) {
                     // The checker consumed the root here: a fn value, or a
@@ -1285,7 +1285,7 @@ impl<'f> Walker<'f> {
                         flow = Flow::Leaves;
                     }
                 }
-                if *consumes && !self.refused.contains(&(e.span.start, e.span.end)) {
+                if *consumes && !self.refused.contains(&e.span) {
                     self.mark_moved_whole(&l.0, e.span, moved);
                 }
                 if e.ty == Ty::Never {

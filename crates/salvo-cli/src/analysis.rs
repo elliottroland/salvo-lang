@@ -248,6 +248,7 @@ pub fn build_std_front(native_ext: &str) -> StdFront {
             message: d.message,
             span: d.span,
             suggested_imports: Vec::new(),
+            decl: None,
         }));
         modules.push(module);
     }
@@ -311,6 +312,7 @@ pub fn analyze_std() -> Analysis {
             message: d.message,
             span: d.span,
             suggested_imports: Vec::new(),
+            decl: None,
         }));
         modules.push(module);
     }
@@ -501,6 +503,7 @@ fn analyze_project_with(
             message: d.message,
             span: d.span,
             suggested_imports: Vec::new(),
+            decl: None,
         }));
         (module, tests)
     };
@@ -546,7 +549,7 @@ fn analyze_project_with(
     diagnostics.extend(expansion.diagnostics);
     let comptime_hovers = expansion.comptime_hovers;
     let comptime_when_arms = expansion.comptime_when_arms;
-    diagnostics.sort_by_key(|d| (d.file, d.span.start));
+    diagnostics.sort_by_key(|d| (d.file, d.span.expn, d.span.start));
     let parse_broken: std::collections::HashSet<usize> = diagnostics
         .iter()
         .filter(|d| d.is_error())
@@ -833,8 +836,8 @@ fn overload_index(resolution: &salvo_core::Resolution<'_>, viewable: &[bool]) ->
         // One declaration is not an overload set, and duplicates can arrive
         // from a module visible at two levels.
         for sites in per_file.values_mut() {
-            sites.sort_by_key(|s| (s.file, s.span.start));
-            sites.dedup_by_key(|s| (s.file, s.span.start));
+            sites.sort_by_key(|s| (s.file, s.span.expn, s.span.start));
+            sites.dedup_by_key(|s| (s.file, s.span.expn, s.span.start));
         }
         per_file.retain(|_, sites| sites.len() > 1);
         out.push(per_file);

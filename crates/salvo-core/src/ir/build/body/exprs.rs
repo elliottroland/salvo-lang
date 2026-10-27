@@ -77,7 +77,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // flow pass.
         if let Some(events) = self.ctx.checked.fate_mutations.get(&self.key(e.span())) {
             let span = e.span();
-            self.fate.mutations.insert((span.start, span.end), events.clone());
+            self.fate.mutations.insert(span, events.clone());
         }
         // [fate-move-mode] A move or mutation of a derived local here (a
         // `once` call of one is the callee's), and the bindings a mutation
@@ -634,7 +634,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             return Some(self.interp_union(value, &arms, span));
         }
         if let Some(k) = info.to_str.copied() {
-            let at = Span::new(span.end, span.end);
+            let at = span.at(span.end, span.end);
             let mut args = vec![value];
             args.extend(self.implicit_args_at(at));
             return Some(Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Decl(k), type_args: Vec::new(), args, moved: false } });
@@ -2520,7 +2520,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// the module path, not the file name, which depends on the loader.
     pub(crate) fn location(&self, span: Span) -> String {
         let file = &self.ctx.program.files[self.file_idx];
-        let (line, col) = salvo_syntax::span::line_col(&file.content, span.start);
+        let (line, col) = salvo_syntax::span::span_line_col(&file.content, span);
         format!("{}:{line}:{col}", file.module)
     }
 

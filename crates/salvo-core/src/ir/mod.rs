@@ -72,7 +72,7 @@ pub fn dump_program(
             for d in check::check_one(decl, &throws) {
                 let loc = match content {
                     Some(c) => {
-                        let (line, col) = salvo_syntax::span::line_col(c, d.span.start);
+                        let (line, col) = salvo_syntax::span::span_line_col(c, d.span);
                         format!("{}:{line}:{col}", m.path.0.join("."))
                     }
                     None => format!("{}:{}", m.path.0.join("."), d.span.start),
@@ -84,7 +84,7 @@ pub fn dump_program(
                 let message = d.render(content.unwrap_or(""));
                 let loc = match content {
                     Some(c) => {
-                        let (line, col) = salvo_syntax::span::line_col(c, d.span.start);
+                        let (line, col) = salvo_syntax::span::span_line_col(c, d.span);
                         format!("{}:{line}:{col}", m.path.0.join("."))
                     }
                     None => format!("{}:{}", m.path.0.join("."), d.span.start),

@@ -402,7 +402,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
                 }
             }
             let ret = f.return_type.as_ref().map(|t| ctx.written_ty(file_idx, t)).unwrap_or_else(Ty::none);
-            let block = lower.fn_body(b, &ret);
+            let block = lower.fn_body(b, &ret, f.stamped.as_ref());
             fate = std::mem::take(&mut lower.fate);
             errors.extend(lower.finish());
             block
@@ -572,7 +572,7 @@ fn fn_decl(
     } else if ctx.gate.body_broken(file_idx, ctx.item_of(id)) {
         None // [ir-analyze] a broken declaration's interface only
     } else {
-        f.body.as_ref().map(|b| lower.fn_body(b, &ret))
+        f.body.as_ref().map(|b| lower.fn_body(b, &ret, f.stamped.as_ref()))
     };
     let mut fate = std::mem::take(&mut lower.fate);
     fate.name_span = f.name.span;

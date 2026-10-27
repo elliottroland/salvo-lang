@@ -27,6 +27,11 @@ pub struct FileDiagnostic {
     /// into scope [diag-import-suggest]. Rendered as `help:` lines and
     /// offered as LSP quickfixes; empty for most diagnostics.
     pub suggested_imports: Vec<String>,
+    /// [origin] The declaration the diagnostic was raised in, when it was
+    /// raised at a node an expansion copied: its span is then where the
+    /// origin rendered it (a field, the `by` site), which is another
+    /// declaration's text, so this is what attributes it (`ir::gate`).
+    pub decl: Option<crate::DeclId>,
 }
 
 impl FileDiagnostic {
@@ -37,6 +42,7 @@ impl FileDiagnostic {
             message: shown(message.into()),
             span,
             suggested_imports: Vec::new(),
+            decl: None,
         }
     }
 
@@ -51,6 +57,7 @@ impl FileDiagnostic {
             message: shown(message.into()),
             span,
             suggested_imports: Vec::new(),
+            decl: None,
         }
     }
 
@@ -62,7 +69,15 @@ impl FileDiagnostic {
             message: d.message,
             span: d.span,
             suggested_imports: Vec::new(),
+            decl: None,
         }
+    }
+
+    /// [origin] Attributes the diagnostic to the declaration it was raised
+    /// in (`FileDiagnostic::decl`).
+    pub fn in_decl(mut self, decl: Option<crate::DeclId>) -> Self {
+        self.decl = decl;
+        self
     }
 
     /// Attaches import suggestions [diag-import-suggest].
@@ -173,7 +188,7 @@ mod tests {
             file("core/list.sv", true, true),
             file("main.sv", false, false),
         ];
-        let span = Span { start: 0, end: 2 };
+        let span = Span::new(0, 2);
         let diags = vec![
             FileDiagnostic::error(0, span, "in the embedded std"),
             FileDiagnostic::warning(0, span, "a warning in the embedded std"),

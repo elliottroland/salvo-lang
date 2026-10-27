@@ -197,6 +197,7 @@ pub fn program_expansion(per_file: Vec<Vec<FileTest>>, comptime: crate::comptime
             message: d.message,
             span: d.span,
             suggested_imports: Vec::new(),
+            decl: None,
         });
     }
     out.comptime_hovers = comptime.hovers;

@@ -70,6 +70,13 @@ fn errors(src: &str) -> Vec<String> {
 /// The same over several user files, which is what the canonical rules need:
 /// "the type's own file" and "imported with the type" are both about *files*.
 fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
+    checked_in(files, |_, _, diagnostics| diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect())
+}
+
+/// The files with this file's preludes, expanded, resolved and checked: `f`
+/// reads the program, its resolution and every diagnostic (the expansion's,
+/// the resolution's, the checker's).
+fn checked_in<R>(files: &[(&str, &str)], f: impl FnOnce(&Program, &salvo_core::Resolution, &[salvo_core::FileDiagnostic]) -> R) -> R {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/compare.sv",
@@ -111,14 +118,14 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    expansion
+    let diagnostics: Vec<salvo_core::FileDiagnostic> = expansion
         .diagnostics
         .iter()
         .chain(resolution.errors.iter())
         .chain(checked.errors.iter())
-        .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
-        .collect()
+        .cloned()
+        .collect();
+    f(&program, &resolution, &diagnostics)
 }
 
 // ===== the capability resolves at a concrete type =====
@@ -1886,4 +1893,96 @@ fn a_clause_stamps_the_group_its_file_sees() {
         ),
     ]);
     assert!(errs.is_empty(), "{errs:?}");
+}
+
+// ===== [origin] a stamped body keeps its template's spans =====
+
+/// Every span a stamped fn's body holds, with the stamped fn's stamp.
+fn stamped_spans(program: &Program, file: usize, name: &str) -> (Vec<salvo_syntax::Span>, salvo_syntax::ast::Stamp) {
+    use salvo_syntax::ast::Item;
+    use salvo_syntax::visit::{self as v, Visitor};
+    struct Spans(Vec<salvo_syntax::Span>);
+    impl Visitor for Spans {
+        fn visit_span(&mut self, span: &salvo_syntax::Span) {
+            self.0.push(*span);
+        }
+    }
+    let module: &salvo_syntax::ast::Module = &program.modules[file];
+    let f = module
+        .items
+        .iter()
+        .find_map(|i| match i {
+            Item::Fn(f) if f.name.name == name && f.stamped.is_some() => Some(f),
+            _ => None,
+        })
+        .expect("the stamped fn");
+    let mut spans = Spans(Vec::new());
+    v::walk_block(&mut spans, f.body.as_ref().expect("a stamped body"));
+    (spans.0, f.stamped.clone().unwrap())
+}
+
+/// [origin] [comptime-instantiate] A stamp copies the template's nodes with
+/// their template spans — inside the template's file, never past the end of
+/// the stamping file — under expansions the `Stamp` records: the template's
+/// whole copy, and one copy per field, each for its field's declaration and
+/// made inside the whole copy. Two copies of one statement are told apart by
+/// their expansion alone.
+#[test]
+fn a_stamped_body_keeps_the_template_spans() {
+    let main = "struct Point : Ordered<self> by auto {\n    x: Int,\n    y: Str\n}\n";
+    checked_in(&[("main.sv", main)], |program, _, diagnostics| {
+        assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+        let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
+        let (spans, stamp) = stamped_spans(program, file, "cmp");
+        use salvo_syntax::ast::ExpansionKind;
+        let template = stamp.expansions.iter().find(|e| e.kind == ExpansionKind::Template).expect("the template's copy");
+        let copies: Vec<_> = stamp.expansions.iter().filter(|e| matches!(e.kind, ExpansionKind::Copy { .. })).collect();
+        assert_eq!(copies.len(), 2, "{:?}", stamp.expansions);
+        for (copy, field) in copies.iter().zip(["x", "y"]) {
+            assert_eq!(copy.parent, template.id);
+            let ExpansionKind::Copy { target, label, written } = &copy.kind else { unreachable!() };
+            assert_eq!(&main[target.start as usize..target.end as usize].split(':').next().unwrap().trim(), &field);
+            assert!(label.starts_with(&format!("Point.{field}")), "{label}");
+            assert!(written.is_none(), "a stamp's copy is not of written text");
+        }
+        let template_len = AUTO_PRELUDE.len() as u32;
+        // The body's own nodes are all copies; what a copy substitutes (the
+        // field's type) keeps its declaration's written span.
+        let copied: Vec<_> = spans.iter().filter(|s| s.is_expanded()).collect();
+        assert!(!copied.is_empty());
+        for s in &copied {
+            assert!(s.end <= template_len, "{s:?} is not a template span");
+            assert!(stamp.expansion(s.expn).is_some(), "{s:?} names no recorded expansion");
+        }
+        // The `let c = cmp(…)` of each copy: one template range, two expansions.
+        let let_at = AUTO_PRELUDE.find("let c").unwrap() as u32;
+        let lets: Vec<_> = copied.iter().filter(|s| s.start == let_at).map(|s| s.expn).collect();
+        assert_eq!(lets.len(), 2, "{copied:?}");
+        assert_ne!(lets[0], lets[1]);
+    });
+}
+
+/// [origin] [ir-analyze] An error at a copied node renders at the field its
+/// copy was for, prefixed with the stamp, and names the stamped fn — the
+/// declaration it breaks (`ir::gate`), whatever its span says.
+#[test]
+fn a_stamped_error_names_the_stamped_fn() {
+    let main = "struct Sample : Hashed<self> by auto {\n    at: Double\n}\n";
+    checked_in(&[("main.sv", main)], |program, resolution, diagnostics| {
+        let d = diagnostics
+            .iter()
+            .find(|d| d.message.starts_with("in `hash` from `auto` for `Sample.at: Double`"))
+            .unwrap_or_else(|| panic!("{diagnostics:?}"));
+        assert!(d.span.is_written());
+        assert_eq!(&main[d.span.start as usize..d.span.end as usize], "at: Double");
+        let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
+        let loc = resolution.decls.loc(d.decl.expect("the stamped fn")).unwrap();
+        assert_eq!(loc.file, file);
+        let salvo_syntax::ast::Item::Fn(f) = &program.modules[file].items[loc.item] else { panic!("not a fn") };
+        assert_eq!(f.name.name, "hash");
+        assert!(f.stamped.is_some());
+        let gate = salvo_core::ir::gate::Gate::new(program, &resolution.decls, diagnostics);
+        assert!(gate.bodies.contains(&(file, loc.item)), "{gate:?}");
+        assert!(gate.interfaces.is_empty() && gate.files.is_empty(), "{gate:?}");
+    });
 }

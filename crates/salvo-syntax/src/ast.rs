@@ -520,9 +520,9 @@ pub struct CompFn {
     pub span: Span,
 }
 
-/// [comptime-instantiate] Where a stamped fn came from, for the checker's
-/// diagnostic prefix: an error inside an unrolled copy names the compfn, the
-/// scope it was taken from, and the type it was stamped at, so a failed
+/// [comptime-instantiate] [origin] Where a stamped fn came from, for the
+/// diagnostics about it: an error inside an unrolled copy names the compfn,
+/// the scope it was taken from, and the type it was stamped at, so a failed
 /// resolution reads "in `cmp` from `auto` for `Point`: …" at the field it
 /// was for.
 #[derive(Clone, Debug, PartialEq)]
@@ -533,11 +533,12 @@ pub struct Stamp {
     /// The `by` site: where a diagnostic lands when it is not about one
     /// field or arm in particular.
     pub site: Span,
-    /// The unrolled copies: each region of synthetic spans the copy's nodes
-    /// occupy, with the field or arm it was for and a label for the message
-    /// (`Point.y: Double`). Synthetic spans sit past the end of the file, so
-    /// no side table keyed by span collides with a written node.
-    pub regions: Vec<StampRegion>,
+    /// [origin] The expansions the fn's copied nodes carry (`Span::expn`):
+    /// the template copied whole, each unrolled copy with the field or arm
+    /// it was for, and what the expansion made up. A copied node keeps the
+    /// range of the code it was copied from; its expansion says what it is a
+    /// copy of, and where a diagnostic about it lands.
+    pub expansions: Vec<ExpansionRecord>,
     /// [comptime-root-visible] The type names an **expanded-in-place**
     /// comptime fn's comptime constructs named directly (`Pt` in
     /// `[for field in Pt.fields]`), at their written spans. The expansion
@@ -553,23 +554,58 @@ pub struct Stamp {
     pub template_file: Option<usize>,
 }
 
+impl Stamp {
+    /// [origin] The expansion `expn` (an id `Span::expn` carries).
+    pub fn expansion(&self, expn: u32) -> Option<&ExpansionRecord> {
+        self.expansions
+            .binary_search_by_key(&expn, |e| e.id)
+            .ok()
+            .map(|i| &self.expansions[i])
+    }
+}
+
+/// [origin] One expansion step a stamped fn's nodes came from: the nodes
+/// that carry its `id` were copied (or made) by it. Ids are the file's,
+/// in the order the expansions were made, and a fn's are ascending.
 #[derive(Clone, Debug, PartialEq)]
-pub struct StampRegion {
-    pub start: u32,
-    pub end: u32,
-    /// Where the diagnostic lands: the field or arm declaration.
-    pub target: Span,
-    pub label: String,
-    /// [comptime-inline] For a copy in an **expanded-in-place** fn, whose
-    /// template is the author's own text: the offset the copy's `start`
-    /// stands for in it, so a diagnostic lands on the written construct (the
-    /// label still says which field's copy it was). `None` for a stamp,
-    /// whose template lives in another file.
-    pub written_from: Option<u32>,
-    /// [comptime-inline] For the same copies: which copy it is, in the
-    /// terms of the code it stands for — "`field` is `groups` (`Map<Str,
-    /// ArgGroup>`)" — what the diagnostic says, since it lands on that code.
-    pub written_label: Option<String>,
+pub struct ExpansionRecord {
+    pub id: u32,
+    /// The expansion the copied code was itself in: an unrolled copy's
+    /// enclosing copy, or the template's whole copy; 0 for code as written
+    /// (an expanded-in-place fn's own text).
+    pub parent: u32,
+    pub kind: ExpansionKind,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ExpansionKind {
+    /// The template's text, copied whole for one stamp: a node of the body
+    /// that no unrolled copy holds. Its diagnostics land at the `by` site.
+    Template,
+    /// Nodes the expansion made rather than copied, at the range of what
+    /// they were made from: a clause member's signature [obligation-by],
+    /// the `when` an `[when value]` unrolls into and its arms' tests. Their
+    /// diagnostics land at the `by` site.
+    Made,
+    /// [comptime-generic] The name a clause gives a member stamped at a
+    /// generic target, so each member's implicits are its own: reported at
+    /// the `by` site, for `label`.
+    Member { label: String },
+    /// One unrolled copy, of a `[for]` body or a `[when value]` arm, for one
+    /// field or arm.
+    Copy {
+        /// Where a diagnostic about the copy lands in a stamp: the field or
+        /// arm declaration.
+        target: Span,
+        /// The field or arm, for the message (`Point.y: Double`).
+        label: String,
+        /// [comptime-inline] For a copy in an **expanded-in-place** fn, whose
+        /// template is the author's own text: which copy it is, in the terms
+        /// of the code it stands for — "`field` is `groups` (`Map<Str,
+        /// ArgGroup>`)" — since a diagnostic lands on that code. `None` in a
+        /// stamp, whose template is another declaration.
+        written: Option<String>,
+    },
 }
 
 /// [comptime-fields] A compile-time type expression a comptime construct

@@ -1,7 +1,7 @@
 # The compiler pipeline: phases, sub-phases, and caching (working document)
 
 **Status:** Part I (§1–§8) built; Part II (per-phase lowering, §II.1–§II.12)
-decided 2026-10-27 and being built. Rounds: R1–R8 (2026-10-20, Part I), R9
+decided 2026-10-27 and being built. Rounds: R1–R8 (2026-10-20, Part I), R9 and R10
 (2026-10-27, Part II). Part I's plan is §7 and its log §8; Part II's plan is
 §II.9 and its log §II.12. §5 ends with what stays program-wide.
 
@@ -251,6 +251,48 @@ P7 (one `salvo dump --phase parse-ast|resolve|type-check|generate-ir`), P8
 (comptime's signature/body split only in C3); `by` at a call is not
 supported (a named fn is the workaround). Recommended, not decided: resolve
 and type stay separate (§II.3.1).
+
+### R10 (2026-10-27): the census decisions (B2)
+
+The user's answers to §II.13's "Decisions needed beyond P3", recorded as
+**B2**. The guiding rule, the user's words: *follow the one-rule principle in
+all cases where we can.*
+
+- **D3: effect members fill every position a fn does.** An effect introduces
+  function names into the declaring function's scope, so its members are
+  visible in all the ways a normal function is: calls, interpolation parts,
+  operators, implicits (a member as a value carries its handler), fn values.
+  Ambiguity is always an error, with disambiguation (`m@E`) as the remedy.
+- **D4: a general union `to_str`, not a lowering to `when`.** Lowering each
+  part to a `when` gets out of hand for several union parts in one string;
+  the ideal is a general `to_str` over unions that a call reaches like any
+  other. **Deferred** if not easy now (then `interp_union` stays a fact until
+  it lands).
+- **D5: follow the call.** No "operators compare the data" exception: `xs ==
+  ys` is `eq(xs, ys)` with the qualified argument types.
+- **D6: drop the same-type rule** for `==` and `<`; a mixed `eq(Meters, Feet)`
+  is an operator, placed with its left type (OPERATOR_OVERLOAD.md D-2).
+- **D7: [op-arm-eq] stays a lowering before the call, for now.** Recorded
+  for later (not now): a general way for more complicated cases, perhaps
+  generating helper functions over the unions.
+- **D10: no `: Yield` / `: Iter` gate.** With `next()` and `iter()`
+  operators (O1), `for x in c` is `next(c)` when a `next` fits, otherwise
+  `next(iter(c))`, resolved as those calls are; the declarations are not
+  needed.
+- **D13: a dot call sees fn-typed locals.** `x.f(a)` is `f(x, a)`, literally.
+- **D14: an `eff[E]` receiver's call is an ordinary dot call.** In Salvo a
+  send member is understood as taking `self: eff[E]` as an implicit first
+  parameter, and `e.member(args)` is a normal dot call `member(e, args)`,
+  ranked with fns taking `eff[E]` first; the backends still spell it as a
+  send. The user was unsure of the knock-on decisions; they are listed in
+  §II.12 when B3 piece 7 reaches them, and asked before building.
+- **D18: a mint ranks by its captures**, like a partial call, and refuses a
+  tie naming `k@m`.
+- **D21: implicits of one name are ranked** like overloads.
+- **D1: no semantic fast path.** `"${n}"` and `==` on scalars are the calls
+  they name (an enclosing `?to_str` or `?eq` applies); the backends emit the
+  native spelling exactly when the call resolves to std's intrinsic.
+  OPERATOR_OVERLOAD.md O5's text is to be corrected accordingly.
 
 ## 4. Body-derived interface facts (D2)
 
@@ -2178,9 +2220,11 @@ narrowing as bindings, every operator a call.
 
 ## II.4. Origins
 
-Today copies get synthetic spans past the end of the file, a `StampRegion`
-map, and `comptime::redirect_stamped` to move their errors back; the
-past-EOF spans are also what kept step 8 piece 4 from
+Built for comptime copies in A2 (§II.12, [origin]): a copied node keeps
+its template's span and carries an expansion id the stamped fn's `Stamp`
+records. Before it, copies got synthetic spans past the end of the file, a
+`StampRegion` map, and `comptime::redirect_stamped` to move their errors
+back; the past-EOF spans are also what kept step 8 piece 4 from
 partitioning cached rows by declaration.
 
 The general form (as macro systems do it; rustc gives each node a span plus
@@ -2685,6 +2729,59 @@ this log current so the work can resume after a context reset). Newest last.
   its effects; D20: claims checked through fn values, dependent ones tied to
   the call's arguments. No B2 decision was taken: dot calls still see no
   locals. COMPLETED.md has the record. Next: A2.
+
+- **B2: decided (user, 2026-10-27; §3 R10).** Every census divergence
+  follows the call, with these qualifications: D4 a general union `to_str`
+  (deferred if not easy), D7 kept as a pre-call lowering for now, D14's
+  knock-ons asked before B3 piece 7 is built. **Instruction (user):** proceed
+  through the steps without stopping until a decision is needed; commit per
+  AGENTS.md; keep this log current. **Order from here:** A2 (origins), A3
+  (per-declaration node keys), A4 (facts per declaration), then B3's pieces
+  in §II.13's "Order for B3" (implicits, interpolation, operators + `for`,
+  dot calls, effect and qualifier members, fn values, sends), each applying
+  R10.
+
+- **A2: done** (committed "Give every copied node its origin"). Built
+  ([origin]; COMPLETED.md "Every copied node keeps its origin"): `Span` is
+  `{ start, end, expn }` — a copied node keeps the range of the code it was
+  copied from and carries an expansion id, 0 for written code — and the
+  stamped fn's `Stamp` holds the records (`ExpansionRecord { id, parent,
+  kind }`: `Template`, `Copy { target, label, written }`, `Member`, `Made`),
+  replacing `StampRegion`. Comptime retags (one id per copy, per file, in the
+  order the old regions were allocated) instead of remapping into virtual
+  space. `origin::render` is the one renderer (the checker's
+  `render_origin`, the deduction pass, and now the IR analyses), and tags
+  the diagnostic with the stamped fn (`FileDiagnostic::decl`), which is what
+  `ir::gate` attributes it by (`DeclIndex::loc`), no prefix match.
+  Positions compare within one expansion only (`Span::order_key`,
+  `Span::holds`); the IR's fate tables are keyed by `Span`. The differential
+  (`SALVO_XP_A2`, removed; 3,839 outputs: rendered diagnostics and IR dumps
+  over every program the suite checks) found one difference, a fix: an
+  unresolved name in an in-place copy, which bypassed the redirect and
+  printed past the end of the file. Emitted code unchanged; timings flat
+  except parse ~+1ms on `examples/cluster` (12-byte spans).
+  **Deviations:** (1) `Origin { span, via }` is the span itself, `via` its
+  `expn`: every node has exactly one span, and until A3 the link must be in
+  the key; (2) expansion ids are per file, not per declaration, because two
+  stamps of one template in one file share every position and `(file,
+  Span)` keys must stay apart — A3 can renumber per declaration once keys
+  carry the `DeclId`; (3) route stubs and actor glue needed nothing (the IR
+  derives them with written spans and `Generated` ids); the `iter fn`
+  desugaring's one-byte spans (`desugar::Spans`) and the `0..0` placeholders
+  stay, since they only keep keys apart and A3 removes the need; (4) a
+  location computed from a copied node outside a diagnostic (a trap's
+  `module:line:col`, "moved at line N", `salvo facts`, an LSP range) is
+  still the file's end, so no output changed (ROADMAP 0ac).
+  **What A3 needs from A2:** the key becomes `(DeclId, NodeId)` and the
+  `Span` (with `expn`) is the origin data: diagnostics render with
+  `origin::render(stamp, span, …)` where the declaration's `Stamp` is at hand
+  (`DeclIndex::loc` → the `FnDecl`); the language server matches written
+  spans only (`Span::holds`). With node ids, `expn` no longer has to be
+  unique per file (only within a declaration), the desugaring's one-byte
+  spans can become the declaration's real span, and `Lower::fn_body`'s
+  "written range plus the fn's run of expansion ids" becomes "the
+  declaration's rows". Handler members are still keyed by name span in the
+  checker (A1's note stands).
 
 ## II.13. The call census (B1, 2026-10-27)
 

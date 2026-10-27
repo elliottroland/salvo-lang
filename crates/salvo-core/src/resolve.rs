@@ -2384,7 +2384,7 @@ pub fn written_keys_by_span<'p>(
     program: &'p Program,
     resolution: &Resolution<'p>,
     symbols: &crate::program::Symbols<'p>,
-) -> HashMap<(u32, u32, String), String> {
+) -> HashMap<(Span, String), String> {
     let mut raw = SpanKeys::new();
     span_keys_from(program, resolution, symbols, 0, &mut raw);
     span_keys_final(raw)
@@ -2396,7 +2396,7 @@ pub fn written_keys_by_span<'p>(
 /// `None` where two disagree. Gathering is order-free (a disagreement
 /// anywhere is final), so the files may be gathered in parts — std's once,
 /// a project's per analysis — and merged (`check_once`).
-pub type SpanKeys = HashMap<(u32, u32, String), Option<String>>;
+pub type SpanKeys = HashMap<(Span, String), Option<String>>;
 
 /// [lsp-std-front] Gathers the references of the files from `first` on into
 /// `out`.
@@ -2410,11 +2410,11 @@ pub fn span_keys_from<'p>(
     for_each_type_ref_from(&program.modules, first, &mut |file, t| {
         let name = t.name.name.as_str();
         let key = key_in(symbols, resolution.scope_for_ref(file, t), name).unwrap_or(name).to_string();
-        span_keys_add(out, (t.name.span.start, t.name.span.end, name.to_string()), Some(key));
+        span_keys_add(out, (t.name.span, name.to_string()), Some(key));
     });
 }
 
-fn span_keys_add(out: &mut SpanKeys, at: (u32, u32, String), key: Option<String>) {
+fn span_keys_add(out: &mut SpanKeys, at: (Span, String), key: Option<String>) {
     match out.get(&at) {
         None => {
             out.insert(at, key);
@@ -2427,9 +2427,9 @@ fn span_keys_add(out: &mut SpanKeys, at: (u32, u32, String), key: Option<String>
 }
 
 /// [lsp-std-front] The agreed entries that differ from the written name.
-pub fn span_keys_final(raw: SpanKeys) -> HashMap<(u32, u32, String), String> {
+pub fn span_keys_final(raw: SpanKeys) -> HashMap<(Span, String), String> {
     raw.into_iter()
-        .filter_map(|(at, k)| k.filter(|k| *k != at.2).map(|k| (at, k)))
+        .filter_map(|(at, k)| k.filter(|k| *k != at.1).map(|k| (at, k)))
         .collect()
 }
 

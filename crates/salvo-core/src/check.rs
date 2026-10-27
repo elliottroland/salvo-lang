@@ -223,7 +223,7 @@ impl<'p> Selector<'p> {
             Selector::Module(path) => {
                 let first = path.first()?;
                 let last = path.last()?;
-                Some(Span::new(first.span.start, last.span.end))
+                Some(first.span.at(first.span.start, last.span.end))
             }
             Selector::Type(_) => None,
         }
@@ -1048,7 +1048,7 @@ pub struct Checked {
     /// clash or an alias): what an emitter rendering a written type reads.
     pub type_ref_keys: HashMap<usize, String>,
     /// [type-identity] The same by (span, written name), for copies.
-    pub type_ref_span_keys: HashMap<(u32, u32, String), String>,
+    pub type_ref_span_keys: HashMap<(Span, String), String>,
     /// [type-identity] Per file, the key every visible name of a type,
     /// effect or handler stands for where it is not the name itself (a clash
     /// or an alias): how an emitter resolves a name written in an
@@ -1535,7 +1535,7 @@ impl Checked {
             return &r.name.name;
         }
         self.type_ref_span_keys
-            .get(&(r.name.span.start, r.name.span.end, r.name.name.clone()))
+            .get(&(r.name.span, r.name.name.clone()))
             .map(|k| k.as_str())
             .unwrap_or(&r.name.name)
     }
@@ -2136,7 +2136,7 @@ fn check_once<'p>(
                     Some(std_key) => key.filter(|k| std_key.as_ref() == Some(k)),
                     None => key,
                 };
-                match merged.filter(|k| *k != at.2) {
+                match merged.filter(|k| *k != at.1) {
                     Some(k) => {
                         out.type_ref_span_keys.insert(at, k);
                     }
@@ -2315,7 +2315,6 @@ fn file_checker<'r, 'p>(
     let file = &ctx.program.files[file_idx];
     let mut checker = Checker::new(
         file_idx,
-        file.content.len(),
         file.is_std,
         &ctx.program.files,
         &ctx.resolution.scopes[file_idx],
@@ -2814,9 +2813,6 @@ struct Checker<'p, 'r> {
     refinements: &'r crate::refine::Refinements,
     symbols: &'r Symbols<'p>,
     file_idx: usize,
-    /// [comptime-instantiate] The file's length in bytes: a span at or past it
-    /// is synthetic — a stamped copy's — and is redirected when reported.
-    file_len: usize,
     /// Every source file, for which module a declaration's file is
     /// [struct-opaque].
     files: &'p [crate::source::SourceFile],
@@ -2991,10 +2987,10 @@ struct Checker<'p, 'r> {
     /// declares (unattached): an identity of one prints `name@module`, the
     /// spelling that says which.
     fn_name_clash: HashSet<String>,
-    /// [comptime-instantiate] The stamp of the fn being checked, when it was
-    /// produced by a `by` site: a diagnostic inside one of its unrolled copies
-    /// is redirected to the field or arm the copy was for and prefixed with
-    /// what was being stamped, since the copy's own spans are synthetic.
+    /// [comptime-instantiate] [origin] The stamp of the fn being checked, when
+    /// it was produced by a `by` site or expanded in place: its expansions say
+    /// where a diagnostic at a copied node lands (`render_origin`) — the
+    /// field or arm the copy was for, prefixed with what was being stamped.
     own_stamp: Option<&'p ast::Stamp>,
     /// [comptime-copy-warn] Warnings raised inside the current fn's copies,
     /// redirected and held until the fn is done, so each is reported once
@@ -3339,7 +3335,6 @@ impl<'p, 'r> Checker<'p, 'r> {
     #[allow(clippy::too_many_arguments)]
     fn new(
         file_idx: usize,
-        file_len: usize,
         is_std: bool,
         files: &'p [crate::source::SourceFile],
         scope: &'r ModuleScope<'p>,
@@ -3361,7 +3356,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             inferred,
             refinements,
             file_idx,
-            file_len,
             files,
             out,
             locals: Vec::new(),
@@ -3457,64 +3451,27 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn error(&mut self, span: Span, msg: impl Into<String>) {
-        let (span, msg) = self.redirect_stamped(span, msg.into());
+        let (span, msg, decl) = self.render_origin(span, msg.into());
         self.out
             .errors
-            .push(FileDiagnostic::error(self.file_idx, span, msg));
+            .push(FileDiagnostic::error(self.file_idx, span, msg).in_decl(decl));
     }
 
-    /// [comptime-instantiate] A diagnostic inside a stamped body lands on the
-    /// field or arm the failing copy was for (or on the `by` site), prefixed
-    /// with the compfn, its scope and the type — so a missing `cmp` for a
-    /// `Double` field reads "in `cmp` from `auto` for `Point.y: Double`: …"
-    /// at the field declaration.
-    fn redirect_stamped(&self, span: Span, msg: String) -> (Span, String) {
-        let Some(stamp) = self.own_stamp else {
-            return (span, msg);
-        };
-        let file_len = self.file_len;
-        if (span.start as usize) < file_len {
-            // A written span (the `by` declaration's own signature): leave it.
-            return (span, msg);
-        }
-        let prefix_at = |label: &str| {
-            format!(
-                "in `{}` from `{}` for `{label}`: {msg}",
-                stamp.compfn, stamp.from
-            )
-        };
-        let region_of = |s: Span| stamp.regions.iter().rev().find(|r| s.start >= r.start && s.start < r.end);
-        if let Some(region) = region_of(span) {
-            // [comptime-inline] A copy of an expanded-in-place fn's own text
-            // maps back to what was written — through the copies it was copied
-            // from — so the error lands on the construct (`print_help(args.
-            // [field])`), not on the field the copy was for (found 2026-10-20,
-            // a TODO in lib/std/args/parse.sv). The label still names the copy.
-            let mut at = span;
-            let mut guard = 0;
-            // The copies, innermost first, in the code's own terms.
-            let mut copies: Vec<&str> = Vec::new();
-            while let Some(r) = region_of(at).filter(|r| r.written_from.is_some()) {
-                copies.extend(r.written_label.as_deref());
-                let len = at.end.saturating_sub(at.start);
-                let start = r.written_from.unwrap_or(0) + (at.start - r.start);
-                at = Span::new(start, start + len);
-                guard += 1;
-                if (at.start as usize) < file_len || guard > 64 {
-                    break;
-                }
+    /// [origin] [comptime-instantiate] A diagnostic at a node a stamp copied
+    /// lands where its origin says (`crate::origin::render`): on the field or
+    /// arm the failing copy was for (or on the `by` site), prefixed with the
+    /// compfn, its scope and the type — so a missing `cmp` for a `Double`
+    /// field reads "in `cmp` from `auto` for `Point.y: Double`: …" at the
+    /// field declaration — and is attributed to the stamped fn. A written
+    /// span stays.
+    fn render_origin(&self, span: Span, msg: String) -> (Span, String, Option<DeclId>) {
+        match self.own_stamp {
+            Some(stamp) if span.is_expanded() => {
+                let (at, msg) = crate::origin::render(stamp, span, msg);
+                (at, msg, self.own_fn)
             }
-            if (at.start as usize) < file_len && at.end as usize <= file_len {
-                // [comptime-inline] The error is on the written code, so all it
-                // needs to add is which copy failed: "when `field` is `groups`
-                // (`Map<Str, ArgGroup>`): …" (2026-10-20; the stamp's
-                // "in `f` from `this declaration` for `T.f: …`" read as jargon).
-                copies.reverse();
-                return (at, format!("when {}: {msg}", copies.join(" and ")));
-            }
-            return (region.target, prefix_at(&region.label));
+            _ => (span, msg, None),
         }
-        (stamp.site, prefix_at(&stamp.at_type))
     }
 
     /// Reports without rejecting: the program still compiles, but
@@ -3522,11 +3479,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [qual-refn].
     fn warn(&mut self, span: Span, msg: impl Into<String>) {
         // [comptime-copy-warn] A warning inside a comptime copy lands where
-        // an error there would (it used to keep the copy's synthetic span,
-        // past the end of the file), and is held so a warning every copy
+        // an error there would (it kept the copy's span, past the end of the
+        // file, before 2026-10-20), and is held so a warning every copy
         // raises alike is reported once.
-        if self.own_stamp.is_some() && span.start as usize >= self.file_len {
-            let (at, msg) = self.redirect_stamped(span, msg.into());
+        if self.own_stamp.is_some() && span.is_expanded() {
+            let (at, msg, _) = self.render_origin(span, msg.into());
             self.copy_warnings.push((at, msg));
             return;
         }
@@ -3538,16 +3495,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [comptime-copy-warn] Where a span in a copy of an **expanded-in-place**
     /// fn was written, when it was: the written construct every copy of it
     /// stands for. `None` outside a copy, or in a stamp (whose template is
-    /// another file's).
+    /// another declaration's).
     fn in_place_written(&self, span: Span) -> Option<Span> {
-        let stamp = self.own_stamp?;
-        if (span.start as usize) < self.file_len {
-            return None;
-        }
-        let region = stamp.regions.iter().rev().find(|r| span.start >= r.start && span.start < r.end)?;
-        region.written_from?;
-        let (at, _) = self.redirect_stamped(span, String::new());
-        ((at.start as usize) < self.file_len).then_some(at)
+        crate::origin::written(self.own_stamp?, span).map(|(at, _)| at)
     }
 
     /// [comptime-copy-warn] Reports the warnings the fn's copies raised, once
@@ -3606,9 +3556,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ));
             }
         }
+        // [origin] At a copied node, where its origin says.
+        let (span, msg, decl) = self.render_origin(span, msg);
         self.out
             .errors
-            .push(FileDiagnostic::error(self.file_idx, span, msg).with_imports(imports));
+            .push(FileDiagnostic::error(self.file_idx, span, msg).with_imports(imports).in_decl(decl));
     }
 
     // ================= module / function traversal =================
@@ -12504,7 +12456,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Filled where the emitters look for them, the zero-width
                 // span after the value.
                 if !implicits.is_empty() {
-                    let at = Span::new(expr.span().end, expr.span().end);
+                    let at = expr.span().at(expr.span().end, expr.span().end);
                     self.out.implicit_args.insert(self.key(at), implicits);
                 }
             }
@@ -23691,7 +23643,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .collect();
         // Deterministic order: frames are hash maps, and a diagnostic list
         // that reorders between runs is not comparable in tests.
-        unused.sort_by_key(|(_, span)| span.start);
+        unused.sort_by_key(|(_, span)| span.order_key());
         for (name, span) in unused {
             let msg = format!(
                 "`{name}` is never used; prefix it with `_` (`_{name}`) if \
@@ -27933,7 +27885,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.generics = inner;
                 self.generics = saved;
                 if !implicits.is_empty() {
-                    let at = args.first().map(|(_, s)| Span::new(s.start, s.start)).unwrap_or(span);
+                    let at = args.first().map(|(_, s)| s.at(s.start, s.start)).unwrap_or(span);
                     let generics: HashSet<String> = qual_generics
                         .iter()
                         .chain(&qf.generics)
@@ -34140,7 +34092,8 @@ pub fn written_type_key(ty: &ast::Type) -> usize {
 }
 
 fn spans_overlap(a: Span, b: Span) -> bool {
-    a.start <= b.end && b.start <= a.end
+    // [origin] Positions compare within one expansion only.
+    a.expn == b.expn && a.start <= b.end && b.start <= a.end
 }
 
 /// [namespace] A readable list of a union's arm type names, for the

@@ -457,7 +457,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     pub fn location(&self, span: salvo_syntax::Span) -> String {
         match self.s.program.files.iter().find(|f| f.module == self.module.path) {
             Some(file) => {
-                let (line, col) = salvo_syntax::span::line_col(&file.content, span.start);
+                let (line, col) = salvo_syntax::span::span_line_col(&file.content, span);
                 format!("{}:{line}:{col}", file.module)
             }
             None => format!("{}", self.module.path),
@@ -3581,7 +3581,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let tps = f.type_params.len();
                 let erased = self.s.ast_fn(id).is_some_and(|af| {
                     let fi = self.s.file_of(id).unwrap_or(0);
-                    self.s.erased.fns.contains(&(fi, af.name.span.start))
+                    self.s.erased.fns.contains(&(fi, af.name.span))
                 });
                 let impl_params = self.stores_callbacks_pub(f);
                 let ta = if !erased && tps > 0 && type_args.len() == tps && type_args.iter().all(|t| !t.is_unknown() && !super::body::foreign_var(t, &self.f.generics) && (f.kind == FnKind::Plain || !self.s.holds_proj(t))) && !impl_params {

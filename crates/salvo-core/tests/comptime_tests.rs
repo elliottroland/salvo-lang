@@ -1043,6 +1043,24 @@ fn a_copys_docs_are_tested_in_a_head() {
     assert!(errs.iter().any(|e| e.contains("when `f` is `a`") && e.contains("`?:`")), "{errs:?}");
 }
 
+/// [origin] [comptime-inline] An unresolved name in a copy lands on the
+/// written code, saying which copy, like every other error in one: the
+/// unresolved-name funnel used to keep the copy's synthetic span, which
+/// printed past the end of the file with no prefix (found by the A2
+/// differential, 2026-10-27).
+#[test]
+fn an_unresolved_name_in_a_copy_lands_where_it_is_written() {
+    let errs = errors(
+        "struct S {\n    // Doc.\n    a: Int\n}\n\n\
+         comptime fn help() [] -> Str {\n    let out: Mut Str = Mut Str(\"\")\n    \
+         [for f in S.fields] {\n        append(out, f.docs ?: \"-\")\n    }\n    return out\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.message == "when `f` is `a` (`Int`): no function named `append` is in scope" && e.line == 9),
+        "{errs:?}"
+    );
+}
+
 // ===== [comptime-qualifier] qualifiers on declarations, read by comptime =====
 
 const ANNOTATED: &str = "comptime qualifier Short(c: Char) of Field\n\
