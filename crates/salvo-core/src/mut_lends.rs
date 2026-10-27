@@ -25,7 +25,7 @@ use crate::types::{is_proj_name, Ty};
 /// accessors serve `Mut` positions too).
 #[derive(Clone)]
 pub struct MutLendUses {
-    pub fns: HashSet<crate::FnKey>,
+    pub fns: HashSet<crate::DeclId>,
     pub sites: HashSet<(usize, Span)>,
     pub forwards: HashSet<(usize, Span)>,
 }
@@ -36,16 +36,11 @@ pub struct MutLendUses {
 /// the callee's variant too). A seed with no named callee — a fn value or
 /// effect member lending mutably — is the loud v1 cut.
 pub fn mut_lend_uses(program: &Program, checked: &Checked) -> MutLendUses {
-    let fn_of = |key: crate::FnKey| -> Option<&FnDecl> {
-        match program.modules.get(key.file)?.items.get(key.item)? {
-            Item::Fn(f) => Some(f),
-            _ => None,
-        }
-    };
-    let mut demanded: HashSet<crate::FnKey> = HashSet::new();
+    let fn_of = |key: crate::DeclId| -> Option<&FnDecl> { checked.decls.fn_decl(&program.modules, key) };
+    let mut demanded: HashSet<crate::DeclId> = HashSet::new();
     let mut seeds = HashSet::new();
     let mut forwards = HashSet::new();
-    let mut worklist: Vec<crate::FnKey> = Vec::new();
+    let mut worklist: Vec<crate::DeclId> = Vec::new();
     // [rs-loc] Bound mints join the seeds (④a slice 2): a `let` the
     // checker marked as a mutable-handle bind (`handle_muts`) whose value
     // is a lending call demands the callee's locator variant exactly as a
@@ -76,7 +71,7 @@ pub fn mut_lend_uses(program: &Program, checked: &Checked) -> MutLendUses {
     // implicit fill, the `?at`/`Locate` idiom) is used as a locator by
     // whoever calls it, so its variant is demanded too. The checker
     // resolved every implicit fill, which is where the answer lives.
-    let mut value_demanded: Vec<crate::FnKey> = Vec::new();
+    let mut value_demanded: Vec<crate::DeclId> = Vec::new();
     for filled in checked.implicit_args.values() {
         for a in filled {
             let fk = match a {
@@ -128,12 +123,12 @@ pub fn mut_lend_uses(program: &Program, checked: &Checked) -> MutLendUses {
                 e = operand;
             }
             let Expr::Call { span, .. } = e else { continue };
-            let Some(fk2) = checked.call_fn.get(&(fk.file, *span)) else {
+            let Some(fk2) = checked.call_fn.get(&(checked.decls.file(fk), *span)) else {
                 continue;
             };
             let Some(decl2) = fn_of(*fk2) else { continue };
             if decl2.derived_return.is_some() {
-                forwards.insert((fk.file, *span));
+                forwards.insert((checked.decls.file(fk), *span));
                 if !decl2.intrinsic {
                     worklist.push(*fk2);
                 }

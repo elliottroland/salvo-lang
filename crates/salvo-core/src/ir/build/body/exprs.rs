@@ -370,7 +370,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let target = match info.replyto_task.copied() {
                     Some(k) => {
                         let effects: Vec<Expr> = info.task_mint_effects.cloned().unwrap_or_default().iter().map(|t| self.effect_instance(t, span)).collect();
-                        ReplyTarget::Task { target: self.ctx.decl_id(k), effects }
+                        ReplyTarget::Task { target: k, effects }
                     }
                     None => ReplyTarget::Member(info.replyto_member.cloned().unwrap_or(member.name.clone())),
                 };
@@ -399,9 +399,9 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// the fn has implicits of its own, the same lambda fills them, as an
     /// implicit filled by the fn does [implicit-recursive]. `name_span` is
     /// where the checker keyed the name, `span` the whole value.
-    fn fn_value(&mut self, k: crate::FnKey, name_span: Span, span: Span) -> Expr {
+    fn fn_value(&mut self, k: crate::DeclId, name_span: Span, span: Span) -> Expr {
         let ty = self.ty_of(span);
-        let id = self.ctx.decl_id(k);
+        let id = k;
         // [throw] Neither side threads a throw [`crate::is_throw_effect`].
         let taken: Vec<Ty> = self.ctx.checked.lambda_effects.get(&self.key(name_span)).map(|v| crate::threaded_effects(v).iter().map(erase).collect()).unwrap_or_default();
         let declared: Vec<Ty> = self.ctx.checked.fn_effects.get(&k).map(|v| crate::threaded_effects(v).iter().map(erase).collect()).unwrap_or_default();
@@ -637,7 +637,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let at = Span::new(span.end, span.end);
             let mut args = vec![value];
             args.extend(self.implicit_args_at(at));
-            return Some(Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args: Vec::new(), args, moved: false } });
+            return Some(Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Decl(k), type_args: Vec::new(), args, moved: false } });
         }
         self.native_text(value, span)
     }
@@ -718,7 +718,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     }
                     None => Ty::Unknown,
                 };
-                (FnRef::Decl(self.ctx.decl_id(*k)), ret, effects)
+                (FnRef::Decl(*k), ret, effects)
             }
             crate::check::PassMember::Implicit(n) => {
                 let local = self.lookup(n).map(|b| b.local.clone()).or_else(|| self.implicit_locals.get(n).cloned()).unwrap_or(Local(n.clone()));
@@ -743,7 +743,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             if have == want {
                 return self.ctx.program.files.iter().enumerate().find_map(|(fi, _)| {
                     let m = &self.ctx.program.modules[fi];
-                    m.items.iter().position(|i| matches!(i, ast::Item::Fn(g) if std::ptr::eq(g, *f))).map(|item| self.ctx.item_id(fi, item))
+                    m.items.iter().position(|i| matches!(i, ast::Item::Fn(g) if std::ptr::eq(g, *f))).and_then(|item| self.ctx.item_id(fi, item))
                 });
             }
         }
@@ -865,7 +865,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     return Expr { ty, span, kind: ExprKind::Op { op: o, args: vec![l, r] } };
                 }
                 let target = match via {
-                    Some(CompareVia::Call(k)) => Some(FnRef::Decl(self.ctx.decl_id(k))),
+                    Some(CompareVia::Call(k)) => Some(FnRef::Decl(k)),
                     Some(CompareVia::Implicit(name)) => Some(FnRef::Local(Local(name))),
                     None => {
                         let fname = if equality { "eq" } else { "cmp" };
@@ -979,7 +979,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     }
                 },
                 ImplicitArg::Resolved { key, nested, want, .. } => {
-                    let id = self.ctx.decl_id(*key);
+                    let id = *key;
                     let want = erase(want);
                     if nested.is_empty() {
                         out.push(Expr { ty: want, span: at, kind: ExprKind::FnValue(FnRef::Decl(id)) });
@@ -998,7 +998,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     }
                 }
                 ImplicitArg::OriginNext { next_fn, .. } => {
-                    let id = self.ctx.decl_id(*next_fn);
+                    let id = *next_fn;
                     out.push(Expr { ty: Ty::Unknown, span: at, kind: ExprKind::FnValue(FnRef::Decl(id)) });
                 }
             }
@@ -1151,7 +1151,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             lowered.extend(args_lowered);
             lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), named, span));
             let type_args = self.type_args_of(span);
-            let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args, args: lowered, moved: false } };
+            let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(k), type_args, args: lowered, moved: false } };
             return if prelude.is_empty() { call } else { self.block_expr(prelude, call, span) };
         }
         // A computed callee: a lambda or fn value expression.
@@ -1188,7 +1188,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let variadic_at = fixed.iter().position(|p| p.variadic);
         // [default-scope] A default is lowered in the file that declares it.
         let default_file = match &callee {
-            Some(Callee::Fn(k, _)) => Some(k.file),
+            Some(Callee::Fn(k, _)) => self.ctx.resolution.decls.loc(*k).map(|l| l.file),
             Some(Callee::Member(m)) => self.member_file(m),
             None => None,
         };
@@ -1717,14 +1717,13 @@ impl<'a, 'p> Lower<'a, 'p> {
         let mut args: Vec<Expr> = Vec::new();
         let effects: Vec<Ty> = self
             .ctx
-            .program
-            .files
-            .iter()
-            .position(|f| f.module == target.module)
-            .and_then(|fi| match self.ctx.program.modules[fi].items.get(target.item) {
+            .resolution
+            .decls
+            .loc(target)
+            .and_then(|l| match self.ctx.program.modules[l.file].items.get(l.item) {
                 // [effect-alias] [effect-prereq] As the checker expanded it.
-                Some(ast::Item::Qualifier(q)) => q.fns.get((target.sub as usize).wrapping_sub(1)).map(|f| {
-                    self.ctx.checked.decl_effects.get(&(fi, f.name.span)).map(|l| l.iter().map(erase).collect()).unwrap_or_default()
+                Some(ast::Item::Qualifier(q)) => q.fns.get((l.sub as usize).wrapping_sub(1)).map(|f| {
+                    self.ctx.checked.decl_effects.get(&(l.file, f.name.span)).map(|l| l.iter().map(erase).collect()).unwrap_or_default()
                 }),
                 _ => None,
             })
@@ -1906,7 +1905,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let fi = decl.fns.iter().position(|f| f.name.name == member)?;
         for (file_idx, m) in self.ctx.program.modules.iter().enumerate() {
             if let Some(item) = m.items.iter().position(|i| matches!(i, ast::Item::Qualifier(q) if std::ptr::eq(q, decl))) {
-                return Some(DeclId { module: self.ctx.program.files[file_idx].module.clone(), item, sub: fi as u16 + 1 });
+                return self.ctx.resolution.decls.member(file_idx, item, fi + 1);
             }
         }
         None
@@ -2066,9 +2065,9 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     /// The file index and fn declaration a qualifier member's id names.
     fn decl_fn(&self, target: &DeclId) -> Option<(usize, ast::FnDecl)> {
-        let fi = self.ctx.program.files.iter().position(|f| f.module == target.module)?;
-        match self.ctx.program.modules[fi].items.get(target.item) {
-            Some(ast::Item::Qualifier(q)) => q.fns.get((target.sub as usize).wrapping_sub(1)).map(|f| (fi, f.clone())),
+        let l = self.ctx.resolution.decls.loc(*target)?;
+        match self.ctx.program.modules[l.file].items.get(l.item) {
+            Some(ast::Item::Qualifier(q)) => q.fns.get((l.sub as usize).wrapping_sub(1)).map(|f| (l.file, f.clone())),
             _ => None,
         }
     }
@@ -2255,7 +2254,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             call_args.push(recv);
             call_args.extend(args.iter().map(|a| self.expr(a)));
             let type_args = self.type_args_of(span);
-            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args, args: call_args, moved: false } };
+            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(k), type_args, args: call_args, moved: false } };
         }
         unsupported(ty, span, "safe-nav call")
     }
@@ -3247,7 +3246,7 @@ impl<'a, 'p> Lower<'a, 'p> {
 
 /// What a call resolved to, for argument modes.
 pub(crate) enum Callee<'p> {
-    Fn(crate::FnKey, &'p ast::FnDecl),
+    Fn(crate::DeclId, &'p ast::FnDecl),
     Member(&'p ast::FnDecl),
 }
 

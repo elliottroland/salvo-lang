@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2088 tests, complete: the toolchain tests are
+cargo test                  # 2092 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,80 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-27 — Every fn is identified by module, name and signature (A1, first part)
+
+**Part II folded into PIPELINE.md.** PIPELINE2.md, the per-phase lowering
+design the user worked out with another agent, is PIPELINE.md's Part II
+(`# Part II — Per-phase lowering`, §II.1–§II.12), summarized in §3 as R9.
+**User decisions R9 (2026-10-27)**: per-phase lowering for structural unity
+(no surface spelling grows semantics of its own); P1 (a declaration id
+disambiguates overloads by the written parameter types), P2 (facts keyed
+`(DeclId, NodeId)`, the span kept as origin data), P3 (call resolution is
+the reference for every spelling of a call), P4 case by case (effect
+members compete with fns; operators and interpolation per
+OPERATOR_OVERLOAD.md O1), P5 (the round trip on the corpus and examples),
+P6 (representation at D1), P7 (one `salvo dump --phase …`), P8 (comptime's
+signature/body split only in C3); `by` at a call is not supported.
+
+**A1, first part: one stable declaration id for fns and the IR**
+([decl-id], PIPELINE.md §II.9 Stage A). `FnKey { file, item }` and the IR's
+`DeclId { module, item, sub }` are gone; both are now
+`salvo_core::DeclId` (`decl_id.rs`): module path, kind, name path
+(`Counter.get`), a fn-like declaration's signature as overload identity (the
+written parameter types with type parameters positional, and the return
+type: what [fn-overload-duplicate] compares, since [fn-overload-return] lets
+overloads differ only in it), and an ordinal for textually identical
+signatures. Interned for the process (a pointer: one-word hash and compare),
+ordered by content, displayed `size(Point) -> Int@main`.
+
+- **What it replaced.** Every `FnKey`-keyed table (`fn_effects`, `fn_lends`,
+  `implicit_params`, `established_quals`, `param_mutations`, `deductions`,
+  `call_fn`, `fn_refs`, `replyto_tasks`, `interp_to_str`,
+  `carried_identities`, `ImplicitArg::Resolved`, `PassMember::Fn`,
+  `CompareVia::Call`, `Resolution::attached`, the language server's
+  `RenameTarget::Fn`), and the IR's references, generated declarations
+  (message, continuation and private enums, stubs and their members, routes
+  and theirs, dispatchers: by module and generated name, where they were
+  `usize::MAX / 2 + counter`) and module statics (by local, where they were
+  `usize::MAX - 16 i - j`).
+- **Position derived from the id.** `Resolution::decls` and `Checked::decls`
+  (an `Arc<DeclIndex>`) answer an id's file, item and member, and the id at
+  a position. `FnEntry` carries its file. The emitters' `Shared` holds the
+  index (`decl_index` on Rust, where `decls` was taken).
+- **The ordinal is unreachable in an accepted program**: a module's
+  top-level fns with one signature are refused by [fn-overload-duplicate];
+  the refused one has `#1`, so checking goes on past the error.
+- **The differential** (temporary, `SALVO_XP_A1`, in `check_program`,
+  `check_project`, `check_project_cached` and `build_program_gated`, run in a
+  worktree of the previous commit and in this tree): every `Checked` table
+  (Debug output with every map and set sorted recursively, ids rendered as
+  their old `FnKey` through the index, address-keyed `written_types` and
+  `type_ref_keys` compared by value), `Resolution::attached` and errors, and
+  every built IR module's dump, IR errors and dump names, hashed per section,
+  over every program the suite checks with `SALVO_E2E_FRESH=1
+  SALVO_SKIP_E2E=1`: 2,900 programs, **no difference**. 24 programs exist on
+  one side only (their sources hold the worktree's path); 22 have identical
+  dumps under the other path, the other one's spans are shifted by its path.
+  A control run of the old tree against itself showed `type_ref_keys`
+  (address keys) and, in 4 programs, IR dumps of `std.codec` and
+  `std.core.comptime` differing between two runs of the same compiler: a
+  nondeterminism of the old tree, recorded as ROADMAP 0aa (not
+  investigated).
+- **One assumption gone**: the IR's `{module, item}` named an item by its
+  index in "the module", and `Checkable::addr`, both emitters'
+  `ast_fn`/`fn_name` and the effect-generic erasure lookup took the
+  module's first file; that held only because the source set gives a
+  module path one file. An id's position now comes from the index.
+- **Kept as it was**: a handler member in the IR still carries its handler's
+  id, and the checker's member facts stay keyed by name span (A3 keys them).
+- **Timings** (debug): `salvo analyze --src examples/cluster/salvo`, five
+  runs: parse ~22.5ms (unchanged), expand ~10.5 (from ~9.3: the ids are
+  computed once per module allocation, `decl_id::MEMO`, and the comptime
+  resolution computes them first, ~2.3ms), resolve ~9.4 (from ~10.6; its ids
+  hit the memo, 0.5ms), check ~172 (from ~183); `tools/lsp-timing.py`, three
+  runs of four edits, totals of the top-level phases: `examples/cluster`
+  median ~35ms (~38 before, same session), `modules/aws` ~38ms (~39).
 
 ### 2026-10-27 — A kept owned parameter reads a borrow (user decision)
 
@@ -30365,7 +30439,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2088 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2092 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -31657,6 +31731,23 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A differential of two compilers runs in a worktree** (A1, 2026-10-27):
+  `git worktree add --detach tmp/<name> HEAD`, the hook applied there too,
+  and its own `target/` (a cold build of ~3 minutes); run both suites with
+  `SALVO_E2E_FRESH=1 SALVO_SKIP_E2E=1` so stamps skip nothing, and write one
+  small file per (program, kind, content) of per-section hashes — full
+  `Checked` dumps of every std-carrying program would be tens of GB. Hash
+  `Debug` output only after sorting every map and set recursively, drop
+  address keys (`written_types`, `type_ref_keys`), and run the old compiler
+  against itself first: whatever differs there is noise to know about, not
+  a finding. Programs whose sources hold the worktree path hash differently
+  on each side; match them by content.
+- **A `DeclId` is a pointer** (A1): `Hash` is the address, so a `HashMap`
+  keyed by ids iterates in a different order from run to run, as with any
+  `RandomState` map; `Ord` is by content (module, kind, path, signature,
+  ordinal), so sort by the id, never by its address. Its `Debug` prints the
+  `Display` form, so a dump of a table keyed by ids is stable.
 
 - **Widening a fit widens every place that fit is consulted** (2026-10-27,
   [fn-kept-borrow]). The decision was about fn values passed by name, but

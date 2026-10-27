@@ -8,7 +8,7 @@ use crate::check::{Checked, Coercion};
 use crate::program::{Program as CoreProgram, Symbols};
 use crate::resolve::Resolution;
 use crate::types::{is_proj_name, Qual, Ty};
-use crate::FnKey;
+use crate::DeclId;
 use salvo_syntax::ast::{self, Expr as AExpr, Item};
 use salvo_syntax::Span;
 
@@ -72,20 +72,20 @@ impl<'p> Ctx<'p> {
         }
         Some((decided(fact.stamp), links))
     }
-    pub fn decl_id(&self, key: FnKey) -> DeclId {
-        DeclId { module: self.program.files[key.file].module.clone(), item: key.item, sub: 0 }
+    pub fn fn_by_key(&self, key: DeclId) -> Option<&'p ast::FnDecl> {
+        self.resolution.decls.fn_decl(&self.program.modules, key)
     }
 
-    pub fn fn_by_key(&self, key: FnKey) -> Option<&'p ast::FnDecl> {
-        match self.program.modules.get(key.file)?.items.get(key.item)? {
-            Item::Fn(f) => Some(f),
-            _ => None,
-        }
+    /// [decl-id] The id of the declaration at (`file_idx`, `item`), if it
+    /// declares something.
+    pub fn item_id(&self, file_idx: usize, item: usize) -> Option<DeclId> {
+        self.resolution.decls.item(file_idx, item)
     }
 
-    /// The `DeclId` of a declaration (any item kind) by its address.
-    pub fn item_id(&self, file_idx: usize, item: usize) -> DeclId {
-        DeclId { module: self.program.files[file_idx].module.clone(), item, sub: 0 }
+    /// [decl-id] The item index `id` is declared at in its file (a member's
+    /// container's); `usize::MAX` for a generated declaration.
+    pub fn item_of(&self, id: DeclId) -> usize {
+        self.resolution.decls.loc(id).map_or(usize::MAX, |l| l.item)
     }
 
     /// Where a struct/effect/handler declaration lives, by symbol key.
@@ -96,7 +96,7 @@ impl<'p> Ctx<'p> {
             .items
             .iter()
             .position(|i| matches!(i, Item::Effect(e) if std::ptr::eq(e, decl)))?;
-        Some(self.item_id(file, item))
+        self.item_id(file, item)
     }
 
     pub fn written_ty(&self, file_idx: usize, ty: &ast::Type) -> Ty {
@@ -191,7 +191,7 @@ impl<'p> Ctx<'p> {
         self.checked.ty_of(file_idx, span).map(erase)
     }
 
-    fn compute_names(program: &CoreProgram) -> HashMap<DeclId, String> {
+    fn compute_names(program: &CoreProgram, decls: &crate::decl_id::DeclIndex) -> HashMap<DeclId, String> {
         let mut out = HashMap::new();
         for (file_idx, (file, module)) in program.files.iter().zip(&program.modules).enumerate() {
             let _ = file_idx;
@@ -224,10 +224,13 @@ impl<'p> Ctx<'p> {
                     Item::Qualifier(q) => format!("{prefix}::{}", q.name.name),
                     _ => continue,
                 };
-                out.insert(DeclId { module: file.module.clone(), item, sub: 0 }, name);
+                let Some(id) = decls.item(file_idx, item) else { continue };
+                out.insert(id, name);
                 if let Item::Qualifier(q) = decl {
                     for (i, f) in q.fns.iter().enumerate() {
-                        out.insert(DeclId { module: file.module.clone(), item, sub: i as u16 + 1 }, format!("{prefix}::{}.{}", q.name.name, f.name.name));
+                        if let Some(id) = decls.member(file_idx, item, i + 1) {
+                            out.insert(id, format!("{prefix}::{}.{}", q.name.name, f.name.name));
+                        }
                     }
                 }
             }
@@ -239,7 +242,7 @@ impl<'p> Ctx<'p> {
 impl Program {
     /// The dump spelling of a declaration reference.
     pub fn ref_name(&self, id: &DeclId) -> String {
-        self.names.get(id).cloned().unwrap_or_else(|| format!("{}::#{}.{}", id.module.0.join("."), id.item, id.sub))
+        self.names.get(id).cloned().unwrap_or_else(|| format!("{}::#{}", id.module().0.join("."), id.path().join(".")))
     }
 }
 
@@ -347,7 +350,7 @@ pub fn build_program_gated<'p>(
     for v in facts_by_file.values_mut() {
         v.sort_by_key(|f| (f.stamp.start, f.stamp.end));
     }
-    let mut ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program), decision: Decision::default(), facts_by_file, gate };
+    let mut ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program, &resolution.decls), decision: Decision::default(), facts_by_file, gate };
     let mut out = Program { modules: Vec::new(), names: HashMap::new(), decision: Decision::default() };
     let mut errors = Vec::new();
     let mut failed: HashSet<(usize, usize)> = HashSet::new();

@@ -1294,7 +1294,7 @@ struct FileNames {
 /// read-only one, over what the files declare before stamping. Only the
 /// files from `start` on are stamped, so only their scopes are built
 /// [lsp-std-front]; the files before keep an empty entry.
-fn scoped_names<M: std::borrow::Borrow<Module>>(files: &[SourceFile], modules: &[M], start: usize) -> Vec<FileNames> {
+fn scoped_names<M: crate::decl_id::ModuleRef>(files: &[SourceFile], modules: &[M], start: usize) -> Vec<FileNames> {
     let mut module_of: HashMap<usize, ModulePath> = HashMap::new();
     for (file, module) in files.iter().zip(modules) {
         for item in &module.borrow().items {

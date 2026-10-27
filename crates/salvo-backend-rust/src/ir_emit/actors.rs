@@ -153,7 +153,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// wire form, the plain enqueue otherwise.
     pub fn send_call(&mut self, i: &InterfaceDecl, target: &str, built: &str) -> String {
         if i.protocol_hash.is_some() {
-            let proto = self.path_in(&i.id.module, &format!("__PROTO_{}", rs_ident(&i.name)));
+            let proto = self.path_in(i.id.module(), &format!("__PROTO_{}", rs_ident(&i.name)));
             format!("crate::scheduler::salvo_send_wire({target}, {built}, {proto})")
         } else {
             format!("crate::scheduler::salvo_send({target}, std::boxed::Box::new({built}))")
@@ -203,7 +203,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         // functions the builder generated [actor-dispatch].
         let mut dispatch_names: Vec<(String, String)> = Vec::new();
         for face in faces {
-            let msg = self.path_in(&face.id.module, &format!("__Msg_{}", rs_ident(&face.name)));
+            let msg = self.path_in(face.id.module(), &format!("__Msg_{}", rs_ident(&face.name)));
             match self.dispatch_fn(h, |k| matches!(k, salvo_core::ir::EnumKind::Message { interface } if *interface == face.id)) {
                 Some(f) => dispatch_names.push((msg, f)),
                 None => self.error(format!("handler `{}` has no dispatcher for `{}`", h.name, face.name)),
@@ -264,8 +264,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let mut arms = String::new();
         for face in faces {
             if face.protocol_hash.is_some() {
-                let msg = self.path_in(&face.id.module, &format!("__Msg_{}", rs_ident(&face.name)));
-                let proto = self.path_in(&face.id.module, &format!("__PROTO_{}", rs_ident(&face.name)));
+                let msg = self.path_in(face.id.module(), &format!("__Msg_{}", rs_ident(&face.name)));
+                let proto = self.path_in(face.id.module(), &format!("__PROTO_{}", rs_ident(&face.name)));
                 arms.push_str(&format!("    if proto == {proto} {{\n        return crate::wire::salvo_decode::<{msg}>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);\n    }}\n"));
             }
         }
@@ -327,7 +327,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 Some(p) => self.value(p, indent),
                 None => "crate::scheduler::salvo_current_pool()".to_string(),
             };
-            let m = decl.id.module.clone();
+            let m = decl.id.module().clone();
             let hn = rs_ident(&decl.name);
             let ctor = self.path_in(&m, &hn);
             let actor = self.path_in(&m, &format!("__Actor_{hn}"));
@@ -370,7 +370,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Some(p) => self.value(p, indent),
             None => "crate::scheduler::salvo_current_pool()".to_string(),
         };
-        let m = decl.id.module.clone();
+        let m = decl.id.module().clone();
         let hn = rs_ident(&decl.name);
         let actor = self.path_in(&m, &format!("__Actor_{hn}"));
         let dec = self.path_in(&m, &format!("__DECODE_{hn}"));
@@ -390,7 +390,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     return "()".to_string();
                 };
                 let g_code = self.value(g, indent);
-                let built = format!("{}::{}(__a)", self.path_in(&group.id.module, &format!("__Msg_{}", rs_ident(&group.name))), variant(&jm.emitted_name));
+                let built = format!("{}::{}(__a)", self.path_in(group.id.module(), &format!("__Msg_{}", rs_ident(&group.name))), variant(&jm.emitted_name));
                 format!("{}; ", self.send_call(group, &g_code, &built))
             }
             None => String::new(),
@@ -410,7 +410,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         for (p, x) in m.params.iter().zip(args) {
             ps.push(self.value_into(x, &p.ty, indent));
         }
-        let msg = self.path_in(&iface.id.module, &format!("__Msg_{}", rs_ident(&iface.name)));
+        let msg = self.path_in(iface.id.module(), &format!("__Msg_{}", rs_ident(&iface.name)));
         let built = if ps.is_empty() { format!("{msg}::{}", variant(&m.emitted_name)) } else { format!("{msg}::{}({})", variant(&m.emitted_name), ps.join(", ")) };
         self.send_call(iface, &a, &built)
     }
@@ -424,7 +424,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         match self.s.interface(name) {
             Some(i) if i.actor => {
                 let face = self.type_path(name);
-                let stub = self.path_in(&i.id.module, &format!("__Stub_{}", rs_ident(&i.name)));
+                let stub = self.path_in(i.id.module(), &format!("__Stub_{}", rs_ident(&i.name)));
                 format!("{face}::shared({stub}::new({a}))")
             }
             Some(_) => a,
@@ -532,15 +532,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let lets: String = a.iter().zip(&names).map(|(c, n)| format!("let {n} = {c}; ")).collect();
         if let Some(face) = faces.iter().find(|f| f.members.iter().any(|m| m.name == member)) {
             let fm = face.members.iter().find(|m| m.name == member).unwrap();
-            let msg = self.path_in(&face.id.module, &format!("__Msg_{}", rs_ident(&face.name)));
+            let msg = self.path_in(face.id.module(), &format!("__Msg_{}", rs_ident(&face.name)));
             let built = if names.is_empty() { format!("{msg}::{}", variant(&fm.emitted_name)) } else { format!("{msg}::{}({})", variant(&fm.emitted_name), names.join(", ")) };
             let send = self.send_call(face, "__a", &built);
-            let tr = self.path_in(&face.id.module, &if h.stateful { stateful_trait_name(&face.name) } else { stateless_trait_name(&face.name) });
+            let tr = self.path_in(face.id.module(), &if h.stateful { stateful_trait_name(&face.name) } else { stateless_trait_name(&face.name) });
             let mut inline_args = vec!["self".to_string()];
             inline_args.extend(names.iter().cloned());
             return format!("{{ {lets}match self.__addr {{ Some(__a) => {send}, None => {tr}::{}({}) }} }}", rs_ident(&fm.emitted_name), inline_args.join(", "));
         }
-        let priv_enum = self.path_in(&h.id.module, &format!("__Priv_{}", rs_ident(&h.name)));
+        let priv_enum = self.path_in(h.id.module(), &format!("__Priv_{}", rs_ident(&h.name)));
         let built = if names.is_empty() { format!("{priv_enum}::{}", variant(member)) } else { format!("{priv_enum}::{}({})", variant(member), names.join(", ")) };
         if self.f.in_facade {
             return format!("{{ {lets}crate::scheduler::salvo_send(self.__addr, std::boxed::Box::new({built})) }}");
@@ -564,7 +564,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         ifaces.sort_by(|a, b| a.name.cmp(&b.name));
         let entries: Vec<String> = ifaces
             .iter()
-            .map(|i| format!("(\"{}\".to_string(), {}.to_string())", i.name, self.path_in(&i.id.module, &format!("__PROTO_{}", rs_ident(&i.name)))))
+            .map(|i| format!("(\"{}\".to_string(), {}.to_string())", i.name, self.path_in(i.id.module(), &format!("__PROTO_{}", rs_ident(&i.name)))))
             .collect();
         if entries.is_empty() {
             return String::new();
@@ -614,7 +614,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let a = self.value(&args[0], indent);
                 let b = self.value(&args[1], indent);
                 let faults = self.s.interface("Faults")?;
-                let msg = self.path_in(&faults.id.module, "__Msg_Faults");
+                let msg = self.path_in(faults.id.module(), "__Msg_Faults");
                 let fault = self.type_path("Fault");
                 Some(format!("crate::scheduler::salvo_pool_with_sink((({a}) as usize), Some(((({b}) as usize), |__reason| std::boxed::Box::new({msg}::Faulted({fault} {{ reason: __reason }})))))"))
             }
@@ -631,7 +631,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     self.error("`protocol<E>`: `E` has no wire form, so it cannot be a group's protocol");
                     return Some("()".to_string());
                 };
-                let proto = self.path_in(&iface.id.module, &format!("__PROTO_{}", rs_ident(&iface.name)));
+                let proto = self.path_in(iface.id.module(), &format!("__PROTO_{}", rs_ident(&iface.name)));
                 let st = self.type_path("Protocol");
                 Some(format!("{st} {{ name: \"{}\".to_string(), hash: {proto}.to_string() }}", iface.name))
             }
@@ -657,7 +657,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     }
                     _ => ("()".to_string(), "value".to_string()),
                 };
-                let priv_enum = self.path_in(&decl.id.module, &format!("__Priv_{}", rs_ident(&decl.name)));
+                let priv_enum = self.path_in(decl.id.module(), &format!("__Priv_{}", rs_ident(&decl.name)));
                 Some(format!("crate::scheduler::salvo_watch_control(({channel}).clone(), ({sink}).clone(), |__n, __d| std::boxed::Box::new({priv_enum}::Control({nid} {{ {field}: __n as i64 }}, __d)))"))
             }
             _ => {

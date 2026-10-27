@@ -1,9 +1,9 @@
 # The compiler pipeline: phases, sub-phases, and caching (working document)
 
-**Status:** decided; ready to build. Rounds, all 2026-10-20: R1 (D1, D3), R2
-(lends, mutated fields, D4), R3 (`iter T` removed), R4 (state structs and
-names), R5 (parameter holding, state field types). The plan of work is §7;
-§5 ends with what stays program-wide.
+**Status:** Part I (§1–§8) built; Part II (per-phase lowering, §II.1–§II.12)
+decided 2026-10-27 and being built. Rounds: R1–R8 (2026-10-20, Part I), R9
+(2026-10-27, Part II). Part I's plan is §7 and its log §8; Part II's plan is
+§II.9 and its log §II.12. §5 ends with what stays program-wide.
 
 **Goal.** Organize the compiler into named phases and sub-phases, each defined by
 its inputs and outputs, so that:
@@ -233,6 +233,24 @@ Route stubs, derived per effect in the IR (step 6, piece 5):
   declaration. What those rules consume reaches the flow pass as moves
   (`lambda_captures`, `moved_reads`, `flow_moves`), so the flow pass owns
   every *path-dependent* ownership question and nothing else.
+
+### R9 (2026-10-27): per-phase lowering (Part II)
+
+Six rounds the same day, in full in §II.11. **Direction:** per-phase lowering
+for structural unity (no surface spelling grows semantics of its own), the
+representation secondary, origins kept through every lowering. **Decided:**
+P1 (overloads in a declaration id disambiguated by the written parameter
+types), P2 (facts keyed `(DeclId, NodeId)`, the span kept as origin data;
+amends R1's relative-span key), P3 (call resolution is the reference; every
+other spelling behaves like the call it lowers to), P4 case by case
+(effect members compete with fns; interpolation and operators per
+OPERATOR_OVERLOAD.md O1: an operator is the call it names, and each operator
+shape on a type is declared in the type's file, `[unique-shape]`), P5 (the
+round trip on the corpus and examples), P6 (representation decided at D1),
+P7 (one `salvo dump --phase parse-ast|resolve|type-check|generate-ir`), P8
+(comptime's signature/body split only in C3); `by` at a call is not
+supported (a named fn is the workaround). Recommended, not decided: resolve
+and type stay separate (§II.3.1).
 
 ## 4. Body-derived interface facts (D2)
 
@@ -2037,3 +2055,579 @@ log current so the work can resume after a context reset). Newest last.
   meaning. Kotlin needs nothing; Rust reuses the retag adapters, plus a
   written-`proj` slot passing the borrow as it is and an owned key lent twice
   at a `K = proj Str` slot. No new DECISION.
+
+
+---
+
+# Part II — Per-phase lowering (decided 2026-10-27)
+
+Folded in from PIPELINE2.md (2026-10-27), the user's design with another
+agent while Part I's leftovers were finished. Part I's §7 plan is built; Part
+II is what comes after it. Its rounds are summarized in §3 as R9 and kept in
+full in §II.11; its sequence is §II.9, and its work log is §II.12. Operator
+overloading, which decides Part II's interpolation and operator rows (P4), is
+designed in OPERATOR_OVERLOAD.md.
+
+## II.1. Goal
+
+**Structural unity: surface syntax must not grow semantics of its own.**
+Several rules have been found applied inconsistently across spellings of one
+thing. The latest: implicit resolution selected overloads differently from
+call resolution (`resolve_implicit_fn_in` beside `select_overload` in
+`check.rs`, sharing the fit test `fn_value_at` but not the selection). The
+cause is structural: wherever the compiler treats two spellings as different
+constructs, each grows its own code path, and a rule changed on one is not
+changed on the other.
+
+The remedy is **per-phase lowering**: each phase lowers the program to a
+simpler form, every spelling of one concept becomes the *same* node before
+any rule about that concept runs, and the next phase works only on the
+simpler form. The IR is the last of these forms.
+
+- Each phase's output is **complete** (nothing the phase is responsible for
+  is left for later) and **dumpable** in one consistent way.
+- **The representation is secondary.** Side tables or trees, what matters is
+  that the lowered form exists, is the only input of the next phase, and
+  has one node per concept. (User, 2026-10-27.)
+- **Every lowered node keeps its origin in the user's code** (§II.4), so errors
+  from any later phase still land where the user wrote the thing.
+
+## II.2. Principles
+
+- **Placement rule.** A feature is interpreted in the earliest phase whose
+  output has every fact it reads. It may wait later only while its output
+  feeds nothing earlier.
+- **One-way boundaries.** A phase boundary is worth keeping where the
+  dependency runs one way: the earlier phase never needs anything the later
+  one computes. Where a fact must cross back (the fate links claims need,
+  R8 option C), it stays in the earlier phase and is handed on.
+- **Lower before judging.** A rule (overload selection, contract fit,
+  claims, ownership) is written against the core node, and every surface
+  form reaches it as that node.
+- **Origins, not fake spans.** Synthesized nodes carry where they came from;
+  nothing invents source positions.
+
+## II.3. The phases
+
+| phase | output | contents |
+|---|---|---|
+| 1 `parse-ast` | AST | tokens, AST, sugar that needs no names (namespace flattening, struct-fn hoist, tests) |
+| 2 `resolve` | resolved tree | declaration ids, per-file scopes, interfaces (signature types, default deductions, effects with aliases and prerequisites, implicits, lends, `by` member signatures), then comptime (§II.5), then body name binding |
+| 3 `type-check` | typed partial IR | every callee picked, type arguments, implicit arguments explicit, call-like forms as calls, narrowings as bindings, coercions as nodes, each expression's type, claim links |
+| 4 `generate-ir` | valid IR | erasure (qualifiers dropped, effects as parameters, union wrapping), ownership flow, linearity, contract validation; then the program-wide link stage (actor glue, `ref` containers, throws, deadlock) |
+| 5 emit (no dump) | target source | per backend |
+
+### II.3.1 Resolve and type stay separate
+
+Recommended (2026-10-27), on the one-way rule: resolution can be made to
+never need a type, provided it stops short of every decision that does.
+Resolution leaves these to typing, as a **candidate set** or an unresolved
+name:
+
+- which overload a call means (chosen by argument types and claims);
+- a field read `x.f`, a dot call `x.f(a)`, an effect member (`println`), a
+  leading-dot `.Variant` — each needs the receiver's or the expected type.
+
+Everything else is lexical and resolved in phase 2: locals and shadowing,
+imports, aliases, renames, module paths, names in signatures, effect
+prerequisites, `by` paths.
+
+What the boundary buys: interfaces computed without typed bodies (the rule
+R1–R5 established, and what early cutoff rests on); name errors
+reported whether or not a body type-checks; go-to-definition without typing;
+a dump answering "what does this name refer to". Merging them would inline
+lexical lookup into the type walk, which is how the program-wide plain-name
+lookups (§5) appeared.
+
+### II.3.2 The resolved tree
+
+The program as if every name had been written fully qualified: every
+reference an absolute declaration id, no imports or aliases left,
+prerequisites and default deductions written into signatures, comptime
+expanded. It does **not** write out what needs a type: `size(xs)` is still a
+call to one of a set of `size`s.
+
+### II.3.3 The typed partial IR
+
+The program as if the user had also written everything the type checker
+decides: callees as `name@module`, every type argument, every implicit
+argument passed (`to_str = to_str@main`), every interpolation part, operator,
+dot call and effect-member call an ordinary call, narrowings as explicit
+bindings, coercions as explicit wrap nodes, each expression's type, and the
+claim links.
+
+**Partial** in two senses: a declaration with errors keeps holes (unknown
+types, unpicked calls) so the language server can read it; and phase 4 still
+adds ownership decisions (which reads consume, which `let`s move), verified
+linearity, erasure, actor glue, routes and deadlock.
+
+### II.3.4 Narrowing (type) and flow (generate)
+
+Both are path-sensitive analyses over one body; they answer different
+questions. Narrowing: *what is this value* (after `if x is Int`, `x` is an
+`Int`); it changes types, types choose overloads, so it is typing's. Flow:
+*is this value still there, and who may use it* — use after move, partial
+moves, poison, move mode, linearity, the ownership half of lends
+validation (`ir/flow.rs`, `ir/check.rs`).
+
+The split is legal because of R5: ownership must not change
+types or overloads, so typing runs ownership-blind. The exception is the
+fate links claims need, which stay in typing (R8 option C). Flow running on
+the IR also has a smaller language to cover: one `Loop`, two branch forms,
+narrowing as bindings, every operator a call.
+
+## II.4. Origins
+
+Today copies get synthetic spans past the end of the file, a `StampRegion`
+map, and `comptime::redirect_stamped` to move their errors back; the
+past-EOF spans are also what kept step 8 piece 4 from
+partitioning cached rows by declaration.
+
+The general form (as macro systems do it; rustc gives each node a span plus
+an expansion id): every lowered node carries an **origin** — its span in the
+code it was copied or lowered from, plus an optional link to the expansion
+step that produced it:
+
+- comptime: the `by` site, the root, the field;
+- desugaring: which surface form the node came from (an interpolation part,
+  an operator, a dot call, an implicit argument).
+
+Errors render by walking the chain: today's messages ("in `cmp` from `auto`
+for `Point.x`", "in this interpolation") with no fake spans. The same origin
+is what lets the unified call node (§II.6) still name the spelling the user
+wrote.
+
+## II.5. Comptime
+
+**Placement: after interfaces, before body typing** (phase 2, after the
+interface sub-phase). Comptime reads only interface facts about its root —
+fields, their declared types, qualifiers, docs, defaults, visible modules
+for a `by` path — and produces bodies only, because a stamped member takes
+the signature it is declared with (user decision 2026-10-14). Without that
+rule stamping would create signatures and the phases would form a cycle.
+
+After it, **phase 3 sees no comptime**: stamped members are the declared
+signature filled with the template's body, `[for]`/`[if]`/`[when]` unrolled
+and splices filled; in-place expansions are unrolled where written over the
+root named there. One residue is not really comptime: `field.default`
+(`Expr::FieldDefault`) is an ordinary node, "this field's declared default",
+typed in the declaring file ([default-scope]).
+
+**Expanding a resolved template.** Resolve the template once in its own
+module, then copy it with substitutions. Hygiene then follows from the
+representation instead of being kept by hand:
+
+- no `__c<N>` / `h__p` renaming of locals;
+- the `hidden_free_name` error ("parameter `cmp` hides the function `cmp`
+  that `auto`'s `cmp` calls") cannot arise: the template's call already
+  refers to a declaration or candidate set, and declared parameters bind to
+  template parameters by position;
+- no `pick_decl` fallback;
+- `[if f.type is Str]` compares declaration ids, not names (today's flat
+  `World` matches by plain name, a latent bug with same-named types in two
+  modules).
+
+What stays open until expansion is exactly what comptime supplies: a
+`[field.type]` splice is a hole filled with a type id; `v.[field]` is a field
+read, resolved by typing like every field read.
+
+Today comptime runs in `expand`, before resolution, over a flat `World`
+(§5, rated C). Moving it is the comptime "signature/body split"
+Part I and ROADMAP §2c have waiting on stable ids and relative spans.
+
+### II.5.1 `by` at a call: not supported (user, 2026-10-27)
+
+A call-site stamp whose root came from the call's argument types would need
+typing, so comptime would have to run on demand inside phase 3 and the
+one-way boundary would break. Decided: not supported directly. The user
+writes a named fn in the same module and passes that name:
+
+```
+fn my_hash(p: P) -> Long by hash@auto
+… hash = my_hash …
+```
+
+(`fn my_hash(p: P) -> Long by auto` does not work: a `by` path names the
+template fn after the declared fn, `my_hash`, so the template must be named
+when the names differ.)
+
+Recorded, not chosen: a call-site `by` that names its root explicitly
+(something like `hash = hash by auto for P`), which would keep expansion an
+interface-level fact. It is the named-fn workaround without the name, and
+not needed while the workaround is acceptable.
+
+## II.6. Call-like forms lower to one call
+
+The first concrete target. `Checked` has about 15 tables that each record a
+different kind of call: `call_fn`, `fn_refs`, `fn_value_calls`,
+`member_calls`, `effect_member_calls`, `qual_member_calls`, `dot_calls`,
+`local_calls`, `interp_to_str`, `interp_implicit`, `implicit_args`,
+`fn_value_implicits`, `implicit_members`, `addr_calls`, `effect_calls`. Each
+is a place where "a call" may be judged by its own code. The IR already
+collapses them into one resolved call — after typing, when the rules have
+already run N times.
+
+Plan: lower interpolation parts, operators, dot calls, effect-member calls
+and implicit arguments to ordinary call nodes (with origins, §II.4) *before*
+typing, so selection, contracts and claims are written once. "Implicits are
+automatically selected lambdas" (user principle) becomes a fact of the
+representation. This can start on today's AST and tables: an AST-to-AST
+rewrite, then the checker's special paths deleted one table at a time.
+
+Before deciding its size: a **census** of the ~15 tables — for each, does it
+go through `select_overload` and `fn_value_at`, or have its own selection or
+fit code. That lists the divergences still in the code.
+
+## II.7. Dumps
+
+One printer per lowered form, a dump at every sub-phase boundary (extending
+`salvo ir`).
+
+**Dumps as Salvo, where possible.** Print anything that has surface syntax
+in that syntax (`name@module`, explicit implicit arguments, explicit type
+arguments). Then re-checking a dump must reproduce the same picks: a rule
+that behaves differently by spelling fails the round trip. Not total —
+narrowing bindings, coercions and stamped origins have no surface spelling,
+so they print in a marked notation the round trip skips.
+
+## II.8. Representation (open)
+
+Three ways to build a form that fills in phase by phase:
+
+- **A. A tree per phase** (nanopass; rustc's HIR → THIR → MIR). The type says
+  what is known; an unfilled slot cannot be read. Cost: near-duplicate node
+  definitions, conversions, several printers.
+- **B. One tree, optional slots filled in place** (Swift's type checker).
+  One printer, one walker; an unfilled read is a runtime bug, and "is this
+  set yet" checks creep in.
+- **C. One node shape parameterized by phase** ("trees that grow", GHC):
+  `Expr<P>` holds a candidate set in phase 2, a declaration id in phase 3.
+  One walker and printer, filling enforced by types. Cost: generic noise
+  through a 34k-line checker.
+
+Recommendation (not decided): C only for the slots that change across
+phases (callee, type, narrowing), plain fields elsewhere, and the
+post-erasure IR kept as its own tree, since erasure changes the shape
+(effects become parameters).
+
+## II.9. The plan
+
+Five stages, in order. Each numbered piece is one piece of work (one
+commit, AGENTS.md) with its spec, docs and records, and leaves the suite
+green. The method that worked for every Part I piece applies
+throughout: build the new side, run a temporary differential against the
+old over every program the suite checks, then delete the old. Where a piece
+needs a decision of yours, it names it (§II.10).
+
+**Gates that apply to every piece:** IR goldens and both codegen corpora
+unchanged unless the piece says otherwise; `salvo facts` snapshots reviewed;
+the warm suite no slower (ROADMAP §0h's budget); language-server edit cost
+(`tools/lsp-timing.py`, medians) no worse than step 8's numbers (~28–39ms
+`examples/cluster`, ~40ms `modules/aws`).
+
+### Stage A — Per-declaration identity (the queued work)
+
+What every later stage stands on. No language change.
+
+**What is there today.** Three identities, all positional or by name:
+`FnKey { file, item }` (resolve.rs) for fns, `DeclId { module, item, sub }`
+(ir/nodes.rs) in the IR, and plain or `Name§module` string keys for types
+and effects (the module-qualified attempt was deferred with 58 sites that
+assume key == written name, §8 step 5 piece 4). Facts are keyed
+`Key = (file, Span)` (check.rs), with `Checker::key`/`Lower::key` the choke
+points; the checker's variable ids are per file; stamps and route stubs
+synthesize spans past the end of the file, so a declaration does not own
+its rows by containment.
+
+- **A1. One stable declaration id** for every declaration kind (fns,
+  structs, unions, effects and their members, handlers, qualifiers and their
+  fns, define fns, aliases): module path + name + a disambiguator for
+  overloads: the written parameter types (P1). Replaces `FnKey`, the IR's `DeclId`, and the
+  string keys; every `FnKey`-keyed table moves over. Includes the 58 sites
+  that render or compare keys as written names: rendering goes through the
+  id's display name, clashes decided when rendering (§5).
+- **A2. Origins** (§II.4) replace synthetic spans: `Origin { span, via }`
+  with an expansion record for comptime stamps and route stubs.
+  `StampRegion` and `redirect_stamped` become renderings of the chain.
+  Needed before A3: it is what makes a stamped body's facts belong to its
+  declaration.
+- **A3. Per-declaration node keys.** `Key = (file, Span)` becomes
+  `(DeclId, NodeId)`, the span kept as origin data (P2); variable ids per declaration, not
+  per file (header expressions can then leave the body walk). Diagnostics
+  and the language server map back through origins.
+- **A4. Facts stored per declaration.** `Checked`'s rows partitioned by the
+  declaration that wrote them; the per-*file* re-walk (`rewalk_files`) and
+  the language server's per-file check cache become per declaration where
+  that is cheaper (step 8 measured the cache level not worth it
+  alone; with A1–A3 it is a partition, not a project). `salvo facts` prints
+  by declaration.
+- **A5. Dropped (P8):** comptime's signature/body split is built once, in
+  C3, on the resolved form.
+
+### Stage B — Call unification
+
+The largest unity win, and it does not wait on a new tree: an AST-to-AST
+lowering before typing, then the checker's special paths deleted. Needs A2
+(origins carry "in this interpolation" to the error).
+
+- **B1. The census** (read-only, can run now): for each of the ~15
+  call-like tables (§II.6), which code selects the callee, which tests fit and
+  contracts, and how it differs from `select_overload` + `fn_value_at` on:
+  the visibility ladder, specificity ranking, ambiguity, implicit filling,
+  effect members vs fns of the same name, claims, generics. Output: a table
+  *form → core call it should lower to → divergences found, each with a
+  probe program run on both backends*.
+- **B2. Decide the divergences** (decision **P3**): for each, which
+  behaviour is the language's. The census also proposes what each form
+  lowers to (decision **P4**).
+- **B3. The core call node and its lowering**, one surface form per piece,
+  each deleting its table(s) and checker path:
+  1. implicit arguments (after the other agent's implicit-selection work
+     lands, which already routes selection through call rules);
+  2. interpolation parts (`interp_to_str`, `interp_implicit`; `interp_union`
+     is per-arm rendering and may stay a fact). **Waits on the user's
+     operator-overloading design** (P4): interpolation is an operator on
+     that model, and the candidate lowering is a call to a std format fn
+     that backends may spell as native interpolation;
+  3. operators (with the same design);
+  4. dot calls (`x.f(a)` → `f(x, a)`, `dot_calls`);
+  5. effect-member and qualifier-member calls (`member_calls`,
+     `effect_member_calls`, `qual_member_calls`). **A language change**
+     (P4): effect members join the call's candidate set and compete with
+     fns, instead of taking the name first;
+  6. fn values, local calls and fn-value calls (`fn_refs`, `local_calls`,
+     `local_call_names`, `fn_value_calls`, `fn_value_implicits`);
+  7. `addr_calls`, `effect_calls`, whatever the census adds.
+
+  Each piece may change behaviour only where P3 said so, with tests at the
+  changed sites; elsewhere the differential must show no difference.
+- **B4. Round-trip check** (§II.7), for calls: print the lowered calls as Salvo
+  (`name@module`, explicit implicit arguments, explicit type arguments),
+  re-check, and require the same picks. Where it runs is decision **P5**.
+
+### Stage C — The resolve phase as a lowering
+
+- **C1. The resolved form.** Every lexical name bound to a declaration id or
+  a candidate set, per file; the program-wide plain-name lookups (~21
+  checker sites, `deduce`'s tables, comptime's and the desugaring's
+  first-match tables, the IR's fallback; §5) become reads of
+  it. `Symbols::ref_key` stops re-running `resolve()`. Whether this is a
+  tree or a table is decision **P6** (via §II.8).
+- **C2. The resolve dump** (`salvo dump --phase …`, P7), as Salvo
+  with every name qualified.
+- **C3. Comptime on the resolved form** (§II.5): templates resolved once in
+  their module and copied; delete the flat `World`, `__c<N>`/`h__p`
+  renaming, `hidden_free_name`, `pick_decl`; `[if]` type patterns compare
+  ids. The `by`-at-a-call workaround (§II.5.1) documented in the language pages.
+- **C4. The remaining early sweeps to their phases**: what is left of
+  `expand` that reads names moves after C1 (the `iter fn` expansion per
+  file; effect aliases and prerequisites already in scope after Part I
+  step 6 — confirm nothing still rewrites effect lists program-wide).
+
+### Stage D — The typed partial IR
+
+- **D1. Representation** (decision **P6**, §II.8) settled from what B and C
+  taught.
+- **D2. The checker writes the typed form** (§II.3.3) instead of `Checked`'s
+  span tables, one table cluster per piece — the clusters the IR builder's
+  view accessors already group (`call_info`, `use_info`, `spawn_info`,
+  `pick_info`, `interp_info`, COMPLETED.md 2026-10-10), then the rest. The
+  checker reads its own facts back from the typed form (`call_fn` alone has
+  13 readers inside the checker; the hard part).
+- **D3. The IR builder becomes the lowering of the typed form**: erasure as
+  its own sub-phase (qualifiers, effects to parameters, union wrapping),
+  then flow. The builder's ~87 table reads go.
+- **D4. The typed dump and the full round trip**: B4 extended to types,
+  type arguments and narrowings (marked notation where Salvo has no
+  spelling).
+
+### Stage E — The link stage, and retiring the documents
+
+- **E1. Per-declaration summaries for deadlock's inputs** (handler
+  statefulness, the mixed and monitor classification, `parking_handlers`,
+  task mints), then deadlock onto 03-generate-03-link over the IR; the
+  checker-table graph and its router synthesis go.
+- **E2. Retire**: this document into COMPLETED.md's design
+  record, open items to ROADMAP.md, rules (origins, the core call,
+  phase dumps) to LANGUAGE_SPEC.md.
+
+### Order, and what can overlap
+
+A → B → C → D → E. B before C because it is the unity goal and needs only
+A2; C before D because the typed form is smaller once B and C have removed
+tables. B1 (the census) and the B2/P3 decisions can run during Stage A.
+B3's interpolation and operator pieces wait on the operator-overloading
+design (P4); the other B3 pieces do not.
+
+## II.10. Decisions
+
+Outcomes of the 2026-10-27 round first; what is still open says so.
+
+- **P1. What disambiguates overloads in a declaration id** (A1).
+  **Decided (user, 2026-10-27): the written parameter types** (text, before
+  lowering): stable under reordering and body edits; changes when the
+  signature does, which is an interface change anyway. Rejected: ordinal
+  among same-named declarations (adding or reordering an overload shifts
+  the later ones' ids). An ordinal remains the tie-break for textually
+  identical signatures (whether those are already refused is to check).
+- **P2. Node keys** (A3). **Decided (user, 2026-10-27): a `NodeId` per
+  declaration**, assigned in walk order, as the key facts are stored under;
+  uniform for written and synthesized nodes (the IR already has `NodeId`).
+  The span is kept on every node as origin data (§II.4): language-server
+  lookups and compile errors read it, it is just not the key. This amends
+  R1's "span relative to the declaration" key. Rejected:
+  relative spans as the key (a copy has no position of its own).
+- **P3. Call divergences** (B2). **Decided (user, 2026-10-27): call
+  resolution is the reference; every other spelling behaves like the call
+  it lowers to.** The census lists each divergence with a probe and its
+  consequence (programs newly refused or accepted); the user may name a
+  divergence to keep as an exception. (The 2026-10-14 implicit decision,
+  applied to every form.)
+- **P4. What each form lowers to** (B2). **Case by case** (user,
+  2026-10-27), from the census table. Two directions given:
+  - **Interpolation and operators wait on the user's operator-overloading
+    design** (OPERATOR_OVERLOAD.md; discussion and decisions O1–O6 recorded
+    there; O1 decided 2026-10-27: an operator is the call it names, resolved by name like any call, and each operator on a type is declared once, in the type's module), its interaction with implicits and generics; interpolation is an operator on that model. Candidate direction (user):
+    `"a ${x} b"` lowers to a call of a std **format fn**, which a backend may
+    emit as its native interpolation ([core-layers]: core states the call,
+    the backend spells it). Open inside it: how each part becomes text (the
+    operator question proper: a per-part `to_str` pick, an implicit, or the
+    format fn's own parameter), and what becomes of `interp_union`'s
+    per-arm rendering.
+  - **Effect members compete with fns** (user, 2026-10-27): an effect in a
+    fn's effect list is a namespace of additional functions in scope, so its
+    members join the call's candidate set and are ranked with fns
+    ([fn-overload-rank]). **This changes the language:** today
+    [effect-member-overload] says "an effect member takes the name before
+    any fn does" (it shadows, it does not compete), and a bare member call
+    across effects resolves through the *one available* effect, two
+    available being an error naming [effect-at]. Under the new rule two
+    same-named members of available effects are ranked by argument types
+    like any overloads, and ambiguity is the ordinary overload ambiguity.
+    Unchanged: fn-typed locals, parameters and implicits still shadow (they
+    *are* the function the caller chose). The census must list what changes:
+    programs where a fn now beats a member, or a member-vs-fn tie becomes an
+    ambiguity error.
+- **P5. Where the round-trip check runs** (B4, D4). **Decided (user,
+  2026-10-27): (b), the corpus and the examples only.** The round-trip check: take a phase's dump
+  printed as Salvo, with every choice the compiler made written out (callee
+  as `name@module`, implicit arguments passed, type arguments given), feed
+  it back to the compiler as a program, check it, and require the same
+  choices. A rule that fires differently on the implicit spelling than on
+  the explicit one fails it. Example (found 2026-10-14): with a module's
+  catch-all `fn to_str<T>(x: T) -> Str`, `"${List(Foo{n:1})}"` printed `?`
+  because implicit selection fell back past std's list overload; the dump
+  would show the pick, the re-check of the explicit form would pick
+  differently, and the check would report the mismatch. It also catches a
+  dumper that prints wrong. Cost: every program it covers is checked
+  twice. Options: (a) every program the suite checks — strongest, adds to
+  ROADMAP §0h's warm-run excess; (b) the corpus and examples only;
+  (c) (b) plus a debug flag for any project.
+- **P6. Representation** (§II.8; C1, D1). **Decided (user, 2026-10-27):
+  decide at D1.** B and C are built on tables keyed by A3's node keys.
+- **P7. Dump command surface** (C2, D4). **Decided (user, 2026-10-27): one
+  `salvo dump --phase <name>`**, absorbing `salvo facts`, `salvo ir` and
+  `salvo compile --emit-ast` (the parse phase's AST; its `=MODULE` form,
+  which prints one module including std's, becomes a module filter on the
+  dump). No compatibility shims (AGENTS.md). Phase names (user, 2026-10-27): `parse-ast`, `resolve`, `type-check`,
+  `generate-ir` (§II.3's table); the language docs and `salvo dump --help`
+  explain what each phase's output contains. Each old command goes in the
+  piece that first adds its phase to `dump`.
+- **P8. A5's placement.** **Decided (user, 2026-10-27): only in C3.**
+  Comptime's signature/body split is built once, on the resolved form. A5
+  is dropped from Stage A.
+
+## II.11. Rounds
+
+### 2026-10-27, first
+
+- **Direction:** per-phase lowering for structural unity; representation
+  secondary; origins kept through every lowering (user).
+- **`by` at a call:** not supported directly; a named fn in the same module
+  is the workaround (user). Explicit-root form recorded, not chosen.
+- **Plan drafted** (§II.9) with decisions P1–P8. Recommended, not yet
+  decided: keep resolve and type separate (§II.3.1).
+
+### 2026-10-27, second
+
+- P1 (written parameter types), P2 (`NodeId` key, span kept as origin), P3
+  (calls are the reference), P6 (at D1), P7 (one `dump` command, including
+  the AST), P8 (comptime split in C3 only): decided as in §II.10.
+- P4: case by case; interpolation and operators wait on the user's
+  operator-overloading design (format-fn lowering the candidate); effect
+  members compete with fns (a change to [effect-member-overload]).
+- Open: P5 (explained in §II.10), P7's phase names, §II.3.1.
+
+### 2026-10-27, third
+
+- P5: (b), corpus and examples. P7's phase names: `parse-ast`, `resolve`,
+  `type-check`, `generate-ir`, documented in the language docs.
+- The user's operator-overloading design (OPERATOR_OVERLOAD.md, untracked)
+  shared for P4's interpolation and operator rows; under discussion.
+
+### 2026-10-27, fourth
+
+- Operators (OPERATOR_OVERLOAD.md O1, user): **an operator is the call it
+  names**, resolved by name exactly like that call (option B); no fixed
+  operator fn, no `operator` keyword, no generic exclusion. So B3's
+  operator piece lowers `a < b` to `cmp(a, b) < 0` and `a == b` to
+  `eq(a, b)` as ordinary calls, and the interpolation piece lowers to a
+  std format fn over `to_str(part)` calls. Still open inside the
+  interpolation row: the format fn's shape.
+
+### 2026-10-27, fifth
+
+- Operators, revised (OPERATOR_OVERLOAD.md O1, user): B **plus D**: every
+  fn matching an operator pattern on `T` (or a qualified `T`) is declared
+  in `T`'s module, so a concrete type has one candidate per operator and
+  the name-based call is that operator. Lowering unchanged from the fourth
+  round; adds a per-declaration placement check (an interface fact, in
+  `resolve`). D's details D-1 to D-7 open in OPERATOR_OVERLOAD.md.
+
+### 2026-10-27, sixth
+
+- D's details decided (OPERATOR_OVERLOAD.md): the class is **unique
+  function shapes** (operators its first members); placement is the
+  type's declaring *file*; "on `T`" is the first explicit parameter's base
+  type; a shape is name + explicit arity, plus the return type for `eq`
+  (`Bool`), `cmp` (`Int`) and `next` (`Emitted T | Finished`); `fns` group
+  members and comptime templates exempt, effect members covered;
+  structural types get a std home, a bare `T` none. The check is a
+  `resolve`-phase interface fact.
+
+## II.12. Work log
+
+Resumable state for the build of §II.9 (the user's instruction, 2026-10-27:
+fold Part II in and start on it; as for Part I, one commit per piece, keep
+this log current so the work can resume after a context reset). Newest last.
+
+- **Folded (2026-10-27).** PIPELINE2.md's decisions and sequence moved here
+  unchanged except for section numbers (`§N` → `§II.N`, Part I's sections
+  plain `§N`); PIPELINE2.md deleted. Started: Stage A, piece A1 (stable
+  declaration ids), with B1 (the read-only call census) beside it.
+- **A1, first part: done** (committed "Identify every fn by module, name and
+  signature"). Built: `salvo_core::DeclId` (`decl_id.rs`, [decl-id]): module
+  path, kind, name path, signature (written parameter types with type
+  parameters positional, plus the return type, as [fn-overload-duplicate]
+  compares them) and ordinal; interned (a pointer), ordered by content,
+  displayed `size(Point) -> Int@main`. `DeclIndex` (in `Resolution` and
+  `Checked`, an `Arc`) maps ids to (file, item, member) and back, memoized
+  per module allocation (`MEMO`, by `Weak`), so the comptime resolution and
+  the program's, and the language server's analyses, compute a module's ids
+  once. `FnKey` and the IR's `DeclId { module, item, sub }` are gone; every
+  fn-keyed table and every IR reference, generated declaration and static
+  uses the id. The differential (`SALVO_XP_A1`, removed) over 2,900 programs:
+  every table, diagnostic and IR dump identical up to the key change.
+  **Deviations:** (1) the signature includes the return type, since
+  [fn-overload-return] lets overloads differ in it alone (P1 said the
+  parameter types); (2) the ordinal is unreachable for a module's top-level
+  fns in an accepted program ([fn-overload-duplicate] refuses the second),
+  reached only past that error; (3) a handler member in the IR still carries
+  its handler's id, and the checker's member facts stay keyed by name span;
+  (4) the type and effect keys (`Name§module`, `Symbols::decl_keys`,
+  `typekey`) are not yet the id: the second part.
+  **For A2/A3:** a stamped fn's id is its declared signature's, so a stamp
+  and its declaration agree; route stubs and actor glue have
+  `DeclKind::Generated` ids by generated name, the anchor an `Origin` can
+  point at; `DeclIndex::loc` is how a node key `(DeclId, NodeId)` finds its
+  file for rendering.

@@ -1131,10 +1131,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.f = super::body::FnState::default();
         // [rs-fn-field] A fn whose result holds its callbacks takes them owned.
         let stores = self.stores_callbacks(f);
-        let core_platform = f.kind == FnKind::Platform && f.id.module.is_std_core() && self.s.program.files.iter().any(|x| x.module == f.id.module && x.is_std);
+        let core_platform = f.kind == FnKind::Platform && f.id.module().is_std_core() && self.s.program.files.iter().any(|x| x.module == *f.id.module() && x.is_std);
         let bound = if f.kind == FnKind::Platform && !core_platform { "Send + 'static" } else { "Clone" };
         let erased_fn = self.s.ast_fn(&f.id).is_some_and(|af| {
-            let fi = self.s.program.files.iter().position(|x| x.module == f.id.module).unwrap_or(0);
+            let fi = self.s.file_of(&f.id).unwrap_or(0);
             self.s.erased.fns.contains(&(fi, af.name.span.start))
         });
         let mut tps = if erased_fn { Vec::new() } else { self.generics(&f.type_params, bound) };
@@ -1155,7 +1155,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             tps.insert(0, "'a".to_string());
         }
         let mut ps: Vec<String> = recv.map(|r| vec![r.to_string()]).unwrap_or_default();
-        let is_main = f.name == "main" && recv.is_none() && f.id.sub == 0;
+        let is_main = f.name == "main" && recv.is_none() && f.id.kind() != salvo_core::DeclKind::QualifierFn;
         let mutated = super::body::assigned_roots(f.body.as_ref());
         let mut params = self.s.unalias_params(&f.params);
         // [rs-fn-lend] A callback handed a lent parameter's type, answering a
@@ -1324,7 +1324,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [platform-fn] A platform fn's wrapper: the host's fn, checked.
     fn platform_fn_body(&mut self, f: &FnDecl, indent: usize) -> String {
         let pad = "    ".repeat(indent);
-        let module = f.id.module.clone();
+        let module = f.id.module().clone();
         self.s.platform_hosts.insert(module.clone());
         // A lent callback is handed on as `&mut &mut dyn FnMut`, which fits
         // a host's `&mut impl FnMut` and coerces to its `&mut dyn FnMut`.
@@ -1361,7 +1361,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// host answers, in the anchor.
     fn platform_loc_body(&mut self, f: &FnDecl, indent: usize) -> String {
         let pad = "    ".repeat(indent);
-        let module = f.id.module.clone();
+        let module = f.id.module().clone();
         let args: Vec<String> = f.params.iter().skip(f.effect_params).map(|p| rs_ident(&p.local.0)).collect();
         let anchor = self.f.loc.as_ref().map(|(a, _)| rs_ident(a)).unwrap_or_default();
         let list = matches!(module.0.as_slice(), [s, a, b] if s == "std" && a == "core" && (b == "list" || b == "deque"));

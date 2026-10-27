@@ -36,6 +36,7 @@ pub fn platform_skeletons_ir(program: &Program) -> Result<Vec<EmittedFile>, Vec<
     let fn_names = salvo_core::naming::FnNames::compute(program);
     let mut shared = Shared {
         program,
+        decl_index: &resolution.decls,
         symbols: &symbols,
         erased: &erased,
         abi: true,
@@ -143,8 +144,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 self.error(format!("platform handler `{}` implements `{plain}`, which is not a declared effect", h.name));
                 continue;
             };
-            if iface.id.module != m.path {
-                imports.insert(format!("import {}.*", kotlin_package(&iface.id.module)));
+            if *iface.id.module() != m.path {
+                imports.insert(format!("import {}.*", kotlin_package(iface.id.module())));
             }
             let ctor = if h.ctor_params.is_empty() {
                 String::new()
@@ -201,8 +202,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [platform-type] The host's class for a platform type, and the `each`
     /// of an iterable one [platform-iterable].
     fn platform_type_skeleton(&mut self, t: &salvo_core::ir::PlatformTypeDecl) {
-        let file_idx = self.s.program.files.iter().position(|f| f.module == t.id.module);
-        let ast = file_idx.and_then(|fi| match self.s.program.modules[fi].items.get(t.id.item) {
+        let file_idx = self.s.decl_index.loc(t.id).map(|l| l.file);
+        let ast = file_idx.and_then(|fi| match self.s.program.modules[fi].items.get(self.s.decl_index.loc(t.id).map_or(usize::MAX, |l| l.item)) {
             Some(salvo_syntax::ast::Item::Type(td)) => Some(td),
             _ => None,
         });
@@ -231,7 +232,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 })
                 .unwrap_or_else(|| "Any".to_string());
             let fn_params = if params.is_empty() { String::new() } else { format!("{params} ") };
-            let each = salvo_core::case::camel(&format!("each{}", salvo_core::naming::each_suffix(self.s.program, &t.id.module, &t.name)));
+            let each = salvo_core::case::camel(&format!("each{}", salvo_core::naming::each_suffix(self.s.program, t.id.module(), &t.name)));
             self.out.push_str(&format!(
                 "\n// [platform-iterable] What a `for` over a `{}` loops over.\nfun {fn_params}{each}(x: {}{params}): Iterable<{elem}> = TODO(\"implement each\")\n",
                 t.name, t.name

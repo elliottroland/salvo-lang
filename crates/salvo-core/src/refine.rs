@@ -51,7 +51,8 @@ use salvo_syntax::Span;
 
 use crate::diag::FileDiagnostic;
 use crate::program::Program;
-use crate::resolve::{FnKey, Resolution};
+use crate::decl_id::DeclId;
+use crate::resolve::Resolution;
 
 /// Where one refinement of a group came from, for diagnostics and for the
 /// merged documentation [qual-refn-docs].
@@ -104,11 +105,11 @@ impl RefnGroup {
 /// [qual-refn-scope], so the same callee refines differently in two files.
 #[derive(Clone, Debug, Default)]
 pub struct Refinements {
-    groups: HashMap<(usize, FnKey), Vec<RefnGroup>>,
+    groups: HashMap<(usize, DeclId), Vec<RefnGroup>>,
     /// [deduce-conditional] Refn-attached Bool-conditional responses (6c),
     /// per (file, callee): each entry is (callee param position, negated,
     /// qualifier name). A matched Bool fn gains the conditional at call sites.
-    responses: HashMap<(usize, FnKey), Vec<(usize, bool, String)>>,
+    responses: HashMap<(usize, DeclId), Vec<(usize, bool, String)>>,
     /// Validation diagnostics from `collect`, replayed by the checker so
     /// they land in the same output as everything else [diag-structured].
     pub errors: Vec<FileDiagnostic>,
@@ -117,7 +118,7 @@ pub struct Refinements {
 impl Refinements {
     /// The refinement groups applying to a call to `callee` written in
     /// `file` (empty when there are none).
-    pub fn for_call(&self, file: usize, callee: FnKey) -> &[RefnGroup] {
+    pub fn for_call(&self, file: usize, callee: DeclId) -> &[RefnGroup] {
         self.groups
             .get(&(file, callee))
             .map(|v| v.as_slice())
@@ -126,7 +127,7 @@ impl Refinements {
 
     /// [deduce-conditional] The refn-attached Bool-conditional responses for
     /// a call to `callee` written in `file`: (param position, negated, qual).
-    pub fn responses_for(&self, file: usize, callee: FnKey) -> &[(usize, bool, String)] {
+    pub fn responses_for(&self, file: usize, callee: DeclId) -> &[(usize, bool, String)] {
         self.responses
             .get(&(file, callee))
             .map(|v| v.as_slice())
@@ -136,7 +137,7 @@ impl Refinements {
     /// Every group written about one parameter of such a call — several when
     /// refinements differ in what they require of the argument
     /// [qual-refn-narrow].
-    pub fn for_param_all(&self, file: usize, callee: FnKey, param: &str) -> Vec<&RefnGroup> {
+    pub fn for_param_all(&self, file: usize, callee: DeclId, param: &str) -> Vec<&RefnGroup> {
         self.for_call(file, callee)
             .iter()
             .filter(|g| g.param == param)
@@ -146,7 +147,7 @@ impl Refinements {
     /// The **unconditional** group for one parameter: what a reader of a
     /// signature is told without knowing the argument [qual-refn-docs], and
     /// what the deduction pass uses.
-    pub fn for_param(&self, file: usize, callee: FnKey, param: &str) -> Option<&RefnGroup> {
+    pub fn for_param(&self, file: usize, callee: DeclId, param: &str) -> Option<&RefnGroup> {
         self.for_param_all(file, callee, param)
             .into_iter()
             .find(|g| g.requires.is_empty())
@@ -167,7 +168,7 @@ struct Resolved<'p> {
     /// [qual-refn-match] The overloads it refines — one-to-many (user
     /// decision 2026-10-12): every in-scope overload of the name whose
     /// parameters the refn's gate accepts.
-    callees: Vec<FnKey>,
+    callees: Vec<DeclId>,
     /// Entries as (refn-param *position*, add, remove, preserve): the
     /// position maps to each callee's parameter at that slot
     /// [qual-refn-match].
@@ -213,8 +214,8 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
     // grouped per (callee, parameter). All matching refinements apply — a
     // `+Q`/`-Q` contradiction is a declaration error [qual-refn], so there is
     // no call-site conflict to resolve.
-    let mut groups: HashMap<(usize, FnKey), Vec<RefnGroup>> = HashMap::new();
-    let mut response_index: HashMap<(usize, FnKey), Vec<(usize, bool, String)>> = HashMap::new();
+    let mut groups: HashMap<(usize, DeclId), Vec<RefnGroup>> = HashMap::new();
+    let mut response_index: HashMap<(usize, DeclId), Vec<(usize, bool, String)>> = HashMap::new();
     for (file_idx, (file, _)) in program.files.iter().zip(&program.modules).enumerate() {
         let scope = &resolution.scopes[file_idx];
         // One contribution per (callee, param, precondition).
@@ -222,7 +223,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
         // that require different things of the argument are two groups, each
         // applying only where it holds.
         let mut contributions: HashMap<
-            (FnKey, String, Vec<String>),
+            (DeclId, String, Vec<String>),
             Vec<(RefnSource, Vec<String>, Vec<String>, Vec<String>)>,
         > = HashMap::new();
         for res in &resolved {
@@ -249,7 +250,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
             // its statements under each matched callee, translating the
             // refn-param position to that callee's parameter name.
             for callee in &res.callees {
-                let Some(cdecl) = fn_decl(program, *callee) else { continue };
+                let Some(cdecl) = fn_decl(program, resolution, *callee) else { continue };
                 let cfixed: Vec<&Param> = cdecl.params.iter().filter(|p| !p.implicit).collect();
                 for (pos, add, remove, preserve) in &res.entries {
                     let Some(cp) = cfixed.get(*pos) else { continue };
@@ -441,7 +442,7 @@ fn resolve_refn<'p>(
         })
         .collect();
     let mut seen = HashSet::new();
-    let callees: Vec<FnKey> = matched
+    let callees: Vec<DeclId> = matched
         .iter()
         .filter(|c| seen.insert(c.key))
         .map(|c| c.key)
@@ -806,12 +807,9 @@ fn base_fits(sub: &Type, sup: &Type, generics: &[&str]) -> bool {
     }
 }
 
-/// The `FnDecl` a `FnKey` points at.
-fn fn_decl(program: &Program, key: FnKey) -> Option<&salvo_syntax::ast::FnDecl> {
-    match program.modules.get(key.file)?.items.get(key.item)? {
-        Item::Fn(f) => Some(f),
-        _ => None,
-    }
+/// The `FnDecl` a `DeclId` points at.
+fn fn_decl<'p>(program: &'p Program, resolution: &Resolution<'p>, key: DeclId) -> Option<&'p salvo_syntax::ast::FnDecl> {
+    resolution.decls.fn_decl(&program.modules, key)
 }
 
 /// A written type with *every* qualifier stripped at the top level — both

@@ -50,7 +50,7 @@ use crate::check::{Checked, Key};
 use crate::types::{QualEffect, Ty};
 use crate::diag::FileDiagnostic;
 use crate::program::Program;
-use crate::resolve::FnKey;
+use crate::decl_id::DeclId;
 
 /// The deduction facts for one parameter [deduce-syntax].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,7 +73,9 @@ pub struct ParamDeduction {
 
 /// One function participating in inference.
 struct FnInfo<'p> {
-    key: FnKey,
+    key: DeclId,
+    /// The file it is declared in.
+    file: usize,
     decl: &'p FnDecl,
 }
 
@@ -84,11 +86,12 @@ struct FnInfo<'p> {
 /// Shape errors in written lists are reported by [`infer`], not here.
 pub(crate) fn contracts(
     program: &Program,
+    decls: &crate::decl_id::DeclIndex,
     cache: Option<&crate::check::StdCache>,
-) -> HashMap<FnKey, Vec<ParamDeduction>> {
+) -> HashMap<DeclId, Vec<ParamDeduction>> {
     let no_mutations: HashSet<String> = HashSet::new();
     let skip_below = cache.map(|c| c.std_files);
-    let mut states: HashMap<FnKey, Vec<ParamDeduction>> = match cache {
+    let mut states: HashMap<DeclId, Vec<ParamDeduction>> = match cache {
         Some(c) => c.std_deductions().map(|(k, d)| (*k, d.clone())).collect(),
         None => HashMap::new(),
     };
@@ -102,7 +105,7 @@ pub(crate) fn contracts(
                 Some(list) => from_written(f, list, &no_mutations, |_, _| {}),
                 None => defaults(f),
             };
-            states.insert(FnKey { file: file_idx, item: item_idx }, state);
+            states.insert(decls.fn_at(file_idx, item_idx), state);
         }
     }
     states
@@ -118,6 +121,8 @@ pub(crate) fn infer<'p>(
 ) {
     let no_mutations: HashSet<String> = HashSet::new();
     let no_state: HashSet<String> = HashSet::new();
+    let decls_arc = checked.decls.clone();
+    let decls: &crate::decl_id::DeclIndex = &decls_arc;
     // [qual-subject] Provenance qualifiers survive every call, so an
     // inferred entry must not claim to remove one. Collected program-wide:
     // the deduction machinery is qualifier-*name* keyed throughout, and
@@ -146,31 +151,25 @@ pub(crate) fn infer<'p>(
         }
         for (item_idx, item) in ast.items.iter().enumerate() {
             if let Item::Fn(f) = item {
-                fns.push(FnInfo {
-                    key: FnKey {
-                        file: file_idx,
-                        item: item_idx,
-                    },
-                    decl: f,
-                });
+                fns.push(FnInfo { key: checked.decls.fn_at(file_idx, item_idx), file: file_idx, decl: f });
             }
         }
     }
     // [std-cache] `fn_decls` covers **every** fn (std included): a project fn
     // may call a std fn, and the callee's declaration must be found by key
     // even though std is not re-inferred. It is only AST references, cheap.
-    let fn_decls: HashMap<FnKey, &FnDecl> = program
+    let fn_decls: HashMap<DeclId, &FnDecl> = program
         .modules
         .iter()
         .enumerate()
         .flat_map(|(file_idx, ast)| {
             ast.items.iter().enumerate().filter_map(move |(item_idx, item)| match item {
-                Item::Fn(f) => Some((FnKey { file: file_idx, item: item_idx }, f)),
+                Item::Fn(f) => Some((decls.fn_at(file_idx, item_idx), f)),
                 _ => None,
             })
         })
         .collect();
-    // [call-resolve] Effect members have no `FnKey` — the handler is picked
+    // [call-resolve] Effect members are not keyed by their `DeclId` — the handler is picked
     // at run time — but they *declare* their deductions ([decl-explicit]),
     // and the checker recorded which effect instance each member call
     // dispatches through. Together those give the callee contract, so a
@@ -206,13 +205,13 @@ pub(crate) fn infer<'p>(
     // inference, so no fixpoint over the call graph (`contracts` computes the
     // same before any walk).
     let mut errors: Vec<FileDiagnostic> = Vec::new();
-    let mut states: HashMap<FnKey, Vec<ParamDeduction>> = HashMap::new();
+    let mut states: HashMap<DeclId, Vec<ParamDeduction>> = HashMap::new();
     // [std-cache] Seed std fns' deductions from the cache (in `checked`,
     // seeded by `check_once`): they are not re-derived, but a project fn
     // calling one reads its contract from `states` by key.
     if let Some(n) = skip_below {
         for (key, ded) in &checked.deductions {
-            if key.file < n {
+            if checked.decls.loc(*key).is_some_and(|l| l.file < n) {
                 states.insert(*key, ded.clone());
             }
         }
@@ -221,11 +220,11 @@ pub(crate) fn infer<'p>(
         let before = errors.len();
         let state = match &f.decl.deductions {
             Some(list) => from_written(f.decl, list, &no_mutations, |span, msg| {
-                errors.push(FileDiagnostic::error(f.key.file, span, msg));
+                errors.push(FileDiagnostic::error(f.file, span, msg));
             }),
             None => defaults(f.decl),
         };
-        redirect_stamped(program, f.decl, f.key.file, &mut errors[before..]);
+        redirect_stamped(program, f.decl, f.file, &mut errors[before..]);
         states.insert(f.key, state);
     }
 
@@ -254,14 +253,14 @@ pub(crate) fn infer<'p>(
         );
         let contract = &states[&f.key];
         let before = errors.len();
-        validate_contract(f.key.file, f.decl, contract, &inferred, &mut errors);
-        redirect_stamped(program, f.decl, f.key.file, &mut errors[before..]);
+        validate_contract(f.file, f.decl, contract, &inferred, &mut errors);
+        redirect_stamped(program, f.decl, f.file, &mut errors[before..]);
     }
 
     // [effect-handler] Handler members are declarations with bodies too, and
     // their contract is applied at call sites like a named call's
     // ([decl-explicit], [call-resolve]) — so a contract that promises more
-    // than the body delivers is the same bug there. They carry no `FnKey`
+    // than the body delivers is the same bug there. They are not keyed by their `DeclId`
     // (not top-level items), so they are validated here.
     for (file_idx, ast) in program.modules.iter().enumerate() {
         // [std-cache] As for fns: std's handler members were validated when
@@ -271,15 +270,10 @@ pub(crate) fn infer<'p>(
         }
         for (item_idx, item) in ast.items.iter().enumerate() {
             let Item::Handler(h) = item else { continue };
-            for m in &h.fns {
+            for (mi, m) in h.fns.iter().enumerate() {
                 let Some(body) = &m.body else { continue };
-                let info = FnInfo {
-                    key: FnKey {
-                        file: file_idx,
-                        item: item_idx,
-                    },
-                    decl: m,
-                };
+                let Some(key) = checked.decls.member(file_idx, item_idx, mi + 1) else { continue };
+                let info = FnInfo { key, file: file_idx, decl: m };
                 let contract = match &m.deductions {
                     Some(list) => from_written(m, list, &no_mutations, |_, _| {}),
                     None => defaults(m),
@@ -616,9 +610,9 @@ pub(crate) fn defaults(decl: &FnDecl) -> Vec<ParamDeduction> {
 fn infer_body<'a, 'p>(
     f: &FnInfo<'p>,
     body: &'p Block,
-    call_fn: &'a HashMap<Key, FnKey>,
-    fn_decls: &'a HashMap<FnKey, &'p FnDecl>,
-    states: &'a HashMap<FnKey, Vec<ParamDeduction>>,
+    call_fn: &'a HashMap<Key, DeclId>,
+    fn_decls: &'a HashMap<DeclId, &'p FnDecl>,
+    states: &'a HashMap<DeclId, Vec<ParamDeduction>>,
     provenance: &'a HashSet<String>,
     effects: &'a HashMap<String, &'p EffectDecl>,
     effect_calls: &'a HashMap<Key, Ty>,
@@ -628,7 +622,7 @@ fn infer_body<'a, 'p>(
     expr_ty: &'a HashMap<Key, Ty>,
 ) -> Vec<ParamDeduction> {
     let mut walk = Walk {
-        file: f.key.file,
+        file: f.file,
         call_fn,
         fn_decls,
         states,
@@ -758,9 +752,9 @@ fn validate_contract(
 /// The body walker applying use-constraints to the parameter facts.
 struct Walk<'a, 'p> {
     file: usize,
-    call_fn: &'a HashMap<Key, FnKey>,
-    fn_decls: &'a HashMap<FnKey, &'p FnDecl>,
-    states: &'a HashMap<FnKey, Vec<ParamDeduction>>,
+    call_fn: &'a HashMap<Key, DeclId>,
+    fn_decls: &'a HashMap<DeclId, &'p FnDecl>,
+    states: &'a HashMap<DeclId, Vec<ParamDeduction>>,
     params: Vec<ParamDeduction>,
     /// The declaration being walked (for its fn-typed parameters'
     /// written contracts [fn-contract]).
@@ -1344,7 +1338,7 @@ impl<'p> Walk<'_, 'p> {
             .get(&(self.file, span))
             .and_then(|key| Some((*key, self.fn_decls.get(key)?, self.states.get(key)?)));
         let Some((callee_key, callee_decl, callee_state)) = resolved else {
-            // [call-resolve] An effect-member call: no `FnKey`, but the
+            // [call-resolve] An effect-member call: not keyed by its `DeclId`, but the
             // member's declared list is the contract the call site already
             // enforces, so apply it here too.
             if let Some((member, facts)) = self.effect_member_contract(callee, span) {
@@ -1406,13 +1400,13 @@ impl<'p> Walk<'_, 'p> {
     /// applies its qualifier effect [deduce-infer]. `callee` is the
     /// resolved overload when there is one, which is what refinements key
     /// on [qual-refn] — effect members and fn-value calls pass `None`
-    /// (a member has no `FnKey`, and refining one is deferred).
+    /// (a member is not keyed by its `DeclId`, and refining one is deferred).
     fn apply_callee(
         &mut self,
         params: &[Param],
         state: &[ParamDeduction],
         arg_exprs: Vec<&Expr>,
-        callee: Option<FnKey>,
+        callee: Option<DeclId>,
     ) {
         for (i, a) in arg_exprs.into_iter().enumerate() {
             let Some(name) = bare_ident(a) else {

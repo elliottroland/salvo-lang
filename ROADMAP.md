@@ -719,6 +719,18 @@ chooses", [fn-value-select]).
 Record in COMPLETED.md ("A written fn value fits contravariantly in erased
 qualifiers", [fn-erased-variance]).
 
+### 0aa — Open defect: an IR dump that differs between two runs (found 2026-10-27)
+
+The A1 differential's control run (the compiler of c33b86d3 against itself,
+every program the suite checks, COMPLETED.md "Every fn is identified by
+module, name and signature") found 4 programs whose IR dump differs between
+two runs of the same compiler: 3 in `std.codec`, 1 in `std.core.comptime`.
+Some IR builder or dumper step iterates a hash map or set. The programs were
+not identified (the hook hashed them; no example reproduces it under
+`salvo ir --all`, three runs each). To find them: hash each built module's
+`Dumper::module_with_leaks` text per program over two suite runs, then dump
+the differing one twice and diff. Emitted code may be affected the same way.
+
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
 **What it is.** When a message makes an actor runnable, the scheduler unparks
@@ -1516,6 +1528,31 @@ container [interp-to-str], property testing's `?generate`, section 2c's
 - **A fn value over owned elements at a view-element slot**: decided
   2026-10-14 (option (b)) and built 2026-10-27 — COMPLETED.md ("A kept owned
   parameter reads a borrow", [fn-kept-borrow]).
+- **DECISION — the mirror of [fn-kept-borrow]** (found 2026-10-14): should a fn
+  whose parameter is a borrow (`fn longer(s: proj Str) -> Bool`) fit a slot
+  that passes an owned value (`(Str) -> Bool`, e.g. `any(ws, longer)` over a
+  `List<Str>`)? The caller would lend the value for the call, which is safe: a
+  `proj` parameter cannot outlive the call, and the caller keeps ownership. On
+  Rust it needs an adapter passing `&x` (the reverse of the one
+  [fn-kept-borrow] uses); Kotlin needs nothing. Options: (a) allow it, for
+  symmetry with [fn-kept-borrow]; (b) keep refusing it, the remedy being a
+  lambda (`s -> longer(s)`). Agent's lean: (a).
+- **Open defect: a `Map` keyed by borrows cannot be built from borrowed
+  values** (noticed 2026-10-14, not investigated): building a `Map<proj Str,
+  …>` from tuples whose `proj Str` component comes from a view (`("ab", h)`
+  style entries over a `List<proj Str>`) is refused with "cannot store a
+  projection", though a `Set<proj Str>` and a `Map<proj Str, V>`'s lookups now
+  resolve their implicits ([fn-kept-borrow]). Find whether the refusal is the
+  [proj-type] store rule applying where the container itself is a view (then
+  the rule should let a view container store views of a source that outlives
+  it), or a missing case.
+- **Open defect: `SortedSet(...vs)` over a view list finds no overload**
+  (noticed 2026-10-14, not investigated): spreading a `List<proj Str>` into
+  `SortedSet(...)` is "no matching overload", while the same over a
+  `List<Str>` works and `cmp` of `Str` now fills a `proj Str` position
+  ([fn-kept-borrow]). Likely the spread constructor's element type is matched
+  invariantly against `proj Str`; reproduce, then decide whether it is the
+  constructor's signature or the spread's typing.
 
 ### 8 — Mutating through a union arm (DECISION)
 

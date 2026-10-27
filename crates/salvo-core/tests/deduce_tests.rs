@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use salvo_core::{check_program, resolve, Checked, FnKey, Program, SourceSet, Symbols};
+use salvo_core::{check_program, resolve, Checked, DeclId, Program, SourceSet, Symbols};
 use salvo_syntax::ast::Item;
 
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on.
@@ -47,13 +47,13 @@ fn check_src(src: &str) -> (Program, Checked) {
     (program, checked)
 }
 
-/// Finds the `FnKey` of a top-level fn by name.
-fn fn_key(program: &Program, name: &str) -> FnKey {
+/// Finds the `DeclId` of a top-level fn by name.
+fn fn_key(program: &Program, checked: &Checked, name: &str) -> DeclId {
     for (file, ast) in program.modules.iter().enumerate() {
         for (item, it) in ast.items.iter().enumerate() {
             if let Item::Fn(f) = it {
                 if f.name.name == name {
-                    return FnKey { file, item };
+                    return checked.decls.fn_at(file, item);
                 }
             }
         }
@@ -65,12 +65,12 @@ fn fn_key(program: &Program, name: &str) -> FnKey {
 /// The surviving set is the effect resolved against the parameter's
 /// declared qualifiers [deduce-syntax].
 fn facts(program: &Program, checked: &Checked, fn_name: &str, param: &str) -> (bool, Vec<String>) {
-    let key = fn_key(program, fn_name);
+    let key = fn_key(program, checked, fn_name);
     let ded = checked.deductions[&key]
         .iter()
         .find(|d| d.param == param)
         .unwrap_or_else(|| panic!("no deduction entry for `{param}` in `{fn_name}`"));
-    let Item::Fn(decl) = &program.modules[key.file].items[key.item] else {
+    let Some(decl) = checked.decls.fn_decl(&program.modules, key) else {
         panic!("not a fn");
     };
     let declared = decl
@@ -85,7 +85,7 @@ fn facts(program: &Program, checked: &Checked, fn_name: &str, param: &str) -> (b
 /// The *form* of one parameter's effect, for the [deduce-syntax] polarity
 /// tests: `"keep-all"`, `"exhaustive: A B"`, or `"remove: A"`.
 fn effect_form(program: &Program, checked: &Checked, fn_name: &str, param: &str) -> String {
-    let key = fn_key(program, fn_name);
+    let key = fn_key(program, checked, fn_name);
     let ded = checked.deductions[&key]
         .iter()
         .find(|d| d.param == param)

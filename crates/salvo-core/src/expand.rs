@@ -119,7 +119,7 @@ pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Ve
 /// `Program` holds, which is rewritten in place when the program owns it
 /// alone and copied first when it is shared (a language server's parse
 /// cache keeps the parsed module; `Arc::make_mut`).
-pub trait ModuleSlot: std::borrow::Borrow<Module> {
+pub trait ModuleSlot: crate::decl_id::ModuleRef {
     fn module_mut(&mut self) -> &mut Module;
 }
 

@@ -57,7 +57,7 @@ pub fn analyze_full(
         .map(|u| &u.file.module)
         .collect();
     let (mut ir, _build_errors, failed) = super::build::build_program_gated(program, symbols, resolution, checked, Some(&wanted), &gate);
-    let checkable = super::gate::Checkable::new(program, symbols, &gate, &failed);
+    let checkable = super::gate::Checkable::new(program, symbols, &resolution.decls, &gate, &failed);
     super::obligations::annotate(&mut ir, symbols);
 
     // Map each IR module's source file name to its index into `program.files`,

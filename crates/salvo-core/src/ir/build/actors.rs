@@ -12,7 +12,6 @@ use crate::ir::*;
 
 /// The first item index of a generated declaration: far above any source
 /// item, so the two never meet.
-const GENERATED_BASE: usize = usize::MAX / 2;
 
 fn declared_params(m: &FnDecl) -> Vec<&Param> {
     m.params.iter().skip(m.effect_params).take(m.params.len() - m.effect_params - m.implicit_params).collect()
@@ -43,7 +42,7 @@ fn net_fn(ctx: &Ctx<'_>, name: &str, arity: usize) -> Option<DeclId> {
         for (item, it) in module.items.iter().enumerate() {
             if let salvo_syntax::ast::Item::Fn(f) = it {
                 if f.name.name == name && f.params.iter().filter(|p| !p.implicit).count() == arity {
-                    return Some(ctx.decl_id(crate::FnKey { file: file_idx, item }));
+                    return ctx.resolution.decls.item(file_idx, item);
                 }
             }
         }
@@ -63,11 +62,11 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     // The interface a face names, wherever it is declared.
     let key_of = |id: &DeclId, name: &str| -> String {
         // [route-stub] A generated declaration is keyed by its module.
-        if id.item >= GENERATED_BASE {
-            return enum_key(name, &id.module);
+        if id.kind() == crate::decl_id::DeclKind::Generated {
+            return enum_key(name, id.module());
         }
         for (k, m) in &ctx.symbols.key_modules {
-            if **m == id.module && crate::typekey::plain(k) == name {
+            if *m == id.module() && crate::typekey::plain(k) == name {
                 return k.to_string();
             }
         }
@@ -88,11 +87,9 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
 
     let mut made: Vec<(usize, EnumDecl)> = Vec::new();
     let mut stubs: Vec<(usize, ImplDecl)> = Vec::new();
-    let mut counter = 0usize;
-    let mut next_id = |module: &crate::ModulePath| -> DeclId {
-        counter += 1;
-        DeclId { module: module.clone(), item: GENERATED_BASE + counter, sub: 0 }
-    };
+    // [decl-id] A generated declaration is identified by its module and its
+    // generated name.
+    let next_id = |module: &crate::ModulePath, name: &str| -> DeclId { DeclId::generated(module, &[name]) };
     // Phase 1: the message enum of every actor interface.
     let mut message_of: Vec<(DeclId, DeclId, crate::ModulePath)> = Vec::new(); // interface, enum, module
     for (mi, m) in program.modules.iter().enumerate() {
@@ -109,7 +106,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                 .iter()
                 .map(|x| Variant { name: msg_variant_name(&x.emitted_name), member: Some(x.emitted_name.clone()), fields: x.params.iter().map(|p| (p.local.0.clone(), p.ty.clone())).collect() })
                 .collect();
-            let id = next_id(&m.path);
+            let id = next_id(&m.path, &format!("__Msg_{}", i.name));
             message_of.push((i.id.clone(), id.clone(), m.path.clone()));
             made.push((mi, EnumDecl { id, name: format!("__Msg_{}", i.name), kind: EnumKind::Message { interface: i.id.clone() }, variants, protocol_hash: i.protocol_hash.clone(), span: i.span }));
             // [actor-use-addr] The stub: the interface implemented by sending.
@@ -126,7 +123,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                     let to = Expr { ty: addr_ty.clone(), span: x.span, kind: ExprKind::Read { place: Place { root: addr.clone(), steps: Vec::new() }, consume: false, moved: false } };
                     let send = Expr { ty: Ty::none(), span: x.span, kind: ExprKind::Send { addr: Box::new(to), member: MemberRef { interface: i.id.clone(), index }, args: reads } };
                     FnDecl {
-                        id: DeclId { module: m.path.clone(), item: GENERATED_BASE + 1_000_000 + index, sub: 0 },
+                        id: DeclId::generated(&m.path, &[&format!("__Stub_{}", i.name), &x.name]),
                         name: x.name.clone(),
                         exported: false,
                         kind: FnKind::Member { faces: 0 },
@@ -151,7 +148,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
             stubs.push((
                 mi,
                 ImplDecl {
-                    id: next_id(&m.path),
+                    id: next_id(&m.path, &format!("__Stub_{}", i.name)),
                     name: format!("__Stub_{}", i.name),
                     exported: false,
                     type_params: Vec::new(),
@@ -190,7 +187,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     let mut routes: Vec<(usize, ImplDecl)> = Vec::new();
     for effect in routed {
         let Some(ii) = ifaces.iter().position(|i| i.key == *effect && i.actor) else { continue };
-        let Some(mi) = program.modules.iter().position(|m| m.path == ifaces[ii].id.module) else { continue };
+        let Some(mi) = program.modules.iter().position(|m| m.path == *ifaces[ii].id.module()) else { continue };
         let Some(Decl::Interface(iface)) = program.modules[mi].decls.iter().find(|d| matches!(d, Decl::Interface(x) if x.id == ifaces[ii].id)) else { continue };
         let span = iface.span;
         let face = Ty::Named { name: effect.clone(), args: Vec::new() };
@@ -222,7 +219,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                 Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Send { addr: Box::new(to), member: MemberRef { interface: iface.id.clone(), index }, args: forward } }),
             ];
             members.push(FnDecl {
-                id: DeclId { module: iface.id.module.clone(), item: GENERATED_BASE + 2_000_000 + index, sub: 0 },
+                id: DeclId::generated(iface.id.module(), &[&route_name(effect), &x.name]),
                 name: x.name.clone(),
                 exported: false,
                 kind: FnKind::Member { faces: 0 },
@@ -248,7 +245,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
         routes.push((
             mi,
             ImplDecl {
-                id: next_id(&iface.id.module),
+                id: next_id(iface.id.module(), &route_name(effect)),
                 name: route_name(effect),
                 exported: true,
                 type_params: Vec::new(),
@@ -317,7 +314,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                     Variant { name: msg_variant_name(&x.name), member: Some(x.name.clone()), fields: ps[..ps.len() - 1].iter().map(|p| (p.local.0.clone(), p.ty.clone())).collect() }
                 })
                 .collect();
-            made.push((mi, EnumDecl { id: next_id(&m.path), name: format!("__Cont_{}", h.name), kind: EnumKind::Continuation { handler: h.id.clone() }, variants: cont, protocol_hash: None, span: h.span }));
+            made.push((mi, EnumDecl { id: next_id(&m.path, &format!("__Cont_{}", h.name)), name: format!("__Cont_{}", h.name), kind: EnumKind::Continuation { handler: h.id.clone() }, variants: cont, protocol_hash: None, span: h.span }));
             let handler_ty = Ty::Named { name: key_of(&h.id, &h.name), args: Vec::new() };
             let mut mine: Vec<Dispatch> = Vec::new();
             // One dispatcher per face with messages, one for the private ones.
@@ -328,8 +325,8 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                 }
             }
             if !private.is_empty() {
-                let eid = next_id(&m.path);
                 let name = format!("__Priv_{}", h.name);
+                let eid = next_id(&m.path, &name);
                 targets.push((format!("__dispatch_priv_{}", h.name), eid.clone(), enum_key(&name, &m.path), None));
                 made.push((mi, EnumDecl { id: eid, name, kind: EnumKind::Private { handler: h.id.clone() }, variants: private, protocol_hash: None, span: h.span }));
             }
@@ -340,7 +337,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                     .find(|(_, e)| e.id == eid)
                     .map(|(_, e)| e.variants.iter().map(|v| (v.name.clone(), v.member.clone(), v.fields.clone())).collect())
                     .unwrap_or_default();
-                let fid = next_id(&m.path);
+                let fid = next_id(&m.path, &fname);
                 let enum_ty = Ty::Named { name: ekey, args: Vec::new() };
                 let (handler_l, msg_l) = (Local("__handler".into()), Local("__msg".into()));
                 let read = |l: &Local, ty: &Ty| Expr { ty: ty.clone(), span: h.span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false, moved: false } };

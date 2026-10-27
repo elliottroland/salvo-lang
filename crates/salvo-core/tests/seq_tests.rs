@@ -19,7 +19,7 @@
 
 use std::path::Path;
 
-use salvo_core::{check_program, resolve, FileDiagnostic, FnKey, Program, SourceSet, Symbols};
+use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
 /// [intrinsic-std-only] A miniature of std's iterable surface: the group,
 /// the `iter` overloads, and the generic sequence functions beside their
@@ -175,8 +175,7 @@ fn picked_fast_path(src: &str, callee: &str) -> bool {
     );
     let mut found: Option<bool> = None;
     for (_, key) in out.call_fn.iter() {
-        let FnKey { file, item, .. } = *key;
-        if let Some(salvo_syntax::ast::Item::Fn(f)) = program.modules[file].items.get(item) {
+        if let Some(f) = out.decls.fn_decl(&program.modules, *key) {
             if f.name.name == callee {
                 // The user file declares nothing here, so both candidates
                 // live in std; the fast path is the `intrinsic` one.

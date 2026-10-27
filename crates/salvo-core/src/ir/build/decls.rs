@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use crate::param_mode::{Modes, PassMode};
 use crate::source::SourceFile;
 use crate::types::{is_proj_name, Ty};
-use crate::FnKey;
+use crate::DeclId;
 use salvo_syntax::ast::{self, Item};
 
 use super::{body::Lower, erase, AModule, Ctx};
@@ -71,18 +71,18 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                     if let Some((t, _)) = bound.iter().find(|(_, l)| *l == local) {
                         statics.push((t.clone(), sl.clone()));
                     }
-                    faces.push(StaticDecl { id: DeclId { module: file.module.clone(), item: usize::MAX - i * 16 - 1 - j, sub: 0 }, local: sl.clone(), ty: ty.clone(), stmts: vec![Stmt::Let { id, local: sl, ty, value }], span: u.span });
+                    faces.push(StaticDecl { id: DeclId::static_use(&file.module, &sl.0), local: sl.clone(), ty: ty.clone(), stmts: vec![Stmt::Let { id, local: sl, ty, value }], span: u.span });
                 }
                 other => own.push(other),
             }
         }
-        out.decls.push(Decl::Static(StaticDecl { id: DeclId { module: file.module.clone(), item: usize::MAX - i * 16, sub: 0 }, local: inst_local, ty: inst_ty, stmts: own, span: u.span }));
+        out.decls.push(Decl::Static(StaticDecl { id: DeclId::static_use(&file.module, &inst_local.0), local: inst_local, ty: inst_ty, stmts: own, span: u.span }));
         out.decls.extend(faces.into_iter().map(Decl::Static));
     }
     let statics_failed = !errors.is_empty();
     let mut failed: Vec<usize> = Vec::new();
     for (item_idx, item) in module.items.iter().enumerate() {
-        let id = ctx.item_id(file_idx, item_idx);
+        let Some(id) = ctx.item_id(file_idx, item_idx) else { continue };
         let before = errors.len();
         match item {
             Item::Struct(s) if s.comptime => {}
@@ -127,7 +127,7 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
             Item::Effect(e) => out.decls.push(Decl::Interface(interface_decl(ctx, file_idx, id, e))),
             Item::Handler(h) => out.decls.push(Decl::Impl(impl_decl(ctx, file_idx, id, h, &statics, &mut errors))),
             Item::Fn(f) if f.body.is_some() || f.platform || f.intrinsic => {
-                let key = FnKey { file: file_idx, item: item_idx };
+                let key = id;
                 let kind = if f.intrinsic {
                     FnKind::Intrinsic
                 } else if f.platform {
@@ -143,7 +143,7 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                     if f.body.is_none() {
                         continue;
                     }
-                    let qid = DeclId { module: id.module.clone(), item: item_idx, sub: i as u16 + 1 };
+                    let Some(qid) = ctx.resolution.decls.member(file_idx, item_idx, i + 1) else { continue };
                     out.decls.push(Decl::Fn(fn_decl(ctx, file_idx, qid, None, f, FnKind::Qualifies, Some(q), &statics, &mut errors)));
                 }
             }
@@ -222,7 +222,7 @@ fn fields(
 }
 
 fn struct_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, s: &ast::StructDecl, errors: &mut Vec<String>) -> StructDecl {
-    let bodies = !ctx.gate.body_broken(file_idx, id.item);
+    let bodies = !ctx.gate.body_broken(file_idx, ctx.item_of(id));
     StructDecl {
         id,
         name: s.name.name.clone(),
@@ -339,7 +339,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         .collect();
     let ctor_scope: Vec<(String, Ty)> = ctor_params.iter().map(|p| (p.local.0.clone(), p.ty.clone())).collect();
     // [ir-analyze] A broken handler is built without its code.
-    let bodies = !ctx.gate.body_broken(file_idx, id.item);
+    let bodies = !ctx.gate.body_broken(file_idx, ctx.item_of(id));
     let state = fields(ctx, file_idx, &h.state, true, &ctor_scope, bodies, errors);
     // The handler's fields are in scope inside its members.
     let self_fields: Vec<(String, Ty)> = ctor_params
@@ -367,7 +367,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
     let member_fn = |f: &ast::FnDecl, errors: &mut Vec<String>| {
         let faces_n = crate::effects::handler_member_faces(&face_decls, f).len();
         let mut d = fn_decl(ctx, file_idx, id.clone(), None, f, FnKind::Member { faces: faces_n }, None, &[], errors);
-        // Members have no FnKey: build the body with the handler's scope.
+        // Members are not keyed by their DeclId: build the body with the handler's scope.
         let mut fate = FateFacts::default();
         d.body = f.body.as_ref().filter(|_| bodies).map(|b| {
             let mut lower = Lower::new(ctx, file_idx, None);
@@ -452,7 +452,7 @@ fn fn_decl(
     ctx: &Ctx<'_>,
     file_idx: usize,
     id: DeclId,
-    key: Option<FnKey>,
+    key: Option<DeclId>,
     f: &ast::FnDecl,
     kind: FnKind,
     qualifier: Option<&ast::QualifierDecl>,
@@ -569,7 +569,7 @@ fn fn_decl(
     }
     let body = if matches!(kind, FnKind::Member { .. }) {
         None // filled by the caller with the handler's scope
-    } else if ctx.gate.body_broken(file_idx, id.item) {
+    } else if ctx.gate.body_broken(file_idx, ctx.item_of(id)) {
         None // [ir-analyze] a broken declaration's interface only
     } else {
         f.body.as_ref().map(|b| lower.fn_body(b, &ret))

@@ -1568,8 +1568,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
             }
             let path = if h.platform {
-                self.s.platform_hosts.insert(h.id.module.clone());
-                format!("{}{}", self.s.prefix(&h.id.module), crate::emit::platform_adapter_name(&rs_ident(&h.name)))
+                self.s.platform_hosts.insert(h.id.module().clone());
+                format!("{}{}", self.s.prefix(h.id.module()), crate::emit::platform_adapter_name(&rs_ident(&h.name)))
             } else {
                 self.type_path(&name)
             };
@@ -1867,7 +1867,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 };
                 let Some(iface) = self.s.interface_by_id(&m.interface) else { return "()".to_string() };
                 let tr = if h.stateful { stateful_trait_name(&iface.name) } else { stateless_trait_name(&iface.name) };
-                let path = self.path_in(&m.interface.module, &tr);
+                let path = self.path_in(m.interface.module(), &tr);
                 let inst = self.borrow_mut(instance, indent);
                 let mut ps = self.s.unalias_params(&mem.params);
                 if mem.send {
@@ -3580,7 +3580,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let path = self.fn_path(id);
                 let tps = f.type_params.len();
                 let erased = self.s.ast_fn(id).is_some_and(|af| {
-                    let fi = self.s.program.files.iter().position(|x| x.module == id.module).unwrap_or(0);
+                    let fi = self.s.file_of(id).unwrap_or(0);
                     self.s.erased.fns.contains(&(fi, af.name.span.start))
                 });
                 let impl_params = self.stores_callbacks_pub(f);

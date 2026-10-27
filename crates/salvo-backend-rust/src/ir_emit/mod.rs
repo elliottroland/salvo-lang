@@ -77,6 +77,7 @@ fn run(
     let fn_names = salvo_core::naming::FnNames::compute(program);
     let mut shared = Shared {
         program,
+        decl_index: &resolution.decls,
         symbols: &symbols,
         erased: &erased,
         abi,
@@ -394,6 +395,8 @@ fn run(
 /// Program-wide state the module emitters share.
 pub(crate) struct Shared<'p> {
     pub program: &'p Program,
+    /// [decl-id] Where every declaration of `program` is.
+    pub decl_index: &'p salvo_core::DeclIndex,
     pub symbols: &'p salvo_core::Symbols<'p>,
     pub erased: &'p salvo_core::Erased,
     pub abi: bool,
@@ -426,7 +429,7 @@ impl<'p> Shared<'p> {
     /// The symbol key of a declaration: the key the checker's types use.
     pub fn key_of(&self, id: &DeclId, name: &str) -> String {
         for (k, m) in &self.symbols.key_modules {
-            if **m == id.module && salvo_core::typekey::plain(k) == name {
+            if **m == *id.module() && salvo_core::typekey::plain(k) == name {
                 return k.to_string();
             }
         }
@@ -460,7 +463,7 @@ impl<'p> Shared<'p> {
     pub fn generated_impl(&self, key: &str) -> Option<(&'p ImplDecl, ModulePath)> {
         let module = salvo_core::typekey::module_of(key)?;
         self.ir.modules.iter().filter(|m| m.path.0.join(".") == module).flat_map(|m| &m.decls).find_map(|d| match d {
-            Decl::Impl(h) if salvo_core::ir::enum_key(&h.name, &h.id.module) == key => Some((h, h.id.module.clone())),
+            Decl::Impl(h) if salvo_core::ir::enum_key(&h.name, h.id.module()) == key => Some((h, h.id.module().clone())),
             _ => None,
         })
     }
@@ -469,7 +472,7 @@ impl<'p> Shared<'p> {
     pub fn generated_enum(&self, key: &str) -> Option<(&'p salvo_core::ir::EnumDecl, ModulePath)> {
         let module = salvo_core::typekey::module_of(key)?;
         self.ir.modules.iter().filter(|m| m.path.0.join(".") == module).flat_map(|m| &m.decls).find_map(|d| match d {
-            Decl::Enum(e) if salvo_core::ir::enum_key(&e.name, &e.id.module) == key => Some((e, e.id.module.clone())),
+            Decl::Enum(e) if salvo_core::ir::enum_key(&e.name, e.id.module()) == key => Some((e, e.id.module().clone())),
             _ => None,
         })
     }
@@ -508,12 +511,12 @@ impl<'p> Shared<'p> {
 
     /// The AST of a fn reference (intrinsic lowering keys off it).
     pub fn ast_fn(&self, id: &DeclId) -> Option<&'p salvo_syntax::ast::FnDecl> {
-        let fi = self.program.files.iter().position(|f| f.module == id.module)?;
-        match self.program.modules[fi].items.get(id.item)? {
-            salvo_syntax::ast::Item::Fn(f) if id.sub == 0 => Some(f),
-            salvo_syntax::ast::Item::Qualifier(q) if id.sub > 0 => q.fns.get(id.sub as usize - 1),
-            _ => None,
-        }
+        self.decl_index.fn_or_qualifier_fn(&self.program.modules, *id)
+    }
+
+    /// [decl-id] The file `id` is declared in.
+    pub fn file_of(&self, id: &DeclId) -> Option<usize> {
+        self.decl_index.loc(*id).map(|l| l.file)
     }
 
     /// A type with a top-level alias expanded (a fn-type alias decides how
@@ -618,7 +621,7 @@ impl<'p> Shared<'p> {
         if !(matches!(ap.ty, salvo_syntax::ast::Type::Fn { .. }) || once) || !salvo_core::check::platform_keeps_param(af, ap) {
             return None;
         }
-        let file = self.program.files.iter().find(|x| x.module == f.id.module)?;
+        let file = self.program.files.iter().find(|x| x.module == *f.id.module())?;
         let runtime = file.is_std && file.module.is_std_internal();
         if !runtime && !matches!(ap.ty, salvo_syntax::ast::Type::Fn { .. }) {
             return None;
@@ -896,16 +899,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// The Rust path of a fn declaration.
     pub fn fn_path(&mut self, id: &DeclId) -> String {
         let name = self.fn_rust_name(id);
-        format!("{}{name}", self.s.prefix(&id.module))
+        format!("{}{name}", self.s.prefix(id.module()))
     }
 
     pub fn fn_rust_name(&self, id: &DeclId) -> String {
         match self.s.ast_fn(id) {
-            Some(f) if id.sub == 0 => rs_ident(self.s.fn_names.get(f).unwrap_or(&f.name.name)),
+            Some(f) if id.kind() != salvo_core::DeclKind::QualifierFn => rs_ident(self.s.fn_names.get(f).unwrap_or(&f.name.name)),
             Some(f) => {
-                let fi = self.s.program.files.iter().position(|x| x.module == id.module).unwrap();
-                let q = match &self.s.program.modules[fi].items[id.item] {
-                    salvo_syntax::ast::Item::Qualifier(q) => match salvo_core::refine::of_base(&q.of, &q.generics) {
+                let q = match self.s.decl_index.item_ast(&self.s.program.modules, *id) {
+                    Some(salvo_syntax::ast::Item::Qualifier(q)) => match salvo_core::refine::of_base(&q.of, &q.generics) {
                         Some(subject) => format!("{}__{}", q.name.name.replace('.', ""), subject.replace('.', "")),
                         None => q.name.name.replace('.', ""),
                     },

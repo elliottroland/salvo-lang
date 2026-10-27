@@ -45,7 +45,7 @@ use lsp_types::{
 };
 
 use salvo_core::{
-    Checked, DefSite, FileDiagnostic, FnKey, ModulePath, ParamDeduction, Program, QualEffect, Ty,
+    Checked, DefSite, FileDiagnostic, DeclId, ModulePath, ParamDeduction, Program, QualEffect, Ty,
 };
 use salvo_syntax::ast::{FnDecl, Item, QualSubject};
 use salvo_syntax::diag::Severity;
@@ -1003,7 +1003,7 @@ impl Server<'_> {
 
         // A fn name under the cursor hovers as the full signature,
         // including inferred deductions [fn-ref-table].
-        let mut best_ref: Option<(Span, FnKey)> = None;
+        let mut best_ref: Option<(Span, DeclId)> = None;
         for ((file, span), key) in &checked.fn_refs {
             if *file != file_idx {
                 continue;
@@ -1017,15 +1017,14 @@ impl Server<'_> {
         }
         if let Some((span, key)) = best_ref {
             if let Some(signature) = fn_signature(&analysis.program, &checked, key) {
-                let decl = match analysis.program.modules[key.file].items.get(key.item) {
-                    Some(Item::Fn(decl)) => Some(decl),
-                    _ => None,
-                };
+                // [decl-id] The file the resolved fn is declared in.
+                let key_file = checked.decls.file(key);
+                let decl = checked.decls.fn_decl(&analysis.program.modules, key);
                 let docs = decl.and_then(|decl| {
-                    let source = &analysis.program.files.get(key.file)?.content;
+                    let source = &analysis.program.files.get(key_file)?.content;
                     let scope = docs::fn_scope(
                         decl,
-                        key.file,
+                        key_file,
                         source,
                         &analysis.program.modules,
                         &link,
@@ -1039,10 +1038,10 @@ impl Server<'_> {
                 // entirely, so this is the only place a reader can find it.
                 let refinements = decl.and_then(|decl| {
                     let groups = checked.refinements.for_call(file_idx, key);
-                    let source = &analysis.program.files.get(key.file)?.content;
+                    let source = &analysis.program.files.get(key_file)?.content;
                     let scope = docs::fn_scope(
                         decl,
-                        key.file,
+                        key_file,
                         source,
                         &analysis.program.modules,
                         &link,
@@ -1054,15 +1053,15 @@ impl Server<'_> {
                 // this is load-bearing rather than decoration: `size` may be
                 // std's, an import's, or this module's, and the signature
                 // alone does not say which won.
-                let origin = self.origin_section(&analysis, key.file, file_idx);
+                let origin = self.origin_section(&analysis, key_file, file_idx);
                 // [lsp-hover-iter-fn] An `iter fn` reads as itself: no docs
                 // or overload set of the generated halves (the step's name,
                 // `next`, is shared by every iterator).
-                let iter_fn = decl.is_some_and(|d| iter_fn_signature(&analysis.program.modules[key.file], d).is_some());
+                let iter_fn = decl.is_some_and(|d| iter_fn_signature(&analysis.program.modules[key_file], d).is_some());
                 let docs = if iter_fn {
-                    decl.and_then(|d| iter_fn_minter(&analysis.program.modules[key.file], d)).and_then(|m| {
-                        let source = &analysis.program.files.get(key.file)?.content;
-                        let scope = docs::fn_scope(m, key.file, source, &analysis.program.modules, &link);
+                    decl.and_then(|d| iter_fn_minter(&analysis.program.modules[key_file], d)).and_then(|m| {
+                        let source = &analysis.program.files.get(key_file)?.content;
+                        let scope = docs::fn_scope(m, key_file, source, &analysis.program.modules, &link);
                         docs::render(&m.docs, &scope)
                     })
                 } else {
@@ -1077,7 +1076,7 @@ impl Server<'_> {
                         file_idx,
                         &d.name.name,
                         DefSite {
-                            file: key.file,
+                            file: key_file,
                             span: d.name.span,
                         },
                         &link,
@@ -1511,7 +1510,7 @@ impl Server<'_> {
                 )
             }
             // An effect, handler, or qualifier member fn: its signature
-            // rendered from the declaration (members have no `FnKey`, so
+            // rendered from the declaration (members are not keyed by their `DeclId`, so
             // there are no inferred deductions to show) [doc-comment].
             DeclAt::Member {
                 owner,
@@ -1545,7 +1544,7 @@ impl Server<'_> {
         // [lsp-hover-overloads] Same-named declarations visible here — the
         // effect-member case is the one that matters most (`read_to` of
         // `std.core.fs` has three), and it arrives through this path rather than
-        // the fn-ref one, since a member has no `FnKey`.
+        // the fn-ref one, since a member is not keyed by its `DeclId`.
         let others = decl_name
             .and_then(|name| self.overload_section(analysis, file_idx, &name, target, link));
         Some(markdown_hover(
@@ -1698,7 +1697,7 @@ impl Server<'_> {
             if *file != file_idx {
                 continue;
             }
-            if let Some(site) = fn_def_site(&analysis.program, *key) {
+            if let Some(site) = fn_def_site(&analysis.program, checked, *key) {
                 consider(*span, site, &mut best);
             }
         }
@@ -2877,19 +2876,16 @@ fn import_insert_position(content: &str) -> Position {
 
 /// The definition site of a fn declaration [lsp-definition]: the file it
 /// lives in and the span of its *name*.
-fn fn_def_site(program: &Program, key: FnKey) -> Option<DefSite> {
-    let module = program.modules.get(key.file)?;
-    let Item::Fn(decl) = module.items.get(key.item)? else {
-        return None;
-    };
+fn fn_def_site(program: &Program, checked: &Checked, key: DeclId) -> Option<DefSite> {
+    let decl = checked.decls.fn_decl(&program.modules, key)?;
     Some(DefSite {
-        file: key.file,
+        file: checked.decls.file(key),
         span: decl.name.span,
     })
 }
 
 /// [lsp-rename] What a rename affects: either a fn, identified precisely by
-/// its [`FnKey`] (overload-exact, since `fn_refs` already resolved it), or
+/// its [`DeclId`] (overload-exact, since `fn_refs` already resolved it), or
 /// any other declaration, identified by its [`DefSite`]. Fns are kept
 /// separate from `def_refs`'/`field_refs`'s `DefSite`s for the same reason
 /// `goto_definition` keeps them separate: a fn's `DefSite` is derived
@@ -2897,7 +2893,7 @@ fn fn_def_site(program: &Program, key: FnKey) -> Option<DefSite> {
 /// table is actually keyed by.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RenameTarget {
-    Fn(FnKey),
+    Fn(DeclId),
     Def(DefSite),
 }
 
@@ -2942,7 +2938,7 @@ fn resolve_rename_target(
     let items = &analysis.program.modules.get(file_idx)?.items;
     let hit = |s: Span| s.start <= offset && offset < s.end;
     // A top-level fn is not a `DeclAt` [lsp-definition]; match its name span
-    // directly, keyed by its `FnKey` so every overload (not just this
+    // directly, keyed by its `DeclId` so every overload (not just this
     // file's declaration) collects correctly.
     if let Some((item_idx, f)) = items.iter().enumerate().find_map(|(i, item)| match item {
         Item::Fn(f) if hit(f.name.span) => Some((i, f)),
@@ -2950,7 +2946,7 @@ fn resolve_rename_target(
     }) {
         return Some((
             f.name.span,
-            RenameTarget::Fn(FnKey { file: file_idx, item: item_idx }),
+            RenameTarget::Fn(checked.decls.fn_at(file_idx, item_idx)),
         ));
     }
     let name_span = decl_name_span_at(items, &hit)?;
@@ -2974,7 +2970,7 @@ fn rename_occurrences(
     let mut sites: Vec<(usize, Span)> = Vec::new();
     match target {
         RenameTarget::Fn(key) => {
-            let decl_site = fn_def_site(&analysis.program, key)?;
+            let decl_site = fn_def_site(&analysis.program, checked, key)?;
             sites.push((decl_site.file, decl_site.span));
             for ((file, span), k) in &checked.fn_refs {
                 if *k == key {
@@ -3600,11 +3596,9 @@ fn type_signature(decl: &salvo_syntax::ast::TypeDecl) -> String {
     sig
 }
 
-fn fn_signature(program: &Program, checked: &Checked, key: FnKey) -> Option<String> {
-    let module = program.modules.get(key.file)?;
-    let Item::Fn(decl) = module.items.get(key.item)? else {
-        return None;
-    };
+fn fn_signature(program: &Program, checked: &Checked, key: DeclId) -> Option<String> {
+    let module = program.modules.get(checked.decls.loc(key)?.file)?;
+    let decl = checked.decls.fn_decl(&program.modules, key)?;
     // [lsp-hover-iter-fn] An `iter fn` is desugared into a minter and a
     // `next` over a generated struct; either reads as the `iter fn` written.
     if let Some(sig) = iter_fn_signature(module, decl) {
@@ -3698,7 +3692,7 @@ fn type_fn_name_head(ty: &salvo_syntax::ast::Type) -> String {
 }
 
 /// A fn's source-like signature. `inferred` is the whole-program deduction
-/// list when there is one — effect and handler members have no `FnKey`, so
+/// list when there is one — effect and handler members are not keyed by their `DeclId`, so
 /// they render their declared list only [doc-comment].
 pub(crate) fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> String {
     fn_decl_signature_with(decl, inferred, None)
@@ -3791,7 +3785,7 @@ pub(crate) fn fn_decl_signature_with(decl: &FnDecl, inferred: Option<&[ParamDedu
     // [deduce-syntax] The *effective* contract, in the source spelling: the
     // whole-program pass's list when there is one (written entries and the
     // inferred rest, indistinguishable here — which is the point), else the
-    // declared clause alone (effect and handler members have no `FnKey`).
+    // declared clause alone (effect and handler members are not keyed by their `DeclId`).
     let clause = match inferred {
         Some(deductions) => render_deductions(deductions, decl),
         None => decl

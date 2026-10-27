@@ -27,7 +27,7 @@
 //!    holds them (84 of the suite's programs did, 2026-10-20). A program with
 //!    no error checks every declaration, as before gating.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use salvo_syntax::ast::Item;
 use salvo_syntax::Span;
@@ -154,17 +154,13 @@ fn item_span(item: &Item) -> Option<Span> {
 pub struct Checkable<'g> {
     gate: &'g Gate,
     failed: &'g HashSet<(usize, usize)>,
-    file_of_module: HashMap<&'g crate::ModulePath, usize>,
+    decls: &'g crate::decl_id::DeclIndex,
     /// The keys of the types, effects and handlers whose interface broke.
     broken_keys: HashSet<String>,
 }
 
 impl<'g> Checkable<'g> {
-    pub fn new(program: &'g CoreProgram, symbols: &Symbols<'_>, gate: &'g Gate, failed: &'g HashSet<(usize, usize)>) -> Self {
-        let mut file_of_module = HashMap::new();
-        for (i, f) in program.files.iter().enumerate() {
-            file_of_module.entry(&f.module).or_insert(i);
-        }
+    pub fn new(program: &'g CoreProgram, symbols: &Symbols<'_>, decls: &'g crate::decl_id::DeclIndex, gate: &'g Gate, failed: &'g HashSet<(usize, usize)>) -> Self {
         let mut broken_keys = HashSet::new();
         for (file, module) in program.modules.iter().enumerate() {
             for (i, item) in module.items.iter().enumerate() {
@@ -181,11 +177,13 @@ impl<'g> Checkable<'g> {
                 broken_keys.insert(key);
             }
         }
-        Checkable { gate, failed, file_of_module, broken_keys }
+        Checkable { gate, failed, decls, broken_keys }
     }
 
+    /// [decl-id] The file and item `id` is declared at (a member's
+    /// container's).
     fn addr(&self, id: &DeclId) -> Option<(usize, usize)> {
-        Some((*self.file_of_module.get(&id.module)?, id.item))
+        self.decls.loc(*id).map(|l| (l.file, l.item))
     }
 
     /// Whether the flow and linear checks run on `decl`.

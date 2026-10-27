@@ -19,7 +19,7 @@ use salvo_syntax::visit::{self as v, Visitor};
 use salvo_syntax::Span;
 
 use crate::check::Checked;
-use crate::resolve::FnKey;
+use crate::decl_id::DeclId;
 use crate::Program;
 
 /// Dumps the facts of every declaration in the files [wanted] accepts.
@@ -76,7 +76,7 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, sou
         let (line, col) = line_col(source, span.start);
         let mut row = format!("  {:<8}{:<30} {ty}", format!("{line}:{col}"), snippet(source, span));
         if let Some(target) = checked.call_fn.get(&key) {
-            row.push_str(&format!("  -> {}", fn_name(program, *target)));
+            row.push_str(&format!("  -> {}", fn_name(program, &checked.decls, *target)));
         } else if let Some(m) = checked.member_calls.get(&key) {
             row.push_str(&format!("  -> {}.#{}", crate::typekey::plain(&m.effect), m.index));
         }
@@ -109,11 +109,12 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, sou
 
 /// `module::name`, with the parameter types when the module declares the
 /// name more than once.
-fn fn_name(program: &Program, key: FnKey) -> String {
-    let (Some(file), Some(module)) = (program.files.get(key.file), program.modules.get(key.file)) else {
+fn fn_name(program: &Program, decls: &crate::decl_id::DeclIndex, key: DeclId) -> String {
+    let Some(loc) = decls.loc(key) else { return "?".to_string() };
+    let (Some(file), Some(module)) = (program.files.get(loc.file), program.modules.get(loc.file)) else {
         return "?".to_string();
     };
-    let Some(Item::Fn(f)) = module.items.get(key.item) else { return "?".to_string() };
+    let Some(Item::Fn(f)) = module.items.get(loc.item) else { return "?".to_string() };
     let overloads = module.items.iter().filter(|i| matches!(i, Item::Fn(g) if g.name.name == f.name.name)).count();
     if overloads > 1 {
         let params: Vec<String> = f.params.iter().filter(|p| !p.implicit).map(|p| p.ty.to_string()).collect();

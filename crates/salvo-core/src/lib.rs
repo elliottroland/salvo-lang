@@ -12,6 +12,7 @@ pub mod check;
 pub mod check_cache;
 pub mod comptime;
 pub mod deadlock;
+pub mod decl_id;
 pub mod deduce;
 pub mod diag;
 pub mod effects;
@@ -69,7 +70,8 @@ pub use wire::{
     approx_ty, effect_has_wire_form, protocol_canonical, protocol_hash, struct_has_wire_form,
     wire_blocker, WireBlock,
 };
-pub use resolve::{resolve, DefSite, FnKey, ModuleScope, Resolution, STD_INTERNAL};
+pub use resolve::{resolve, DefSite, ModuleScope, Resolution, STD_INTERNAL};
+pub use decl_id::{DeclId, DeclIndex, DeclKind, DeclLoc};
 pub use source::{
     dependencies_with_reached_platform, CompanionFile, ModulePath, PlatformFile, PlatformRoots, SourceFile, SourceSet,
     PLATFORM_DIR, STD_ROOT, TEST_SUFFIX,

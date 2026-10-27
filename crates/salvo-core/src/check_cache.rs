@@ -32,7 +32,7 @@ use salvo_syntax::Span;
 use crate::check::{Checked, Key};
 use crate::diag::FileDiagnostic;
 use crate::program::Program;
-use crate::resolve::FnKey;
+use crate::decl_id::DeclId;
 use crate::types::Ty;
 
 /// The walk steps a file goes through, in order [interface-pass].
@@ -294,7 +294,7 @@ impl CheckCache {
         first: usize,
         parking: &HashSet<String>,
         out: &Checked,
-        mutations: &HashMap<FnKey, HashSet<String>>,
+        mutations: &HashMap<DeclId, HashSet<String>>,
         steps: Vec<(usize, [StepRows; 3])>,
         decl_file: &HashMap<String, usize>,
     ) {
@@ -321,7 +321,7 @@ impl CheckCache {
             let mut rows = parts[f].take().unwrap_or_default();
             rows.param_mutations = mutations
                 .iter()
-                .filter(|(k, _)| k.file == f)
+                .filter(|(k, _)| out.decls.loc(**k).is_some_and(|l| l.file == f))
                 .map(|(k, v)| (*k, v.clone()))
                 .collect();
             let (bodies, iface) = interface_of(&program.files[f].content, &program.modules[f]);
@@ -784,7 +784,9 @@ impl Checked {
         fn part(parts: &mut [Option<Checked>], f: usize) -> Option<&mut Checked> {
             parts.get_mut(f).and_then(Option::as_mut)
         }
-        let Checked { expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_uses, route_keys, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, decl_effects, handler_deps, effect_prereqs, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors } = self;
+        let Checked { decls, expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_uses, route_keys, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, decl_effects, handler_deps, effect_prereqs, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors } = self;
+        // [decl-id] The file a fn-keyed row belongs to.
+        let fk = |k: &DeclId| decls.loc(*k).map_or(usize::MAX, |l| l.file);
         for (k, v) in expr_ty { if let Some(p) = part(&mut parts, k.0) { p.expr_ty.insert(k.clone(), v.clone()); } }
         for (k, v) in comparisons { if let Some(p) = part(&mut parts, k.0) { p.comparisons.insert(k.clone(), v.clone()); } }
         for (k, v) in arm_compares { if let Some(p) = part(&mut parts, k.0) { p.arm_compares.insert(k.clone(), v.clone()); } }
@@ -844,7 +846,7 @@ impl Checked {
         for k in local_calls { if let Some(p) = part(&mut parts, k.0) { p.local_calls.insert(*k); } }
         for (k, v) in local_call_names { if let Some(p) = part(&mut parts, k.0) { p.local_call_names.insert(k.clone(), v.clone()); } }
         for (k, v) in call_effects { if let Some(p) = part(&mut parts, k.0) { p.call_effects.insert(k.clone(), v.clone()); } }
-        for (k, v) in fn_effects { if let Some(p) = part(&mut parts, k.file) { p.fn_effects.insert(k.clone(), v.clone()); } }
+        for (k, v) in fn_effects { if let Some(p) = part(&mut parts, fk(k)) { p.fn_effects.insert(k.clone(), v.clone()); } }
         for (k, v) in decl_effects { if let Some(p) = part(&mut parts, k.0) { p.decl_effects.insert(k.clone(), v.clone()); } }
         for (k, v) in handler_deps { if let Some(p) = decl_file.get(k.as_str()).and_then(|f| part(&mut parts, *f)) { p.handler_deps.insert(k.clone(), v.clone()); } }
         for (k, v) in effect_prereqs { if let Some(p) = decl_file.get(k.as_str()).and_then(|f| part(&mut parts, *f)) { p.effect_prereqs.insert(k.clone(), v.clone()); } }
@@ -874,7 +876,7 @@ impl Checked {
         for (k, v) in interp_implicit { if let Some(p) = part(&mut parts, k.0) { p.interp_implicit.insert(k.clone(), v.clone()); } }
         for k in temp_views { if let Some(p) = part(&mut parts, k.0) { p.temp_views.insert(*k); } }
         for (k, v) in lending_calls { if let Some(p) = part(&mut parts, k.0) { p.lending_calls.insert(k.clone(), v.clone()); } }
-        for (k, v) in fn_lends { if let Some(p) = part(&mut parts, k.file) { p.fn_lends.insert(k.clone(), v.clone()); } }
+        for (k, v) in fn_lends { if let Some(p) = part(&mut parts, fk(k)) { p.fn_lends.insert(k.clone(), v.clone()); } }
         for k in handle_muts { if let Some(p) = part(&mut parts, k.0) { p.handle_muts.insert(*k); } }
         let _ = param_mutations; // the walk's own map, by the caller
         for k in moved_projections { if let Some(p) = part(&mut parts, k.0) { p.moved_projections.insert(*k); } }
@@ -887,8 +889,8 @@ impl Checked {
         for k in mut_lend_calls { if let Some(p) = part(&mut parts, k.0) { p.mut_lend_calls.insert(*k); } }
         for (k, v) in fn_value_calls { if let Some(p) = part(&mut parts, k.0) { p.fn_value_calls.insert(k.clone(), v.clone()); } }
         for (k, v) in lambda_contracts { if let Some(p) = part(&mut parts, k.0) { p.lambda_contracts.insert(k.clone(), v.clone()); } }
-        for (k, v) in implicit_params { if let Some(p) = part(&mut parts, k.file) { p.implicit_params.insert(k.clone(), v.clone()); } }
-        for (k, v) in established_quals { if let Some(p) = part(&mut parts, k.0.file) { p.established_quals.insert(k.clone(), v.clone()); } }
+        for (k, v) in implicit_params { if let Some(p) = part(&mut parts, fk(k)) { p.implicit_params.insert(k.clone(), v.clone()); } }
+        for (k, v) in established_quals { if let Some(p) = part(&mut parts, fk(&k.0)) { p.established_quals.insert(k.clone(), v.clone()); } }
         for (k, v) in carried_identities { if let Some(p) = part(&mut parts, k.0) { p.carried_identities.insert(k.clone(), v.clone()); } }
         for (k, v) in implicit_args { if let Some(p) = part(&mut parts, k.0) { p.implicit_args.insert(k.clone(), v.clone()); } }
         for (k, v) in use_handler_args { if let Some(p) = part(&mut parts, k.0) { p.use_handler_args.insert(k.clone(), v.clone()); } }
@@ -899,7 +901,7 @@ impl Checked {
 
     /// [lsp-check-cache] Inserts one file's rows (`split_files`).
     pub(crate) fn insert_rows(&mut self, rows: &Checked) {
-        let Checked { expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_uses, route_keys, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, decl_effects, handler_deps, effect_prereqs, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors } = rows;
+        let Checked { decls: _, expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_uses, route_keys, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, decl_effects, handler_deps, effect_prereqs, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors } = rows;
         self.expr_ty.extend(expr_ty.iter().map(|(k, v)| (k.clone(), v.clone())));
         self.comparisons.extend(comparisons.iter().map(|(k, v)| (k.clone(), v.clone())));
         self.arm_compares.extend(arm_compares.iter().map(|(k, v)| (k.clone(), v.clone())));

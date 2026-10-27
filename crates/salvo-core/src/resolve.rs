@@ -18,22 +18,18 @@ use salvo_syntax::ast::{
     StructDecl, TypeDecl,
 };
 
+use crate::decl_id::DeclId;
 use crate::diag::FileDiagnostic;
 use crate::program::Program;
 use crate::source::ModulePath;
 use salvo_syntax::Span;
 
-/// Identifies a top-level `fn` declaration: (file index, item index).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct FnKey {
-    pub file: usize,
-    pub item: usize,
-}
-
 /// A function together with its identity.
 #[derive(Clone, Copy)]
 pub struct FnEntry<'p> {
-    pub key: FnKey,
+    pub key: DeclId,
+    /// The file it is declared in.
+    pub file: usize,
     pub decl: &'p FnDecl,
     /// [fn-overload-scope] Which rung of the visibility ladder brought this
     /// overload into scope. Overload selection prefers the *most specific*
@@ -84,7 +80,7 @@ impl Rung {
 
 /// Where a declaration's *name* is written [lsp-definition]: the file it
 /// lives in and the span of its identifier. Recorded for every visible
-/// non-fn declaration (fns are identified precisely by [`FnKey`] through
+/// non-fn declaration (fns are identified precisely by [`DeclId`] through
 /// the checker's `fn_refs` table) so tooling can jump to definitions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DefSite {
@@ -222,9 +218,11 @@ pub struct Resolution<'p> {
     /// fulfilment of one of a struct's obligations. Computed here because the
     /// import rule needs it — a function declared on a type travels with the
     /// type — and imports are resolved before anything is checked.
-    pub attached: HashMap<FnKey, String>,
+    pub attached: HashMap<DeclId, String>,
     /// Resolution errors (unresolved/ambiguous imports) [diag-structured].
     pub errors: Vec<FileDiagnostic>,
+    /// [decl-id] Every declaration's id and where it is.
+    pub decls: std::sync::Arc<crate::decl_id::DeclIndex>,
     /// [comptime-hygiene] The scopes stamped bodies are checked in: the
     /// stamping file's, with what the template's own file sees added
     /// underneath (privates included) — one per (stamping file, template
@@ -376,7 +374,7 @@ impl Resolution<'_> {
 /// [mod-collision] can point at the right file.
 #[derive(Default)]
 struct ModuleItems<'p> {
-    fns: Vec<(FnKey, &'p FnDecl)>,
+    fns: Vec<(DeclId, usize, &'p FnDecl)>,
     structs: Vec<(usize, &'p StructDecl)>,
     effects: Vec<(usize, &'p EffectDecl)>,
     param_groups: Vec<(usize, &'p ParamsDecl)>,
@@ -412,7 +410,7 @@ impl<'p> ModuleItems<'p> {
     /// has no visibility of its own.
     fn exports_name(&self, name: &str) -> bool {
         let hit = |n: &str, exported: bool| n == name && exported;
-        self.fns.iter().any(|(_, f)| hit(&f.name.name, f.exported))
+        self.fns.iter().any(|(_, _, f)| hit(&f.name.name, f.exported))
             || self.structs.iter().any(|(_, s)| hit(&s.name.name, s.exported))
             || self.effects.iter().any(|(_, e)| {
                 hit(&e.name.name, e.exported)
@@ -449,7 +447,7 @@ impl<'p> ModuleItems<'p> {
         let hit = |n: &'p str| (n == name).then_some(n);
         self.fns
             .iter()
-            .find_map(|(_, f)| hit(f.name.name.as_str()))
+            .find_map(|(_, _, f)| hit(f.name.name.as_str()))
             .or_else(|| self.structs.iter().find_map(|(_, s)| hit(s.name.name.as_str())))
             .or_else(|| self.effects.iter().find_map(|(_, e)| hit(e.name.name.as_str())))
             .or_else(|| {
@@ -610,7 +608,7 @@ struct Sources<'s, 'p> {
 /// [comptime-instantiate] [type-identity] Resolution over files and ASTs not
 /// (yet) a `Program`: the comptime expansion resolves the unstamped program
 /// to look its names up through each file's scope.
-pub fn resolve_sources<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
+pub fn resolve_sources<'p, M: crate::decl_id::ModuleRef>(
     files: &'p [crate::source::SourceFile],
     modules: &'p [M],
 ) -> Resolution<'p> {
@@ -624,7 +622,7 @@ pub fn resolve_sources<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
 /// contributes its declarations, so a scope that is built is the one
 /// [`resolve_sources`] builds. What the comptime expansion looks names up
 /// by, for the files it stamps.
-pub fn resolve_scopes_where<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
+pub fn resolve_scopes_where<'p, M: crate::decl_id::ModuleRef>(
     files: &'p [crate::source::SourceFile],
     modules: &'p [M],
     scoped: &dyn Fn(usize) -> bool,
@@ -632,14 +630,19 @@ pub fn resolve_scopes_where<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module
     resolve_impl(files, modules, scoped, true)
 }
 
-fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
+fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     files: &'p [crate::source::SourceFile],
     modules: &'p [M],
     scoped: &dyn Fn(usize) -> bool,
     scopes_only: bool,
 ) -> Resolution<'p> {
+    let modules_in = modules;
     let modules: Vec<&'p salvo_syntax::ast::Module> = modules.iter().map(|m| m.borrow()).collect();
     let program = Sources { files, modules: &modules };
+    // [decl-id] Every declaration's id, before anything refers to one.
+    let t = crate::timing::phase("    resolve: decl ids");
+    let decls = std::sync::Arc::new(crate::decl_id::DeclIndex::build(files, modules_in));
+    drop(t);
     // Pass 1: collect each module's own declarations (all files of the
     // module contribute).
     let mut by_module: HashMap<&ModulePath, ModuleItems<'_>> = HashMap::new();
@@ -712,13 +715,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
                          bug, not a mistake in this program",
                     ));
                 }
-                Item::Fn(f) => items.fns.push((
-                    FnKey {
-                        file: file_idx,
-                        item: item_idx,
-                    },
-                    f,
-                )),
+                Item::Fn(f) => items.fns.push((decls.fn_at(file_idx, item_idx), file_idx, f)),
                 Item::Struct(s) => items.structs.push((file_idx, s)),
                 Item::Effect(e) => items.effects.push((file_idx, e)),
                 Item::Params(g) => items.param_groups.push((file_idx, g)),
@@ -775,7 +772,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
                 private_in.entry(name).or_default().push(*module);
             }
         };
-        for (_, f) in &items.fns {
+        for (_, _, f) in &items.fns {
             record(&f.name.name, &f.name.name, f.exported);
         }
         for (_, s) in &items.structs {
@@ -869,7 +866,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
             // *generated* [obligation-by].
             let mut seen: HashMap<(&str, Vec<String>, String), (Span, bool)> = HashMap::new();
             let mut erased_seen: HashMap<(&str, Vec<String>), Vec<String>> = HashMap::new();
-            for (key, f) in &items.fns {
+            for (_, key_file, f) in &items.fns {
                 let mut generics: Vec<&str> =
                     f.generics.iter().map(|g| g.name.as_str()).collect();
                 for (g, _) in &f.generic_canbe {
@@ -908,7 +905,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
                         )
                     };
                     errors.push(FileDiagnostic::error(
-                        key.file,
+                        *key_file,
                         f.name.span,
                         msg,
                     ));
@@ -928,7 +925,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
                     if let Some(first) = erased_seen.get(&(f.name.name.as_str(), erased_sig.clone())) {
                         if *first != sig {
                             errors.push(FileDiagnostic::error(
-                                key.file,
+                                *key_file,
                                 f.name.span,
                                 format!(
                                     "`{}` is overloaded on literal types of one base, and a literal \
@@ -977,7 +974,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
         .flat_map(|items| items.param_groups.iter())
         .map(|(_, g)| (g.name.name.as_str(), *g))
         .collect();
-    let mut attached: HashMap<FnKey, String> = HashMap::new();
+    let mut attached: HashMap<DeclId, String> = HashMap::new();
     for items in by_module.values() {
         // [group-obligation] A `type` declaration carries a clause too
         // (comptime round 2, R-1), so a named union's fulfilments attach the
@@ -1000,8 +997,8 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
                     continue;
                 };
                 for member in &group.fns {
-                    for (key, f) in &items.fns {
-                        if key.file != file_idx
+                    for (key, key_file, f) in &items.fns {
+                        if *key_file != file_idx
                             || f.name.name != member.name.name
                             || f.scoped_to.is_some()
                         {
@@ -1027,7 +1024,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
         sorted_modules.sort_by_key(|m| m.to_string());
         for module in sorted_modules {
             let items = &by_module[*module];
-            for (key, f) in &items.fns {
+            for (key, key_file, f) in &items.fns {
                 let Some(target) = attached.get(key) else {
                     continue;
                 };
@@ -1042,7 +1039,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
                         .any(|(_, t)| t.name.name == *target && t.exported);
                 if exported_type && !f.exported {
                     errors.push(FileDiagnostic::error(
-                        key.file,
+                        *key_file,
                         f.name.span,
                         format!(
                             "`{}` fulfils an obligation of `{target}`, which is \
@@ -1281,6 +1278,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
             private_in,
             attached,
             errors,
+            decls,
             stamp_scopes: Vec::new(),
             fn_stamp_scope: HashMap::new(),
             type_ref_stamp: HashMap::new(),
@@ -1296,6 +1294,7 @@ fn resolve_impl<'p, M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
         private_in,
         attached,
         errors,
+        decls,
         stamp_scopes,
         fn_stamp_scope,
         type_ref_stamp,
@@ -1313,7 +1312,7 @@ struct AddCtx<'e, 'p> {
     provenance: &'e mut HashMap<(NameKind, &'p str, Option<String>), (Level, &'p ModulePath)>,
     errors: &'e mut Vec<FileDiagnostic>,
     /// [fn-attached] Which type each attached fn is declared on.
-    attached: &'e HashMap<FnKey, String>,
+    attached: &'e HashMap<DeclId, String>,
 }
 
 impl<'e, 'p> AddCtx<'e, 'p> {
@@ -1636,7 +1635,7 @@ fn add_items<'p>(
     // and is private rather than being told it does not exist — the difference
     // between a rule and a mystery.
     let visible = |exported: bool| level == Level::Own || exported;
-    for (key, f) in &items.fns {
+    for (key, file, f) in &items.fns {
         // [fn-attached] An `@`-scoped fn **travels with its type**: an import
         // that names `Person` brings every `fn …@Person` of that file along, so
         // the canonical is in scope wherever the type is usable. Without it
@@ -1669,6 +1668,7 @@ fn add_items<'p>(
                 .or_default()
                 .push(FnEntry {
                     key: *key,
+                    file: *file,
                     decl: f,
                     rung: level.rung(),
                     module,
@@ -2233,7 +2233,7 @@ fn add_namespace_items<'p>(
     for (_, q) in &items.qualifiers {
         consider(q.name.name.as_str(), &mut members);
     }
-    for (_, f) in &items.fns {
+    for (_, _, f) in &items.fns {
         consider(f.name.name.as_str(), &mut members);
     }
     if members.is_empty() {

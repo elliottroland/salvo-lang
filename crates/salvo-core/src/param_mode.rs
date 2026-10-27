@@ -22,11 +22,11 @@
 //! a `once` fn group are moved in: the callee receives a fresh list, and
 //! calls a `once` closure once.
 
-use salvo_syntax::ast::{DeductionKind, FnDecl, Item, Param, Type};
+use salvo_syntax::ast::{DeductionKind, FnDecl, Param, Type};
 
 use crate::check::Checked;
 use crate::program::{Program, Symbols};
-use crate::FnKey;
+use crate::DeclId;
 
 /// How a callee takes one parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,7 +50,7 @@ impl<'a, 'p> Modes<'a, 'p> {
     /// The mode of one top-level-fn parameter: deduction-driven (omitted =
     /// moved; kept = lent, mutably when the declared type carries `Mut` or
     /// its elements do).
-    pub fn fn_param(&self, key: Option<FnKey>, param: &Param) -> PassMode {
+    pub fn fn_param(&self, key: Option<DeclId>, param: &Param) -> PassMode {
         if param.variadic || is_fn_group(&param.ty) {
             return PassMode::Moved;
         }
@@ -146,7 +146,7 @@ impl<'a, 'p> Modes<'a, 'p> {
     /// parameters), and a struct with a fn-typed field as the result. That is
     /// the composed-pass shape, and nothing else in the language keeps a
     /// callback past the call.
-    pub fn owns_callbacks(&self, key: FnKey) -> bool {
+    pub fn owns_callbacks(&self, key: DeclId) -> bool {
         let Some(decl) = self.fn_by_key(key) else { return false };
         if !decl.params.iter().any(|p| matches!(p.ty, Type::Fn { .. })) && decl.implicit_groups.is_empty() {
             return false;
@@ -175,11 +175,8 @@ impl<'a, 'p> Modes<'a, 'p> {
         }
     }
 
-    fn fn_by_key(&self, key: FnKey) -> Option<&'a FnDecl> {
-        match self.program.modules.get(key.file)?.items.get(key.item)? {
-            Item::Fn(f) => Some(f),
-            _ => None,
-        }
+    fn fn_by_key(&self, key: DeclId) -> Option<&'a FnDecl> {
+        self.checked.decls.fn_decl(&self.program.modules, key)
     }
 }
 

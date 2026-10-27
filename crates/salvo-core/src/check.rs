@@ -25,7 +25,8 @@ use salvo_syntax::Span;
 use crate::diag::FileDiagnostic;
 use crate::place::{Place, Step};
 use crate::program::{Program, Symbols};
-use crate::resolve::{DefSite, FnKey, ModuleScope, Resolution};
+use crate::decl_id::DeclId;
+use crate::resolve::{DefSite, ModuleScope, Resolution};
 use crate::source::ModulePath;
 use crate::types::{is_subtype, FnId, FnParamContract, Qual, QualEffect, Ty};
 
@@ -103,13 +104,13 @@ impl StdCache {
 
     /// std's `param_mutations` rows (all of them — the cache's `Checked` is
     /// std-only), for seeding the round accumulator.
-    fn std_param_mutations(&self) -> impl Iterator<Item = (&FnKey, &HashSet<String>)> {
+    fn std_param_mutations(&self) -> impl Iterator<Item = (&DeclId, &HashSet<String>)> {
         self.checked.param_mutations.iter()
     }
 
     /// std's contracts, for the contracts known before the first walk
     /// [deduce-default].
-    pub(crate) fn std_deductions(&self) -> impl Iterator<Item = (&FnKey, &Vec<crate::deduce::ParamDeduction>)> {
+    pub(crate) fn std_deductions(&self) -> impl Iterator<Item = (&DeclId, &Vec<crate::deduce::ParamDeduction>)> {
         self.checked.deductions.iter()
     }
 
@@ -168,7 +169,7 @@ enum Route {
 /// selection needs — the ranking view of its parameters, and the rung of the
 /// visibility ladder it came in on [fn-overload-scope].
 struct Viable<'p> {
-    key: Option<FnKey>,
+    key: Option<DeclId>,
     decl: &'p FnDecl,
     subst: HashMap<String, Ty>,
     /// (argument index, substituted parameter type) — what an argument is
@@ -310,7 +311,7 @@ pub struct PickTest {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PassMember {
     /// A declared overload, resolved from the subject's own type.
-    Fn(FnKey),
+    Fn(DeclId),
     /// [implicit-group] [iter-generic-drive] An **implicit parameter** of the
     /// enclosing fn. The subject's type is one of its type parameters, so there
     /// is no declaration to resolve against: the member came in through a
@@ -321,7 +322,7 @@ pub enum PassMember {
 impl PassMember {
     /// The declaration behind it, when there is one — what the emitters need
     /// for a mangled name, an effect list or a machine name.
-    pub fn key(&self) -> Option<FnKey> {
+    pub fn key(&self) -> Option<DeclId> {
         match self {
             PassMember::Fn(key) => Some(*key),
             PassMember::Implicit(_) => None,
@@ -582,6 +583,9 @@ const ROUTE_KEY_QUALIFIER: &str = "Key";
 /// The checker's output.
 #[derive(Clone, Default)]
 pub struct Checked {
+    /// [decl-id] Where every declaration of the checked program is: what a
+    /// reader of the `DeclId`-keyed tables below asks for a key's file.
+    pub decls: std::sync::Arc<crate::decl_id::DeclIndex>,
     pub expr_ty: HashMap<Key, Ty>,
     /// [op-order] [op-equality] How a comparison operator lowers, keyed by the
     /// span of the binary expression. **Absent means the host's own operator**:
@@ -648,7 +652,7 @@ pub struct Checked {
     /// (the backend casts + asserts).
     pub field_casts: HashMap<Key, Ty>,
     /// Resolved fn declaration for call sites (keyed by call span).
-    pub call_fn: HashMap<Key, FnKey>,
+    pub call_fn: HashMap<Key, DeclId>,
     /// [iter-protocol] How a `for` loop drives a **pass**, keyed by the span
     /// of its *subject*. Present only when the subject has a `next`, rather
     /// than being an array or a value with an `iter`. There is
@@ -761,10 +765,10 @@ pub struct Checked {
     /// used to spell.
     pub handler_constructs: Vec<(String, String, Key)>,
     /// [task-mint] The free `send fn` each *task* mint targets, keyed by the
-    /// `replyto` span: a [`FnKey`] rather than a name, because a task target is
+    /// `replyto` span: a [`DeclId`] rather than a name, because a task target is
     /// resolved through the scope ladder and the emitters need the declaration
     /// the checker picked, not a name to re-resolve.
-    pub replyto_tasks: HashMap<Key, FnKey>,
+    pub replyto_tasks: HashMap<Key, DeclId>,
     /// [task-effects] The effect instances a **task mint** inherits from the
     /// minting scope, keyed by the `replyto` span and in the target's declared
     /// order — so the emitters pass one argument per entry, in the order the
@@ -946,10 +950,10 @@ pub struct Checked {
     /// declaration order (duplicates and unresolved entries dropped) —
     /// the primary source for the emitters' effect-parameter
     /// environments, keyed by checker types rather than type renderings.
-    pub fn_effects: HashMap<FnKey, Vec<Ty>>,
+    pub fn_effects: HashMap<DeclId, Vec<Ty>>,
     /// [effect-alias] [effect-prereq] The same for **every** fn the checker
-    /// lowered — handler and qualifier members included, which have no
-    /// `FnKey` — keyed by the fn's name span, without a member's inherited
+    /// lowered — handler and qualifier members included, which are not keyed
+    /// by their `DeclId` — by the fn's name span, without a member's inherited
     /// handler dependencies: the expanded list (aliases flattened,
     /// prerequisites added) the IR and the language server read instead of
     /// the written one (PIPELINE.md R6).
@@ -1021,12 +1025,12 @@ pub struct Checked {
     /// qualifiers are still known afterwards. Written lists are stored as
     /// validated; unwritten lists are inferred from the body. The Rust
     /// backend's ownership/borrow contract (Kotlin ignores them).
-    pub deductions: HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>,
+    pub deductions: HashMap<DeclId, Vec<crate::deduce::ParamDeduction>>,
     /// Fn-name references [fn-ref-table]: the span of a fn *name* — at
     /// its declaration, as a call-site callee, or a fn-by-name use —
     /// mapped to the declaration it resolves to. Drives the LSP's
     /// signature hover.
-    pub fn_refs: HashMap<Key, FnKey>,
+    pub fn_refs: HashMap<Key, DeclId>,
     /// Non-fn name references [lsp-definition]: the span of a type,
     /// struct, effect, handler, qualifier, type-alias, or effect-member
     /// name mapped to where its declaration's identifier is written.
@@ -1074,7 +1078,7 @@ pub struct Checked {
     /// renderable, keyed by the *interpolated expression's* span: the
     /// `to_str` the checker resolved for it at that site. The emitters call
     /// it instead of formatting the value directly.
-    pub interp_to_str: HashMap<Key, FnKey>,
+    pub interp_to_str: HashMap<Key, DeclId>,
     /// [interp-union] An interpolated **union**: how each of its runtime arms
     /// (in arm order) reaches text. The emitters call the arm's own `to_str`
     /// on the arm the value is.
@@ -1096,7 +1100,7 @@ pub struct Checked {
     /// [proj-infer] Per fn, the parameters its result holds borrows of
     /// (declared with `[p: proj]` or inferred from the body). Read by the
     /// Rust backend to name the lifetime on lent parameters and the return.
-    pub fn_lends: HashMap<FnKey, Vec<usize>>,
+    pub fn_lends: HashMap<DeclId, Vec<usize>>,
     /// [ref-handle] Bind events of **mutable element handles** (P-9, user
     /// decision 2026-09-24: mode is inferred per binding): a `let` binding a
     /// `proj Mut` value that some downstream use mutates. The Rust backend
@@ -1106,7 +1110,7 @@ pub struct Checked {
     /// [deduce-syntax] [ref-handle] Per fn, the parameters its body
     /// mutates — directly, or through a handle into them (a generic
     /// container is lent mutably exactly when a handle into it is written).
-    pub param_mutations: HashMap<FnKey, HashSet<String>>,
+    pub param_mutations: HashMap<DeclId, HashSet<String>>,
     /// Projection expressions in *moved* positions whose provenance
     /// roots were consumed [fate-move-mode]: the Rust backend may render
     /// the place directly (a partial move) instead of cloning.
@@ -1160,7 +1164,7 @@ pub struct Checked {
     /// ordered list both sides render — the callee's trailing parameters and
     /// the caller's trailing arguments — so neither emitter needs to know
     /// that groups exist.
-    pub implicit_params: HashMap<FnKey, Vec<ImplicitParam>>,
+    pub implicit_params: HashMap<DeclId, Vec<ImplicitParam>>,
     /// [deduce-reapply] The claims a fn's deduction clause says it
     /// **establishes** (`=> list: +Heap<T>(?cmp) Mut`), by (fn, parameter), each
     /// already lowered in the callee's generic scope — so a call site only has to
@@ -1168,7 +1172,7 @@ pub struct Checked {
     /// then add the qualifier to the caller's variable. Lowered here rather than
     /// at the call site because the callee's generics are in scope here and not
     /// there, exactly as for `implicit_params`.
-    pub established_quals: HashMap<(FnKey, String), Vec<Qual>>,
+    pub established_quals: HashMap<(DeclId, String), Vec<Qual>>,
     /// [cmp-carry] What each **carried identity** resolves to: the declaration
     /// behind the `by_age` in a `SortedSet<Person>(by_age)`, keyed by the
     /// identity and the type it orders.
@@ -1183,7 +1187,7 @@ pub struct Checked {
     /// the first file to write an identity the only one whose `fn_refs` and
     /// diagnostics recorded it, so a file's rows depended on which files
     /// were walked before it.
-    pub carried_identities: HashMap<(usize, FnId, Ty), FnKey>,
+    pub carried_identities: HashMap<(usize, FnId, Ty), DeclId>,
     /// What fills each implicit parameter at a call [implicit-resolve],
     /// keyed by the call span, in the callee's declared order.
     pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,
@@ -1195,7 +1199,7 @@ pub struct Checked {
     /// an empty argument list.
     pub use_handler_args: HashMap<Key, Vec<Ty>>,
     /// The implicit parameters of each *effect member* [implicit-param]:
-    /// members have no `FnKey`, so they are keyed by the span of the member's
+    /// members are not keyed by their `DeclId`, so they are keyed by the span of the member's
     /// name. The emitters read this where they render the member — the
     /// interface or trait method, every handler's implementation of it, and
     /// the host skeleton — since an implicit is part of the member's
@@ -1257,7 +1261,7 @@ pub enum CompareVia {
     /// structural member [obligation-by], or any other visible overload that
     /// fits. Intrinsic declarations included, which is how `Str` ordering
     /// reaches the backends' code-point comparison.
-    Call(FnKey),
+    Call(DeclId),
     /// The enclosing fn's own implicit parameter of that name
     /// [implicit-forward]: the only thing that *can* compare an opaque `T`,
     /// and the colouring that makes the capability visible in a signature.
@@ -1346,7 +1350,7 @@ pub enum ArmText {
     /// An implicit `to_str` of the enclosing fn (its local's name).
     Own(String),
     /// A `to_str` in scope, with the implicits it needs filled.
-    Fn { key: FnKey, implicits: Vec<ImplicitArg> },
+    Fn { key: DeclId, implicits: Vec<ImplicitArg> },
 }
 
 /// What a call site puts in an implicit parameter [implicit-resolve].
@@ -1366,7 +1370,7 @@ pub enum ImplicitArg {
     /// Resolved to a declared fn, by name and type [implicit-resolve].
     Resolved {
         name: String,
-        key: FnKey,
+        key: DeclId,
         /// [implicit-recursive] The implicits of the resolved fn itself,
         /// filled in turn (`eq` for `List<T>` needs an `eq` for `T`); empty
         /// for a fn with none. One level per nesting, depth-capped.
@@ -1382,7 +1386,7 @@ pub enum ImplicitArg {
     /// the emitters wrap the machine's own advance into the protocol's two
     /// arms, using `next_fn` — the `yield fn`'s key — for the machine's name
     /// and its effect order, exactly as a `for` over the origin does.
-    OriginNext { name: String, next_fn: FnKey },
+    OriginNext { name: String, next_fn: DeclId },
 }
 
 /// [lsp-completion] One local binding declared in a file, for completion: its
@@ -1633,7 +1637,7 @@ pub struct PickInfo<'c> {
 pub struct InterpInfo<'c> {
     pub implicit: Option<&'c String>,
     pub union: Option<&'c Vec<ArmText>>,
-    pub to_str: Option<&'c FnKey>,
+    pub to_str: Option<&'c DeclId>,
 }
 
 /// [unify-checker] `use`-statement facts at one span (COMPLETED.md's unify-checker entry).
@@ -1650,7 +1654,7 @@ pub struct SpawnInfo<'c> {
     pub spawn_deps: Option<&'c Vec<Ty>>,
     pub spawn_dep_items: Option<&'c Vec<Option<usize>>>,
     pub spawn_effects: Option<&'c Vec<Ty>>,
-    pub replyto_task: Option<&'c FnKey>,
+    pub replyto_task: Option<&'c DeclId>,
     pub task_mint_effects: Option<&'c Vec<Ty>>,
     pub replyto_member: Option<&'c String>,
 }
@@ -1671,7 +1675,7 @@ pub struct CallInfo<'c> {
     pub effect_call: Option<&'c Ty>,
     pub local_call: bool,
     pub local_call_name: Option<&'c String>,
-    pub call_fn: Option<&'c FnKey>,
+    pub call_fn: Option<&'c DeclId>,
     pub call_effects: Option<&'c Vec<Ty>>,
     pub call_type_args: Option<&'c Vec<Ty>>,
     pub implicit_args: Option<&'c Vec<ImplicitArg>>,
@@ -1850,7 +1854,7 @@ fn check_std_deductions_total(program: &Program, out: &mut Checked) {
             }
             // Suggest the total clause the inferred contract implies: the fix
             // is correct by construction, since it is what the body produces.
-            let key = FnKey { file: file_idx, item: item_idx };
+            let key = out.decls.fn_at(file_idx, item_idx);
             let suggestion = out
                 .deductions
                 .get(&key)
@@ -1974,7 +1978,7 @@ fn check_program_walk<'p>(
     // [deduce-syntax] Parameters whose data the body mutates, published for
     // the backends' pass modes (`param_mode`); they never feed back into
     // checking.
-    let mut mutations: HashMap<FnKey, HashSet<String>> = HashMap::new();
+    let mut mutations: HashMap<DeclId, HashSet<String>> = HashMap::new();
     // [actor-replyto] Handlers whose members mint a self-targeted
     // continuation, read off each handler's own text before anything is
     // walked (PIPELINE.md 4.5), so the `use` refusal it drives is right in
@@ -2009,7 +2013,7 @@ fn check_program_walk<'p>(
     // (user decision 2026-10-11), so it is known before any body is walked
     // (PIPELINE.md step 2): the first walk is a real one.
     let t = crate::timing::phase("check: contracts");
-    let contracts = crate::deduce::contracts(program, cache);
+    let contracts = crate::deduce::contracts(program, &resolution.decls, cache);
     drop(t);
 
     let ctx = WalkCtx {
@@ -2085,7 +2089,7 @@ struct WalkCtx<'a, 'p> {
     program: &'p Program,
     resolution: &'a Resolution<'p>,
     symbols: &'a Symbols<'p>,
-    inferred: &'a HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>,
+    inferred: &'a HashMap<DeclId, Vec<crate::deduce::ParamDeduction>>,
     refinements: &'a crate::refine::Refinements,
     cache: Option<&'a StdCache>,
 }
@@ -2095,7 +2099,7 @@ struct WalkCtx<'a, 'p> {
 /// one).
 fn check_once<'p>(
     ctx: &WalkCtx<'_, 'p>,
-    param_mutations: &mut HashMap<FnKey, HashSet<String>>,
+    param_mutations: &mut HashMap<DeclId, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
     check_cache: Option<(&mut crate::check_cache::CheckCache, &HashSet<String>)>,
 ) -> Checked {
@@ -2111,6 +2115,8 @@ fn check_once<'p>(
         Some(cache) => cache.seeded(),
         None => Checked::default(),
     };
+    // [decl-id] This program's declarations (a seed's are std's alone).
+    out.decls = resolution.decls.clone();
     drop(t);
     let t = crate::timing::phase("  check: written keys");
     match cache.filter(|c| c.shares_modules(program)) {
@@ -2273,7 +2279,7 @@ impl Steps<'_> {
         f: usize,
         step: usize,
         out: &mut Checked,
-        param_mutations: &mut HashMap<FnKey, HashSet<String>>,
+        param_mutations: &mut HashMap<DeclId, HashSet<String>>,
         parking_handlers: &mut HashSet<String>,
     ) -> bool {
         let Some(rows) = self.cached(f) else { return false };
@@ -2303,7 +2309,7 @@ fn file_checker<'r, 'p>(
     file_idx: usize,
     pass: Pass,
     out: &'r mut Checked,
-    param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
+    param_mutations: &'r mut HashMap<DeclId, HashSet<String>>,
     parking_handlers: &'r mut HashSet<String>,
 ) -> Checker<'p, 'r> {
     let file = &ctx.program.files[file_idx];
@@ -2344,7 +2350,7 @@ fn walk_interfaces<'p>(
     ctx: &WalkCtx<'_, 'p>,
     files: &[usize],
     out: &mut Checked,
-    param_mutations: &mut HashMap<FnKey, HashSet<String>>,
+    param_mutations: &mut HashMap<DeclId, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
     ifaces: &mut [FileIface<'p>],
     steps: &mut Steps<'_>,
@@ -2395,7 +2401,7 @@ fn walk_bodies<'p>(
     ctx: &WalkCtx<'_, 'p>,
     files: &[usize],
     out: &mut Checked,
-    param_mutations: &mut HashMap<FnKey, HashSet<String>>,
+    param_mutations: &mut HashMap<DeclId, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
     ifaces: &mut [FileIface<'p>],
     steps: &mut Steps<'_>,
@@ -2802,7 +2808,7 @@ struct Checker<'p, 'r> {
     /// The signature contracts, enforced at call sites for
     /// fns without a written list [deduce-consume], from their signatures
     /// (`deduce::contracts`), known before any body is walked.
-    inferred: &'r HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>,
+    inferred: &'r HashMap<DeclId, Vec<crate::deduce::ParamDeduction>>,
     /// [qual-refn] Refinements applying per (file, callee), resolved once
     /// for the whole program.
     refinements: &'r crate::refine::Refinements,
@@ -2936,7 +2942,7 @@ struct Checker<'p, 'r> {
     /// [deduce-syntax] Parameters whose data the body mutates — recorded
     /// for *every* fn (written lists included), since the written-list
     /// validation needs them.
-    param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
+    param_mutations: &'r mut HashMap<DeclId, HashSet<String>>,
     /// [actor-replyto] Handlers whose member bodies mint a **self**-targeted
     /// continuation, read off each handler's text before the walk
     /// (`syntactic_parking_handlers`), since a `use` may be checked before
@@ -2950,7 +2956,7 @@ struct Checker<'p, 'r> {
     parking_handlers: &'r mut HashSet<String>,
     /// The fn currently being checked, when it is a top-level `fn` item
     /// (member fns have no key).
-    own_fn: Option<FnKey>,
+    own_fn: Option<DeclId>,
     /// [lsp-completion] The body span of the fn whose body is being checked,
     /// recorded with every local it declares so the language server can offer
     /// the locals visible at a cursor inside that body. `None` outside a body.
@@ -3107,7 +3113,7 @@ struct Checker<'p, 'r> {
     resolve_depth: usize,
     /// [implicit-recursive] The (fn, wanted type) pairs being resolved, for
     /// the cycle refusal.
-    resolve_chain: Vec<(FnKey, String)>,
+    resolve_chain: Vec<(DeclId, String)>,
     /// [implicit-recursive] Why a position inside a nested fill failed, for
     /// the `try_nested` that opened it.
     nested_miss: Option<Unfilled>,
@@ -3213,7 +3219,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///
     /// Mirrors the generic scopes and the stamp scopes the rest of the walk
     /// enters, since `?cmp: (T, T) -> Int` must lower to a variable rather
-    /// than a nominal `T`, and mirrors which declarations have an `FnKey`
+    /// than a nominal `T`, and mirrors which declarations have a `DeclId` key
     /// (only a top-level fn does; the rest key by their name span).
     fn check_signature_facts(&mut self, module: &'p Module) {
         // [deduce-reapply] The same-file rule for `+Q` reads this.
@@ -3228,10 +3234,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (item_idx, item) in module.items.iter().enumerate() {
             match item {
                 Item::Fn(f) => {
-                    self.own_fn = Some(FnKey {
-                        file: self.file_idx,
-                        item: item_idx,
-                    });
+                    self.own_fn = Some(self.resolution.decls.fn_at(self.file_idx, item_idx));
                     self.own_stamp = f.stamped.as_ref();
                     let saved_scope = self.scope;
                     if let Some(&i) = self.resolution.fn_stamp_scope.get(&(f as *const FnDecl as usize)) {
@@ -3286,7 +3289,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// declare implicit parameters. They belong to the member's signature —
     /// the interface method takes them, every handler's implementation takes
     /// them, and the call site fills them — so the expansion is recorded
-    /// here, keyed by the member's name (a member has no `FnKey`).
+    /// here, keyed by the member's name (a member is not keyed by its `DeclId`).
     fn effect_member_implicits(&mut self, f: &'p FnDecl) {
         let implicits = self.collect_implicits(f);
         if !implicits.is_empty() {
@@ -3336,10 +3339,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         scope: &'r ModuleScope<'p>,
         resolution: &'r Resolution<'p>,
         symbols: &'r Symbols<'p>,
-        inferred: &'r HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>,
+        inferred: &'r HashMap<DeclId, Vec<crate::deduce::ParamDeduction>>,
         refinements: &'r crate::refine::Refinements,
         out: &'r mut Checked,
-            param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
+            param_mutations: &'r mut HashMap<DeclId, HashSet<String>>,
             parking_handlers: &'r mut HashSet<String>,
     ) -> Checker<'p, 'r> {
         Checker {
@@ -3610,10 +3613,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_fn_item(&mut self, item_idx: usize, f: &'p FnDecl) {
         // The declaration's own name is a fn reference
         // [fn-ref-table].
-        let key = FnKey {
-            file: self.file_idx,
-            item: item_idx,
-        };
+        let key = self.resolution.decls.fn_at(self.file_idx, item_idx);
         let (iface, body) = (self.pass.interface(), self.pass == self.body_pass_of(f));
         if iface {
             self.out.fn_refs.insert(self.key(f.name.span), key);
@@ -6127,7 +6127,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.out.implicit_params.insert(key, out.clone());
             }
             // A *member* — a handler's implementation of an effect member —
-            // has no `FnKey`, so it is keyed by its own name span, exactly
+            // is not keyed by its `DeclId`, so it is keyed by its own name span, exactly
             // as the effect member it implements is [implicit-param].
             None if !out.is_empty() => {
                 self.out
@@ -6140,7 +6140,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// The expansion itself, without recording it: shared by fns and by
-    /// effect members, which have no `FnKey` to record under.
+    /// effect members, which are not keyed by their `DeclId`.
     ///
     /// Must be called with the declaration's generics in scope — for a member
     /// that means the effect's generics as well as its own, or the types
@@ -6492,7 +6492,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// which its written list does not show: as a *value* the fn takes them
     /// like a written `?eq: …`, so it fits no position that does not pass
     /// them.
-    fn group_member_params(&self, key: FnKey, decl: &FnDecl) -> Vec<Ty> {
+    fn group_member_params(&self, key: DeclId, decl: &FnDecl) -> Vec<Ty> {
         if decl.implicit_groups.is_empty() {
             return Vec::new();
         }
@@ -6515,7 +6515,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// return as a call sees it — the claim a constructor gains (`-> +Valid
     /// Range`), through [`Self::fn_return_ty`] — its contract and its effects. What a position
     /// makes of it is [`Self::fn_value_at`].
-    fn fn_value_ty(&mut self, key: FnKey, decl: &'p FnDecl) -> Ty {
+    fn fn_value_ty(&mut self, key: DeclId, decl: &'p FnDecl) -> Ty {
         let saved = self.enter_generics(&decl.generics);
         let mut params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
         let ret = self.fn_return_ty(decl);
@@ -6575,7 +6575,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// miss is ranked for the diagnostic: 2 for the wrong number of
     /// parameters, 1 for types that do not match, 0 for what a printed type
     /// cannot show (a contract, an implicit that cannot be filled).
-    fn fn_value_at(&mut self, key: FnKey, decl: &'p FnDecl, want: &Ty) -> Result<FnValueAt, (u8, String)> {
+    fn fn_value_at(&mut self, key: DeclId, decl: &'p FnDecl, want: &Ty) -> Result<FnValueAt, (u8, String)> {
         let fit = self.fn_value_fit(key, decl, want)?;
         let mut nested = Vec::new();
         if fit.fills && !self.resolve_as_call {
@@ -6591,7 +6591,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// *not* filled: a candidate is chosen without regard to them, exactly as
     /// a call's are (user decision 2026-10-14), and only the winner's are
     /// filled [implicit-recursive]. Misses ranked as [`Self::fn_value_at`]'s.
-    fn fn_value_fit(&mut self, key: FnKey, decl: &'p FnDecl, want: &Ty) -> Result<FnFit, (u8, String)> {
+    fn fn_value_fit(&mut self, key: DeclId, decl: &'p FnDecl, want: &Ty) -> Result<FnFit, (u8, String)> {
         let name = decl.name.name.clone();
         let Ty::Fn { params: want_params, ret: want_ret, .. } = want.strip_quals().clone() else {
             return Err((2, format!("the position for `{name}` is not a function type")));
@@ -6742,7 +6742,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn resolve_implicits(
         &mut self,
         decl: &'p FnDecl,
-        key: Option<FnKey>,
+        key: Option<DeclId>,
         subst: &mut HashMap<String, Ty>,
         callee_generics: &HashSet<String>,
         named: &'p [ast::NamedArg],
@@ -7001,7 +7001,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// can be. Reports nothing.
     fn unfillable_implicit(
         &mut self,
-        key: FnKey,
+        key: DeclId,
         generics: &[ast::Ident],
         subst: &HashMap<String, Ty>,
         named: &'p [ast::NamedArg],
@@ -7314,7 +7314,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// stands in (user decision 2026-10-14).
     fn try_nested(
         &mut self,
-        key: FnKey,
+        key: DeclId,
         decl: &'p FnDecl,
         binding: &HashMap<String, Ty>,
         generics: &HashSet<String>,
@@ -7400,7 +7400,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         name: &str,
         at: Option<&str>,
         want: &Ty,
-    ) -> Result<(FnKey, FnId), ImplicitMiss> {
+    ) -> Result<(DeclId, FnId), ImplicitMiss> {
         self.resolve_implicit_fn_in(name, at, None, want)
     }
 
@@ -7408,7 +7408,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// position's fn type: looked up in its declaring module rather than by
     /// what the reading file can see, so a value built with `a`'s `my_hash`
     /// is operated on with `a`'s, whatever this file imports.
-    fn resolve_identity(&mut self, id: &FnId, want: &Ty) -> Result<(FnKey, FnId), ImplicitMiss> {
+    fn resolve_identity(&mut self, id: &FnId, want: &Ty) -> Result<(DeclId, FnId), ImplicitMiss> {
         match id {
             FnId::Named { name, at, module, .. } => {
                 let (name, at, module) = (name.clone(), at.clone(), module.clone());
@@ -7420,9 +7420,9 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [cmp-carry] An identity of the declaration behind `key`: its name, its
     /// `@`-scoping when it is attached [fn-attached], and its declaring module.
-    fn identity_of(&self, key: FnKey, decl: &FnDecl) -> FnId {
+    fn identity_of(&self, key: DeclId, decl: &FnDecl) -> FnId {
         let at = self.attached_to(key, decl);
-        let file = self.files.get(key.file);
+        let file = self.files.get(self.resolution.decls.file(key));
         let module = file.map(|f| f.module.to_string());
         let qualify = at.is_none()
             && file.is_some_and(|f| !f.is_std)
@@ -7468,7 +7468,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         at: Option<&str>,
         module: Option<&str>,
         want: &Ty,
-    ) -> Result<(FnKey, FnId), ImplicitMiss> {
+    ) -> Result<(DeclId, FnId), ImplicitMiss> {
         if !matches!(want.strip_quals(), Ty::Fn { .. }) {
             return Err(ImplicitMiss::Unknown);
         }
@@ -7844,7 +7844,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [fn-overload-scope] One declaration is one candidate, however many
         // ways it is visible.
-        let mut seen: HashSet<FnKey> = HashSet::new();
+        let mut seen: HashSet<DeclId> = HashSet::new();
         pool.retain(|e| seen.insert(e.key));
         let chosen = self.choose_by_name(name, &pool, expected);
         let entry = match chosen {
@@ -8093,7 +8093,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [fn-rename] Whether this overload has been renamed away from `name` —
     /// "*only* the new name is valid for that variant".
-    fn renamed_away(&self, name: &str, key: FnKey) -> bool {
+    fn renamed_away(&self, name: &str, key: DeclId) -> bool {
         self.renames
             .iter()
             .any(|r| r.target == name && r.entry.key == key)
@@ -8499,7 +8499,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// One *declaration* is one candidate: drops the duplicate entries two
     /// routes to the same function produce.
     fn dedupe_by_declaration(pool: &mut Vec<usize>, viable: &[Viable<'p>]) {
-        let mut seen: Vec<(Option<FnKey>, *const FnDecl)> = Vec::new();
+        let mut seen: Vec<(Option<DeclId>, *const FnDecl)> = Vec::new();
         pool.retain(|&i| {
             let id = (viable[i].key, viable[i].decl as *const FnDecl);
             if seen.contains(&id) {
@@ -8529,7 +8529,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// written inside the struct's body (the AST carries it, set when the fn was
     /// hoisted) or the file's fulfilment of one of the struct's obligations
     /// (resolution worked that out, since the import rule needs it).
-    fn attached_to(&self, key: FnKey, decl: &FnDecl) -> Option<String> {
+    fn attached_to(&self, key: DeclId, decl: &FnDecl) -> Option<String> {
         decl.scoped_to
             .as_ref()
             .map(|t| t.name.clone())
@@ -9043,7 +9043,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// it at the end of the call, and one mistake gets one diagnostic.
     fn extend_subst_from_implicits(
         &mut self,
-        key: Option<FnKey>,
+        key: Option<DeclId>,
         callee_generics: &HashSet<String>,
         progressive: &mut HashMap<String, Ty>,
         named: &[ast::NamedArg],
@@ -9892,7 +9892,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(key) = self.own_fn {
             let tys: Vec<Ty> = fn_effects.iter().map(|a| a.ty.clone()).collect();
             if !tys.is_empty() {
-                self.out.fn_body_effects.push((key.file, body.span, tys));
+                self.out.fn_body_effects.push((self.resolution.decls.file(key), body.span, tys));
             }
         }
         // [mod-use] The module's bindings sit outermost, so a function's own
@@ -12353,7 +12353,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [implicit-resolve] Fills the implicits of the fn `key` (a `name`
     /// overload) as a call with arguments `arg_tys` would, keyed at `at`.
     /// Nothing for a fn without implicits.
-    fn fill_resolved_implicits(&mut self, key: FnKey, name: &str, arg_tys: &[Ty], at: Span) {
+    fn fill_resolved_implicits(&mut self, key: DeclId, name: &str, arg_tys: &[Ty], at: Span) {
         let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
         if implicits.is_empty() {
             return;
@@ -12421,7 +12421,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// The implicits `key` (a `to_str` overload) needs to take a `ty`, filled
     /// at `expr`; empty for one with none.
-    fn implicits_of_text_form(&mut self, expr: &'p Expr, key: FnKey, ty: &Ty) -> Vec<ImplicitArg> {
+    fn implicits_of_text_form(&mut self, expr: &'p Expr, key: DeclId, ty: &Ty) -> Vec<ImplicitArg> {
         let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
         if implicits.is_empty() {
             return Vec::new();
@@ -13225,7 +13225,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// parameters optimistic — a declaration with no key.
     fn effective_contract(
         &self,
-        key: Option<FnKey>,
+        key: Option<DeclId>,
         decl: &FnDecl,
     ) -> Option<Vec<crate::deduce::ParamDeduction>> {
         if let Some(k) = key {
@@ -13239,7 +13239,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// The resolver's key for a declaration, by identity.
-    fn fn_key_of_decl(&self, f: &FnDecl) -> Option<FnKey> {
+    fn fn_key_of_decl(&self, f: &FnDecl) -> Option<DeclId> {
         self.scope
             .fns
             .get(f.name.name.as_str())
@@ -21386,7 +21386,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// to a qualifier that applies to the parameter's type.
     fn establish_quals(
         &mut self,
-        callee: FnKey,
+        callee: DeclId,
         param: &str,
         arg: &str,
         subst: &HashMap<String, Ty>,
@@ -21463,7 +21463,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// plus the callee's own checked `preserve` entries.
     fn preserved_claims(
         &mut self,
-        key: Option<FnKey>,
+        key: Option<DeclId>,
         decl: &ast::FnDecl,
         param: &str,
         have: &[String],
@@ -21501,7 +21501,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn apply_refinements(
         &mut self,
-        callee: FnKey,
+        callee: DeclId,
         param: &str,
         arg: &str,
         had: &[String],
@@ -21528,7 +21528,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn apply_refinement_group(
         &mut self,
         group: &crate::refine::RefnGroup,
-        callee: FnKey,
+        callee: DeclId,
         param: &str,
         arg: &str,
         span: Span,
@@ -26181,7 +26181,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// type, the arm identity, and the (unsubstituted) state parameter
     /// type. Extracted from `pass_elem_ty` so the not-iterable diagnostic
     /// can use the same scan for its remedy hint.
-    fn find_next_driver(&mut self, stripped: &Ty) -> Option<(FnKey, Ty, usize, usize, Ty)> {
+    fn find_next_driver(&mut self, stripped: &Ty) -> Option<(DeclId, Ty, usize, usize, Ty)> {
         let entries: Vec<crate::resolve::FnEntry<'p>> = self.scope.fns.get("next")?.clone();
         for entry in entries {
             let decl = entry.decl;
@@ -26233,7 +26233,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// not a plain struct name (a generic variable, an intrinsic type, a
     /// machine) answers `true`: those are matched by `unify` as before, and
     /// this test only exists to separate two structs of one name.
-    fn same_pass_decl(&self, subject: &Ty, decl: &'p FnDecl, key: FnKey) -> bool {
+    fn same_pass_decl(&self, subject: &Ty, decl: &'p FnDecl, key: DeclId) -> bool {
         let Ty::Named { name, .. } = subject.strip_quals() else {
             return true;
         };
@@ -26256,7 +26256,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(theirs) = self
             .resolution
             .scopes
-            .get(key.file)
+            .get(self.resolution.decls.file(key))
             .and_then(|s| s.structs.get(param_name).copied())
         else {
             return true;
@@ -26291,7 +26291,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         stripped: &Ty,
         iterable: Option<&'p Expr>,
         span: Span,
-        mint: Option<FnKey>,
+        mint: Option<DeclId>,
     ) -> Option<Ty> {
         let (decl, ob) = self.yield_obligation(stripped)?;
         if let Some((key, elem, emitted_arm, arms, pt)) = self.find_next_driver(stripped) {
@@ -26367,7 +26367,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// with the pass type it answers (substituted for the subject). Passes are
     /// looked for *first* by the caller: a value that is already a position in
     /// a sequence must not have a second pass minted from it.
-    fn iter_pass_for(&mut self, subject: &Ty) -> Option<(FnKey, Ty)> {
+    fn iter_pass_for(&mut self, subject: &Ty) -> Option<(DeclId, Ty)> {
         let entries: Vec<crate::resolve::FnEntry<'p>> = self.scope.fns.get("iter")?.clone();
         for entry in entries {
             let decl = entry.decl;
@@ -26572,12 +26572,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         Some(elem)
     }
 
-    /// The declaration behind a `FnKey`, through its own file's scope (which
+    /// The declaration behind a `DeclId`, through its own file's scope (which
     /// holds every fn the file declares, private ones included).
-    fn fn_decl_by_key(&self, key: FnKey) -> Option<&'p FnDecl> {
+    fn fn_decl_by_key(&self, key: DeclId) -> Option<&'p FnDecl> {
         self.resolution
             .scopes
-            .get(key.file)?
+            .get(self.resolution.decls.file(key))?
             .fns
             .values()
             .flatten()
@@ -27529,7 +27529,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn refn_response_narrows(
         &mut self,
         cond: &'p Expr,
-        callee: FnKey,
+        callee: DeclId,
         args: &'p [Expr],
     ) -> CondInfo {
         let mut out = CondInfo::default();
@@ -31020,7 +31020,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !any_available && !self.overloads_of(name).is_empty() {
                 // Fall through to the fn overloads below [effect-available].
             } else {
-            // [lsp-definition] members have no `FnKey`; the def-site table
+            // [lsp-definition] members are not keyed by their `DeclId`; the def-site table
             // carries their declaration span.
             self.record_def_ref(name_span, name);
             // [effect-member-overload] One candidate per *effect*: within one
@@ -31747,7 +31747,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // actor body *is* a callback with state of its own, called once per
         // activation, and the Rust lowering moves the captures in — so the
         // state is the body's, not shared with the caller.
-        let runtime_kept = decl.platform && best_key.is_some_and(|k| self.runtime_files.get(k.file).copied().unwrap_or(false));
+        let runtime_kept = decl.platform && best_key.is_some_and(|k| self.runtime_files.get(self.resolution.decls.file(k)).copied().unwrap_or(false));
         // [platform-fn-value] Outside the runtime, a platform fn that keeps a
         // fn value (`=> !hook` on a fn-typed parameter) keeps a **named**
         // one: a top-level fn, so capture-free, and effect-free by its type —

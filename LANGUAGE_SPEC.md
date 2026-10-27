@@ -2102,8 +2102,8 @@ Conventions:
     [qual-of], and each entry must name a parameter of the resolved
     overload, once.
   * Effect members are **not** refinable (deferred, user decision
-    2026-09-06): a member has no `FnKey` and naming one needs an
-    effect-qualified form.
+    2026-09-06): the checker keys no member's facts by its
+    `DeclId` [decl-id], and naming one needs an effect-qualified form.
 * [qual-refn-match] A refinement **names** a function and refines **every
   in-scope overload of that name** whose parameters its gate accepts
   (one-to-many, user decision 2026-10-12). The gate is **positional base
@@ -10729,6 +10729,45 @@ between endpoints and delivers what arrives into the scheduler.
     runtime's field `token: Token` by runtime's own `Token`. A protocol's
     canonical form spells a name plain, so its hash does not depend on which
     module holds the plain key.
+* [decl-id] **Every declaration has one stable id** (PIPELINE.md §II.9
+  A1; user decision P1, 2026-10-27): its **module path**, its **kind** (fn,
+  struct, `type`, effect, effect member, handler, handler member, qualifier,
+  qualifier fn, `params` group, group member, effect alias, and the IR's
+  generated declarations and module statics), its **name path** (the
+  container's name first: `Counter.get`), and for a fn-like declaration its
+  **signature** as overload identity: the written parameter types, type
+  parameters positional (`#0`), and the return type, exactly what
+  [fn-overload-duplicate] compares (the return type because overloads may
+  differ only in it, [fn-overload-return]). A qualifier's is its subject
+  type [qual-overload].
+  * **Stable**: a function of the declaration's own text and module, so
+    editing a body, reordering declarations, renaming a type parameter, or
+    adding or removing another file does not change it, and the same
+    declaration has the same id in every program holding it (the language
+    server's std cache and each analysis).
+  * **Ordinal**: the tie-break among textually identical signatures, in
+    program order. A module's top-level fns never reach it in an accepted
+    program — [fn-overload-duplicate] refuses the second — but the refused
+    one still has an id of its own (`f(Int) -> Int@main#1`), so checking
+    goes on past the error.
+  * **Representation** (`decl_id.rs`): interned for the process, so a
+    `DeclId` is one pointer, hashed and compared as such; its order is by
+    content. It displays as `name(sig)@module` (PIPELINE.md §II.7).
+  * **Position is derived, never the key**: `Resolution::decls` and
+    `Checked::decls` (a `DeclIndex`) answer where an id is declared (file,
+    item, member) and which id is at a position, for what still needs the
+    file or the AST (emission order, a default's declaring file, the
+    language server's definition sites, the check cache's per-file rows).
+  * The checker's fn-keyed tables (`fn_effects`, `fn_lends`,
+    `implicit_params`, `established_quals`, `param_mutations`,
+    `deductions`, `call_fn`, `fn_refs`, `replyto_tasks`, `interp_to_str`,
+    `ImplicitArg::Resolved`, `PassMember::Fn`, …) and the IR's references
+    are keyed by it; a handler's member is not yet a key of the checker's
+    tables (its facts are keyed by its name span) and in the IR still
+    carries its handler's id.
+  * The IR's generated declarations (message, continuation and private
+    enums, stubs, routes, dispatchers) are identified by their module and
+    generated name, a module-level `use`'s statics by their local.
 * [mod-used-only] Only modules used by the program are transpiled. Roots are
   the user modules declaring `fn main` (all user modules for a library compile
   without one), and from there a module is reached **two ways** (user decision
@@ -11785,7 +11824,7 @@ replaced the working document TESTING.md).
     reason to skip: clean programs' IR holds them. A program with no error
     checks every declaration.
 * [ir-nodes] The node set (`crates/salvo-core/src/ir/nodes.rs`): every expression
-  carries its resolved type; every reference is absolute (a `DeclId`, a
+  carries its resolved type; every reference is absolute (a `DeclId` [decl-id], a
   local, or an interface member by index), so the IR has no imports;
   effects are leading parameters and a member call names its instance.
   Generic declarations stay generic, and a call carries its type arguments.
@@ -12028,7 +12067,8 @@ replaced the working document TESTING.md).
     errors.
 * [fn-ref-table] The checker records every fn-*name* reference —
   declaration names, call-site callees (incl. dot-notation), and
-  fn-by-name uses — as `Checked::fn_refs: (file, name span) -> FnKey`.
+  fn-by-name uses — as `Checked::fn_refs: (file, name span) -> DeclId`
+  [decl-id].
   The LSP's hover renders the referenced declaration as a full
   source-like signature with an explicit return type (`None` when
   omitted) and the *effective* deduction clause in the `=>` spelling: the
@@ -12036,7 +12076,7 @@ replaced the working document TESTING.md).
   available, else as declared. Consumed parameters render as `!p`; kept
   whole ones, and Copy scalars, are omitted; lends render as `proj(…)`;
   fn-type groups as `=>[f] …`. Effect-member calls
-  have no `FnKey` and are not recorded.
+  are not keyed by `DeclId` and are not recorded.
 * [diag-import-suggest] Diagnostics for unresolved names carry structured
   import suggestions: the modules elsewhere in the program that declare
   the name, as `module.Item` paths (`FileDiagnostic::suggested_imports`).
@@ -12245,8 +12285,8 @@ replaced the working document TESTING.md).
       it ("Field of struct `Person`."). Reached at a *use* through
       `Checked::field_refs`.
     * A member fn renders its signature from the declaration and names its
-      owner ("Member of effect `Log`."). Members have no `FnKey`, so no
-      *inferred* deductions are shown — the declared list is
+      owner ("Member of effect `Log`."). Members' facts are not keyed by
+      `DeclId`, so no *inferred* deductions are shown — the declared list is
       [decl-explicit], which members must write anyway.
   * A fate-linked (derived) variable hovers as `proj T` — a bare
     compiler qualifier on the type line — with the qualifier's parameters
@@ -12365,7 +12405,7 @@ replaced the working document TESTING.md).
   effect types); completion picks the innermost body span containing the
   cursor and offers a member only when its owning effect is in that set. The
   index (`completion_index`) reads effect members from the resolver's
-  `ModuleScope::effect_members` (members have no `FnKey`, so their signature is
+  `ModuleScope::effect_members` (members' facts are not keyed by `DeclId`, so their signature is
   rendered at index time and their owning-effect name carried for the gate).
   A mid-body `use H()` binding is not yet reflected — it lives only in the
   checker's transient effect environment, not the persisted per-body set — so
@@ -12485,7 +12525,7 @@ replaced the working document TESTING.md).
     line/character pairs (the LSP default encoding).
 * [lsp-rename] **`textDocument/rename` renames a name and every
   occurrence of it, across every file of the program** (2026-10-19, user
-  request): the cursor resolves to a fn's `FnKey` through `fn_refs`, or to
+  request): the cursor resolves to a fn's `DeclId` through `fn_refs`, or to
   any other declaration's `DefSite` through `def_refs`/`field_refs` —
   exactly as [lsp-definition] resolves it — falling back to a declaration's
   own name span when the cursor sits on the declaration rather than a

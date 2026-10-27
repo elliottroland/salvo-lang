@@ -221,15 +221,15 @@ fn reachable_from<'p>(
 ///
 /// Answers *file* indices, which each backend maps to its own module naming.
 pub fn resolved_dep_files(checked: &crate::check::Checked, file_idx: usize) -> HashSet<usize> {
-    let mut out: HashSet<usize> = resolved_fn_keys(checked, file_idx).into_iter().map(|k| k.file).collect();
+    let mut out: HashSet<usize> = resolved_fn_keys(checked, file_idx).into_iter().filter_map(|k| checked.decls.loc(k)).map(|l| l.file).collect();
     out.remove(&file_idx);
     out
 }
 
 /// [fn-emit-name] Every fn the checker resolved a use of in `file_idx` to —
 /// the tables `resolved_dep_files` reads, kept at the declaration.
-pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> HashSet<crate::FnKey> {
-    let mut out: HashSet<crate::FnKey> = HashSet::new();
+pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> HashSet<crate::DeclId> {
+    let mut out: HashSet<crate::DeclId> = HashSet::new();
     let mine = |key: &&(usize, salvo_syntax::Span)| key.0 == file_idx;
     // Calls, and fn *names* used any other way (a fn passed by value, a
     // callee, a declaration site) [fn-ref-table].
@@ -241,7 +241,7 @@ pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> Has
     }
     // [implicit-resolve] What fills an implicit position — `?cmp`, `?hash`,
     // a group's `next` — is a function the emitted call hands over.
-    fn walk(arg: &crate::check::ImplicitArg, out: &mut HashSet<crate::FnKey>) {
+    fn walk(arg: &crate::check::ImplicitArg, out: &mut HashSet<crate::DeclId>) {
         if let crate::check::ImplicitArg::Resolved { key, nested, .. } = arg {
             out.insert(*key);
             // [implicit-recursive] …and what fills its own implicits.

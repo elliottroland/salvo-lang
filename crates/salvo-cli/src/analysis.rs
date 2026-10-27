@@ -172,9 +172,9 @@ pub enum TypeKind {
 pub struct CompletionFn {
     pub name: String,
     /// The key of a free fn, for rendering its signature with deductions.
-    /// `None` for an effect member, which has no `FnKey`: its signature is
+    /// `None` for an effect member, which is not keyed by its `DeclId`: its signature is
     /// precomputed in `detail` and its availability gated by `effect`.
-    pub key: Option<salvo_core::FnKey>,
+    pub key: Option<salvo_core::DeclId>,
     /// The base type name of the first parameter, which dot-notation's
     /// receiver fills [fn-dot]; `None` when it has none or it is one of the
     /// fn's own type parameters.
@@ -690,7 +690,7 @@ fn type_completion_index(resolution: &salvo_core::Resolution<'_>, viewable: &[bo
 
 /// [lsp-completion] The per-file index of callable fns, read off the
 /// resolver's scopes; generated names (`__…`) are left out. Free fns carry
-/// their `FnKey`; effect members carry their owning effect's name (so
+/// their `DeclId`; effect members carry their owning effect's name (so
 /// completion offers them only where that effect is available) and a
 /// precomputed signature.
 fn completion_index(resolution: &salvo_core::Resolution<'_>, viewable: &[bool]) -> Vec<Vec<CompletionFn>> {
@@ -751,7 +751,7 @@ fn completion_index(resolution: &salvo_core::Resolution<'_>, viewable: &[bool]) 
             // [effect-member-completion] Effect members a call could resolve
             // to — offered only where the owning effect is available, which
             // the completion handler gates on. Their signature is rendered
-            // here since a member has no `FnKey`.
+            // here since a member is not keyed by its `DeclId`.
             let in_scope_set: std::collections::HashSet<(usize, usize)> = scope
                 .effect_members
                 .values()
@@ -808,7 +808,7 @@ fn overload_index(resolution: &salvo_core::Resolution<'_>, viewable: &[bool]) ->
             let sites: Vec<DefSite> = entries
                 .iter()
                 .map(|e| DefSite {
-                    file: e.key.file,
+                    file: e.file,
                     span: e.decl.name.span,
                 })
                 .collect();

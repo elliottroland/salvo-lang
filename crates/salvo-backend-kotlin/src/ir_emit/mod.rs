@@ -51,6 +51,7 @@ pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>
     };
     let mut shared = Shared {
         program,
+        decl_index: &resolution.decls,
         symbols: &symbols,
         erased: &erased,
         abi,
@@ -214,6 +215,8 @@ pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>
 /// Program-wide state the module emitters share.
 struct Shared<'p> {
     program: &'p Program,
+    /// [decl-id] Where every declaration of `program` is.
+    decl_index: &'p salvo_core::DeclIndex,
     symbols: &'p salvo_core::Symbols<'p>,
     /// [effect-generic-decl] the declarations rendered without generics.
     erased: &'p salvo_core::Erased,
@@ -391,21 +394,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// namespace still keeps the name unique, and no `object` has to hold the
     /// fn. Mirrors the Rust backend, which flattens every dotted name.
     fn fn_name(&mut self, id: &DeclId) -> String {
-        let file_idx = self.s.program.files.iter().position(|f| f.module == id.module);
-        let decl = file_idx.and_then(|fi| self.s.program.modules[fi].items.get(id.item));
+        let file_idx = self.s.decl_index.loc(*id).map(|l| l.file);
+        let decl = file_idx.and_then(|fi| self.s.program.modules[fi].items.get(self.s.decl_index.loc(*id).map_or(usize::MAX, |l| l.item)));
         let name = match decl {
             Some(salvo_syntax::ast::Item::Fn(f)) => self.s.fn_names.get(f).unwrap_or(&f.name.name).to_string(),
             Some(salvo_syntax::ast::Item::Qualifier(q)) => {
-                let f = q.fns.get(id.sub as usize - 1).map(|f| f.name.name.clone()).unwrap_or_default();
+                let f = q.fns.get(self.s.decl_index.loc(*id).map_or(0, |l| l.sub as usize).wrapping_sub(1)).map(|f| f.name.name.clone()).unwrap_or_default();
                 format!("{}_{}", q.name.name, f)
             }
             _ => self.s.ir.ref_name(id),
         };
         let local = kt_ident(&name.replace('.', "_"));
-        if id.module == self.module.path {
+        if *id.module() == self.module.path {
             local
         } else {
-            format!("{}.{local}", kotlin_package(&id.module))
+            format!("{}.{local}", kotlin_package(id.module()))
         }
     }
 
@@ -428,7 +431,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn generated_impl_module(&self, key: &str) -> Option<salvo_core::ModulePath> {
         let module = salvo_core::typekey::module_of(key)?;
         self.s.ir.modules.iter().filter(|m| m.path.0.join(".") == module).flat_map(|m| &m.decls).find_map(|d| match d {
-            Decl::Impl(h) if salvo_core::ir::enum_key(&h.name, &h.id.module) == key => Some(h.id.module.clone()),
+            Decl::Impl(h) if salvo_core::ir::enum_key(&h.name, h.id.module()) == key => Some(h.id.module().clone()),
             _ => None,
         })
     }
@@ -437,7 +440,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn generated_enum(&self, key: &str) -> Option<(&'p salvo_core::ir::EnumDecl, salvo_core::ModulePath)> {
         let module = salvo_core::typekey::module_of(key)?;
         self.s.ir.modules.iter().filter(|m| m.path.0.join(".") == module).flat_map(|m| &m.decls).find_map(|d| match d {
-            Decl::Enum(e) if salvo_core::ir::enum_key(&e.name, &e.id.module) == key => Some((e, e.id.module.clone())),
+            Decl::Enum(e) if salvo_core::ir::enum_key(&e.name, e.id.module()) == key => Some((e, e.id.module().clone())),
             _ => None,
         })
     }
@@ -933,9 +936,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.out.push_str(&format!(
                 "\nclass __Platform_{}({ps}) : {}__Platform_{}({}.{}({}))\n",
                 h.name,
-                self.pkg_prefix(&iface.id.module),
+                self.pkg_prefix(iface.id.module()),
                 iface.name,
-                host_package(&h.id.module),
+                host_package(h.id.module()),
                 h.name,
                 args.join(", ")
             ));
@@ -1038,8 +1041,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         let pad = "    ".repeat(indent);
         // [effect-generic-decl] a fn generic only over effects is emitted without them.
-        let file_idx = self.s.program.files.iter().position(|x| x.module == f.id.module);
-        let erased_fn = file_idx.is_some_and(|fi| match self.s.program.modules[fi].items.get(f.id.item) {
+        let file_idx = self.s.decl_index.loc(f.id).map(|l| l.file);
+        let erased_fn = file_idx.is_some_and(|fi| match self.s.program.modules[fi].items.get(self.s.decl_index.loc(f.id).map_or(usize::MAX, |l| l.item)) {
             Some(salvo_syntax::ast::Item::Fn(af)) => self.s.erased.fns.contains(&(fi, af.name.span.start)),
             _ => false,
         });
@@ -1074,7 +1077,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 .skip(f.effect_params)
                 .map(|p| kt_local(&p.local))
                 .collect();
-            let call = format!("{}.{}({})", host_package(&f.id.module), kt_ident(&f.name), args.join(", "));
+            let call = format!("{}.{}({})", host_package(f.id.module()), kt_ident(&f.name), args.join(", "));
             // [platform-check] the wrapper checks the result (D7); a host
             // project's wrappers carry no checks.
             match f.result_check.as_ref().filter(|_| !self.s.abi) {
@@ -1565,8 +1568,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     };
                     let names: Vec<String> = (0..params.len()).map(|i| format!("__a{i}")).collect();
                     // An intrinsic has no Kotlin fn: a lambda around its lowering.
-                    let file_idx = self.s.program.files.iter().position(|f| f.module == id.module);
-                    let decl = file_idx.and_then(|fi| self.s.program.modules[fi].items.get(id.item));
+                    let file_idx = self.s.decl_index.loc(*id).map(|l| l.file);
+                    let decl = file_idx.and_then(|fi| self.s.program.modules[fi].items.get(self.s.decl_index.loc(*id).map_or(usize::MAX, |l| l.item)));
                     if let Some(salvo_syntax::ast::Item::Fn(f)) = decl {
                         if f.intrinsic {
                             let args: Vec<Expr> = names
@@ -1670,7 +1673,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 };
                 let plain = salvo_core::typekey::plain(name).to_string();
                 match self.interface_by_key(name) {
-                    Some(iface) if iface.actor => format!("{}__Stub_{plain}({a})", self.pkg_prefix(&iface.id.module)),
+                    Some(iface) if iface.actor => format!("{}__Stub_{plain}({a})", self.pkg_prefix(iface.id.module())),
                     // [monitor-handler] a plain effect's addr is its handle already.
                     Some(_) => a,
                     None => {
@@ -1832,8 +1835,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 format!("{}({})", kt_local(l), a.join(", "))
             }
             FnRef::Decl(id) => {
-                let file_idx = self.s.program.files.iter().position(|f| f.module == id.module);
-                let decl = file_idx.and_then(|fi| self.s.program.modules[fi].items.get(id.item));
+                let file_idx = self.s.decl_index.loc(*id).map(|l| l.file);
+                let decl = file_idx.and_then(|fi| self.s.program.modules[fi].items.get(self.s.decl_index.loc(*id).map_or(usize::MAX, |l| l.item)));
                 if let Some(salvo_syntax::ast::Item::Fn(f)) = decl {
                     if f.intrinsic {
                         return self.intrinsic_call(e, f, type_args, args, indent);
@@ -2059,8 +2062,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn scalar_to_str_arg<'e>(&self, e: &'e Expr) -> Option<&'e Expr> {
         let ExprKind::Call { target: FnRef::Decl(id), args, .. } = &e.kind else { return None };
         let [arg] = args.as_slice() else { return None };
-        let file_idx = self.s.program.files.iter().position(|f| f.module == id.module)?;
-        let is_to_str = matches!(self.s.program.modules[file_idx].items.get(id.item), Some(salvo_syntax::ast::Item::Fn(f)) if f.intrinsic && f.name.name == "to_str");
+        let file_idx = self.s.decl_index.loc(*id).map(|l| l.file)?;
+        let is_to_str = matches!(self.s.program.modules[file_idx].items.get(self.s.decl_index.loc(*id).map_or(usize::MAX, |l| l.item)), Some(salvo_syntax::ast::Item::Fn(f)) if f.intrinsic && f.name.name == "to_str");
         let scalar = matches!(arg.ty.strip_quals(), Ty::Named { name, .. } if matches!(name.as_str(), "Int" | "Long" | "Byte" | "Char" | "Bool" | "Double" | "Float" | "Str"));
         (is_to_str && scalar).then_some(arg)
     }

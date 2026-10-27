@@ -238,7 +238,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let module = self.s.symbols.key_modules.get(key)?;
         let plain = salvo_core::typekey::plain(key);
         self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
-            Decl::Interface(i) if i.name == plain && i.id.module == **module => Some(i),
+            Decl::Interface(i) if i.name == plain && *i.id.module() == **module => Some(i),
             _ => None,
         })
     }
@@ -396,15 +396,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// `__Msg_E`, qualified from another module.
     pub(super) fn msg_class(&self, i: &InterfaceDecl) -> String {
-        format!("{}__Msg_{}", self.pkg_prefix(&i.id.module), i.name)
+        format!("{}__Msg_{}", self.pkg_prefix(i.id.module()), i.name)
     }
 
     pub(super) fn msg_codec(&self, i: &InterfaceDecl) -> String {
-        format!("{}__Codec___Msg_{}", self.pkg_prefix(&i.id.module), i.name)
+        format!("{}__Codec___Msg_{}", self.pkg_prefix(i.id.module()), i.name)
     }
 
     pub(super) fn proto_const(&self, i: &InterfaceDecl) -> String {
-        format!("{}__PROTO_{}", self.pkg_prefix(&i.id.module), i.name)
+        format!("{}__PROTO_{}", self.pkg_prefix(i.id.module()), i.name)
     }
 
     // ------------------------------------------------- the primitives --
@@ -679,7 +679,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         ifaces.sort_by(|a, b| a.name.cmp(&b.name));
         for iface in ifaces {
             let name = &iface.name;
-            pairs.push(format!("kotlin.Pair(\"{name}\", {}.__PROTO_{name})", kotlin_package(&iface.id.module)));
+            pairs.push(format!("kotlin.Pair(\"{name}\", {}.__PROTO_{name})", kotlin_package(iface.id.module())));
         }
         if pairs.is_empty() {
             return String::new();

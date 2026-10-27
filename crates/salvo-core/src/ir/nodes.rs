@@ -9,16 +9,9 @@ pub use crate::types::Ty;
 pub use crate::ModulePath;
 pub use salvo_syntax::Span;
 
-/// The identity of a declaration: its module and its position among the
-/// module's items. Unique program-wide; overloads are distinct items.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct DeclId {
-    pub module: ModulePath,
-    pub item: usize,
-    /// 0 for the item itself; `i + 1` for the `i`th fn declared *inside* the
-    /// item (a qualifier's `qualifies`).
-    pub sub: u16,
-}
+/// [decl-id] The identity of a declaration: the checker's, so a reference
+/// is the declaration the checker resolved.
+pub use crate::decl_id::DeclId;
 
 /// A local variable, unique within its fn body.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

@@ -128,11 +128,11 @@ impl FnNames {
         let own = &program.files[file_idx].module;
         let mut by_emitted: HashMap<String, std::collections::BTreeSet<ModulePath>> = HashMap::new();
         for key in crate::reach::resolved_fn_keys(checked, file_idx) {
-            let Some(Item::Fn(f)) = program.modules.get(key.file).and_then(|m| m.items.get(key.item)) else {
+            let Some(f) = checked.decls.fn_decl(&program.modules, key) else {
                 continue;
             };
             let Some(emitted) = self.get(f) else { continue };
-            let module = &program.files[key.file].module;
+            let module = &program.files[checked.decls.file(key)].module;
             if module != own {
                 by_emitted.entry(emitted.to_string()).or_default().insert(module.clone());
             }

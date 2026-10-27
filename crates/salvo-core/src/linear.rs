@@ -199,7 +199,7 @@ pub fn discharge_set(
     symbols: &Symbols,
     resolution: &crate::resolve::Resolution,
     scope: &crate::resolve::ModuleScope,
-    deductions: &std::collections::HashMap<crate::resolve::FnKey, Vec<crate::deduce::ParamDeduction>>,
+    deductions: &std::collections::HashMap<crate::decl_id::DeclId, Vec<crate::deduce::ParamDeduction>>,
     type_name: &str,
 ) -> Vec<String> {
     use salvo_syntax::ast;
@@ -219,7 +219,7 @@ pub fn discharge_set(
     let mut out: Vec<String> = Vec::new();
     for (fn_name, entries) in scope.fns.iter() {
         for e in entries {
-            if Some(e.key.file) != struct_file {
+            if Some(e.file) != struct_file {
                 continue;
             }
             let consumes_self_typed = e.decl.params.iter().any(|p| {
@@ -264,7 +264,7 @@ pub fn discharge_hint(
     symbols: &Symbols,
     resolution: &crate::resolve::Resolution,
     scope: &crate::resolve::ModuleScope,
-    deductions: &std::collections::HashMap<crate::resolve::FnKey, Vec<crate::deduce::ParamDeduction>>,
+    deductions: &std::collections::HashMap<crate::decl_id::DeclId, Vec<crate::deduce::ParamDeduction>>,
     ty: &Ty,
 ) -> String {
     let name = match ty.strip_quals() {
@@ -286,7 +286,7 @@ pub fn discharge_hint(
 /// Whether a fn entry's written/inferred contract consumes `param`.
 fn param_consumed_by_entry(
     entry: &crate::resolve::FnEntry,
-    deductions: &std::collections::HashMap<crate::resolve::FnKey, Vec<crate::deduce::ParamDeduction>>,
+    deductions: &std::collections::HashMap<crate::decl_id::DeclId, Vec<crate::deduce::ParamDeduction>>,
     param: &str,
 ) -> bool {
     use salvo_syntax::ast;

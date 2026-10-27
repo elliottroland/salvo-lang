@@ -697,7 +697,7 @@ fn goto_definition_resolves_names() {
     assert_eq!(loc["range"]["start"], json!({"line": 0, "character": 14}));
 
     // An effect member call jumps to the member's declaration in the
-    // `effect` block (members have no `FnKey`).
+    // `effect` block (members are not keyed by their `DeclId`).
     let loc = definition(&mut lsp, 12, &uri, 19, 20);
     assert_eq!(loc["uri"].as_str(), Some(uri.as_str()), "loc: {loc}");
     assert_eq!(loc["range"]["start"], json!({"line": 3, "character": 7}));
@@ -1037,7 +1037,7 @@ fn f(p: Person) [Log] {
     );
 
     // An effect member at its declaration, with its declared deductions
-    // (members have no `FnKey`, so nothing is inferred for them).
+    // (members are not keyed by their `DeclId`, so nothing is inferred for them).
     let at_decl = hover(&mut lsp, 33, &uri, 13, 8);
     assert!(
         at_decl.starts_with("```salvo\nfn write(line: Str) -> None\n```"),

@@ -29,10 +29,7 @@ pub fn is_optional_derived_call(checked: &Checked, file_idx: usize, value: &Expr
 pub fn call_borrowed_arms(program: &Program, checked: &Checked, file_idx: usize, call: &Expr) -> Vec<usize> {
     let Expr::Call { span, .. } = call else { return Vec::new() };
     let Some(key) = checked.call_fn.get(&(file_idx, *span)).copied() else { return Vec::new() };
-    let decl = match program.modules.get(key.file).and_then(|m| m.items.get(key.item)) {
-        Some(salvo_syntax::ast::Item::Fn(f)) => f,
-        _ => return Vec::new(),
-    };
+    let Some(decl) = checked.decls.fn_decl(&program.modules, key) else { return Vec::new() };
     let Some(Type::Union { arms, .. }) = decl.return_type.as_ref() else { return Vec::new() };
     arms.iter()
         .filter(|a| !is_none_type(a))

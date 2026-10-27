@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use crate::types::Ty;
-use crate::FnKey;
+use crate::DeclId;
 use salvo_syntax::ast::{self, Expr as AExpr, Pattern, Stmt as AStmt};
 use salvo_syntax::Span;
 
@@ -27,7 +27,7 @@ pub struct Lower<'a, 'p> {
     pub(crate) ctx: &'a Ctx<'p>,
     pub(crate) file_idx: usize,
     #[allow(dead_code)]
-    pub(crate) fn_key: Option<FnKey>,
+    pub(crate) fn_key: Option<DeclId>,
     pub(crate) scopes: Vec<HashMap<String, Bound>>,
     /// Inside a handler member: the handler's constructor parameters and
     /// state fields, in scope as locals.
@@ -73,7 +73,7 @@ pub struct Lower<'a, 'p> {
 }
 
 impl<'a, 'p> Lower<'a, 'p> {
-    pub fn new(ctx: &'a Ctx<'p>, file_idx: usize, fn_key: Option<FnKey>) -> Self {
+    pub fn new(ctx: &'a Ctx<'p>, file_idx: usize, fn_key: Option<DeclId>) -> Self {
         Lower {
             ctx,
             file_idx,
