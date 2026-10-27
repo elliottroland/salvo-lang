@@ -3,57 +3,57 @@ package salvo.std.core.buffer
 import salvo.*
 
 fun intBuffer(size: Int, fill: Int): salvo.platform.std.core.buffer.MutIntBuffer {
-    return newIntPlatform(size, fill)
+    return salvo.std.core.buffer.newIntPlatform(size, fill)
 }
 
 fun longBuffer(size: Int, fill: Long): salvo.platform.std.core.buffer.MutLongBuffer {
-    return newLongPlatform(size, fill)
+    return salvo.std.core.buffer.newLongPlatform(size, fill)
 }
 
 fun size__IntBuffer(buf: salvo.platform.std.core.buffer.IntBuffer): Int {
-    return intSizePlatform(buf)
+    return salvo.std.core.buffer.intSizePlatform(buf)
 }
 
 fun size__LongBuffer(buf: salvo.platform.std.core.buffer.LongBuffer): Int {
-    return longSizePlatform(buf)
+    return salvo.std.core.buffer.longSizePlatform(buf)
 }
 
 fun get__IntBuffer_Int(buf: salvo.platform.std.core.buffer.IntBuffer, index: Int): Int? {
     if (salvo.std.core.index.Idx_qualifies(index, buf, ::size__IntBuffer)) {
-        return intGetPlatform(buf, (index + 0))
+        return salvo.std.core.buffer.intGetPlatform(buf, (index + 0))
     }
     return null
 }
 
 fun get__LongBuffer_Int(buf: salvo.platform.std.core.buffer.LongBuffer, index: Int): Long? {
     if (salvo.std.core.index.Idx_qualifies(index, buf, ::size__LongBuffer)) {
-        return longGetPlatform(buf, (index + 0))
+        return salvo.std.core.buffer.longGetPlatform(buf, (index + 0))
     }
     return null
 }
 
 fun get__IntBuffer_IdxInt(buf: salvo.platform.std.core.buffer.IntBuffer, index: Int): Int {
-    return intGetPlatform(buf, (index + 0))
+    return salvo.std.core.buffer.intGetPlatform(buf, (index + 0))
 }
 
 fun get__LongBuffer_IdxInt(buf: salvo.platform.std.core.buffer.LongBuffer, index: Int): Long {
-    return longGetPlatform(buf, (index + 0))
+    return salvo.std.core.buffer.longGetPlatform(buf, (index + 0))
 }
 
 fun replace__IntBuffer_Int_Int(buf: salvo.platform.std.core.buffer.MutIntBuffer, index: Int, value: Int): Int {
-    return intReplacePlatform(buf, (index + 0), value)
+    return salvo.std.core.buffer.intReplacePlatform(buf, (index + 0), value)
 }
 
 fun replace__LongBuffer_Int_Long(buf: salvo.platform.std.core.buffer.MutLongBuffer, index: Int, value: Long): Long {
-    return longReplacePlatform(buf, (index + 0), value)
+    return salvo.std.core.buffer.longReplacePlatform(buf, (index + 0), value)
 }
 
 fun clear__IntBuffer_Int(buf: salvo.platform.std.core.buffer.MutIntBuffer, fill: Int) {
-    intClearPlatform(buf, fill)
+    salvo.std.core.buffer.intClearPlatform(buf, fill)
 }
 
 fun clear__LongBuffer_Long(buf: salvo.platform.std.core.buffer.MutLongBuffer, fill: Long) {
-    longClearPlatform(buf, fill)
+    salvo.std.core.buffer.longClearPlatform(buf, fill)
 }
 
 data class IntBufferIter(
@@ -66,10 +66,10 @@ fun iter__IntBuffer(buf: salvo.platform.std.core.buffer.IntBuffer): IntBufferIte
 }
 
 fun next__IntBufferIter(__p: IntBufferIter): Union2<Int, salvo.std.core.iterator.Finished> {
-    if ((__p.at >= intSizePlatform(__p.buf))) {
+    if ((__p.at >= salvo.std.core.buffer.intSizePlatform(__p.buf))) {
         return Union2.U2<Int, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
-    val value: Int = intGetPlatform(__p.buf, __p.at)
+    val value: Int = salvo.std.core.buffer.intGetPlatform(__p.buf, __p.at)
     __p.at = (__p.at + 1)
     return Union2.U1<Int, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(value))
 }
@@ -84,10 +84,10 @@ fun iter__LongBuffer(buf: salvo.platform.std.core.buffer.LongBuffer): LongBuffer
 }
 
 fun next__LongBufferIter(__p: LongBufferIter): Union2<Long, salvo.std.core.iterator.Finished> {
-    if ((__p.at >= longSizePlatform(__p.buf))) {
+    if ((__p.at >= salvo.std.core.buffer.longSizePlatform(__p.buf))) {
         return Union2.U2<Long, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
-    val value: Long = longGetPlatform(__p.buf, __p.at)
+    val value: Long = salvo.std.core.buffer.longGetPlatform(__p.buf, __p.at)
     __p.at = (__p.at + 1)
     return Union2.U1<Long, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(value))
 }
@@ -95,7 +95,7 @@ fun next__LongBufferIter(__p: LongBufferIter): Union2<Long, salvo.std.core.itera
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun toStr__IntBuffer(buf: salvo.platform.std.core.buffer.IntBuffer): String {
     val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>("["))
-    val __pass_1: salvo.std.core.range.Range = salvo.std.core.range.range__Int(size__IntBuffer(buf))
+    val __pass_1: salvo.std.core.range.Range = salvo.std.core.range.range__Int(salvo.std.core.buffer.size__IntBuffer(buf))
     while (true) {
         val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.range.next(__pass_1)
         when {
@@ -105,7 +105,7 @@ fun toStr__IntBuffer(buf: salvo.platform.std.core.buffer.IntBuffer): String {
                 if ((i > 0)) {
                     salvo.std.core.string.appendPlatform(out, ", ")
                 }
-                salvo.std.core.string.appendPlatform(out, (intGetPlatform(buf, i)).toString())
+                salvo.std.core.string.appendPlatform(out, (salvo.std.core.buffer.intGetPlatform(buf, i)).toString())
             }
             else -> {
                 break
@@ -119,7 +119,7 @@ fun toStr__IntBuffer(buf: salvo.platform.std.core.buffer.IntBuffer): String {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun toStr__LongBuffer(buf: salvo.platform.std.core.buffer.LongBuffer): String {
     val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>("["))
-    val __pass_1: salvo.std.core.range.Range = salvo.std.core.range.range__Int(size__LongBuffer(buf))
+    val __pass_1: salvo.std.core.range.Range = salvo.std.core.range.range__Int(salvo.std.core.buffer.size__LongBuffer(buf))
     while (true) {
         val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.range.next(__pass_1)
         when {
@@ -129,7 +129,7 @@ fun toStr__LongBuffer(buf: salvo.platform.std.core.buffer.LongBuffer): String {
                 if ((i > 0)) {
                     salvo.std.core.string.appendPlatform(out, ", ")
                 }
-                salvo.std.core.string.appendPlatform(out, (longGetPlatform(buf, i)).toString())
+                salvo.std.core.string.appendPlatform(out, (salvo.std.core.buffer.longGetPlatform(buf, i)).toString())
             }
             else -> {
                 break

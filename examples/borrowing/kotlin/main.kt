@@ -55,7 +55,7 @@ fun wounded(squad: List<Fighter>): Fighter? {
 }
 
 fun<L> rallyAt(squad: List<Fighter>, l: L, at: (List<Fighter>, L) -> Fighter?) {
-    heal(kotlin.run {
+    salvo.main.heal(kotlin.run {
         val __pick_1: Fighter? = at(squad, l)
         (if ((__pick_1 != null)) {
             val __picked_2: Fighter = __pick_1!!
@@ -133,7 +133,7 @@ fun main() {
     val __handle_2: salvo.std.core.console.Console = __use_1
     val roster: List<Fighter> = listOf<Fighter>(Fighter(name = "Ada", hp = 30, energy = 4), Fighter(name = "Bo", hp = 8, energy = 9))
     val ada: Fighter = kotlin.run {
-        val __pick_3: Fighter? = named(roster, "Ada")
+        val __pick_3: Fighter? = salvo.main.named(roster, "Ada")
         (if ((__pick_3 != null)) {
             val __picked_4: Fighter = __pick_3!!
             __picked_4
@@ -145,11 +145,11 @@ fun main() {
     val names: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     salvo.std.core.list.addPlatform(names, ada.name)
     salvo.std.core.console.println(__handle_2, "1. copied out ${salvo.std.core.list.toStr(names, { __a0 -> __a0 })}")
-    var w: Window = window(roster)
+    var w: Window = salvo.main.window(roster)
     w.at = 1
     salvo.std.core.console.println(__handle_2, "1. window at ${w.at}: ${kotlin.run {
         val __proj_9: Fighter = kotlin.run {
-            val __pick_6: Fighter? = peek(w)
+            val __pick_6: Fighter? = salvo.main.peek(w)
             (if ((__pick_6 != null)) {
                 val __picked_7: Fighter = __pick_6!!
                 __picked_7
@@ -214,8 +214,8 @@ fun main() {
         }
         __proj_24.hp
     }} after a read in the middle")
-    heal(kotlin.run {
-        val __pick_25: Fighter? = wounded(squad)
+    salvo.main.heal(kotlin.run {
+        val __pick_25: Fighter? = salvo.main.wounded(squad)
         (if ((__pick_25 != null)) {
             val __picked_26: Fighter = __pick_25!!
             __picked_26
@@ -223,7 +223,7 @@ fun main() {
             throw AssertionError("salvo: unreachable at main:238:28")
         })
     })
-    rallyAt(squad, 1, { __a0, __a1 -> salvo.std.core.list.atPlatform(__a0, __a1) })
+    salvo.main.rallyAt(squad, 1, { __a0, __a1 -> salvo.std.core.list.atPlatform(__a0, __a1) })
     salvo.std.core.console.println(__handle_2, "2. after the searches: ${kotlin.run {
         val __proj_31: Fighter = kotlin.run {
             val __pick_28: Fighter? = salvo.std.core.list.getPlatform(squad, 0)
@@ -270,7 +270,7 @@ fun main() {
     if (salvo.std.core.ref.NotSame_qualifies(d, a)) {
         a.hp = (a.hp + 1)
         d.hp = (d.hp + 1)
-        duel(a, d)
+        salvo.main.duel(a, d)
         a.energy = (a.energy + 100)
         d.energy = (d.energy + 200)
     }
@@ -288,7 +288,7 @@ fun main() {
             }} (total reads: `Idx` survived)")
         }
     }
-    strike(squad, kotlin.run {
+    salvo.main.strike(squad, kotlin.run {
         val __pick_44: Fighter? = salvo.std.core.list.atPlatform(squad, i)
         (if ((__pick_44 != null)) {
             val __picked_45: Fighter = __pick_44!!
@@ -305,7 +305,7 @@ fun main() {
             throw AssertionError("salvo: unreachable at main:282:67")
         })
     })
-    strike(squad, kotlin.run {
+    salvo.main.strike(squad, kotlin.run {
         val __pick_50: Fighter? = salvo.std.core.list.atPlatform(squad, i)
         (if ((__pick_50 != null)) {
             val __picked_51: Fighter = __pick_50!!
@@ -346,7 +346,7 @@ fun main() {
         __proj_63.energy
     }} energy after striking itself")
     val team: Squad = Squad(banner = "Red", members = listOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2), Fighter(name = "Dee", hp = 6, energy = 7)))
-    rotate(team.members, kotlin.run {
+    salvo.main.rotate(team.members, kotlin.run {
         val __pick_64: Fighter? = salvo.std.core.list.atPlatform(team.members, i)
         (if ((__pick_64 != null)) {
             val __picked_65: Fighter = __pick_64!!
@@ -388,8 +388,8 @@ fun main() {
     }}")
     val camp: Camp = Camp(supplies = 10, banners = mutableListOf<String>("red"))
     val banners: salvo.platform.std.core.list.MutList<String> = camp.banners
-    spend(camp, 3)
-    hoist(camp, "blue")
+    salvo.main.spend(camp, 3)
+    salvo.main.hoist(camp, "blue")
     salvo.std.core.console.println(__handle_2, "5. supplies ${camp.supplies}, banners ${salvo.std.core.list.toStr(banners, { __a0 -> __a0 })}")
 }
 

@@ -399,3 +399,49 @@ fn without_a_handler_the_fn_answers() {
         "{ONE_SET}\nfn work(n: Note) -> Str => !n {{\n    return close(n)\n}}\n"
     ));
 }
+
+/// [effect-available] [type-unknown-lenient] A lambda with an unwritten
+/// parameter type in a call where member and fn collide (B1 census D16,
+/// 2026-10-27): the arguments are typed before either side is chosen, so the
+/// lambda takes the type every candidate declares at its position. When they
+/// disagree nothing can type it, and the call is refused — before, the
+/// lambda's parameter stayed `?`, the analysis was clean, and rustc and
+/// kotlinc both refused the generated code.
+const COLLIDE: &str = r#"
+effect Ops {
+    fn apply(f: (x: Int) -> Int, n: Int) -> Int => f
+}
+
+handler OpsH of Ops {
+    fn apply(f: (x: Int) -> Int, n: Int) -> Int { return f(n) }
+}
+"#;
+
+#[test]
+fn a_lambda_in_a_colliding_call_takes_the_type_the_candidates_agree_on() {
+    assert_ok(&format!(
+        "{COLLIDE}\nfn apply(f: (x: Int) -> Int, s: Str) -> Int => f {{ return f(1) }}\n\n\
+         fn work() [Ops] -> Int {{\n    return apply(x -> x + 1, 20) + apply(x -> x * 2, \"s\")\n}}\n"
+    ));
+}
+
+#[test]
+fn a_lambda_the_colliding_candidates_disagree_on_is_refused() {
+    let errs = errors(&format!(
+        "{COLLIDE}\nfn apply(f: (x: Str) -> Str, n: Int) -> Int => f {{ return 1 }}\n\n\
+         fn work() [Ops] -> Int {{\n    return apply(x -> x, 20)\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|m| m.contains("cannot type this lambda")
+            && m.contains("both a member of `Ops` and a function")
+            && m.contains("`(Int) -> Int`")
+            && m.contains("`(Str) -> Str`")),
+        "got {errs:?}"
+    );
+    assert_eq!(errs.len(), 1, "one mistake, one diagnostic: {errs:?}");
+    // Writing the parameter type is the remedy.
+    assert_ok(&format!(
+        "{COLLIDE}\nfn apply(f: (x: Str) -> Str, n: Int) -> Int => f {{ return 1 }}\n\n\
+         fn work() [Ops] -> Int {{\n    return apply((x: Int) -> x, 20)\n}}\n"
+    ));
+}

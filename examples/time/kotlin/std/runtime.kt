@@ -120,7 +120,7 @@ fun dropRan(r: Ran) {
     val __destructured_1: Ran = r
     val body: salvo.platform.std.runtime.Body = __destructured_1.body
     val fault: String? = __destructured_1.fault
-    dropBodyPlatform(body)
+    salvo.std.runtime.dropBodyPlatform(body)
 }
 
 fun<T> slotOfPlatform(v: T): salvo.platform.std.runtime.Slot<T> = salvo.platform.std.runtime.slotOf(v)
@@ -176,24 +176,24 @@ fun dropDelivered(d: Delivered) {
     val __destructured_1: Delivered = d
     val msg: salvo.platform.std.runtime.Dyn = __destructured_1.msg
     val from: Long = __destructured_1.from
-    dropDynPlatform(msg)
+    salvo.std.runtime.dropDynPlatform(msg)
 }
 
 fun dropAnswered(a: Answered) {
     val __destructured_1: Answered = a
     val slot: Long = __destructured_1.slot
     val value: salvo.platform.std.runtime.Dyn = __destructured_1.value
-    dropDynPlatform(value)
+    salvo.std.runtime.dropDynPlatform(value)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun dropEntry(e: Union3<Delivered, Answered, Reported>) {
     if ((e is Union3.U1<*, *, *>)) {
         val d: Delivered = ((e as Union3.U1<*, *, *>).value as Delivered)
-        dropDelivered(d)
+        salvo.std.runtime.dropDelivered(d)
     } else if ((e is Union3.U2<*, *, *>)) {
         val a: Answered = ((e as Union3.U2<*, *, *>).value as Answered)
-        dropAnswered(a)
+        salvo.std.runtime.dropAnswered(a)
     } else {
         val e_1: Reported = ((e as Union3.U3<*, *, *>).value as Reported)
         kotlin.run { e_1; Unit }
@@ -236,12 +236,12 @@ fun dropActorRec(a: ActorRec) {
     val owed: Int = __destructured_1.owed
     val ready: Boolean = __destructured_1.ready
     val proxy: Boolean = __destructured_1.proxy
-    dropSlotPlatform(body)
+    salvo.std.runtime.dropSlotPlatform(body)
     salvo.std.core.deque.drain(queue, fun(e: Union3<Delivered, Answered, Reported>) {
-        return dropEntry(e)
+        return salvo.std.runtime.dropEntry(e)
     })
     salvo.std.core.list.drain(watchers, fun(t: Token) {
-        return dropToken(t)
+        return salvo.std.runtime.dropToken(t)
     })
 }
 
@@ -264,7 +264,7 @@ fun dropWaiterRec(w: WaiterRec) {
     val waiting: Int = __destructured_1.waiting
     val waitingActor: Int = __destructured_1.waitingActor
     val slot: Long = __destructured_1.slot
-    dropSlotPlatform(value)
+    salvo.std.runtime.dropSlotPlatform(value)
 }
 
 data class TaskRun(
@@ -276,8 +276,8 @@ fun dropTaskRun(t: TaskRun) {
     val __destructured_1: TaskRun = t
     val body: salvo.platform.std.runtime.Body = __destructured_1.body
     val value: salvo.platform.std.runtime.Dyn = __destructured_1.value
-    dropBodyPlatform(body)
-    dropDynPlatform(value)
+    salvo.std.runtime.dropBodyPlatform(body)
+    salvo.std.runtime.dropDynPlatform(value)
 }
 
 data class PoolRec(
@@ -301,7 +301,7 @@ fun dropPoolRec(p: PoolRec) {
     val dedicated: Boolean = __destructured_1.dedicated
     val retired: Boolean = __destructured_1.retired
     salvo.std.core.deque.drain(tasks, fun(t: TaskRun) {
-        return dropTaskRun(t)
+        return salvo.std.runtime.dropTaskRun(t)
     })
 }
 
@@ -336,7 +336,7 @@ fun dropToTask(t: ToTask) {
     val __destructured_1: ToTask = t
     val pool: Int = __destructured_1.pool
     val body: salvo.platform.std.runtime.Body = __destructured_1.body
-    dropBodyPlatform(body)
+    salvo.std.runtime.dropBodyPlatform(body)
 }
 
 data class Token(
@@ -346,7 +346,7 @@ data class Token(
 )
 
 fun dropToken(t: Token) {
-    answer(t, erasePlatform(0))
+    salvo.std.runtime.answer(t, salvo.std.runtime.erasePlatform(0))
 }
 
 data class WaiterMint(
@@ -358,7 +358,7 @@ fun dropWaiterMint(m: WaiterMint) {
     val __destructured_1: WaiterMint = m
     val token: Token = __destructured_1.token
     val wid: Int = __destructured_1.wid
-    dropToken(token)
+    salvo.std.runtime.dropToken(token)
 }
 
 data class RunActor(
@@ -392,8 +392,8 @@ fun dropRunActor(a: RunActor) {
     val slot: Long = __destructured_1.slot
     val value: salvo.platform.std.runtime.Dyn = __destructured_1.value
     val body: salvo.platform.std.runtime.Body = __destructured_1.body
-    dropDynPlatform(value)
-    dropBodyPlatform(body)
+    salvo.std.runtime.dropDynPlatform(value)
+    salvo.std.runtime.dropBodyPlatform(body)
 }
 
 fun dropRunTask(t: RunTask) {
@@ -401,8 +401,8 @@ fun dropRunTask(t: RunTask) {
     val pool: Int = __destructured_1.pool
     val body: salvo.platform.std.runtime.Body = __destructured_1.body
     val value: salvo.platform.std.runtime.Dyn = __destructured_1.value
-    dropBodyPlatform(body)
-    dropDynPlatform(value)
+    salvo.std.runtime.dropBodyPlatform(body)
+    salvo.std.runtime.dropDynPlatform(value)
 }
 
 class Sent
@@ -432,13 +432,13 @@ data class Remote(
 fun dropRemote(r: Remote) {
     val __destructured_1: Remote = r
     val msg: salvo.platform.std.runtime.Dyn = __destructured_1.msg
-    dropDynPlatform(msg)
+    salvo.std.runtime.dropDynPlatform(msg)
 }
 
 fun dropFull(f: Full) {
     val __destructured_1: Full = f
     val msg: salvo.platform.std.runtime.Dyn = __destructured_1.msg
-    dropDynPlatform(msg)
+    salvo.std.runtime.dropDynPlatform(msg)
 }
 
 data class IdleHook(
@@ -450,7 +450,7 @@ fun dropIdleHook(h: IdleHook) {
     val __destructured_1: IdleHook = h
     val pool: Int = __destructured_1.pool
     val token: Token = __destructured_1.token
-    dropToken(token)
+    salvo.std.runtime.dropToken(token)
 }
 
 data class Got(
@@ -487,7 +487,7 @@ object __Codec_Stuck : salvo.WireCodec<Stuck> {
 fun dropGot(g: Got) {
     val __destructured_1: Got = g
     val value: salvo.platform.std.runtime.Dyn = __destructured_1.value
-    dropDynPlatform(value)
+    salvo.std.runtime.dropDynPlatform(value)
 }
 
 interface SchedTable {
@@ -716,13 +716,13 @@ class Scheduler : SchedTable {
         return (salvo.std.core.list.sizePlatform(pools) - 1)
     }
     override fun newActor(pool: Int, bound: Int, body: salvo.platform.std.runtime.Body): Int {
-        salvo.std.core.list.addPlatform(actors, ActorRec(body = slotOfPlatform(body), pool = pool, bound = bound, queue = salvo.std.core.deque.mutDequeOf(), slots = salvo.std.core.deque.mutDequeOf(), userLen = 0, gate = null, running = false, dead = false, exitReason = "", blocked = mutableListOf<salvo.platform.std.runtime.Parker>(), watchers = mutableListOf<Token>(), owed = 0, ready = false, proxy = false))
+        salvo.std.core.list.addPlatform(actors, ActorRec(body = salvo.std.runtime.slotOfPlatform(body), pool = pool, bound = bound, queue = salvo.std.core.deque.mutDequeOf(), slots = salvo.std.core.deque.mutDequeOf(), userLen = 0, gate = null, running = false, dead = false, exitReason = "", blocked = mutableListOf<salvo.platform.std.runtime.Parker>(), watchers = mutableListOf<Token>(), owed = 0, ready = false, proxy = false))
         return (salvo.std.core.list.sizePlatform(actors) - 1)
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun enqueue(addr: Int, msg: salvo.platform.std.runtime.Dyn, waiter: salvo.platform.std.runtime.Parker): Union4<Sent, Dead, Full, Remote> {
         if (((addr < 0) || (addr >= salvo.std.core.list.sizePlatform(actors)))) {
-            dropDynPlatform(msg)
+            salvo.std.runtime.dropDynPlatform(msg)
             return Union4.U2<Sent, Dead, Full, Remote>(Dead())
         }
         var a: ActorRec = kotlin.run {
@@ -735,7 +735,7 @@ class Scheduler : SchedTable {
             })
         }
         if (a.dead) {
-            dropDynPlatform(msg)
+            salvo.std.runtime.dropDynPlatform(msg)
             return Union4.U2<Sent, Dead, Full, Remote>(Dead())
         }
         if (a.proxy) {
@@ -749,16 +749,16 @@ class Scheduler : SchedTable {
         salvo.std.core.deque.addLastPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), e)
         salvo.std.core.deque.addLastPlatform((a.slots as salvo.platform.std.core.deque.MutDeque<Long>), ((-1)).toLong())
         a.userLen = (a.userLen + 1)
-        if (markReady(a, pools, addr)) {
+        if (salvo.std.runtime.markReady(a, pools, addr)) {
             val pool: Int = a.pool
-            wakePool(pools, pool)
+            salvo.std.runtime.wakePool(pools, pool)
         }
         return Union4.U1<Sent, Dead, Full, Remote>(Sent())
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun enqueueRemote(addr: Int, msg: salvo.platform.std.runtime.Dyn, from: Long): Boolean {
         if (((addr < 0) || (addr >= salvo.std.core.list.sizePlatform(actors)))) {
-            dropDynPlatform(msg)
+            salvo.std.runtime.dropDynPlatform(msg)
             return false
         }
         var a: ActorRec = kotlin.run {
@@ -771,16 +771,16 @@ class Scheduler : SchedTable {
             })
         }
         if (a.dead) {
-            dropDynPlatform(msg)
+            salvo.std.runtime.dropDynPlatform(msg)
             return false
         }
         val e: Union3<Delivered, Answered, Reported> = Union3.U1<Delivered, Answered, Reported>(Delivered(msg = msg, from = from))
         salvo.std.core.deque.addLastPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), e)
         salvo.std.core.deque.addLastPlatform((a.slots as salvo.platform.std.core.deque.MutDeque<Long>), ((-1)).toLong())
         a.userLen = (a.userLen + 1)
-        if (markReady(a, pools, addr)) {
+        if (salvo.std.runtime.markReady(a, pools, addr)) {
             val pool: Int = a.pool
-            wakePool(pools, pool)
+            salvo.std.runtime.wakePool(pools, pool)
         }
         return true
     }
@@ -806,7 +806,7 @@ class Scheduler : SchedTable {
                 break
             }
             val b: salvo.platform.std.runtime.Parker = __subject_4!!
-            unparkPlatform(b)
+            salvo.std.runtime.unparkPlatform(b)
         }
         val watchers: salvo.platform.std.core.list.MutList<Token> = mutableListOf<Token>()
         while (true) {
@@ -823,10 +823,10 @@ class Scheduler : SchedTable {
                 break
             }
             val t: Token = __subject_6!!
-            deliverTo(actors, waiters, pools, t, erasePlatform(salvo.std.core.actor.Exit(reason = reason)))
+            salvo.std.runtime.deliverTo(actors, waiters, pools, t, salvo.std.runtime.erasePlatform(salvo.std.core.actor.Exit(reason = reason)))
         }
         salvo.std.core.list.drain(watchers, fun(t: Token) {
-            return dropToken(t)
+            return salvo.std.runtime.dropToken(t)
         })
     }
     override fun mintActor(addr: Int, gated: Boolean): Token {
@@ -873,16 +873,16 @@ class Scheduler : SchedTable {
         }
         p.owed = (p.owed + 1)
         nextSlot = (nextSlot + 1L)
-        val wid: Int = reuseWaiter(waiters, freeWaiters, pool, nextSlot)
+        val wid: Int = salvo.std.runtime.reuseWaiter(waiters, freeWaiters, pool, nextSlot)
         val t: Token = Token(target = Union3.U2<ToActor, ToWaiter, ToTask>(ToWaiter(wid = wid)), slot = nextSlot, tracked = true)
         return WaiterMint(token = t, wid = wid)
     }
     override fun deliver(t: Token, value: salvo.platform.std.runtime.Dyn) {
-        deliverTo(actors, waiters, pools, t, value)
+        salvo.std.runtime.deliverTo(actors, waiters, pools, t, value)
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun watchActor(addr: Int, t: Token) {
-        val watch: Token = untrack(actors, waiters, pools, t)
+        val watch: Token = salvo.std.runtime.untrack(actors, waiters, pools, t)
         val a: ActorRec = kotlin.run {
             val __pick_1: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
             (if ((__pick_1 != null)) {
@@ -894,15 +894,15 @@ class Scheduler : SchedTable {
         }
         if (a.dead) {
             val reason: String = a.exitReason
-            deliverTo(actors, waiters, pools, watch, erasePlatform(salvo.std.core.actor.Exit(reason = reason)))
+            salvo.std.runtime.deliverTo(actors, waiters, pools, watch, salvo.std.runtime.erasePlatform(salvo.std.core.actor.Exit(reason = reason)))
             return
         }
         salvo.std.core.list.addPlatform((a.watchers as salvo.platform.std.core.list.MutList<Token>), watch)
     }
     override fun idleHook(pool: Int, t: Token) {
-        val hook: Token = untrack(actors, waiters, pools, t)
+        val hook: Token = salvo.std.runtime.untrack(actors, waiters, pools, t)
         salvo.std.core.list.addPlatform(idleHooks, IdleHook(pool = pool, token = hook))
-        wakeAllPools(pools)
+        salvo.std.runtime.wakeAllPools(pools)
     }
     override fun waiterRecords(): Int {
         return salvo.std.core.list.sizePlatform(waiters)
@@ -924,7 +924,7 @@ class Scheduler : SchedTable {
             retired = (retired + 1)
             return Union3.U3<RunActor, RunTask, Retire>(Retire())
         }
-        val w: Union2<RunActor, RunTask>? = takeWork(actors, pools, pool, (-1))
+        val w: Union2<RunActor, RunTask>? = salvo.std.runtime.takeWork(actors, pools, pool, (-1))
         if ((w is Union2.U1<*, *>)) {
             val ra: RunActor = ((w as Union2.U1<*, *>).value as RunActor)
             active = (active + 1)
@@ -945,11 +945,11 @@ class Scheduler : SchedTable {
             })
         }
         salvo.std.core.list.addPlatform((p.idle as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>), idle)
-        if (((active == parkedFrames) && quiet(actors, waiters, pools, externals))) {
+        if (((active == parkedFrames) && salvo.std.runtime.quiet(actors, waiters, pools, externals))) {
             if ((!((salvo.std.core.list.sizePlatform(idleHooks) == 0)) && (active == 0))) {
-                fireIdle(actors, waiters, pools, idleHooks)
+                salvo.std.runtime.fireIdle(actors, waiters, pools, idleHooks)
             }
-            wakeWaiters(waiters)
+            salvo.std.runtime.wakeWaiters(waiters)
         }
         return null
     }
@@ -976,7 +976,7 @@ class Scheduler : SchedTable {
                 mainWaits = (mainWaits + 1)
             }
         }
-        val got: salvo.platform.std.runtime.Dyn? = slotTakePlatform(w.value)
+        val got: salvo.platform.std.runtime.Dyn? = salvo.std.runtime.slotTakePlatform(w.value)
         if ((got != null)) {
             val v: salvo.platform.std.runtime.Dyn = got!!
             w.filled = false
@@ -989,10 +989,10 @@ class Scheduler : SchedTable {
             w.waiting = 0
             w.waitingActor = (-1)
             salvo.std.core.list.addPlatform(freeWaiters, wid)
-            wakePool(pools, pool)
+            salvo.std.runtime.wakePool(pools, pool)
             return Union6.U1<Got, RunActor, RunTask, Sleep, Again, Stuck>(Got(value = v))
         }
-        val work: Union2<RunActor, RunTask>? = takeFor(actors, pools, pool, own, virtualMode)
+        val work: Union2<RunActor, RunTask>? = salvo.std.runtime.takeFor(actors, pools, pool, own, virtualMode)
         if ((work is Union2.U1<*, *>)) {
             val ra: RunActor = ((work as Union2.U1<*, *>).value as RunActor)
             active = (active + 1)
@@ -1003,17 +1003,17 @@ class Scheduler : SchedTable {
             active = (active + 1)
             return Union6.U3<Got, RunActor, RunTask, Sleep, Again, Stuck>(rt)
         }
-        val q: Boolean = quiet(actors, waiters, pools, externals)
+        val q: Boolean = salvo.std.runtime.quiet(actors, waiters, pools, externals)
         if (((virtualMode && (salvo.std.core.list.sizePlatform(clockHooks) > 0)) && q)) {
-            fireClock(actors, waiters, pools, clockHooks)
+            salvo.std.runtime.fireClock(actors, waiters, pools, clockHooks)
             return Union6.U5<Got, RunActor, RunTask, Sleep, Again, Stuck>(Again())
         }
         if (((!((salvo.std.core.list.sizePlatform(idleHooks) == 0)) && (active == 0)) && q)) {
-            fireIdle(actors, waiters, pools, idleHooks)
+            salvo.std.runtime.fireIdle(actors, waiters, pools, idleHooks)
             return Union6.U5<Got, RunActor, RunTask, Sleep, Again, Stuck>(Again())
         }
         if ((virtualMode || (((active == parkedFrames) && (mainWaits > 0)) && q))) {
-            return Union6.U6<Got, RunActor, RunTask, Sleep, Again, Stuck>(Stuck(report = deadlockReport(actors, waiters, own)))
+            return Union6.U6<Got, RunActor, RunTask, Sleep, Again, Stuck>(Stuck(report = salvo.std.runtime.deadlockReport(actors, waiters, own)))
         }
         var parked: WaiterRec = kotlin.run {
             val __pick_4: WaiterRec? = salvo.std.core.list.atPlatform(waiters, wid)
@@ -1051,11 +1051,11 @@ class Scheduler : SchedTable {
         }
         a.running = false
         if ((fault == null)) {
-            slotPutPlatform(a.body, body)
-            val _again: Boolean = markReady(a, pools, addr)
+            salvo.std.runtime.slotPutPlatform(a.body, body)
+            val _again: Boolean = salvo.std.runtime.markReady(a, pools, addr)
             return
         }
-        dropBodyPlatform(body)
+        salvo.std.runtime.dropBodyPlatform(body)
         val fault_4: String = fault!!
         val reason: String = fault_4
         a.dead = true
@@ -1069,7 +1069,7 @@ class Scheduler : SchedTable {
             val entry: Union3<Delivered, Answered, Reported>? = salvo.std.core.deque.removeFirstPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
             (if (!(!((entry == null)))) throw AssertionError("salvo: assertion failed at std.runtime:756:13") else Unit)
             val entry_5: Union3<Delivered, Answered, Reported> = entry!!
-            dropEntry(entry_5)
+            salvo.std.runtime.dropEntry(entry_5)
         }
         while (true) {
             if (!((salvo.std.core.deque.sizePlatform((a.slots as salvo.platform.std.core.deque.MutDeque<Long>)) > 0))) {
@@ -1083,7 +1083,7 @@ class Scheduler : SchedTable {
                 break
             }
             val b: salvo.platform.std.runtime.Parker = __subject_6!!
-            unparkPlatform(b)
+            salvo.std.runtime.unparkPlatform(b)
         }
         val pool: Int = a.pool
         val watchers: salvo.platform.std.core.list.MutList<Token> = mutableListOf<Token>()
@@ -1096,7 +1096,7 @@ class Scheduler : SchedTable {
             salvo.std.core.list.addPlatform(watchers, t)
         }
         if ((salvo.std.core.list.sizePlatform(watchers) == 0)) {
-            reportFault(actors, pools, pool, reason)
+            salvo.std.runtime.reportFault(actors, pools, pool, reason)
         }
         while (true) {
             val __subject_8: Token? = salvo.std.core.list.removeFirstPlatform(watchers)
@@ -1104,21 +1104,21 @@ class Scheduler : SchedTable {
                 break
             }
             val t: Token = __subject_8!!
-            deliverTo(actors, waiters, pools, t, erasePlatform(salvo.std.core.actor.Exit(reason = reason)))
+            salvo.std.runtime.deliverTo(actors, waiters, pools, t, salvo.std.runtime.erasePlatform(salvo.std.core.actor.Exit(reason = reason)))
         }
         salvo.std.core.list.drain(watchers, fun(t: Token) {
-            return dropToken(t)
+            return salvo.std.runtime.dropToken(t)
         })
-        retireIfDone(actors, pools, pool)
-        wakeAllPools(pools)
+        salvo.std.runtime.retireIfDone(actors, pools, pool)
+        salvo.std.runtime.wakeAllPools(pools)
     }
     override fun taskDone(pool: Int, fault: String?) {
         active = (active - 1)
         if ((fault != null)) {
             val reason: String = fault!!
-            reportFault(actors, pools, pool, reason)
+            salvo.std.runtime.reportFault(actors, pools, pool, reason)
         }
-        retireIfDone(actors, pools, pool)
+        salvo.std.runtime.retireIfDone(actors, pools, pool)
     }
     override fun poolOfActor(addr: Int): Int {
         return kotlin.run {
@@ -1205,13 +1205,13 @@ class Scheduler : SchedTable {
         if ((externals < 0)) {
             externals = 0
         }
-        wakeAllPools(pools)
+        salvo.std.runtime.wakeAllPools(pools)
     }
     override fun goVirtual(seed: Long) {
         virtualMode = true
         vnow = 0L
-        rng = seedOf(seed)
-        resetAll(actors, pools, idleHooks, clockHooks)
+        rng = salvo.std.runtime.seedOf(seed)
+        salvo.std.runtime.resetAll(actors, pools, idleHooks, clockHooks)
         active = 0
         parkedFrames = 0
         mainWaits = 0
@@ -1230,28 +1230,28 @@ class Scheduler : SchedTable {
     }
     override fun randomUnit(): Double {
         if ((!(virtualMode) && !(rngSeeded))) {
-            rng = seedOf(__module_use0_0.secureBits())
+            rng = salvo.std.runtime.seedOf(__module_use0_0.secureBits())
             rngSeeded = true
         }
-        val hi: Long = lehmer(rng)
-        val lo: Long = lehmer(hi)
+        val hi: Long = salvo.std.runtime.lehmer(rng)
+        val lo: Long = salvo.std.runtime.lehmer(hi)
         rng = lo
         val m: Long = 2147483646L
         return (((((hi - 1L) * m) + (lo - 1L))).toDouble() / ((m).toDouble() * (m).toDouble()))
     }
     override fun randomBits(): Long {
-        val hi: Long = lehmer(rng)
-        val lo: Long = lehmer(hi)
+        val hi: Long = salvo.std.runtime.lehmer(rng)
+        val lo: Long = salvo.std.runtime.lehmer(hi)
         rng = lo
         return ((hi * 2147483647L) + lo)
     }
     override fun clockHook(t: Token) {
-        val hook: Token = untrack(actors, waiters, pools, t)
+        val hook: Token = salvo.std.runtime.untrack(actors, waiters, pools, t)
         salvo.std.core.list.addPlatform(clockHooks, hook)
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun virtualWork(own: Int): Union2<RunActor, RunTask>? {
-        val w: Union2<RunActor, RunTask>? = takeFor(actors, pools, 0, own, true)
+        val w: Union2<RunActor, RunTask>? = salvo.std.runtime.takeFor(actors, pools, 0, own, true)
         if ((w is Union2.U1<*, *>)) {
             val ra: RunActor = ((w as Union2.U1<*, *>).value as RunActor)
             active = (active + 1)
@@ -1308,7 +1308,7 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
             val entry: Union3<Delivered, Answered, Reported>? = salvo.std.core.deque.removeFirstPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
             (if (!(!((entry == null)))) throw AssertionError("salvo: assertion failed at std.runtime:923:13") else Unit)
             val entry_4: Union3<Delivered, Answered, Reported> = entry!!
-            dropEntry(entry_4)
+            salvo.std.runtime.dropEntry(entry_4)
         }
         while (true) {
             if (!((salvo.std.core.deque.removeFirstPlatform((a.slots as salvo.platform.std.core.deque.MutDeque<Long>)) != null))) {
@@ -1321,17 +1321,17 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 break
             }
             val t: Token = __subject_5!!
-            dropToken(t)
+            salvo.std.runtime.dropToken(t)
         }
         while (true) {
             if (!((salvo.std.core.list.removeFirstPlatform((a.blocked as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>)) != null))) {
                 break
             }
         }
-        val __subject_6: salvo.platform.std.runtime.Body? = slotTakePlatform(a.body)
+        val __subject_6: salvo.platform.std.runtime.Body? = salvo.std.runtime.slotTakePlatform(a.body)
         if ((__subject_6 != null)) {
             val b: salvo.platform.std.runtime.Body = __subject_6!!
-            dropBodyPlatform(b)
+            salvo.std.runtime.dropBodyPlatform(b)
         }
     }
     var i: Int = 0
@@ -1354,7 +1354,7 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 break
             }
             val t: TaskRun = __subject_10!!
-            dropTaskRun(t)
+            salvo.std.runtime.dropTaskRun(t)
         }
         while (true) {
             if (!((salvo.std.core.deque.removeFirstPlatform((p.ready as salvo.platform.std.core.deque.MutDeque<Int>)) != null))) {
@@ -1373,7 +1373,7 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
             break
         }
         val h: IdleHook = __subject_11!!
-        dropIdleHook(h)
+        salvo.std.runtime.dropIdleHook(h)
     }
     while (true) {
         val __subject_12: Token? = salvo.std.core.list.removeFirstPlatform(clockHooks)
@@ -1381,7 +1381,7 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
             break
         }
         val t: Token = __subject_12!!
-        dropToken(t)
+        salvo.std.runtime.dropToken(t)
     }
 }
 
@@ -1389,21 +1389,21 @@ fun fireClock(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
     val __subject_1: Token? = salvo.std.core.list.removeFirstPlatform(hooks)
     if ((__subject_1 != null)) {
         val t: Token = __subject_1!!
-        deliverTo(actors, waiters, pools, t, erasePlatform(0))
+        salvo.std.runtime.deliverTo(actors, waiters, pools, t, salvo.std.runtime.erasePlatform(0))
     }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun takeFor(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int, exclude: Int, any: Boolean): Union2<RunActor, RunTask>? {
     if (!(any)) {
-        return takeWork(actors, pools, pool, exclude)
+        return salvo.std.runtime.takeWork(actors, pools, pool, exclude)
     }
     var i: Int = 0
     while (true) {
         if (!((i < salvo.std.core.list.sizePlatform(pools)))) {
             break
         }
-        val w: Union2<RunActor, RunTask>? = takeWork(actors, pools, i, exclude)
+        val w: Union2<RunActor, RunTask>? = salvo.std.runtime.takeWork(actors, pools, i, exclude)
         if ((w is Union2.U1<*, *>)) {
             val ra: RunActor = ((w as Union2.U1<*, *>).value as RunActor)
             return Union2.U1<RunActor, RunTask>(ra)
@@ -1423,7 +1423,7 @@ fun untrack(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sal
     val slot: Long = __destructured_1.slot
     val tracked: Boolean = __destructured_1.tracked
     if (tracked) {
-        release(actors, waiters, pools, target)
+        salvo.std.runtime.release(actors, waiters, pools, target)
     }
     return Token(target = target, slot = slot, tracked = false)
 }
@@ -1508,7 +1508,7 @@ fun reuseWaiter(waiters: salvo.platform.std.core.list.MutList<WaiterRec>, free: 
         w.slot = slot
         return wid
     }
-    salvo.std.core.list.addPlatform(waiters, WaiterRec(pool = pool, value = slotEmptyPlatform(), filled = false, parker = null, waiting = 0, waitingActor = (-1), slot = slot))
+    salvo.std.core.list.addPlatform(waiters, WaiterRec(pool = pool, value = salvo.std.runtime.slotEmptyPlatform(), filled = false, parker = null, waiting = 0, waitingActor = (-1), slot = slot))
     return (salvo.std.core.list.sizePlatform(waiters) - 1)
 }
 
@@ -1519,7 +1519,7 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
     val slot: Long = __destructured_1.slot
     val tracked: Boolean = __destructured_1.tracked
     if (tracked) {
-        release(actors, waiters, pools, target)
+        salvo.std.runtime.release(actors, waiters, pools, target)
     }
     if ((target is Union3.U1<*, *, *>)) {
         val to: ToActor = ((target as Union3.U1<*, *, *>).value as ToActor)
@@ -1533,15 +1533,15 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
             })
         }
         if (a.dead) {
-            dropDynPlatform(value)
+            salvo.std.runtime.dropDynPlatform(value)
             return
         }
         salvo.std.core.deque.addLastPlatform((a.slots as salvo.platform.std.core.deque.MutDeque<Long>), slot)
         val e: Union3<Delivered, Answered, Reported> = Union3.U2<Delivered, Answered, Reported>(Answered(slot = slot, value = value))
         salvo.std.core.deque.addLastPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), e)
-        if (markReady(a, pools, to.addr)) {
+        if (salvo.std.runtime.markReady(a, pools, to.addr)) {
             val pool: Int = a.pool
-            wakePool(pools, pool)
+            salvo.std.runtime.wakePool(pools, pool)
         }
     } else if ((target is Union3.U2<*, *, *>)) {
         val tw: ToWaiter = ((target as Union3.U2<*, *, *>).value as ToWaiter)
@@ -1555,14 +1555,14 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
             })
         }
         if (((w.slot != slot) || w.filled)) {
-            dropDynPlatform(value)
+            salvo.std.runtime.dropDynPlatform(value)
             return
         }
-        slotPutPlatform(w.value, value)
+        salvo.std.runtime.slotPutPlatform(w.value, value)
         w.filled = true
         if ((w.parker != null)) {
             val p: salvo.platform.std.runtime.Parker = w.parker!!
-            unparkPlatform(p)
+            salvo.std.runtime.unparkPlatform(p)
         }
     } else {
         val target_8: ToTask = ((target as Union3.U3<*, *, *>).value as ToTask)
@@ -1579,7 +1579,7 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
             })
         }
         salvo.std.core.deque.addLastPlatform((p.tasks as salvo.platform.std.core.deque.MutDeque<TaskRun>), TaskRun(body = body, value = value))
-        wakePool(pools, pool)
+        salvo.std.runtime.wakePool(pools, pool)
     }
 }
 
@@ -1611,9 +1611,9 @@ fun reportFault(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: s
             val e: Union3<Delivered, Answered, Reported> = Union3.U3<Delivered, Answered, Reported>(Reported(reason = reason))
             salvo.std.core.deque.addLastPlatform((s.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), e)
             salvo.std.core.deque.addLastPlatform((s.slots as salvo.platform.std.core.deque.MutDeque<Long>), ((-1)).toLong())
-            if (markReady(s, pools, sink)) {
+            if (salvo.std.runtime.markReady(s, pools, sink)) {
                 val sinkPool: Int = s.pool
-                wakePool(pools, sinkPool)
+                salvo.std.runtime.wakePool(pools, sinkPool)
             }
             return
         }
@@ -1632,7 +1632,7 @@ fun quiet(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: salvo
         }
     }
     for (a in salvo.platform.std.core.list.each(actors)) {
-        if (((!(a.running) && !(a.dead)) && !((deliverable((a.slots as salvo.platform.std.core.deque.MutDeque<Long>), a.gate) == null)))) {
+        if (((!(a.running) && !(a.dead)) && !((salvo.std.runtime.deliverable((a.slots as salvo.platform.std.core.deque.MutDeque<Long>), a.gate) == null)))) {
             return false
         }
     }
@@ -1675,7 +1675,7 @@ fun fireIdle(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sa
                 }
             }
         }
-        deliverTo(actors, waiters, pools, token, erasePlatform(salvo.std.core.actor.Idle(parkedGates = gates, parkedTokens = tokens)))
+        salvo.std.runtime.deliverTo(actors, waiters, pools, token, salvo.std.runtime.erasePlatform(salvo.std.core.actor.Idle(parkedGates = gates, parkedTokens = tokens)))
     }
 }
 
@@ -1750,7 +1750,7 @@ fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
         }
         a.ready = false
         if ((((i != exclude) && !(a.running)) && !(a.dead))) {
-            val at: Int? = deliverable((a.slots as salvo.platform.std.core.deque.MutDeque<Long>), a.gate)
+            val at: Int? = salvo.std.runtime.deliverable((a.slots as salvo.platform.std.core.deque.MutDeque<Long>), a.gate)
             if ((at != null)) {
                 val k: Int = at!!
                 val _slot: Long? = salvo.std.core.deque.removeAtPlatform((a.slots as salvo.platform.std.core.deque.MutDeque<Long>), k)
@@ -1758,7 +1758,7 @@ fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 (if (!(!((e == null)))) throw AssertionError("salvo: assertion failed at std.runtime:1201:17") else Unit)
                 a.running = true
                 val body: salvo.platform.std.runtime.Body = kotlin.run {
-                    val __pick_9: salvo.platform.std.runtime.Body? = slotTakePlatform(a.body)
+                    val __pick_9: salvo.platform.std.runtime.Body? = salvo.std.runtime.slotTakePlatform(a.body)
                     (if ((__pick_9 != null)) {
                         val __picked_10: salvo.platform.std.runtime.Body = __pick_9!!
                         __picked_10
@@ -1767,7 +1767,7 @@ fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                     })
                 }
                 val e_12: Union3<Delivered, Answered, Reported> = e!!
-                return workOf(a, i, e_12, body)
+                return salvo.std.runtime.workOf(a, i, e_12, body)
             }
         }
     }
@@ -1779,7 +1779,7 @@ fun markReady(a: ActorRec, pools: salvo.platform.std.core.list.MutList<PoolRec>,
     if (((a.ready || a.running) || a.dead)) {
         return false
     }
-    if ((deliverable((a.slots as salvo.platform.std.core.deque.MutDeque<Long>), a.gate) == null)) {
+    if ((salvo.std.runtime.deliverable((a.slots as salvo.platform.std.core.deque.MutDeque<Long>), a.gate) == null)) {
         return false
     }
     a.ready = true
@@ -1804,19 +1804,19 @@ fun workOf(a: ActorRec, addr: Int, e: Union3<Delivered, Answered, Reported>, bod
         val woken: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeFirstPlatform((a.blocked as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>))
         if ((woken != null)) {
             val b: salvo.platform.std.runtime.Parker = woken!!
-            unparkPlatform(b)
+            salvo.std.runtime.unparkPlatform(b)
         }
         val __destructured_1: Delivered = d
         val msg: salvo.platform.std.runtime.Dyn = __destructured_1.msg
         val from: Long = __destructured_1.from
         if ((from >= 0L)) {
-            grantedPlatform(addr, a.pool, from)
+            salvo.std.runtime.grantedPlatform(addr, a.pool, from)
         }
         return Union2.U1<RunActor, RunTask>(RunActor(addr = addr, pool = a.pool, kind = 0, slot = 0L, value = msg, body = body))
     }
     if ((e is Union3.U3<*, *, *>)) {
         val r: Reported = ((e as Union3.U3<*, *, *>).value as Reported)
-        return Union2.U1<RunActor, RunTask>(RunActor(addr = addr, pool = a.pool, kind = 2, slot = 0L, value = erasePlatform(r.reason), body = body))
+        return Union2.U1<RunActor, RunTask>(RunActor(addr = addr, pool = a.pool, kind = 2, slot = 0L, value = salvo.std.runtime.erasePlatform(r.reason), body = body))
     }
     val e_2: Answered = ((e as Union3.U2<*, *, *>).value as Answered)
     val __destructured_3: Answered = e_2
@@ -1876,7 +1876,7 @@ fun wakePool(pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int) {
     val __subject_4: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeFirstPlatform((p.idle as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>))
     if ((__subject_4 != null)) {
         val w: salvo.platform.std.runtime.Parker = __subject_4!!
-        unparkPlatform(w)
+        salvo.std.runtime.unparkPlatform(w)
     }
 }
 
@@ -1897,7 +1897,7 @@ fun wakeEvery(pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int) {
             break
         }
         val w: salvo.platform.std.runtime.Parker = __subject_4!!
-        unparkPlatform(w)
+        salvo.std.runtime.unparkPlatform(w)
     }
 }
 
@@ -1905,7 +1905,7 @@ fun wakeWaiters(waiters: salvo.platform.std.core.list.MutList<WaiterRec>) {
     for (w in salvo.platform.std.core.list.each(waiters)) {
         if (((w.waiting > 0) && (w.parker != null))) {
             val p: salvo.platform.std.runtime.Parker = w.parker!!
-            unparkPlatform(p)
+            salvo.std.runtime.unparkPlatform(p)
         }
     }
 }
@@ -1930,7 +1930,7 @@ fun retireIfDone(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: 
         }
     }
     p.retired = true
-    wakeEvery(pools, pool)
+    salvo.std.runtime.wakeEvery(pools, pool)
 }
 
 fun wakeAllPools(pools: salvo.platform.std.core.list.MutList<PoolRec>) {
@@ -1939,17 +1939,17 @@ fun wakeAllPools(pools: salvo.platform.std.core.list.MutList<PoolRec>) {
         if (!((i < salvo.std.core.list.sizePlatform(pools)))) {
             break
         }
-        wakeEvery(pools, i)
+        salvo.std.runtime.wakeEvery(pools, i)
         i = (i + 1)
     }
 }
 
 fun newPoolOf(n: Int, sink: Int): Int {
-    return startPool(n, sink, false)
+    return salvo.std.runtime.startPool(n, sink, false)
 }
 
 fun newDedicatedPool(): Int {
-    return startPool(1, (-1), true)
+    return salvo.std.runtime.startPool(1, (-1), true)
 }
 
 fun waiterRecordCount(): Int {
@@ -1970,8 +1970,8 @@ fun startPool(n: Int, sink: Int, dedicated: Boolean): Int {
         if (!((i < n))) {
             break
         }
-        startThreadPlatform(fun() {
-            servePool(id)
+        salvo.std.runtime.startThreadPlatform(fun() {
+            salvo.std.runtime.servePool(id)
         })
         i = (i + 1)
     }
@@ -1983,40 +1983,40 @@ fun spawnBody(pool: Int, bound: Int, body: salvo.platform.std.runtime.Body): Int
 }
 
 fun sendDyn(addr: Int, msg: salvo.platform.std.runtime.Dyn) {
-    val back: salvo.platform.std.runtime.Dyn? = sendOrBack(addr, msg)
+    val back: salvo.platform.std.runtime.Dyn? = salvo.std.runtime.sendOrBack(addr, msg)
     if ((back != null)) {
         val d: salvo.platform.std.runtime.Dyn = back!!
-        dropDynPlatform(d)
+        salvo.std.runtime.dropDynPlatform(d)
     }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun sendOrBack(addr: Int, msg: salvo.platform.std.runtime.Dyn): salvo.platform.std.runtime.Dyn? {
-    var r: Union4<Sent, Dead, Full, Remote> = __module_use1_0.enqueue(addr, msg, thisParkerPlatform())
+    var r: Union4<Sent, Dead, Full, Remote> = __module_use1_0.enqueue(addr, msg, salvo.std.runtime.thisParkerPlatform())
     while (true) {
         if (!((r is Union4.U3<*, *, *, *>))) {
             break
         }
         val full: Full = ((r as Union4.U3<*, *, *, *>).value as Full)
         if (__module_use1_0.isVirtual()) {
-            makeRoom(addr)
+            salvo.std.runtime.makeRoom(addr)
             val __destructured_1: Full = full
             val again: salvo.platform.std.runtime.Dyn = __destructured_1.msg
-            r = __module_use1_0.enqueue(addr, again, thisParkerPlatform())
+            r = __module_use1_0.enqueue(addr, again, salvo.std.runtime.thisParkerPlatform())
             continue
         }
-        if ((((herePoolPlatform() == mainPool()) && (hereActorPlatform() == noFrame())) && (__module_use1_0.poolOfActor(addr) == mainPool()))) {
+        if ((((salvo.std.runtime.herePoolPlatform() == salvo.std.runtime.mainPool()) && (salvo.std.runtime.hereActorPlatform() == salvo.std.runtime.noFrame())) && (__module_use1_0.poolOfActor(addr) == salvo.std.runtime.mainPool()))) {
             __module_use0_0.report("salvo: deadlock: the main pool's actor ${addr} has a full mailbox and the only thread that could drain it is the one sending: the main pool has one worker, `main` itself, and it serves work only inside a `waitfor` — send fewer messages before waiting, raise the handler's `mailbox` capacity, or place the actor on a pool of its own")
-            exitProcessPlatform(1)
+            salvo.std.runtime.exitProcessPlatform(1)
         }
-        parkPlatform(thisParkerPlatform())
+        salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
         val __destructured_2: Full = full
         val back: salvo.platform.std.runtime.Dyn = __destructured_2.msg
-        r = __module_use1_0.enqueue(addr, back, thisParkerPlatform())
+        r = __module_use1_0.enqueue(addr, back, salvo.std.runtime.thisParkerPlatform())
     }
     if ((r is Union4.U3<*, *, *, *>)) {
         val full: Full = ((r as Union4.U3<*, *, *, *>).value as Full)
-        dropFull(full)
+        salvo.std.runtime.dropFull(full)
         return null
     }
     if ((r is Union4.U4<*, *, *, *>)) {
@@ -2030,19 +2030,19 @@ fun sendOrBack(addr: Int, msg: salvo.platform.std.runtime.Dyn): salvo.platform.s
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun makeRoom(addr: Int) {
-    val w: Union2<RunActor, RunTask>? = __module_use1_0.virtualWork(hereActorPlatform())
+    val w: Union2<RunActor, RunTask>? = __module_use1_0.virtualWork(salvo.std.runtime.hereActorPlatform())
     if ((w is Union2.U1<*, *>)) {
         val ra: RunActor = ((w as Union2.U1<*, *>).value as RunActor)
-        runActor(ra)
+        salvo.std.runtime.runActor(ra)
         return
     }
     if ((w is Union2.U2<*, *>)) {
         val rt: RunTask = ((w as Union2.U2<*, *>).value as RunTask)
-        runTask(rt)
+        salvo.std.runtime.runTask(rt)
         return
     }
     __module_use0_0.report("salvo: deadlock: actor ${addr} has a full mailbox and nothing can run to drain it: an actor test runs every pool on one thread")
-    exitProcessPlatform(1)
+    salvo.std.runtime.exitProcessPlatform(1)
 }
 
 fun markProxy(addr: Int) {
@@ -2058,7 +2058,7 @@ fun mintTaskOn(pool: Int, body: salvo.platform.std.runtime.Body): Token {
 }
 
 fun waiter(): WaiterMint {
-    return __module_use1_0.mintWaiter(herePoolPlatform())
+    return __module_use1_0.mintWaiter(salvo.std.runtime.herePoolPlatform())
 }
 
 fun answer(t: Token, value: salvo.platform.std.runtime.Dyn) {
@@ -2076,7 +2076,7 @@ fun onIdle(pool: Int, t: Token) {
 fun externalBegin() {
     if (__module_use1_0.isVirtual()) {
         __module_use0_0.report("salvo: an actor test opened a host thread (a platform handler that reads or listens on a thread of its own): the virtual runtime runs everything on one thread, so its work would not be deterministic — use an in-memory fake (`MemTransport`, `MemFs`)")
-        exitProcessPlatform(1)
+        salvo.std.runtime.exitProcessPlatform(1)
     }
     __module_use1_0.external(1)
 }
@@ -2107,15 +2107,15 @@ fun externalEnd() {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun awaitAnswer(wid: Int): salvo.platform.std.runtime.Dyn {
-    val pool: Int = herePoolPlatform()
-    val own: Int = hereActorPlatform()
-    val frame: Int = (if ((own == noFrame())) {
+    val pool: Int = salvo.std.runtime.herePoolPlatform()
+    val own: Int = salvo.std.runtime.hereActorPlatform()
+    val frame: Int = (if ((own == salvo.std.runtime.noFrame())) {
         2
     } else {
         1
     })
     while (true) {
-        val step: Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> = __module_use1_0.waitStep(wid, pool, own, frame, thisParkerPlatform())
+        val step: Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> = __module_use1_0.waitStep(wid, pool, own, frame, salvo.std.runtime.thisParkerPlatform())
         if ((step is Union6.U1<*, *, *, *, *, *>)) {
             val g: Got = ((step as Union6.U1<*, *, *, *, *, *>).value as Got)
             val __destructured_1: Got = g
@@ -2124,25 +2124,25 @@ fun awaitAnswer(wid: Int): salvo.platform.std.runtime.Dyn {
         }
         if ((step is Union6.U2<*, *, *, *, *, *>)) {
             val ra: RunActor = ((step as Union6.U2<*, *, *, *, *, *>).value as RunActor)
-            runActor(ra)
+            salvo.std.runtime.runActor(ra)
         } else if ((step is Union6.U3<*, *, *, *, *, *>)) {
             val rt: RunTask = ((step as Union6.U3<*, *, *, *, *, *>).value as RunTask)
-            runTask(rt)
+            salvo.std.runtime.runTask(rt)
         } else if ((step is Union6.U6<*, *, *, *, *, *>)) {
             val s: Stuck = ((step as Union6.U6<*, *, *, *, *, *>).value as Stuck)
             __module_use0_0.report(s.report)
-            exitProcessPlatform(1)
+            salvo.std.runtime.exitProcessPlatform(1)
         } else if ((step is Union6.U4<*, *, *, *, *, *>)) {
             val step_2: Sleep = ((step as Union6.U4<*, *, *, *, *, *>).value as Sleep)
-            parkPlatform(thisParkerPlatform())
+            salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
         }
     }
     throw AssertionError("salvo: unreachable at std.runtime:1550:5")
-    return unerasePlatform(erasePlatform(0))
+    return salvo.std.runtime.unerasePlatform(salvo.std.runtime.erasePlatform(0))
 }
 
 fun runActor(ra: RunActor) {
-    flushFramesPlatform()
+    salvo.std.runtime.flushFramesPlatform()
     val __destructured_1: RunActor = ra
     val addr: Int = __destructured_1.addr
     val pool: Int = __destructured_1.pool
@@ -2150,11 +2150,11 @@ fun runActor(ra: RunActor) {
     val slot: Long = __destructured_1.slot
     val value: salvo.platform.std.runtime.Dyn = __destructured_1.value
     val body: salvo.platform.std.runtime.Body = __destructured_1.body
-    val savedPool: Int = herePoolPlatform()
-    val savedActor: Int = hereActorPlatform()
-    setHerePlatform(pool, addr)
-    val ran: Ran = activatePlatform(body, kind, slot, value)
-    setHerePlatform(savedPool, savedActor)
+    val savedPool: Int = salvo.std.runtime.herePoolPlatform()
+    val savedActor: Int = salvo.std.runtime.hereActorPlatform()
+    salvo.std.runtime.setHerePlatform(pool, addr)
+    val ran: Ran = salvo.std.runtime.activatePlatform(body, kind, slot, value)
+    salvo.std.runtime.setHerePlatform(savedPool, savedActor)
     val __destructured_2: Ran = ran
     val back: salvo.platform.std.runtime.Body = __destructured_2.body
     val fault: String? = __destructured_2.fault
@@ -2166,34 +2166,34 @@ fun runTask(rt: RunTask) {
     val pool: Int = __destructured_1.pool
     val body: salvo.platform.std.runtime.Body = __destructured_1.body
     val value: salvo.platform.std.runtime.Dyn = __destructured_1.value
-    val savedPool: Int = herePoolPlatform()
-    val savedActor: Int = hereActorPlatform()
-    setHerePlatform(pool, taskFrame())
-    val ran: Ran = activatePlatform(body, 1, 0L, value)
-    setHerePlatform(savedPool, savedActor)
+    val savedPool: Int = salvo.std.runtime.herePoolPlatform()
+    val savedActor: Int = salvo.std.runtime.hereActorPlatform()
+    salvo.std.runtime.setHerePlatform(pool, salvo.std.runtime.taskFrame())
+    val ran: Ran = salvo.std.runtime.activatePlatform(body, 1, 0L, value)
+    salvo.std.runtime.setHerePlatform(savedPool, savedActor)
     val __destructured_2: Ran = ran
     val done: salvo.platform.std.runtime.Body = __destructured_2.body
     val fault: String? = __destructured_2.fault
-    dropBodyPlatform(done)
+    salvo.std.runtime.dropBodyPlatform(done)
     __module_use1_0.taskDone(pool, fault)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun servePool(pool: Int) {
-    setHerePlatform(pool, noFrame())
+    salvo.std.runtime.setHerePlatform(pool, salvo.std.runtime.noFrame())
     while (true) {
-        val w: Union3<RunActor, RunTask, Retire>? = __module_use1_0.nextWork(pool, thisParkerPlatform())
+        val w: Union3<RunActor, RunTask, Retire>? = __module_use1_0.nextWork(pool, salvo.std.runtime.thisParkerPlatform())
         if ((w is Union3.U1<*, *, *>)) {
             val ra: RunActor = ((w as Union3.U1<*, *, *>).value as RunActor)
-            runActor(ra)
+            salvo.std.runtime.runActor(ra)
         } else if ((w is Union3.U2<*, *, *>)) {
             val rt: RunTask = ((w as Union3.U2<*, *, *>).value as RunTask)
-            runTask(rt)
+            salvo.std.runtime.runTask(rt)
         } else if ((w is Union3.U3<*, *, *>)) {
             val w_1: Retire = ((w as Union3.U3<*, *, *>).value as Retire)
             return
         } else {
-            parkPlatform(thisParkerPlatform())
+            salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
         }
     }
     throw AssertionError("salvo: unreachable at std.runtime:1598:5")
@@ -2248,7 +2248,7 @@ fun dropExported(e: Exported) {
     val body: salvo.platform.std.runtime.Body? = __destructured_1.body
     if ((body != null)) {
         val b: salvo.platform.std.runtime.Body = body!!
-        dropBodyPlatform(b)
+        salvo.std.runtime.dropBodyPlatform(b)
     }
 }
 
@@ -2269,7 +2269,7 @@ fun mailboxQueued(addr: Int): Int {
 }
 
 fun currentPool(): Int {
-    return herePoolPlatform()
+    return salvo.std.runtime.herePoolPlatform()
 }
 
 fun mailboxDead(addr: Int): Boolean {
@@ -2277,7 +2277,7 @@ fun mailboxDead(addr: Int): Boolean {
 }
 
 fun identityBits(): Long {
-    return freshBits()
+    return salvo.std.runtime.freshBits()
 }
 
 fun actorPool(addr: Int): Int {
@@ -2289,8 +2289,8 @@ fun waiterPool(wid: Int): Int {
 }
 
 fun spawnInert(): Int {
-    return spawnBody(0, 0, bodyOfPlatform(fun(kind: Int, slot: Long, value: salvo.platform.std.runtime.Dyn) {
-        return dropDynPlatform(value)
+    return salvo.std.runtime.spawnBody(0, 0, salvo.std.runtime.bodyOfPlatform(fun(kind: Int, slot: Long, value: salvo.platform.std.runtime.Dyn) {
+        return salvo.std.runtime.dropDynPlatform(value)
     }))
 }
 

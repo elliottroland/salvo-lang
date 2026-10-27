@@ -11,45 +11,45 @@ fun<T> intoMutPlatform(d: kotlin.collections.ArrayDeque<T>): salvo.platform.std.
 fun<T> endEmptyPlatform(d: salvo.platform.std.core.deque.MutDeque<T>) = salvo.platform.std.core.deque.endEmpty(d)
 
 fun<T> dequeOf(): kotlin.collections.ArrayDeque<T> {
-    return emptyDequePlatform()
+    return salvo.std.core.deque.emptyDequePlatform()
 }
 
 fun<T> dequeOf__T(first: T): kotlin.collections.ArrayDeque<T> {
-    val d: salvo.platform.std.core.deque.MutDeque<T> = emptyDequePlatform()
-    addLastPlatform(d, first)
+    val d: salvo.platform.std.core.deque.MutDeque<T> = salvo.std.core.deque.emptyDequePlatform()
+    salvo.std.core.deque.addLastPlatform(d, first)
     return d
 }
 
 fun<T> dequeOf__T_TArray(first: T, rest: Array<T>): kotlin.collections.ArrayDeque<T> {
-    return dequeFromPlatform(first, rest)
+    return salvo.std.core.deque.dequeFromPlatform(first, rest)
 }
 
 fun<T> mutDequeOf(): salvo.platform.std.core.deque.MutDeque<T> {
-    return emptyDequePlatform()
+    return salvo.std.core.deque.emptyDequePlatform()
 }
 
 fun<T> mutDequeOf__T(first: T): salvo.platform.std.core.deque.MutDeque<T> {
-    val d: salvo.platform.std.core.deque.MutDeque<T> = emptyDequePlatform()
-    addLastPlatform(d, first)
+    val d: salvo.platform.std.core.deque.MutDeque<T> = salvo.std.core.deque.emptyDequePlatform()
+    salvo.std.core.deque.addLastPlatform(d, first)
     return d
 }
 
 fun<T> mutDequeOf__T_TArray(first: T, rest: Array<T>): salvo.platform.std.core.deque.MutDeque<T> {
-    return dequeFromPlatform(first, rest)
+    return salvo.std.core.deque.dequeFromPlatform(first, rest)
 }
 
 fun<T> dequeBy(size: Int, init: (Int) -> T): kotlin.collections.ArrayDeque<T> {
-    return mutDequeBy(size, init)
+    return salvo.std.core.deque.mutDequeBy(size, init)
 }
 
 fun<T> mutDequeBy(size: Int, init: (Int) -> T): salvo.platform.std.core.deque.MutDeque<T> {
-    val d: salvo.platform.std.core.deque.MutDeque<T> = emptyDequePlatform()
+    val d: salvo.platform.std.core.deque.MutDeque<T> = salvo.std.core.deque.emptyDequePlatform()
     var i: Int = 0
     while (true) {
         if (!((i < size))) {
             break
         }
-        addLastPlatform(d, init(i))
+        salvo.std.core.deque.addLastPlatform(d, init(i))
         i = (i + 1)
     }
     return d
@@ -68,7 +68,7 @@ fun<T> removeAtPlatform(d: salvo.platform.std.core.deque.MutDeque<T>, index: Int
 fun<T> getPlatform(d: kotlin.collections.ArrayDeque<T>, index: Int): T? = salvo.platform.std.core.deque.get(d, index)
 
 fun<T> get(d: kotlin.collections.ArrayDeque<T>, index: Int): T {
-    return getAtPlatform(d, (index + 0))
+    return salvo.std.core.deque.getAtPlatform(d, (index + 0))
 }
 
 fun<T> getAtPlatform(d: kotlin.collections.ArrayDeque<T>, index: Int): T = salvo.platform.std.core.deque.getAt(d, index)
@@ -76,7 +76,7 @@ fun<T> getAtPlatform(d: kotlin.collections.ArrayDeque<T>, index: Int): T = salvo
 fun<T> atPlatform(d: kotlin.collections.ArrayDeque<T>, index: Int): T? = salvo.platform.std.core.deque.at(d, index)
 
 fun<T> at(d: kotlin.collections.ArrayDeque<T>, index: Int): T {
-    return atProvenPlatform(d, (index + 0))
+    return salvo.std.core.deque.atProvenPlatform(d, (index + 0))
 }
 
 fun<T> atProvenPlatform(d: kotlin.collections.ArrayDeque<T>, index: Int): T = salvo.platform.std.core.deque.atProven(d, index)
@@ -90,13 +90,13 @@ fun<T> lastPlatform(d: kotlin.collections.ArrayDeque<T>): T? = salvo.platform.st
 fun<T> sizePlatform(d: kotlin.collections.ArrayDeque<T>): Int = salvo.platform.std.core.deque.size(d)
 
 fun<T> drain(d: kotlin.collections.ArrayDeque<T>, each: (T) -> Unit) {
-    val m: salvo.platform.std.core.deque.MutDeque<T> = intoMutPlatform(d)
+    val m: salvo.platform.std.core.deque.MutDeque<T> = salvo.std.core.deque.intoMutPlatform(d)
     while (true) {
-        if (!((sizePlatform(m) > 0))) {
+        if (!((salvo.std.core.deque.sizePlatform(m) > 0))) {
             break
         }
         each(kotlin.run {
-            val __pick_1: T? = removeFirstPlatform(m)
+            val __pick_1: T? = salvo.std.core.deque.removeFirstPlatform(m)
             (if ((__pick_1 != null)) {
                 val __picked_2: T = __pick_1!!
                 __picked_2
@@ -105,7 +105,7 @@ fun<T> drain(d: kotlin.collections.ArrayDeque<T>, each: (T) -> Unit) {
             })
         })
     }
-    endEmptyPlatform(m)
+    salvo.std.core.deque.endEmptyPlatform(m)
 }
 
 fun<T> toStr(d: kotlin.collections.ArrayDeque<T>, toStr: (T) -> String): String {
@@ -131,9 +131,9 @@ fun<T> toList(d: kotlin.collections.ArrayDeque<T>, copy: (T) -> T): List<T> {
 }
 
 fun<T> toDeque(list: List<T>, copy: (T) -> T): kotlin.collections.ArrayDeque<T> {
-    val out: salvo.platform.std.core.deque.MutDeque<T> = emptyDequePlatform()
+    val out: salvo.platform.std.core.deque.MutDeque<T> = salvo.std.core.deque.emptyDequePlatform()
     for (x in salvo.platform.std.core.list.each(list)) {
-        addLastPlatform(out, copy(x))
+        salvo.std.core.deque.addLastPlatform(out, copy(x))
     }
     return out
 }
@@ -148,7 +148,7 @@ data class DequeYield<T>(
 )
 
 fun<T> next__DequeYield(p: DequeYield<T>): Union2<T, salvo.std.core.iterator.Finished> {
-    val elem: T? = getPlatform(p.items, p.at)
+    val elem: T? = salvo.std.core.deque.getPlatform(p.items, p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
@@ -163,11 +163,11 @@ data class DequeReversed<T>(
 )
 
 fun<T> reversed(d: kotlin.collections.ArrayDeque<T>): DequeReversed<T> {
-    return DequeReversed<T>(d = d, at = (sizePlatform(d) - 1))
+    return DequeReversed<T>(d = d, at = (salvo.std.core.deque.sizePlatform(d) - 1))
 }
 
 fun<T> next__DequeReversed(__p: DequeReversed<T>): Union2<T, salvo.std.core.iterator.Finished> {
-    val elem: T? = getPlatform(__p.d, __p.at)
+    val elem: T? = salvo.std.core.deque.getPlatform(__p.d, __p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }

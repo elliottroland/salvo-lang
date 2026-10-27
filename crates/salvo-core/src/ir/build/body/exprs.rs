@@ -1159,7 +1159,20 @@ impl<'a, 'p> Lower<'a, 'p> {
         let tmp = self.fresh("__callee");
         let id = self.id();
         let tt = target.ty.clone();
-        let a: Vec<Expr> = all_args.iter().map(|x| self.expr(x)).collect();
+        // [fn-effects] As through a local: the effects the value performs are
+        // its leading arguments (found beside B1 census D19, 2026-10-27 — a
+        // computed callee with effects had none passed, and both target
+        // compilers refused the call).
+        let mut a: Vec<Expr> = Vec::new();
+        if let Ty::Fn { effects, .. } = tt.strip_quals() {
+            for t in crate::threaded_effects(effects) {
+                a.push(self.effect_instance(&t, span));
+            }
+        }
+        let rest: Vec<Expr> = all_args.iter().map(|x| self.expr(x)).collect();
+        // [fn-contract] The checker applied the value's contract here too
+        // (B1 census D19): a consumed position consumes its place.
+        a.extend(self.mark_consumed_by_contract(rest, &key));
         let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Local(tmp.clone()), type_args: Vec::new(), args: a, moved: false } };
         self.block_expr(vec![Stmt::Let { id, local: tmp, ty: tt, value: target }], call, span)
     }

@@ -283,7 +283,7 @@ class FakeS3(private val __dep0: salvo.std.stream.Streams) : S3, S3Calls {
     override fun putObject(input: PutObjectInput, reply: salvo.SalvoReply) {
         salvo.std.core.list.addPlatform(recorded, "put_object")
         val unsized: Boolean = (input.contentLength == null)
-        val closed: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = close__PutObjectInput(__dep0, input)
+        val closed: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = salvo.aws.s3.close__PutObjectInput(__dep0, input)
         if ((closed is Union2.U2<*, *>)) {
             val closed_1: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
             salvo.std.core.checked.ignore(closed_1)

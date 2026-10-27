@@ -39,11 +39,11 @@ fun<T> toStr(set: salvo.platform.std.core.set.Set<T>, toStr: (T) -> String): Str
 }
 
 fun<T> eq(a: salvo.platform.std.core.set.Set<T>, b: salvo.platform.std.core.set.Set<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
-    if ((sizePlatform(a) != sizePlatform(b))) {
+    if ((salvo.std.core.set.sizePlatform(a) != salvo.std.core.set.sizePlatform(b))) {
         return false
     }
     for (x in salvo.platform.std.core.set.each(a)) {
-        if (!(containsPlatform(b, x, hash, eq))) {
+        if (!(salvo.std.core.set.containsPlatform(b, x, hash, eq))) {
             return false
         }
     }
@@ -53,7 +53,7 @@ fun<T> eq(a: salvo.platform.std.core.set.Set<T>, b: salvo.platform.std.core.set.
 fun<T> toListPlatform(set: salvo.platform.std.core.set.Set<T>): List<T> = salvo.platform.std.core.set.toList(set)
 
 fun<T> iter(set: salvo.platform.std.core.set.Set<T>): SetYield<T> {
-    return SetYield<T>(items = toListPlatform(set), at = 0)
+    return SetYield<T>(items = salvo.std.core.set.toListPlatform(set), at = 0)
 }
 
 data class SetYield<T>(
@@ -80,6 +80,6 @@ fun<T> next(p: SetYield<T>): Union2<T, salvo.std.core.iterator.Finished> {
 }
 
 fun<T> NonEmpty_qualifies(set: salvo.platform.std.core.set.Set<T>): Boolean {
-    return (sizePlatform(set) > 0)
+    return (salvo.std.core.set.sizePlatform(set) > 0)
 }
 

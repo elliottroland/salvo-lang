@@ -481,7 +481,7 @@ fun versionIn(versions: salvo.platform.std.core.map.Map<Int, Long>, group: Int):
 }
 
 fun bumpIn(versions: salvo.platform.std.core.map.MutMap<Int, Long>, waiters: salvo.platform.std.core.list.MutList<ViewWaiter>, group: Int) {
-    salvo.std.core.map.putPlatform(versions, group, (versionIn(versions, group) + 1L), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    salvo.std.core.map.putPlatform(versions, group, (salvo.std.runtime.routing.versionIn(versions, group) + 1L), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var i: Int = 0
     while (true) {
         if (!((i < salvo.std.core.list.sizePlatform(waiters)))) {
@@ -527,7 +527,7 @@ class Routes : RouteTable {
     var poolNode: salvo.platform.std.core.map.MutMap<Int, Long> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Int, Long>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var bits: salvo.platform.std.core.map.MutMap<Int, Long> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Int, Long>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var remote: salvo.platform.std.core.map.MutMap<Int, RemoteRef> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Int, RemoteRef>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var proxies: salvo.platform.std.core.map.MutMap<RemoteRef, Int> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<RemoteRef, Int>>(), ::hash__RemoteRef, ::eq__RemoteRef_RemoteRef)
+    var proxies: salvo.platform.std.core.map.MutMap<RemoteRef, Int> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<RemoteRef, Int>>(), { __a0 -> salvo.std.runtime.routing.hash__RemoteRef(__a0) }, { __a0, __a1 -> salvo.std.runtime.routing.eq__RemoteRef_RemoteRef(__a0, __a1) })
     var credits: salvo.platform.std.core.map.MutMap<Int, Int> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Int, Int>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var heldN: salvo.platform.std.core.map.MutMap<Int, Int> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Int, Int>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var routes: salvo.platform.std.core.map.MutMap<Long, salvo.platform.std.core.bytes.Bytes> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Long, salvo.platform.std.core.bytes.Bytes>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
@@ -536,7 +536,7 @@ class Routes : RouteTable {
     var outbox: salvo.platform.std.core.list.MutList<Staged> = mutableListOf<Staged>()
     var taskKeys: salvo.platform.std.core.list.MutList<Long> = mutableListOf<Long>()
     var tasks: salvo.platform.std.core.list.MutList<ExportedTask> = mutableListOf<ExportedTask>()
-    var controls: salvo.platform.std.core.map.MutMap<ControlKey, Int> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<ControlKey, Int>>(), ::hash__ControlKey, ::eq__ControlKey_ControlKey)
+    var controls: salvo.platform.std.core.map.MutMap<ControlKey, Int> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<ControlKey, Int>>(), { __a0 -> salvo.std.runtime.routing.hash__ControlKey(__a0) }, { __a0, __a1 -> salvo.std.runtime.routing.eq__ControlKey_ControlKey(__a0, __a1) })
     var local: List<kotlin.Pair<String, String>> = listOf<kotlin.Pair<String, String>>()
     var peers: salvo.platform.std.core.map.MutMap<Long, List<kotlin.Pair<String, String>>> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Long, List<kotlin.Pair<String, String>>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var deadEntry: Int = (-1)
@@ -546,18 +546,18 @@ class Routes : RouteTable {
     var viewWaiters: salvo.platform.std.core.list.MutList<ViewWaiter> = mutableListOf<ViewWaiter>()
     var nextWaiter: Long = 0L
     init {
-        nodeId = freshNode()
+        nodeId = salvo.std.runtime.routing.freshNode()
         salvo.std.core.set.addPlatform(hosted, nodeId, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         salvo.std.core.map.putPlatform(poolNode, 0, nodeId, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     }
     override fun nodeOfPool(pool: Int): Long {
-        return nodeIn(poolNode, nodeId, pool)
+        return salvo.std.runtime.routing.nodeIn(poolNode, nodeId, pool)
     }
     override fun adoptPool(pool: Int, node: Long) {
         salvo.std.core.map.putPlatform(poolNode, pool, node, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     }
     override fun addNode(): Long {
-        val n: Long = freshNode()
+        val n: Long = salvo.std.runtime.routing.freshNode()
         salvo.std.core.set.addPlatform(hosted, n, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         return n
     }
@@ -565,7 +565,7 @@ class Routes : RouteTable {
         return salvo.std.core.set.containsPlatform(hosted, node, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     }
     override fun identityOf(addr: Int, pool: Int): RemoteRef {
-        return identityIn(remote, bits, poolNode, nodeId, addr, pool)
+        return salvo.std.runtime.routing.identityIn(remote, bits, poolNode, nodeId, addr, pool)
     }
     override fun findImport(r: RemoteRef, here: Long): Union3<Found, MakeProxy, MakeDead> {
         if ((r.node == here)) {
@@ -585,7 +585,7 @@ class Routes : RouteTable {
             }
             return Union3.U3<Found, MakeProxy, MakeDead>(MakeDead())
         }
-        val p: Int? = salvo.std.core.map.getPlatform(proxies, r, ::hash__RemoteRef, ::eq__RemoteRef_RemoteRef)
+        val p: Int? = salvo.std.core.map.getPlatform(proxies, r, { __a0 -> salvo.std.runtime.routing.hash__RemoteRef(__a0) }, { __a0, __a1 -> salvo.std.runtime.routing.eq__RemoteRef_RemoteRef(__a0, __a1) })
         if ((p != null)) {
             val idx: Int = p!!
             return Union3.U1<Found, MakeProxy, MakeDead>(Found(idx = idx))
@@ -593,16 +593,16 @@ class Routes : RouteTable {
         return Union3.U2<Found, MakeProxy, MakeDead>(MakeProxy())
     }
     override fun registerProxy(r: RemoteRef, idx: Int, here: Long): Int {
-        val existing: Int? = salvo.std.core.map.getPlatform(proxies, r, ::hash__RemoteRef, ::eq__RemoteRef_RemoteRef)
+        val existing: Int? = salvo.std.core.map.getPlatform(proxies, r, { __a0 -> salvo.std.runtime.routing.hash__RemoteRef(__a0) }, { __a0, __a1 -> salvo.std.runtime.routing.eq__RemoteRef_RemoteRef(__a0, __a1) })
         if ((existing != null)) {
             val e: Int = existing!!
             return e
         }
         salvo.std.core.map.putPlatform(remote, idx, r, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-        salvo.std.core.map.putPlatform(proxies, r, idx, ::hash__RemoteRef, ::eq__RemoteRef_RemoteRef)
+        salvo.std.core.map.putPlatform(proxies, r, idx, { __a0 -> salvo.std.runtime.routing.hash__RemoteRef(__a0) }, { __a0, __a1 -> salvo.std.runtime.routing.eq__RemoteRef_RemoteRef(__a0, __a1) })
         salvo.std.core.map.putPlatform(credits, idx, 0, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         val frame: salvo.platform.std.core.bytes.Bytes = salvo.salvoEncode(Union5.U4<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(OpenFrame(to = r.node, actor = r.actor, bits = r.bits, from = here)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
-        stageIn(routes, outbound, outbox, parked, here, r.node, frame)
+        salvo.std.runtime.routing.stageIn(routes, outbound, outbox, parked, here, r.node, frame)
         return idx
     }
     override fun registerDead(idx: Int): Int {
@@ -629,7 +629,7 @@ class Routes : RouteTable {
             val n: Int = c!!
             if ((n > 0)) {
                 salvo.std.core.map.putPlatform(credits, addr, (n - 1), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-                salvo.std.core.map.putPlatform(heldN, addr, (heldIn(heldN, addr) + 1), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+                salvo.std.core.map.putPlatform(heldN, addr, (salvo.std.runtime.routing.heldIn(heldN, addr) + 1), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
                 return 1
             }
             salvo.std.core.list.addPlatform(creditWaiters, me)
@@ -638,13 +638,13 @@ class Routes : RouteTable {
         return (-1)
     }
     override fun stage(from: Long, to: Long, frame: salvo.platform.std.core.bytes.Bytes) {
-        stageIn(routes, outbound, outbox, parked, from, to, frame)
+        salvo.std.runtime.routing.stageIn(routes, outbound, outbox, parked, from, to, frame)
     }
     override fun grant(addr: Int, pool: Int, from: Long, n: Int) {
-        salvo.std.core.map.putPlatform(heldN, addr, (heldIn(heldN, addr) + n), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-        val me: RemoteRef = identityIn(remote, bits, poolNode, nodeId, addr, pool)
+        salvo.std.core.map.putPlatform(heldN, addr, (salvo.std.runtime.routing.heldIn(heldN, addr) + n), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+        val me: RemoteRef = salvo.std.runtime.routing.identityIn(remote, bits, poolNode, nodeId, addr, pool)
         val frame: salvo.platform.std.core.bytes.Bytes = salvo.salvoEncode(Union5.U3<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(GrantFrame(to = from, host = me.node, actor = me.actor, bits = me.bits, n = n)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
-        stageIn(routes, outbound, outbox, parked, me.node, from, frame)
+        salvo.std.runtime.routing.stageIn(routes, outbound, outbox, parked, me.node, from, frame)
     }
     override fun takeOutbox(): salvo.platform.std.core.list.MutList<Staged> {
         val out: salvo.platform.std.core.list.MutList<Staged> = mutableListOf<Staged>()
@@ -666,11 +666,11 @@ class Routes : RouteTable {
     }
     override fun addRoute(node: Long, at: salvo.platform.std.core.bytes.Bytes) {
         salvo.std.core.map.putPlatform(routes, node, at, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-        restage(routes, outbound, outbox, parked)
+        salvo.std.runtime.routing.restage(routes, outbound, outbox, parked)
     }
     override fun setOutbound(node: Long) {
         salvo.std.core.set.addPlatform(outbound, node, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-        restage(routes, outbound, outbox, parked)
+        salvo.std.runtime.routing.restage(routes, outbound, outbox, parked)
     }
     override fun hasOutbound(node: Long): Boolean {
         return salvo.std.core.set.containsPlatform(outbound, node, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
@@ -693,7 +693,7 @@ class Routes : RouteTable {
         return false
     }
     override fun received(idx: Int) {
-        val h: Int = heldIn(heldN, idx)
+        val h: Int = salvo.std.runtime.routing.heldIn(heldN, idx)
         if ((h > 0)) {
             salvo.std.core.map.putPlatform(heldN, idx, (h - 1), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         }
@@ -702,7 +702,7 @@ class Routes : RouteTable {
         if (!(salvo.std.core.set.containsPlatform(hosted, to, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }))) {
             return false
         }
-        val p: Int? = salvo.std.core.map.getPlatform(proxies, r, ::hash__RemoteRef, ::eq__RemoteRef_RemoteRef)
+        val p: Int? = salvo.std.core.map.getPlatform(proxies, r, { __a0 -> salvo.std.runtime.routing.hash__RemoteRef(__a0) }, { __a0, __a1 -> salvo.std.runtime.routing.eq__RemoteRef_RemoteRef(__a0, __a1) })
         if ((p != null)) {
             val idx: Int = p!!
             val i: Int = idx
@@ -713,18 +713,18 @@ class Routes : RouteTable {
                 now = have
             }
             salvo.std.core.map.putPlatform(credits, i, (now + n), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-            var h: Int = (heldIn(heldN, i) - n)
+            var h: Int = (salvo.std.runtime.routing.heldIn(heldN, i) - n)
             if ((h < 0)) {
                 h = 0
             }
             salvo.std.core.map.putPlatform(heldN, i, h, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-            wakeSenders(creditWaiters)
+            salvo.std.runtime.routing.wakeSenders(creditWaiters)
             return true
         }
         return false
     }
     override fun held(idx: Int): Int {
-        return heldIn(heldN, idx)
+        return salvo.std.runtime.routing.heldIn(heldN, idx)
     }
     override fun putTask(key: Long, t: ExportedTask) {
         salvo.std.core.list.addPlatform(taskKeys, key)
@@ -753,10 +753,10 @@ class Routes : RouteTable {
         return null
     }
     override fun watchChannel(node: Long, channel: String, sink: Int) {
-        salvo.std.core.map.putPlatform(controls, ControlKey(node = node, channel = channel), sink, ::hash__ControlKey, ::eq__ControlKey_ControlKey)
+        salvo.std.core.map.putPlatform(controls, ControlKey(node = node, channel = channel), sink, { __a0 -> salvo.std.runtime.routing.hash__ControlKey(__a0) }, { __a0, __a1 -> salvo.std.runtime.routing.eq__ControlKey_ControlKey(__a0, __a1) })
     }
     override fun channelSink(node: Long, channel: String): Int {
-        val s: Int? = salvo.std.core.map.getPlatform(controls, ControlKey(node = node, channel = channel), ::hash__ControlKey, ::eq__ControlKey_ControlKey)
+        val s: Int? = salvo.std.core.map.getPlatform(controls, ControlKey(node = node, channel = channel), { __a0 -> salvo.std.runtime.routing.hash__ControlKey(__a0) }, { __a0, __a1 -> salvo.std.runtime.routing.eq__ControlKey_ControlKey(__a0, __a1) })
         if ((s != null)) {
             val sink: Int = s!!
             return sink
@@ -800,12 +800,12 @@ class Routes : RouteTable {
                 }
             }
         }
-        wakeSenders(creditWaiters)
+        salvo.std.runtime.routing.wakeSenders(creditWaiters)
         return gone
     }
     override fun setView(group: Int, members: List<Int>) {
         salvo.std.core.map.putPlatform(views, group, members, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-        bumpIn(versions, viewWaiters, group)
+        salvo.std.runtime.routing.bumpIn(versions, viewWaiters, group)
     }
     override fun viewOf(group: Int): List<Int> {
         val v: List<Int>? = salvo.std.core.map.getPlatform(views, group, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
@@ -816,13 +816,13 @@ class Routes : RouteTable {
         return listOf<Int>()
     }
     override fun versionOf(group: Int): Long {
-        return versionIn(versions, group)
+        return salvo.std.runtime.routing.versionIn(versions, group)
     }
     override fun bump(group: Int) {
-        bumpIn(versions, viewWaiters, group)
+        salvo.std.runtime.routing.bumpIn(versions, viewWaiters, group)
     }
     override fun addViewWaiter(group: Int, seen: Long, me: salvo.platform.std.runtime.Parker): Long {
-        if ((versionIn(versions, group) != seen)) {
+        if ((salvo.std.runtime.routing.versionIn(versions, group) != seen)) {
             return (-1L)
         }
         nextWaiter = (nextWaiter + 1L)
@@ -887,7 +887,7 @@ fun identityIn(remote: salvo.platform.std.core.map.Map<Int, RemoteRef>, bits: sa
         val found: RemoteRef = r!!
         return found
     }
-    val n: Long = nodeIn(poolNode, nodeId, pool)
+    val n: Long = salvo.std.runtime.routing.nodeIn(poolNode, nodeId, pool)
     val b: Long? = salvo.std.core.map.getPlatform(bits, addr, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     if ((b != null)) {
         val known: Long = b!!
@@ -944,7 +944,7 @@ fun restage(routes: salvo.platform.std.core.map.Map<Long, salvo.platform.std.cor
         })
     }
     for (p in salvo.platform.std.core.list.each(waiting)) {
-        stageIn(routes, outbound, outbox, parked, p.from, p.to, p.frame)
+        salvo.std.runtime.routing.stageIn(routes, outbound, outbox, parked, p.from, p.to, p.frame)
     }
 }
 
@@ -961,7 +961,7 @@ fun hereNode(): Long {
 }
 
 fun adopt(pool: Int) {
-    __module_use0_0.adoptPool(pool, hereNode())
+    __module_use0_0.adoptPool(pool, salvo.std.runtime.routing.hereNode())
 }
 
 fun newNode(): Long {
@@ -985,13 +985,13 @@ fun sameActor(a: Int, b: Int): Boolean {
     if ((!(__module_use0_0.isProxy(a)) && !(__module_use0_0.isProxy(b)))) {
         return false
     }
-    return eq__RemoteRef_RemoteRef(identity(a), identity(b))
+    return salvo.std.runtime.routing.eq__RemoteRef_RemoteRef(salvo.std.runtime.routing.identity(a), salvo.std.runtime.routing.identity(b))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun importAddr(node: Long, actor: Long, bits: Long): Int {
     val r: RemoteRef = RemoteRef(node = node, actor = actor, bits = bits)
-    val here: Long = hereNode()
+    val here: Long = salvo.std.runtime.routing.hereNode()
     val found: Union3<Found, MakeProxy, MakeDead> = __module_use0_0.findImport(r, here)
     if ((found is Union3.U1<*, *, *>)) {
         val f: Found = ((found as Union3.U1<*, *, *>).value as Found)
@@ -1007,7 +1007,7 @@ fun importAddr(node: Long, actor: Long, bits: Long): Int {
     if ((got == idx)) {
         salvo.std.runtime.markProxy(idx)
     }
-    flush()
+    salvo.std.runtime.routing.flush()
     return got
 }
 
@@ -1023,11 +1023,11 @@ fun sendRemote(addr: Int, proto: String, payload: salvo.platform.std.core.bytes.
     while (true) {
         val got: Int = __module_use0_0.takeCredit(addr, salvo.std.runtime.thisParkerPlatform())
         if ((got == 1)) {
-            val from: Long = hereNode()
+            val from: Long = salvo.std.runtime.routing.hereNode()
             val r_1: RemoteRef = r!!
             val frame: salvo.platform.std.core.bytes.Bytes = salvo.salvoEncode(Union5.U1<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(MsgFrame(to = r_1.node, actor = r_1.actor, bits = r_1.bits, from = from, proto = proto, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
             __module_use0_0.stage(from, r_1.node, frame)
-            flush()
+            salvo.std.runtime.routing.flush()
             return
         }
         if (((got < 0) || salvo.std.runtime.mailboxDead(addr))) {
@@ -1042,10 +1042,10 @@ fun sendRemote(addr: Int, proto: String, payload: salvo.platform.std.core.bytes.
 }
 
 fun answerRemote(t: ReplyParts, payload: salvo.platform.std.core.bytes.Bytes) {
-    val from: Long = hereNode()
+    val from: Long = salvo.std.runtime.routing.hereNode()
     val frame: salvo.platform.std.core.bytes.Bytes = salvo.salvoEncode(Union5.U2<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(AnswerFrame(to = t.node, kind = t.kind, id = t.id, slot = t.slot, bits = t.bits, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
     __module_use0_0.stage(from, t.node, frame)
-    flush()
+    salvo.std.runtime.routing.flush()
 }
 
 fun exportReply(e: salvo.std.runtime.Exported): ReplyParts {
@@ -1068,7 +1068,7 @@ fun exportReply(e: salvo.std.runtime.Exported): ReplyParts {
     if ((kind == 1)) {
         return ReplyParts(node = __module_use0_0.nodeOfPool(salvo.std.runtime.waiterPool(id)), kind = 1, id = (id).toLong(), slot = slot, bits = 0L)
     }
-    val me: RemoteRef = identity(id)
+    val me: RemoteRef = salvo.std.runtime.routing.identity(id)
     return ReplyParts(node = me.node, kind = 0, id = me.actor, slot = slot, bits = me.bits)
 }
 
@@ -1079,22 +1079,22 @@ fun creditBack(addr: Int, pool: Int, from: Long) {
 fun flush() {
     val out: salvo.platform.std.core.list.MutList<Staged> = __module_use0_0.takeOutbox()
     for (s in salvo.platform.std.core.list.each(out)) {
-        wireOutPlatform(s.from, s.to, s.frame)
+        salvo.std.runtime.routing.wireOutPlatform(s.from, s.to, s.frame)
     }
 }
 
 fun route(node: Long, at: salvo.platform.std.core.bytes.Bytes) {
     __module_use0_0.addRoute(node, at)
-    flush()
+    salvo.std.runtime.routing.flush()
 }
 
 fun outboundBound() {
-    __module_use0_0.setOutbound(hereNode())
-    flush()
+    __module_use0_0.setOutbound(salvo.std.runtime.routing.hereNode())
+    salvo.std.runtime.routing.flush()
 }
 
 fun connected(): Boolean {
-    return __module_use0_0.hasOutbound(hereNode())
+    return __module_use0_0.hasOutbound(salvo.std.runtime.routing.hereNode())
 }
 
 fun credits(addr: Int): Int? {
@@ -1109,18 +1109,18 @@ fun pending(addr: Int): Int {
 }
 
 fun watchControl(channel: String, sink: Int) {
-    __module_use0_0.watchChannel(hereNode(), channel, sink)
+    __module_use0_0.watchChannel(salvo.std.runtime.routing.hereNode(), channel, sink)
 }
 
 fun sendControl(to: Long, channel: String, payload: salvo.platform.std.core.bytes.Bytes) {
-    val from: Long = hereNode()
+    val from: Long = salvo.std.runtime.routing.hereNode()
     val frame: salvo.platform.std.core.bytes.Bytes = salvo.salvoEncode(Union5.U5<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(ControlFrame(to = to, from = from, channel = channel, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
     __module_use0_0.stage(from, to, frame)
-    flush()
+    salvo.std.runtime.routing.flush()
 }
 
 fun controlFrame(channel: String, payload: salvo.platform.std.core.bytes.Bytes): salvo.platform.std.core.bytes.Bytes {
-    return salvo.salvoEncode(Union5.U5<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(ControlFrame(to = 0L, from = hereNode(), channel = channel, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
+    return salvo.salvoEncode(Union5.U5<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(ControlFrame(to = 0L, from = salvo.std.runtime.routing.hereNode(), channel = channel, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
 }
 
 fun nodeLeft(node: Long) {
@@ -1154,7 +1154,7 @@ fun deliver(data: salvo.platform.std.core.bytes.Bytes): Boolean {
             return false
         }
         val idx: Int = (m.actor).toInt()
-        val msg: salvo.platform.std.runtime.Dyn? = decodeMessagePlatform(idx, m.proto, m.payload)
+        val msg: salvo.platform.std.runtime.Dyn? = salvo.std.runtime.routing.decodeMessagePlatform(idx, m.proto, m.payload)
         if ((msg != null)) {
             val v: salvo.platform.std.runtime.Dyn = msg!!
             __module_use0_0.received(idx)
@@ -1165,7 +1165,7 @@ fun deliver(data: salvo.platform.std.core.bytes.Bytes): Boolean {
     }
     if ((f is Union5.U2<*, *, *, *, *>)) {
         val a: AnswerFrame = ((f as Union5.U2<*, *, *, *, *>).value as AnswerFrame)
-        return deliverAnswer(a)
+        return salvo.std.runtime.routing.deliverAnswer(a)
     }
     if ((f is Union5.U3<*, *, *, *, *>)) {
         val g: GrantFrame = ((f as Union5.U3<*, *, *, *, *>).value as GrantFrame)
@@ -1182,14 +1182,14 @@ fun deliver(data: salvo.platform.std.core.bytes.Bytes): Boolean {
             room = 1
         }
         __module_use0_0.grant(idx, salvo.std.runtime.actorPool(idx), o.from, room)
-        flush()
+        salvo.std.runtime.routing.flush()
         return true
     }
     if ((f is Union5.U5<*, *, *, *, *>)) {
         val c: ControlFrame = ((f as Union5.U5<*, *, *, *, *>).value as ControlFrame)
         var node: Long = c.to
         if ((node == 0L)) {
-            node = hereNode()
+            node = salvo.std.runtime.routing.hereNode()
         }
         if (!(__module_use0_0.hosts(node))) {
             return false
@@ -1198,7 +1198,7 @@ fun deliver(data: salvo.platform.std.core.bytes.Bytes): Boolean {
         if ((sink < 0)) {
             return false
         }
-        val msg: salvo.platform.std.runtime.Dyn? = controlMessagePlatform(sink, c.from, c.payload)
+        val msg: salvo.platform.std.runtime.Dyn? = salvo.std.runtime.routing.controlMessagePlatform(sink, c.from, c.payload)
         if ((msg != null)) {
             val v: salvo.platform.std.runtime.Dyn = msg!!
             val queued: Boolean = salvo.std.runtime.deliverRemote(sink, v, ((-1)).toLong())
@@ -1217,12 +1217,12 @@ fun deliverAnswer(a: AnswerFrame): Boolean {
         if (!(__module_use0_0.accepts(a.to, a.id, a.bits))) {
             return false
         }
-        salvo.std.runtime.answer(salvo.std.runtime.tokenToActor((a.id).toInt(), a.slot), rawAnswerPlatform(a.payload))
+        salvo.std.runtime.answer(salvo.std.runtime.tokenToActor((a.id).toInt(), a.slot), salvo.std.runtime.routing.rawAnswerPlatform(a.payload))
         return true
     }
     if ((a.kind == 1)) {
         val wid: Int = (a.id).toInt()
-        val v: salvo.platform.std.runtime.Dyn? = decodeWaiterAnswerPlatform(wid, a.payload)
+        val v: salvo.platform.std.runtime.Dyn? = salvo.std.runtime.routing.decodeWaiterAnswerPlatform(wid, a.payload)
         if ((v != null)) {
             val value: salvo.platform.std.runtime.Dyn = v!!
             salvo.std.runtime.answer(salvo.std.runtime.tokenToWaiter(wid, a.slot), value)
@@ -1233,7 +1233,7 @@ fun deliverAnswer(a: AnswerFrame): Boolean {
     val t: ExportedTask? = __module_use0_0.takeTask(a.id)
     if ((t != null)) {
         val task: ExportedTask = t!!
-        val v: salvo.platform.std.runtime.Dyn? = decodeTaskAnswerPlatform(a.id, a.payload)
+        val v: salvo.platform.std.runtime.Dyn? = salvo.std.runtime.routing.decodeTaskAnswerPlatform(a.id, a.payload)
         val __destructured_1: ExportedTask = task
         val pool: Int = __destructured_1.pool
         val body: salvo.platform.std.runtime.Body = __destructured_1.body
@@ -1267,7 +1267,7 @@ fun viewMembers(group: Int): List<Int> {
             if (!((i < salvo.std.core.list.sizePlatform(left)))) {
                 break
             }
-            if (before(identity(kotlin.run {
+            if (salvo.std.runtime.routing.before(salvo.std.runtime.routing.identity(kotlin.run {
                 val __pick_1: Int? = salvo.std.core.list.getPlatform(left, i)
                 (if ((__pick_1 != null)) {
                     val __picked_2: Int = __pick_1!!
@@ -1275,7 +1275,7 @@ fun viewMembers(group: Int): List<Int> {
                 } else {
                     throw AssertionError("salvo: unreachable at std.runtime.routing:939:53")
                 })
-            }), identity(kotlin.run {
+            }), salvo.std.runtime.routing.identity(kotlin.run {
                 val __pick_4: Int? = salvo.std.core.list.getPlatform(left, best)
                 (if ((__pick_4 != null)) {
                     val __picked_5: Int = __pick_4!!

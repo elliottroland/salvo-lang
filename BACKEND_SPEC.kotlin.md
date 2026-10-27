@@ -48,12 +48,32 @@ Conventions:
   reference names, which arm a narrowing reads, what a value's type is, what a
   boundary checks) is the IR's.
 * [kt-imports] **References are fully qualified**, so a file imports only the
-  runtime package (`import salvo.*`): a foreign fn is `salvo.<module>.<fn>`,
-  a foreign type `salvo.<module>.<Type>`, and an aliased Salvo import leaves
+  runtime package (`import salvo.*`): a fn is `salvo.<module>.<fn>` — its
+  own module's too [kt-decl-call-qualified] — a foreign type
+  `salvo.<module>.<Type>`, and an aliased Salvo import leaves
   no trace (the reference is the declaration's own). A fn value of another
   module is a forwarding lambda, since a callable reference cannot name a
   package. (Before the IR the backend wrote one import per name, with
   renames for clashing names; qualification made all of that unnecessary.)
+* [kt-decl-call-qualified] **Every call to a declared fn names its package**
+  (2026-10-27, B1 census D11 and D13): `salvo.<module>.<fn>(…)`, the calling
+  module's own fns included. Kotlin resolves a bare call to a local or
+  parameter of that name holding a fn value (its `invoke`), or to a member
+  of the enclosing class, before the package's fun, so a bare name could
+  call something other than the declaration the checker chose: a `for` over
+  a concrete pass inside a fn holding an implicit `?next` drove the
+  implicit; `5.show()` and `show@main(5)` beside a local `show` called the
+  local; a handler member calling the top-level fn of its own name recursed
+  into itself — each where Rust, whose calls are `crate::` paths
+  [rs-shadowed-call], called the declaration [backend-never-wrong]. A fn
+  passed **by value** is `::name` at top level (a callable reference finds
+  the package's fun even beside a local of the name) and a forwarding
+  lambda inside a class body, where `::name` is the class's member. A call
+  *through* a local (a fn value, an implicit) is the bare local. A Salvo
+  local or parameter named `salvo`, `kotlin` or `java` — a root the
+  qualified names go through — is emitted as `__l_<name>`, since it would
+  otherwise capture every qualified name in its scope (kotlinc refused
+  `salvo.main.f(salvo)`).
 * [kt-stdlib-qualified] **The Kotlin stdlib the emitter calls is written
   qualified too** (2026-10-20, ROADMAP §2d item 14): `kotlin.run { … }` for a
   block in value position, `kotlin.error`, `kotlin.check`, `kotlin.TODO`,
@@ -279,10 +299,11 @@ Conventions:
   [kt-fn-mangling]. A call written with a renamed name emits the
   declaration's own (mangled) name — `renamed_calls` is what distinguishes
   that from an *import alias*, which the emitter keeps [kt-imports].
-  * A call reaching past a **local** of the same name needs nothing here:
-    Kotlin keeps functions and properties in separate namespaces, so
-    `describe(7)` beside `val describe = "…"` is the function (Rust needs a
-    path — [rs-shadowed-call]).
+  * A call reaching past a **local** of the same name is the declaration's
+    package-qualified name, as every declared call is
+    [kt-decl-call-qualified]. (Until 2026-10-27 this said Kotlin needed
+    nothing, because functions and properties are separate namespaces; a
+    *fn-typed* local's `invoke` is not, and took the call.)
   * A named fn passed *by value* emits the resolved declaration's mangled
     name too, which is what makes `::name` right when the name is overloaded
     [fn-value-select].

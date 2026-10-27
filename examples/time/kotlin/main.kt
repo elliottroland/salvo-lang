@@ -51,14 +51,14 @@ class Sessions(private val __dep0: salvo.std.time.Timer) : Session {
         __dep0.after(salvo.std.time.plus__Duration_Duration(budget, salvo.std.time.seconds(1L)), kotlin.run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_Sessions.Expire(started, budget, out); __r })
     }
     override fun expire(started: salvo.std.time.Tick, budget: salvo.std.time.Duration, out: salvo.SalvoReply, f: salvo.std.time.Fired) {
-        salvo.SalvoSched.replyWire(out, verdict(started, f.at, budget), salvo.StrCodec)
+        salvo.SalvoSched.replyWire(out, salvo.main.verdict(started, f.at, budget), salvo.StrCodec)
     }
 }
 
 class __Actor_Sessions(private val handler: Sessions) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Sessions_Session(handler, msg as __Msg_Session)
+        salvo.main.__dispatch_Sessions_Session(handler, msg as __Msg_Session)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -139,7 +139,7 @@ class Napping(private val __dep0: salvo.std.time.Timer, private val __dep1: salv
 class __Actor_Napping(private val handler: Napping) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Napping_Sleeper(handler, msg as __Msg_Sleeper)
+        salvo.main.__dispatch_Napping_Sleeper(handler, msg as __Msg_Sleeper)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -191,10 +191,10 @@ fun main() {
     val __lock___use_7 = java.util.concurrent.locks.ReentrantLock()
     val __handle_8: salvo.std.time.Ticker = salvo.std.time.__Mon_Ticker(__use_7, __lock___use_7)
     val started: salvo.std.time.Tick = __handle_8.tick()
-    salvo.std.core.console.println(__handle_2, "overdue after one more read: ${overdue(__handle_8, started, budget)}")
-    salvo.std.core.console.println(__handle_2, "overdue after three: ${overdue(__handle_8, started, budget)} ${overdue(__handle_8, started, budget)} ${overdue(__handle_8, started, budget)}")
-    salvo.std.core.console.println(__handle_2, verdict(salvo.std.time.Tick(nanos = 0L), salvo.std.time.Tick(nanos = 1000000000L), budget))
-    salvo.std.core.console.println(__handle_2, verdict(salvo.std.time.Tick(nanos = 0L), salvo.std.time.Tick(nanos = 2000000000L), budget))
+    salvo.std.core.console.println(__handle_2, "overdue after one more read: ${salvo.main.overdue(__handle_8, started, budget)}")
+    salvo.std.core.console.println(__handle_2, "overdue after three: ${salvo.main.overdue(__handle_8, started, budget)} ${salvo.main.overdue(__handle_8, started, budget)} ${salvo.main.overdue(__handle_8, started, budget)}")
+    salvo.std.core.console.println(__handle_2, salvo.main.verdict(salvo.std.time.Tick(nanos = 0L), salvo.std.time.Tick(nanos = 1000000000L), budget))
+    salvo.std.core.console.println(__handle_2, salvo.main.verdict(salvo.std.time.Tick(nanos = 0L), salvo.std.time.Tick(nanos = 2000000000L), budget))
     val p: Int = salvo.std.core.actor.pool(1)
     val __destructured_9: kotlin.Pair<Int, Int> = kotlin.run { val __h = salvo.std.time.ManualTime(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.std.time.__Actor_ManualTime(__h), salvo.std.time.__Actor_ManualTime.__DECODE); kotlin.Pair(__a, __a) }
     val timer: Int = __destructured_9.first

@@ -267,6 +267,13 @@ struct ModuleEmitter<'a, 'p> {
 
 fn kt_local(l: &Local) -> String {
     let s = l.0.replace('~', "_");
+    // [kt-decl-call-qualified] A local named like a package root the emitted
+    // code qualifies through (`salvo.<module>.f(…)`, `kotlin.run`,
+    // `java.util…`) would capture the qualified name; it is renamed into the
+    // emitter's own `__` namespace.
+    if matches!(s.as_str(), "salvo" | "kotlin" | "java") {
+        return format!("__l_{s}");
+    }
     if s.starts_with("__") { s } else { kt_ident(&s) }
 }
 
@@ -390,8 +397,19 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     // ------------------------------------------------------------- names --
 
-    /// A Kotlin name for a fn reference: the emitted (overload-mangled) name,
-    /// fully qualified when the declaration is in another module.
+    /// A Kotlin name for a call to a declared fn: the emitted
+    /// (overload-mangled) name, always qualified by its package —
+    /// [kt-decl-call-qualified]: Kotlin resolves a bare call to a local or
+    /// parameter of that name (a fn value), or to a member of the enclosing
+    /// class, before the package's own fun, so a bare name could call
+    /// something other than the declaration the checker chose.
+    fn fn_name(&mut self, id: &DeclId) -> String {
+        let local = self.fn_ident(id);
+        format!("{}.{local}", kotlin_package(id.module()))
+    }
+
+    /// The unqualified Kotlin identifier of a declared fn, as its declaration
+    /// spells it.
     ///
     /// [namespace] A namespaced free fn has a dotted key (`Outer.Inner.make`).
     /// Kotlin nests *types* in objects so their dotted path is valid, but a
@@ -399,7 +417,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// (`Outer_Inner_make`) at both its declaration and every call — the
     /// namespace still keeps the name unique, and no `object` has to hold the
     /// fn. Mirrors the Rust backend, which flattens every dotted name.
-    fn fn_name(&mut self, id: &DeclId) -> String {
+    fn fn_ident(&mut self, id: &DeclId) -> String {
         let file_idx = self.s.decl_index.loc(*id).map(|l| l.file);
         let decl = file_idx.and_then(|fi| self.s.program.modules[fi].items.get(self.s.decl_index.loc(*id).map_or(usize::MAX, |l| l.item)));
         let name = match decl {
@@ -410,12 +428,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             _ => self.s.ir.ref_name(id),
         };
-        let local = kt_ident(&name.replace('.', "_"));
-        if *id.module() == self.module.path {
-            local
-        } else {
-            format!("{}.{local}", kotlin_package(id.module()))
-        }
+        kt_ident(&name.replace('.', "_"))
     }
 
     /// A type's Kotlin path, by its symbol key.
@@ -1065,10 +1078,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let kw = if is_member && overrides { "override fun" } else { "fun" };
         let name = match member {
             Some(n) => n,
-            None => {
-                let own = self.fn_name(&f.id);
-                own.rsplit('.').next().unwrap_or(&own).to_string()
-            }
+            None => self.fn_ident(&f.id),
         };
         self.in_fn_params = f.params.iter().map(|p| kt_local(&p.local)).collect();
         self.assigned = f.body.as_ref().map(assigned_locals).unwrap_or_default();
@@ -1589,11 +1599,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         }
                     }
                     // A callable reference cannot name a package, so a foreign
-                    // fn is a lambda forwarding to it.
-                    let n = self.fn_name(id);
-                    if !n.contains('.') {
-                        return format!("::{n}");
+                    // fn is a lambda forwarding to it. `::name` is the
+                    // package's fun even beside a local of that name, but
+                    // inside a class it is the class's member of that name
+                    // [kt-decl-call-qualified], so a handler body forwards
+                    // too.
+                    if *id.module() == self.module.path && self.current_impl.is_none() {
+                        return format!("::{}", self.fn_ident(id));
                     }
+                    let n = self.fn_name(id);
                     format!("{{ {} -> {n}({}) }}", names.join(", "), names.join(", "))
                 }
                 FnRef::Local(l) => kt_local(l),

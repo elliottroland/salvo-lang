@@ -26,7 +26,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
     }
     if ((created is Union2.U2<*, *>)) {
         val created_1: salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((created as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-        salvo.std.core.console.println(console, "create_queue: ${describe(salvo.std.core.checked.detach(created_1))}")
+        salvo.std.core.console.println(console, "create_queue: ${salvo.main.describe(salvo.std.core.checked.detach(created_1))}")
         null
         return
     }
@@ -62,7 +62,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
         }
         (sent is Union2.U2<*, *>) -> {
             val sent_10: salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((sent as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "send_message: ${describe(salvo.std.core.checked.detach(sent_10))}")
+            salvo.std.core.console.println(console, "send_message: ${salvo.main.describe(salvo.std.core.checked.detach(sent_10))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:47:5"))
@@ -101,7 +101,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
         }
         (got is Union2.U2<*, *>) -> {
             val got_18: salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((got as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "receive_message: ${describe(salvo.std.core.checked.detach(got_18))}")
+            salvo.std.core.console.println(console, "receive_message: ${salvo.main.describe(salvo.std.core.checked.detach(got_18))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:55:5"))
@@ -120,7 +120,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
         }
         (gone is Union2.U2<*, *>) -> {
             val gone_20: salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((gone as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "delete_queue: ${describe(salvo.std.core.checked.detach(gone_20))}")
+            salvo.std.core.console.println(console, "delete_queue: ${salvo.main.describe(salvo.std.core.checked.detach(gone_20))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:69:5"))
@@ -144,7 +144,7 @@ class MemSqs : salvo.aws.sqs.Sqs {
     override fun getQueueUrl(input: salvo.aws.sqs.GetQueueUrlInput, reply: salvo.SalvoReply) {
         val url: String = "mem://${input.queueName}"
         if (!(salvo.std.core.map.containsKeyPlatform(queues, url, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }))) {
-            salvo.SalvoSched.replyWire(reply, Union2.U2<salvo.aws.sqs.GetQueueUrlOutput, salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U1<salvo.aws.sqs.SqsError, salvo.aws.AwsError>(noQueue(url))))), salvo.Union2Codec(salvo.aws.sqs.__Codec_GetQueueUrlOutput, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError))))
+            salvo.SalvoSched.replyWire(reply, Union2.U2<salvo.aws.sqs.GetQueueUrlOutput, salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U1<salvo.aws.sqs.SqsError, salvo.aws.AwsError>(salvo.main.noQueue(url))))), salvo.Union2Codec(salvo.aws.sqs.__Codec_GetQueueUrlOutput, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError))))
             null
             return
         }
@@ -153,7 +153,7 @@ class MemSqs : salvo.aws.sqs.Sqs {
     override fun sendMessage(input: salvo.aws.sqs.SendMessageInput, reply: salvo.SalvoReply) {
         val held: List<String>? = salvo.std.core.map.getPlatform(queues, input.queueUrl, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         if ((held == null)) {
-            salvo.SalvoSched.replyWire(reply, Union2.U2<salvo.aws.sqs.SendMessageOutput, salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U1<salvo.aws.sqs.SqsError, salvo.aws.AwsError>(noQueue(input.queueUrl))))), salvo.Union2Codec(salvo.aws.sqs.__Codec_SendMessageOutput, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError))))
+            salvo.SalvoSched.replyWire(reply, Union2.U2<salvo.aws.sqs.SendMessageOutput, salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U1<salvo.aws.sqs.SqsError, salvo.aws.AwsError>(salvo.main.noQueue(input.queueUrl))))), salvo.Union2Codec(salvo.aws.sqs.__Codec_SendMessageOutput, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError))))
             null
             return
         }
@@ -171,7 +171,7 @@ class MemSqs : salvo.aws.sqs.Sqs {
     override fun receiveMessage(input: salvo.aws.sqs.ReceiveMessageInput, reply: salvo.SalvoReply) {
         val held: List<String>? = salvo.std.core.map.getPlatform(queues, input.queueUrl, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         if ((held == null)) {
-            reply.send(Union2.U2<salvo.aws.sqs.ReceiveMessageOutput, salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U1<salvo.aws.sqs.SqsError, salvo.aws.AwsError>(noQueue(input.queueUrl))))))
+            reply.send(Union2.U2<salvo.aws.sqs.ReceiveMessageOutput, salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U1<salvo.aws.sqs.SqsError, salvo.aws.AwsError>(salvo.main.noQueue(input.queueUrl))))))
             null
             return
         }
@@ -190,7 +190,7 @@ class MemSqs : salvo.aws.sqs.Sqs {
     }
     override fun deleteQueue(input: salvo.aws.sqs.DeleteQueueInput, reply: salvo.SalvoReply) {
         if (!(salvo.std.core.map.containsKeyPlatform(queues, input.queueUrl, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }))) {
-            salvo.SalvoSched.replyWire(reply, Union2.U2<Unit, salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U1<salvo.aws.sqs.SqsError, salvo.aws.AwsError>(noQueue(input.queueUrl))))), salvo.Union2Codec(salvo.UnitCodec, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError))))
+            salvo.SalvoSched.replyWire(reply, Union2.U2<Unit, salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U1<salvo.aws.sqs.SqsError, salvo.aws.AwsError>(salvo.main.noQueue(input.queueUrl))))), salvo.Union2Codec(salvo.UnitCodec, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError))))
             null
             return
         }
@@ -210,7 +210,7 @@ fun main() {
         val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
         val __handle_4: salvo.aws.sqs.Sqs = salvo.aws.sqs.__Mon_Sqs(__use_3, __lock___use_3)
         val __handle_5: salvo.aws.sqs.SqsCalls = salvo.aws.sqs.__Mon_SqsCalls(__use_3, __lock___use_3)
-        roundTrip(__handle_4, __handle_2, "orders")
+        salvo.main.roundTrip(__handle_4, __handle_2, "orders")
         salvo.std.core.console.println(__handle_2, "calls: ${salvo.std.core.list.toStr(__handle_5.calls(), { __a0 -> __a0 })}")
     }
     salvo.std.core.console.println(__handle_2, "-- MemSqs --")
@@ -218,7 +218,7 @@ fun main() {
         val __use_6: MemSqs = MemSqs()
         val __lock___use_6 = java.util.concurrent.locks.ReentrantLock()
         val __handle_7: salvo.aws.sqs.Sqs = salvo.aws.sqs.__Mon_Sqs(__use_6, __lock___use_6)
-        roundTrip(__handle_7, __handle_2, "orders")
+        salvo.main.roundTrip(__handle_7, __handle_2, "orders")
         val missing: Union2<salvo.aws.sqs.GetQueueUrlOutput, salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = kotlin.run {
             val (r, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union2Codec(salvo.aws.sqs.__Codec_GetQueueUrlOutput, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError)))) })
@@ -240,7 +240,7 @@ fun main() {
             }
             (missing is Union2.U2<*, *>) -> {
                 val missing_12: salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((missing as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-                salvo.std.core.console.println(__handle_2, "get_queue_url: ${describe(salvo.std.core.checked.detach(missing_12))}")
+                salvo.std.core.console.println(__handle_2, "get_queue_url: ${salvo.main.describe(salvo.std.core.checked.detach(missing_12))}")
             }
             else -> {
                 throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:179:9"))

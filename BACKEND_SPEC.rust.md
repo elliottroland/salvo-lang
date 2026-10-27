@@ -260,7 +260,9 @@ Conventions:
   spelled as a path (`crate::<mounted module>::f(...)`, `crate::f(...)` for
   the crate root), and a path never resolves to a local. Rust puts functions
   and locals in one value namespace, so a bare name would be the local
-  (E0618); Kotlin needs nothing, which is why this rule is backend-prefixed.
+  (E0618); the Kotlin backend qualifies every declared call for the same
+  reason (a fn-typed local's `invoke`, or a class member, takes a bare
+  Kotlin call; its spec, 2026-10-27).
   A call *through* a local (a fn value, an implicit) is the bare name.
 * [rs-seq] std's sequence functions [seq-iterator]: the `List` fast paths
   are std functions (2026-10-04, [platform-value-type]): `map` and `reduce`

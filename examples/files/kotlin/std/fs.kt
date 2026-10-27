@@ -255,12 +255,12 @@ fun readToStr(fs: Fs, streams: salvo.std.stream.Streams, path: salvo.std.fs.path
             val closed_4: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
             salvo.std.core.checked.ignore(closed_4)
         }
-        return Union2.U2<String, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(fsStreamError(content_3)))
+        return Union2.U2<String, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(salvo.std.fs.fsStreamError(content_3)))
     }
     val closed: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = streams.close__InStream(s)
     if ((closed is Union2.U2<*, *>)) {
         val closed_5: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-        return Union2.U2<String, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(fsStreamError(closed_5)))
+        return Union2.U2<String, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(salvo.std.fs.fsStreamError(closed_5)))
     }
     val content_6: String = ((content as Union2.U1<*, *>).value as String)
     return Union2.U1<String, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.ok(content_6))
@@ -292,7 +292,7 @@ fun readLines(fs: Fs, streams: salvo.std.stream.Streams, path: salvo.std.fs.path
     val closed: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = salvo.std.stream.close__Lines(streams, p)
     if ((closed is Union2.U2<*, *>)) {
         val closed_6: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-        return Union2.U2<List<String>, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(fsStreamError(closed_6)))
+        return Union2.U2<List<String>, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(salvo.std.fs.fsStreamError(closed_6)))
     }
     val done: List<String> = out
     return Union2.U1<List<String>, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.ok(done))
@@ -311,7 +311,7 @@ fun writeStr(fs: Fs, streams: salvo.std.stream.Streams, path: salvo.std.fs.path.
     val closed: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = streams.close__OutStream(s)
     if ((closed is Union2.U2<*, *>)) {
         val closed_3: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-        return Union2.U2<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(fsStreamError(closed_3)))
+        return Union2.U2<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(salvo.std.fs.fsStreamError(closed_3)))
     }
     return Union2.U1<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.ok(written))
 }
@@ -334,12 +334,12 @@ fun readToBytes(fs: Fs, streams: salvo.std.stream.Streams, path: salvo.std.fs.pa
             val closed_4: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
             salvo.std.core.checked.ignore(closed_4)
         }
-        return Union2.U2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(fsStreamError(filling_3)))
+        return Union2.U2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(salvo.std.fs.fsStreamError(filling_3)))
     }
     val closed: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = streams.close__InStream(s)
     if ((closed is Union2.U2<*, *>)) {
         val closed_5: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-        return Union2.U2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(fsStreamError(closed_5)))
+        return Union2.U2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(salvo.std.fs.fsStreamError(closed_5)))
     }
     val done: salvo.platform.std.core.bytes.Bytes = buf
     return Union2.U1<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.ok(done))
@@ -358,7 +358,7 @@ fun writeBytesTo(fs: Fs, streams: salvo.std.stream.Streams, path: salvo.std.fs.p
     val closed: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = streams.close__OutStream(s)
     if ((closed is Union2.U2<*, *>)) {
         val closed_3: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-        return Union2.U2<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(fsStreamError(closed_3)))
+        return Union2.U2<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(salvo.std.fs.fsStreamError(closed_3)))
     }
     return Union2.U1<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.ok(written))
 }
@@ -397,7 +397,7 @@ fun copyFile(fs: Fs, streams: salvo.std.stream.Streams, from: salvo.std.fs.path.
             val shutS_8: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((shutS as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
             salvo.std.core.checked.ignore(shutS_8)
         }
-        return Union2.U2<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(fsStreamError(moved_6)))
+        return Union2.U2<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(salvo.std.fs.fsStreamError(moved_6)))
     }
     if ((shutW is Union2.U2<*, *>)) {
         val shutW_9: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((shutW as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
@@ -405,11 +405,11 @@ fun copyFile(fs: Fs, streams: salvo.std.stream.Streams, from: salvo.std.fs.path.
             val shutS_10: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((shutS as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
             salvo.std.core.checked.ignore(shutS_10)
         }
-        return Union2.U2<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(fsStreamError(shutW_9)))
+        return Union2.U2<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(salvo.std.fs.fsStreamError(shutW_9)))
     }
     if ((shutS is Union2.U2<*, *>)) {
         val shutS_11: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((shutS as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-        return Union2.U2<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(fsStreamError(shutS_11)))
+        return Union2.U2<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.err(salvo.std.fs.fsStreamError(shutS_11)))
     }
     val moved_12: Long = ((moved as Union2.U1<*, *>).value as Long)
     return Union2.U1<Long, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(salvo.std.core.result.ok(moved_12))

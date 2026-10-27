@@ -97,7 +97,7 @@ fun abs(d: Duration): Duration {
 fun toStr(d: Duration): String {
     if ((d.nanos < 0L)) {
         val positive: Duration = Duration(nanos = (0L - d.nanos))
-        return "-${toStr(positive)}"
+        return "-${salvo.std.time.toStr(positive)}"
     }
     if ((d.nanos == 0L)) {
         return "0s"
@@ -205,20 +205,20 @@ class __Mon_Clock(
 }
 
 fun elapsed(ticker: Ticker, since: Tick): Duration {
-    return between__Tick_Tick(since, ticker.tick())
+    return salvo.std.time.between__Tick_Tick(since, ticker.tick())
 }
 
 class DefaultTicker : Ticker {
     override fun tick(): Tick {
-        return Tick(nanos = monotonicNanos())
+        return Tick(nanos = salvo.std.time.monotonicNanos())
     }
 }
 
 class DefaultClock : Clock {
-    var baseTick: Long = monotonicNanos()
-    var baseEpoch: Long = epochNanosPlatform()
+    var baseTick: Long = salvo.std.time.monotonicNanos()
+    var baseEpoch: Long = salvo.std.time.epochNanosPlatform()
     override fun now(): Instant {
-        return Instant(nanos = epochNanosPlatform())
+        return Instant(nanos = salvo.std.time.epochNanosPlatform())
     }
     override fun toInstant(at: Tick): Instant {
         return Instant(nanos = (baseEpoch + (at.nanos - baseTick)))
@@ -272,7 +272,7 @@ class DefaultTimer : Timer {
 class __Actor_DefaultTimer(private val handler: DefaultTimer) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_DefaultTimer_Timer(handler, msg as __Msg_Timer)
+        salvo.std.time.__dispatch_DefaultTimer_Timer(handler, msg as __Msg_Timer)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -335,7 +335,7 @@ class ManualTime : Timer, TimerCtl {
     override fun advance(by: Duration) {
         val target: Long = (now + by.nanos)
         while (true) {
-            val __subject_1: Int? = earliestDue(deadlines, target)
+            val __subject_1: Int? = salvo.std.time.earliestDue(deadlines, target)
             if (!((__subject_1 != null))) {
                 break
             }
@@ -365,8 +365,8 @@ class __Actor_ManualTime(private val handler: ManualTime) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_Timer -> __dispatch_ManualTime_Timer(handler, msg)
-            is __Msg_TimerCtl -> __dispatch_ManualTime_TimerCtl(handler, msg)
+            is __Msg_Timer -> salvo.std.time.__dispatch_ManualTime_Timer(handler, msg)
+            is __Msg_TimerCtl -> salvo.std.time.__dispatch_ManualTime_TimerCtl(handler, msg)
             else -> kotlin.error("a message of one of this actor's protocols")
         }
     }

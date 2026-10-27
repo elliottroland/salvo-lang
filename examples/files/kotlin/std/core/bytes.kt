@@ -3,17 +3,17 @@ package salvo.std.core.bytes
 import salvo.*
 
 fun bytesOf(elems: Array<UByte>): salvo.platform.std.core.bytes.Bytes {
-    val out: salvo.platform.std.core.bytes.MutBytes = emptyBytesPlatform()
+    val out: salvo.platform.std.core.bytes.MutBytes = salvo.std.core.bytes.emptyBytesPlatform()
     for (b in elems) {
-        addPlatform(out, b)
+        salvo.std.core.bytes.addPlatform(out, b)
     }
     return out
 }
 
 fun mutBytes(parts: Array<salvo.platform.std.core.bytes.Bytes>): salvo.platform.std.core.bytes.MutBytes {
-    val out: salvo.platform.std.core.bytes.MutBytes = emptyBytesPlatform()
+    val out: salvo.platform.std.core.bytes.MutBytes = salvo.std.core.bytes.emptyBytesPlatform()
     for (part in parts) {
-        appendPlatform(out, part)
+        salvo.std.core.bytes.appendPlatform(out, part)
     }
     return out
 }
@@ -56,7 +56,7 @@ data class BytesYield(
 )
 
 fun next(p: BytesYield): Union2<UByte, salvo.std.core.iterator.Finished> {
-    val b: UByte? = getPlatform(p.data, p.at)
+    val b: UByte? = salvo.std.core.bytes.getPlatform(p.data, p.at)
     if ((b == null)) {
         return Union2.U2<UByte, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }

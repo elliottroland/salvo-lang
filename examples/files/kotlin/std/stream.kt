@@ -189,7 +189,7 @@ class __Mon_Streams(
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun pipe(streams: Streams, from: InStream, to: OutStream, done: salvo.SalvoReply) {
-    streams.receive(from, kotlin.run { val __e0 = streams; val __c0 = to; val __c1 = done; val __c2 = 0L; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { _: ByteArray -> kotlin.Pair(false, null) }) { __v -> pipeStep(__e0, __c0, __c1, __c2, __v as Union3<Packet, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>) } })
+    streams.receive(from, kotlin.run { val __e0 = streams; val __c0 = to; val __c1 = done; val __c2 = 0L; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { _: ByteArray -> kotlin.Pair(false, null) }) { __v -> salvo.std.stream.pipeStep(__e0, __c0, __c1, __c2, __v as Union3<Packet, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>) } })
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -201,7 +201,7 @@ fun pipeStep(streams: Streams, to: OutStream, done: salvo.SalvoReply, moved: Lon
             val bytes: salvo.platform.std.core.bytes.Bytes = __destructured_2.bytes
             val stream: InStream = __destructured_2.stream
             val written: Long = streams.writeBytes(to, bytes)
-            streams.receive(stream, kotlin.run { val __e0 = streams; val __c0 = to; val __c1 = done; val __c2 = (moved + written); salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { _: ByteArray -> kotlin.Pair(false, null) }) { __v -> pipeStep(__e0, __c0, __c1, __c2, __v as Union3<Packet, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>) } })
+            streams.receive(stream, kotlin.run { val __e0 = streams; val __c0 = to; val __c1 = done; val __c2 = (moved + written); salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { _: ByteArray -> kotlin.Pair(false, null) }) { __v -> salvo.std.stream.pipeStep(__e0, __c0, __c1, __c2, __v as Union3<Packet, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>) } })
         }
         (got is Union3.U2<*, *, *>) -> {
             val got_3: End = ((got as Union3.U2<*, *, *>).value as End)
@@ -312,7 +312,7 @@ fun fillFrom(streams: Streams, s: InStream, buf: salvo.platform.std.core.bytes.M
         if (!(reading)) {
             break
         }
-        val got: Union2<Int, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>> = streams.readTo__InStream_Bytes_Int(s, buf, streamChunkSize())
+        val got: Union2<Int, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>> = streams.readTo__InStream_Bytes_Int(s, buf, salvo.std.stream.streamChunkSize())
         if ((got is Union2.U2<*, *>)) {
             val got_1: salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>> = ((got as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>)
             return Union2.U2<Long, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>(got_1)
@@ -337,7 +337,7 @@ fun copyStream(streams: Streams, s: InStream, w: OutStream): Union2<Long, salvo.
             break
         }
         salvo.std.core.bytes.clearPlatform(buf)
-        val got: Union2<Int, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>> = streams.readTo__InStream_Bytes_Int(s, buf, streamChunkSize())
+        val got: Union2<Int, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>> = streams.readTo__InStream_Bytes_Int(s, buf, salvo.std.stream.streamChunkSize())
         if ((got is Union2.U2<*, *>)) {
             val got_1: salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>> = ((got as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>)
             return Union2.U2<Long, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>(got_1)
@@ -354,22 +354,22 @@ fun copyStream(streams: Streams, s: InStream, w: OutStream): Union2<Long, salvo.
 }
 
 fun writeInt(streams: Streams, s: OutStream, v: Int): Long {
-    return streams.writeBytes(s, fixedBytes((v).toLong(), 4))
+    return streams.writeBytes(s, salvo.std.stream.fixedBytes((v).toLong(), 4))
 }
 
 fun writeLong(streams: Streams, s: OutStream, v: Long): Long {
-    return streams.writeBytes(s, fixedBytes(v, 8))
+    return streams.writeBytes(s, salvo.std.stream.fixedBytes(v, 8))
 }
 
 fun<T> writeValue(streams: Streams, s: OutStream, v: T, encode: (T) -> salvo.platform.std.core.bytes.Bytes): Long {
     val data: salvo.platform.std.core.bytes.Bytes = encode(v)
-    val n: Long = writeInt(streams, s, salvo.std.core.bytes.sizePlatform(data))
+    val n: Long = salvo.std.stream.writeInt(streams, s, salvo.std.core.bytes.sizePlatform(data))
     return (n + streams.writeBytes(s, data))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun readInt(streams: Streams, s: InStream): Union3<Int, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>> {
-    val r: Union3<Long, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>> = readFixed(streams, s, 4)
+    val r: Union3<Long, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>> = salvo.std.stream.readFixed(streams, s, 4)
     return when {
         (r is Union3.U1<*, *, *>) -> {
             val r_1: Long = ((r as Union3.U1<*, *, *>).value as Long)
@@ -390,12 +390,12 @@ fun readInt(streams: Streams, s: InStream): Union3<Int, End, salvo.std.core.chec
 }
 
 fun readLong(streams: Streams, s: InStream): Union3<Long, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>> {
-    return readFixed(streams, s, 8)
+    return salvo.std.stream.readFixed(streams, s, 8)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> readValue(streams: Streams, s: InStream, decode: (salvo.platform.std.core.bytes.Bytes) -> T?): Union3<T, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>> {
-    val len: Union3<Int, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>> = readInt(streams, s)
+    val len: Union3<Int, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>> = salvo.std.stream.readInt(streams, s)
     if ((len is Union3.U2<*, *, *>)) {
         val len_1: End = ((len as Union3.U2<*, *, *>).value as End)
         return Union3.U2<T, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>(End())

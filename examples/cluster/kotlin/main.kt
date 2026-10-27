@@ -76,7 +76,7 @@ class Sequencing(private val who: String) : Sequencer {
 class __Actor_Sequencing(private val handler: Sequencing) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Sequencing_Sequencer(handler, msg as __Msg_Sequencer)
+        salvo.main.__dispatch_Sequencing_Sequencer(handler, msg as __Msg_Sequencer)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -120,7 +120,7 @@ class Stocking(private val shard: String) : Inventory {
 class __Actor_Stocking(private val handler: Stocking) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Stocking_Inventory(handler, msg as __Msg_Inventory)
+        salvo.main.__dispatch_Stocking_Inventory(handler, msg as __Msg_Inventory)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -168,7 +168,7 @@ class Indexing(private val words: List<String>) : Search {
 class __Actor_Indexing(private val handler: Indexing) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Indexing_Search(handler, msg as __Msg_Search)
+        salvo.main.__dispatch_Indexing_Search(handler, msg as __Msg_Search)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -210,7 +210,7 @@ class Looking(private val who: String) : Lookup {
 class __Actor_Looking(private val handler: Looking) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Looking_Lookup(handler, msg as __Msg_Lookup)
+        salvo.main.__dispatch_Looking_Lookup(handler, msg as __Msg_Lookup)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -256,8 +256,8 @@ class __Actor_SlowLooking(private val handler: SlowLooking) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_Lookup -> __dispatch_SlowLooking_Lookup(handler, msg)
-            is __Priv_SlowLooking -> __dispatch_priv_SlowLooking(handler, msg)
+            is __Msg_Lookup -> salvo.main.__dispatch_SlowLooking_Lookup(handler, msg)
+            is __Priv_SlowLooking -> salvo.main.__dispatch_priv_SlowLooking(handler, msg)
             else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
@@ -310,7 +310,7 @@ class Scattering(private val group: Int, private val gather: Int) : Search {
 class __Actor_Scattering(private val handler: Scattering) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Scattering_Search(handler, msg as __Msg_Search)
+        salvo.main.__dispatch_Scattering_Search(handler, msg as __Msg_Search)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -394,8 +394,8 @@ class __Actor_Gathering(private val handler: Gathering) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_Gather -> __dispatch_Gathering_Gather(handler, msg)
-            is __Priv_Gathering -> __dispatch_priv_Gathering(handler, msg)
+            is __Msg_Gather -> salvo.main.__dispatch_Gathering_Gather(handler, msg)
+            is __Priv_Gathering -> salvo.main.__dispatch_priv_Gathering(handler, msg)
             else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
@@ -448,7 +448,7 @@ class Hedging(private val group: Int, private val racer: Int) : Lookup {
 class __Actor_Hedging(private val handler: Hedging) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Hedging_Lookup(handler, msg as __Msg_Lookup)
+        salvo.main.__dispatch_Hedging_Lookup(handler, msg as __Msg_Lookup)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -525,8 +525,8 @@ class __Actor_Racing(private val handler: Racing) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_Race -> __dispatch_Racing_Race(handler, msg)
-            is __Priv_Racing -> __dispatch_priv_Racing(handler, msg)
+            is __Msg_Race -> salvo.main.__dispatch_Racing_Race(handler, msg)
+            is __Priv_Racing -> salvo.main.__dispatch_priv_Racing(handler, msg)
             else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
@@ -701,7 +701,7 @@ fun twoIds(leader: salvo.std.net.Leader, console: salvo.std.core.console.Console
     val __use_3: __Route_Sequencer = __Route_Sequencer(group = seq, __handle_2)
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
     val __handle_4: Sequencer = __Mon_Sequencer(__use_3, __lock___use_3)
-    salvo.std.core.console.println(console, "  ${freshId(__handle_4)} ${freshId(__handle_4)}")
+    salvo.std.core.console.println(console, "  ${salvo.main.freshId(__handle_4)} ${salvo.main.freshId(__handle_4)}")
 }
 
 fun shop(console: salvo.std.core.console.Console, stock: Int) {
@@ -711,7 +711,7 @@ fun shop(console: salvo.std.core.console.Console, stock: Int) {
     val __use_3: __Route_Inventory = __Route_Inventory(group = stock, __handle_2)
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
     val __handle_4: Inventory = __Mon_Inventory(__use_3, __lock___use_3)
-    checkout(__handle_4, console, listOf<String>("apple", "pear", "apple", "fig", "pear"))
+    salvo.main.checkout(__handle_4, console, listOf<String>("apple", "pear", "apple", "fig", "pear"))
 }
 
 interface Boot {
@@ -768,7 +768,7 @@ class Booting(private val at: salvo.std.net.NodeEndpoint, private val all: List<
 class __Actor_Booting(private val handler: Booting) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Booting_Boot(handler, msg as __Msg_Boot)
+        salvo.main.__dispatch_Booting_Boot(handler, msg as __Msg_Boot)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -841,7 +841,7 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
     val timer: Int = kotlin.run { val __h = salvo.std.time.DefaultTimer(); val __a = salvo.SalvoSched.spawn(salvo.std.core.actor.pool(1), __h.__mailboxCapacity, salvo.std.time.__Actor_DefaultTimer(__h), salvo.std.time.__Actor_DefaultTimer.__DECODE); __a }
-    settle(timer)
+    salvo.main.settle(timer)
     val members: List<salvo.std.net.Node> = kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.std.net.__Codec_Node)) })
@@ -858,26 +858,26 @@ fun main() {
     val __use_5: LastHost = LastHost(nodes = nodes, me = a)
     val __lock___use_5 = java.util.concurrent.locks.ReentrantLock()
     val __handle_6: salvo.std.net.Leader = salvo.std.net.__Mon_Leader(__use_5, __lock___use_5)
-    twoIds(__handle_6, __handle_2, seq)
+    salvo.main.twoIds(__handle_6, __handle_2, seq)
     salvo.std.core.console.println(__handle_2, "sharded:")
-    shop(__handle_2, stock)
+    salvo.main.shop(__handle_2, stock)
     salvo.std.core.console.println(__handle_2, "scatter:")
     val __use_7: Scattering = Scattering(group = index, gather = kotlin.run { val __h = Gathering(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Gathering(__h), __Actor_Gathering.__DECODE); __a })
     val __lock___use_7 = java.util.concurrent.locks.ReentrantLock()
     val __handle_8: Search = __Mon_Search(__use_7, __lock___use_7)
-    salvo.std.core.console.println(__handle_2, "  salvo: ${count(__handle_8, "salvo")}, actors: ${count(__handle_8, "actors")}, none: ${count(__handle_8, "none")}")
+    salvo.std.core.console.println(__handle_2, "  salvo: ${salvo.main.count(__handle_8, "salvo")}, actors: ${salvo.main.count(__handle_8, "actors")}, none: ${salvo.main.count(__handle_8, "none")}")
     salvo.std.core.console.println(__handle_2, "hedge:")
     val __use_9: Hedging = Hedging(group = looks, racer = kotlin.run { val __h = Racing(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Racing(__h), __Actor_Racing.__DECODE); __a })
     val __lock___use_9 = java.util.concurrent.locks.ReentrantLock()
     val __handle_10: Lookup = __Mon_Lookup(__use_9, __lock___use_9)
-    salvo.std.core.console.println(__handle_2, "  ${find(__handle_10, "k1")}")
+    salvo.std.core.console.println(__handle_2, "  ${salvo.main.find(__handle_10, "k1")}")
     val _stopped: Boolean = kotlin.run {
         val (done, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.BoolCodec) })
         salvo.SalvoSched.sendWire(booter, __Msg_Boot.Stop(done), __PROTO_Boot, __Codec___Msg_Boot)
         salvo.SalvoSched.awaitReply(__wid) as Boolean
     }
-    settle(timer)
+    salvo.main.settle(timer)
     salvo.std.core.console.println(__handle_2, "after b left:")
     salvo.std.core.console.println(__handle_2, "  sequencers: ${salvo.std.core.list.sizePlatform(kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
@@ -885,7 +885,7 @@ fun main() {
         salvo.SalvoSched.sendWire(seq, salvo.std.net.__Msg_ActorGroup.Members(out), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<Int>
     })}")
-    twoIds(__handle_6, __handle_2, seq)
+    salvo.main.twoIds(__handle_6, __handle_2, seq)
 }
 
 class __Route_Inventory(private val group: Int, private val __dep0: salvo.std.net.RouteSelector) : Inventory {
@@ -903,7 +903,7 @@ class __Route_Inventory(private val group: Int, private val __dep0: salvo.std.ne
 class __Actor___Route_Inventory(private val handler: __Route_Inventory) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch___Route_Inventory_Inventory(handler, msg as __Msg_Inventory)
+        salvo.main.__dispatch___Route_Inventory_Inventory(handler, msg as __Msg_Inventory)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -948,7 +948,7 @@ class __Route_Sequencer(private val group: Int, private val __dep0: salvo.std.ne
 class __Actor___Route_Sequencer(private val handler: __Route_Sequencer) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch___Route_Sequencer_Sequencer(handler, msg as __Msg_Sequencer)
+        salvo.main.__dispatch___Route_Sequencer_Sequencer(handler, msg as __Msg_Sequencer)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {

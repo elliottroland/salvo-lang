@@ -25,13 +25,13 @@ fun close(console: salvo.std.core.console.Console, handle: FileHandle) {
 
 fun readSize(console: salvo.std.core.console.Console, name: String, want: Int): Int {
     val thereIs: Int = salvo.std.core.string.sizePlatform(name)
-    val handle: FileHandle = openFile(console, name)
+    val handle: FileHandle = salvo.main.openFile(console, name)
     if ((want > thereIs)) {
         salvo.std.core.console.println(console, "1. asked for more than there is")
-        close(console, handle)
+        salvo.main.close(console, handle)
         return thereIs
     }
-    close(console, handle)
+    salvo.main.close(console, handle)
     return want
 }
 
@@ -49,16 +49,16 @@ fun parsePort(text: String): Int {
 }
 
 fun portOf(config: String): Int {
-    val port: Int = parsePort(config)
+    val port: Int = salvo.main.parsePort(config)
     return (port * 1)
 }
 
 fun portFromFile(console: salvo.std.core.console.Console, name: String, text: String): Int {
-    val handle: FileHandle = openFile(console, name)
+    val handle: FileHandle = salvo.main.openFile(console, name)
     val from: String = handle.name
-    close(console, handle)
+    salvo.main.close(console, handle)
     salvo.std.core.console.println(console, "2. reading a port out of ${from}")
-    return parsePort(text)
+    return salvo.main.parsePort(text)
 }
 
 fun strictPort(text: String): Int {
@@ -76,7 +76,7 @@ fun strictPort(text: String): Int {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun report(console: salvo.std.core.console.Console, label: String, config: String) {
     val outcome: Union2<Int, String> = try {
-        Union2.U1<Int, String>(portOf(config))
+        Union2.U1<Int, String>(salvo.main.portOf(config))
     } catch (__signal: ThrowSignal) {
         Union2.U2<Int, String>(__signal.payload as String)
     }
@@ -99,14 +99,14 @@ fun report(console: salvo.std.core.console.Console, label: String, config: Strin
 fun main() {
     val __use_1: salvo.std.core.console.__Platform_StdConsole = salvo.std.core.console.__Platform_StdConsole()
     val __handle_2: salvo.std.core.console.Console = __use_1
-    val small: Int = readSize(__handle_2, "notes.txt", 3)
+    val small: Int = salvo.main.readSize(__handle_2, "notes.txt", 3)
     salvo.std.core.console.println(__handle_2, "1. read ${small}")
-    val clamped: Int = readSize(__handle_2, "notes.txt", 99)
+    val clamped: Int = salvo.main.readSize(__handle_2, "notes.txt", 99)
     salvo.std.core.console.println(__handle_2, "1. read ${clamped}")
-    report(__handle_2, "good", "8080")
-    report(__handle_2, "bad", "http")
+    salvo.main.report(__handle_2, "good", "8080")
+    salvo.main.report(__handle_2, "bad", "http")
     val guarded: Union2<Int, String> = try {
-        Union2.U1<Int, String>(portFromFile(__handle_2, "ports.txt", "-1"))
+        Union2.U1<Int, String>(salvo.main.portFromFile(__handle_2, "ports.txt", "-1"))
     } catch (__signal: ThrowSignal) {
         Union2.U2<Int, String>(__signal.payload as String)
     }
@@ -124,7 +124,7 @@ fun main() {
         }
     }
     val mixed: Union2<Int, Union2<String, Int>> = try {
-        Union2.U1<Int, Union2<String, Int>>(strictPort(""))
+        Union2.U1<Int, Union2<String, Int>>(salvo.main.strictPort(""))
     } catch (__signal: ThrowSignal) {
         when (__signal.tag) {
             "Str" -> Union2.U2<Int, Union2<String, Int>>(Union2.U1<String, Int>(__signal.payload as String))
@@ -161,7 +161,7 @@ fun main() {
     }
     val outer: Union2<Int, String> = try {
         val inner: Union2<Int, String> = try {
-            Union2.U1<Int, String>(parsePort("nope"))
+            Union2.U1<Int, String>(salvo.main.parsePort("nope"))
         } catch (__signal: ThrowSignal) {
             Union2.U2<Int, String>(__signal.payload as String)
         }
@@ -174,7 +174,7 @@ fun main() {
             (inner is Union2.U2<*, *>) -> {
                 val inner_10: String = ((inner as Union2.U2<*, *>).value as String)
                 salvo.std.core.console.println(__handle_2, "3. inner caught: ${inner_10}")
-                parsePort("also nope")
+                salvo.main.parsePort("also nope")
             }
             else -> {
                 throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:180:9"))

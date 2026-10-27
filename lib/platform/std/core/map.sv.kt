@@ -17,12 +17,12 @@ fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> kotlin.Pair<K, V>, hash: (K
 fun<K, V> toMapPlatform(pairs: List<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.Map<K, V> = salvo.platform.std.core.map.toMap(pairs, hash, eq)
 
 fun<T, K, V> toMap(items: List<T>, entry: (T) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.Map<K, V> {
-    val map: salvo.platform.std.core.map.MutMap<K, V> = Mut_Map_platform(arrayOf<kotlin.Pair<K, V>>(), hash, eq)
+    val map: salvo.platform.std.core.map.MutMap<K, V> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<K, V>>(), hash, eq)
     for (x in salvo.platform.std.core.list.each(items)) {
         val __destructured_1: kotlin.Pair<K, V> = entry(x)
         val k: K = __destructured_1.first
         val v: V = __destructured_1.second
-        putPlatform(map, k, v, hash, eq)
+        salvo.std.core.map.putPlatform(map, k, v, hash, eq)
     }
     return map
 }
@@ -40,17 +40,17 @@ fun<K, V> removePlatform(map: salvo.platform.std.core.map.MutMap<K, V>, key: K, 
 fun<K, V> containsKeyPlatform(map: salvo.platform.std.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean = salvo.platform.std.core.map.containsKey(map, key, hash, eq)
 
 fun<K, V> KeyOf_qualifies(key: K, map: salvo.platform.std.core.map.Map<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean {
-    return containsKeyPlatform(map, key, hash, eq)
+    return salvo.std.core.map.containsKeyPlatform(map, key, hash, eq)
 }
 
 fun<K, V> getPresentPlatform(map: salvo.platform.std.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V = salvo.platform.std.core.map.getPresent(map, key, hash, eq)
 
 fun<K, V> get(map: salvo.platform.std.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V {
-    return getPresentPlatform(map, key, hash, eq)
+    return salvo.std.core.map.getPresentPlatform(map, key, hash, eq)
 }
 
 fun<K, V> at(map: salvo.platform.std.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V {
-    return atPresentPlatform(map, key, hash, eq)
+    return salvo.std.core.map.atPresentPlatform(map, key, hash, eq)
 }
 
 fun<K, V> atPresentPlatform(map: salvo.platform.std.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V = salvo.platform.std.core.map.atPresent(map, key, hash, eq)
@@ -58,7 +58,7 @@ fun<K, V> atPresentPlatform(map: salvo.platform.std.core.map.Map<K, V>, key: K, 
 fun<K, V> sizePlatform(map: salvo.platform.std.core.map.Map<K, V>): Int = salvo.platform.std.core.map.size(map)
 
 fun<K, V> drain(map: salvo.platform.std.core.map.Map<K, V>, each: (V) -> Unit) {
-    salvo.std.core.list.drain(intoValuesPlatform(map), each)
+    salvo.std.core.list.drain(salvo.std.core.map.intoValuesPlatform(map), each)
 }
 
 fun<K, V> intoValuesPlatform(map: salvo.platform.std.core.map.Map<K, V>): List<V> = salvo.platform.std.core.map.intoValues(map)
@@ -73,7 +73,7 @@ fun<K, V> toStr(map: salvo.platform.std.core.map.Map<K, V>, toStr: (K) -> String
         salvo.std.core.string.appendPlatform(out, toStr(k))
         salvo.std.core.string.appendPlatform(out, ": ")
         salvo.std.core.string.appendPlatform(out, toStr__1(kotlin.run {
-            val __pick_1: V? = getPlatform(map, k, hash, eq)
+            val __pick_1: V? = salvo.std.core.map.getPlatform(map, k, hash, eq)
             (if ((__pick_1 != null)) {
                 val __picked_2: V = __pick_1!!
                 __picked_2
@@ -88,17 +88,17 @@ fun<K, V> toStr(map: salvo.platform.std.core.map.Map<K, V>, toStr: (K) -> String
 }
 
 fun<K, V> eq(a: salvo.platform.std.core.map.Map<K, V>, b: salvo.platform.std.core.map.Map<K, V>, eq: (V, V) -> Boolean, hash: (K) -> Long, eq__1: (K, K) -> Boolean): Boolean {
-    if ((sizePlatform(a) != sizePlatform(b))) {
+    if ((salvo.std.core.map.sizePlatform(a) != salvo.std.core.map.sizePlatform(b))) {
         return false
     }
     for (k in salvo.platform.std.core.map.each(a)) {
-        val theirs: V? = getPlatform(b, k, hash, eq__1)
+        val theirs: V? = salvo.std.core.map.getPlatform(b, k, hash, eq__1)
         if ((theirs == null)) {
             return false
         }
         val theirs_4: V = theirs!!
         if (!(eq(kotlin.run {
-            val __pick_1: V? = getPlatform(a, k, hash, eq__1)
+            val __pick_1: V? = salvo.std.core.map.getPlatform(a, k, hash, eq__1)
             (if ((__pick_1 != null)) {
                 val __picked_2: V = __pick_1!!
                 __picked_2
@@ -115,7 +115,7 @@ fun<K, V> eq(a: salvo.platform.std.core.map.Map<K, V>, b: salvo.platform.std.cor
 fun<K, V> keysPlatform(map: salvo.platform.std.core.map.Map<K, V>): List<K> = salvo.platform.std.core.map.keys(map)
 
 fun<K, V> iter(map: salvo.platform.std.core.map.Map<K, V>): MapKeyYield<K> {
-    return MapKeyYield<K>(items = keysPlatform(map), at = 0)
+    return MapKeyYield<K>(items = salvo.std.core.map.keysPlatform(map), at = 0)
 }
 
 data class MapKeyYield<K>(
@@ -163,14 +163,14 @@ fun<K, V> entries(map: salvo.platform.std.core.map.Map<K, V>): MapEntries<K, V> 
 
 fun<K, V> next__MapEntries(__p: MapEntries<K, V>): Union2<MapEntry<K, V>, salvo.std.core.iterator.Finished> {
     while (true) {
-        if (!((__p.at < slotCountPlatform(__p.map)))) {
+        if (!((__p.at < salvo.std.core.map.slotCountPlatform(__p.map)))) {
             break
         }
         val here: Int = __p.at
         __p.at = (__p.at + 1)
-        val key: K? = keyAtPlatform(__p.map, here)
+        val key: K? = salvo.std.core.map.keyAtPlatform(__p.map, here)
         if (!((key == null))) {
-            val value: V = valueAtPlatform(__p.map, here)
+            val value: V = salvo.std.core.map.valueAtPlatform(__p.map, here)
             val key_1: K = key!!
             return Union2.U1<MapEntry<K, V>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(MapEntry<K, V>(key = key_1, value = value)))
         }
@@ -189,13 +189,13 @@ fun<K, V> values(map: salvo.platform.std.core.map.Map<K, V>): MapValues<K, V> {
 
 fun<K, V> next__MapValues(__p: MapValues<K, V>): Union2<V, salvo.std.core.iterator.Finished> {
     while (true) {
-        if (!((__p.at < slotCountPlatform(__p.map)))) {
+        if (!((__p.at < salvo.std.core.map.slotCountPlatform(__p.map)))) {
             break
         }
         val here: Int = __p.at
         __p.at = (__p.at + 1)
-        if (!((keyAtPlatform(__p.map, here) == null))) {
-            val value: V = valueAtPlatform(__p.map, here)
+        if (!((salvo.std.core.map.keyAtPlatform(__p.map, here) == null))) {
+            val value: V = salvo.std.core.map.valueAtPlatform(__p.map, here)
             return Union2.U1<V, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(value))
         }
     }
@@ -203,6 +203,6 @@ fun<K, V> next__MapValues(__p: MapValues<K, V>): Union2<V, salvo.std.core.iterat
 }
 
 fun<K, V> NonEmpty_qualifies(map: salvo.platform.std.core.map.Map<K, V>): Boolean {
-    return (sizePlatform(map) > 0)
+    return (salvo.std.core.map.sizePlatform(map) > 0)
 }
 

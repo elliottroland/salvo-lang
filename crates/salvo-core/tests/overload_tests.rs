@@ -427,6 +427,67 @@ fn at_module_reaches_past_a_local_of_the_same_name() {
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
 }
 
+/// [fn-overload-at] The "`@` not needed" warning asks whether the bare name
+/// reaches the same function, and a local of that name takes a bare call
+/// first: beside a fn-typed local `show`, `show@main(5)` is the only way to
+/// the declaration and is not warned about (B1 census D13, 2026-10-27: it
+/// was, because the check ranked the declared fns alone). The dot form sees
+/// no locals [fn-dot], so `5.show@main()` is still redundant there; without
+/// the local, the plain form is too.
+#[test]
+fn an_at_module_past_a_shadowing_local_is_not_redundant() {
+    let decl = "fn show(n: Int) [] -> Str => n { return \"decl\" }\n";
+    let shadowed = format!(
+        "{decl}{}",
+        probe("    let show = (n: Int) -> \"local\"\n    let _l: Str = show(5)\n    let _d: Str = show@main(5)")
+    );
+    assert!(messages(&shadowed).is_empty(), "{:?}", messages(&shadowed));
+    assert!(warnings(&shadowed).is_empty(), "{:?}", warnings(&shadowed));
+    let dot = format!(
+        "{decl}{}",
+        probe("    let show = (n: Int) -> \"local\"\n    let _l: Str = show(5)\n    let _d: Str = 5.show@main()")
+    );
+    assert!(
+        warnings(&dot).iter().any(|w| w.contains("this `@main` is not needed")),
+        "{:?}",
+        warnings(&dot)
+    );
+    let plain = format!("{decl}{}", probe("    let _d: Str = show@main(5)"));
+    assert!(
+        warnings(&plain).iter().any(|w| w.contains("this `@main` is not needed")),
+        "{:?}",
+        warnings(&plain)
+    );
+}
+
+/// [fn-overload-rank] [type-unknown-lenient] A lambda with an unwritten
+/// parameter type, at a position where the overloads take different fn types
+/// and none is more specific, has nothing to type it: refused, naming the
+/// remedy (found beside B1 census D16, 2026-10-27 — the lambda's parameter
+/// stayed `?`, the first overload was taken, and both target compilers
+/// refused the code). Where the overloads agree on the position, it is typed
+/// from it; a written parameter type settles the call.
+#[test]
+fn a_lambda_the_overloads_disagree_on_is_refused() {
+    let twice = "fn twice(f: (x: Int) -> Int) [] -> Int => f { return f(f(1)) }\n\
+                 fn twice(f: (x: Str) -> Str) [] -> Str => f { return f(f(\"s\")) }\n";
+    let src = format!("{twice}{}", probe("    let _n = twice(x -> x)"));
+    let msgs = messages(&src);
+    assert_eq!(msgs.len(), 1, "{msgs:?}");
+    assert!(
+        msgs[0].contains("cannot type this lambda: the overloads of `twice` take different types")
+            && msgs[0].contains("`(Int) -> Int`")
+            && msgs[0].contains("`(Str) -> Str`"),
+        "{msgs:?}"
+    );
+    let src = format!("{twice}{}", probe("    let _n: Int = twice((x: Int) -> x)"));
+    assert!(messages(&src).is_empty(), "{:?}", messages(&src));
+    let agree = "fn pick(f: (x: Int) -> Int, n: Int) [] -> Int => f { return f(n) }\n\
+                 fn pick(f: (x: Int) -> Int, s: Str) [] -> Int => f { return f(1) }\n";
+    let src = format!("{agree}{}", probe("    let _a: Int = pick(x -> x, 2)\n    let _b: Int = pick(x -> x, \"s\")"));
+    assert!(messages(&src).is_empty(), "{:?}", messages(&src));
+}
+
 /// It works in dot form too, since `@` attaches to the *name*.
 #[test]
 fn at_module_works_in_dot_notation() {

@@ -3106,6 +3106,12 @@ struct Checker<'p, 'r> {
     /// [implicit-resolve-body] Argument types of a call that fell through an
     /// implicit to the fns of its name, consumed by `resolve_named_call`.
     pending_arg_tys: Option<Vec<Ty>>,
+    /// [fn-overload-at] The `@module` selectors (by the span of the written
+    /// path) at calls whose bare name something other than the declared fns
+    /// would take: a local or parameter of the name, a handler's own `send
+    /// fn`, an effect member. The "`@` not needed" warning is not given
+    /// there — without the selector the call would go elsewhere.
+    at_needed: HashSet<Span>,
     /// [implicit-recursive] The nested fill of the fn `resolve_implicit_fn_at`
     /// just chose, taken by its caller.
     last_nested: Vec<ImplicitArg>,
@@ -3420,6 +3426,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             lending_ctor: None,
             own_implicits: Vec::new(),
             pending_arg_tys: None,
+            at_needed: HashSet::new(),
             last_nested: Vec::new(),
             resolve_depth: 0,
             resolve_chain: Vec::new(),
@@ -8326,9 +8333,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // It echoes the selector as written: `@core.list` is a suffix of
         // `std.core.list` [mod-suffix], and the reader looks for what they wrote.
         if let Some(Selector::Module(written)) = at {
-            if self
-                .unqualified_winner(viable)
-                .is_some_and(|un| std::ptr::eq(viable[un].decl, viable[winner].decl))
+            if !at.and_then(|s| s.module_span()).is_some_and(|s| self.at_needed.contains(&s))
+                && self
+                    .unqualified_winner(viable)
+                    .is_some_and(|un| std::ptr::eq(viable[un].decl, viable[winner].decl))
             {
                 let written = written.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(".");
                 self.warn(
@@ -8514,6 +8522,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [fn-overload-at] Which candidate a call *without* a selector would pick,
     /// computed silently — the question "did the written selector change
     /// anything?" needs the answer, and asking it must not report anything.
+    /// It ranks the declared fns only; what shadows them at a bare call (a
+    /// local, a `send fn`, an effect member) is `at_needed`'s.
     fn unqualified_winner(&self, viable: &[Viable<'p>]) -> Option<usize> {
         let mut pool: Vec<usize> = (0..viable.len()).collect();
         Self::dedupe_by_declaration(&mut pool, viable);
@@ -8632,9 +8642,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) -> Route {
         // Typed without expected types: the lead-candidate machinery belongs
-        // to the fn path and cannot run before the side is known. A bare
-        // lambda in a *colliding* call therefore needs an annotation — an
-        // error, never a silent difference (recorded cut, ROADMAP.md).
+        // to the fn path and cannot run before the side is known.
+        //
+        // [effect-available] [type-unknown-lenient] Except a lambda with an
+        // unwritten parameter type, which nothing else could type: it takes
+        // the type every candidate declares at its position when they all
+        // declare the same one, and is refused otherwise — a lambda left
+        // `Unknown` here was checker-clean and refused by both target
+        // compilers (B1 census D16, 2026-10-27). Ranking members and fns as
+        // one candidate set, with a lead candidate, is P4's.
         //
         // [lit-numeric] Except a numeric literal, which adopts the one numeric
         // type both sides name at its position, as on the fn path: a `Path`
@@ -8649,6 +8665,35 @@ impl<'p, 'r> Checker<'p, 'r> {
             .enumerate()
             .map(|(i, a)| {
                 let want = match a {
+                    Expr::Lambda { params, .. } if params.iter().any(|p| p.ty.is_none()) => {
+                        let mut at: Vec<&Ty> = position_tys.iter().filter_map(|tys| tys.get(i)).collect();
+                        at.dedup_by(|x, y| x == y);
+                        let agreed = at.iter().all(|t| *t == at[0]);
+                        match at.first() {
+                            Some(t) if agreed && !crate::types::mentions_var(t) => Some((*t).clone()),
+                            Some(t) => {
+                                let why = if agreed {
+                                    format!("their parameter at this position is generic (`{t}`)")
+                                } else {
+                                    let mut s: Vec<String> = at.iter().map(|t| format!("`{t}`")).collect();
+                                    s.sort();
+                                    s.dedup();
+                                    format!("their parameters at this position do not agree ({})", s.join(", "))
+                                };
+                                self.error(
+                                    a.span(),
+                                    format!(
+                                        "cannot type this lambda: `{name}` is both a member of `{}` and a \
+                                         function, and {why}; write the lambda's parameter types \
+                                         [effect-available]",
+                                        effect.name.name,
+                                    ),
+                                );
+                                None
+                            }
+                            None => None,
+                        }
+                    }
                     Expr::Int { long: false, .. } | Expr::Float { single: false, .. } => {
                         let float = matches!(a, Expr::Float { .. });
                         let own = if float { "Double" } else { "Int" };
@@ -8726,6 +8771,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 match crate::types::most_specific(&pair) {
                     Some(0) => Route::Member(arg_tys),
                     Some(_) => Route::Fn(arg_tys),
+                    // [type-unknown-lenient] An argument nothing could type
+                    // (a refused lambda) fits both sides: no second
+                    // diagnostic.
+                    None if arg_tys.iter().any(ty_mentions_unknown) => Route::Member(arg_tys),
                     None => {
                         let module = fn_cands[f[fb].0].module;
                         self.error(
@@ -30346,6 +30395,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 return Ty::Unknown;
             }
+            // [fn-overload-at] What the bare name would reach without the
+            // selector: a plain call sees locals and parameters (an implicit
+            // included, whether or not the arguments fit it) and a
+            // handler's own `send fn`; both forms see effect members. Any of
+            // them makes the selector meaningful, so its warning is withheld.
+            let plain = base.is_none();
+            let servant_send = (self.facade_handler.is_some() || self.servant_reply_params.is_some())
+                && self
+                    .facade_handler
+                    .or(self.own_handler)
+                    .is_some_and(|h| h.fns.iter().any(|f| f.is_send && f.name.name == name.name));
+            if (plain && (self.lookup(&name.name).is_some() || servant_send))
+                || self.effect_members_here(&name.name).is_some()
+            {
+                if let Some(s) = Selector::Module(module).module_span() {
+                    self.at_needed.insert(s);
+                }
+            }
             return self.resolve_named_call(
                 &name.name,
                 name.span,
@@ -30464,46 +30531,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // [fn-effects] The call supplies the value's effects.
                     self.check_fn_value_effects(&effects, span);
                     let typed = implicit_typed.take();
-                    for (i, a) in args.iter().enumerate() {
-                        let aty = match &typed {
-                            Some(tys) => tys[i].clone(),
-                            None => self.check_expr(a, params.get(i)),
-                        };
-                        // [call-resolve] A call through a local goes through
-                        // that value, so an argument that does not fit it is an
-                        // error here (accepted unchecked until 2026-10-05, and
-                        // the target compiler refused it). Base shapes are
-                        // compared: what a qualifier or a `Mut` demands is the
-                        // contract's business.
-                        if let Some(p) = params.get(i) {
-                            if !matches!(a, Expr::Spread { .. }) && !Self::arg_fits_fn_value(&aty, p) {
-                                self.error(
-                                    a.span(),
-                                    format!(
-                                        "`{}` takes `{p}` here, found `{aty}` [call-resolve]",
-                                        id.name
-                                    ),
-                                );
-                            }
-                        }
-                    }
-                    if args.len() != params.len()
-                        && !args.iter().any(|a| matches!(a, Expr::Spread { .. }))
-                    {
-                        self.error(
-                            span,
-                            format!(
-                                "`{}` takes {} argument(s), found {} [call-resolve]",
-                                id.name,
-                                params.len(),
-                                args.len()
-                            ),
-                        );
-                    }
-                    // [fn-contract] Apply the fn value's contract to the
-                    // arguments (default: keeps everything).
-                    let arg_refs: Vec<&'p Expr> = args.iter().collect();
-                    self.apply_fn_value_contract(&arg_refs, &params, contract.as_deref(), span);
+                    let callee_name = format!("`{}`", id.name);
+                    self.check_fn_value_args(&callee_name, args, &params, contract.as_deref(), typed, span);
                     // [readonly-return] [rs-loc] A fn value whose return is a
                     // **wholesale** projection lends that argument outright
                     // (`?at: (c: C, k: Int) -> ref(c) Mut T?`, or a plain
@@ -30638,15 +30667,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Ty::Fn {
             params,
             ret,
-            contract: _,
+            contract,
             effects,
         } = cty.strip_quals().clone()
         {
             // [fn-effects]
             self.check_fn_value_effects(&effects, span);
-            for (i, a) in args.iter().enumerate() {
-                self.check_expr(a, params.get(i));
-            }
+            // [call-resolve] [fn-value] Checked as a call through a local is
+            // (B1 census D19, 2026-10-27): before, each argument was only
+            // *typed* against its parameter, so a wrong argument or a wrong
+            // count passed the checker and rustc and kotlinc refused it.
+            self.check_fn_value_args("this function value", args, &params, contract.as_deref(), None, span);
             return *ret;
         }
         // [call-resolve] As above: a known non-fn type is not callable.
@@ -30976,6 +31007,110 @@ impl<'p, 'r> Checker<'p, 'r> {
             || is_subtype(arg.strip_quals(), param.strip_quals())
     }
 
+    /// [call-resolve] [fn-value] [fn-contract] The arguments of a call
+    /// through a fn value — a fn-typed local or parameter, an implicit, or a
+    /// computed callee (`adder()(1)`, `fs[0](x)`): each typed against its
+    /// parameter (or taken from `typed`, when the caller already typed them),
+    /// then the fit, the count, and the value's contract. `callee` names it
+    /// in a diagnostic (`` `f` ``, "this function value").
+    fn check_fn_value_args(
+        &mut self,
+        callee: &str,
+        args: &'p [Expr],
+        params: &[Ty],
+        contract: Option<&[FnParamContract]>,
+        typed: Option<Vec<Ty>>,
+        span: Span,
+    ) {
+        // [qual-depend] A parameter's claim about another parameter
+        // (`(xs: List<Int>, i: Idx(xs) Int) -> …`) is about *this call's*
+        // argument there, as at a declared call (`call_value_roots`): the
+        // names come from the fn type's contract.
+        let mut roots_by_name: HashMap<String, Vec<u32>> = HashMap::new();
+        for (i, a) in args.iter().enumerate() {
+            let Some(name) = contract.and_then(|c| c.get(i)).and_then(|e| e.name.clone()) else { continue };
+            let Some(place) = Place::of_expr(a) else { continue };
+            let Some(var) = self.lookup(&place.root) else { continue };
+            let mut roots: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
+            if roots.is_empty() {
+                roots.push(var.id);
+            }
+            roots.sort_unstable();
+            roots.dedup();
+            roots_by_name.insert(name, roots);
+        }
+        for (i, a) in args.iter().enumerate() {
+            let aty = match &typed {
+                Some(tys) => tys[i].clone(),
+                None => self.check_expr(a, params.get(i)),
+            };
+            let Some(p) = params.get(i) else { continue };
+            if matches!(a, Expr::Spread { .. }) {
+                continue;
+            }
+            // [call-resolve] A call through a fn value goes through that
+            // value, so an argument that does not fit it is an error here
+            // (accepted unchecked until 2026-10-05, and the target compiler
+            // refused it).
+            if !Self::arg_fits_fn_value(&aty, p) {
+                self.error(a.span(), format!("{callee} takes `{p}` here, found `{aty}` [call-resolve]"));
+                continue;
+            }
+            // [call-resolve] The base fits; the claims the parameter demands
+            // must hold too, as at a declared call (B1 census D20,
+            // 2026-10-27: `f(ys)` with `f: (xs: NonEmpty List<Int>) -> Int`
+            // took an empty list). What a `Mut`, a projection or `once`
+            // demands stays the contract's business.
+            let kept = contract.and_then(|c| c.get(i)).is_none_or(|e| e.kept);
+            let claimed = Self::substitute_value_refs(p, &roots_by_name);
+            if !self.fn_value_claims_fit(&aty, &claimed, kept) {
+                self.error(
+                    a.span(),
+                    format!(
+                        "{callee} takes `{p}` here, found `{aty}`: the argument does not carry \
+                         what the parameter claims [call-resolve]"
+                    ),
+                );
+            }
+        }
+        if args.len() != params.len() && !args.iter().any(|a| matches!(a, Expr::Spread { .. })) {
+            self.error(
+                span,
+                format!("{callee} takes {} argument(s), found {} [call-resolve]", params.len(), args.len()),
+            );
+        }
+        // [fn-contract] Apply the fn value's contract to the arguments
+        // (default: keeps everything).
+        let arg_refs: Vec<&'p Expr> = args.iter().collect();
+        self.apply_fn_value_contract(&arg_refs, params, contract, span);
+    }
+
+    /// [call-resolve] Whether an argument whose base already fits a fn
+    /// value's parameter carries the parameter's claims: the declared-call
+    /// fit (`arg_fits_param`), with the qualifiers the contract judges — `Mut`,
+    /// `proj`/`ref`, `once`, and effect claims — set aside on both sides.
+    fn fn_value_claims_fit(&self, arg: &Ty, param: &Ty, kept: bool) -> bool {
+        if arg.is_unknown() || param.is_unknown() || matches!(arg, Ty::Never) || self.arg_fits_param(arg, param, kept) {
+            return true;
+        }
+        fn modeless(t: &Ty) -> Ty {
+            match t {
+                Ty::Qualified { quals, base } => {
+                    let keep: Vec<Qual> = quals
+                        .iter()
+                        .filter(|q| !q.effect && !matches!(q.name.as_str(), "Mut" | "once") && !crate::types::is_proj_name(&q.name))
+                        .cloned()
+                        .collect();
+                    let base = modeless(base);
+                    if keep.is_empty() { base } else { base.qualify(keep) }
+                }
+                other => other.clone(),
+            }
+        }
+        let (a, p) = (modeless(arg), modeless(param));
+        is_subtype(&a, &p) || self.arg_fits_param(&a, &p, true)
+    }
+
     fn resolve_named_call(
         &mut self,
         name: &str,
@@ -31258,6 +31393,46 @@ impl<'p, 'r> Checker<'p, 'r> {
             // the historical untyped probe (expected types can
             // trigger coercion recording).
             let ty = match a {
+                // [fn-overload-rank] [type-unknown-lenient] No candidate leads
+                // (overloads none of which is more specific), and the lambda
+                // leaves a parameter type unwritten: the candidates' common
+                // type at this position types it; when they differ nothing
+                // does, and the lambda is refused rather than typed `Unknown`
+                // and the first overload taken — which was checker-clean and
+                // refused by both target compilers (found 2026-10-27 beside
+                // B1 census D16).
+                Expr::Lambda { params, .. }
+                    if exp.is_none() && pool.len() > 1 && params.iter().any(|p| p.ty.is_none()) =>
+                {
+                    let at: Vec<Ty> = pool
+                        .iter()
+                        .filter_map(|c| c.rank.patterns.get(i).map(|p| substitute_vars(p, &c.subst, &c.generics)))
+                        .collect();
+                    let agreed = at.first().filter(|t| {
+                        at.iter().all(|u| u == *t) && !ty_mentions_unknown(t) && !crate::types::mentions_var(t)
+                    });
+                    match agreed.cloned() {
+                        Some(t) => self.check_expr(a, Some(&t)),
+                        None => {
+                            let mut shown: Vec<String> = at.iter().map(|t| format!("`{t}`")).collect();
+                            shown.sort();
+                            shown.dedup();
+                            let why = if shown.len() == 1 {
+                                format!("type this position by a type parameter ({}) that nothing has bound yet", shown[0])
+                            } else {
+                                format!("take different types at this position ({}) and none is more specific", shown.join(", "))
+                            };
+                            self.error(
+                                a.span(),
+                                format!(
+                                    "cannot type this lambda: the overloads of `{name}` {why}; write the \
+                                     lambda's parameter types [fn-overload-rank]"
+                                ),
+                            );
+                            self.check_expr(a, None)
+                        }
+                    }
+                }
                 Expr::Lambda { .. } => self.check_expr(a, exp.as_ref()),
                 // [call-type-args] A *concrete* parameter type flows
                 // into a nested call, so that call can infer its own

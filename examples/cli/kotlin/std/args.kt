@@ -335,7 +335,7 @@ fun mergeGroup(opts: salvo.platform.std.core.list.MutList<OptSpec>, groups: salv
         salvo.std.core.list.addPlatform(opts, OptSpec(field = o.field, short = o.short, takesValue = o.takesValue, repeats = o.repeats, required = o.required, help = o.help, defaultText = o.defaultText, choices = o.choices, group = group))
     }
     if ((((kind) == ("arm")) && salvo.std.core.list.isEmpty(child.opts))) {
-        salvo.std.core.list.addPlatform(opts, OptSpec(field = salvo.std.core.string.replacePlatform(commandName(child.name), "-", "_"), short = null, takesValue = false, repeats = false, required = false, help = child.about, defaultText = null, choices = listOf<String>(), group = key))
+        salvo.std.core.list.addPlatform(opts, OptSpec(field = salvo.std.core.string.replacePlatform(salvo.std.args.commandName(child.name), "-", "_"), short = null, takesValue = false, repeats = false, required = false, help = child.about, defaultText = null, choices = listOf<String>(), group = key))
     }
 }
 
@@ -345,10 +345,10 @@ fun addOne(groups: salvo.platform.std.core.list.MutList<GroupSpec>, key: String,
 
 fun anyGiven(found: Found, spec: Spec): Boolean {
     if (salvo.std.core.list.isEmpty(spec.opts)) {
-        return given(found, salvo.std.core.string.replacePlatform(commandName(spec.name), "-", "_"))
+        return salvo.std.args.given(found, salvo.std.core.string.replacePlatform(salvo.std.args.commandName(spec.name), "-", "_"))
     }
     for (o in salvo.platform.std.core.list.each(spec.opts)) {
-        if (given(found, o.field)) {
+        if (salvo.std.args.given(found, o.field)) {
             return true
         }
     }
@@ -453,7 +453,7 @@ fun scan(spec: Spec, args: List<String>): Found {
             (t is Union4.U3<*, *, *, *>) -> {
                 val t_5: salvo.std.args.lex.WordToken = ((t as Union4.U3<*, *, *, *>).value as salvo.std.args.lex.WordToken)
                 if (((!(salvo.std.core.list.isEmpty(spec.commands)) && (command == null)) && !(failedCommand))) {
-                    if (hasCommand(spec, t_5.value)) {
+                    if (salvo.std.args.hasCommand(spec, t_5.value)) {
                         command = t_5.value
                         while (true) {
                             if (!((i < n))) {
@@ -484,12 +484,12 @@ fun scan(spec: Spec, args: List<String>): Found {
                 if (((t_9.name) == ("help"))) {
                     help = true
                 } else {
-                    val o: OptSpec? = longOpt(spec, t_9.name)
+                    val o: OptSpec? = salvo.std.args.longOpt(spec, t_9.name)
                     if ((o == null)) {
                         salvo.std.core.list.addPlatform(errors, Union11.U1<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(UnknownOption(option = "--${t_9.name}")))
                     } else {
                         val o_10: OptSpec = o!!
-                        val flag: String = longName(o_10.field)
+                        val flag: String = salvo.std.args.longName(o_10.field)
                         val attached: String? = t_9.value
                         if ((!(o_10.takesValue) && (attached == null))) {
                             salvo.std.core.list.addPlatform(hits, Hit(field = o_10.field, value = ""))
@@ -507,7 +507,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                             val attached_14: String = attached!!
                             salvo.std.core.list.addPlatform(hits, Hit(field = o_10.field, value = attached_14))
                         } else {
-                            val v: String? = wordAt(tokens, i)
+                            val v: String? = salvo.std.args.wordAt(tokens, i)
                             if ((v == null)) {
                                 salvo.std.core.list.addPlatform(errors, Union11.U2<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(MissingValue(option = flag)))
                             } else {
@@ -541,7 +541,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                     if ((c == 'h')) {
                         help = true
                     } else {
-                        val o: OptSpec? = shortOpt(spec, c)
+                        val o: OptSpec? = salvo.std.args.shortOpt(spec, c)
                         if ((o == null)) {
                             salvo.std.core.list.addPlatform(errors, Union11.U1<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(UnknownOption(option = "-${c}")))
                         } else {
@@ -563,7 +563,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                                     }))
                                     k = len
                                 } else {
-                                    val v: String? = wordAt(tokens, i)
+                                    val v: String? = salvo.std.args.wordAt(tokens, i)
                                     if ((v == null)) {
                                         salvo.std.core.list.addPlatform(errors, Union11.U2<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(MissingValue(option = "-${c}")))
                                     } else {
@@ -584,7 +584,7 @@ fun scan(spec: Spec, args: List<String>): Found {
         }
     }
     for (o in salvo.platform.std.core.list.each(spec.opts)) {
-        val flag: String = longName(o.field)
+        val flag: String = salvo.std.args.longName(o.field)
         var count: Int = 0
         for (h in salvo.platform.std.core.list.each(hits)) {
             if (((h.field) == (o.field))) {
@@ -598,24 +598,24 @@ fun scan(spec: Spec, args: List<String>): Found {
             salvo.std.core.list.addPlatform(errors, Union11.U6<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Repeated(option = flag)))
         }
         if (((count == 0) && o.required)) {
-            val why: String? = unmetGroup(spec, hits, o.group)
+            val why: String? = salvo.std.args.unmetGroup(spec, hits, o.group)
             if ((why != null)) {
                 val why_28: String = why!!
                 salvo.std.core.list.addPlatform(errors, Union11.U7<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Requires(option = why_28, needs = flag)))
-            } else if (live(spec, hits, o.group)) {
+            } else if (salvo.std.args.live(spec, hits, o.group)) {
                 salvo.std.core.list.addPlatform(errors, Union11.U3<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Missing(what = flag)))
             } else {
             }
         }
     }
     for (g in salvo.platform.std.core.list.each(spec.groups)) {
-        if ((((g.kind) == ("one")) && live(spec, hits, g.key))) {
+        if ((((g.kind) == ("one")) && salvo.std.args.live(spec, hits, g.key))) {
             var first: String? = null
             val names: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
             for (a in salvo.platform.std.core.list.each(spec.groups)) {
-                if ((((a.kind) == ("arm")) && parentIs(a.key, g.key))) {
-                    salvo.std.core.list.addPlatform(names, firstOption(spec, a.key))
-                    val here: String? = givenIn(spec, hits, a.key)
+                if ((((a.kind) == ("arm")) && salvo.std.args.parentIs(a.key, g.key))) {
+                    salvo.std.core.list.addPlatform(names, salvo.std.args.firstOption(spec, a.key))
+                    val here: String? = salvo.std.args.givenIn(spec, hits, a.key)
                     if (!((here == null))) {
                         if ((first == null)) {
                             val here_29: String = here!!
@@ -638,7 +638,7 @@ fun scan(spec: Spec, args: List<String>): Found {
     for (a in salvo.platform.std.core.list.each(spec.args)) {
         if (a.many) {
             if (((w == nw) && a.required)) {
-                salvo.std.core.list.addPlatform(errors, Union11.U3<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Missing(what = argName(a.field))))
+                salvo.std.core.list.addPlatform(errors, Union11.U3<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Missing(what = salvo.std.args.argName(a.field))))
             }
             while (true) {
                 if (!((w < nw))) {
@@ -668,7 +668,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                 }))
                 w = (w + 1)
             } else if (a.required) {
-                salvo.std.core.list.addPlatform(errors, Union11.U3<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Missing(what = argName(a.field))))
+                salvo.std.core.list.addPlatform(errors, Union11.U3<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Missing(what = salvo.std.args.argName(a.field))))
             } else {
             }
         }
@@ -707,7 +707,7 @@ fun parentKey(key: String): String? {
 }
 
 fun parentIs(key: String, parent: String): Boolean {
-    val p: String? = parentKey(key)
+    val p: String? = salvo.std.args.parentKey(key)
     if ((p == null)) {
         return false
     }
@@ -730,7 +730,7 @@ fun givenIn(spec: Spec, hits: List<Hit>, key: String): String? {
                 val __narrowed_1: String = o.group!!
                 val g: String = __narrowed_1
                 if ((((g) == (key)) || salvo.std.core.string.startsWithPlatform(g, "${key}/"))) {
-                    return longName(o.field)
+                    return salvo.std.args.longName(o.field)
                 }
             }
         }
@@ -740,13 +740,13 @@ fun givenIn(spec: Spec, hits: List<Hit>, key: String): String? {
 
 fun firstOption(spec: Spec, key: String): String {
     for (o in salvo.platform.std.core.list.each(spec.opts)) {
-        if ((o.required && inGroup(o.group, key))) {
-            return longName(o.field)
+        if ((o.required && salvo.std.args.inGroup(o.group, key))) {
+            return salvo.std.args.longName(o.field)
         }
     }
     for (o in salvo.platform.std.core.list.each(spec.opts)) {
-        if (inGroup(o.group, key)) {
-            return longName(o.field)
+        if (salvo.std.args.inGroup(o.group, key)) {
+            return salvo.std.args.longName(o.field)
         }
     }
     return key
@@ -761,11 +761,11 @@ fun live(spec: Spec, hits: List<Hit>, key: String?): Boolean {
         val k_1: String = k!!
         val here: String = k_1
         for (g in salvo.platform.std.core.list.each(spec.groups)) {
-            if (((((g.key) == (here)) && (((g.kind) == ("together")) || ((g.kind) == ("arm")))) && (givenIn(spec, hits, here) == null))) {
+            if (((((g.key) == (here)) && (((g.kind) == ("together")) || ((g.kind) == ("arm")))) && (salvo.std.args.givenIn(spec, hits, here) == null))) {
                 return false
             }
         }
-        k = parentKey(here)
+        k = salvo.std.args.parentKey(here)
     }
     return true
 }
@@ -780,15 +780,15 @@ fun unmetGroup(spec: Spec, hits: List<Hit>, key: String?): String? {
         val here: String = k_1
         for (g in salvo.platform.std.core.list.each(spec.groups)) {
             if ((((g.key) == (here)) && (((g.kind) == ("together")) || ((g.kind) == ("arm"))))) {
-                val why: String? = givenIn(spec, hits, here)
-                if ((!((why == null)) && live(spec, hits, parentKey(here)))) {
+                val why: String? = salvo.std.args.givenIn(spec, hits, here)
+                if ((!((why == null)) && salvo.std.args.live(spec, hits, salvo.std.args.parentKey(here)))) {
                     val why_2: String = why!!
                     return why_2
                 }
                 return null
             }
         }
-        k = parentKey(here)
+        k = salvo.std.args.parentKey(here)
     }
     return null
 }
@@ -813,7 +813,7 @@ fun isCommand(found: Found, name: String): Boolean {
 
 fun longOpt(spec: Spec, name: String): OptSpec? {
     for (o in salvo.platform.std.core.list.each(spec.opts)) {
-        if (((longName(o.field)) == ("--${name}"))) {
+        if (((salvo.std.args.longName(o.field)) == ("--${name}"))) {
             return o
         }
     }
@@ -887,12 +887,12 @@ fun usage(spec: Spec): String {
     }
     val none: List<Hit> = listOf<Hit>()
     for (o in salvo.platform.std.core.list.each(spec.opts)) {
-        if ((o.required && live(spec, none, o.group))) {
-            salvo.std.core.string.appendPlatform(out, " ${longName(o.field)} <${valueName(o.field)}>")
+        if ((o.required && salvo.std.args.live(spec, none, o.group))) {
+            salvo.std.core.string.appendPlatform(out, " ${salvo.std.args.longName(o.field)} <${salvo.std.args.valueName(o.field)}>")
         }
     }
     for (a in salvo.platform.std.core.list.each(spec.args)) {
-        val name: String = argName(a.field)
+        val name: String = salvo.std.args.argName(a.field)
         val shown: String = (if (a.many) {
             "${name}..."
         } else {
@@ -924,27 +924,27 @@ fun helpText(spec: Spec): String {
         val __narrowed_1: String = spec.about!!
         salvo.std.core.string.appendPlatform(out, "${__narrowed_1}\n\n")
     }
-    salvo.std.core.string.appendPlatform(out, "${usage(spec)}\n")
+    salvo.std.core.string.appendPlatform(out, "${salvo.std.args.usage(spec)}\n")
     val lefts: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     val rights: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     for (a in salvo.platform.std.core.list.each(spec.args)) {
         salvo.std.core.list.addPlatform(lefts, (if (a.many) {
-            "${argName(a.field)}..."
+            "${salvo.std.args.argName(a.field)}..."
         } else {
-            argName(a.field)
+            salvo.std.args.argName(a.field)
         }))
-        salvo.std.core.list.addPlatform(rights, oneLine(a.help))
+        salvo.std.core.list.addPlatform(rights, salvo.std.args.oneLine(a.help))
     }
     val nargs: Int = salvo.std.core.list.sizePlatform(lefts)
     for (c in salvo.platform.std.core.list.each(spec.commands)) {
         salvo.std.core.list.addPlatform(lefts, c.name)
-        salvo.std.core.list.addPlatform(rights, oneLine(c.about))
+        salvo.std.core.list.addPlatform(rights, salvo.std.args.oneLine(c.about))
     }
     val ncommands: Int = (salvo.std.core.list.sizePlatform(lefts) - nargs)
     val sections: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     val sectionOf: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     for (o in salvo.platform.std.core.list.each(spec.opts)) {
-        val heading: String = section(spec, o.group)
+        val heading: String = salvo.std.args.section(spec, o.group)
         if ((!(((heading) == (""))) && !(salvo.std.core.list.contains(sections, heading, { __a0, __a1 -> ((__a0) == (__a1)) })))) {
             salvo.std.core.list.addPlatform(sections, heading)
         }
@@ -957,12 +957,12 @@ fun helpText(spec: Spec): String {
             val __narrowed_2: Char = o.short!!
             "-${__narrowed_2}, "
         })))
-        salvo.std.core.string.appendPlatform(left, longName(o.field))
+        salvo.std.core.string.appendPlatform(left, salvo.std.args.longName(o.field))
         if (o.takesValue) {
-            salvo.std.core.string.appendPlatform(left, " <${valueName(o.field)}>")
+            salvo.std.core.string.appendPlatform(left, " <${salvo.std.args.valueName(o.field)}>")
         }
         salvo.std.core.list.addPlatform(lefts, StringBuilder(left).toString())
-        val right: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>(oneLine(o.help)))
+        val right: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>(salvo.std.args.oneLine(o.help)))
         if (!(salvo.std.core.list.isEmpty(o.choices))) {
             salvo.std.core.string.appendPlatform(right, " [possible values: ${salvo.std.core.string.joinPlatform(o.choices, ", ")}]")
         }
@@ -992,7 +992,7 @@ fun helpText(spec: Spec): String {
             salvo.std.core.list.addPlatform(rows, i)
             i = (i + 1)
         }
-        helpRows(out, lefts, rights, rows, width)
+        salvo.std.args.helpRows(out, lefts, rights, rows, width)
     }
     if ((ncommands > 0)) {
         salvo.std.core.string.appendPlatform(out, "\nCommands:\n")
@@ -1005,7 +1005,7 @@ fun helpText(spec: Spec): String {
             salvo.std.core.list.addPlatform(commands, (nargs + c))
             c = (c + 1)
         }
-        helpRows(out, lefts, rights, commands, width)
+        salvo.std.args.helpRows(out, lefts, rights, commands, width)
     }
     val firstOpt: Int = (nargs + ncommands)
     val mine: salvo.platform.std.core.list.MutList<Int> = mutableListOf<Int>()
@@ -1018,7 +1018,7 @@ fun helpText(spec: Spec): String {
     }
     salvo.std.core.list.addPlatform(mine, helpRow)
     salvo.std.core.string.appendPlatform(out, "\nOptions:\n")
-    helpRows(out, lefts, rights, mine, width)
+    salvo.std.args.helpRows(out, lefts, rights, mine, width)
     for (heading in salvo.platform.std.core.list.each(sections)) {
         val these: salvo.platform.std.core.list.MutList<Int> = mutableListOf<Int>()
         var j: Int = 0
@@ -1029,7 +1029,7 @@ fun helpText(spec: Spec): String {
             j = (j + 1)
         }
         salvo.std.core.string.appendPlatform(out, "\n${heading}:\n")
-        helpRows(out, lefts, rights, these, width)
+        salvo.std.args.helpRows(out, lefts, rights, these, width)
     }
     return out.toString()
 }
@@ -1087,20 +1087,20 @@ fun section(spec: Spec, group: String?): String {
     for (g in salvo.platform.std.core.list.each(spec.groups)) {
         if ((((g.key) == (top)) && !((g.heading == null)))) {
             val __narrowed_5: String = g.heading!!
-            return salvo.std.core.string.trimSuffixPlatform(oneLine(__narrowed_5), ".")
+            return salvo.std.core.string.trimSuffixPlatform(salvo.std.args.oneLine(__narrowed_5), ".")
         }
     }
     return ""
 }
 
 fun<T> parseArgs(args: List<String>, argSpec: () -> Spec, fromFound: (Found) -> Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>): Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> {
-    return parseNamed(args, null, argSpec, fromFound)
+    return salvo.std.args.parseNamed(args, null, argSpec, fromFound)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> parseNamed(args: List<String>, prefix: String?, argSpec: () -> Spec, fromFound: (Found) -> Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>): Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> {
     val base: Spec = argSpec()
-    checkSpec(base)
+    salvo.std.args.checkSpec(base)
     val spec: Spec = (if ((prefix == null)) {
         base
     } else {
@@ -1111,9 +1111,9 @@ fun<T> parseNamed(args: List<String>, prefix: String?, argSpec: () -> Spec, from
             Spec(name = __part_2, about = __spread_3.about, opts = __spread_3.opts, args = __spread_3.args, groups = __spread_3.groups, commands = __spread_3.commands, commandRequired = __spread_3.commandRequired, commandFields = __spread_3.commandFields)
         }
     })
-    val found: Found = scan(spec, args)
+    val found: Found = salvo.std.args.scan(spec, args)
     if (found.help) {
-        val help: Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested> = Union11.U11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(HelpRequested(text = helpText(spec)))
+        val help: Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested> = Union11.U11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(HelpRequested(text = salvo.std.args.helpText(spec)))
         return Union2.U2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>(salvo.std.core.result.errs(help))
     }
     val r: Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> = fromFound(found)
@@ -1133,7 +1133,7 @@ fun<T> parseNamed(args: List<String>, prefix: String?, argSpec: () -> Spec, from
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> argsOrExit(console: salvo.std.core.console.Console, process: salvo.std.process.Process, args: List<String>, argSpec: () -> Spec, fromFound: (Found) -> Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>): T {
-    val parsed: Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> = parseArgs(args, argSpec, fromFound)
+    val parsed: Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> = salvo.std.args.parseArgs(args, argSpec, fromFound)
     return when {
         (parsed is Union2.U1<*, *>) -> {
             val parsed_1: T = ((parsed as Union2.U1<*, *>).value as T)
@@ -1141,7 +1141,7 @@ fun<T> argsOrExit(console: salvo.std.core.console.Console, process: salvo.std.pr
         }
         (parsed is Union2.U2<*, *>) -> {
             val parsed_2: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = ((parsed as Union2.U2<*, *>).value as List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>)
-            exitWith(console, process, parsed_2, argSpec, fromFound)
+            salvo.std.args.exitWith(console, process, parsed_2, argSpec, fromFound)
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:978:5"))
@@ -1151,7 +1151,7 @@ fun<T> argsOrExit(console: salvo.std.core.console.Console, process: salvo.std.pr
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T, V> parseValid(args: List<String>, validate: (T) -> V, argSpec: () -> Spec, fromFound: (Found) -> Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>): Union2<V, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> {
-    val parsed: Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> = parseArgs(args, argSpec, fromFound)
+    val parsed: Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> = salvo.std.args.parseArgs(args, argSpec, fromFound)
     return when {
         (parsed is Union2.U2<*, *>) -> {
             val parsed_1: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = ((parsed as Union2.U2<*, *>).value as List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>)
@@ -1201,7 +1201,7 @@ fun<T, V> parseValid(args: List<String>, validate: (T) -> V, argSpec: () -> Spec
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T, V> validArgsOrExit(console: salvo.std.core.console.Console, process: salvo.std.process.Process, args: List<String>, validate: (T) -> V, argSpec: () -> Spec, fromFound: (Found) -> Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>): V {
-    val parsed: Union2<V, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> = parseValid(args, validate, argSpec, fromFound)
+    val parsed: Union2<V, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> = salvo.std.args.parseValid(args, validate, argSpec, fromFound)
     return when {
         (parsed is Union2.U1<*, *>) -> {
             val parsed_1: V = ((parsed as Union2.U1<*, *>).value as V)
@@ -1209,7 +1209,7 @@ fun<T, V> validArgsOrExit(console: salvo.std.core.console.Console, process: salv
         }
         (parsed is Union2.U2<*, *>) -> {
             val parsed_2: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = ((parsed as Union2.U2<*, *>).value as List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>)
-            exitWith(console, process, parsed_2, argSpec, fromFound)
+            salvo.std.args.exitWith(console, process, parsed_2, argSpec, fromFound)
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:1026:5"))
@@ -1228,10 +1228,10 @@ fun<T> exitWith(console: salvo.std.core.console.Console, process: salvo.std.proc
         }
     }
     for (e in salvo.platform.std.core.list.each(errors)) {
-        console.printerr("error: ${message(e)}\n")
+        console.printerr("error: ${salvo.std.args.message(e)}\n")
     }
     val spec: Spec = argSpec()
-    console.printerr("\n${usage(spec)}\n\nFor more information, try '--help'.\n")
+    console.printerr("\n${salvo.std.args.usage(spec)}\n\nFor more information, try '--help'.\n")
     return process.exit(2)
 }
 
@@ -1240,7 +1240,7 @@ fun checkSpec(spec: Spec) {
     val fields: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     for (o in salvo.platform.std.core.list.each(spec.opts)) {
         if (salvo.std.core.list.contains(fields, o.field, { __a0, __a1 -> ((__a0) == (__a1)) })) {
-            throw AssertionError(("salvo: " + ("two options of `${spec.name}` are spelled `${longName(o.field)}`") + " at std.args:1062:13"))
+            throw AssertionError(("salvo: " + ("two options of `${spec.name}` are spelled `${salvo.std.args.longName(o.field)}`") + " at std.args:1062:13"))
         }
         salvo.std.core.list.addPlatform(fields, o.field)
         if (((o.field) == ("help"))) {
@@ -1265,12 +1265,12 @@ fun checkSpec(spec: Spec) {
             var count: Int = 0
             var required: Boolean = false
             for (o in salvo.platform.std.core.list.each(spec.opts)) {
-                if (inGroup(o.group, g.key)) {
+                if (salvo.std.args.inGroup(o.group, g.key)) {
                     count = (count + 1)
                     required = (required || o.required)
                 }
             }
-            if ((((count > 0) && !(required)) && !(((count == 1) && !(optTakesValue(spec, g.key)))))) {
+            if ((((count > 0) && !(required)) && !(((count == 1) && !(salvo.std.args.optTakesValue(spec, g.key)))))) {
                 throw AssertionError(("salvo: " + ("every option of `${g.key}` is optional, so nothing chooses that arm: make one required") + " at std.args:1092:17"))
             }
         }
@@ -1304,7 +1304,7 @@ fun checkSpec(spec: Spec) {
 
 fun optTakesValue(spec: Spec, key: String): Boolean {
     for (o in salvo.platform.std.core.list.each(spec.opts)) {
-        if (inGroup(o.group, key)) {
+        if (salvo.std.args.inGroup(o.group, key)) {
             return o.takesValue
         }
     }
@@ -1317,7 +1317,7 @@ fun<Q> eval(f: () -> Q): Q {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<B, Q> readValue(found: Found, field: String, default: Q?, refine: (B) -> Q?, fromStr: (String) -> B?): Q {
-    val s: String? = valueOf(found, field)
+    val s: String? = salvo.std.args.valueOf(found, field)
     if (!((s == null))) {
         val s_1: String = s!!
         val v: B? = fromStr(s_1)
@@ -1339,7 +1339,7 @@ fun<B, Q> readValue(found: Found, field: String, default: Q?, refine: (B) -> Q?,
 }
 
 fun<E> readOptional(found: Found, field: String, fromStr: (String) -> E?): E? {
-    val s: String? = valueOf(found, field)
+    val s: String? = salvo.std.args.valueOf(found, field)
     if ((s == null)) {
         return null
     }
@@ -1349,7 +1349,7 @@ fun<E> readOptional(found: Found, field: String, fromStr: (String) -> E?): E? {
 
 fun<E> readAll(found: Found, field: String, fromStr: (String) -> E?): List<E> {
     val out: salvo.platform.std.core.list.MutList<E> = mutableListOf<E>()
-    for (s in salvo.platform.std.core.list.each(valuesOf(found, field))) {
+    for (s in salvo.platform.std.core.list.each(salvo.std.args.valuesOf(found, field))) {
         val v: E? = fromStr(s)
         if (!((v == null))) {
             val v_1: E = v!!
@@ -1360,7 +1360,7 @@ fun<E> readAll(found: Found, field: String, fromStr: (String) -> E?): List<E> {
 }
 
 fun<B> checkValue(errors: salvo.platform.std.core.list.MutList<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>, found: Found, field: String, shown: String, what: String, test: (B) -> String?, fromStr: (String) -> B?) {
-    for (s in salvo.platform.std.core.list.each(valuesOf(found, field))) {
+    for (s in salvo.platform.std.core.list.each(salvo.std.args.valuesOf(found, field))) {
         val v: B? = fromStr(s)
         if ((v == null)) {
             salvo.std.core.list.addPlatform(errors, Union11.U4<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Invalid(what = shown, value = s, reason = "expected ${what}")))
@@ -1377,9 +1377,9 @@ fun<B> checkValue(errors: salvo.platform.std.core.list.MutList<Union11<UnknownOp
 
 fun shownName(field: String, positional: Boolean): String {
     if (positional) {
-        return argName(field)
+        return salvo.std.args.argName(field)
     }
-    return longName(field)
+    return salvo.std.args.longName(field)
 }
 
 fun literalText(name: String): String {

@@ -74,12 +74,12 @@ fun main() {
     val a: Point = Point(x = 1, y = 2)
     val b: Point = Point(x = 1, y = 2)
     val c: Point = Point(x = 1, y = 9)
-    val same: Boolean = eq__Point_Point(a, b)
-    val before: Boolean = (cmp(a, c) < 0)
+    val same: Boolean = salvo.main.eq__Point_Point(a, b)
+    val before: Boolean = (salvo.main.cmp(a, c) < 0)
     salvo.std.core.console.println(__handle_2, "4. equal ${same}, ordered ${before}")
     val n1: Note = Note(text = "same")
     val n2: Note = Note(text = "same")
-    val notesEqual: Boolean = eq__Note_Note(n1, n2)
+    val notesEqual: Boolean = salvo.main.eq__Note_Note(n1, n2)
     salvo.std.core.console.println(__handle_2, "4. plain struct equality ${notesEqual}")
     val squares: List<Int> = salvo.std.core.list.listBy(4, fun(i: Int): Int {
         return (i * i)
@@ -119,7 +119,7 @@ fun main() {
         salvo.std.core.console.println(__handle_2, "6. a two-letter word at ${atLen}")
     }
     val unique: List<Int> = salvo.std.core.set.toListPlatform(deduped)
-    salvo.std.core.console.println(__handle_2, "6. distinct ${salvo.std.core.list.toStr(unique, { __a0 -> (__a0).toString() })} of ${countUnique(unique)}")
+    salvo.std.core.console.println(__handle_2, "6. distinct ${salvo.std.core.list.toStr(unique, { __a0 -> (__a0).toString() })} of ${salvo.main.countUnique(unique)}")
     val __pass_8: salvo.std.core.set.SetYield<String> = salvo.std.core.set.iter(vowels)
     while (true) {
         val __step_9: Union2<String, salvo.std.core.iterator.Finished> = salvo.std.core.set.next(__pass_8)

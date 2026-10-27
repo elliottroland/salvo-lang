@@ -76,7 +76,7 @@ fun dropInEntry(e: InEntry) {
     val position: Long = __destructured_1.position
     val ahead: salvo.platform.std.core.bytes.MutBytes = (__destructured_1.ahead as salvo.platform.std.core.bytes.MutBytes)
     val failed: Fault? = __destructured_1.failed
-    hostCloseInPlatform(host)
+    salvo.std.runtime.streams.hostCloseInPlatform(host)
 }
 
 fun dropOutEntry(e: OutEntry) {
@@ -85,7 +85,7 @@ fun dropOutEntry(e: OutEntry) {
     val host: salvo.platform.std.runtime.streams.HostOut = __destructured_1.host
     val position: Long = __destructured_1.position
     val failed: Fault? = __destructured_1.failed
-    val _closed: String? = hostCloseOutPlatform(host)
+    val _closed: String? = salvo.std.runtime.streams.hostCloseOutPlatform(host)
 }
 
 class Busy
@@ -195,17 +195,17 @@ class Streams : StreamTable {
         return next
     }
     override fun putIn(handle: Long, e: InEntry) {
-        unbusy(busy, waiting, handle)
+        salvo.std.runtime.streams.unbusy(busy, waiting, handle)
         salvo.std.core.list.addPlatform(inKeys, handle)
         salvo.std.core.list.addPlatform(ins, e)
     }
     override fun putOut(handle: Long, e: OutEntry) {
-        unbusy(busy, waiting, handle)
+        salvo.std.runtime.streams.unbusy(busy, waiting, handle)
         salvo.std.core.list.addPlatform(outKeys, handle)
         salvo.std.core.list.addPlatform(outs, e)
     }
     override fun takeIn(handle: Long, me: salvo.platform.std.runtime.Parker): Union3<InEntry, Busy, Unknown> {
-        val at: Int = indexIn(inKeys, handle)
+        val at: Int = salvo.std.runtime.streams.indexIn(inKeys, handle)
         if ((at >= 0)) {
             val _k: Long? = salvo.std.core.list.removeAtPlatform(inKeys, at)
             salvo.std.core.list.addPlatform(busy, handle)
@@ -219,14 +219,14 @@ class Streams : StreamTable {
                 })
             })
         }
-        if ((indexIn(busy, handle) >= 0)) {
+        if ((salvo.std.runtime.streams.indexIn(busy, handle) >= 0)) {
             salvo.std.core.list.addPlatform(waiting, me)
             return Union3.U2<InEntry, Busy, Unknown>(Busy())
         }
         return Union3.U3<InEntry, Busy, Unknown>(Unknown())
     }
     override fun takeOut(handle: Long, me: salvo.platform.std.runtime.Parker): Union3<OutEntry, Busy, Unknown> {
-        val at: Int = indexIn(outKeys, handle)
+        val at: Int = salvo.std.runtime.streams.indexIn(outKeys, handle)
         if ((at >= 0)) {
             val _k: Long? = salvo.std.core.list.removeAtPlatform(outKeys, at)
             salvo.std.core.list.addPlatform(busy, handle)
@@ -240,14 +240,14 @@ class Streams : StreamTable {
                 })
             })
         }
-        if ((indexIn(busy, handle) >= 0)) {
+        if ((salvo.std.runtime.streams.indexIn(busy, handle) >= 0)) {
             salvo.std.core.list.addPlatform(waiting, me)
             return Union3.U2<OutEntry, Busy, Unknown>(Busy())
         }
         return Union3.U3<OutEntry, Busy, Unknown>(Unknown())
     }
     override fun forget(handle: Long) {
-        unbusy(busy, waiting, handle)
+        salvo.std.runtime.streams.unbusy(busy, waiting, handle)
     }
     override fun addPending(p: Pending) {
         salvo.std.core.list.addPlatform(pending, p)
@@ -301,7 +301,7 @@ fun indexIn(keys: List<Long>, handle: Long): Int {
 }
 
 fun unbusy(busy: salvo.platform.std.core.list.MutList<Long>, waiting: salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>, handle: Long) {
-    val at: Int = indexIn(busy, handle)
+    val at: Int = salvo.std.runtime.streams.indexIn(busy, handle)
     if ((at >= 0)) {
         val _h: Long? = salvo.std.core.list.removeAtPlatform(busy, at)
     }
@@ -326,19 +326,19 @@ fun freshHandle(): Long {
 }
 
 fun registerIn(source: String, host: salvo.platform.std.runtime.streams.HostIn, position: Long): Long {
-    val handle: Long = freshHandle()
+    val handle: Long = salvo.std.runtime.streams.freshHandle()
     __module_use0_0.putIn(handle, InEntry(source = source, host = host, position = position, ahead = salvo.std.core.bytes.mutBytes(arrayOf<salvo.platform.std.core.bytes.Bytes>()), failed = null))
     return handle
 }
 
 fun registerOut(source: String, host: salvo.platform.std.runtime.streams.HostOut, position: Long): Long {
-    val handle: Long = freshHandle()
+    val handle: Long = salvo.std.runtime.streams.freshHandle()
     __module_use0_0.putOut(handle, OutEntry(source = source, host = host, position = position, failed = null))
     return handle
 }
 
 fun registerBytes(data: salvo.platform.std.core.bytes.Bytes): Long {
-    return registerIn("<bytes>", hostBytesInPlatform(data), 0L)
+    return salvo.std.runtime.streams.registerIn("<bytes>", salvo.std.runtime.streams.hostBytesInPlatform(data), 0L)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -351,12 +351,12 @@ fun checkoutIn(handle: Long): InEntry {
         }
         if ((got is Union3.U3<*, *, *>)) {
             val got_1: Unknown = ((got as Union3.U3<*, *, *>).value as Unknown)
-            notOursPlatform(handle)
+            salvo.std.runtime.streams.notOursPlatform(handle)
         }
         salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
     }
     throw AssertionError("salvo: unreachable at std.runtime.streams:263:5")
-    return checkoutIn(handle)
+    return salvo.std.runtime.streams.checkoutIn(handle)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -369,12 +369,12 @@ fun checkoutOut(handle: Long): OutEntry {
         }
         if ((got is Union3.U3<*, *, *>)) {
             val got_1: Unknown = ((got as Union3.U3<*, *, *>).value as Unknown)
-            notOursPlatform(handle)
+            salvo.std.runtime.streams.notOursPlatform(handle)
         }
         salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
     }
     throw AssertionError("salvo: unreachable at std.runtime.streams:278:5")
-    return checkoutOut(handle)
+    return salvo.std.runtime.streams.checkoutOut(handle)
 }
 
 fun checkinIn(handle: Long, e: InEntry) {
@@ -394,7 +394,7 @@ fun closeIn(handle: Long, e: InEntry): Fault? {
     val position: Long = __destructured_1.position
     val ahead: salvo.platform.std.core.bytes.MutBytes = (__destructured_1.ahead as salvo.platform.std.core.bytes.MutBytes)
     val failed: Fault? = __destructured_1.failed
-    hostCloseInPlatform(host)
+    salvo.std.runtime.streams.hostCloseInPlatform(host)
     return failed
 }
 
@@ -405,8 +405,8 @@ fun closeOut(handle: Long, e: OutEntry): Fault? {
     val host: salvo.platform.std.runtime.streams.HostOut = __destructured_1.host
     val position: Long = __destructured_1.position
     val failed: Fault? = __destructured_1.failed
-    val flushing: String? = hostFlushPlatform(host)
-    val closing: String? = hostCloseOutPlatform(host)
+    val flushing: String? = salvo.std.runtime.streams.hostFlushPlatform(host)
+    val closing: String? = salvo.std.runtime.streams.hostCloseOutPlatform(host)
     if ((failed != null)) {
         val f: Fault = failed!!
         return f
@@ -479,7 +479,7 @@ fun readLine(e: InEntry): Read {
         val at: Int? = salvo.std.core.bytes.indexOfPlatform((e.ahead as salvo.platform.std.core.bytes.MutBytes), (10).toUByte())
         if ((at != null)) {
             val i: Int = at!!
-            val line: salvo.platform.std.core.bytes.Bytes = takeAhead(e, (i + 1))
+            val line: salvo.platform.std.core.bytes.Bytes = salvo.std.runtime.streams.takeAhead(e, (i + 1))
             var n: Int = (salvo.std.core.bytes.sizePlatform(line) - 1)
             if (((n > 0) && ((kotlin.run {
                 val __pick_1: UByte? = salvo.std.core.bytes.getPlatform(line, (n - 1))
@@ -502,22 +502,22 @@ fun readLine(e: InEntry): Read {
                 })
             }, end = false, fault = null)
         }
-        val got: HostRead = hostReadPlatform(e.host, 8192)
+        val got: HostRead = salvo.std.runtime.streams.hostReadPlatform(e.host, 8192)
         if ((got.error != null)) {
             val message: String = got.error!!
-            return Read(data = salvo.std.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = record(e, message))
+            return Read(data = salvo.std.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = salvo.std.runtime.streams.record(e, message))
         }
         if ((salvo.std.core.bytes.sizePlatform(got.data) == 0)) {
             if ((salvo.std.core.bytes.sizePlatform((e.ahead as salvo.platform.std.core.bytes.MutBytes)) == 0)) {
                 return Read(data = salvo.std.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = null)
             }
-            val rest: salvo.platform.std.core.bytes.Bytes = takeAhead(e, salvo.std.core.bytes.sizePlatform((e.ahead as salvo.platform.std.core.bytes.MutBytes)))
+            val rest: salvo.platform.std.core.bytes.Bytes = salvo.std.runtime.streams.takeAhead(e, salvo.std.core.bytes.sizePlatform((e.ahead as salvo.platform.std.core.bytes.MutBytes)))
             return Read(data = rest, end = false, fault = null)
         }
         salvo.std.core.bytes.appendPlatform((e.ahead as salvo.platform.std.core.bytes.MutBytes), got.data)
     }
     throw AssertionError("salvo: unreachable at std.runtime.streams:359:5")
-    return readLine(e)
+    return salvo.std.runtime.streams.readLine(e)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -526,12 +526,12 @@ fun readAll(e: InEntry): Read {
         val f: Fault = e.failed!!
         return Read(data = salvo.std.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = f)
     }
-    val out: salvo.platform.std.core.bytes.MutBytes = salvo.std.core.bytes.mutBytes(arrayOf<salvo.platform.std.core.bytes.Bytes>(takeAhead(e, salvo.std.core.bytes.sizePlatform((e.ahead as salvo.platform.std.core.bytes.MutBytes)))))
+    val out: salvo.platform.std.core.bytes.MutBytes = salvo.std.core.bytes.mutBytes(arrayOf<salvo.platform.std.core.bytes.Bytes>(salvo.std.runtime.streams.takeAhead(e, salvo.std.core.bytes.sizePlatform((e.ahead as salvo.platform.std.core.bytes.MutBytes)))))
     while (true) {
-        val got: HostRead = hostReadPlatform(e.host, 65536)
+        val got: HostRead = salvo.std.runtime.streams.hostReadPlatform(e.host, 65536)
         if ((got.error != null)) {
             val message: String = got.error!!
-            return Read(data = salvo.std.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = record(e, message))
+            return Read(data = salvo.std.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = salvo.std.runtime.streams.record(e, message))
         }
         if ((salvo.std.core.bytes.sizePlatform(got.data) == 0)) {
             return Read(data = salvo.platform.std.core.bytes.copy(out), end = true, fault = null)
@@ -540,7 +540,7 @@ fun readAll(e: InEntry): Read {
         salvo.std.core.bytes.appendPlatform(out, got.data)
     }
     throw AssertionError("salvo: unreachable at std.runtime.streams:391:5")
-    return readAll(e)
+    return salvo.std.runtime.streams.readAll(e)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -557,12 +557,12 @@ fun readUpTo(e: InEntry, max: Int): Read {
         if ((salvo.std.core.bytes.sizePlatform((e.ahead as salvo.platform.std.core.bytes.MutBytes)) < n)) {
             n = salvo.std.core.bytes.sizePlatform((e.ahead as salvo.platform.std.core.bytes.MutBytes))
         }
-        return Read(data = takeAhead(e, n), end = false, fault = null)
+        return Read(data = salvo.std.runtime.streams.takeAhead(e, n), end = false, fault = null)
     }
-    val got: HostRead = hostReadPlatform(e.host, max)
+    val got: HostRead = salvo.std.runtime.streams.hostReadPlatform(e.host, max)
     if ((got.error != null)) {
         val message: String = got.error!!
-        return Read(data = salvo.std.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = record(e, message))
+        return Read(data = salvo.std.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = salvo.std.runtime.streams.record(e, message))
     }
     e.position = (e.position + (salvo.std.core.bytes.sizePlatform(got.data)).toLong())
     return Read(data = got.data, end = (salvo.std.core.bytes.sizePlatform(got.data) == 0), fault = null)
@@ -585,10 +585,10 @@ fun write(e: OutEntry, data: salvo.platform.std.core.bytes.Bytes): Long {
         val earlier: Fault = e.failed!!
         return 0L
     }
-    val failed: String? = hostWritePlatform(e.host, data)
+    val failed: String? = salvo.std.runtime.streams.hostWritePlatform(e.host, data)
     if ((failed != null)) {
         val message: String = failed!!
-        recordOut(e, message)
+        salvo.std.runtime.streams.recordOut(e, message)
         return 0L
     }
     e.position = (e.position + (salvo.std.core.bytes.sizePlatform(data)).toLong())
@@ -596,7 +596,7 @@ fun write(e: OutEntry, data: salvo.platform.std.core.bytes.Bytes): Long {
 }
 
 fun flush(e: OutEntry): Fault? {
-    val failed: String? = hostFlushPlatform(e.host)
+    val failed: String? = salvo.std.runtime.streams.hostFlushPlatform(e.host)
     if ((failed != null)) {
         val message: String = failed!!
         e.failed = Fault(utf8 = false, message = message)
@@ -626,23 +626,23 @@ object __Codec_Chunk : salvo.WireCodec<Chunk> {
 fun receive(handle: Long, done: salvo.SalvoReply) {
     __module_use0_0.addPending(Pending(handle = handle, done = done))
     salvo.std.runtime.externalBegin()
-    startReader(handle)
+    salvo.std.runtime.streams.startReader(handle)
 }
 
 fun startReader(handle: Long) {
     salvo.std.runtime.startThreadPlatform(fun() {
-        readAndAnswer(handle)
+        salvo.std.runtime.streams.readAndAnswer(handle)
     })
 }
 
 fun readAndAnswer(handle: Long) {
-    val e: InEntry = checkoutIn(handle)
-    val got: Read = readUpTo(e, 65536)
+    val e: InEntry = salvo.std.runtime.streams.checkoutIn(handle)
+    val got: Read = salvo.std.runtime.streams.readUpTo(e, 65536)
     val source: String = e.source
     if ((got.end || !((got.fault == null)))) {
-        val _closed: Fault? = closeIn(handle, e)
+        val _closed: Fault? = salvo.std.runtime.streams.closeIn(handle, e)
     } else {
-        checkinIn(handle, e)
+        salvo.std.runtime.streams.checkinIn(handle, e)
     }
     val p: Pending? = __module_use0_0.takePending(handle)
     if ((p != null)) {
@@ -656,7 +656,7 @@ fun readAndAnswer(handle: Long) {
 }
 
 fun takeForHost(handle: Long): InEntry {
-    val e: InEntry = checkoutIn(handle)
+    val e: InEntry = salvo.std.runtime.streams.checkoutIn(handle)
     __module_use0_0.forget(handle)
     return e
 }

@@ -27,20 +27,20 @@ fun isAbsolute(p: Path): Boolean {
 
 fun join__Path_Str(p: Path, child: String): Path {
     if ((salvo.std.core.string.startsWithPlatform(child, "/") || salvo.std.core.string.isEmpty(p.value))) {
-        return path(child)
+        return salvo.std.fs.path.path(child)
     }
     if (salvo.std.core.string.endsWithPlatform(p.value, "/")) {
-        return path("${p.value}${child}")
+        return salvo.std.fs.path.path("${p.value}${child}")
     }
-    return path("${p.value}/${child}")
+    return salvo.std.fs.path.path("${p.value}/${child}")
 }
 
 fun join__Path_Path(p: Path, child: Path): Path {
-    return join__Path_Str(p, child.value)
+    return salvo.std.fs.path.join__Path_Str(p, child.value)
 }
 
 fun parent(p: Path): Path? {
-    val text: String = trimTrailingSlashes(p.value)
+    val text: String = salvo.std.fs.path.trimTrailingSlashes(p.value)
     val cut: kotlin.Pair<String, String>? = salvo.std.core.string.splitLast(text, "/")
     if ((cut == null)) {
         return null
@@ -51,15 +51,15 @@ fun parent(p: Path): Path? {
     val _name: String = __destructured_2.second
     if (salvo.std.core.string.isEmpty(dir)) {
         if ((salvo.std.core.string.startsWithPlatform(text, "/") && (salvo.std.core.string.sizePlatform(text) > 1))) {
-            return path("/")
+            return salvo.std.fs.path.path("/")
         }
         return null
     }
-    return path(dir)
+    return salvo.std.fs.path.path(dir)
 }
 
 fun fileName(p: Path): String? {
-    val text: String = trimTrailingSlashes(p.value)
+    val text: String = salvo.std.fs.path.trimTrailingSlashes(p.value)
     val cut: kotlin.Pair<String, String>? = salvo.std.core.string.splitLast(text, "/")
     if ((cut == null)) {
         if (salvo.std.core.string.isEmpty(text)) {
@@ -78,7 +78,7 @@ fun fileName(p: Path): String? {
 }
 
 fun extension(p: Path): String? {
-    val name: String? = fileName(p)
+    val name: String? = salvo.std.fs.path.fileName(p)
     if ((name != null)) {
         val n: String = name!!
         val cut: kotlin.Pair<String, String>? = salvo.std.core.string.splitLast(n, ".")
@@ -98,7 +98,7 @@ fun extension(p: Path): String? {
 }
 
 fun stem(p: Path): String? {
-    val name: String? = fileName(p)
+    val name: String? = salvo.std.fs.path.fileName(p)
     if ((name != null)) {
         val n: String = name!!
         val cut: kotlin.Pair<String, String>? = salvo.std.core.string.splitLast(n, ".")
@@ -118,7 +118,7 @@ fun stem(p: Path): String? {
 }
 
 fun withExtension(p: Path, ext: String): Path {
-    val s: String? = stem(p)
+    val s: String? = salvo.std.fs.path.stem(p)
     if ((s != null)) {
         val base: String = s!!
         val name: String = (if (salvo.std.core.string.isEmpty(ext)) {
@@ -126,14 +126,14 @@ fun withExtension(p: Path, ext: String): Path {
         } else {
             "${base}.${ext}"
         })
-        val up: Path? = parent(p)
+        val up: Path? = salvo.std.fs.path.parent(p)
         if ((up != null)) {
             val dir: Path = up!!
-            return join__Path_Str(dir, name)
+            return salvo.std.fs.path.join__Path_Str(dir, name)
         }
-        return path(name)
+        return salvo.std.fs.path.path(name)
     }
-    return path(p.value)
+    return salvo.std.fs.path.path(p.value)
 }
 
 fun segments(p: Path): salvo.platform.std.core.list.MutList<String> {

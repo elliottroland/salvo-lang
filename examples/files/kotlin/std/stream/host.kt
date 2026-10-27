@@ -124,7 +124,7 @@ fun hostReceived(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.platfo
 
 class HostRawStreams : RawStreams {
     override fun rawReadLine(handle: Long): String? {
-        return nextLine(handle)
+        return salvo.std.stream.host.nextLine(handle)
     }
     override fun rawReadAll(handle: Long): Union2<String, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> {
         val e: salvo.std.runtime.streams.InEntry = salvo.std.runtime.streams.checkoutIn(handle)
@@ -133,7 +133,7 @@ class HostRawStreams : RawStreams {
         if ((r.fault != null)) {
             val f: salvo.std.runtime.streams.Fault = r.fault!!
             salvo.std.runtime.streams.checkinIn(handle, e)
-            return Union2.U2<String, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(kind(source, f)))
+            return Union2.U2<String, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(salvo.std.stream.host.kind(source, f)))
         }
         val text: String? = salvo.std.runtime.streams.decode(e, r.data)
         salvo.std.runtime.streams.checkinIn(handle, e)
@@ -141,7 +141,7 @@ class HostRawStreams : RawStreams {
             val t: String = text!!
             return Union2.U1<String, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.ok(t))
         }
-        return Union2.U2<String, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(kind(source, salvo.std.runtime.streams.Fault(utf8 = true, message = ""))))
+        return Union2.U2<String, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(salvo.std.stream.host.kind(source, salvo.std.runtime.streams.Fault(utf8 = true, message = ""))))
     }
     override fun rawReadBytes(handle: Long, max: Int): Union2<salvo.platform.std.core.bytes.Bytes, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> {
         val e: salvo.std.runtime.streams.InEntry = salvo.std.runtime.streams.checkoutIn(handle)
@@ -150,7 +150,7 @@ class HostRawStreams : RawStreams {
         salvo.std.runtime.streams.checkinIn(handle, e)
         if ((r.fault != null)) {
             val f: salvo.std.runtime.streams.Fault = r.fault!!
-            return Union2.U2<salvo.platform.std.core.bytes.Bytes, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(kind(source, f)))
+            return Union2.U2<salvo.platform.std.core.bytes.Bytes, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(salvo.std.stream.host.kind(source, f)))
         }
         return Union2.U1<salvo.platform.std.core.bytes.Bytes, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.ok(r.data))
     }
@@ -161,7 +161,7 @@ class HostRawStreams : RawStreams {
         salvo.std.runtime.streams.checkinIn(handle, e)
         if ((r.fault != null)) {
             val f: salvo.std.runtime.streams.Fault = r.fault!!
-            return Union2.U2<Int, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(kind(source, f)))
+            return Union2.U2<Int, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(salvo.std.stream.host.kind(source, f)))
         }
         salvo.std.core.bytes.appendPlatform(buf, r.data)
         return Union2.U1<Int, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.ok(salvo.std.core.bytes.sizePlatform(r.data)))
@@ -173,7 +173,7 @@ class HostRawStreams : RawStreams {
         if ((r.fault != null)) {
             val f: salvo.std.runtime.streams.Fault = r.fault!!
             salvo.std.runtime.streams.checkinIn(handle, e)
-            return Union2.U2<Long, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(kind(source, f)))
+            return Union2.U2<Long, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(salvo.std.stream.host.kind(source, f)))
         }
         val count: Long = (salvo.std.core.bytes.sizePlatform(r.data)).toLong()
         val text: String? = salvo.std.runtime.streams.decode(e, r.data)
@@ -183,10 +183,10 @@ class HostRawStreams : RawStreams {
             salvo.std.core.string.appendPlatform(buf, t)
             return Union2.U1<Long, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.ok(count))
         }
-        return Union2.U2<Long, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(kind(source, salvo.std.runtime.streams.Fault(utf8 = true, message = ""))))
+        return Union2.U2<Long, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(salvo.std.stream.host.kind(source, salvo.std.runtime.streams.Fault(utf8 = true, message = ""))))
     }
     override fun rawReadLineToStr(handle: Long, buf: salvo.platform.std.core.string.MutStr): Boolean {
-        val line: String? = nextLine(handle)
+        val line: String? = salvo.std.stream.host.nextLine(handle)
         if ((line != null)) {
             val t: String = line!!
             salvo.std.core.string.appendPlatform(buf, t)
@@ -206,7 +206,7 @@ class HostRawStreams : RawStreams {
         val failed: salvo.std.runtime.streams.Fault? = salvo.std.runtime.streams.closeIn(handle, e)
         if ((failed != null)) {
             val f: salvo.std.runtime.streams.Fault = failed!!
-            return Union2.U2<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(kind(source, f)))
+            return Union2.U2<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(salvo.std.stream.host.kind(source, f)))
         }
         return Union2.U1<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.ok(Unit))
     }
@@ -235,7 +235,7 @@ class HostRawStreams : RawStreams {
         salvo.std.runtime.streams.checkinOut(handle, e)
         if ((failed != null)) {
             val f: salvo.std.runtime.streams.Fault = failed!!
-            return Union2.U2<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(kind(source, f)))
+            return Union2.U2<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(salvo.std.stream.host.kind(source, f)))
         }
         return Union2.U1<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.ok(Unit))
     }
@@ -245,13 +245,13 @@ class HostRawStreams : RawStreams {
         val failed: salvo.std.runtime.streams.Fault? = salvo.std.runtime.streams.closeOut(handle, e)
         if ((failed != null)) {
             val f: salvo.std.runtime.streams.Fault = failed!!
-            return Union2.U2<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(kind(source, f)))
+            return Union2.U2<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(salvo.std.stream.host.kind(source, f)))
         }
         return Union2.U1<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.ok(Unit))
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun rawReceive(handle: Long, reply: salvo.SalvoReply) {
-        salvo.std.runtime.streams.receive(handle, kotlin.run { val __c0 = reply; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.std.runtime.streams.__Codec_Chunk) }) { __v -> chunkReceived(__c0, __v as salvo.std.runtime.streams.Chunk) } })
+        salvo.std.runtime.streams.receive(handle, kotlin.run { val __c0 = reply; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.std.runtime.streams.__Codec_Chunk) }) { __v -> salvo.std.stream.host.chunkReceived(__c0, __v as salvo.std.runtime.streams.Chunk) } })
     }
     override fun rawFromBytes(data: salvo.platform.std.core.bytes.Bytes): Long {
         return salvo.std.runtime.streams.registerBytes(data)
@@ -261,7 +261,7 @@ class HostRawStreams : RawStreams {
 fun chunkReceived(reply: salvo.SalvoReply, c: salvo.std.runtime.streams.Chunk) {
     if ((c.fault != null)) {
         val f: salvo.std.runtime.streams.Fault = c.fault!!
-        salvo.SalvoSched.replyWire(reply, Union3.U3<salvo.platform.std.core.bytes.Bytes, salvo.std.stream.End, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(kind(c.source, f))), salvo.Union3Codec(salvo.BytesCodec, salvo.std.stream.__Codec_End, salvo.Union2Codec(salvo.std.stream.__Codec_InvalidUtf8, salvo.std.stream.__Codec_StreamFailed)))
+        salvo.SalvoSched.replyWire(reply, Union3.U3<salvo.platform.std.core.bytes.Bytes, salvo.std.stream.End, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.core.result.err(salvo.std.stream.host.kind(c.source, f))), salvo.Union3Codec(salvo.BytesCodec, salvo.std.stream.__Codec_End, salvo.Union2Codec(salvo.std.stream.__Codec_InvalidUtf8, salvo.std.stream.__Codec_StreamFailed)))
     } else if (c.end) {
         salvo.SalvoSched.replyWire(reply, Union3.U2<salvo.platform.std.core.bytes.Bytes, salvo.std.stream.End, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>(salvo.std.stream.End()), salvo.Union3Codec(salvo.BytesCodec, salvo.std.stream.__Codec_End, salvo.Union2Codec(salvo.std.stream.__Codec_InvalidUtf8, salvo.std.stream.__Codec_StreamFailed)))
     } else {
@@ -387,7 +387,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
     override fun receive(s: salvo.std.stream.InStream, reply: salvo.SalvoReply) {
         val handle: Long = s.handle
         kotlin.run { s; Unit }
-        __dep0.rawReceive(handle, kotlin.run { val __c0 = reply; val __c1 = handle; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union3Codec(salvo.BytesCodec, salvo.std.stream.__Codec_End, salvo.Union2Codec(salvo.std.stream.__Codec_InvalidUtf8, salvo.std.stream.__Codec_StreamFailed))) }) { __v -> hostReceived(__c0, __c1, __v as Union3<salvo.platform.std.core.bytes.Bytes, salvo.std.stream.End, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>) } })
+        __dep0.rawReceive(handle, kotlin.run { val __c0 = reply; val __c1 = handle; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union3Codec(salvo.BytesCodec, salvo.std.stream.__Codec_End, salvo.Union2Codec(salvo.std.stream.__Codec_InvalidUtf8, salvo.std.stream.__Codec_StreamFailed))) }) { __v -> salvo.std.stream.host.hostReceived(__c0, __c1, __v as Union3<salvo.platform.std.core.bytes.Bytes, salvo.std.stream.End, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>) } })
     }
     override fun fromBytes(data: salvo.platform.std.core.bytes.Bytes): salvo.std.stream.InStream {
         return salvo.std.stream.InStream(handle = __dep0.rawFromBytes(data))

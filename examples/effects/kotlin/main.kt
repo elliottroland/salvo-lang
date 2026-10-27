@@ -27,7 +27,7 @@ class TickingClock : Clock {
 
 fun stamp(clock: Clock, console: salvo.std.core.console.Console, label: String) {
     val t: Int = clock.now()
-    banner(console, "${label} at t=${t}")
+    salvo.main.banner(console, "${label} at t=${t}")
 }
 
 fun banner(console: salvo.std.core.console.Console, text: String) {
@@ -79,27 +79,27 @@ fun work(logger: Logger, step: String) {
 }
 
 fun interception(logger: Logger, clock: Clock) {
-    work(logger, "4. plain")
+    salvo.main.work(logger, "4. plain")
     val __use_1: Stamped = Stamped(logger, clock)
     val __lock___use_1 = java.util.concurrent.locks.ReentrantLock()
     val __handle_2: Logger = __Mon_Logger(__use_1, __lock___use_1)
-    work(__handle_2, "4. stamped")
+    salvo.main.work(__handle_2, "4. stamped")
     val __use_3: Numbered = Numbered(__handle_2)
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
     val __handle_4: Logger = __Mon_Logger(__use_3, __lock___use_3)
-    work(__handle_4, "4. numbered, then stamped")
-    work(__handle_4, "4. and again")
+    salvo.main.work(__handle_4, "4. numbered, then stamped")
+    salvo.main.work(__handle_4, "4. and again")
 }
 
 fun scoping(logger: Logger) {
-    work(logger, "5. before the block")
+    salvo.main.work(logger, "5. before the block")
     kotlin.run {
         val __use_1: QuietLogger = QuietLogger()
         val __lock___use_1 = java.util.concurrent.locks.ReentrantLock()
         val __handle_2: Logger = __Mon_Logger(__use_1, __lock___use_1)
-        work(__handle_2, "5. this line is swallowed")
+        salvo.main.work(__handle_2, "5. this line is swallowed")
     }
-    work(logger, "5. after the block, logging again")
+    salvo.main.work(logger, "5. after the block, logging again")
 }
 
 interface Audit {
@@ -188,25 +188,25 @@ fun main() {
     val __handle_4: Clock = __Mon_Clock(__use_3, __lock___use_3)
     salvo.std.core.console.println(__handle_2, "1. the clock reads ${__handle_4.now()}, then ${__handle_4.now()}")
     salvo.std.core.console.println(__handle_2, "2. two effects in one signature:")
-    stamp(__handle_4, __handle_2, "2. a labelled moment")
+    salvo.main.stamp(__handle_4, __handle_2, "2. a labelled moment")
     salvo.std.core.console.println(__handle_2, "3. a logger whose handler needs the console:")
     val __use_5: PlainLogger = PlainLogger(__handle_2)
     val __lock___use_5 = java.util.concurrent.locks.ReentrantLock()
     val __handle_6: Logger = __Mon_Logger(__use_5, __lock___use_5)
-    work(__handle_6, "3. logged through the console")
+    salvo.main.work(__handle_6, "3. logged through the console")
     salvo.std.core.console.println(__handle_2, "4. interception — each `use` wraps the one before it:")
-    interception(__handle_6, __handle_4)
+    salvo.main.interception(__handle_6, __handle_4)
     salvo.std.core.console.println(__handle_2, "5. shadowing is not wrapping:")
-    scoping(__handle_6)
+    salvo.main.scoping(__handle_6)
     salvo.std.core.console.println(__handle_2, "6. two effects, one member name:")
     val __use_7: ConsoleAudit = ConsoleAudit(__handle_2)
     val __lock___use_7 = java.util.concurrent.locks.ReentrantLock()
     val __handle_8: Audit = __Mon_Audit(__use_7, __lock___use_7)
-    auditOnly(__handle_8, "6. audited only")
+    salvo.main.auditOnly(__handle_8, "6. audited only")
     val __use_9: ConsoleMetrics = ConsoleMetrics(__handle_2)
     val __lock___use_9 = java.util.concurrent.locks.ReentrantLock()
     val __handle_10: Metrics = __Mon_Metrics(__use_9, __lock___use_9)
-    auditAndMeasure(__handle_8, __handle_10, "6. audited and measured")
+    salvo.main.auditAndMeasure(__handle_8, __handle_10, "6. audited and measured")
     salvo.std.core.console.println(__handle_2, "7. two instances of one generic effect:")
     val __use_11: Fixed<Int> = Fixed<Int>(value = 3)
     val __lock___use_11 = java.util.concurrent.locks.ReentrantLock()
@@ -214,6 +214,6 @@ fun main() {
     val __use_13: Fixed<String> = Fixed<String>(value = "eu-west-1")
     val __lock___use_13 = java.util.concurrent.locks.ReentrantLock()
     val __handle_14: Setting<String> = __Mon_Setting<String>(__use_13, __lock___use_13)
-    settings(__handle_12, __handle_14, __handle_2)
+    salvo.main.settings(__handle_12, __handle_14, __handle_2)
 }
 

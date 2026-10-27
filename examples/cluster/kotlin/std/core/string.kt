@@ -3,9 +3,9 @@ package salvo.std.core.string
 import salvo.*
 
 fun Mut_Str(parts: Array<String>): salvo.platform.std.core.string.MutStr {
-    val out: salvo.platform.std.core.string.MutStr = emptyStrPlatform()
+    val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.emptyStrPlatform()
     for (part in parts) {
-        appendPlatform(out, part)
+        salvo.std.core.string.appendPlatform(out, part)
     }
     return out
 }
@@ -28,7 +28,7 @@ data class StrYield(
 )
 
 fun next(p: StrYield): Union2<Char, salvo.std.core.iterator.Finished> {
-    val chr: Char? = charAtPlatform(p.text, p.at)
+    val chr: Char? = salvo.std.core.string.charAtPlatform(p.text, p.at)
     if ((chr == null)) {
         return Union2.U2<Char, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
@@ -42,7 +42,7 @@ fun splitPlatform(str: String, sep: String): salvo.platform.std.core.list.MutLis
 fun indexOfPlatform(str: String, needle: String): Int? = salvo.platform.std.core.string.indexOf(str, needle)
 
 fun indexOf(str: String, needle: String, from: Int): Int? {
-    return indexOfFromPlatform(str, needle, from)
+    return salvo.std.core.string.indexOfFromPlatform(str, needle, from)
 }
 
 fun indexOfFromPlatform(str: String, needle: String, from: Int): Int? = salvo.platform.std.core.string.indexOfFrom(str, needle, from)
@@ -83,12 +83,12 @@ object __Codec_Span : salvo.WireCodec<Span> {
 }
 
 fun SpanOf_qualifies(span: Span, str: String): Boolean {
-    return (((span.start >= 0) && (span.start <= span.end)) && (span.end <= sizePlatform(str)))
+    return (((span.start >= 0) && (span.start <= span.end)) && (span.end <= salvo.std.core.string.sizePlatform(str)))
 }
 
 fun substr(str: String, at: Span): String {
     return kotlin.run {
-        val __pick_1: String? = substrPlatform(str, at.start, at.end)
+        val __pick_1: String? = salvo.std.core.string.substrPlatform(str, at.start, at.end)
         (if ((__pick_1 != null)) {
             val __picked_2: String = __pick_1!!
             __picked_2
@@ -125,19 +125,19 @@ fun fromStr__Str_StrOpt(s: String): String? {
 }
 
 fun fromStr__Str_IntOpt(s: String): Int? {
-    return parseIntPlatform(s)
+    return salvo.std.core.string.parseIntPlatform(s)
 }
 
 fun fromStr__Str_LongOpt(s: String): Long? {
-    return parseLongPlatform(s)
+    return salvo.std.core.string.parseLongPlatform(s)
 }
 
 fun fromStr__Str_DoubleOpt(s: String): Double? {
-    return parseDoublePlatform(s)
+    return salvo.std.core.string.parseDoublePlatform(s)
 }
 
 fun fromStr__Str_BoolOpt(s: String): Boolean? {
-    return parseBool(s)
+    return salvo.std.core.string.parseBool(s)
 }
 
 fun appendPlatform(str: salvo.platform.std.core.string.MutStr, text: String) = salvo.platform.std.core.string.append(str, text)
@@ -147,40 +147,40 @@ fun setPlatform(str: salvo.platform.std.core.string.MutStr, index: Int, chr: Cha
 fun clearPlatform(str: salvo.platform.std.core.string.MutStr) = salvo.platform.std.core.string.clear(str)
 
 fun isEmpty(str: String): Boolean {
-    return (sizePlatform(str) == 0)
+    return (salvo.std.core.string.sizePlatform(str) == 0)
 }
 
 fun repeat(str: String, n: Int): String {
-    val out: salvo.platform.std.core.string.MutStr = Mut_Str(arrayOf<String>())
+    val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>())
     var i: Int = 0
     while (true) {
         if (!((i < n))) {
             break
         }
-        appendPlatform(out, str)
+        salvo.std.core.string.appendPlatform(out, str)
         i = (i + 1)
     }
     return out.toString()
 }
 
 fun lines(str: String): salvo.platform.std.core.list.MutList<String> {
-    val parts: salvo.platform.std.core.list.MutList<String> = splitPlatform(str, "\n")
-    if (((salvo.std.core.list.sizePlatform(parts) > 1) && endsWithPlatform(str, "\n"))) {
+    val parts: salvo.platform.std.core.list.MutList<String> = salvo.std.core.string.splitPlatform(str, "\n")
+    if (((salvo.std.core.list.sizePlatform(parts) > 1) && salvo.std.core.string.endsWithPlatform(str, "\n"))) {
         val _end: salvo.platform.std.core.list.MutList<String> = salvo.std.core.list.removeBack(parts, 1)
     }
     val out: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     for (p in salvo.platform.std.core.list.each(parts)) {
-        salvo.std.core.list.addPlatform(out, trimSuffixPlatform(p, "\r"))
+        salvo.std.core.list.addPlatform(out, salvo.std.core.string.trimSuffixPlatform(p, "\r"))
     }
     return out
 }
 
 fun splitOnce(str: String, sep: String): kotlin.Pair<String, String>? {
-    val at: Int? = indexOfPlatform(str, sep)
+    val at: Int? = salvo.std.core.string.indexOfPlatform(str, sep)
     if ((at != null)) {
         val i: Int = at!!
         val before: String = kotlin.run {
-            val __pick_1: String? = substrPlatform(str, 0, i)
+            val __pick_1: String? = salvo.std.core.string.substrPlatform(str, 0, i)
             (if ((__pick_1 != null)) {
                 val __picked_2: String = __pick_1!!
                 __picked_2
@@ -189,7 +189,7 @@ fun splitOnce(str: String, sep: String): kotlin.Pair<String, String>? {
             })
         }
         val after: String = kotlin.run {
-            val __pick_4: String? = substrPlatform(str, (i + sizePlatform(sep)), sizePlatform(str))
+            val __pick_4: String? = salvo.std.core.string.substrPlatform(str, (i + salvo.std.core.string.sizePlatform(sep)), salvo.std.core.string.sizePlatform(str))
             (if ((__pick_4 != null)) {
                 val __picked_5: String = __pick_4!!
                 __picked_5
@@ -203,11 +203,11 @@ fun splitOnce(str: String, sep: String): kotlin.Pair<String, String>? {
 }
 
 fun splitLast(str: String, sep: String): kotlin.Pair<String, String>? {
-    val at: Int? = lastIndexOfPlatform(str, sep)
+    val at: Int? = salvo.std.core.string.lastIndexOfPlatform(str, sep)
     if ((at != null)) {
         val i: Int = at!!
         val before: String = kotlin.run {
-            val __pick_1: String? = substrPlatform(str, 0, i)
+            val __pick_1: String? = salvo.std.core.string.substrPlatform(str, 0, i)
             (if ((__pick_1 != null)) {
                 val __picked_2: String = __pick_1!!
                 __picked_2
@@ -216,7 +216,7 @@ fun splitLast(str: String, sep: String): kotlin.Pair<String, String>? {
             })
         }
         val after: String = kotlin.run {
-            val __pick_4: String? = substrPlatform(str, (i + sizePlatform(sep)), sizePlatform(str))
+            val __pick_4: String? = salvo.std.core.string.substrPlatform(str, (i + salvo.std.core.string.sizePlatform(sep)), salvo.std.core.string.sizePlatform(str))
             (if ((__pick_4 != null)) {
                 val __picked_5: String = __pick_4!!
                 __picked_5

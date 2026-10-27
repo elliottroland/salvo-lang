@@ -8250,6 +8250,137 @@ fn rustc_compiles_and_runs_overload_overrides() {
     run_rust_files(&files, "overload-overrides", OVERLOAD_OVERRIDE_OUTPUT);
 }
 
+// ===== [backend-never-wrong] declared callees and calls through fn values =====
+
+/// [backend-never-wrong] [call-resolve] [fn-overload-at] A declared callee
+/// beside a same-named local, parameter or class member (B1 census D11 and
+/// D13, 2026-10-27): the `for` over a concrete pass drives the declared
+/// `next` though the fn holds an implicit `?next`; `5.show()` and
+/// `show@main(5)` call the declared `show` though a local `show` is in scope;
+/// a handler member `label` calls, and passes by name, the top-level `label`.
+/// Kotlin printed the implicit's `10, 20`, the local's `local 5` twice, and
+/// recursed into the member, because it wrote each call as a bare name.
+/// `roots` names its locals `salvo`, `kotlin` and `java`, the package roots
+/// the qualified Kotlin names go through.
+const DECLARED_CALLEE_DEMO: &str = r#"
+struct Ctr : Yield<self, Int> canbe Mut {
+    n: Int
+}
+
+fn next(c: Mut Ctr) [] -> Emitted Int | Finished => c: Mut {
+    if c.n >= 2 {
+        return finished()
+    }
+    c.n = c.n + 1
+    return emitted(c.n)
+}
+
+fn by_tens(c: Mut Ctr) [] -> Emitted Int | Finished => c: Mut {
+    if c.n >= 2 {
+        return finished()
+    }
+    c.n = c.n + 1
+    return emitted(c.n * 10)
+}
+
+fn walk(c: Mut Ctr, d: Mut Ctr, ?next: (c: Mut Ctr) -> Emitted Int | Finished) [Console] -> None => c: Mut, d: Mut {
+    for x in c {
+        println("for: ${x}")
+    }
+    let r = next(d)
+    if r is Emitted Int {
+        println("call: ${r}")
+    }
+}
+
+fn show(n: Int) [] -> Str => n { return "decl ${n}" }
+
+effect Labels {
+    fn label(n: Int) -> Str
+}
+
+fn label(n: Int) [] -> Str => n { return "fn ${n}" }
+
+fn apply(f: (n: Int) -> Str, n: Int) [] -> Str => f, n { return f(n) }
+
+fn roots(salvo: Int) [] -> Str => salvo {
+    let kotlin = salvo + 1
+    let java = show(kotlin)
+    return java
+}
+
+handler LabelsH of Labels {
+    fn label(n: Int) -> Str {
+        return "member, ${label(n)}, ${apply(label, n)}"
+    }
+}
+
+fn main() [use] {
+    use StdConsole()
+    let c = Mut Ctr { n: 0 }
+    let d = Mut Ctr { n: 0 }
+    walk(c, d, next = by_tens)
+    let show = (n: Int) -> "local ${n}"
+    println("call: ${show(5)}")
+    println("dot: ${5.show()}")
+    println("at: ${show@main(5)}")
+    println("roots: ${roots(1)}")
+    use LabelsH()
+    println(label@Labels(7))
+}
+"#;
+
+const DECLARED_CALLEE_OUTPUT: &str = "for: 1\nfor: 2\ncall: 10\ncall: local 5\ndot: decl 5\nat: decl 5\nroots: decl 2\nmember, fn 7, fn 7\n";
+
+/// [call-resolve] [fn-value] [effect-available] [fn-overload-rank] Calls the
+/// checker now types and checks where it did not (B1 census D16 and D19,
+/// 2026-10-27): a computed callee, with and without an effect (the IR passed
+/// a computed callee no effect instances); a lambda in a call where an effect
+/// member and a fn collide, typed from the position both declare alike; and a
+/// lambda among overloads that agree on its position.
+const FN_VALUE_CALL_DEMO: &str = r#"
+fn adder() [] -> (n: Int) -> Int { return (n: Int) -> n + 1 }
+
+fn printer() [] -> (s: Str) [Console] -> None { return (s: Str) -> println(s) }
+
+effect Ops {
+    fn apply(f: (x: Int) -> Int, n: Int) -> Int => f
+}
+
+handler OpsH of Ops {
+    fn apply(f: (x: Int) -> Int, n: Int) -> Int { return f(n) }
+}
+
+fn apply(f: (x: Int) -> Int, s: Str) [] -> Int => f { return f(100) }
+
+fn pick(f: (x: Int) -> Int, n: Int) [] -> Int => f { return f(n) }
+fn pick(f: (x: Int) -> Int, s: Str) [] -> Int => f { return f(1000) }
+
+fn main() [use] {
+    use StdConsole()
+    use OpsH()
+    println("computed: ${adder()(1)}")
+    printer()("computed, with an effect")
+    println("member: ${apply(x -> x + 1, 20)}")
+    println("fn: ${apply(x -> x * 2, "s")}")
+    println("pick: ${pick(x -> x + 3, 4)} ${pick(x -> x + 3, "s")}")
+}
+"#;
+
+const FN_VALUE_CALL_OUTPUT: &str = "computed: 2\ncomputed, with an effect\nmember: 21\nfn: 200\npick: 7 1003\n";
+
+#[test]
+fn rustc_compiles_and_runs_declared_callees_past_same_named_locals() {
+    let files = generate(&[("main.sv", DECLARED_CALLEE_DEMO)]);
+    run_rust_files(&files, "declared-callees", DECLARED_CALLEE_OUTPUT);
+}
+
+#[test]
+fn rustc_compiles_and_runs_calls_through_fn_values() {
+    let files = generate(&[("main.sv", FN_VALUE_CALL_DEMO)]);
+    run_rust_files(&files, "fn-value-calls", FN_VALUE_CALL_OUTPUT);
+}
+
 // ===== [iter-generic-drive] driving a generic pass =====
 
 /// [iter-drive-in-place] The lowering a *kept* pass gets: no local, no clone —

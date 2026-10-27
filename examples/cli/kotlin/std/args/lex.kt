@@ -67,7 +67,7 @@ fun lex(args: List<String>): List<Union4<LongToken, ShortToken, WordToken, EndTo
                 val value: String = __destructured_2.second
                 salvo.std.core.list.addPlatform(out, Union4.U1<LongToken, ShortToken, WordToken, EndToken>(LongToken(name = name, value = value)))
             }
-        } else if (((salvo.std.core.string.startsWithPlatform(a, "-") && !(((a) == ("-")))) && !(isNumber(a)))) {
+        } else if (((salvo.std.core.string.startsWithPlatform(a, "-") && !(((a) == ("-")))) && !(salvo.std.args.lex.isNumber(a)))) {
             salvo.std.core.list.addPlatform(out, Union4.U2<LongToken, ShortToken, WordToken, EndToken>(ShortToken(letters = salvo.std.core.string.trimPrefixPlatform(a, "-"))))
         } else {
             salvo.std.core.list.addPlatform(out, Union4.U3<LongToken, ShortToken, WordToken, EndToken>(WordToken(value = a)))
@@ -82,14 +82,14 @@ fun isNumber(a: String): Boolean {
         return false
     }
     val first_1: Char = first!!
-    if (isDigit(first_1)) {
+    if (salvo.std.args.lex.isDigit(first_1)) {
         return true
     }
     val second: Char? = salvo.std.core.string.charAtPlatform(a, 2)
     val first_2: Char = first!!
     if (((first_2 == '.') && !((second == null)))) {
         val second_3: Char = second!!
-        return isDigit(second_3)
+        return salvo.std.args.lex.isDigit(second_3)
     }
     return false
 }

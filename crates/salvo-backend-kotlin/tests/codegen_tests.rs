@@ -583,15 +583,15 @@ fn qualifiers_lower_to_predicates_and_mangled_overloads() {
         .content
         .contains("fun Positive_qualifies(int: Int): Boolean"));
     // `is` predicate checks call them.
-    assert!(main.content.contains("if (Surname_qualifies(person))"));
-    assert!(main.content.contains("if (Positive_qualifies(n))"));
+    assert!(main.content.contains("if (salvo.main.Surname_qualifies(person))"));
+    assert!(main.content.contains("if (salvo.main.Positive_qualifies(n))"));
     // The qualified overload is mangled; the checker routes the narrowed
     // call to it and the unqualified call to the base name.
     assert!(main
         .content
         .contains("fun fullName__SurnamePerson(person: Person): String"));
-    assert!(main.content.contains("println(console, fullName__SurnamePerson(person))"));
-    assert!(main.content.contains("println(console, fullName__Person(person))"));
+    assert!(main.content.contains("println(console, salvo.main.fullName__SurnamePerson(person))"));
+    assert!(main.content.contains("println(console, salvo.main.fullName__Person(person))"));
     // Field overrides read through a narrowing binding justified by the
     // claim [qual-field-override].
     assert!(main.content.contains(": String = person.surname!!"), "{}", main.content);
@@ -696,7 +696,7 @@ fn a_pass_lowers_to_a_guarded_while_loop() {
         .expect("main.kt")
         .content;
     assert!(
-        src.contains(": Countdown = countdown(3)") && src.contains(": Union2<Int, salvo.std.core.iterator.Finished> = next__Countdown("),
+        src.contains(": Countdown = salvo.main.countdown(3)") && src.contains(": Union2<Int, salvo.std.core.iterator.Finished> = salvo.main.next__Countdown("),
         "expected the driving loop in:\n{src}"
     );
     // [ir-loop] The pass is driven by one `while (true)` testing the step's
@@ -2482,7 +2482,7 @@ export fn main() [use] -> None {
         main.content
     );
     assert!(
-        main.content.contains("describe__PositiveInt(make())"),
+        main.content.contains("salvo.main.describe__PositiveInt(salvo.main.make())"),
         "content: {}",
         main.content
     );
@@ -6201,6 +6201,8 @@ fn kotlinc_compiles_and_runs_a_written_fn_value_across_erased_qualifiers() -> Ko
 }
 
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_declared_callees_past_same_named_locals,
+    kotlinc_compiles_and_runs_calls_through_fn_values,
     kotlinc_compiles_and_runs_a_written_fn_value_across_erased_qualifiers,
     kotlinc_compiles_and_runs_a_fn_value_by_name_ranked_as_a_call,
     kotlinc_compiles_and_runs_implicits_chosen_as_calls_are,
@@ -9976,10 +9978,10 @@ fn union_coercion_in_array_tuple_lambda() {
         // [col-no-literal] `List<Result>(…)` lowers to `listOf`, with the
         // coercion wrapper on the argument; the second arm is wrapped at its
         // own binding.
-        "listOf<Union2<Int, String>>(Union2.U1<Int, String>(tagOk(1)), second)",
-        "Union2.U2<Int, String>(tagErr(\"a\"))",
-        "kotlin.Pair(\"t\", Union2.U1<Int, String>(tagOk(2)))",
-        "Union2.U1<Int, String>(tagOk(3))",
+        "listOf<Union2<Int, String>>(Union2.U1<Int, String>(salvo.main.tagOk(1)), second)",
+        "Union2.U2<Int, String>(salvo.main.tagErr(\"a\"))",
+        "kotlin.Pair(\"t\", Union2.U1<Int, String>(salvo.main.tagOk(2)))",
+        "Union2.U1<Int, String>(salvo.main.tagOk(3))",
     ] {
         assert!(
             main.content.contains(needle),
@@ -10668,7 +10670,7 @@ fn throw_lowers_to_a_signal_and_try_to_a_catch() {
         .and_then(|s| s.split("\nfun ").next())
         .unwrap();
     assert!(
-        measure.contains("val n: Int = parse(console, line)"),
+        measure.contains("val n: Int = salvo.main.parse(console, line)"),
         "expected plain propagation in:\n{measure}"
     );
     // The delimiter picks the arm at the catch, by tag.
@@ -12355,7 +12357,7 @@ fn every_emitted_overload_gets_its_own_kotlin_name() {
     );
     // The delegation calls the *other* overload, by its own name.
     assert!(
-        main.contains("return twice__ListYield_Fn("),
+        main.contains("return salvo.main.twice__ListYield_Fn("),
         "expected the delegation to reach the pass overload in:\n{main}"
     );
 }
@@ -13266,13 +13268,14 @@ fn scope_selectors_and_renames_are_erased() {
     // both `label`s are mangled, since they are overloads of one name
     // [kt-fn-mangling].
     assert!(
-        main.contains("${label__EvenInt(n)} ${label__SmallInt(n)}"),
+        main.contains("${salvo.main.label__EvenInt(n)} ${salvo.main.label__SmallInt(n)}"),
         "unexpected:\n{main}"
     );
-    // A call reaching past a local of the same name needs nothing special
-    // here: Kotlin keeps functions and properties in separate namespaces.
+    // A call reaching past a local of the same name names the declaration
+    // by its package [kt-decl-call-qualified], as every declared call does:
+    // a fn-typed local of the name would otherwise take it.
     assert!(
-        main.contains(", describe(7))"),
+        main.contains(", salvo.main.describe(7))"),
         "unexpected:\n{main}"
     );
 }
@@ -13283,6 +13286,141 @@ fn kotlinc_compiles_and_runs_overload_overrides() -> KotlinCase {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "overload-overrides", OVERLOAD_OVERRIDE_OUTPUT)
+}
+
+// ===== [backend-never-wrong] declared callees and calls through fn values =====
+
+/// [backend-never-wrong] [call-resolve] [fn-overload-at] A declared callee
+/// beside a same-named local, parameter or class member (B1 census D11 and
+/// D13, 2026-10-27): the `for` over a concrete pass drives the declared
+/// `next` though the fn holds an implicit `?next`; `5.show()` and
+/// `show@main(5)` call the declared `show` though a local `show` is in scope;
+/// a handler member `label` calls, and passes by name, the top-level `label`.
+/// Kotlin printed the implicit's `10, 20`, the local's `local 5` twice, and
+/// recursed into the member, because it wrote each call as a bare name.
+/// `roots` names its locals `salvo`, `kotlin` and `java`, the package roots
+/// the qualified Kotlin names go through.
+const DECLARED_CALLEE_DEMO: &str = r#"
+struct Ctr : Yield<self, Int> canbe Mut {
+    n: Int
+}
+
+fn next(c: Mut Ctr) [] -> Emitted Int | Finished => c: Mut {
+    if c.n >= 2 {
+        return finished()
+    }
+    c.n = c.n + 1
+    return emitted(c.n)
+}
+
+fn by_tens(c: Mut Ctr) [] -> Emitted Int | Finished => c: Mut {
+    if c.n >= 2 {
+        return finished()
+    }
+    c.n = c.n + 1
+    return emitted(c.n * 10)
+}
+
+fn walk(c: Mut Ctr, d: Mut Ctr, ?next: (c: Mut Ctr) -> Emitted Int | Finished) [Console] -> None => c: Mut, d: Mut {
+    for x in c {
+        println("for: ${x}")
+    }
+    let r = next(d)
+    if r is Emitted Int {
+        println("call: ${r}")
+    }
+}
+
+fn show(n: Int) [] -> Str => n { return "decl ${n}" }
+
+effect Labels {
+    fn label(n: Int) -> Str
+}
+
+fn label(n: Int) [] -> Str => n { return "fn ${n}" }
+
+fn apply(f: (n: Int) -> Str, n: Int) [] -> Str => f, n { return f(n) }
+
+fn roots(salvo: Int) [] -> Str => salvo {
+    let kotlin = salvo + 1
+    let java = show(kotlin)
+    return java
+}
+
+handler LabelsH of Labels {
+    fn label(n: Int) -> Str {
+        return "member, ${label(n)}, ${apply(label, n)}"
+    }
+}
+
+fn main() [use] {
+    use StdConsole()
+    let c = Mut Ctr { n: 0 }
+    let d = Mut Ctr { n: 0 }
+    walk(c, d, next = by_tens)
+    let show = (n: Int) -> "local ${n}"
+    println("call: ${show(5)}")
+    println("dot: ${5.show()}")
+    println("at: ${show@main(5)}")
+    println("roots: ${roots(1)}")
+    use LabelsH()
+    println(label@Labels(7))
+}
+"#;
+
+const DECLARED_CALLEE_OUTPUT: &str = "for: 1\nfor: 2\ncall: 10\ncall: local 5\ndot: decl 5\nat: decl 5\nroots: decl 2\nmember, fn 7, fn 7\n";
+
+/// [call-resolve] [fn-value] [effect-available] [fn-overload-rank] Calls the
+/// checker now types and checks where it did not (B1 census D16 and D19,
+/// 2026-10-27): a computed callee, with and without an effect (the IR passed
+/// a computed callee no effect instances); a lambda in a call where an effect
+/// member and a fn collide, typed from the position both declare alike; and a
+/// lambda among overloads that agree on its position.
+const FN_VALUE_CALL_DEMO: &str = r#"
+fn adder() [] -> (n: Int) -> Int { return (n: Int) -> n + 1 }
+
+fn printer() [] -> (s: Str) [Console] -> None { return (s: Str) -> println(s) }
+
+effect Ops {
+    fn apply(f: (x: Int) -> Int, n: Int) -> Int => f
+}
+
+handler OpsH of Ops {
+    fn apply(f: (x: Int) -> Int, n: Int) -> Int { return f(n) }
+}
+
+fn apply(f: (x: Int) -> Int, s: Str) [] -> Int => f { return f(100) }
+
+fn pick(f: (x: Int) -> Int, n: Int) [] -> Int => f { return f(n) }
+fn pick(f: (x: Int) -> Int, s: Str) [] -> Int => f { return f(1000) }
+
+fn main() [use] {
+    use StdConsole()
+    use OpsH()
+    println("computed: ${adder()(1)}")
+    printer()("computed, with an effect")
+    println("member: ${apply(x -> x + 1, 20)}")
+    println("fn: ${apply(x -> x * 2, "s")}")
+    println("pick: ${pick(x -> x + 3, 4)} ${pick(x -> x + 3, "s")}")
+}
+"#;
+
+const FN_VALUE_CALL_OUTPUT: &str = "computed: 2\ncomputed, with an effect\nmember: 21\nfn: 200\npick: 7 1003\n";
+
+fn kotlinc_compiles_and_runs_declared_callees_past_same_named_locals() -> KotlinCase {
+    let program = build_program(&[("main.sv", DECLARED_CALLEE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "declared-callees", DECLARED_CALLEE_OUTPUT)
+}
+
+fn kotlinc_compiles_and_runs_calls_through_fn_values() -> KotlinCase {
+    let program = build_program(&[("main.sv", FN_VALUE_CALL_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "fn-value-calls", FN_VALUE_CALL_OUTPUT)
 }
 
 // ===== [iter-generic-drive] driving a generic pass =====
@@ -13621,7 +13759,7 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
     // `std.core.deque` brought two more (2026-10-02).
     assert!(
         // The suffix is the overload's mangle, which moves as std grows.
-        src.contains("= next__NoisyIter(__handle_"),
+        src.contains("= salvo.main.next__NoisyIter(__handle_"),
         "expected the handler threaded into the drive:\n{src}"
     );
 }
@@ -16424,7 +16562,7 @@ fn a_task_mint_lowers_to_a_scheduled_lambda() {
         "an omitted `on` clause must inherit the current pool:\n{text}"
     );
     assert!(
-        text.contains(") { __v -> finish("),
+        text.contains(") { __v -> salvo.main.finish("),
         "the continuation must be a trailing lambda (after the answer decoder):\n{text}"
     );
     // [addr-routable] The actor's `decodeReply` *reads* the parked table for a
@@ -16563,8 +16701,8 @@ fn several_faces_lower_to_one_actor_with_a_dispatcher_each_kotlin() {
         "one dispatcher per protocol is missing:\n{text}"
     );
     assert!(
-        text.contains("is __Msg_Timer -> __dispatch_ManualTime_Timer(handler, msg)")
-            && text.contains("is __Msg_TimerCtl -> __dispatch_ManualTime_TimerCtl(handler, msg)"),
+        text.contains("is __Msg_Timer -> salvo.main.__dispatch_ManualTime_Timer(handler, msg)")
+            && text.contains("is __Msg_TimerCtl -> salvo.main.__dispatch_ManualTime_TimerCtl(handler, msg)"),
         "the delivery must ask which protocol the message is:\n{text}"
     );
     assert!(

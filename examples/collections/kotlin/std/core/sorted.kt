@@ -9,7 +9,7 @@ fun<T> Mut_SortedSet_platform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platfo
 fun<T> addPlatform(set: salvo.platform.std.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.std.core.sorted.add(set, elem, cmp)
 
 fun<T> remove__SortedSet_T(set: salvo.platform.std.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
-    return removeElemPlatform(set, elem, cmp)
+    return salvo.std.core.sorted.removeElemPlatform(set, elem, cmp)
 }
 
 fun<T> removeElemPlatform(set: salvo.platform.std.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.std.core.sorted.removeElem(set, elem, cmp)
@@ -23,7 +23,7 @@ fun<K, V> mapSizePlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>): 
 fun<T> containsPlatform(set: salvo.platform.std.core.sorted.SortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.std.core.sorted.contains(set, elem, cmp)
 
 fun<T> size__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>): Int {
-    return setSizePlatform(set)
+    return salvo.std.core.sorted.setSizePlatform(set)
 }
 
 fun<T> minPlatform(set: salvo.platform.std.core.sorted.SortedSet<T>): T? = salvo.platform.std.core.sorted.min(set)
@@ -47,7 +47,7 @@ fun<T> toStr__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>, toStr:
 }
 
 fun<T> iter__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>): salvo.std.core.set.SetYield<T> {
-    return salvo.std.core.set.SetYield<T>(items = toListPlatform(set), at = 0)
+    return salvo.std.core.set.SetYield<T>(items = salvo.std.core.sorted.toListPlatform(set), at = 0)
 }
 
 fun<K, V> SortedMap_platform(entries: Array<kotlin.Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.std.core.sorted.SortedMap<K, V> = salvo.platform.std.core.sorted.SortedMap(entries, cmp)
@@ -59,13 +59,13 @@ fun<K, V> getPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>, key: 
 fun<K, V> putPlatform(map: salvo.platform.std.core.sorted.MutSortedMap<K, V>, key: K, value: V, cmp: (K, K) -> Int) = salvo.platform.std.core.sorted.put(map, key, value, cmp)
 
 fun<K, V> remove__SortedMap_K(map: salvo.platform.std.core.sorted.MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
-    return removeKeyPlatform(map, key, cmp)
+    return salvo.std.core.sorted.removeKeyPlatform(map, key, cmp)
 }
 
 fun<K, V> containsKeyPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): Boolean = salvo.platform.std.core.sorted.containsKey(map, key, cmp)
 
 fun<K, V> size__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>): Int {
-    return mapSizePlatform(map)
+    return salvo.std.core.sorted.mapSizePlatform(map)
 }
 
 fun<K, V> firstKeyPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K? = salvo.platform.std.core.sorted.firstKey(map)
@@ -84,7 +84,7 @@ fun<K, V> toStr__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>, 
         salvo.std.core.string.appendPlatform(out, toStr(k))
         salvo.std.core.string.appendPlatform(out, ": ")
         salvo.std.core.string.appendPlatform(out, toStr__1(kotlin.run {
-            val __pick_1: V? = getPlatform(map, k, cmp)
+            val __pick_1: V? = salvo.std.core.sorted.getPlatform(map, k, cmp)
             (if ((__pick_1 != null)) {
                 val __picked_2: V = __pick_1!!
                 __picked_2
@@ -99,11 +99,11 @@ fun<K, V> toStr__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>, 
 }
 
 fun<T> eq__SortedSet_SortedSet(a: salvo.platform.std.core.sorted.SortedSet<T>, b: salvo.platform.std.core.sorted.SortedSet<T>, cmp: (T, T) -> Int): Boolean {
-    if ((size__SortedSet(a) != size__SortedSet(b))) {
+    if ((salvo.std.core.sorted.size__SortedSet(a) != salvo.std.core.sorted.size__SortedSet(b))) {
         return false
     }
     for (x in salvo.platform.std.core.sorted.eachSortedSet(a)) {
-        if (!(containsPlatform(b, x, cmp))) {
+        if (!(salvo.std.core.sorted.containsPlatform(b, x, cmp))) {
             return false
         }
     }
@@ -111,17 +111,17 @@ fun<T> eq__SortedSet_SortedSet(a: salvo.platform.std.core.sorted.SortedSet<T>, b
 }
 
 fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.std.core.sorted.SortedMap<K, V>, b: salvo.platform.std.core.sorted.SortedMap<K, V>, eq: (V, V) -> Boolean, cmp: (K, K) -> Int): Boolean {
-    if ((size__SortedMap(a) != size__SortedMap(b))) {
+    if ((salvo.std.core.sorted.size__SortedMap(a) != salvo.std.core.sorted.size__SortedMap(b))) {
         return false
     }
     for (k in salvo.platform.std.core.sorted.eachSortedMap(a)) {
-        val theirs: V? = getPlatform(b, k, cmp)
+        val theirs: V? = salvo.std.core.sorted.getPlatform(b, k, cmp)
         if ((theirs == null)) {
             return false
         }
         val theirs_4: V = theirs!!
         if (!(eq(kotlin.run {
-            val __pick_1: V? = getPlatform(a, k, cmp)
+            val __pick_1: V? = salvo.std.core.sorted.getPlatform(a, k, cmp)
             (if ((__pick_1 != null)) {
                 val __picked_2: V = __pick_1!!
                 __picked_2
@@ -136,20 +136,20 @@ fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.std.core.sorted.SortedMap<K,
 }
 
 fun<K, V> iter__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>): salvo.std.core.map.MapKeyYield<K> {
-    return salvo.std.core.map.MapKeyYield<K>(items = keysPlatform(map), at = 0)
+    return salvo.std.core.map.MapKeyYield<K>(items = salvo.std.core.sorted.keysPlatform(map), at = 0)
 }
 
 fun<T> NonEmpty_qualifies(set: salvo.platform.std.core.sorted.SortedSet<T>): Boolean {
-    return (size__SortedSet(set) > 0)
+    return (salvo.std.core.sorted.size__SortedSet(set) > 0)
 }
 
 fun<K, V> NonEmpty_qualifies(map: salvo.platform.std.core.sorted.SortedMap<K, V>): Boolean {
-    return (size__SortedMap(map) > 0)
+    return (salvo.std.core.sorted.size__SortedMap(map) > 0)
 }
 
 fun<T> min(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
     return kotlin.run {
-        val __pick_1: T? = minPlatform(set)
+        val __pick_1: T? = salvo.std.core.sorted.minPlatform(set)
         (if ((__pick_1 != null)) {
             val __picked_2: T = __pick_1!!
             __picked_2
@@ -161,7 +161,7 @@ fun<T> min(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
 
 fun<T> max(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
     return kotlin.run {
-        val __pick_1: T? = maxPlatform(set)
+        val __pick_1: T? = salvo.std.core.sorted.maxPlatform(set)
         (if ((__pick_1 != null)) {
             val __picked_2: T = __pick_1!!
             __picked_2
@@ -173,7 +173,7 @@ fun<T> max(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
 
 fun<K, V> firstKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
     return kotlin.run {
-        val __pick_1: K? = firstKeyPlatform(map)
+        val __pick_1: K? = salvo.std.core.sorted.firstKeyPlatform(map)
         (if ((__pick_1 != null)) {
             val __picked_2: K = __pick_1!!
             __picked_2
@@ -185,7 +185,7 @@ fun<K, V> firstKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
 
 fun<K, V> lastKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
     return kotlin.run {
-        val __pick_1: K? = lastKeyPlatform(map)
+        val __pick_1: K? = salvo.std.core.sorted.lastKeyPlatform(map)
         (if ((__pick_1 != null)) {
             val __picked_2: K = __pick_1!!
             __picked_2

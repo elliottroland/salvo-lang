@@ -46,11 +46,11 @@ fun range__Int_Int(start: Int, end: Int): Range {
     } else {
         0
     })
-    return range__Int_Int_Int(start, end, step)
+    return salvo.std.core.range.range__Int_Int_Int(start, end, step)
 }
 
 fun range__Int(end: Int): Range {
-    return range__Int_Int(0, end)
+    return salvo.std.core.range.range__Int_Int(0, end)
 }
 
 fun InRange_qualifies(n: Int, lo: Int, hi: Int): Boolean {

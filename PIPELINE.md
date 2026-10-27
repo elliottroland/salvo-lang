@@ -2662,3 +2662,687 @@ this log current so the work can resume after a context reset). Newest last.
   handler members still carry their handler's id in the IR and are keyed by
   name span in the checker — A3 should key them by their `HandlerMember`
   ids (`DeclIndex::member`), which exist already.
+
+- **B1: done (2026-10-27), read-only; the census is §II.13.** 27 call-like
+  forms, 25 divergences (D1–D25), 28 probes run on both backends. Five are
+  wrong today whatever P3 decides: D11 and D13 (silent Kotlin miscompiles: a
+  bare top-level call shadowed by a same-named parameter or local, in a
+  `for` driver and in a dot or `@` call), D13's wrong "`@` not needed"
+  warning, D16 and D19 (checker-clean programs both target compilers
+  refuse), D20 (a claim dropped through a fn-typed local). Ten need a user
+  decision beyond P3 (§II.13 "Decisions needed beyond P3": D3, D4, D5, D6,
+  D7, D10, D13, D14, D18, D21; D1 optional). Next: the five bugs, then A2;
+  B2's decisions are the user's.
+- **B1 bugs: done** (committed "Qualify every declared callee in Kotlin and check fn-value calls"). D11 and D13: the
+  Kotlin emitter qualifies every declared call by its package
+  ([kt-decl-call-qualified]; a handler member calling the top-level fn of
+  its name recursed too, the same bug); D13's warning withheld where a
+  local, a `send fn` or an effect member takes the bare name; D16: a lambda
+  in a colliding call takes the candidates' common type at its position or
+  is refused (P4's shared lead pool not built); the fn-only overload half of
+  D16's probe had the same bug (the census misread it) and gets the same
+  rule; D19: a computed callee checked like a local call, and the IR passes
+  its effects; D20: claims checked through fn values, dependent ones tied to
+  the call's arguments. No B2 decision was taken: dot calls still see no
+  locals. COMPLETED.md has the record. Next: A2.
+
+## II.13. The call census (B1, 2026-10-27)
+
+Kept here, not in `tmp/`, because B2 and B3 work from it. The probe programs
+it names were run from `tmp/b1/probes/` (gitignored; each section states its
+probe's program and output, so they can be rebuilt). Line numbers are
+`check.rs` at `c33b86d3`, before A1; search by function name.
+
+PIPELINE.md §II.9 B1. For each call-like table in `struct Checked`, and each
+other place the checker picks a callee, this records which surface form
+writes it, which code selects the callee and tests the fit, how that differs
+from the reference (a plain call `f(x)`: `resolve_named_call` →
+`select_overload`, with `fn_value_fit`/`fn_value_at` at fn-typed positions),
+and what the form should lower to under P3 (call resolution is the
+reference) and O1 (an operator is the call it names). The probes are in
+`tmp/b1/probes/<name>/main.sv`. Each probe was run with `salvo
+analyze` and with `salvo run` on the Rust and on the Kotlin backend, one at a
+time so the outputs are labelled (`--backend '*'` runs both but does not say
+which output is which). The outputs are in `<name>/out.txt` and gathered in
+`tmp/b1/all-probes.txt`. Runner: `tmp/b1/run.sh [probe…]`.
+
+The binary was built from a `git archive` of HEAD `c33b86d3` in
+`tmp/b1/head`, with `CARGO_TARGET_DIR=tmp/b1_target_head`, so the other
+agent's uncommitted A1 edits are not in it. File:line references are to
+`crates/salvo-core/src/check.rs` at HEAD; that file is being edited in the
+working tree, so search by function name if a line has moved.
+The fixed divergences from b6436d24 (implicits resolved the way calls are)
+and 550669ad (a fn passed by name chosen the way a call chooses) are not
+repeated here.
+
+**Totals:** 27 forms and 25 divergences (D1–D25), with 28 probe programs.
+D1–D23 each have a probe of their own. D24 and D25 are read from the code,
+next to the nearest probe (`addr-dot-fn`, and the `member-vs-fn` baseline).
+Five of the divergences are wrong today whatever P3 decides:
+
+- two silent Kotlin miscompiles (D11, D13), plus a wrong warning (D13);
+- two programs the checker accepts and rustc and kotlinc then refuse (D16,
+  D19);
+- a claim dropped silently at run time (D20).
+
+Ten need a decision from you beyond P3, and D1 optionally; they are listed
+after the divergences.
+
+### The reference
+
+A plain call `f(args)` (`check_call` 30161 → `resolve_named_call` 30974):
+
+1. **Shadowing, before any candidate set.** A fn-typed local or parameter
+   named `f` takes the call (30432, `local_calls`). An enclosing implicit
+   named `f` takes it when the arguments fit it, and otherwise the call falls
+   through to the declared fns (30406, [implicit-resolve-body]). Two
+   implicits of one name are told apart by fit (30357, `local_call_names`).
+   Inside a mixed handler, a handler's own `send fn` comes next (`check_servant_send`).
+2. **Effect members** (31004). An available effect's members, plus the
+   members `effect_members_here` sees, take the name. Two owning effects
+   that are both available is an error naming `@Effect`. Where the name is
+   also a fn, the chosen effect's members and the fns are ranked as one set
+   (`route_member_or_fn` 8625, `fitting_members` 32899, `fitting_fns`
+   8810). With no instance available, the call goes to the fns.
+3. **Fn overloads.** `overloads_of` (8104) applies renames. A lead
+   candidate gives each argument its expected type, with type variables
+   bound progressively. The fit is unify plus `arg_fits_param` (8560) under
+   the callee's contract, together with dependent claims, literal adoption,
+   numeric adoption and the variadic and default shapes. Then
+   [implicit-fit]'s shape drop, then `select_overload` (8174): the `@`
+   selector, dedupe by declaration, the template fallback, `most_specific`
+   over the declared patterns, and `pick_by_return` within a class of
+   identical parameter types. No single winner is an error. The winner's
+   implicits are then filled (`fill_implicit_list`).
+
+At a fn-typed position (an implicit, a fn passed by name) the same rule runs
+with the wanted fn type in place of the argument list (`select_fn_value`
+7529, fitting with `fn_value_fit` 6594: contravariant in parameters,
+covariant in the result, contract included).
+
+### The census
+
+| # | form | table(s) | selection / fit code | lowers to | divergences |
+|---|---|---|---|---|---|
+| 1 | `f(x)` | `call_fn`, `fn_refs`, `call_type_args`, `implicit_args`, `call_effects` | `resolve_named_call` 30974 → `select_overload` 8174 | itself: `f@m(x, imp = …)` | none: this is the reference |
+| 2 | `f@mod(x)`, `f@Type(x)` | as 1 | `check_call` 30324 (`Scoped`) / 30255 (`EffectScoped` naming a type) → `select_overload` step 1 | `f@m(x)` | D13 (a wrong "`@` not needed" warning, and a Kotlin miscompile) |
+| 3 | `A.B.f(x)` (namespace) | as 1 | `check_call` 30202 → `resolve_named_call` on the flat name | `f@A.B(x)` | none |
+| 4 | `x.f(a)` | `dot_calls` (+ 1's tables or the member tables) | `check_call` 30221: qualifier call, namespace, addr receiver, then `resolve_named_call(f, [x, a…])` | `f(x, a)` | D12, D13, D14 |
+| 5 | `x?.f(a)` | `dot_calls`, `safe_navs` | `check_safe_nav` 28713 → `resolve_named_call` under the narrowing | `x is T ? f(x, a) : None` | as 4 (D12, D13); it does no addr check |
+| 6 | bare effect member `m(x)` | `member_calls`, `effect_member_calls`, `effect_calls`, `implicit_args` | `resolve_named_call` step 1 → `route_member_or_fn` / `pick_effect_member` 32951 / `check_effect_call` 33053 | `m@E(x)` plus the handler argument (an effect parameter after erasure) | D15, D16, D17 |
+| 7 | `m@E(x)`, `x.m@E()` | as 6 | `check_call` 30255 → `check_effect_call` | `m@E(x)` | D17; otherwise as designed (members only) |
+| 8 | call through a fn-typed local or parameter `f(x)` | `local_calls`, `fn_value_calls`, `derived_calls`, `lending_calls` | `check_call` 30432: `arg_fits_fn_value` 30967 per argument, then `apply_fn_value_contract` 13430 | `f(x)` with `f` a local | D20 |
+| 9 | call through the enclosing implicit `cmp(a, b)` | `local_calls`, `local_call_names` | `check_call` 30357–30431 | `cmp(a, b)` with `cmp` the parameter | D21 |
+| 10 | computed callee `e(x)` (`adder()(1)`, `fs[0](x)`) | (none of its own) | `check_call` 30630: `check_expr(a, params.get(i))` only | `let t = e; t(x)` | D19 |
+| 11 | fn passed by name `apply(f)`, `f@m` | `fn_refs`, `fn_value_implicits`, `lambda_effects` | `fn_value_by_name` 7758 → `choose_by_name` 7938 → `select_fn_value` | the value `f@m` with its implicits filled | fixed by 550669ad; none left |
+| 12 | implicit argument `?name` at a call | `implicit_args` (`implicit_params`, and `implicit_members` for members) | `fill_one_implicit` 7062 → `resolve_implicit_fn_at` → `select_fn_value` | `name = name@m` written out | D3 (effect members); fixed by b6436d24 otherwise |
+| 13 | type inference from an implicit ([implicit-infer]) | `call_type_args` | `extend_subst_from_implicits` 9044: its own matcher | (inference inside 1) | D22 |
+| 14 | identity written in a type `SortedSet<Str>(by_len)` | `carried_identities`, `fn_refs` | `written_fn_id` → `written_declaration` 19588, then `resolve_identity` 14388 | `SortedSet<Str>(by_len@m)` | D23 |
+| 15 | keyed slot filled by name (`Set<Person>` uses Person's `hash`) | (read: `keyed_canonically` 4352) | `resolve_implicit_fn_at` | as 12 | none found |
+| 16 | interpolation part `"${x}"` | `interp_to_str`, `interp_implicit`, `implicit_args` (at the zero-width span after the part) | `check_interpolable` 12467 → `interp_native` 12326 / `interp_text_form` 12381 (own implicit by shape, then `resolve_implicit_fn_at("to_str")` at `(T) -> Str`) | a std format fn over `to_str(x)` parts (O1; the format fn's shape is open) | D1, D2, D3 |
+| 17 | interpolated union `"${u}"` | `interp_union` | `check_interpolable`: one `interp_text_form` per arm | open (P4) | D4 |
+| 18 | `a < b`, `a <= b`, `a == b`, `a != b` | `comparisons`, `promotions` | `check_comparison_operands` 13897 | `cmp(a, b) < 0`, `eq(a, b)`, `!eq(a, b)` (O1) | D1, D2, D5, D6 |
+| 19 | `x == v` with `x` a union and `v` matching one arm | `arm_compares` | `try_arm_compare` 13820 | `x is A && eq(x, v)` | D7 (a rule to keep) |
+| 20 | `a + b`, `- * /` | `promotions` | `check_arith` 14148: numeric operands only; nothing is resolved | `plus(a, b)` … (O1 adds these names; not a call today) | none yet: O1 adds the feature |
+| 21 | `for x in it` (a pass), `for x in c` (a source) | `for_drivers` | `iter_elem_ty` 26708 → `pass_elem_ty` / `find_next_driver` 26184, `generic_pass_elem_ty` 26454, `iter_pass_for` 26370 | `loop { when next(it) … }`, with `it = iter(c)` (O1) | D8, D9, D10, D11 |
+| 22 | `for x in next(p)` (a step call) | `for_drivers` (`step_call`), `call_fn` | `step_call_elem_ty` 26602: the call's own resolution | itself | none |
+| 23 | `a.m(x)` with `a: eff[E]` (a send) | `addr_calls`, `effect_member_calls` | `addr_receiver` 15645 (the receiver must be a place) → `check_addr_call` 15689: members picked by arity; type arguments and named arguments ignored | `m@E(a, x)` as a send | D14, D24 |
+| 24 | `m@self(x)`, and a servant's bare call to a sibling `send fn` | `self_sends`, `facade_sends` | `check_self_send` 15531, `check_servant_send` 16491: the first member of that name | `m@self(x)` | D24 |
+| 25 | `replyto k(c…)`, `k` a free `send fn` | `replyto_tasks`, `fn_refs`, `task_mint_effects` | `check_replyto` 17003 → `free_send_target` 16761 (scope rungs) | a mint of `k@m` with captures `c…` | D18 |
+| 26 | `replyto m(c…)`, `m` a member of the own handler | `replyto_members` | `check_replyto`: the first member of that name | a mint of `m@self` | D24 |
+| 27 | `Q.f(x)` (a qualifier's own fn), and `x is Q` (→ `Q.qualifies(x, …)`) | `qual_member_calls`, `predicate_tests` | `check_qual_member_call` 21806 (the first fn of that name; implicits refused), `check_predicate_quals` 27728 | `f@Q(x, slots…)` | none found (qualifier fns are not overloaded) |
+
+Places that pick a function without being a call (inputs to inference or to
+diagnostics): `some_fn_accepts` 7040 (the [implicit-fit] shape probe, by
+design); `has_member_for` 14245 (whether a type is hashable or orderable:
+the raw scope table and the first parameter's base name, not a selection);
+`infer_waitfor_ty` 17237 (scans declared `Reply<T>` positions, deliberately
+not overload resolution); and the `: Yield`/`: Iter` obligation check
+`check_obligation_list` 4971, which reads the raw `scope.fns` table, so a
+renamed-away `next` still satisfies it (part of D9). Effect-instance
+choice at a member call ([effect-disambiguation], `check_effect_call`)
+chooses a handler, not a callee; it is the implicit-like effect argument
+and outside P3.
+
+### Divergences
+
+Each section gives what differs, the probe and its output, and what
+happens under P3: which programs would newly be refused, newly be accepted,
+or behave differently. "Decision" says whether it needs a call from you
+beyond P3.
+
+#### D1. The native fast path runs before the enclosing implicit (interpolation, `==`, `<`)
+
+`check_interpolable` returns at once for a scalar or `Str` (`interp_native`)
+without looking for an enclosing `?to_str`. `check_comparison_operands`
+returns before its implicit step for numerics (every operator) and for
+`==`/`!=` on the intrinsic types. A call `to_str(n)` or `eq(a, b)` in the
+same body goes through the implicit [implicit-resolve-body].
+
+- `interp-native-implicit`: inside `show(n: Int, ?to_str: (x: Int) -> Str)`
+  called with `to_str = hex`. Rust and Kotlin both print `interp: 7` and
+  `call:   #7`.
+- `op-eq-native-implicit`: inside `check(a: Str, b: Str, ?eq: …)` called
+  with `eq = same_len`, on `"ab"` and `"cd"`. Rust and Kotlin both print
+  `op:   false` and `call: true`.
+
+**Under P3** `"${n}"` → `to_str(n)` → the implicit, and `a == b` →
+`eq(a, b)` → the implicit. Programs whose fn has an implicit `to_str`, `eq`
+or `cmp` covering a scalar or `Str`, and which interpolate or compare such
+a value directly, would behave differently. None would newly be refused.
+The backends can keep the native spelling exactly when the call resolves
+to std's intrinsic. **Decision:** none beyond P3, but OPERATOR_OVERLOAD.md
+O5 is wrong today. O5 says `"${n}"` inside `show(…, ?to_str: (x: Int) ->
+Str)` "uses the enclosing implicit". That holds only for elements nested
+inside a std container's `to_str` (the 2026-10-14 test); a direct `${n}`
+does not use it. You may want the native fast path kept as an exception.
+
+#### D2. The native fast path skips resolution altogether
+
+The same early returns mean a module's own `eq(Str, Str)` or `to_str(Int)`
+is never consulted by `==` or `${}`. The call meets std's overload with the
+same signature and is ambiguous.
+
+- `native-overload`: the analysis reports only the two calls, as ambiguous
+  between `main` and `std.core.compare` (and `std.core.basic`). The operator
+  and the interpolation pass.
+
+**Under P3** the operator and the interpolation would be ambiguous too, so
+such programs would newly be refused. **Under O1-D** these declarations are
+refused where they are written (a shape on a type declared elsewhere), so D2
+dissolves once D's placement check exists. **Decision:** none.
+
+#### D3. Effect members never fill interpolation, operator or implicit positions
+
+`interp_text_form`, `check_comparison_operands` and `fill_one_implicit` all
+resolve through `overloads_of`, which holds fns only. A call `to_str(p)`
+reaches an available member.
+
+- `interp-effect-member`: `effect Fmt { fn to_str(p: Point) -> Str }` with
+  a handler in scope. The call `to_str(p)` is accepted; `"${p}"` is refused
+  with "`Point` has no text form"; `render(p)` with `?to_str: (p: Point) ->
+  Str` is refused with "no `to_str` fits".
+
+**Under P3 + P4** the interpolation lowers to `to_str(p)`, so it would reach
+the member and newly be accepted. A member beside a fn of the same
+signature would become an ambiguity at `${}` where today the fn wins
+silently. **Decision: yes.** P4 decided that members compete at calls. It
+did not decide whether a member can fill an implicit (passed as a value,
+which captures the handler) or an operator position. P3 implies yes for
+interpolation and operators, since they lower to calls. For implicits it is
+new: a member as a fn value carries its effect.
+
+#### D4. A union interpolates arm by arm; the call has no overload
+
+- `interp-union`: `u: Point | Int`, with `to_str(Point)` declared.
+  `"${u}"` is accepted. `to_str(u)` is refused: "no matching overload for
+  `to_str(Point | Int)`".
+
+**Under P3** a plain `to_str(u)` lowering would refuse every interpolated
+union that has no `to_str` of its own. **Decision: yes**, and it is already
+open in P4 ("what becomes of `interp_union`'s per-arm rendering"). The
+candidate answer is that the format fn's part lowering becomes `when u { is
+Point → to_str(u) … }`: a lowering written before the call, as D7 is.
+
+#### D5. Comparison operands lose their qualifiers before `eq`/`cmp` is resolved
+
+`check_comparison_operands` builds the wanted type from `lb`/`rb` with the
+qualifiers stripped ("a comparison is about the data"). The call ranks the
+qualified argument types.
+
+- `op-qualified-operands`: `fn eq(a: NonEmpty List<Int>, b: NonEmpty
+  List<Int>) -> Bool { true }`, with `xs = List(1, 2)` and `ys = List(3,
+  4)`. Rust and Kotlin both print `op:   false` (std's `eq(List<T>)`) and
+  `call: true` (the more specific `NonEmpty` overload).
+
+**Under P3** `xs == ys` → `eq(xs, ys)` → the qualified overload, so the
+behaviour changes and nothing is refused. This survives O1-D: a qualified
+overload in the type's own file is legal ("several overloads of one shape
+in the type's own file stay legal"). **Decision: maybe.** The stripping is
+deliberate, so you may want "operators compare the data" kept as an
+exception. Then the lowering would be `eq(strip(xs), strip(ys))`, which is
+not a plain call.
+
+#### D6. `==` and `<` require the same base type on both sides
+
+- `op-mixed-types`: with `fn eq(a: Meters, b: Feet) -> Bool` declared,
+  `eq(m, f)` is accepted and `m == f` is refused: "the operands of a
+  comparison must be the same type".
+
+**Under P3** `m == f` would newly be accepted. The O1 D-3 shape for `eq`
+(two parameters, `Bool`) does not require one type, and D-2 puts the fn
+with `Meters`. **Decision: yes.** Either drop the same-type rule (P3), or
+keep it as an operator-only exception, and if kept, add it to D-3's shape so
+that a mixed `eq` is not an operator at all.
+
+#### D7. An arm comparison lowers to a test and a comparison, not to the call
+
+- `op-arm-compare`: `x: Long? = -1L`. `x == -1L` and `y == -1L` (with `y =
+  None`) are accepted. `eq(x, -1L)` is refused: "no matching overload for
+  `eq(Long?, Long)`".
+
+**Under P3** this is a lowering written before the call: `x is Long &&
+eq(x, -1L)`. Nothing would change. **Decision:** confirm that [op-arm-eq]
+(user decision 2026-10-12) stays as such a pre-call lowering; it is not a
+selection divergence.
+
+#### D8. `for` drives the first `next` in scope order, with no ranking or ambiguity
+
+`find_next_driver` and `iter_pass_for` walk `scope.fns.get("next")` (and
+`"iter"`) and take the first entry whose state parameter unifies.
+
+- `for-first-next`: `next<T>(c: Mut Ctr<T>)` is declared before `next(c:
+  Mut Ctr<Str>)`, which yields ×100. Rust and Kotlin both print `for:  1`,
+  `for:  2` (the generic `next`) and `call: 100` (the specific one).
+
+**Under P3** the `for` would drive the specific `next` (100, 200), so the
+behaviour changes. Two same-signature `next`s from different modules would
+become an ambiguity error where today the earlier one wins silently. This
+survives O1-D: both overloads are in `Ctr`'s file. `iter` has the same
+first-match rule (not probed separately). **Decision:** none.
+
+#### D9. `for` ignores `rename fn`
+
+Both the driver scan and the `: Yield` obligation check read `scope.fns`
+directly, not `overloads_of`.
+
+- `for-renamed-next`: after `rename fn advance = next(c: Mut Ctr)`, Rust
+  and Kotlin both print `for:  1`, `for:  2` and `advance: 1`.
+- `for-renamed-next-call`: the same program with `next(d)` is refused with
+  "no matching overload for `next(Mut Ctr)`", while its `for` is accepted.
+
+**Under P3** such a `for` would newly be refused, and so would the `: Yield`
+obligation, since it is no longer satisfied by a `next`. [fn-rename] already
+says a renamed overload leaves the old name "in calls, in fn values and in
+implicit resolution". **Decision:** none.
+
+#### D10. `for` needs a `: Yield` declaration that `next(c)` does not
+
+- `for-no-yield`: `Ctr` declares no `: Yield`. `next(d)` is accepted;
+  `for x in c` is refused with "`Ctr` is not iterable … declare `: Yield<self,
+  Int>`".
+
+**Under a plain P3 lowering** (`for x in c` → `next(c)` when a `next` fits,
+otherwise `next(iter(c))`) the declaration would stop being needed, and
+such programs would newly be accepted. **Decision: yes.** O1 lowers `for`
+to `next`/`iter`, but whether the obligation stays as the gate on which of
+the two forms is meant ("a type declares `: Iter` or `: Yield`, never
+both") is yours. Keeping the gate is an exception to P3 that reads a
+declaration, not a resolution.
+
+#### D11. At a concrete pass type, `for` ignores the enclosing `?next`, and Kotlin does not
+
+`generic_pass_elem_ty` consults implicits only when the subject is a type
+variable. At a concrete type the declared `next` is recorded
+(`PassMember::Fn`). The call `next(d)` goes through the implicit.
+
+- `for-own-implicit`: `walk(c, d, ?next: (c: Mut Ctr) -> …)` is called with
+  `next = by_tens`.
+  - **Rust:** `for:  1`, `for:  2`, `call: 10`.
+  - **Kotlin:** `for:  10`, `for:  20`, `call: 10`.
+
+  The Kotlin emitter writes the driving call as a bare `next(c)`, and the
+  parameter named `next` shadows the top-level fun
+  (`tmp/b1/out/for-own-implicit-ktsrc/main.kt`: `val __step_2 … = next(c)`).
+  **This is silently wrong code today** [backend-never-wrong], whatever P3
+  decides.
+
+**Under P3** the loop drives the implicit (10, 20) on both backends, so the
+behaviour changes on Rust. **Decision:** none for P3. The Kotlin bug needs
+fixing now: either qualify every top-level call the checker resolved, or
+let P3's core call node do it.
+
+Fixed (commit "Qualify every declared callee in Kotlin and check fn-value calls"): every declared call is
+package-qualified on Kotlin; both backends print 1, 2 and 10.
+
+#### D12. A dot call ignores enclosing implicits
+
+`check_call`'s dot path goes straight to `resolve_named_call`, which never
+consults `own_implicits`. Only the bare-identifier path does.
+
+- `dot-implicit`: inside `order_dot<T>(a: T, b: T, ?cmp: …)`, `a.cmp(b)` is
+  refused with "no matching overload for `cmp(T, T)`". `cmp(a, b)` in the
+  same shape (`order`) is accepted.
+
+**Under P3** `a.cmp(b)` → `cmp(a, b)` → the implicit, so it would newly be
+accepted. The operator-overloading brief itself writes `a.cmp(b) < 0` as
+the generic spelling. **Decision:** none.
+
+#### D13. A dot call ignores fn-typed locals; Kotlin miscompiles it, and a wrong `@` warning
+
+`5.show()` resolves among the declared fns even when a local `show`
+shadows them at `show(5)`.
+
+- `dot-local`, with `fn show(n: Int)` declared and `let show = (n: Int) ->
+  "local ${n}"` in scope:
+  - **Rust:** `call: local 5`, `dot:  decl 5`, `at:   decl 5`.
+  - **Kotlin:** `call: local 5`, `dot:  local 5`, `at:   local 5`.
+
+  The Kotlin emitter writes `show(5)` for all three, and the local wins
+  (`tmp/b1/out/dot-local-ktsrc/main.kt` lines 15–17). So both `5.show()`
+  and the explicit `show@main(5)` silently call the local on Kotlin.
+- The checker also warns at `show@main(5)` that "this `@main` is not needed:
+  `show(Int)` resolves to the same function without it". That is wrong:
+  without it the call takes the local. `unqualified_winner` (8517) does not
+  know about locals. [fn-overload-at] calls `@` "the way out of a shadowed
+  name".
+
+**Under P3** `5.show()` → `show(5)` → the local, so the dot call changes
+behaviour on Rust. **Decision: yes.** [fn-dot] says `base.f(args)` is
+`f(base, args)`, which P3 makes literal. You may prefer dot calls to name
+declared functions only, so that a local `show` cannot capture `x.show()`.
+Either way, the Kotlin miscompile and the warning are bugs now.
+
+Fixed, the bugs half (commit "Qualify every declared callee in Kotlin and check fn-value calls"): Kotlin names the
+declaration (`salvo.main.show(5)`), and the warning is withheld where a
+local, a `send fn` or an effect member takes the bare name. The decision is
+still open: the dot call keeps ignoring locals.
+
+#### D14. A dot call on an `eff[E]` place is always a send
+
+`addr_receiver` peeks at the receiver. If it is a place of type `eff[E]`,
+the call is `check_addr_call` with E's members only, and fns are never
+candidates. A receiver that is not a place (`get(addrs, 0).bump(1)`) is not
+treated as a send at all.
+
+- `addr-dot-fn`: with `fn describe(c: eff[Counter]) -> Str` declared,
+  `describe(counter)` is accepted. `counter.describe()` is refused: "actor
+  `Counter` serves effect `Counter`, which has no member named `describe`".
+
+**Under P3** `counter.describe()` → `describe(counter)` would newly be
+accepted, and a fn beside a send member of the same name would become an
+ambiguity. **Decision: yes.** Should an addr receiver's dot call rank E's
+send members together with fns that take `eff[E]` first (P3/P4), or stay
+"a dot call on an addr is a send" (an exception)? Whether a non-place
+receiver can be a send is the same question.
+
+#### D15. Two available effects with the same member name are refused, not ranked (P4)
+
+- `member-two-effects`: `Ints.put(x: Int)` and `Strs.put(x: Str)`, both
+  available. `put@Ints(1)` is accepted. `put(1)` is refused: "`put` is a
+  member of `Ints`, `Strs` — more than one is in scope, so the call must
+  pick its effect".
+
+**Under P4 (decided)** the call ranks by argument types and `put(1)` →
+`Ints.put`, so it would newly be accepted. A tie stays an ambiguity, now
+the ordinary overload one. **Decision:** none; this is the change P4 already
+names.
+
+#### D16. A call where member and fn collide types its arguments without expected types
+
+`route_member_or_fn` types every argument with no expected type, as its
+recorded cut says. A bare lambda's parameter is then `Unknown`, and nothing
+reports it.
+
+- `member-collide-lambda`: an available member `apply(f: (x: Int) -> Int)`
+  beside `fn apply(f: (x: Str) -> Str)`, called as `apply(x -> x + 1)`. The
+  analysis is clean. Rust: "a value of type `?` reached rust code
+  generation". kotlinc: "unresolved reference 'plus'". The fn-only overload
+  set `twice(x -> x + 1)` in the same program types the lambda through the
+  lead candidate.
+
+**Under P3 + P4** members and fns form one candidate set with one lead
+pool, so the lambda would be typed from the lead candidate and the call checked; it would newly be accepted, or refused with an ordinary diagnostic. **Today
+it is a [backend-never-wrong] / "one mistake, one diagnostic" gap**: a
+checker-clean program fails in both target compilers. **Decision:** none.
+
+Fixed (commit "Qualify every declared callee in Kotlin and check fn-value calls"): a lambda with an unwritten
+parameter type takes the type every candidate declares at its position when
+they agree, and is refused otherwise ("cannot type this lambda … write the
+lambda's parameter types"). **Correction:** the probe's `twice(x -> x + 1)`
+did not type its lambda either (its output has two kotlinc errors, one per
+lambda): with no dominant lead the fn path typed it `Unknown` and took the
+first overload. The same rule covers it now.
+
+#### D17. An effect member's parameter defaults are accepted but cannot be used
+
+`check_effect_call` and `pick_effect_member` require `args.len() == fixed`.
+A member call has no [fn-param-default] shape (`call_shape_fits`) and no
+named fixed arguments.
+
+- `member-default`: `effect Log { fn log(msg: Str, level: Int = 1) }`.
+  `note("hi")`, a fn of the same shape, is accepted. `log("hi")` is
+  refused: "`log` takes 2 argument(s), found 1".
+
+**Under P3** member calls are ordinary calls, so `log("hi")` would newly be
+accepted. The alternative is to refuse defaults on members at their
+declaration. **Decision:** none beyond P3, unless you prefer refusing the
+declaration.
+
+#### D18. A task mint resolves its target by the old scope ladder
+
+`free_send_target` keeps the most specific rung that has a `send fn` of
+that name, and refuses only a tie within that rung. That is the rule calls
+dropped on 2026-09-26. It also reads `scope.fns` raw (renames ignored) and
+takes no `@` selector. [task-mint]'s text ("by the ordinary scope ladder
+[fn-overload-scope]") describes the old rule.
+
+- `mint-rung`: `import lib.formatted` beside this module's own `send fn
+  formatted` with the same signature. The analysis is clean, and Rust and
+  Kotlin both print `mint: main: sum = 5` (this module's).
+- `mint-rung-call`: the same import-beside-own pair as plain fns (`label`)
+  is refused at the call as ambiguous.
+
+**Under P3** the mint would be ambiguous and so newly refused, with
+`formatted@main` as the remedy. **Decision: yes.** A mint has only a
+prefix of the arguments (its captures, without the answer). Should a mint
+rank its candidates by the capture types and the `Reply` position like a
+partial call, or refuse whenever more than one `send fn` of the name is
+visible?
+
+#### D19. A computed callee checks neither the arity nor the argument types
+
+The computed-callee path (30630) checks each argument against the
+parameter type as an *expected* type only. It reports no mismatch and no
+arity error. It also applies no contract, unlike a call through a local.
+
+- `computed-callee`: `adder()("x")` and `adder()(1, 2)` pass the analysis.
+  rustc refuses them (E0308, E0057), and so does kotlinc ("argument type
+  mismatch", "too many arguments").
+
+**Under P3** it is one call node, checked like a local call: newly refused,
+at the checker instead of the target compiler. **Today it is a
+[backend-never-wrong] gap.** **Decision:** none.
+
+Fixed (commit "Qualify every declared callee in Kotlin and check fn-value calls"): checked like a call through a
+local (fit, claims, count, contract); the IR also passes a computed
+callee's effects, which it did not (rustc E0057, kotlinc "no value passed").
+
+#### D20. A call through a fn-typed local does not check claims
+
+`arg_fits_fn_value` compares base shapes ("what a qualifier or a `Mut`
+demands is the contract's business"), and `apply_fn_value_contract` checks
+only kept, `Mut` and projection rules. So a claim the parameter demands is
+dropped.
+
+- `local-call-claims`: inside `through(f: (xs: NonEmpty List<Int>) -> Int,
+  ys: List<Int>)`, `f(ys)` is accepted. The same argument to the declared
+  fn (`head1(ys)` in `direct`) is refused: "no matching overload for
+  `head1(List<Int>)`".
+- `local-call-claims-run`: `through(head1, List())`. Rust and Kotlin both
+  print `local: size of a NonEmpty list = 0`. The claim is violated
+  silently.
+
+**Under P3** such programs would newly be refused (`arg_fits_param`,
+qualifiers included). **Decision:** none.
+
+Fixed (commit "Qualify every declared callee in Kotlin and check fn-value calls"): `f(ys)` is refused ("does not
+carry what the parameter claims"); a dependent claim (`Idx(xs) Int`) is
+about this call's argument, as at a declared call.
+
+#### D21. Two implicits of one name are told apart by fit, not ranked
+
+- `implicit-same-name-rank`: `both(n: Int, ?tag: (x: Int) -> Str, ?tag: (x:
+  Int | Str) -> Str)`. `tag(n)` inside it is refused: "could go through
+  more than one implicit of that name". Two declared overloads with those
+  parameter types are ranked: `tag(1)` → `int`.
+
+**Under P3** they would be ranked as overloads and so newly accepted. The
+comparison operator's own-implicit step has the same rule: it refuses
+when more than one fits ([cmp-binder]). **Decision: maybe.** Implicits shadow as
+locals do, and two locals of one name cannot coexist, so ranking among
+shadowing implicits is a rule P3 does not settle by itself.
+
+#### D22. Inference from an implicit uses its own unranked matcher
+
+`extend_subst_from_implicits` learns the callee's type arguments from an
+implicit's candidates only when exactly one candidate fits. It skips any
+candidate with implicits or a variadic tail.
+
+- `implicit-infer-unranked`: with `f(x: Int) -> Str` and `f<T>(x: T) ->
+  Str`, and `conv<B>(x: Int, ?f: (x: Int) -> B)`. `f(1)` resolves.
+  `let s: Str = conv(1)` is accepted. `conv(1)` alone is refused: "cannot
+  infer type argument `B` of `conv`".
+
+**Under P3** inference runs selection (`select_fn_value` at `(Int) -> B`
+with `B` open, the most specific winner) and reads `B` off the winner, so
+the call would newly be accepted. **Decision:** none.
+
+#### D23. A written identity falls back to the most specific rung
+
+`written_declaration` resolves the name at the slot's fn type, discards
+the diagnostics, and when resolution fails (for example by ambiguity) takes
+`max_by_key(rung)`: the old ladder. `resolve_identity` then looks only in
+that module.
+
+- `carry-rung`: `import lib.by_len` beside this module's own `by_len`.
+  `let l: Mut SortedSet<Str>(by_len) = … cmp = by_len@lib` is refused:
+  "expected `Mut SortedSet<Str>(by_len@main)`, found …(by_len@lib)". So the
+  written `by_len` silently means `by_len@main`, while the call
+  `by_len(a, b)` is ambiguous (the `mint-rung-call` shape).
+
+**Under P3** the written type would be ambiguous and newly refused, with
+`(by_len@main)` as the remedy. **Decision:** none.
+
+#### D24. Send-member and own-handler targets are picked by arity or by first name
+
+`check_addr_call` picks among overloaded send members by arity only and
+refuses a tie. It also ignores the call's type arguments and named
+arguments, and drops implicit parameters from the member's list.
+`check_self_send`, `check_servant_send` and the member mint in
+`check_replyto` take the first member with the name. The arguments are
+checked with `is_subtype`, not `arg_fits_param`.
+
+- Probe: `addr-dot-fn` covers the addr path. The overload cases are not
+  probed: std and the examples overload no send member, so nothing changes
+  for existing programs.
+
+**Under P3** these calls would rank by type, and an implicit on a send
+member would be filled or refused explicitly. The probe for D14 is the
+evidence here. **Decision:** none, but piece 7 of B3 should decide whether
+send members may overload at all.
+
+#### D25. Effect-member selection is a weaker copy of call selection (P4)
+
+These are differences inside `pick_effect_member` and `fitting_members`,
+read from the code. They change results only for overloaded members:
+
+- arity is checked first, and a single member of that arity is taken
+  untested;
+- the fit is `is_subtype || unify`, so there is no projection leniency, no
+  literal, numeric or dependent-claim handling, and no contract
+  (`arg_fits_param` is used only later, for the error message);
+- there is no [implicit-fit] drop and no [fn-overload-return] tiebreak;
+- an ambiguity is reported, and the check then continues as the first
+  member.
+
+The member-versus-fn comparison uses each side's best only, through
+`fitting_fns`, which sees no named arguments, no defaults beyond
+positional ones, no dependent claims and no literal adoption.
+
+- `member-vs-fn` (the P4 baseline, no divergence): an available `show(x:
+  Int | Str)` member beside `fn show(x: Int)`. Rust and Kotlin both print
+  `show(1):   fn` and `show("s"): member`. So with one available effect,
+  members **already compete with fns** (since 2026-09-14,
+  [effect-available]). The [fn-overload-scope] bullet "an effect member
+  takes the name before any fn does" and P4's "today … it shadows, it does
+  not compete" describe the multi-effect case (D15), not this one.
+
+**Under P4** all of this becomes one candidate set and one selection.
+**Decision:** none.
+
+### What P4's "effect members compete with fns" changes
+
+- **D15:** newly accepted. A bare call across two available effects is
+  ranked by arguments.
+- **D16:** newly accepted. One lead pool types lambdas in colliding calls;
+  today this is a codegen failure.
+- **D17:** newly accepted. Member defaults become usable.
+- **D25:** behaviour changes only where an overloaded member set was
+  arity-picked or recovered as the first member.
+- **D3** (if members also fill interpolation, operator and implicit
+  positions): newly accepted where only a member fits. **Newly refused**
+  where an available member and a fn have the same signature at `${}` or
+  at an operator: today the fn wins there silently, while the call is
+  already an ambiguity.
+- **A fn that now beats a member:** none, because the single-effect case
+  already ranks the two (`member-vs-fn`). **A member-versus-fn tie that
+  becomes an ambiguity:** none new at calls, since a tie is already refused.
+  New only at the D3 positions.
+- No std effect declares a member named `to_str`, `eq`, `cmp`, `hash`,
+  `next` or `iter` (checked in `lib/std`), so std programs are unaffected
+  by the D3 half.
+
+### Decisions needed beyond P3
+
+- **D3:** may an effect member fill an implicit, an interpolation part or an
+  operator?
+- **D4:** a union's per-arm rendering (already open in P4).
+- **D5:** keep "operators compare the data" (qualifiers stripped) as an
+  exception?
+- **D6:** keep the same-type rule for `==` and `<`, and if so, add it to
+  O1 D-3's shape?
+- **D7:** confirm [op-arm-eq] stays as a lowering before the call.
+- **D10:** does the `: Yield`/`: Iter` declaration stay as the `for` gate?
+- **D13:** does a dot call see fn-typed locals?
+- **D14:** does an addr receiver's dot call rank fns beside its send
+  members?
+- **D18:** how does a mint rank candidates when it has only a prefix of the
+  arguments?
+- **D21:** do implicits of one name rank among themselves?
+- **D1:** optional; you may want to keep the native fast path as an
+  exception. If not, O5's text needs correcting.
+
+### Bugs to fix whatever P3 decides
+
+All fixed (commit "Qualify every declared callee in Kotlin and check fn-value calls"); kept for B3's reference.
+
+- **D11, D13 (Kotlin):** a bare top-level call is shadowed by a same-named
+  local or parameter. This affects the `for` driver, the dot call and
+  `f@m(…)`.
+- **D13 (warning):** "`@` not needed" when a local shadows the name.
+- **D16, D19:** checker-clean programs that rustc and kotlinc refuse.
+- **D20:** a claim is dropped through a fn-typed local.
+
+### Order for B3
+
+This follows §II.9 B3's list, with the census's additions in place:
+
+0. **Before B3:** the bugs above. The Kotlin shadowing (D11, D13) and the
+   wrong `@` warning are small fixes in the emitter and in
+   `unqualified_winner`. D19 and D20 become part of piece 6 if they wait.
+   Done (2026-10-27, §II.12 "B1 bugs").
+1. **Implicit arguments:** D22 (inference through selection) and D23 (no
+   rung fallback for a written identity). Both are mechanical under P3.
+   D3's implicit half waits on its decision.
+2. **Interpolation** (waits on P4's format fn): D1, D2 (dissolved by O1-D's
+   placement check, so build that check first or together), D3, D4.
+3. **Operators,** with **`for` as their second half**. O1 names `iter` and
+   `next` as operators, and `for_drivers` is the table the census adds to
+   this piece. Operators: D1, D2, D5, D6, with D7 as a pre-call lowering.
+   `for`: D8, D9, D10, D11. The arithmetic names (`plus` …) are new
+   features that land here.
+4. **Dot calls:** D12, D13 (after its decision). `?.` goes with them.
+5. **Effect-member and qualifier-member calls** (P4): D15, D16, D17, D25,
+   and D3's member half. The qualifier calls (`qual_member_calls`,
+   `predicate_tests`) show no divergence and only move tables.
+   D16's fix is a stopgap to replace here: a lambda the candidates do not
+   type alike (different types, or one generic type) is refused, where one
+   lead pool over members and fns would type it.
+6. **Fn values, local calls, fn-value calls:** D21 (D19 and D20 are fixed;
+   the calls share `check_fn_value_args`). `fn_refs` by name has nothing
+   left (550669ad).
+7. **`addr_calls`, `self_sends`, `facade_sends`, mints**
+   (`replyto_tasks`, `replyto_members`), **`effect_calls`:** D14, D18, D24.
+   `effect_calls` is handler choice, not callee choice; it moves with
+   erasure (effects as parameters), not with P3.

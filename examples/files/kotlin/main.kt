@@ -18,7 +18,7 @@ fun kindName__FsError(kind: Union7<salvo.std.fs.NotFound, salvo.std.fs.Permissio
     }
     if ((kind is Union7.U7<*, *, *, *, *, *, *>)) {
         val kind_4: salvo.std.fs.Streaming = ((kind as Union7.U7<*, *, *, *, *, *, *>).value as salvo.std.fs.Streaming)
-        return kindName__StreamError(kind_4.error)
+        return salvo.main.kindName__StreamError(kind_4.error)
     }
     return "other"
 }
@@ -42,7 +42,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
         }
         (wrote is Union2.U2<*, *>) -> {
             val wrote_2: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((wrote as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "write failed: ${kindName__FsError(salvo.std.core.checked.detach(wrote_2))}")
+            salvo.std.core.console.println(console, "write failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(wrote_2))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:70:5"))
@@ -56,7 +56,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
         }
         (text is Union2.U2<*, *>) -> {
             val text_4: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((text as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "read failed: ${kindName__FsError(salvo.std.core.checked.detach(text_4))}")
+            salvo.std.core.console.println(console, "read failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(text_4))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:75:5"))
@@ -83,12 +83,12 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
             val closed: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = salvo.std.stream.close__Lines(streams, p)
             if ((closed is Union2.U2<*, *>)) {
                 val closed_9: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                salvo.std.core.console.println(console, "close failed: ${kindName__StreamError(salvo.std.core.checked.detach(closed_9))}")
+                salvo.std.core.console.println(console, "close failed: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(closed_9))}")
             }
         }
         (opened is Union2.U2<*, *>) -> {
             val opened_10: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((opened as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "open failed: ${kindName__FsError(salvo.std.core.checked.detach(opened_10))}")
+            salvo.std.core.console.println(console, "open failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(opened_10))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:84:5"))
@@ -105,7 +105,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
             val shut: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = streams.close__OutStream(w)
             if ((shut is Union2.U2<*, *>)) {
                 val shut_12: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((shut as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                salvo.std.core.console.println(console, "close failed: ${kindName__StreamError(salvo.std.core.checked.detach(shut_12))}")
+                salvo.std.core.console.println(console, "close failed: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(shut_12))}")
             }
             val resumed: Union2<salvo.std.stream.InStream, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>> = fs.openReadAt(salvo.std.fs.path.path("notes.txt"), at)
             when {
@@ -128,12 +128,12 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
                     val done: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = streams.close__InStream(s)
                     if ((done is Union2.U2<*, *>)) {
                         val done_15: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((done as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                        salvo.std.core.console.println(console, "close failed: ${kindName__StreamError(salvo.std.core.checked.detach(done_15))}")
+                        salvo.std.core.console.println(console, "close failed: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(done_15))}")
                     }
                 }
                 (resumed is Union2.U2<*, *>) -> {
                     val resumed_16: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((resumed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-                    salvo.std.core.console.println(console, "reopen failed: ${kindName__FsError(salvo.std.core.checked.detach(resumed_16))}")
+                    salvo.std.core.console.println(console, "reopen failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(resumed_16))}")
                 }
                 else -> {
                     throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:119:13"))
@@ -142,7 +142,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
         }
         (out is Union2.U2<*, *>) -> {
             val out_17: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((out as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "append failed: ${kindName__FsError(salvo.std.core.checked.detach(out_17))}")
+            salvo.std.core.console.println(console, "append failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(out_17))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:102:5"))
@@ -160,12 +160,12 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
             val shut: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = streams.close__OutStream(w)
             if ((shut is Union2.U2<*, *>)) {
                 val shut_19: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((shut as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                salvo.std.core.console.println(console, "close failed: ${kindName__StreamError(salvo.std.core.checked.detach(shut_19))}")
+                salvo.std.core.console.println(console, "close failed: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(shut_19))}")
             }
         }
         (bin is Union2.U2<*, *>) -> {
             val bin_20: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((bin as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "raw open failed: ${kindName__FsError(salvo.std.core.checked.detach(bin_20))}")
+            salvo.std.core.console.println(console, "raw open failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(bin_20))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:143:5"))
@@ -184,7 +184,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
                 }
                 (head is Union2.U2<*, *>) -> {
                     val head_23: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((head as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                    salvo.std.core.console.println(console, "byte read failed: ${kindName__StreamError(salvo.std.core.checked.detach(head_23))}")
+                    salvo.std.core.console.println(console, "byte read failed: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(head_23))}")
                 }
                 else -> {
                     throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:164:13"))
@@ -198,7 +198,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
                 }
                 (tail is Union2.U2<*, *>) -> {
                     val tail_25: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((tail as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                    salvo.std.core.console.println(console, "decode failed: ${kindName__StreamError(salvo.std.core.checked.detach(tail_25))}")
+                    salvo.std.core.console.println(console, "decode failed: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(tail_25))}")
                 }
                 else -> {
                     throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:171:13"))
@@ -207,12 +207,12 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
             val done: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = streams.close__InStream(s)
             if ((done is Union2.U2<*, *>)) {
                 val done_26: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((done as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                salvo.std.core.console.println(console, "close failed: ${kindName__StreamError(salvo.std.core.checked.detach(done_26))}")
+                salvo.std.core.console.println(console, "close failed: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(done_26))}")
             }
         }
         (raw is Union2.U2<*, *>) -> {
             val raw_27: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((raw as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "raw read failed: ${kindName__FsError(salvo.std.core.checked.detach(raw_27))}")
+            salvo.std.core.console.println(console, "raw read failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(raw_27))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:160:5"))
@@ -231,7 +231,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
                 }
                 (broken is Union2.U2<*, *>) -> {
                     val broken_30: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((broken as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                    salvo.std.core.console.println(console, "mid-character: ${kindName__StreamError(salvo.std.core.checked.detach(broken_30))}")
+                    salvo.std.core.console.println(console, "mid-character: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(broken_30))}")
                 }
                 else -> {
                     throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:191:13"))
@@ -245,7 +245,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
                 }
                 (done is Union2.U2<*, *>) -> {
                     val done_32: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((done as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                    salvo.std.core.console.println(console, "and again at close: ${kindName__StreamError(salvo.std.core.checked.detach(done_32))}")
+                    salvo.std.core.console.println(console, "and again at close: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(done_32))}")
                 }
                 else -> {
                     throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:196:13"))
@@ -254,7 +254,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
         }
         (split is Union2.U2<*, *>) -> {
             val split_33: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((split as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "split open failed: ${kindName__FsError(salvo.std.core.checked.detach(split_33))}")
+            salvo.std.core.console.println(console, "split open failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(split_33))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:187:5"))
@@ -288,7 +288,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
                     }
                     (got is Union2.U2<*, *>) -> {
                         val got_36: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((got as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                        salvo.std.core.console.println(console, "fill failed: ${kindName__StreamError(salvo.std.core.checked.detach(got_36))}")
+                        salvo.std.core.console.println(console, "fill failed: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(got_36))}")
                         reading = false
                     }
                     else -> {
@@ -300,12 +300,12 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
             val done: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = streams.close__InStream(s)
             if ((done is Union2.U2<*, *>)) {
                 val done_37: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((done as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                salvo.std.core.console.println(console, "close failed: ${kindName__StreamError(salvo.std.core.checked.detach(done_37))}")
+                salvo.std.core.console.println(console, "close failed: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(done_37))}")
             }
         }
         (held is Union2.U2<*, *>) -> {
             val held_38: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((held as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "fill open failed: ${kindName__FsError(salvo.std.core.checked.detach(held_38))}")
+            salvo.std.core.console.println(console, "fill open failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(held_38))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:209:5"))
@@ -336,12 +336,12 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
             val done: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = streams.close__InStream(s)
             if ((done is Union2.U2<*, *>)) {
                 val done_40: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((done as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                salvo.std.core.console.println(console, "close failed: ${kindName__StreamError(salvo.std.core.checked.detach(done_40))}")
+                salvo.std.core.console.println(console, "close failed: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(done_40))}")
             }
         }
         (lined is Union2.U2<*, *>) -> {
             val lined_41: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((lined as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "lines open failed: ${kindName__FsError(salvo.std.core.checked.detach(lined_41))}")
+            salvo.std.core.console.println(console, "lines open failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(lined_41))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:246:5"))
@@ -370,12 +370,12 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
             val done: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = salvo.std.stream.close__Chunks(streams, p)
             if ((done is Union2.U2<*, *>)) {
                 val done_46: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((done as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-                salvo.std.core.console.println(console, "close failed: ${kindName__StreamError(salvo.std.core.checked.detach(done_46))}")
+                salvo.std.core.console.println(console, "close failed: ${salvo.main.kindName__StreamError(salvo.std.core.checked.detach(done_46))}")
             }
         }
         (ch is Union2.U2<*, *>) -> {
             val ch_47: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((ch as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "chunks failed: ${kindName__FsError(salvo.std.core.checked.detach(ch_47))}")
+            salvo.std.core.console.println(console, "chunks failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(ch_47))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:275:5"))
@@ -389,7 +389,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
         }
         (copied is Union2.U2<*, *>) -> {
             val copied_49: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((copied as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "copy failed: ${kindName__FsError(salvo.std.core.checked.detach(copied_49))}")
+            salvo.std.core.console.println(console, "copy failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(copied_49))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:295:5"))
@@ -403,7 +403,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
         }
         (whole is Union2.U2<*, *>) -> {
             val whole_51: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((whole as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "byte read failed: ${kindName__FsError(salvo.std.core.checked.detach(whole_51))}")
+            salvo.std.core.console.println(console, "byte read failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(whole_51))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:300:5"))
@@ -440,13 +440,13 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
     }
     salvo.std.core.console.println(console, "failures: ${salvo.std.core.list.sizePlatform(failures)}")
     for (kind in salvo.platform.std.core.list.each(failures)) {
-        salvo.std.core.console.println(console, "  ${kindName__FsError(kind)}")
+        salvo.std.core.console.println(console, "  ${salvo.main.kindName__FsError(kind)}")
     }
     for (name in salvo.platform.std.core.list.each(listOf<String>("notes.txt", "notes-copy.txt", "raw.bin"))) {
         val gone: Union2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>> = fs.delete(salvo.std.fs.path.path(name))
         if ((gone is Union2.U2<*, *>)) {
             val gone_56: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((gone as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "delete failed: ${kindName__FsError(salvo.std.core.checked.detach(gone_56))}")
+            salvo.std.core.console.println(console, "delete failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(gone_56))}")
         }
     }
     salvo.std.core.console.println(console, "cleaned up")
@@ -462,7 +462,7 @@ fun sandboxEdges(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, s
         }
         (inside is Union2.U2<*, *>) -> {
             val inside_2: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((inside as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "through `..`: ${kindName__FsError(salvo.std.core.checked.detach(inside_2))}")
+            salvo.std.core.console.println(console, "through `..`: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(inside_2))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:340:5"))
@@ -476,7 +476,7 @@ fun sandboxEdges(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, s
         }
         (up is Union2.U2<*, *>) -> {
             val up_4: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((up as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "climbing out: ${kindName__FsError(salvo.std.core.checked.detach(up_4))}")
+            salvo.std.core.console.println(console, "climbing out: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(up_4))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:345:5"))
@@ -490,7 +490,7 @@ fun sandboxEdges(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, s
         }
         (absolute is Union2.U2<*, *>) -> {
             val absolute_6: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((absolute as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "absolute path: ${kindName__FsError(salvo.std.core.checked.detach(absolute_6))}")
+            salvo.std.core.console.println(console, "absolute path: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(absolute_6))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:350:5"))
@@ -501,7 +501,7 @@ fun sandboxEdges(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, s
     val gone: Union2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>> = fs.delete(probe)
     if ((gone is Union2.U2<*, *>)) {
         val gone_7: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((gone as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-        salvo.std.core.console.println(console, "delete failed: ${kindName__FsError(salvo.std.core.checked.detach(gone_7))}")
+        salvo.std.core.console.println(console, "delete failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(gone_7))}")
     }
 }
 
@@ -526,7 +526,7 @@ fun main() {
     val made: Union2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>> = __handle_10.createDirs(root)
     if ((made is Union2.U2<*, *>)) {
         val made_11: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((made as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-        salvo.std.core.console.println(__handle_2, "cannot create the working directory: ${kindName__FsError(salvo.std.core.checked.detach(made_11))}")
+        salvo.std.core.console.println(__handle_2, "cannot create the working directory: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(made_11))}")
         null
         return
     }
@@ -535,13 +535,13 @@ fun main() {
         val __use_12: salvo.std.fs.restricted.RestrictedFs = salvo.std.fs.restricted.RestrictedFs(root = root, __handle_10, __handle_6)
         val __lock___use_12 = java.util.concurrent.locks.ReentrantLock()
         val __handle_13: salvo.std.fs.Fs = salvo.std.fs.__Mon_Fs(__use_12, __lock___use_12)
-        workflow(__handle_13, __handle_2, __handle_6)
-        sandboxEdges(__handle_13, __handle_2, __handle_6)
+        salvo.main.workflow(__handle_13, __handle_2, __handle_6)
+        salvo.main.sandboxEdges(__handle_13, __handle_2, __handle_6)
     }
     val gone: Union2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>> = __handle_10.delete(root)
     if ((gone is Union2.U2<*, *>)) {
         val gone_14: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((gone as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-        salvo.std.core.console.println(__handle_2, "cleanup failed: ${kindName__FsError(salvo.std.core.checked.detach(gone_14))}")
+        salvo.std.core.console.println(__handle_2, "cleanup failed: ${salvo.main.kindName__FsError(salvo.std.core.checked.detach(gone_14))}")
     }
     salvo.std.core.console.println(__handle_2, "-- the same code, with no disk at all --")
     kotlin.run {
@@ -549,7 +549,7 @@ fun main() {
         val __lock___use_15 = java.util.concurrent.locks.ReentrantLock()
         val __handle_16: salvo.std.fs.Fs = salvo.std.fs.__Mon_Fs(__use_15, __lock___use_15)
         val __handle_17: salvo.std.stream.Streams = salvo.std.stream.__Mon_Streams(__use_15, __lock___use_15)
-        workflow(__handle_16, __handle_2, __handle_17)
+        salvo.main.workflow(__handle_16, __handle_2, __handle_17)
     }
 }
 

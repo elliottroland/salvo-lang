@@ -39,7 +39,7 @@ class Counting : Counter {
 class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Counting_Counter(handler, msg as __Msg_Counter)
+        salvo.main.__dispatch_Counting_Counter(handler, msg as __Msg_Counter)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -107,7 +107,7 @@ class Bookkeeping(private val __dep0: Counter) : Ledger {
 class __Actor_Bookkeeping(private val handler: Bookkeeping) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Bookkeeping_Ledger(handler, msg as __Msg_Ledger)
+        salvo.main.__dispatch_Bookkeeping_Ledger(handler, msg as __Msg_Ledger)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -200,7 +200,7 @@ class Desking(private val room: Int) : Desk {
 class __Actor_Desking(private val handler: Desking) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Desking_Desk(handler, msg as __Msg_Desk)
+        salvo.main.__dispatch_Desking_Desk(handler, msg as __Msg_Desk)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -271,7 +271,7 @@ class Breaking : Fragile {
 class __Actor_Breaking(private val handler: Breaking) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Breaking_Fragile(handler, msg as __Msg_Fragile)
+        salvo.main.__dispatch_Breaking_Fragile(handler, msg as __Msg_Fragile)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -306,7 +306,7 @@ fun formatted(label: String, out: salvo.SalvoReply, total: Int) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun reportLine(counter: Int, label: String, out: salvo.SalvoReply) {
-    salvo.SalvoSched.sendWire(counter, __Msg_Counter.Total(kotlin.run { val __c0 = label; val __c1 = out; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) }) { __v -> formatted(__c0, __c1, __v as Int) } }), __PROTO_Counter, __Codec___Msg_Counter)
+    salvo.SalvoSched.sendWire(counter, __Msg_Counter.Total(kotlin.run { val __c0 = label; val __c1 = out; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) }) { __v -> salvo.main.formatted(__c0, __c1, __v as Int) } }), __PROTO_Counter, __Codec___Msg_Counter)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -385,7 +385,7 @@ fun main() {
     val line8: String = kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
-        reportLine(mine, "the counter", out)
+        salvo.main.reportLine(mine, "the counter", out)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     salvo.std.core.console.println(__handle_2, "8. ${line8}")

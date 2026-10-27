@@ -66,7 +66,7 @@ fun upload(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.con
         }
         (put is Union2.U2<*, *>) -> {
             val put_7: salvo.std.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>> = ((put as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "put ${key}: ${describe(salvo.std.core.checked.detach(put_7))}")
+            salvo.std.core.console.println(console, "put ${key}: ${salvo.main.describe(salvo.std.core.checked.detach(put_7))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:58:5"))
@@ -84,7 +84,7 @@ fun download(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.c
     }
     if ((got is Union2.U2<*, *>)) {
         val got_1: salvo.std.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>> = ((got as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>>)
-        salvo.std.core.console.println(console, "get ${key}: ${describe(salvo.std.core.checked.detach(got_1))}")
+        salvo.std.core.console.println(console, "get ${key}: ${salvo.main.describe(salvo.std.core.checked.detach(got_1))}")
         null
         return
     }
@@ -137,8 +137,8 @@ fun download(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.c
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun roundTrip(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, streams: salvo.std.stream.Streams, key: String) {
-    upload(s3, fs, console, streams, "notes", key, salvo.std.fs.path.path("notes.txt"), sizeOf(fs, streams, salvo.std.fs.path.path("notes.txt")))
-    download(s3, fs, console, streams, "notes", key, salvo.std.fs.path.path("back.txt"))
+    salvo.main.upload(s3, fs, console, streams, "notes", key, salvo.std.fs.path.path("notes.txt"), salvo.main.sizeOf(fs, streams, salvo.std.fs.path.path("notes.txt")))
+    salvo.main.download(s3, fs, console, streams, "notes", key, salvo.std.fs.path.path("back.txt"))
     val back: Union2<String, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>> = salvo.std.fs.readToStr(fs, streams, salvo.std.fs.path.path("back.txt"))
     when {
         (back is Union2.U1<*, *>) -> {
@@ -218,8 +218,8 @@ fun main() {
         val __lock___use_7 = java.util.concurrent.locks.ReentrantLock()
         val __handle_8: salvo.aws.s3.S3 = salvo.aws.s3.__Mon_S3(__use_7, __lock___use_7)
         val __handle_9: salvo.aws.s3.S3Calls = salvo.aws.s3.__Mon_S3Calls(__use_7, __lock___use_7)
-        roundTrip(__handle_8, __handle_4, __handle_2, __handle_5, "greeting.txt")
-        upload(__handle_8, __handle_4, __handle_2, __handle_5, "notes", "unsized.txt", salvo.std.fs.path.path("notes.txt"), null)
+        salvo.main.roundTrip(__handle_8, __handle_4, __handle_2, __handle_5, "greeting.txt")
+        salvo.main.upload(__handle_8, __handle_4, __handle_2, __handle_5, "notes", "unsized.txt", salvo.std.fs.path.path("notes.txt"), null)
         salvo.std.core.console.println(__handle_2, "calls: ${salvo.std.core.list.toStr(__handle_9.calls(), { __a0 -> __a0 })}")
     }
     salvo.std.core.console.println(__handle_2, "-- MemS3 --")
@@ -227,8 +227,8 @@ fun main() {
         val __use_10: MemS3 = MemS3(__handle_5)
         val __lock___use_10 = java.util.concurrent.locks.ReentrantLock()
         val __handle_11: salvo.aws.s3.S3 = salvo.aws.s3.__Mon_S3(__use_10, __lock___use_10)
-        roundTrip(__handle_11, __handle_4, __handle_2, __handle_5, "greeting.txt")
-        download(__handle_11, __handle_4, __handle_2, __handle_5, "notes", "missing.txt", salvo.std.fs.path.path("missing.txt"))
+        salvo.main.roundTrip(__handle_11, __handle_4, __handle_2, __handle_5, "greeting.txt")
+        salvo.main.download(__handle_11, __handle_4, __handle_2, __handle_5, "notes", "missing.txt", salvo.std.fs.path.path("missing.txt"))
     }
 }
 

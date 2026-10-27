@@ -66,7 +66,7 @@ fun<T> cmp__List_List(a: List<T>, b: List<T>, cmp: (T, T) -> Int): Int {
 fun<T> hash__List(value: List<T>, hash: (T) -> Long): Long {
     var h: Long = 7L
     for (x in salvo.platform.std.core.list.each(value)) {
-        h = mixHash(h, hash(x))
+        h = salvo.std.core.compare.mixHash(h, hash(x))
     }
     return h
 }
@@ -84,7 +84,7 @@ fun<A, B> cmp__TupleAB_TupleAB(a: kotlin.Pair<A, B>, b: kotlin.Pair<A, B>, cmp: 
 }
 
 fun<A, B> hash__TupleAB(value: kotlin.Pair<A, B>, hash: (A) -> Long, hash__1: (B) -> Long): Long {
-    return mixHash(mixHash(7L, hash(value.first)), hash__1(value.second))
+    return salvo.std.core.compare.mixHash(salvo.std.core.compare.mixHash(7L, hash(value.first)), hash__1(value.second))
 }
 
 fun<A, B, C> eq__TupleABC_TupleABC(a: kotlin.Triple<A, B, C>, b: kotlin.Triple<A, B, C>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean, eq__2: (C, C) -> Boolean): Boolean {
@@ -104,7 +104,7 @@ fun<A, B, C> cmp__TupleABC_TupleABC(a: kotlin.Triple<A, B, C>, b: kotlin.Triple<
 }
 
 fun<A, B, C> hash__TupleABC(value: kotlin.Triple<A, B, C>, hash: (A) -> Long, hash__1: (B) -> Long, hash__2: (C) -> Long): Long {
-    return mixHash(mixHash(mixHash(7L, hash(value.first)), hash__1(value.second)), hash__2(value.third))
+    return salvo.std.core.compare.mixHash(salvo.std.core.compare.mixHash(salvo.std.core.compare.mixHash(7L, hash(value.first)), hash__1(value.second)), hash__2(value.third))
 }
 
 fun mixHash(seed: Long, value: Long): Long {

@@ -3048,6 +3048,14 @@ Conventions:
     candidate the arguments keep the untyped probe, and the lead is only ever
     a *hint* — the selection re-derives everything from the argument types it
     ends up with.
+    * **No dominant candidate and a lambda with an unwritten parameter
+      type** (2026-10-27, found beside B1 census D16): the lambda takes the
+      type every candidate in the pool declares at its position when they
+      all declare the same concrete one, and is refused otherwise ("cannot
+      type this lambda: the overloads of `twice` take different types at
+      this position …; write the lambda's parameter types"). Before, it was
+      typed `Unknown`, the first candidate was taken
+      [fn-overload-ambiguous], and rustc and kotlinc both refused the code.
 * [implicit-fit] **A candidate whose implicits nothing can fill does not
   fit** (user decision 2026-10-04): among several candidates, one with an
   implicit parameter that no named argument, forwarded implicit or visible fn
@@ -3084,6 +3092,14 @@ Conventions:
     no refinement of that callee disagrees in this file, the `@place` is noise —
     and noise in a disambiguation spelling reads as evidence that something is
     ambiguous. Still a correct program, so a warning, never an error.
+    * "Without it" means what the bare call would reach (2026-10-27, B1
+      census D13): a plain `f@m(x)` whose bare `f(x)` a local or parameter
+      named `f` (an implicit included), a handler's own `send fn`, or an
+      effect member would take is never warned about — the selector is the
+      way past them. The dot form sees no locals [fn-dot], so there only an
+      effect member of the name withholds the warning. Before, the check
+      ranked the declared fns alone and warned at `show@main(5)` beside a
+      local `show`.
   * Naming a module with no *fitting* overload is an error listing the
     modules that have one — never a silent fallback.
   * It is the way out of a **shadowed** name: a local of the same name hides
@@ -3289,6 +3305,19 @@ Conventions:
     too ("`n` is not callable: its type is `Int`"), generics included: a
     type parameter has no bounds, so nothing makes a `T` callable.
   * Only an *un-inferred* callee stays silent [type-unknown-lenient].
+  * **A call through a fn value is checked like a declared call** (B1
+    census D19 and D20, 2026-10-27): through a fn-typed local or parameter,
+    an implicit, or a *computed* callee (`adder()(1)`, an element of a list
+    of fns), each argument must fit its parameter — the **claims** it names
+    included, as `arg_fits_param` judges a declared call's (`f(ys)` with
+    `f: (xs: NonEmpty List<Int>) -> Int` and `ys: List<Int>` is refused,
+    and a claim about another parameter, `(xs: List<Int>, i: Idx(xs) Int)`,
+    is about this call's argument there [qual-depend]) —
+    the count must match, and the value's contract applies [fn-contract].
+    What a `Mut`, a projection or `once` demands is the contract's to judge.
+    A computed callee used to be typed against its parameters and nothing
+    else, so rustc and kotlinc found its mistakes; a claim through a local
+    was dropped, and an empty list reached a `NonEmpty` parameter.
 * [field-resolve] Only structs have fields, and only the ones they declare
   (predicate-qualifier overrides refine them [qual-field-override]).
   A field on any other known type — an `intrinsic type`, an array, a fn
@@ -4890,11 +4919,15 @@ Conventions:
     * The arguments are typed **once**, while the side is decided, and
       handed to whichever path runs. They are typed *without* expected
       types, because the lead-candidate machinery belongs to the fn path
-      [fn-overload-rank]: in a colliding call a lambda argument that needs
-      its parameter type from the position falls back to
-      [type-unknown-lenient] instead of being checked against it. Sharing
-      the lead pool across both kinds is the improvement; nothing in std or
-      the tests depends on it.
+      [fn-overload-rank] — except a lambda with an unwritten parameter type
+      (2026-10-27, B1 census D16): it takes the type **every** candidate,
+      member and fn alike, declares at its position when they all declare
+      the same concrete one, and is refused otherwise ("cannot type this
+      lambda … write the lambda's parameter types"), since nothing else
+      could type it. Before, it was left `Unknown` [type-unknown-lenient]:
+      the analysis was clean and rustc and kotlinc both refused the code.
+      Sharing the lead pool across both kinds is still the improvement
+      (P4); nothing in std or the tests depends on it.
 * [effect-disambiguation] With multiple instances of a generic effect in
   scope, a member call disambiguates by (in order): explicit type args
   (`next_random<Int>()`), argument types, the expected type

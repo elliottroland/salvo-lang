@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2094 tests, complete: the toolchain tests are
+cargo test                  # 2102 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,108 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-27 — Every declared callee is named past locals, and calls through fn values are checked (B1 bugs)
+
+The five divergences of the call census (PIPELINE.md §II.13) that are wrong
+whatever P3 decides, fixed without deciding any of the ten questions §II.13
+leaves to the user; where a fix touched one, it kept the checker's current
+choice or refused.
+
+- **D11, D13 — Kotlin called a local where the checker chose a
+  declaration** [backend-never-wrong]. The Kotlin emitter wrote a call to a
+  fn of the calling module as a bare name, and Kotlin resolves a bare call
+  to a local or parameter holding a fn value (its `invoke`), or to a member
+  of the enclosing class, before the package's fun. So a `for` over a
+  concrete pass in a fn holding `?next` drove the implicit (10, 20 where
+  Rust printed 1, 2), `5.show()` and `show@main(5)` beside a local `show`
+  called the local, and — found while probing — a handler member `label`
+  calling the top-level `label` recursed into itself (a stack overflow).
+  **Fix** [kt-decl-call-qualified]: every call to a declared fn is
+  `salvo.<module>.<fn>(…)`, the calling module included (`fn_name` always
+  qualifies; `fn_ident` is the bare declaration name). A fn passed by value
+  stays `::name` at top level, where a callable reference finds the
+  package's fun even beside a local, and becomes a forwarding lambda inside
+  a class body, where `::name` is the member. A Salvo local named `salvo`,
+  `kotlin` or `java` is emitted `__l_<name>`, since it would capture every
+  qualified name in its scope (kotlinc refused `salvo.main.f(salvo)`; the
+  same was true of every std call before). **Rust** was not exposed: every
+  declared call is a `crate::` path [rs-shadowed-call], and handler members
+  are methods. The checker's choices are unchanged: a dot call still sees no
+  locals (D13's question is the user's).
+- **D13 — a wrong "`@` not needed" warning.** `unqualified_winner` ranks
+  the declared fns only, so `show@main(5)` beside a local `show` was told
+  the `@` changed nothing. **Fix**: the `@module` branch of `check_call`
+  records the selector (`at_needed`, by its path's span) when the bare name
+  would go elsewhere — for the plain form a local or parameter of the name
+  (an implicit included, whether or not the arguments fit it) or a
+  handler's own `send fn`; for both forms an effect member of the name —
+  and the warning is withheld there [fn-overload-at]. The dot form sees no
+  locals, so `5.show@main()` beside a local is still warned about. A side
+  effect: `close@main(1)` beside an equally specific available member
+  `close` (`the_selectors_pick_a_side`) is no longer warned about; it was
+  the same wrong warning, since without `@` that call is ambiguous.
+- **D16 — a lambda in a member-versus-fn call stayed `Unknown`.**
+  `route_member_or_fn` types the arguments before either side is chosen,
+  with no expected types. **Fix** [effect-available]: a lambda with an
+  unwritten parameter type takes the type every candidate (member and fn)
+  declares at its position when they all declare the same concrete one, and
+  is refused otherwise ("cannot type this lambda: `apply` is both a member
+  of `Ops` and a function, and their parameters at this position do not
+  agree …; write the lambda's parameter types"), the conservative choice:
+  ranking members and fns as one set with a lead candidate is P4's (B3
+  piece 5). A refused lambda then fits both sides, and the tie is not
+  reported a second time. **The census was wrong about the fn-only half of
+  its probe**: `twice(x -> x + 1)` over `twice((Int) -> Int)` and
+  `twice((Str) -> Str)` had no dominant lead either, typed the lambda
+  `Unknown`, took the first overload, and failed in both compilers too (the
+  probe's output shows both errors). The same rule now covers it in the fn
+  path [fn-overload-rank]: with no lead and a lambda with an unwritten
+  parameter type, the pool's common type at the position types it, and a
+  disagreement is refused; overloads agreeing on the lambda's position
+  (`pick((Int) -> Int, Int)` and `pick((Int) -> Int, Str)`) now type it.
+- **D19 — a computed callee checked nothing.** `adder()("x")` and
+  `adder()(1, 2)` passed the checker. **Fix** [call-resolve]: the
+  argument checks of a call through a fn-typed local moved into
+  `check_fn_value_args` (fit, claims, count, contract), which the computed
+  callee calls too ("this function value takes `Int` here, found `Str`").
+  The IR builder's computed callee now consumes what the contract consumes,
+  as the local path does, and — found by a probe — passes the value's
+  **effects**: `printer()("x")` with `printer() -> (s: Str) [Console] ->
+  None` was checker-clean and refused by rustc (E0057) and kotlinc (no
+  value for the handle).
+- **D20 — a claim dropped through a fn-typed local.** `arg_fits_fn_value`
+  compares base shapes. **Fix** [call-resolve]: once the base fits, the
+  argument must carry the parameter's claims (`fn_value_claims_fit`:
+  `arg_fits_param`, with `Mut`, `proj`/`ref`, `once` and effect qualifiers
+  set aside on both sides, since those are the contract's). A claim about
+  another parameter (`(xs: List<Int>, i: Idx(xs) Int) -> Int`) is
+  substituted with this call's argument roots, by the contract's parameter
+  names, as `call_value_roots` does for a declared call [qual-depend] — so
+  `f(zs, j)` with `j: Idx(ys) Int` is refused like the declared `pos(zs, j)`
+  (found while testing: without it a dependent claim was not tied to the
+  call).
+
+**Effects on existing programs**: none refused or changed meaning — the
+suite, `salvo analyze` on every example, `modules/aws`, both benches and
+std are clean as before. **Emitted code**: Kotlin only — every same-module
+call is package-qualified, so every example's `kotlin/` tree (181 files,
+4,564 lines, each a qualification), the five Kotlin goldens, the std and
+`modules/aws` ABI mirrors (`*.sv.kt`, 11 files each) and 14 Kotlin codegen
+assertions moved; a diff of the goldens with package prefixes stripped is
+empty. Rust output is byte-identical.
+
+**Tests** (8 new): checker — `an_at_module_past_a_shadowing_local_is_not_redundant`
+and `a_lambda_the_overloads_disagree_on_is_refused` (`overload_tests`),
+`a_lambda_in_a_colliding_call_takes_the_type_the_candidates_agree_on` and
+`a_lambda_the_colliding_candidates_disagree_on_is_refused`
+(`effect_at_tests`), `a_computed_callee_checks_its_arguments` and
+`a_call_through_a_local_checks_the_claims_its_parameter_demands`
+(`carry_tests`, the latter on real std); compile-and-run on both backends
+with one expected output — `declared-callees` (D11, D13, the handler
+member, locals named `salvo`/`kotlin`/`java`) and `fn-value-calls` (a
+computed callee with and without an effect, the agreeing lambdas): two
+`run_rust_files` tests and two `KOTLIN_CASES` entries.
 
 ### 2026-10-27 — Every type is keyed by its module (A1, second part)
 
@@ -30528,7 +30630,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2094 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2102 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -31820,6 +31922,21 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A bare Kotlin call is not the package's fun** (B1 bugs, 2026-10-27):
+  Kotlin tries a local or parameter of the name holding a fn value, then a
+  member of the enclosing class, before the file's own package — functions
+  and properties are separate namespaces only for a property with no
+  `invoke`. So the Kotlin emitter qualifies every declared call
+  [kt-decl-call-qualified]; a callable reference `::f` is safe beside a
+  local but is the member inside a class. A qualified name starts at a
+  package root, so a local named like one (`salvo`, `kotlin`, `java`)
+  must be renamed. When an emitter writes a name the checker resolved, ask
+  what else in scope the target language would bind it to.
+- **A census probe's "works" needs the output read, not the summary** (B1
+  bugs): D16's probe printed two kotlinc errors, one for each lambda, and
+  the census recorded the fn-only overload set as typing its lambda. It did
+  not; that half was the same bug.
 
 - **A test's stand-in for a std declaration goes in the test's std file**
   (A1, 2026-10-27): a type's key is its declaration's (`Name§main` for one

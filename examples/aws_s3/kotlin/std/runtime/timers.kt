@@ -180,7 +180,7 @@ class Wheeling : Wheel {
         while (true) {
             val now: Long = salvo.std.runtime.nowNanos()
             val due: salvo.platform.std.core.list.MutList<salvo.SalvoReply> = __module_use0_0.takeDue(now)
-            answerAll(due, now)
+            salvo.std.runtime.timers.answerAll(due, now)
             val until: Long? = __module_use0_0.nextDeadline()
             if ((until == null)) {
                 return
@@ -198,7 +198,7 @@ class Wheeling : Wheel {
 class __Actor_Wheeling(private val handler: Wheeling) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Wheeling_Wheel(handler, msg as __Msg_Wheel)
+        salvo.std.runtime.timers.__dispatch_Wheeling_Wheel(handler, msg as __Msg_Wheel)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -234,7 +234,7 @@ fun afterNanos(delay: Long, done: salvo.SalvoReply) {
     }
     if (salvo.std.runtime.virtualRuntime()) {
         if (__module_use0_0.register((salvo.std.runtime.nowNanos() + wait), done)) {
-            armClock()
+            salvo.std.runtime.timers.armClock()
         }
         return
     }
@@ -252,7 +252,7 @@ fun afterNanos(delay: Long, done: salvo.SalvoReply) {
 fun armClock() {
     salvo.std.runtime.onClock(salvo.std.runtime.mintTaskOn(salvo.std.runtime.mainPool(), salvo.std.runtime.bodyOfPlatform(fun(kind: Int, slot: Long, value: salvo.platform.std.runtime.Dyn) {
         salvo.std.runtime.dropDynPlatform(value)
-        advance()
+        salvo.std.runtime.timers.advance()
     })))
 }
 
@@ -263,9 +263,9 @@ fun advance() {
         salvo.std.runtime.setVirtualNow(at)
         val now: Long = salvo.std.runtime.nowNanos()
         val due: salvo.platform.std.core.list.MutList<salvo.SalvoReply> = __module_use0_0.takeDue(now)
-        answerAll(due, now)
+        salvo.std.runtime.timers.answerAll(due, now)
         if ((__module_use0_0.nextDeadline() != null)) {
-            armClock()
+            salvo.std.runtime.timers.armClock()
         }
     }
 }

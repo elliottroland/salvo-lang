@@ -171,7 +171,7 @@ fun show(console: salvo.std.core.console.Console, line: List<String>) {
             } else {
                 ""
             })
-            salvo.std.core.console.println(console, "  ${describe(r_1)}${loud}")
+            salvo.std.core.console.println(console, "  ${salvo.main.describe(r_1)}${loud}")
         }
         (r is Union2.U2<*, *>) -> {
             val r_2: List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>> = ((r as Union2.U2<*, *>).value as List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>)
@@ -200,17 +200,17 @@ fun main(args: Array<String>) {
     val __handle_4: salvo.std.args.Args = __use_3
     val __use_5: salvo.std.process.__Platform_HostProcess = salvo.std.process.__Platform_HostProcess()
     val __handle_6: salvo.std.process.Process = __use_5
-    show(__handle_2, listOf<String>("serve", "-p", "80", "index.html", "app.js"))
-    show(__handle_2, listOf<String>("-v", "serve", "--host=0.0.0.0", "--workers", "4", "--cert", "c.pem", "--key", "k.pem", "--output", "json", "site"))
-    show(__handle_2, listOf<String>("fetch", "--url", "https://example.com", "--header", "Accept: text/html", "--header", "X-Id: 7"))
-    show(__handle_2, listOf<String>("fetch", "--from-stdin"))
-    show(__handle_2, listOf<String>("serve", "-p", "0", "--output", "xml", "--cert", "c.pem"))
-    show(__handle_2, listOf<String>("fetch", "--url", "u", "--file", "f"))
-    show(__handle_2, listOf<String>("deploy"))
-    show(__handle_2, listOf<String>("--help"))
-    show(__handle_2, listOf<String>("serve", "--help"))
+    salvo.main.show(__handle_2, listOf<String>("serve", "-p", "80", "index.html", "app.js"))
+    salvo.main.show(__handle_2, listOf<String>("-v", "serve", "--host=0.0.0.0", "--workers", "4", "--cert", "c.pem", "--key", "k.pem", "--output", "json", "site"))
+    salvo.main.show(__handle_2, listOf<String>("fetch", "--url", "https://example.com", "--header", "Accept: text/html", "--header", "X-Id: 7"))
+    salvo.main.show(__handle_2, listOf<String>("fetch", "--from-stdin"))
+    salvo.main.show(__handle_2, listOf<String>("serve", "-p", "0", "--output", "xml", "--cert", "c.pem"))
+    salvo.main.show(__handle_2, listOf<String>("fetch", "--url", "u", "--file", "f"))
+    salvo.main.show(__handle_2, listOf<String>("deploy"))
+    salvo.main.show(__handle_2, listOf<String>("--help"))
+    salvo.main.show(__handle_2, listOf<String>("serve", "--help"))
     val tool: Tool = salvo.std.args.argsOrExit(__handle_2, __handle_6, __handle_4.args(), ::argSpec__SpecTool, ::fromFound__Found_OkToolOrErrsNonEmptyListArgError)
-    salvo.std.core.console.println(__handle_2, "argv: ${describe(tool)}")
+    salvo.std.core.console.println(__handle_2, "argv: ${salvo.main.describe(tool)}")
 }
 
 fun argSpec__SpecTool(): salvo.std.args.Spec {
@@ -238,9 +238,9 @@ fun argSpec__SpecTool(): salvo.std.args.Spec {
         salvo.std.core.list.addPlatform(opts, opt__c1__c2__c3__c4)
     }
     commandFields = (commandFields + 1)
-    val child__c8__c9__c11__c12__c13: salvo.std.args.Spec = argSpec__SpecServe()
+    val child__c8__c9__c11__c12__c13: salvo.std.args.Spec = salvo.main.argSpec__SpecServe()
     salvo.std.core.list.addPlatform(commands, salvo.std.args.CmdSpec(name = child__c8__c9__c11__c12__c13.name, about = child__c8__c9__c11__c12__c13.about))
-    val child__c8__c9__c11__c14__c15: salvo.std.args.Spec = argSpec__SpecFetch()
+    val child__c8__c9__c11__c14__c15: salvo.std.args.Spec = salvo.main.argSpec__SpecFetch()
     salvo.std.core.list.addPlatform(commands, salvo.std.args.CmdSpec(name = child__c8__c9__c11__c14__c15.name, about = child__c8__c9__c11__c14__c15.about))
     val name: String = salvo.std.args.commandName("Tool")
     return salvo.std.args.Spec(name = name, about = "A toy file server.", opts = opts, args = args, groups = groups, commands = commands, commandRequired = commandRequired, commandFields = commandFields)
@@ -251,12 +251,12 @@ fun fromFound__Found_OkToolOrErrsNonEmptyListArgError(found: salvo.std.args.Foun
     for (e in salvo.platform.std.core.list.each(found.errors)) {
         salvo.std.core.list.addPlatform(errors, e)
     }
-    val s__c8__c9__c10__c11__c12: salvo.std.args.Spec = argSpec__SpecServe()
+    val s__c8__c9__c10__c11__c12: salvo.std.args.Spec = salvo.main.argSpec__SpecServe()
     if (salvo.std.args.isCommand(found, s__c8__c9__c10__c11__c12.name)) {
         val r__c8__c9__c10__c11__c12: Union2<Serve, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = salvo.std.args.parseNamed(found.rest, found.path, ::argSpec__SpecServe, ::fromFound__Found_OkServeOrErrsNonEmptyListArgError)
         salvo.std.args.groupErrors(errors, r__c8__c9__c10__c11__c12, 0)
     }
-    val s__c8__c9__c10__c13__c14: salvo.std.args.Spec = argSpec__SpecFetch()
+    val s__c8__c9__c10__c13__c14: salvo.std.args.Spec = salvo.main.argSpec__SpecFetch()
     if (salvo.std.args.isCommand(found, s__c8__c9__c10__c13__c14.name)) {
         val r__c8__c9__c10__c13__c14: Union2<Fetch, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = salvo.std.args.parseNamed(found.rest, found.path, ::argSpec__SpecFetch, ::fromFound__Found_OkFetchOrErrsNonEmptyListArgError)
         salvo.std.args.groupErrors(errors, r__c8__c9__c10__c13__c14, 0)
@@ -267,11 +267,11 @@ fun fromFound__Found_OkToolOrErrsNonEmptyListArgError(found: salvo.std.args.Foun
     return Union2.U1<Tool, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Ok(Tool(verbose = salvo.std.args.eval(fun(): Boolean {
         return salvo.std.args.given(found, "verbose")
     }), command = salvo.std.args.eval(fun(): Union2<Serve, Fetch>? {
-        val s__c24__c25__c26__c27__c28: salvo.std.args.Spec = argSpec__SpecServe()
+        val s__c24__c25__c26__c27__c28: salvo.std.args.Spec = salvo.main.argSpec__SpecServe()
         if (salvo.std.args.isCommand(found, s__c24__c25__c26__c27__c28.name)) {
             return Union2.U1<Serve, Fetch>(salvo.std.args.built(salvo.std.args.parseNamed(found.rest, found.path, ::argSpec__SpecServe, ::fromFound__Found_OkServeOrErrsNonEmptyListArgError)))
         }
-        val s__c24__c25__c26__c29__c30: salvo.std.args.Spec = argSpec__SpecFetch()
+        val s__c24__c25__c26__c29__c30: salvo.std.args.Spec = salvo.main.argSpec__SpecFetch()
         if (salvo.std.args.isCommand(found, s__c24__c25__c26__c29__c30.name)) {
             return Union2.U2<Serve, Fetch>(salvo.std.args.built(salvo.std.args.parseNamed(found.rest, found.path, ::argSpec__SpecFetch, ::fromFound__Found_OkFetchOrErrsNonEmptyListArgError)))
         }
@@ -286,7 +286,7 @@ fun argSpec__SpecServe(): salvo.std.args.Spec {
     val commands: salvo.platform.std.core.list.MutList<salvo.std.args.CmdSpec> = mutableListOf<salvo.std.args.CmdSpec>()
     val commandRequired: Boolean = false
     val commandFields: Int = 0
-    val child__c1__c2__c3__c4: salvo.std.args.Spec = argSpec__SpecNet()
+    val child__c1__c2__c3__c4: salvo.std.args.Spec = salvo.main.argSpec__SpecNet()
     salvo.std.args.mergeGroup(opts, groups, child__c1__c2__c3__c4, "net", "flat", null)
     val required__c5__c6__c7__c8: Boolean = false
     val many__c5__c6__c7__c8: Boolean = false
@@ -328,7 +328,7 @@ fun argSpec__SpecServe(): salvo.std.args.Spec {
     if ((!(exclusive__c16__c17__c18__c19) || !(salvo.std.core.list.isEmpty(opt__c16__c17__c18__c19.choices)))) {
         salvo.std.core.list.addPlatform(opts, opt__c16__c17__c18__c19)
     }
-    val child__c33__c34__c35: salvo.std.args.Spec = argSpec__SpecTls()
+    val child__c33__c34__c35: salvo.std.args.Spec = salvo.main.argSpec__SpecTls()
     salvo.std.args.mergeGroup(opts, groups, child__c33__c34__c35, "tls", "together", "TLS (give both or neither).")
     var required__c36__c37__c38__c39: Boolean = false
     var many__c36__c37__c38__c39: Boolean = false
@@ -357,7 +357,7 @@ fun fromFound__Found_OkServeOrErrsNonEmptyListArgError(found: salvo.std.args.Fou
     for (e in salvo.platform.std.core.list.each(found.errors)) {
         salvo.std.core.list.addPlatform(errors, e)
     }
-    val r__c1__c2__c3__c4: Union2<Net, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = fromFound__Found_OkNetOrErrsNonEmptyListArgError(found)
+    val r__c1__c2__c3__c4: Union2<Net, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = salvo.main.fromFound__Found_OkNetOrErrsNonEmptyListArgError(found)
     salvo.std.args.groupErrors(errors, r__c1__c2__c3__c4, salvo.std.core.list.sizePlatform(found.errors))
     val positional__c5__c6__c7__c8__c9__c10__c11: Boolean = false
     val shown__c5__c6__c7__c8__c9__c10__c11: String = salvo.std.args.shownName("port", positional__c5__c6__c7__c8__c9__c10__c11)
@@ -370,9 +370,9 @@ fun fromFound__Found_OkServeOrErrsNonEmptyListArgError(found: salvo.std.args.Fou
             null
         })
     }, { __a0 -> salvo.std.core.string.fromStr__Str_IntOpt(__a0) })
-    val s__c25__c26__c27: salvo.std.args.Spec = argSpec__SpecTls()
+    val s__c25__c26__c27: salvo.std.args.Spec = salvo.main.argSpec__SpecTls()
     if (salvo.std.args.anyGiven(found, s__c25__c26__c27)) {
-        val r__c25__c26__c27: Union2<Tls, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = fromFound__Found_OkTlsOrErrsNonEmptyListArgError(found)
+        val r__c25__c26__c27: Union2<Tls, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = salvo.main.fromFound__Found_OkTlsOrErrsNonEmptyListArgError(found)
         salvo.std.args.groupErrors(errors, r__c25__c26__c27, salvo.std.core.list.sizePlatform(found.errors))
     }
     var positional__c28__c29__c30__c31__c32__c33__c34: Boolean = false
@@ -386,7 +386,7 @@ fun fromFound__Found_OkServeOrErrsNonEmptyListArgError(found: salvo.std.args.Fou
         return Union2.U2<Serve, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Errs(errors))
     }
     return Union2.U1<Serve, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Ok(Serve(net = salvo.std.args.eval(fun(): Net {
-        return salvo.std.args.built(fromFound__Found_OkNetOrErrsNonEmptyListArgError(found))
+        return salvo.std.args.built(salvo.main.fromFound__Found_OkNetOrErrsNonEmptyListArgError(found))
     }), port = salvo.std.args.eval(fun(): Int {
         return salvo.std.args.readValue(found, "port", kotlin.run {
             val __default_1: Int = 8080
@@ -413,9 +413,9 @@ fun fromFound__Found_OkServeOrErrsNonEmptyListArgError(found: salvo.std.args.Fou
         }
         return "text"
     }), tls = salvo.std.args.eval(fun(): Tls? {
-        val s__c65__c66__c67: salvo.std.args.Spec = argSpec__SpecTls()
+        val s__c65__c66__c67: salvo.std.args.Spec = salvo.main.argSpec__SpecTls()
         if (salvo.std.args.anyGiven(found, s__c65__c66__c67)) {
-            return salvo.std.args.built(fromFound__Found_OkTlsOrErrsNonEmptyListArgError(found))
+            return salvo.std.args.built(salvo.main.fromFound__Found_OkTlsOrErrsNonEmptyListArgError(found))
         }
         return null
     }), files = salvo.std.args.eval(fun(): List<String> {
@@ -596,13 +596,13 @@ fun argSpec__SpecFetch(): salvo.std.args.Spec {
     val choices__c1__c2__c3__c4: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     var exclusive__c1__c2__c3__c4: Boolean = false
     required__c1__c2__c3__c4 = true
-    val child__c1__c2__c3__c4__c5__c6__c9__c10__c11__c12: salvo.std.args.Spec = argSpec__SpecFromUrl()
+    val child__c1__c2__c3__c4__c5__c6__c9__c10__c11__c12: salvo.std.args.Spec = salvo.main.argSpec__SpecFromUrl()
     salvo.std.args.mergeGroup(opts, groups, child__c1__c2__c3__c4__c5__c6__c9__c10__c11__c12, "source/FromUrl", "arm", null)
     exclusive__c1__c2__c3__c4 = true
-    val child__c1__c2__c3__c4__c5__c6__c9__c10__c13__c14: salvo.std.args.Spec = argSpec__SpecFromFile()
+    val child__c1__c2__c3__c4__c5__c6__c9__c10__c13__c14: salvo.std.args.Spec = salvo.main.argSpec__SpecFromFile()
     salvo.std.args.mergeGroup(opts, groups, child__c1__c2__c3__c4__c5__c6__c9__c10__c13__c14, "source/FromFile", "arm", null)
     exclusive__c1__c2__c3__c4 = true
-    val child__c1__c2__c3__c4__c5__c6__c9__c10__c15__c16: salvo.std.args.Spec = argSpec__SpecFromStdin()
+    val child__c1__c2__c3__c4__c5__c6__c9__c10__c15__c16: salvo.std.args.Spec = salvo.main.argSpec__SpecFromStdin()
     salvo.std.args.mergeGroup(opts, groups, child__c1__c2__c3__c4__c5__c6__c9__c10__c15__c16, "source/FromStdin", "arm", null)
     exclusive__c1__c2__c3__c4 = true
     if (exclusive__c1__c2__c3__c4) {
@@ -638,19 +638,19 @@ fun fromFound__Found_OkFetchOrErrsNonEmptyListArgError(found: salvo.std.args.Fou
     for (e in salvo.platform.std.core.list.each(found.errors)) {
         salvo.std.core.list.addPlatform(errors, e)
     }
-    val s__c1__c2__c3__c4__c5__c6__c7__c8: salvo.std.args.Spec = argSpec__SpecFromUrl()
+    val s__c1__c2__c3__c4__c5__c6__c7__c8: salvo.std.args.Spec = salvo.main.argSpec__SpecFromUrl()
     if (salvo.std.args.anyGiven(found, s__c1__c2__c3__c4__c5__c6__c7__c8)) {
-        val r__c1__c2__c3__c4__c5__c6__c7__c8: Union2<FromUrl, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = fromFound__Found_OkFromUrlOrErrsNonEmptyListArgError(found)
+        val r__c1__c2__c3__c4__c5__c6__c7__c8: Union2<FromUrl, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = salvo.main.fromFound__Found_OkFromUrlOrErrsNonEmptyListArgError(found)
         salvo.std.args.groupErrors(errors, r__c1__c2__c3__c4__c5__c6__c7__c8, salvo.std.core.list.sizePlatform(found.errors))
     }
-    val s__c1__c2__c3__c4__c5__c6__c9__c10: salvo.std.args.Spec = argSpec__SpecFromFile()
+    val s__c1__c2__c3__c4__c5__c6__c9__c10: salvo.std.args.Spec = salvo.main.argSpec__SpecFromFile()
     if (salvo.std.args.anyGiven(found, s__c1__c2__c3__c4__c5__c6__c9__c10)) {
-        val r__c1__c2__c3__c4__c5__c6__c9__c10: Union2<FromFile, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = fromFound__Found_OkFromFileOrErrsNonEmptyListArgError(found)
+        val r__c1__c2__c3__c4__c5__c6__c9__c10: Union2<FromFile, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = salvo.main.fromFound__Found_OkFromFileOrErrsNonEmptyListArgError(found)
         salvo.std.args.groupErrors(errors, r__c1__c2__c3__c4__c5__c6__c9__c10, salvo.std.core.list.sizePlatform(found.errors))
     }
-    val s__c1__c2__c3__c4__c5__c6__c11__c12: salvo.std.args.Spec = argSpec__SpecFromStdin()
+    val s__c1__c2__c3__c4__c5__c6__c11__c12: salvo.std.args.Spec = salvo.main.argSpec__SpecFromStdin()
     if (salvo.std.args.anyGiven(found, s__c1__c2__c3__c4__c5__c6__c11__c12)) {
-        val r__c1__c2__c3__c4__c5__c6__c11__c12: Union2<FromStdin, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = fromFound__Found_OkFromStdinOrErrsNonEmptyListArgError(found)
+        val r__c1__c2__c3__c4__c5__c6__c11__c12: Union2<FromStdin, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = salvo.main.fromFound__Found_OkFromStdinOrErrsNonEmptyListArgError(found)
         salvo.std.args.groupErrors(errors, r__c1__c2__c3__c4__c5__c6__c11__c12, salvo.std.core.list.sizePlatform(found.errors))
     }
     val positional__c13__c14__c15__c16__c17__c18__c19: Boolean = false
@@ -663,17 +663,17 @@ fun fromFound__Found_OkFetchOrErrsNonEmptyListArgError(found: salvo.std.args.Fou
         return Union2.U2<Fetch, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Errs(errors))
     }
     return Union2.U1<Fetch, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Ok(Fetch(source = salvo.std.args.eval(fun(): Union3<FromUrl, FromFile, FromStdin> {
-        val s__c21__c22__c23__c24__c25__c26__c27__c28: salvo.std.args.Spec = argSpec__SpecFromUrl()
+        val s__c21__c22__c23__c24__c25__c26__c27__c28: salvo.std.args.Spec = salvo.main.argSpec__SpecFromUrl()
         if (salvo.std.args.anyGiven(found, s__c21__c22__c23__c24__c25__c26__c27__c28)) {
-            return Union3.U1<FromUrl, FromFile, FromStdin>(salvo.std.args.built(fromFound__Found_OkFromUrlOrErrsNonEmptyListArgError(found)))
+            return Union3.U1<FromUrl, FromFile, FromStdin>(salvo.std.args.built(salvo.main.fromFound__Found_OkFromUrlOrErrsNonEmptyListArgError(found)))
         }
-        val s__c21__c22__c23__c24__c25__c26__c29__c30: salvo.std.args.Spec = argSpec__SpecFromFile()
+        val s__c21__c22__c23__c24__c25__c26__c29__c30: salvo.std.args.Spec = salvo.main.argSpec__SpecFromFile()
         if (salvo.std.args.anyGiven(found, s__c21__c22__c23__c24__c25__c26__c29__c30)) {
-            return Union3.U2<FromUrl, FromFile, FromStdin>(salvo.std.args.built(fromFound__Found_OkFromFileOrErrsNonEmptyListArgError(found)))
+            return Union3.U2<FromUrl, FromFile, FromStdin>(salvo.std.args.built(salvo.main.fromFound__Found_OkFromFileOrErrsNonEmptyListArgError(found)))
         }
-        val s__c21__c22__c23__c24__c25__c26__c31__c32: salvo.std.args.Spec = argSpec__SpecFromStdin()
+        val s__c21__c22__c23__c24__c25__c26__c31__c32: salvo.std.args.Spec = salvo.main.argSpec__SpecFromStdin()
         if (salvo.std.args.anyGiven(found, s__c21__c22__c23__c24__c25__c26__c31__c32)) {
-            return Union3.U3<FromUrl, FromFile, FromStdin>(salvo.std.args.built(fromFound__Found_OkFromStdinOrErrsNonEmptyListArgError(found)))
+            return Union3.U3<FromUrl, FromFile, FromStdin>(salvo.std.args.built(salvo.main.fromFound__Found_OkFromStdinOrErrsNonEmptyListArgError(found)))
         }
         val v__c21__c22__c23__c24__c25__c26: String? = salvo.std.args.valueOf(found, "source")
         if (!((v__c21__c22__c23__c24__c25__c26 == null))) {

@@ -55,11 +55,11 @@ fun toStr__NetError(e: Union2<Unreachable, WireFailed>): String {
     return when {
         (e is Union2.U1<*, *>) -> {
             val e_1: Unreachable = ((e as Union2.U1<*, *>).value as Unreachable)
-            return "unreachable: ${toStr__NodeEndpoint(e_1.to)}"
+            return "unreachable: ${salvo.std.net.toStr__NodeEndpoint(e_1.to)}"
         }
         (e is Union2.U2<*, *>) -> {
             val e_2: WireFailed = ((e as Union2.U2<*, *>).value as WireFailed)
-            return "wire failed to ${toStr__NodeEndpoint(e_2.to)}: ${e_2.reason}"
+            return "wire failed to ${salvo.std.net.toStr__NodeEndpoint(e_2.to)}: ${e_2.reason}"
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:102:5"))
@@ -169,7 +169,7 @@ fun addRoute(node: NodeId, at: NodeEndpoint) {
 }
 
 fun routeFrames(out: Int) {
-    bindOutboundPlatform(salvo.std.runtime.routing.hereNode(), (out), ::forwardFrame)
+    salvo.std.net.bindOutboundPlatform(salvo.std.runtime.routing.hereNode(), (out), ::forwardFrame)
     salvo.std.runtime.routing.outboundBound()
 }
 
@@ -228,7 +228,7 @@ class Sending(private val __dep0: Transport) : Outbound {
 class __Actor_Sending(private val handler: Sending) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Sending_Outbound(handler, msg as __Msg_Outbound)
+        salvo.std.net.__dispatch_Sending_Outbound(handler, msg as __Msg_Outbound)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -263,14 +263,14 @@ class Receiving : Inbound {
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont_Receiving> = kotlin.collections.mutableMapOf()
     override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.std.core.bytes.Bytes) {
-        val _delivered: Boolean = deliverFrame(frame)
+        val _delivered: Boolean = salvo.std.net.deliverFrame(frame)
     }
 }
 
 class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_Receiving_Inbound(handler, msg as __Msg_Inbound)
+        salvo.std.net.__dispatch_Receiving_Inbound(handler, msg as __Msg_Inbound)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -305,18 +305,18 @@ fun connected(): Boolean {
 }
 
 fun connect__NodeEndpoint(transport: Transport, me: NodeEndpoint): Boolean {
-    return connect__NodeEndpoint_Pool(transport, me, salvo.std.core.actor.pool(1))
+    return salvo.std.net.connect__NodeEndpoint_Pool(transport, me, salvo.std.core.actor.pool(1))
 }
 
 fun connect__NodeEndpoint_Pool(transport: Transport, me: NodeEndpoint, on: Int): Boolean {
-    if (connected()) {
+    if (salvo.std.net.connected()) {
         return false
     }
     val sending: Int = kotlin.run { val __h = Sending(transport); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE); __a }
     val receiving: Int = kotlin.run { val __h = Receiving(); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE); __a }
-    routeFrames(sending)
+    salvo.std.net.routeFrames(sending)
     val _listening: Union2<Unit, Union2<Unreachable, WireFailed>> = transport.listen(me, receiving)
-    addRoute(thisNode(), me)
+    salvo.std.net.addRoute(salvo.std.net.thisNode(), me)
     return true
 }
 
@@ -495,10 +495,10 @@ fun handshake(transport: Transport, group: String, from: NodeId, data: salvo.pla
             if (!(((msg_1.group) == (group)))) {
                 return null
             }
-            addRoute(from, msg_1.at)
-            setPeerProtocols(from, msg_1.protocols)
+            salvo.std.net.addRoute(from, msg_1.at)
+            salvo.std.net.setPeerProtocols(from, msg_1.protocols)
             val ack: Union4<Hello, Ack, Leaving, Intro> = Union4.U2<Hello, Ack, Leaving, Intro>(Ack(group = group, at = transport.localEndpoint(), protocols = salvo.std.runtime.routing.localProtocols()))
-            sendControl(from, "", salvo.salvoEncode(ack, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro)))
+            salvo.std.net.sendControl(from, "", salvo.salvoEncode(ack, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro)))
             return Union3.U1<PeerHello, PeerGone, PeerIntro>(PeerHello(node = from, at = msg_1.at))
         }
         (msg is Union4.U2<*, *, *, *>) -> {
@@ -506,13 +506,13 @@ fun handshake(transport: Transport, group: String, from: NodeId, data: salvo.pla
             if (!(((msg_2.group) == (group)))) {
                 return null
             }
-            addRoute(from, msg_2.at)
-            setPeerProtocols(from, msg_2.protocols)
+            salvo.std.net.addRoute(from, msg_2.at)
+            salvo.std.net.setPeerProtocols(from, msg_2.protocols)
             return Union3.U1<PeerHello, PeerGone, PeerIntro>(PeerHello(node = from, at = msg_2.at))
         }
         (msg is Union4.U3<*, *, *, *>) -> {
             val msg_3: Leaving = ((msg as Union4.U3<*, *, *, *>).value as Leaving)
-            nodeLeft(from)
+            salvo.std.net.nodeLeft(from)
             return Union3.U2<PeerHello, PeerGone, PeerIntro>(PeerGone(node = from))
         }
         (msg is Union4.U4<*, *, *, *>) -> {
@@ -530,13 +530,13 @@ fun handshake(transport: Transport, group: String, from: NodeId, data: salvo.pla
 
 fun introduce(node: NodeId, peers: List<NodeEndpoint>) {
     val intro: Union4<Hello, Ack, Leaving, Intro> = Union4.U4<Hello, Ack, Leaving, Intro>(Intro(peers = peers))
-    sendControl(node, "", salvo.salvoEncode(intro, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro)))
+    salvo.std.net.sendControl(node, "", salvo.salvoEncode(intro, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro)))
 }
 
 fun leaveGroup(known: salvo.platform.std.core.map.Map<NodeId, Node>) {
     for (id in salvo.platform.std.core.list.each(salvo.std.core.map.keysPlatform(known))) {
         val leaving: Union4<Hello, Ack, Leaving, Intro> = Union4.U3<Hello, Ack, Leaving, Intro>(Leaving())
-        sendControl(id, "", salvo.salvoEncode(leaving, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro)))
+        salvo.std.net.sendControl(id, "", salvo.salvoEncode(leaving, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro)))
     }
 }
 
@@ -544,24 +544,24 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont_StaticNodeGroup> = kotlin.collections.mutableMapOf()
-    var known: salvo.platform.std.core.map.MutMap<NodeId, Node> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<NodeId, Node>>(), ::hash__NodeId, ::eq__NodeId_NodeId)
+    var known: salvo.platform.std.core.map.MutMap<NodeId, Node> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<NodeId, Node>>(), { __a0 -> salvo.std.net.hash__NodeId(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeId_NodeId(__a0, __a1) })
     var watchers: salvo.platform.std.core.list.MutList<Int> = mutableListOf<Int>()
     fun init() {
         val me: NodeEndpoint = __dep0.localEndpoint()
-        val _connected: Boolean = connect__NodeEndpoint(__dep0, me)
+        val _connected: Boolean = salvo.std.net.connect__NodeEndpoint(__dep0, me)
         salvo.SalvoSched.watchControl("", __addr!!) { __n, __d -> __Priv_StaticNodeGroup.Control(NodeId(__n), salvo.SalvoBytes(__d)) }
         for (e in salvo.platform.std.core.list.each(all)) {
-            if (!(eq__NodeEndpoint_NodeEndpoint(e, me))) {
-                val _sent: Union2<Unit, Union2<Unreachable, WireFailed>> = __dep0.deliver(e, helloFrame(__dep0, name))
+            if (!(salvo.std.net.eq__NodeEndpoint_NodeEndpoint(e, me))) {
+                val _sent: Union2<Unit, Union2<Unreachable, WireFailed>> = __dep0.deliver(e, salvo.std.net.helloFrame(__dep0, name))
             }
         }
     }
     override fun members(out: salvo.SalvoReply) {
-        salvo.SalvoSched.replyWire(out, knownNodes(known), salvo.ListCodec(__Codec_Node))
+        salvo.SalvoSched.replyWire(out, salvo.std.net.knownNodes(known), salvo.ListCodec(__Codec_Node))
     }
     override fun subscribe(w: Int) {
         for (id in salvo.platform.std.core.list.each(salvo.std.core.map.keysPlatform(known))) {
-            val n: Node? = salvo.std.core.map.getPlatform(known, id, ::hash__NodeId, ::eq__NodeId_NodeId)
+            val n: Node? = salvo.std.core.map.getPlatform(known, id, { __a0 -> salvo.std.net.hash__NodeId(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeId_NodeId(__a0, __a1) })
             if (!((n == null))) {
                 val n_1: Node = n!!
                 salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n_1), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
@@ -570,26 +570,26 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
         salvo.std.core.list.addPlatform(watchers, w)
     }
     override fun leave() {
-        leaveGroup(known)
+        salvo.std.net.leaveGroup(known)
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     fun control(from: NodeId, data: salvo.platform.std.core.bytes.Bytes) {
-        val event: Union3<PeerHello, PeerGone, PeerIntro>? = handshake(__dep0, name, from, data)
+        val event: Union3<PeerHello, PeerGone, PeerIntro>? = salvo.std.net.handshake(__dep0, name, from, data)
         when {
             (event is Union3.U1<*, *, *>) -> {
                 val event_1: PeerHello = ((event as Union3.U1<*, *, *>).value as PeerHello)
-                if (salvo.std.core.map.containsKeyPlatform(known, event_1.node, ::hash__NodeId, ::eq__NodeId_NodeId)) {
+                if (salvo.std.core.map.containsKeyPlatform(known, event_1.node, { __a0 -> salvo.std.net.hash__NodeId(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeId_NodeId(__a0, __a1) })) {
                     return
                 }
                 val n: Node = Node(id = event_1.node, at = event_1.at)
-                salvo.std.core.map.putPlatform(known, event_1.node, n, ::hash__NodeId, ::eq__NodeId_NodeId)
+                salvo.std.core.map.putPlatform(known, event_1.node, n, { __a0 -> salvo.std.net.hash__NodeId(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeId_NodeId(__a0, __a1) })
                 for (w in salvo.platform.std.core.list.each(watchers)) {
                     salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
                 }
             }
             (event is Union3.U2<*, *, *>) -> {
                 val event_2: PeerGone = ((event as Union3.U2<*, *, *>).value as PeerGone)
-                val n: Node? = salvo.std.core.map.removePlatform(known, event_2.node, ::hash__NodeId, ::eq__NodeId_NodeId)
+                val n: Node? = salvo.std.core.map.removePlatform(known, event_2.node, { __a0 -> salvo.std.net.hash__NodeId(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeId_NodeId(__a0, __a1) })
                 if ((n == null)) {
                     return
                 }
@@ -614,8 +614,8 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_NodeGroup -> __dispatch_StaticNodeGroup_NodeGroup(handler, msg)
-            is __Priv_StaticNodeGroup -> __dispatch_priv_StaticNodeGroup(handler, msg)
+            is __Msg_NodeGroup -> salvo.std.net.__dispatch_StaticNodeGroup_NodeGroup(handler, msg)
+            is __Priv_StaticNodeGroup -> salvo.std.net.__dispatch_priv_StaticNodeGroup(handler, msg)
             else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
@@ -667,23 +667,23 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont_GossipNodeGroup> = kotlin.collections.mutableMapOf()
-    var known: salvo.platform.std.core.map.MutMap<NodeId, Node> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<NodeId, Node>>(), ::hash__NodeId, ::eq__NodeId_NodeId)
+    var known: salvo.platform.std.core.map.MutMap<NodeId, Node> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<NodeId, Node>>(), { __a0 -> salvo.std.net.hash__NodeId(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeId_NodeId(__a0, __a1) })
     var dialed: salvo.platform.std.core.set.MutSet<String> = salvo.std.core.set.Mut_Set_platform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var watchers: salvo.platform.std.core.list.MutList<Int> = mutableListOf<Int>()
     fun init() {
         val me: NodeEndpoint = __dep0.localEndpoint()
-        val _connected: Boolean = connect__NodeEndpoint(__dep0, me)
+        val _connected: Boolean = salvo.std.net.connect__NodeEndpoint(__dep0, me)
         salvo.SalvoSched.watchControl("", __addr!!) { __n, __d -> __Priv_GossipNodeGroup.Control(NodeId(__n), salvo.SalvoBytes(__d)) }
         for (e in salvo.platform.std.core.list.each(seeds)) {
-            dial(__dep0, dialed, name, e)
+            salvo.std.net.dial(__dep0, dialed, name, e)
         }
     }
     override fun members(out: salvo.SalvoReply) {
-        salvo.SalvoSched.replyWire(out, knownNodes(known), salvo.ListCodec(__Codec_Node))
+        salvo.SalvoSched.replyWire(out, salvo.std.net.knownNodes(known), salvo.ListCodec(__Codec_Node))
     }
     override fun subscribe(w: Int) {
         for (id in salvo.platform.std.core.list.each(salvo.std.core.map.keysPlatform(known))) {
-            val n: Node? = salvo.std.core.map.getPlatform(known, id, ::hash__NodeId, ::eq__NodeId_NodeId)
+            val n: Node? = salvo.std.core.map.getPlatform(known, id, { __a0 -> salvo.std.net.hash__NodeId(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeId_NodeId(__a0, __a1) })
             if (!((n == null))) {
                 val n_1: Node = n!!
                 salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n_1), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
@@ -692,37 +692,37 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
         salvo.std.core.list.addPlatform(watchers, w)
     }
     override fun leave() {
-        leaveGroup(known)
+        salvo.std.net.leaveGroup(known)
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     fun control(from: NodeId, data: salvo.platform.std.core.bytes.Bytes) {
-        val event: Union3<PeerHello, PeerGone, PeerIntro>? = handshake(__dep0, name, from, data)
+        val event: Union3<PeerHello, PeerGone, PeerIntro>? = salvo.std.net.handshake(__dep0, name, from, data)
         when {
             (event is Union3.U1<*, *, *>) -> {
                 val event_1: PeerHello = ((event as Union3.U1<*, *, *>).value as PeerHello)
-                if (salvo.std.core.map.containsKeyPlatform(known, event_1.node, ::hash__NodeId, ::eq__NodeId_NodeId)) {
+                if (salvo.std.core.map.containsKeyPlatform(known, event_1.node, { __a0 -> salvo.std.net.hash__NodeId(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeId_NodeId(__a0, __a1) })) {
                     return
                 }
                 val others: salvo.platform.std.core.list.MutList<NodeEndpoint> = mutableListOf<NodeEndpoint>()
                 for (id in salvo.platform.std.core.list.each(salvo.std.core.map.keysPlatform(known))) {
-                    val n: Node? = salvo.std.core.map.getPlatform(known, id, ::hash__NodeId, ::eq__NodeId_NodeId)
+                    val n: Node? = salvo.std.core.map.getPlatform(known, id, { __a0 -> salvo.std.net.hash__NodeId(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeId_NodeId(__a0, __a1) })
                     if (!((n == null))) {
                         val n_2: Node = n!!
                         salvo.std.core.list.addPlatform(others, n_2.at)
                     }
-                    introduce(id, listOf<NodeEndpoint>(event_1.at))
+                    salvo.std.net.introduce(id, listOf<NodeEndpoint>(event_1.at))
                 }
-                introduce(event_1.node, others)
-                salvo.std.core.set.addPlatform(dialed, toStr__NodeEndpoint(event_1.at), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+                salvo.std.net.introduce(event_1.node, others)
+                salvo.std.core.set.addPlatform(dialed, salvo.std.net.toStr__NodeEndpoint(event_1.at), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
                 val n: Node = Node(id = event_1.node, at = event_1.at)
-                salvo.std.core.map.putPlatform(known, event_1.node, n, ::hash__NodeId, ::eq__NodeId_NodeId)
+                salvo.std.core.map.putPlatform(known, event_1.node, n, { __a0 -> salvo.std.net.hash__NodeId(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeId_NodeId(__a0, __a1) })
                 for (w in salvo.platform.std.core.list.each(watchers)) {
                     salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
                 }
             }
             (event is Union3.U2<*, *, *>) -> {
                 val event_3: PeerGone = ((event as Union3.U2<*, *, *>).value as PeerGone)
-                val n: Node? = salvo.std.core.map.removePlatform(known, event_3.node, ::hash__NodeId, ::eq__NodeId_NodeId)
+                val n: Node? = salvo.std.core.map.removePlatform(known, event_3.node, { __a0 -> salvo.std.net.hash__NodeId(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeId_NodeId(__a0, __a1) })
                 if ((n == null)) {
                     return
                 }
@@ -734,7 +734,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
             (event is Union3.U3<*, *, *>) -> {
                 val event_5: PeerIntro = ((event as Union3.U3<*, *, *>).value as PeerIntro)
                 for (e in salvo.platform.std.core.list.each(event_5.peers)) {
-                    dial(__dep0, dialed, name, e)
+                    salvo.std.net.dial(__dep0, dialed, name, e)
                 }
             }
             (event == null) -> {
@@ -750,8 +750,8 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_NodeGroup -> __dispatch_GossipNodeGroup_NodeGroup(handler, msg)
-            is __Priv_GossipNodeGroup -> __dispatch_priv_GossipNodeGroup(handler, msg)
+            is __Msg_NodeGroup -> salvo.std.net.__dispatch_GossipNodeGroup_NodeGroup(handler, msg)
+            is __Priv_GossipNodeGroup -> salvo.std.net.__dispatch_priv_GossipNodeGroup(handler, msg)
             else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
@@ -789,14 +789,14 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun dial(transport: Transport, dialed: salvo.platform.std.core.set.MutSet<String>, group: String, e: NodeEndpoint) {
-    if ((eq__NodeEndpoint_NodeEndpoint(e, transport.localEndpoint()) || salvo.std.core.set.containsPlatform(dialed, toStr__NodeEndpoint(e), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }))) {
+    if ((salvo.std.net.eq__NodeEndpoint_NodeEndpoint(e, transport.localEndpoint()) || salvo.std.core.set.containsPlatform(dialed, salvo.std.net.toStr__NodeEndpoint(e), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }))) {
         return
     }
-    salvo.std.core.set.addPlatform(dialed, toStr__NodeEndpoint(e), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    val sent: Union2<Unit, Union2<Unreachable, WireFailed>> = transport.deliver(e, helloFrame(transport, group))
+    salvo.std.core.set.addPlatform(dialed, salvo.std.net.toStr__NodeEndpoint(e), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    val sent: Union2<Unit, Union2<Unreachable, WireFailed>> = transport.deliver(e, salvo.std.net.helloFrame(transport, group))
     if ((sent is Union2.U2<*, *>)) {
         val sent_1: Union2<Unreachable, WireFailed> = ((sent as Union2.U2<*, *>).value as Union2<Unreachable, WireFailed>)
-        val _forgot: Boolean = salvo.std.core.set.removePlatform(dialed, toStr__NodeEndpoint(e), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+        val _forgot: Boolean = salvo.std.core.set.removePlatform(dialed, salvo.std.net.toStr__NodeEndpoint(e), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     }
 }
 
@@ -874,7 +874,7 @@ class __Mon_ActorGroupWatcher(
 }
 
 fun shareMembers(name: String, hash: String, node: NodeId, members: List<Int>) {
-    sendControl(node, name, salvo.salvoEncode(kotlin.Pair(hash, members), salvo.PairCodec(salvo.StrCodec, salvo.ListCodec(salvo.AddrCodec))))
+    salvo.std.net.sendControl(node, name, salvo.salvoEncode(kotlin.Pair(hash, members), salvo.PairCodec(salvo.StrCodec, salvo.ListCodec(salvo.AddrCodec))))
 }
 
 fun pending(a: Int): Int {
@@ -884,7 +884,7 @@ fun pending(a: Int): Int {
 fun actorGroup__Addr(nodes: Int, protocol: () -> Protocol): Int {
     val proto: Protocol = protocol()
     val name: String = proto.name
-    return actorGroup__Str_Addr(name, nodes, protocol)
+    return salvo.std.net.actorGroup__Str_Addr(name, nodes, protocol)
 }
 
 fun actorGroup__Str_Addr(name: String, nodes: Int, protocol: () -> Protocol): Int {
@@ -910,52 +910,52 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
         salvo.SalvoSched.watchControl(name, __addr!!) { __n, __d -> __Priv_ActorGrouping.Control(NodeId(__n), salvo.SalvoBytes(__d)) }
     }
     override fun join(member: Int) {
-        if (!(admit(all, member))) {
+        if (!(salvo.std.net.admit(all, member))) {
             return
         }
-        mirror(__addr!!, all)
+        salvo.std.net.mirror(__addr!!, all)
         for (w in salvo.platform.std.core.list.each(watchers)) {
             salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Joined(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
         }
         for (p in salvo.platform.std.core.list.each(peers)) {
-            shareMembers(name, proto.hash, p, listOf<Int>(member))
+            salvo.std.net.shareMembers(name, proto.hash, p, listOf<Int>(member))
         }
     }
     override fun leave(member: Int) {
-        if (!(withdraw(all, member))) {
+        if (!(salvo.std.net.withdraw(all, member))) {
             return
         }
-        mirror(__addr!!, all)
+        salvo.std.net.mirror(__addr!!, all)
         for (w in salvo.platform.std.core.list.each(watchers)) {
             salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Left(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
         }
     }
     override fun joined(n: Node) {
-        shareMembers(name, proto.hash, n.id, all)
+        salvo.std.net.shareMembers(name, proto.hash, n.id, all)
     }
     override fun left(n: Node, why: String) {
         val gone: salvo.platform.std.core.list.MutList<Int> = mutableListOf<Int>()
         for (m in salvo.platform.std.core.list.each(all)) {
-            if (eq__NodeId_NodeId(nodeOf(m), n.id)) {
+            if (salvo.std.net.eq__NodeId_NodeId(salvo.std.net.nodeOf(m), n.id)) {
                 salvo.std.core.list.addPlatform(gone, m)
             }
         }
         for (m in salvo.platform.std.core.list.each(gone)) {
-            if (withdraw(all, m)) {
+            if (salvo.std.net.withdraw(all, m)) {
                 for (w in salvo.platform.std.core.list.each(watchers)) {
                     salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Left(m), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
                 }
             }
         }
         if ((salvo.std.core.list.sizePlatform(gone) > 0)) {
-            mirror(__addr!!, all)
+            salvo.std.net.mirror(__addr!!, all)
         }
     }
     override fun members(out: salvo.SalvoReply) {
         salvo.SalvoSched.replyWire(out, all.toMutableList(), salvo.ListCodec(salvo.AddrCodec))
     }
     override fun refresh() {
-        viewRefresh(__addr!!)
+        salvo.std.net.viewRefresh(__addr!!)
     }
     override fun subscribe(w: Int) {
         salvo.std.core.list.addPlatform(watchers, w)
@@ -969,14 +969,14 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
         if (!(((got_1.first) == (proto.hash)))) {
             return
         }
-        if (!(containsNode(peers, from))) {
+        if (!(salvo.std.net.containsNode(peers, from))) {
             salvo.std.core.list.addPlatform(peers, from)
-            shareMembers(name, proto.hash, from, all)
+            salvo.std.net.shareMembers(name, proto.hash, from, all)
         }
         var changed: Boolean = false
         val got_2: kotlin.Pair<String, List<Int>> = got!!
         for (m in salvo.platform.std.core.list.each(got_2.second)) {
-            if (admit(all, m)) {
+            if (salvo.std.net.admit(all, m)) {
                 changed = true
                 for (w in salvo.platform.std.core.list.each(watchers)) {
                     salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Joined(m), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
@@ -984,7 +984,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
             }
         }
         if (changed) {
-            mirror(__addr!!, all)
+            salvo.std.net.mirror(__addr!!, all)
         }
     }
 }
@@ -993,9 +993,9 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_ActorGroup -> __dispatch_ActorGrouping_ActorGroup(handler, msg)
-            is __Msg_NodeGroupWatcher -> __dispatch_ActorGrouping_NodeGroupWatcher(handler, msg)
-            is __Priv_ActorGrouping -> __dispatch_priv_ActorGrouping(handler, msg)
+            is __Msg_ActorGroup -> salvo.std.net.__dispatch_ActorGrouping_ActorGroup(handler, msg)
+            is __Msg_NodeGroupWatcher -> salvo.std.net.__dispatch_ActorGrouping_NodeGroupWatcher(handler, msg)
+            is __Priv_ActorGrouping -> salvo.std.net.__dispatch_priv_ActorGrouping(handler, msg)
             else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
@@ -1041,7 +1041,7 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
 }
 
 fun mirror(group: Int, members: List<Int>) {
-    viewSet(group, members)
+    salvo.std.net.viewSet(group, members)
 }
 
 fun admit(list: salvo.platform.std.core.list.MutList<Int>, a: Int): Boolean {
@@ -1056,7 +1056,7 @@ fun admit(list: salvo.platform.std.core.list.MutList<Int>, a: Int): Boolean {
 
 fun containsNode(list: List<NodeId>, n: NodeId): Boolean {
     for (x in salvo.platform.std.core.list.each(list)) {
-        if (eq__NodeId_NodeId(x, n)) {
+        if (salvo.std.net.eq__NodeId_NodeId(x, n)) {
             return true
         }
     }
@@ -1197,11 +1197,11 @@ object __Codec_RoutePick : salvo.WireCodec<RoutePick> {
 }
 
 fun routePick__Addr_Long(routeSelector: RouteSelector, group: Int, seen: Long): RoutePick {
-    return routeKeyed(routeSelector, group, seen, null)
+    return salvo.std.net.routeKeyed(routeSelector, group, seen, null)
 }
 
 fun routePick__Addr_Long_Long(routeSelector: RouteSelector, group: Int, seen: Long, key: Long): RoutePick {
-    return routeKeyed(routeSelector, group, seen, key)
+    return salvo.std.net.routeKeyed(routeSelector, group, seen, key)
 }
 
 fun routeKeyed(routeSelector: RouteSelector, group: Int, seen: Long, key: Long?): RoutePick {
@@ -1210,8 +1210,8 @@ fun routeKeyed(routeSelector: RouteSelector, group: Int, seen: Long, key: Long?)
     val cap: Long = waits.maxWait.nanos
     var last: Long = seen
     while (true) {
-        val version: Long = viewVersion(group)
-        val view: RouteView = routeView(group)
+        val version: Long = salvo.std.net.viewVersion(group)
+        val view: RouteView = salvo.std.net.routeView(group)
         if ((version != last)) {
             routeSelector.changed(view)
             last = version
@@ -1221,20 +1221,20 @@ fun routeKeyed(routeSelector: RouteSelector, group: Int, seen: Long, key: Long?)
             val picked_1: Int = picked!!
             return RoutePick(to = picked_1, version = last)
         }
-        viewWait(group, version, wait)
+        salvo.std.net.viewWait(group, version, wait)
         wait = (wait * 2L)
         if ((wait > cap)) {
             wait = cap
         }
     }
     throw AssertionError("salvo: unreachable at std.net:1087:5")
-    return routeKeyed(routeSelector, group, seen, key)
+    return salvo.std.net.routeKeyed(routeSelector, group, seen, key)
 }
 
 fun routeView(group: Int): RouteView {
     val members: salvo.platform.std.core.list.MutList<RouteMember> = mutableListOf<RouteMember>()
-    for (m in salvo.platform.std.core.list.each(viewMembers(group))) {
-        salvo.std.core.list.addPlatform(members, RouteMember(addr = m, local = eq__NodeId_NodeId(nodeOf(m), thisNode())))
+    for (m in salvo.platform.std.core.list.each(salvo.std.net.viewMembers(group))) {
+        salvo.std.core.list.addPlatform(members, RouteMember(addr = m, local = salvo.std.net.eq__NodeId_NodeId(salvo.std.net.nodeOf(m), salvo.std.net.thisNode())))
     }
     return RouteView(members = members.toMutableList())
 }
@@ -1249,7 +1249,7 @@ class LeastLoaded(private val preferLocal: Boolean, private val config: RouteCon
         var best: RouteMember? = null
         var bestPending: Int = 0
         for (a in salvo.platform.std.core.list.each(view.members)) {
-            val load: Int = pending(a.addr)
+            val load: Int = salvo.std.net.pending(a.addr)
             if ((best == null)) {
                 best = a
                 bestPending = load
@@ -1365,7 +1365,7 @@ class Elected(private val config: RouteConfig, private val __dep0: Leader) : Rou
             })
         }
         for (a in salvo.platform.std.core.list.each(view.members)) {
-            if (eq__NodeId_NodeId(nodeOf(a.addr), l)) {
+            if (salvo.std.net.eq__NodeId_NodeId(salvo.std.net.nodeOf(a.addr), l)) {
                 chosen = a.addr
                 return
             }
@@ -1434,23 +1434,23 @@ class MemNetwork : MemNet {
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont_MemNetwork> = kotlin.collections.mutableMapOf()
-    var listeners: salvo.platform.std.core.map.MutMap<NodeEndpoint, Int> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<NodeEndpoint, Int>>(), ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
+    var listeners: salvo.platform.std.core.map.MutMap<NodeEndpoint, Int> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<NodeEndpoint, Int>>(), { __a0 -> salvo.std.net.hash__NodeEndpoint(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeEndpoint_NodeEndpoint(__a0, __a1) })
     var cuts: salvo.platform.std.core.set.MutSet<String> = salvo.std.core.set.Mut_Set_platform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var dead: salvo.platform.std.core.set.MutSet<NodeEndpoint> = salvo.std.core.set.Mut_Set_platform(arrayOf<NodeEndpoint>(), ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
+    var dead: salvo.platform.std.core.set.MutSet<NodeEndpoint> = salvo.std.core.set.Mut_Set_platform(arrayOf<NodeEndpoint>(), { __a0 -> salvo.std.net.hash__NodeEndpoint(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeEndpoint_NodeEndpoint(__a0, __a1) })
     var count: Int = 0
     override fun attach(at: NodeEndpoint, sink: Int) {
-        salvo.std.core.set.removePlatform(dead, at, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
-        salvo.std.core.map.putPlatform(listeners, at, sink, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
+        salvo.std.core.set.removePlatform(dead, at, { __a0 -> salvo.std.net.hash__NodeEndpoint(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeEndpoint_NodeEndpoint(__a0, __a1) })
+        salvo.std.core.map.putPlatform(listeners, at, sink, { __a0 -> salvo.std.net.hash__NodeEndpoint(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeEndpoint_NodeEndpoint(__a0, __a1) })
     }
     override fun detach(at: NodeEndpoint) {
-        salvo.std.core.map.removePlatform(listeners, at, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
+        salvo.std.core.map.removePlatform(listeners, at, { __a0 -> salvo.std.net.hash__NodeEndpoint(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeEndpoint_NodeEndpoint(__a0, __a1) })
     }
     override fun route(from: NodeEndpoint, to: NodeEndpoint, out: salvo.SalvoReply) {
-        if ((salvo.std.core.set.containsPlatform(dead, to, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint) || salvo.std.core.set.containsPlatform(cuts, cutKey(from, to), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }))) {
+        if ((salvo.std.core.set.containsPlatform(dead, to, { __a0 -> salvo.std.net.hash__NodeEndpoint(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeEndpoint_NodeEndpoint(__a0, __a1) }) || salvo.std.core.set.containsPlatform(cuts, salvo.std.net.cutKey(from, to), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }))) {
             salvo.SalvoSched.replyWire(out, null, salvo.OptCodec(salvo.AddrCodec))
             return
         }
-        val sink: Int? = salvo.std.core.map.getPlatform(listeners, to, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
+        val sink: Int? = salvo.std.core.map.getPlatform(listeners, to, { __a0 -> salvo.std.net.hash__NodeEndpoint(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeEndpoint_NodeEndpoint(__a0, __a1) })
         if ((sink == null)) {
             salvo.SalvoSched.replyWire(out, null, salvo.OptCodec(salvo.AddrCodec))
             return
@@ -1460,16 +1460,16 @@ class MemNetwork : MemNet {
         salvo.SalvoSched.replyWire(out, sink_1, salvo.OptCodec(salvo.AddrCodec))
     }
     override fun partition(a: NodeEndpoint, b: NodeEndpoint) {
-        salvo.std.core.set.addPlatform(cuts, cutKey(a, b), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-        salvo.std.core.set.addPlatform(cuts, cutKey(b, a), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+        salvo.std.core.set.addPlatform(cuts, salvo.std.net.cutKey(a, b), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+        salvo.std.core.set.addPlatform(cuts, salvo.std.net.cutKey(b, a), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     }
     override fun heal(a: NodeEndpoint, b: NodeEndpoint) {
-        salvo.std.core.set.removePlatform(cuts, cutKey(a, b), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-        salvo.std.core.set.removePlatform(cuts, cutKey(b, a), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+        salvo.std.core.set.removePlatform(cuts, salvo.std.net.cutKey(a, b), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+        salvo.std.core.set.removePlatform(cuts, salvo.std.net.cutKey(b, a), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     }
     override fun kill(node: NodeEndpoint) {
-        salvo.std.core.map.removePlatform(listeners, node, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
-        salvo.std.core.set.addPlatform(dead, node, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
+        salvo.std.core.map.removePlatform(listeners, node, { __a0 -> salvo.std.net.hash__NodeEndpoint(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeEndpoint_NodeEndpoint(__a0, __a1) })
+        salvo.std.core.set.addPlatform(dead, node, { __a0 -> salvo.std.net.hash__NodeEndpoint(__a0) }, { __a0, __a1 -> salvo.std.net.eq__NodeEndpoint_NodeEndpoint(__a0, __a1) })
     }
     override fun delivered(out: salvo.SalvoReply) {
         salvo.SalvoSched.replyWire(out, count, salvo.IntCodec)
@@ -1479,7 +1479,7 @@ class MemNetwork : MemNet {
 class __Actor_MemNetwork(private val handler: MemNetwork) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch_MemNetwork_MemNet(handler, msg as __Msg_MemNet)
+        salvo.std.net.__dispatch_MemNetwork_MemNet(handler, msg as __Msg_MemNet)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -1550,7 +1550,7 @@ class MemTransport(private val me: NodeEndpoint, private val net: Int) : Transpo
 }
 
 fun cutKey(a: NodeEndpoint, b: NodeEndpoint): String {
-    return "${toStr__NodeEndpoint(a)}>${toStr__NodeEndpoint(b)}"
+    return "${salvo.std.net.toStr__NodeEndpoint(a)}>${salvo.std.net.toStr__NodeEndpoint(b)}"
 }
 
 fun cmp(a: NodeEndpoint, b: NodeEndpoint): Int {
@@ -1597,16 +1597,16 @@ fun eq__NodeId_NodeId(a: NodeId, b: NodeId): Boolean {
 
 fun hash__Node(value: Node): Long {
     var h: Long = 17L
-    h = salvo.std.core.compare.mixHash(h, hash__NodeId(value.id))
-    h = salvo.std.core.compare.mixHash(h, hash__NodeEndpoint(value.at))
+    h = salvo.std.core.compare.mixHash(h, salvo.std.net.hash__NodeId(value.id))
+    h = salvo.std.core.compare.mixHash(h, salvo.std.net.hash__NodeEndpoint(value.at))
     return h
 }
 
 fun eq__Node_Node(a: Node, b: Node): Boolean {
-    if (!(eq__NodeId_NodeId(a.id, b.id))) {
+    if (!(salvo.std.net.eq__NodeId_NodeId(a.id, b.id))) {
         return false
     }
-    if (!(eq__NodeEndpoint_NodeEndpoint(a.at, b.at))) {
+    if (!(salvo.std.net.eq__NodeEndpoint_NodeEndpoint(a.at, b.at))) {
         return false
     }
     return true

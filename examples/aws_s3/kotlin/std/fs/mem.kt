@@ -91,13 +91,13 @@ class MemFs : salvo.std.fs.Fs, salvo.std.stream.Streams {
         if (salvo.std.core.map.containsKeyPlatform(files, pathText, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })) {
             return true
         }
-        return fsHasChildren(files, pathText)
+        return salvo.std.fs.mem.fsHasChildren(files, pathText)
     }
     override fun metadata(path: salvo.std.fs.path.Path): Union2<salvo.std.fs.FileInfo, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>> {
         val pathText: String = salvo.std.fs.path.toStr(path)
         val content: salvo.platform.std.core.bytes.Bytes? = salvo.std.core.map.getPlatform(files, pathText, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         if ((content == null)) {
-            if (fsHasChildren(files, pathText)) {
+            if (salvo.std.fs.mem.fsHasChildren(files, pathText)) {
                 return Union2.U1<salvo.std.fs.FileInfo, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.ok(salvo.std.fs.FileInfo(size = 0L, isDir = true)))
             }
             return Union2.U2<salvo.std.fs.FileInfo, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union7.U1<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>(salvo.std.fs.NotFound(path = pathText)))))
@@ -110,7 +110,7 @@ class MemFs : salvo.std.fs.Fs, salvo.std.stream.Streams {
         if (salvo.std.core.map.containsKeyPlatform(files, pathText, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })) {
             return Union2.U2<List<String>, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union7.U4<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>(salvo.std.fs.NotADirectory(path = pathText)))))
         }
-        if (!(fsHasChildren(files, pathText))) {
+        if (!(salvo.std.fs.mem.fsHasChildren(files, pathText))) {
             return Union2.U2<List<String>, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union7.U1<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>(salvo.std.fs.NotFound(path = pathText)))))
         }
         val names: salvo.platform.std.core.set.MutSet<String> = salvo.std.core.set.Mut_Set_platform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
@@ -144,7 +144,7 @@ class MemFs : salvo.std.fs.Fs, salvo.std.stream.Streams {
             salvo.std.core.map.removePlatform(files, pathText, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
             return Union2.U1<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.ok(Unit))
         }
-        if (fsHasChildren(files, pathText)) {
+        if (salvo.std.fs.mem.fsHasChildren(files, pathText)) {
             return Union2.U2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union7.U6<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>(salvo.std.fs.IoError(path = pathText, message = "directory not empty")))))
         }
         return Union2.U2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union7.U1<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>(salvo.std.fs.NotFound(path = pathText)))))
@@ -163,17 +163,17 @@ class MemFs : salvo.std.fs.Fs, salvo.std.stream.Streams {
         return Union2.U1<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.ok(Unit))
     }
     override fun readLine(s: salvo.std.stream.InStream): String? {
-        return memReadLine(reads, s.handle)
+        return salvo.std.fs.mem.memReadLine(reads, s.handle)
     }
     override fun readAll(s: salvo.std.stream.InStream): Union2<String, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
-        return memReadAll(reads, s.handle)
+        return salvo.std.fs.mem.memReadAll(reads, s.handle)
     }
     override fun readBytes(s: salvo.std.stream.InStream, max: Int): Union2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
-        return memReadBytes(reads, s.handle, max)
+        return salvo.std.fs.mem.memReadBytes(reads, s.handle, max)
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun readTo__InStream_Bytes_Int(s: salvo.std.stream.InStream, buf: salvo.platform.std.core.bytes.MutBytes, max: Int): Union2<Int, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
-        val got: Union2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = memReadBytes(reads, s.handle, max)
+        val got: Union2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = salvo.std.fs.mem.memReadBytes(reads, s.handle, max)
         if ((got is Union2.U2<*, *>)) {
             val got_1: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((got as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
             return Union2.U2<Int, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(got_1)
@@ -185,7 +185,7 @@ class MemFs : salvo.std.fs.Fs, salvo.std.stream.Streams {
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun readTo__InStream_Str(s: salvo.std.stream.InStream, buf: salvo.platform.std.core.string.MutStr): Union2<Long, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
-        val got: Union2<String, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = memReadAll(reads, s.handle)
+        val got: Union2<String, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = salvo.std.fs.mem.memReadAll(reads, s.handle)
         if ((got is Union2.U2<*, *>)) {
             val got_1: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((got as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
             return Union2.U2<Long, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(got_1)
@@ -196,7 +196,7 @@ class MemFs : salvo.std.fs.Fs, salvo.std.stream.Streams {
         return Union2.U1<Long, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.ok(salvo.std.core.string.byteSizePlatform(text)))
     }
     override fun readLineTo(s: salvo.std.stream.InStream, buf: salvo.platform.std.core.string.MutStr): Boolean {
-        val line: String? = memReadLine(reads, s.handle)
+        val line: String? = salvo.std.fs.mem.memReadLine(reads, s.handle)
         return when {
             (line != null) -> {
                 val line_1: String = line!!
@@ -213,12 +213,12 @@ class MemFs : salvo.std.fs.Fs, salvo.std.stream.Streams {
     }
     override fun position__InStream(s: salvo.std.stream.InStream): Long {
         return (kotlin.run {
-            val __proj_1: MemRead = memReadState(reads, s.handle)
+            val __proj_1: MemRead = salvo.std.fs.mem.memReadState(reads, s.handle)
             __proj_1.at
         }).toLong()
     }
     override fun close__InStream(s: salvo.std.stream.InStream): Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
-        val open: MemRead = memReadState(reads, s.handle)
+        val open: MemRead = salvo.std.fs.mem.memReadState(reads, s.handle)
         val failed: Boolean = open.failed
         val source: String = open.source
         salvo.std.core.map.removePlatform(reads, s.handle, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
@@ -230,10 +230,10 @@ class MemFs : salvo.std.fs.Fs, salvo.std.stream.Streams {
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun receive(s: salvo.std.stream.InStream, reply: salvo.SalvoReply) {
-        val got: Union2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = memReadBytes(reads, s.handle, 65536)
+        val got: Union2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = salvo.std.fs.mem.memReadBytes(reads, s.handle, 65536)
         if ((got is Union2.U2<*, *>)) {
             val got_1: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((got as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-            val open: MemRead = memReadState(reads, s.handle)
+            val open: MemRead = salvo.std.fs.mem.memReadState(reads, s.handle)
             salvo.std.core.map.removePlatform(reads, s.handle, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
             kotlin.run { s; Unit }
             reply.send(Union3.U3<salvo.std.stream.Packet, salvo.std.stream.End, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>(salvo.std.stream.StreamFailed(source = open.source, message = "read failed"))))))
@@ -258,27 +258,27 @@ class MemFs : salvo.std.fs.Fs, salvo.std.stream.Streams {
         return salvo.std.stream.InStream(handle = handle)
     }
     override fun write(s: salvo.std.stream.OutStream, text: String): Long {
-        return memAppend(writes, s.handle, salvo.std.core.bytes.toBytesPlatform(text))
+        return salvo.std.fs.mem.memAppend(writes, s.handle, salvo.std.core.bytes.toBytesPlatform(text))
     }
     override fun writeLine(s: salvo.std.stream.OutStream, text: String): Long {
-        return memAppend(writes, s.handle, salvo.std.core.bytes.toBytesPlatform("${text}\n"))
+        return salvo.std.fs.mem.memAppend(writes, s.handle, salvo.std.core.bytes.toBytesPlatform("${text}\n"))
     }
     override fun writeBytes(s: salvo.std.stream.OutStream, data: salvo.platform.std.core.bytes.Bytes): Long {
-        return memAppend(writes, s.handle, data)
+        return salvo.std.fs.mem.memAppend(writes, s.handle, data)
     }
     override fun position__OutStream(s: salvo.std.stream.OutStream): Long {
         return (salvo.std.core.bytes.sizePlatform(kotlin.run {
-            val __proj_1: MemWrite = memWriteState(writes, s.handle)
+            val __proj_1: MemWrite = salvo.std.fs.mem.memWriteState(writes, s.handle)
             __proj_1.buffer
         })).toLong()
     }
     override fun flush(s: salvo.std.stream.OutStream): Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
-        val open: MemWrite = memWriteState(writes, s.handle)
+        val open: MemWrite = salvo.std.fs.mem.memWriteState(writes, s.handle)
         salvo.std.core.map.putPlatform(files, open.path, open.buffer, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         return Union2.U1<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.ok(Unit))
     }
     override fun close__OutStream(s: salvo.std.stream.OutStream): Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
-        val open: MemWrite = memWriteState(writes, s.handle)
+        val open: MemWrite = salvo.std.fs.mem.memWriteState(writes, s.handle)
         salvo.std.core.map.putPlatform(files, open.path, open.buffer, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         salvo.std.core.map.removePlatform(writes, s.handle, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         kotlin.run { s; Unit }
@@ -320,7 +320,7 @@ fun memFindNewline(data: salvo.platform.std.core.bytes.Bytes, from: Int): Int {
 }
 
 fun memAppend(writes: salvo.platform.std.core.map.MutMap<Long, MemWrite>, handle: Long, data: salvo.platform.std.core.bytes.Bytes): Long {
-    val open: MemWrite = memWriteState(writes, handle)
+    val open: MemWrite = salvo.std.fs.mem.memWriteState(writes, handle)
     val grown: salvo.platform.std.core.bytes.MutBytes = salvo.std.core.bytes.mutBytes(arrayOf<salvo.platform.std.core.bytes.Bytes>(open.buffer))
     salvo.std.core.bytes.appendPlatform(grown, data)
     val buffer: salvo.platform.std.core.bytes.Bytes = grown
@@ -347,7 +347,7 @@ fun memWriteState(writes: salvo.platform.std.core.map.Map<Long, MemWrite>, handl
 }
 
 fun memReadLine(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle: Long): String? {
-    val open: MemRead = memReadState(reads, handle)
+    val open: MemRead = salvo.std.fs.mem.memReadState(reads, handle)
     if (open.failed) {
         return null
     }
@@ -357,7 +357,7 @@ fun memReadLine(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle
     if ((at >= end)) {
         return null
     }
-    val stop: Int = memFindNewline(bytes, at)
+    val stop: Int = salvo.std.fs.mem.memFindNewline(bytes, at)
     val line: salvo.platform.std.core.bytes.Bytes = kotlin.run {
         val __pick_1: salvo.platform.std.core.bytes.Bytes? = salvo.std.core.bytes.slicePlatform(bytes, at, stop)
         (if ((__pick_1 != null)) {
@@ -382,7 +382,7 @@ fun memReadLine(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle
 }
 
 fun memReadAll(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle: Long): Union2<String, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
-    val open: MemRead = memReadState(reads, handle)
+    val open: MemRead = salvo.std.fs.mem.memReadState(reads, handle)
     val source: String = open.source
     if (open.failed) {
         return Union2.U2<String, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U1<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>(salvo.std.stream.InvalidUtf8(source = source)))))
@@ -409,7 +409,7 @@ fun memReadAll(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle:
 }
 
 fun memReadBytes(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle: Long, max: Int): Union2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
-    val open: MemRead = memReadState(reads, handle)
+    val open: MemRead = salvo.std.fs.mem.memReadState(reads, handle)
     val source: String = open.source
     if (open.failed) {
         return Union2.U2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U1<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>(salvo.std.stream.InvalidUtf8(source = source)))))

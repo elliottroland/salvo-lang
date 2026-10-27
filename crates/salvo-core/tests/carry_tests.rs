@@ -954,6 +954,69 @@ fn a_call_through_a_local_checks_its_arguments() {
     assert!(errs.iter().any(|e| e.contains("`f` takes 1 argument(s), found 2")), "{errs:?}");
 }
 
+/// [call-resolve] [fn-value] A **computed** callee (`adder()(1)`, an element
+/// of a list of fns) is checked like a call through a local (B1 census D19,
+/// 2026-10-27): before, each argument was only typed against its parameter,
+/// so a wrong argument or a wrong count passed the checker and rustc and
+/// kotlinc refused the generated code.
+#[test]
+fn a_computed_callee_checks_its_arguments() {
+    let adder = "fn adder() [] -> (n: Int) -> Int {\n    return (n: Int) -> n + 1\n}\n";
+    let ok = errors(&format!("{adder}fn g() [] -> Int {{\n    return adder()(1)\n}}\n"));
+    assert!(ok.is_empty(), "{ok:?}");
+    let errs = errors(&format!("{adder}fn g() [] -> Int {{\n    return adder()(\"x\")\n}}\n"));
+    assert!(
+        errs.iter().any(|e| e.contains("this function value takes `Int` here, found `Str`")),
+        "{errs:?}"
+    );
+    let errs = errors(&format!("{adder}fn g() [] -> Int {{\n    return adder()(1, 2)\n}}\n"));
+    assert!(
+        errs.iter().any(|e| e.contains("this function value takes 1 argument(s), found 2")),
+        "{errs:?}"
+    );
+}
+
+/// [call-resolve] A call through a fn-typed local checks the
+/// **claims** its parameter demands, as a declared call does (B1 census D20,
+/// 2026-10-27): `f(ys)` with `f: (xs: NonEmpty List<Int>) -> Int` and `ys:
+/// List<Int>` was accepted, and an empty list reached a `NonEmpty`
+/// parameter. A claimed argument still fits, and so does one whose claim the
+/// parameter does not ask for.
+#[test]
+fn a_call_through_a_local_checks_the_claims_its_parameter_demands() {
+    let errs = std_errors(
+        "fn through(f: (xs: NonEmpty List<Int>) -> Int, ys: List<Int>) [] -> Int => f, ys {\n    \
+         return f(ys)\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("`f` takes `NonEmpty List<Int>` here, found `List<Int>`")
+            && e.contains("does not carry what the parameter claims")),
+        "{errs:?}"
+    );
+    let ok = std_errors(
+        "fn through(f: (xs: NonEmpty List<Int>) -> Int, ys: List<Int>) [] -> Int => f, ys {\n    \
+         if ys is NonEmpty {\n        return f(ys)\n    }\n    return 0\n}\n\n\
+         fn loose(f: (xs: List<Int>) -> Int, ys: NonEmpty List<Int>) [] -> Int => f, ys {\n    \
+         return f(ys)\n}\n",
+    );
+    assert!(ok.is_empty(), "{ok:?}");
+    // [qual-depend] A claim about another parameter is about this call's
+    // argument there, as at a declared call.
+    let f = "f: (xs: List<Int>, i: Idx(xs) Int) -> Int";
+    let errs = std_errors(&format!(
+        "fn other({f}, ys: List<Int>, zs: List<Int>, j: Idx(ys) Int) [] -> Int => f, ys, zs, j {{\n    \
+         return f(zs, j)\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("found `Idx(ys) Int`") && e.contains("does not carry what the parameter claims")),
+        "{errs:?}"
+    );
+    let ok = std_errors(&format!(
+        "fn same({f}, ys: List<Int>, j: Idx(ys) Int) [] -> Int => f, ys, j {{\n    return f(ys, j)\n}}\n"
+    ));
+    assert!(ok.is_empty(), "{ok:?}");
+}
+
 /// [fn-type-named] Rule (c): a type-named fn must return the named base with
 /// at least the named qualifiers. `fn Mut List<T> -> Mut List<T>` is fine;
 /// returning a plain `List<T>` (missing `Mut`) is refused, and a wrong base
