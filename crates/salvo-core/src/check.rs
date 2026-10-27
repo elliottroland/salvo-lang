@@ -7396,6 +7396,47 @@ impl<'p, 'r> Checker<'p, 'r> {
         if entries.is_empty() {
             return Err(ImplicitMiss::Unknown);
         }
+        let (entry, fit) = self.select_fn_value(name, entries, want)?;
+        // [cmp-carry] The identity of the declaration itself, which is what a
+        // result type publishes: `@`-scoped when it is, and the bare name
+        // otherwise — a bare name means "the `cmp` of that name visible where
+        // the type is used", which is [implicit-resolve]'s locality.
+        let identity = self.identity_of(entry.key, entry.decl);
+        // [implicit-recursive] Only now the winner's own implicits, by the
+        // same rule; failing that is the error, not another candidate.
+        let mut nested = Vec::new();
+        if fit.fills && !self.resolve_as_call {
+            match self.try_nested(entry.key, entry.decl, &fit.binding, &fit.generics, want) {
+                Ok(n) => nested = n,
+                Err(reason) => return Err(ImplicitMiss::Unfilled(reason)),
+            }
+        }
+        self.last_nested = nested;
+        Ok((entry.key, identity))
+    }
+
+    /// [fn-value-select] [implicit-resolve] [fn-overload-scope] **The**
+    /// selection of a declared function at a fn type — a call's rule, with
+    /// the wanted fn type in place of an argument list. It serves an implicit
+    /// position (whatever its selector, see [`Self::resolve_implicit_fn_in`])
+    /// and a function passed by name ([`Self::fn_value_by_name`], after its
+    /// `@` selector): every candidate in `entries` competes, whatever rung
+    /// brought it into scope; each is fitted by the type (parameters
+    /// contravariant, result covariant, contract included) without its own
+    /// implicits filled; a stamped body's template fns only when nothing else
+    /// fits [comptime-hygiene]; among several, a candidate whose implicit
+    /// nothing could fill drops out [implicit-fit]; the most specific
+    /// signature wins [fn-overload-rank], and no single winner is
+    /// [`ImplicitMiss::Ambiguous`] [fn-overload-ambiguous]. Nothing fitting is
+    /// `NearMiss` with the best explanation, or `Unknown`. Never `Unfilled`:
+    /// the winner's own implicits are the caller's to fill. Emits no
+    /// diagnostic.
+    fn select_fn_value(
+        &mut self,
+        name: &str,
+        entries: Vec<crate::resolve::FnEntry<'p>>,
+        want: &Ty,
+    ) -> Result<(crate::resolve::FnEntry<'p>, FnFit), ImplicitMiss> {
         // The best explanation of a candidate that did not fit, for the
         // diagnostic when nothing does. Ranked, because the *interesting*
         // near-miss is the one a printed type cannot show: a candidate whose
@@ -7500,23 +7541,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         };
-        let (entry, fit) = hits.swap_remove(winner);
-        // [cmp-carry] The identity of the declaration itself, which is what a
-        // result type publishes: `@`-scoped when it is, and the bare name
-        // otherwise — a bare name means "the `cmp` of that name visible where
-        // the type is used", which is [implicit-resolve]'s locality.
-        let identity = self.identity_of(entry.key, entry.decl);
-        // 4. [implicit-recursive] Only now the winner's own implicits, by the
-        // same rule; failing that is the error, not another candidate.
-        let mut nested = Vec::new();
-        if fit.fills && !self.resolve_as_call {
-            match self.try_nested(entry.key, entry.decl, &fit.binding, &fit.generics, want) {
-                Ok(n) => nested = n,
-                Err(reason) => return Err(ImplicitMiss::Unfilled(reason)),
-            }
-        }
-        self.last_nested = nested;
-        Ok((entry.key, identity))
+        Ok(hits.swap_remove(winner))
     }
 
     /// [fn-overload-ambiguous] The candidates an implicit position could not
@@ -7622,13 +7647,15 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [fn-value-select] A function passed **by name** (`apply(describe, x)`),
-    /// with an optional `@module` selector. Selection is the same three-step
-    /// rule a call uses [fn-overload-scope] — `@module`, then the most
-    /// specific rung, then the most specific signature — except that what a
-    /// candidate has to fit is the **expected fn type** rather than an
-    /// argument list (user decision 2026-09-07). Before this, an overloaded
-    /// name resolved to whichever overload was declared first, which then
-    /// failed to match wherever it was going.
+    /// with an optional `@module` (or `@Type`) selector. Selection is a
+    /// call's [fn-overload-scope]: `@` first, then every visible overload
+    /// competes at the **expected fn type** in place of an argument list
+    /// ([`Self::select_fn_value`], shared with implicit resolution) — the
+    /// most specific signature wins, whatever rung brought it into scope, and
+    /// no single winner is an ambiguity naming `name@module` and `rename`
+    /// (user decisions 2026-09-07 and 2026-10-14; until 2026-10-14 the most
+    /// specific rung with a candidate won first, so `apply(tag, 1)` took a
+    /// module's `tag<T>` where `tag(1)` ranks an imported `tag(Int)` above it).
     ///
     /// With no expected fn type there is nothing to fit, so a single
     /// candidate is taken and an overloaded name is an error naming the two
@@ -7720,73 +7747,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             pool = named;
         }
-        // The most specific rung that has a candidate.
-        if let Some(top) = pool.iter().map(|e| e.rung).max() {
-            pool.retain(|e| e.rung == top);
-        }
-        // Then the expected type, if there is one: keep the candidates whose
-        // value type fits it.
-        if pool.len() > 1 {
-            if let Some(want) = expected {
-                let fitting: Vec<crate::resolve::FnEntry<'p>> = pool
-                    .iter()
-                    .copied()
-                    // [implicit-resolve] By type and contract, its own
-                    // implicits not filled: they are the winner's to fill.
-                    .filter(|e| self.fn_value_fit(e.key, e.decl, want).is_ok())
-                    .collect();
-                if fitting.is_empty() {
-                    // None of them fits — which is a *mismatch*, not an
-                    // ambiguity, and the reason is worth naming: a contract
-                    // difference does not show in a printed type
-                    // [fn-contract].
-                    let mut shown: Vec<String> = pool
-                        .iter()
-                        .map(|e| {
-                            let ty = self.fn_value_ty(e.key, e.decl);
-                            match self.fn_value_fit(e.key, e.decl, want) {
-                                Err((_, reason)) => format!("`{ty}` ({reason})"),
-                                Ok(_) => format!("`{ty}`"),
-                            }
-                        })
-                        .collect();
-                    shown.sort();
-                    shown.dedup();
-                    self.error(
-                        name_span,
-                        format!(
-                            "no overload of `{name}` fits `{want}` here: {}",
-                            shown.join("; ")
-                        ),
-                    );
-                    return Ty::Unknown;
-                }
-                pool = fitting;
+        // [fn-overload-scope] One declaration is one candidate, however many
+        // ways it is visible.
+        let mut seen: HashSet<FnKey> = HashSet::new();
+        pool.retain(|e| seen.insert(e.key));
+        let chosen = self.choose_by_name(name, &pool, expected);
+        let entry = match chosen {
+            Ok(entry) => entry,
+            Err(message) => {
+                self.error(name_span, message);
+                return Ty::Unknown;
             }
-        }
-        if pool.len() > 1 {
-            let mut shown: Vec<String> = pool
-                .iter()
-                .map(|e| {
-                    let ty = self.fn_value_ty(e.key, e.decl);
-                    format!("`{ty}`")
-                })
-                .collect();
-            shown.sort();
-            shown.dedup();
-            self.error(
-                name_span,
-                format!(
-                    "`{name}` is overloaded, so passing it by name is ambiguous: \
-                     {} all fit here. Annotate the position with the fn type you \
-                     mean, or give one overload its own name with \
-                     `rename fn <new> = {name}(...)`",
-                    shown.join(", ")
-                ),
-            );
-            return Ty::Unknown;
-        }
-        let entry = pool[0];
+        };
         // [fn-ref-table]
         self.out.fn_refs.insert(self.key(name_span), entry.key);
         let decl = entry.decl;
@@ -7861,6 +7833,59 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         value.ty
+    }
+
+    /// [fn-value-select] Which of `pool` (the visible overloads of `name`,
+    /// after the `@` selector) a function passed by name is: the one there
+    /// is; at an expected fn type, the call's selection
+    /// ([`Self::select_fn_value`]); with no expected fn type and several, an
+    /// error — there is nothing to select by. `Err` is the diagnostic.
+    fn choose_by_name(
+        &mut self,
+        name: &str,
+        pool: &[crate::resolve::FnEntry<'p>],
+        expected: Option<&Ty>,
+    ) -> Result<crate::resolve::FnEntry<'p>, String> {
+        if pool.len() == 1 {
+            return Ok(pool[0]);
+        }
+        let Some(want) = expected.filter(|t| matches!(t.strip_quals(), Ty::Fn { .. })) else {
+            let mut shown: Vec<String> = pool.iter().map(|e| format!("`{}`", self.fn_value_ty(e.key, e.decl))).collect();
+            shown.sort();
+            shown.dedup();
+            return Err(format!(
+                "`{name}` is overloaded, so passing it by name is ambiguous: \
+                 {} all fit here. Annotate the position with the fn type you \
+                 mean, or give one overload its own name with \
+                 `rename fn <new> = {name}(...)`",
+                shown.join(", ")
+            ));
+        };
+        match self.select_fn_value(name, pool.to_vec(), want) {
+            Ok((entry, _)) => Ok(entry),
+            Err(ImplicitMiss::Ambiguous(cands)) => Err(format!(
+                "`{name}` passed by name is ambiguous at `{want}`: {}",
+                Self::implicit_ambiguity(name, &cands, Some(&format!("`{name}@{{m}}`")))
+            )),
+            Err(_) => {
+                // None of them fits — which is a *mismatch*, not an
+                // ambiguity, and the reason is worth naming: a contract
+                // difference does not show in a printed type [fn-contract].
+                let mut shown: Vec<String> = pool
+                    .iter()
+                    .map(|e| {
+                        let ty = self.fn_value_ty(e.key, e.decl);
+                        match self.fn_value_fit(e.key, e.decl, want) {
+                            Err((_, reason)) => format!("`{ty}` ({reason})"),
+                            Ok(_) => format!("`{ty}`"),
+                        }
+                    })
+                    .collect();
+                shown.sort();
+                shown.dedup();
+                Err(format!("no overload of `{name}` fits `{want}` here: {}", shown.join("; ")))
+            }
+        }
     }
 
     /// [fn-rename] Brings a `rename fn` into force: resolves the overload it
@@ -31077,6 +31102,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Expr::Ident(id)
                     if self.lookup(&id.name).is_none()
                         && self.scope.fns.contains_key(id.name.as_str()) =>
+                {
+                    self.check_expr(a, exp.as_ref())
+                }
+                // [fn-value-select] [fn-overload-at] …and so does one named
+                // with `@` (`apply(tag@main, 1)`): without the expected type a
+                // generic `tag<T>` stayed `(T) -> Str` and the call found no
+                // overload (found 2026-10-14).
+                Expr::Scoped { base: None, name, .. } if self.scope.fns.contains_key(name.name.as_str()) => {
+                    self.check_expr(a, exp.as_ref())
+                }
+                Expr::EffectScoped { base: None, name, effect, .. }
+                    if self.names_a_type(&effect.name) && self.scope.fns.contains_key(name.name.as_str()) =>
                 {
                     self.check_expr(a, exp.as_ref())
                 }

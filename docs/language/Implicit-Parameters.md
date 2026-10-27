@@ -43,7 +43,8 @@ sort(names, cmp = (a: Str, b: Str) -> size(a) - size(b))
 A resolved implicit is exactly the function value you would get by passing
 that function by name: the same type (a constructor's gained claim, `->
 +Valid Range`, included), the same check of its contract, and its own
-implicits filled in turn. Only the choice differs, made for you here.
+implicits filled in turn. It is chosen the same way too — by the rule a call
+follows, at the position's type — only here without your writing the name.
 
 Inside the body an implicit is one more function of its name, chosen by the
 caller, and a call is resolved by its arguments: where they fit the implicit

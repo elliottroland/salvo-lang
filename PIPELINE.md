@@ -1970,3 +1970,14 @@ log current so the work can resume after a context reset). Newest last.
   0.67 s. IMPLICIT_RECURSE.md retired into COMPLETED.md. Found: ROADMAP 0w
   (by-name selection still by rung) and 0x (a written override is checked
   invariantly — a DECISION, since every by-name fn value is; not fixed).
+- **0w: a function passed by name is chosen as a call chooses (user
+  decision 2026-10-14): done** (committed "Choose a function passed by name
+  the way a call chooses"). `Checker::select_fn_value` is the shared
+  selection (steps 1–3 of `resolve_implicit_fn_in`, moved); `fn_value_by_name`
+  keeps its `@`, its single-candidate shortcut and its no-expectation error,
+  and calls it (`choose_by_name`). **Census** (temporary
+  `SALVO_BYNAME_CENSUS`, deleted): `cargo test` one line (the census's own
+  message at an error both ways), examples, `modules/aws`, `bench/*`,
+  `demo/`, `--src lib` none; nothing rewritten, no DECISION. Fixed on the
+  way: an `@`-written fn value as a call argument now takes the parameter's
+  expected type (`apply(tag@main, 1)` with a generic `tag<T>`).

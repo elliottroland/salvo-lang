@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2075 tests, complete: the toolchain tests are
+cargo test                  # 2078 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,57 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-14 — A function passed by name is chosen as a call chooses
+
+User decision 2026-10-14 (ROADMAP 0w, fixed per its recommendation).
+`fn_value_by_name` kept only the most specific visibility rung with a
+candidate and did not rank, though [fn-value-select] said it followed a
+call's rule — so `apply(tag, 1)` took a module's `tag<T>` where `tag(1)`
+ranks an imported `tag(Int)` above it. Now by-name selection **is** the
+implicit resolver's: steps 1–3 of `resolve_implicit_fn_in` (fit every
+candidate with `fn_value_fit`, the template fallback [comptime-hygiene],
+[implicit-fit]'s shape drop, `most_specific`, the ambiguity) moved into
+`Checker::select_fn_value`, which both call; the implicit side keeps the
+identity and the fill of the winner's implicits, by name keeps its `@`
+selector, its no-expected-type rule (one candidate taken, several an error
+naming an annotation and `rename`) and its single-candidate shortcut (a lone
+candidate is taken unfitted, its mismatch reported where it is used, as
+before). An ambiguity by name names the candidates and `tag@lib` / `tag@main`
+and `rename fn` (`implicit_ambiguity` with the by-name form). The pool is
+deduped by declaration first, as a call's is.
+
+- **Census** (a temporary `SALVO_BYNAME_CENSUS` switch ran both selections at
+  every by-name site, the old one live, and logged each site whose choice or
+  error differed; deleted): the whole `cargo test` (every program the suite
+  checks, std's own tests and the e2e programs included; 5m02 cold) logged
+  **one** line, and it was the census's own abbreviated old message at the
+  no-expectation error (`an_overloaded_fn_value_with_no_expectation_is_an_error`,
+  same choice: an error both ways). `salvo analyze` of every example,
+  `modules/aws/salvo`, `bench/*/salvo`, `demo/` (read-only) and `--src lib`
+  logged **none**. By class: (a) rung shadowing that now ranks — none outside
+  the new tests; (b) newly ambiguous — none; (c) previously an error, now
+  resolving — none; (d) cases for extending the rule — none, so no DECISION
+  item. No program, std file, example or generated code changed.
+- **Found and fixed on the way**: a by-name value written with `@` as a
+  call's argument got no expected type — the argument loop gave one to a bare
+  `Expr::Ident` naming a fn only — so `apply(tag@main, 1)` with a generic
+  `tag<T>` reached the call as `(T) -> Str` and was "no matching overload".
+  `Expr::Scoped` and a type-selected `Expr::EffectScoped` (`cmp@Person`) now
+  take the parameter's expected type too. Present before this change (the
+  rung code took the lone `@main` candidate the same way); found by the test
+  the `@` requirement asked for.
+- Docs: [fn-value-select] (the rung step dropped; the shared selection; the
+  `@` argument), [fn-value] (selection is one rule now), a bullet under
+  [fn-overload-scope]; Functions.md ("Passing a function by name"),
+  Implicit-Parameters.md ("Only the choice differs" was no longer true).
+
+Tests (3 new; the Kotlin case is a registry entry): the 0w repro as a
+compile-and-run case on both backends (`by-name-ranked`: `tag(1)`,
+`apply(tag, 1)` and `apply(tag@main, 1)` print `int`, `int`, `any`);
+`an_equal_signature_overload_beside_an_import_is_ambiguous_by_name` (the
+message names both candidates, `describe@lib`, `describe@main` and `rename
+fn`, and each `@` form checks clean); `a_fn_value_by_name_ranks_across_scopes`.
 
 ### 2026-10-14 — Implicit resolution follows call resolution
 
@@ -29915,7 +29966,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2075 under `cargo test` on 2026-10-26; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2078 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

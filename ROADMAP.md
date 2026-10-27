@@ -736,30 +736,10 @@ Record in COMPLETED.md ("`--src` is the source root", [manifest-src]). The
 implicit-resolution cost it reproduced was decided 2026-10-14 (implicits
 resolved as calls are; COMPLETED.md).
 
-### 0w — Open defect: a function passed by name is chosen by rung (found 2026-10-14)
+### 0w — Closed 2026-10-14: a function passed by name is chosen as a call chooses
 
-[fn-value-select] says a function passed by name is selected "through the same
-three steps a call uses", but `fn_value_by_name` keeps only the most specific
-rung with a candidate and does not rank, so it chooses where a call would rank
-or refuse. Repro (`lib.sv`: `export fn tag(v: Int) [] -> Str => v { return
-"int" }`):
-
-```
-import lib.tag
-fn tag<T>(v: T) [] -> Str => v { return "any" }
-fn apply(f: (x: Int) -> Str, x: Int) [] -> Str => f { return f(x) }
-fn main() [use] {
-    use StdConsole()
-    println(tag(1))          // int — the call ranks `tag(Int)` above `tag<T>`
-    println(apply(tag, 1))   // any — by name, this module's rung wins
-}
-```
-
-The fix is the implicit resolver's selection (`resolve_implicit_fn_in`'s
-ranking over `fn_value_fit`), with by-name's own `@` and no-expectation rules
-kept; a census like the 2026-10-14 one (COMPLETED.md) should show what moves.
-Not done with the implicit change because by-name selection is not an implicit
-position, and the user scoped that change to those.
+Record in COMPLETED.md ("A function passed by name is chosen as a call
+chooses", [fn-value-select]).
 
 ### 0x — Open defect: a written override is checked invariantly (found 2026-10-14, DECISION)
 
@@ -1501,7 +1481,7 @@ log for the round itself).
   *designed shadowing* (a later `use` shadowing an earlier handler is interception
   semantics [effect-intercept], and a fn-typed local shadowing a name outright is
   the caller's explicit choice). Known still to walk the rung ladder, found
-  2026-10-14: **a function passed by name** (defect 0w); a `replyto`/mint's `send fn` target (`free_send_target`); a written
+  2026-10-14: a `replyto`/mint's `send fn` target (`free_send_target`); a written
   identity's fallback when resolution cannot decide (`written_declaration`);
   and which candidate *leads* the arguments' expected types at a call (the top
   rung, [fn-overload-rank]'s "lead", a hint only).

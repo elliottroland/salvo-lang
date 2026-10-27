@@ -16996,6 +16996,30 @@ fn rustc_compiles_and_runs_implicits_chosen_as_calls_are() {
     run_rust_files(&files, "implicit-call-rule", IMPLICIT_CALL_RULE_OUTPUT);
 }
 
+/// [fn-value-select] [fn-overload-scope] A function passed by name is chosen
+/// as a call chooses (user decision 2026-10-14, ROADMAP 0w): an imported
+/// `tag(Int)` is more specific than this module's `tag<T>`, by name as at
+/// the call, whatever rung brought each into scope; `@main` still selects.
+const BY_NAME_RANKED_LIB: &str = "export fn tag(v: Int) [] -> Str => v { return \"int\" }\n";
+
+const BY_NAME_RANKED_DEMO: &str = r#"
+import lib.tag
+fn tag<T>(v: T) [] -> Str => v { return "any" }
+fn apply(f: (x: Int) -> Str, x: Int) [] -> Str => f { return f(x) }
+fn main() [use] {
+    use StdConsole()
+    println(tag(1))
+    println(apply(tag, 1))
+    println(apply(tag@main, 1))
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_a_fn_value_by_name_ranked_as_a_call() {
+    let files = generate(&[("main.sv", BY_NAME_RANKED_DEMO), ("lib.sv", BY_NAME_RANKED_LIB)]);
+    run_rust_files(&files, "by-name-ranked", "int\nint\nany\n");
+}
+
 /// [rs-path] A handle bound from a lending effect member outlives a read of the container: the member answers a path.
 const LEND_HANDLE_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }

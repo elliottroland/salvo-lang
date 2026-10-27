@@ -3005,6 +3005,10 @@ Conventions:
     — so a module's own `to_str(List<T>)` silently replaced std's at every
     `${…}` in it. It now competes and is ambiguous, with the override naming
     the place (`to_str = to_str@main`) or a `rename fn` as the remedy.
+  * **A function passed by name too** (user decision 2026-10-14, ROADMAP 0w):
+    it had kept the ladder as well, so `apply(tag, 1)` took a module's
+    `tag<T>` where the call `tag(1)` ranks an imported `tag(Int)` above it.
+    It now competes as an implicit position does [fn-value-select].
 * [fn-overload-rank] **Then the most specific signature**, compared **per
   argument slot** (`types::spec_cmp`, `rank_cmp`):
   1. a **type variable** says the least, structurally (`List<Int>` beats
@@ -3151,12 +3155,22 @@ Conventions:
     [effect-member-overload], and `rename fn` names an overload by its
     parameter list, so it cannot single out one of a return-type set.
 * [fn-value-select] A function passed **by name** is selected by the
-  **expected fn type**, through the same three steps a call uses (parameters
-  contravariant, result covariant, contract included). With no expectation a
-  single candidate is taken and an overloaded name is an error naming both
-  remedies (annotate the position, or `rename`). When candidates exist but
-  none fits, the diagnostic says so and explains why — a contract difference
-  does not show in a printed type [fn-contract].
+  **expected fn type**, by a call's rule [fn-overload-scope] with that type in
+  place of an argument list (user decisions 2026-09-07 and 2026-10-14): `@`
+  (`tag@main`, `cmp@Person`) first, when written; then every visible overload
+  competes, whatever rung brought it into scope, each fitted by the type
+  (parameters contravariant, result covariant, contract included) without its
+  own implicits filled; the most specific signature wins [fn-overload-rank],
+  and no single winner is an error naming the candidates and the remedies —
+  `tag@module` for each module, or `rename` [fn-overload-ambiguous]. It is
+  the implicit resolver's selection (`Checker::select_fn_value`), shared. With
+  no expectation a single candidate is taken and an overloaded name is an
+  error naming both remedies (annotate the position, or `rename`). When
+  candidates exist but none fits, the diagnostic says so and explains why — a
+  contract difference does not show in a printed type [fn-contract]. A value
+  written with `@` as a call's argument takes the parameter's expected type as
+  a bare name does (2026-10-14: before, `apply(tag@main, 1)` with a generic
+  `tag<T>` reached the call as `(T) -> Str` and found no overload).
 * [fn-value] **A function passed by name and a function filling an implicit
   are one rule; only the selection differs** (user decision 2026-10-20:
   "implicits should just be lambdas which are automatically selected").
@@ -3170,8 +3184,10 @@ Conventions:
   * its generics bound from the position, its contract [fn-contract] and its
     effects [fn-effects];
   * by name, the linear-generics ban on what a generic binds.
-  Selection stays each one's own: by name, [fn-value-select]'s `@`, rung and
-  ambiguity; an implicit, a call's rule [implicit-resolve]. Either way the
+  Selection is one rule too since 2026-10-14 (`Checker::select_fn_value`): a
+  call's, at the position's fn type; by name it is preceded by
+  [fn-value-select]'s `@` and its no-expectation rule, and an implicit by the
+  override and forwarding that shadow [implicit-resolve]. Either way the
   fit compares the declaration's type and contract only
   (`Checker::fn_value_fit`), and only the chosen one's own implicits are then
   filled (user decision 2026-10-14): one that cannot be is an error naming

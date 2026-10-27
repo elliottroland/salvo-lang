@@ -5707,7 +5707,36 @@ fn kotlinc_compiles_and_runs_implicits_chosen_as_calls_are() -> KotlinCase {
     kotlin_case(files, "implicit-call-rule", IMPLICIT_CALL_RULE_OUTPUT)
 }
 
+/// [fn-value-select] [fn-overload-scope] A function passed by name is chosen
+/// as a call chooses (user decision 2026-10-14, ROADMAP 0w): an imported
+/// `tag(Int)` is more specific than this module's `tag<T>`, by name as at
+/// the call, whatever rung brought each into scope; `@main` still selects.
+const BY_NAME_RANKED_LIB: &str = "export fn tag(v: Int) [] -> Str => v { return \"int\" }\n";
+
+const BY_NAME_RANKED_DEMO: &str = r#"
+import lib.tag
+fn tag<T>(v: T) [] -> Str => v { return "any" }
+fn apply(f: (x: Int) -> Str, x: Int) [] -> Str => f { return f(x) }
+fn main() [use] {
+    use StdConsole()
+    println(tag(1))
+    println(apply(tag, 1))
+    println(apply(tag@main, 1))
+}
+"#;
+
+const BY_NAME_RANKED_OUTPUT: &str = "int\nint\nany\n";
+
+fn kotlinc_compiles_and_runs_a_fn_value_by_name_ranked_as_a_call() -> KotlinCase {
+    let program = build_program(&[("main.sv", BY_NAME_RANKED_DEMO), ("lib.sv", BY_NAME_RANKED_LIB)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "by-name-ranked", BY_NAME_RANKED_OUTPUT)
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_a_fn_value_by_name_ranked_as_a_call,
     kotlinc_compiles_and_runs_implicits_chosen_as_calls_are,
     kotlinc_compiles_and_runs_safe_navigation,
     kotlinc_compiles_and_runs_a_copy_of_a_pick_over_a_temporary,

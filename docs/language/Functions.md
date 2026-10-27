@@ -122,7 +122,7 @@ A rename is not an alias: from that point on the renamed overload answers *only*
 
 ### Two places the same rule applies
 
-**Passing a function by name** selects an overload from the type the position expects:
+**Passing a function by name** selects an overload from the type the position expects, by the call's rule — every visible overload that fits competes, wherever it came from, and the most specific signature wins:
 
 ```
 fn tag(v: Int) -> Str => v { return "int" }
@@ -133,6 +133,8 @@ fn apply(f: (Str) -> Str, s: Str) -> Str => f, s { return f(s) }
 apply(tag, "x")      // the `Str` overload: it is what `(Str) -> Str` needs
 let f = tag          // ERROR: nothing here says which `tag` — annotate, or rename
 ```
+
+So an imported `tag(v: Int)` beside a `tag<T>(v: T)` of your own wins by name exactly as `tag(1)` picks it, and a `tag(v: Int)` of your own beside the imported one is ambiguous by name as it is at a call: write `apply(tag@main, 1)` or `apply(tag@lib, 1)`, or rename one.
 
 **Filling an implicit parameter** is the same query against a type rather than an argument list, so it follows the same rule — every visible overload that fits competes, the most specific signature wins, and no single winner is an error — and a renamed overload no longer fills an implicit of its old name:
 

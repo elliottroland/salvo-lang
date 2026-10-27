@@ -470,6 +470,51 @@ fn an_overloaded_fn_value_with_no_expectation_is_an_error() {
     );
 }
 
+/// [fn-value-select] [fn-overload-scope] By name, as at a call, every visible
+/// overload competes whatever rung brought it in (ROADMAP 0w): an
+/// equal-signature overload of this module's beside an imported one is an
+/// ambiguity naming both `@` remedies and `rename`, where it used to take
+/// this module's by rung; `@` still selects either.
+#[test]
+fn an_equal_signature_overload_beside_an_import_is_ambiguous_by_name() {
+    let lib = "export fn describe(v: Int) [] -> Bool { return true }\n";
+    let decls = "import lib.describe\n\n\
+                 fn describe(v: Int) [] -> Bool { return false }\n\
+                 fn apply(f: (v: Int) -> Bool, v: Int) [] -> Bool => f { return f(v) }\n";
+    let src = format!("{decls}{}", probe("    let _b = apply(describe, 1)"));
+    let msgs = messages_files(&[("main.sv", &src), ("lib.sv", lib)]);
+    assert!(
+        msgs.iter().any(|m| m.contains("`describe` passed by name is ambiguous")
+            && m.contains("`describe(Int)` from `lib`")
+            && m.contains("`describe(Int)` from `main`")
+            && m.contains("`describe@lib`")
+            && m.contains("`describe@main`")
+            && m.contains("rename fn")),
+        "{msgs:?}"
+    );
+    for pick in ["describe@lib", "describe@main"] {
+        let src = format!("{decls}{}", probe(&format!("    let _b = apply({pick}, 1)")));
+        let msgs = messages_files(&[("main.sv", &src), ("lib.sv", lib)]);
+        assert!(msgs.is_empty(), "{pick}: {msgs:?}");
+    }
+}
+
+/// [fn-value-select] [fn-overload-rank] By name, the more specific signature
+/// wins across scopes, as at a call: an imported `tag(Int)` over this
+/// module's `tag<T>` (the 0w repro; the e2e cases print which ran).
+#[test]
+fn a_fn_value_by_name_ranks_across_scopes() {
+    let lib = "export fn tag(v: Int) [] -> Str => v { return \"int\" }\n";
+    let src = format!(
+        "import lib.tag\n\
+         fn tag<T>(v: T) [] -> Str => v {{ return \"any\" }}\n\
+         fn apply(f: (x: Int) -> Str, x: Int) [] -> Str => f {{ return f(x) }}\n{}",
+        probe("    let _a = apply(tag, 1)\n    let _b = apply(tag@main, 1)")
+    );
+    let msgs = messages_files(&[("main.sv", &src), ("lib.sv", lib)]);
+    assert!(msgs.is_empty(), "{msgs:?}");
+}
+
 // ===== [fn-rename] a name of its own =====
 
 /// A rename settles an ambiguity the ranking cannot: the renamed overload
