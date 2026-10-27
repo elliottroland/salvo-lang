@@ -59,7 +59,7 @@ pub fn map__List_Fn<T: Clone, U: Clone>(list: &Vec<T>, f: &mut dyn FnMut(&T) -> 
     return out;
 }
 
-pub fn filter_platform<'a, T: Clone>(list: &'a Vec<T>, keep: &mut dyn FnMut(&T) -> bool) -> Vec<T> {
+pub fn filter_platform<'a, T: Clone>(list: &'a Vec<T>, keep: &mut dyn FnMut(&T) -> bool) -> Vec<&'a T> {
     let mut keep = keep;
     crate::platform_std_core_seq::filter(list, &mut keep)
 }

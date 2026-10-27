@@ -87,7 +87,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Ty::Lit(l) => self.ty(&Ty::named(l.base())),
             Ty::ValueRef { .. } | Ty::Const(_) => String::new(),
             Ty::Named { name, args } => {
-                let args: Vec<Ty> = args.iter().filter(|a| !matches!(a, Ty::FnName(_))).map(|a| super::strip_nested_var_proj_in(a, true, &self.f.generics)).collect();
+                let args: Vec<Ty> = args.iter().filter(|a| !matches!(a, Ty::FnName(_))).map(|a| super::strip_nested_var_proj_in(a, true, &self.f.generics, &self.f.held_vars)).collect();
                 if name == "Addr" && args.len() == 1 {
                     // [monitor-handler] a plain effect's addr is its handle.
                     if let Ty::Named { name: eff, .. } = args[0].strip_quals() {
@@ -1148,6 +1148,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.f.gen_paths.push((super::paths::path_key(&c, &e), name));
         }
         self.f.plain_vars = self.s.plain_proj_vars(&f.type_params, &f.params, &f.borrows);
+        self.f.held_vars = f.type_params.iter().map(|t| t.name.clone()).filter(|v| !self.f.plain_vars.contains(v)).collect();
         let anchor = if loc { self.s.lend_param(f) } else { None };
         let lt = if loc { None } else { self.ret_lifetime(&f.params, &f.ret, &f.borrows, recv.is_some()) };
         if lt.is_some() {

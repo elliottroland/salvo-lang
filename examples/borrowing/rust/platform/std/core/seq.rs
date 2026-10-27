@@ -1,6 +1,7 @@
 // [platform-value-type] `std.core.seq`'s list fast path: `filter` over a `List`
-// keeps a copy of each element that passes (ROADMAP 0.7).
+// answers a view [rs-proj-generic]: a borrow of each element that passes,
+// nothing copied (ROADMAP 0.7; a borrow since 0v).
 
-pub fn filter<T: Clone>(list: &Vec<T>, keep: &mut dyn FnMut(&T) -> bool) -> Vec<T> {
-    list.iter().filter(|x| keep(x)).cloned().collect()
+pub fn filter<'a, T>(list: &'a Vec<T>, keep: &mut dyn FnMut(&T) -> bool) -> Vec<&'a T> {
+    list.iter().filter(|x| keep(x)).collect()
 }

@@ -23,6 +23,7 @@ mod actors;
 mod body;
 mod decls;
 mod paths;
+mod repoint;
 mod skeleton;
 
 
@@ -734,13 +735,15 @@ pub(crate) fn mentions_var(t: &Ty, v: &str) -> bool {
 }
 
 /// [rs-proj-generic] `proj T`/`ref T` over a type variable, as a
-/// container's element, is `T`: the instantiation carries the borrow.
-pub(crate) fn strip_nested_var_proj_in(t: &Ty, nested: bool, generics: &HashSet<String>) -> Ty {
-    let strip_nested_var_proj = |t: &Ty, n: bool| strip_nested_var_proj_in(t, n, generics);
+/// container's element, is `T`: the instantiation carries the borrow —
+/// except over a variable in `held`, which a source parameter of the fn
+/// being rendered holds, so the borrow is the definition's.
+pub(crate) fn strip_nested_var_proj_in(t: &Ty, nested: bool, generics: &HashSet<String>, held: &HashSet<String>) -> Ty {
+    let strip_nested_var_proj = |t: &Ty, n: bool| strip_nested_var_proj_in(t, n, generics, held);
     match t {
         Ty::Qualified { quals, base } => {
             let b = strip_nested_var_proj(base, nested);
-            let var = matches!(&b, Ty::Var(_)) || matches!(&b, Ty::Named { name, args } if args.is_empty() && generics.contains(name));
+            let var = matches!(&b, Ty::Var(v) if !held.contains(v)) || matches!(&b, Ty::Named { name, args } if args.is_empty() && generics.contains(name) && !held.contains(name));
             let q: Vec<salvo_core::types::Qual> = quals.iter().filter(|q| !(nested && var && salvo_core::types::is_proj_name(&q.name))).cloned().collect();
             b.qualify(q)
         }

@@ -410,7 +410,7 @@ pub fn main() {
     });
     let mut odd: Vec<i32> = crate::std_core_seq::filter_platform::<i32>(&xs, &mut |mut n| -> bool {
         (i32::wrapping_rem(*n, 2i32) == 1i32)
-    });
+    }).into_iter().copied().collect::<Vec<_>>();
     let mut total: i32 = crate::std_core_seq::reduce__List_A_Fn::<i32, i32>(&xs, 0i32, &mut |mut acc, mut n| -> i32 {
         i32::wrapping_add(*acc, *n)
     });

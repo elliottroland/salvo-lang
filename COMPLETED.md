@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2081 tests, complete: the toolchain tests are
+cargo test                  # 2082 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,81 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-14 — A re-pointed view gets a Rust variable per live range
+
+ROADMAP 0v, a [backend-never-wrong] violation: a local holding a view and
+then assigned a view of another source checked clean and ran on Kotlin, and
+rustc refused it (E0308 at `return out`). The roadmap entry blamed the first
+binding's type; there were **two** causes, both Rust's, and the repro needed
+both fixed.
+
+- **The `List` fast path of `filter` answered clones** while its type said
+  view: `filter<T>(list: List<T>, …) -> Mut List<proj T> holds proj(list)`
+  rendered `-> Vec<T>` (the host `.cloned()` each element, ROADMAP 0.7),
+  because a nested `proj T` over a generic renders `T` at the definition
+  [rs-proj-generic]. Everywhere else `List<proj Str>` is `Vec<&String>`, so
+  even `return filter(ws, keep)` from a fn declared `-> Mut List<proj Str>`,
+  or passing the result to a `List<proj Str>` parameter, was E0308 — with no
+  re-pointing at all. Fixed: the definition-site rule now stands only for a
+  type variable no source parameter holds (`filter` over an iterator: the
+  instantiation's retag carries the borrow); over a held one the borrow is
+  the definition's, so the signature and the call render `&'a T`
+  (`FnState::held_vars`, `strip_nested_var_proj_in`'s `held`,
+  `callee_ret`). The host borrows (`list.iter().filter(…).collect()`), so
+  `filter` over a list copies nothing on Rust either, as its doc comment
+  always said; a Copy element is copied out at the call by the existing
+  `deref_scalar` list case (`.into_iter().copied().collect::<Vec<_>>()`).
+  Emitted-code change: the wrapper's return in every example's `seq.rs`, and
+  `iteration`'s one `filter` over `Int`s gains the `.copied()` tail.
+- **One Rust variable has one lifetime.** With the first cause fixed the
+  repro failed E0515: every borrow ever stored in a variable is held while
+  the variable is live, so `local`'s loan could not end before the return.
+  Fixed by [rs-repoint] (`ir_emit/repoint.rs`): a backward liveness over the
+  statement tree per view local (a `let` whose type holds a borrow, no lambda
+  or `replyto` capturing it) decides where the old value is dead; there a
+  plain `out = e` whose value is read only inside its block becomes the
+  shadowing `let mut out: Vec<&String> = e;`, and a statement that re-points
+  it inside (an `if` whose arms all do) is preceded by
+  `let mut out: Vec<&String>;`. A value that flows out of its arm or loop
+  stays an assignment: those sources are live together anyway, which is what
+  the checker's links say. The split locals are annotated when concrete,
+  since the later assignment no longer constrains the first variable's type
+  (`let mut a = vec![];` was E0282 without it).
+- **Options weighed.** (a) Type the variable from all its bindings, the
+  roadmap's first suggestion: once both are borrows there is nothing left to
+  unify, and it cannot shorten the lifetime one variable holds. (b) Own the
+  variable and copy at the borrowing assignment: a hidden clone
+  [copy-opt-in], and the owned result cannot be returned as the declared view.
+  (c) A variable per live range: sound by construction (each shadow or
+  declaration is chosen only where no read can see the other variable), no
+  copies, and ordinary Rust. Chosen: (c). Layering [core-layers]: Kotlin has
+  no use for live ranges, so the analysis is the Rust emitter's, over the IR
+  it already reads; no core fact changed.
+- **Neighbours covered** (one program, both backends): the repro (`pick`);
+  the same over an iterator (`yielded`); both arms of an `if` then returned
+  (`either`: a declaration before the `if`); an arm that returns its re-point
+  while the old view is used after (`early`: a shadow inside the arm); every
+  turn of a loop at a body-local source (`turns`: a shadow in the body); a
+  loop re-pointing at parameters read after it (one variable); a re-point not
+  returned whose first source is written after it (`rewrite`, E0502 without
+  the split); empty-then-borrowed and borrowed-then-empty (`orders`); Copy
+  elements (`ints`, no split: not a view); and values that flow out of an arm,
+  a `break` and a `continue` (`flows`, one variable, output checked).
+- **Found, not fixed** (ROADMAP 0y): a fn-typed *parameter* forwarded to a
+  retagged slot (`filter(iter(ws), keep)` inside a fn taking `keep`) is
+  E0308 on Rust: the slot wants `FnMut(&&String)`, the parameter is
+  `FnMut(&String)`, and only lambdas and named fns get the peeling adapter.
+- Docs: [rs-repoint] (new), [rs-proj-generic] (the label the code already
+  cited, now in BACKEND_SPEC.rust.md, with the held-variable exception),
+  [rs-seq] (the fast path borrows), the local-bindings annotation note.
+
+Tests (1 new `#[test]`; the Kotlin case is a registry entry):
+`rustc_compiles_and_runs_re_pointed_views` and
+`kotlinc_compiles_and_runs_re_pointed_views`, the same program and the same
+27 lines of output, the Rust one also asserting the borrowed wrapper, the
+`.copied()` tail, the shadow, the declaration before the `if`, the shadow in
+the returning arm, and the assignment that flows out.
 
 ### 2026-10-14 — A written fn value fits contravariantly in erased qualifiers
 
@@ -30030,7 +30105,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2081 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2082 under `cargo test` on 2026-10-27; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -31322,6 +31397,17 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A roadmap repro can have two causes, and the entry names only the one it
+  saw** (2026-10-14, 0v). The re-pointing repro failed at `return out`, so the
+  entry blamed the variable's first binding; the first error was really the
+  `List` fast path of `filter` answering clones under a view's type, which
+  fails without any re-pointing (`return filter(ws, keep)`). Shrink a repro
+  to the smallest program that still fails before believing the diagnosis
+  that came with it. And a Rust variable holds every borrow ever stored in
+  it for as long as it is live (NLL regions are per variable, not per
+  assignment), so a Salvo local whose links change has to become several
+  Rust variables.
 
 - **A fn-type subtyping rule needs its twin in `unify`** (2026-10-14, the
   erased-qualifier variance). Making `is_subtype`'s fn arm accept a value

@@ -266,7 +266,8 @@ Conventions:
   are std functions (2026-10-04, [platform-value-type]): `map` and `reduce`
   are Salvo loops (`crate::std_core_seq::map__List_Fn::<i32, i32>(&xs, …)`), and
   `filter` is a platform fn (`crate::std_core_seq::filter_platform`, host in
-  `platform/core/seq.rs`) cloning each kept element. Their fn-typed
+  `platform/core/seq.rs`) answering a borrow of each kept element
+  (`Vec<&'a T>`, [rs-proj-generic]). Their fn-typed
   parameters render as `&mut dyn FnMut(&T) -> U` [rs-fn-param-convention],
   which is what gives a lambda argument its parameter types: the lambda is
   written untyped (`&mut |mut n| -> i32 { i32::wrapping_mul(*n, 2i32) }`)
@@ -538,7 +539,41 @@ references; the Rust backend spells the modes mechanically:
   the cosmetic lint): Salvo mutability (assignment, `++`, `Mut` methods,
   `&mut` argument positions) is otherwise undecidable locally. A borrow-mode
   local, a fn value and a binding whose type holds a nested projection leave
-  the type to rustc.
+  the type to rustc (except a split view's, below, when it names no type
+  variable).
+* [rs-repoint] [fate-link] **A re-pointed view gets a Rust variable per live
+  range** (2026-10-14, ROADMAP 0v). Salvo lets a local holding a view (any
+  type with a borrow in it: `List<proj Str>`, `proj Str`, a borrowing struct
+  such as `ListYield<'_, T>`) be assigned a view of another source, its links
+  following the assignment; Rust gives a variable one type and so one
+  lifetime, and every borrow ever stored in it is held while the variable is
+  live — a first binding of a local that dies early and a later one of a
+  parameter that is returned cannot share it (E0515), nor can the first
+  source be written while the second binding is in use (E0502). So where the
+  old value is dead, the assignment starts a new variable of the same name
+  (`ir_emit/repoint.rs`, a backward liveness over the statement tree):
+  * a plain `out = e` becomes the shadowing
+    `let mut out: Vec<&String> = e;` when the value it stores is read only
+    inside the block it sits in — always in the block that declares `out`;
+    inside an arm that returns it; inside a loop body that writes it before
+    any read each turn;
+  * a statement that re-points the local somewhere inside it, where the old
+    value is dead and nothing written in it leaves the enclosing block (an
+    `if` whose arms all re-point it, a `loop` that does before its `break`),
+    is preceded by `let mut out: Vec<&String>;`, and its arms assign that;
+  * a value that flows out of its arm or loop (`if c { out = … }` with `out`
+    read after) stays an assignment to the one variable: its sources are
+    then live together anyway, which is what the checker's links say.
+  The split locals are annotated when their type names no type variable,
+  since the later assignment no longer constrains the first variable. Not
+  split: a local a lambda or a `replyto` captures (a capture would keep
+  seeing the old binding) and an element handle (a position, [rs-elem-mut]).
+  The analysis is conservative where it is unsure (a mention inside an
+  expression reads; a `when` may fall through; a loop may stop before it
+  writes), so a missed split leaves the one variable rather than a wrong one.
+  Chosen over an owned copy at the borrowing assignment, which would be a
+  hidden clone and cannot be returned as a view, and over typing the variable
+  from all its bindings, which cannot shorten the lifetime one variable holds.
 * **Lifetimes.** Struct fields are owned and — with the exceptions of
   [rs-proj] — results are owned, so functions are lifetime-elision-friendly.
   A derived-return fn returns `&T` / `Option<&T>` [readonly-return];
@@ -583,14 +618,26 @@ the blanket rule:
 
 * A Copy scalar's `proj` never reaches the emitter — the checker erases
   it ([proj-type], [copy-scalar-free]).
-* `proj T` over a **bare generic parameter at its definition site**, with
-  no lifetime context, renders owned `T`: a generic body treats `T`
-  uniformly, and whether a use borrows is the instantiation's fact — the
-  caller substitutes `T = proj Str` (rendering `&String`) and the
-  turbofish retag spells it [rs-proj-arm]. Rendering `&T` at the
-  definition would borrow for every instantiation, owned ones included.
-  (Inside a borrowing struct or its `next`, where `'s` is in scope, a
-  generic projection *does* render `&'s T` — the struct's own borrow.)
+* [rs-proj-generic] `proj T` over a **bare generic parameter at its
+  definition site**, with no lifetime context, renders owned `T`: a generic
+  body treats `T` uniformly, and whether a use borrows is the
+  instantiation's fact — the caller substitutes `T = proj Str` (rendering
+  `&String`) and the turbofish retag spells it [rs-proj-arm]. Rendering `&T`
+  at the definition would borrow for every instantiation, owned ones
+  included. (Inside a borrowing struct or its `next`, where `'s` is in
+  scope, a generic projection *does* render `&'s T` — the struct's own
+  borrow.)
+  * **Except over a variable a source parameter holds** (2026-10-14,
+    ROADMAP 0v): in `filter<T>(list: List<T>, …) -> Mut List<proj T>
+    holds proj(list)` the borrow is the definition's — every element of the
+    lent list is borrowed, whatever `T` is — so the nested `proj T` renders
+    `&'a T` in the signature (`-> Vec<&'a T>`) and at the call, matching what
+    the same Salvo type is everywhere else (`Vec<&String>`). A Copy element,
+    whose `proj` the checker erases, is copied out at the call
+    (`filter_platform::<i32>(&xs, …).into_iter().copied().collect::<Vec<_>>()`).
+    Before, the fast path answered owned clones while its type said view,
+    so its result could not be returned as, or passed to, a
+    `List<proj Str>` (E0308).
 
 * [rs-qualified-scalar] A **qualified scalar** parameter (`index: Idx(list)
   Int`) is a Copy scalar like any other: passed by value (`mut index: i32`),

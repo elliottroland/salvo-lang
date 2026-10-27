@@ -601,45 +601,34 @@ Fixed in the IR flow pass (R8 piece 5): paths, joins and loop back edges are
 dataflow now, `continue` included; the record and what was left is in
 COMPLETED.md's decision log.
 
-### 0v — Open defect: the Rust emitter types a re-pointed borrow from its first binding (found 2026-10-14)
+### 0v — Closed 2026-10-14: a re-pointed view gets a Rust variable per live range
 
-A local bound to one held view and then reassigned to another of a different
-source passes the checker (its links follow the assignment [fate-link]) and
-runs on Kotlin, but the Rust emitter gives the variable the type of its
-*first* binding, so rustc refuses the program — a [backend-never-wrong]
-violation (a toolchain error where there should be either a Salvo
-diagnostic or working code). Repro, `salvo run --backend '*'`: Kotlin prints
-`1`; Rust fails with E0308 at `return out` ("expected `Vec<&'a String>`,
-found `Vec<String>`"):
+Record in COMPLETED.md ("A re-pointed view gets a Rust variable per live
+range", [rs-repoint], [rs-proj-generic]). It left 0y.
+
+### 0y — Open defect: a fn parameter forwarded to a retagged slot fails rustc (found 2026-10-14)
+
+A [backend-never-wrong] violation on Rust: a fn-typed **parameter** passed on
+to a slot whose element generic is retagged to a borrow [rs-proj-arm] keeps
+its own convention, so rustc refuses the call (E0308, "expected `&mut dyn
+FnMut(&&String) -> bool`, found `&mut dyn FnMut(&String) -> bool`"). Kotlin
+prints `1`:
 
 ```
-fn pick(ws: List<Str>, keep: (Str) -> Bool) [] -> Mut List<proj Str> holds proj(ws) => ws, keep {
-    let local = List("x", "y")
-    let out = filter(local, keep)
-    println_count(size(out))
-    out = filter(ws, keep)
-    return out
-}
-
-fn println_count(n: Int) [] -> None {
-    return None
+fn longs(ws: List<Str>, keep: (Str) -> Bool) [] -> Int => ws, keep {
+    let it = iter(ws)
+    return size(filter(it, keep))
 }
 
 fn main() [use] -> None {
     use StdConsole
-    let ws = List("ab", "c")
-    let got = pick(ws, s -> size(s) > 1)
-    println("${size(got)}")
+    println("${longs(List("ab", "c"), s -> size(s) > 1)}")
 }
 ```
 
-The first `filter(local, …)` is emitted as an owned `Vec<String>` (its source
-is a local that dies with the call), the second as a borrow
-`Vec<&'a String>`. The fix is in the emitter: a variable whose bindings
-differ in ownership needs one Rust type that covers both (the borrowed one,
-or an owned copy at the borrowing assignment), or the checker's facts must
-say so. Found while weighing PIPELINE.md's fate-link option A (rejected for
-option C); that option would have refused the program instead.
+A lambda at that slot peels the extra reference (`let s = *s;`) and a named fn
+gets an adapter closure; a fn *value* (a parameter, a fn-typed local) needs the
+same adapter, `&mut |__a0: &&String| keep(*__a0)`. Engineering, no decision.
 
 ### 0q — Open defect: moving a field out of an indexed element fails rustc (found 2026-10-20)
 

@@ -71,6 +71,12 @@ pub(crate) struct FnState {
     pub elem: HashMap<String, (String, Option<String>)>,
     /// [rs-proj-generic] Those whose `proj` renders as the variable.
     pub plain_vars: HashSet<String>,
+    /// [rs-proj-generic] The fn's type parameters a source parameter holds:
+    /// their `proj`, nested too, is the definition's borrow (`&'a T`).
+    pub held_vars: HashSet<String>,
+    /// [rs-repoint] The statements (by address) that start a fresh Rust
+    /// variable for a re-pointed view local.
+    pub repoint: HashMap<usize, super::repoint::Split>,
     /// [rs-throw-controlflow] The fn's message type, when it throws.
     pub throws: Option<Ty>,
     /// The enclosing `try`s: label and outcome type.
@@ -210,7 +216,7 @@ pub(crate) fn assigned_roots(b: Option<&Block>) -> HashSet<String> {
     out
 }
 
-pub(crate) fn walk_block(b: &Block, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMut(&Expr)) {
+pub(crate) fn walk_block<'b>(b: &'b Block, fs: &mut impl FnMut(&'b Stmt), fe: &mut impl FnMut(&'b Expr)) {
     for s in &b.stmts {
         walk_stmt(s, fs, fe);
     }
@@ -219,7 +225,7 @@ pub(crate) fn walk_block(b: &Block, fs: &mut impl FnMut(&Stmt), fe: &mut impl Fn
     }
 }
 
-fn walk_stmt(s: &Stmt, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMut(&Expr)) {
+pub(crate) fn walk_stmt<'b>(s: &'b Stmt, fs: &mut impl FnMut(&'b Stmt), fe: &mut impl FnMut(&'b Expr)) {
     fs(s);
     match s {
         Stmt::Loop { body, .. } => walk_block(body, fs, fe),
@@ -238,7 +244,7 @@ fn walk_stmt(s: &Stmt, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMut(&Expr)) {
     }
 }
 
-fn walk_place(p: &Place, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMut(&Expr)) {
+fn walk_place<'b>(p: &'b Place, fs: &mut impl FnMut(&'b Stmt), fe: &mut impl FnMut(&'b Expr)) {
     for s in &p.steps {
         if let Step::Index(e) = s {
             walk_expr(e, fs, fe);
@@ -246,9 +252,9 @@ fn walk_place(p: &Place, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMut(&Expr))
     }
 }
 
-pub(crate) fn walk_expr(e: &Expr, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMut(&Expr)) {
+pub(crate) fn walk_expr<'b>(e: &'b Expr, fs: &mut impl FnMut(&'b Stmt), fe: &mut impl FnMut(&'b Expr)) {
     fe(e);
-    let mut sub = |x: &Expr| walk_expr(x, fs, fe);
+    let mut sub = |x: &'b Expr| walk_expr(x, fs, fe);
     match &e.kind {
         ExprKind::Read { place, .. } => {
             for s in &place.steps {
@@ -519,6 +525,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// A fn body at `indent`.
     pub fn fn_body(&mut self, b: &Block, indent: usize) -> String {
         self.scan(b);
+        // [rs-repoint] A re-pointed view gets a variable per live range.
+        let is_view = |t: &Ty| self.s.holds_proj(t) && !salvo_core::ir::build::refs::has_ref(t);
+        let plan = super::repoint::plan(b, &is_view, &self.f.captured);
+        self.f.repoint.extend(plan);
         let mut out = self.stmts(&b.stmts, indent);
         if let (Some(v), Some((_, opt))) = (&b.value, self.f.loc.clone()) {
             // A tail that escapes in every arm answers through its returns.
@@ -548,7 +558,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn stmts(&mut self, stmts: &[Stmt], indent: usize) -> String {
         let mut out = String::new();
         for s in stmts {
-            out.push_str(&self.stmt(s, indent));
+            match self.f.repoint.get(&super::repoint::key(s)).cloned() {
+                // [rs-repoint] The value stored here is a new variable's.
+                Some(super::repoint::Split::Shadow(_, ty)) => {
+                    let Stmt::Assign { place, value } = s else { unreachable!() };
+                    out.push_str(&self.let_stmt(&place.root, &ty, value, indent));
+                }
+                Some(super::repoint::Split::Declare(vs)) => {
+                    for (name, ty) in vs {
+                        let annot = if self.annotatable(&ty) && (!self.nested_proj(&ty) || self.concrete(&ty)) { format!(": {}", self.ty(&ty)) } else { String::new() };
+                        out.push_str(&format!("{}let mut {}{annot};\n", Self::pad(indent), rs_local(&name)));
+                    }
+                    out.push_str(&self.stmt(s, indent));
+                }
+                None => out.push_str(&self.stmt(s, indent)),
+            }
         }
         out
     }
@@ -750,8 +774,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return format!("{pre}{pad}let mut {n}{annot} = {code};\n");
         }
         self.f.kinds.insert(local.0.clone(), kind);
-        let annot = if self.annotatable(ty) && !self.nested_proj(ty) { format!(": {}", self.ty(ty)) } else { String::new() };
+        // [rs-repoint] A view split into several variables has no later
+        // assignment left to infer its type from: said when it can be.
+        let split = self.f.repoint.values().any(|x| x.names(&local.0));
+        let annot = if self.annotatable(ty) && (!self.nested_proj(ty) || (split && self.concrete(ty))) { format!(": {}", self.ty(ty)) } else { String::new() };
         format!("{pad}let mut {n}{annot} = {code};\n")
+    }
+
+    /// Whether `t` names no type variable: its rendering is the value's.
+    fn concrete(&self, t: &Ty) -> bool {
+        !foreign_var(t, &HashSet::new()) && !self.f.generics.iter().any(|g| super::mentions_var(t, g))
     }
 
     fn borrow_local(&mut self, local: &Local, ty: &Ty, value: &Expr, indent: usize) -> Option<String> {
@@ -3121,6 +3153,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
+    /// [rs-proj-generic] A callee's result as its definition renders it:
+    /// `proj` over a plain variable is the variable (the instantiation
+    /// carries any borrow), and a nested `proj` over a variable a source
+    /// parameter holds stays the callee's own borrow (`Vec<&'a T>`).
+    fn callee_ret(&self, f: &salvo_core::ir::FnDecl) -> Ty {
+        let vars = self.s.plain_proj_vars(&f.type_params, &f.params, &f.borrows);
+        let tps: HashSet<String> = f.type_params.iter().map(|t| t.name.clone()).collect();
+        let held: HashSet<String> = tps.difference(&vars).cloned().collect();
+        super::strip_nested_var_proj_in(&super::strip_plain_proj(&f.ret, &vars), false, &tps, &held)
+    }
+
     /// [copy-scalar-free] A borrow of a Copy scalar is the scalar: a call
     /// whose declared result is a `proj` the instantiation made a scalar
     /// reads it out.
@@ -3444,9 +3487,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     }
                     None => code,
                 };
-                let vars = self.s.plain_proj_vars(&f.type_params, &f.params, &f.borrows);
-                let tps: HashSet<String> = f.type_params.iter().map(|t| t.name.clone()).collect();
-                let ret = super::strip_nested_var_proj_in(&super::strip_plain_proj(&f.ret, &vars), false, &tps);
+                let ret = self.callee_ret(f);
                 // [generic-union-span] Flatten a nested span result back to
                 // the call's own (flat) type before anything else uses it.
                 let code = match span_ret {
@@ -3558,9 +3599,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         match crate::intrinsics::fn_call(name, recv, &a, spread, false) {
             Some(code) => match self.s.fn_decl(id) {
                 Some(f) => {
-                    let vars = self.s.plain_proj_vars(&f.type_params, &f.params, &f.borrows);
-                    let tps: HashSet<String> = f.type_params.iter().map(|t| t.name.clone()).collect();
-                    let ret = super::strip_nested_var_proj_in(&super::strip_plain_proj(&f.ret, &vars), false, &tps);
+                    let ret = self.callee_ret(&f);
                     self.deref_scalar(code, &ret, &e.ty)
                 }
                 None => code,

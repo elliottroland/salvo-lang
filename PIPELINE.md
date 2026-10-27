@@ -1989,3 +1989,12 @@ log current so the work can resume after a context reset). Newest last.
   the stripped bases; `Mut`, `proj`, `ref`, `once`, `linear` and effects stay
   invariant, results stay covariant. No adapter, no emitted-code change.
   Options (a) (adapters where the rendering differs) and (c) not chosen.
+- **0v: done** (committed "Give a re-pointed view a Rust variable per live
+  range"). Two causes, both Rust: the `List` fast path of `filter` answered
+  owned clones under a view's type (a nested `proj T` over a variable a
+  source parameter holds now renders `&'a T` [rs-proj-generic], the host
+  borrows, a Copy element is copied out at the call); and one variable holds
+  every borrow ever stored in it, so [rs-repoint] (`ir_emit/repoint.rs`)
+  splits a view local into a variable per live range (a shadowing `let`, or
+  `let mut v;` before an `if` whose arms all re-point it). Found: ROADMAP 0y
+  (a fn parameter forwarded to a retagged slot, E0308; not fixed).
