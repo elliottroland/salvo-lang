@@ -975,8 +975,10 @@ fn probe(x: Int, y: Int) [] -> Bool => x, y {
 /// is the ambiguity, naming both types.
 #[test]
 fn a_call_fitting_two_same_named_implicits_is_ambiguous() {
-    let errs = errors(
-        r#"
+    let errs: Vec<(Option<&str>, String)> = checked_in(
+        &[(
+            "main.sv",
+            r#"
 fns Weird<T> {
     fn eq(a: T, b: T) -> Int
 }
@@ -985,9 +987,12 @@ fn probe<T>(a: T, b: T, ?Eq<T>, ?Weird<T>) [] -> Bool => a, b {
     return eq(a, b)
 }
 "#,
+        )],
+        |_, _, diagnostics| diagnostics.iter().filter(|d| d.is_error()).map(|d| (d.id, d.message.clone())).collect(),
     );
     assert!(
-        errs.iter().any(|e| e.contains("more than one implicit of that name") && e.contains("[implicit-same-name]")),
+        errs.iter().any(|(id, e)| *id == Some("implicit-same-name:ambiguous")
+            && e.contains("more than one implicit of that name")),
         "expected the ambiguity to be reported: {errs:?}"
     );
 }

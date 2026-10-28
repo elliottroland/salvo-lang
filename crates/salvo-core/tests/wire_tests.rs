@@ -142,8 +142,7 @@ fn a_noremote_struct_is_refused_at_encode() {
     ));
     assert!(
         errs.iter().any(|e| e.contains("`encode` needs a type with a wire form")
-            && e.contains("`Canvas` is declared `noremote`")
-            && e.contains("[net-noremote]")),
+            && e.contains("`Canvas` is declared `noremote`")),
         "expected the noremote refusal, got {errs:?}"
     );
 }
@@ -284,8 +283,7 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
     assert_eq!(errs.len(), 1, "one refusal, for the noremote protocol only: {errs:?}");
     assert!(
         errs[0].contains("a group of `Painter` cannot span nodes")
-            && errs[0].contains("`Painter.paint` takes `Canvas`")
-            && errs[0].contains("[net-noremote]"),
+            && errs[0].contains("`Painter.paint` takes `Canvas`"),
         "expected the crossing-site refusal, got {errs:?}"
     );
     // [actor-group] [implicit-resolve] The same site one level up:

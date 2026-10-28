@@ -332,15 +332,15 @@ fn a_generic_platform_handler_is_rejected() {
 fn a_constructive_qualifier_from_another_module_is_refused_at_the_boundary() {
     let lib = "export qualifier Clean of Str\n";
     let own = "qualifier Clean of Str\n\nplatform fn scrub(s: Str) [] -> Clean Str => s\n";
-    let msgs = |files: &[(&str, &str)]| -> Vec<String> {
-        check_files(files).iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect()
+    let msgs = |files: &[(&str, &str)]| -> Vec<(Option<&'static str>, String)> {
+        check_files(files).iter().filter(|d| d.is_error()).map(|d| (d.id, d.message.clone())).collect()
     };
     assert!(msgs(&[("main.sv", own)]).is_empty(), "{:?}", msgs(&[("main.sv", own)]));
     let main = "import lib.Clean\n\nplatform fn scrub(s: Str) [] -> Clean Str => s\n";
     let errs = msgs(&[("lib.sv", lib), ("main.sv", main)]);
     assert!(
-        errs.iter().any(|m| m.contains("`Clean`, a constructive qualifier declared in another module")
-            && m.contains("[platform-check]")),
+        errs.iter().any(|(id, m)| *id == Some("platform-check:foreign-constructive")
+            && m.contains("`Clean`, a constructive qualifier declared in another module")),
         "{errs:?}"
     );
 }

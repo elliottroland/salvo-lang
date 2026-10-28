@@ -54,6 +54,11 @@ export qualifier NotSame<T>(a: T) of T {\n\
 /// Parses + resolves + checks one file against the mini std and returns
 /// every error message.
 fn errors(src: &str) -> Vec<String> {
+    error_diagnostics(src).into_iter().map(|d| d.message).collect()
+}
+
+/// [diag-id] The same errors, ids and all.
+fn error_diagnostics(src: &str) -> Vec<salvo_core::FileDiagnostic> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -106,7 +111,7 @@ fn errors(src: &str) -> Vec<String> {
     // read is the IR flow pass's since R8 piece
     // 3c [flow-use-after-move].
     all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked).into_iter().filter(|d| d.is_error()));
-    all.into_iter().map(|d| d.message).collect()
+    all
 }
 
 const PRELUDE: &str = "\
@@ -398,9 +403,9 @@ fn a_covered_pair_from_two_containers_is_refused() {
          duel(es, at(es, i) ?: unreachable!(), at(fs, j) ?: unreachable!())\n    \
          return None\n}}\n"
     );
-    let errs = errors(&src);
+    let errs = error_diagnostics(&src);
     assert!(
-        errs.iter().any(|e| e.contains("[ref-anchor]")),
+        errs.iter().any(|d| d.id == Some("ref-anchor:not-a-handle")),
         "expected the two-container refusal: {errs:?}"
     );
 }
@@ -429,9 +434,9 @@ fn a_read_only_projection_does_not_fit_a_fn_values_mut_position() {
          f(get(es, i))\n    \
          return None\n}}\n"
     );
-    let errs = errors(&src);
+    let errs = error_diagnostics(&src);
     assert!(
-        errs.iter().any(|e| e.contains("plain projection") && e.contains("[ref-handle]")),
+        errs.iter().any(|d| d.id == Some("ref-handle:plain-projection") && d.message.contains("plain projection")),
         "expected the read-only refusal: {errs:?}"
     );
 }
@@ -522,6 +527,6 @@ fn a_handle_outside_its_anchor_is_refused() {
          swap_in(lib, al, at(other.tracks, 0) ?: unreachable!(), at(al.tracks, 0) ?: unreachable!())\n    \
          return None\n}}\n"
     );
-    let errs = errors(&src);
-    assert!(errs.iter().any(|e| e.contains("[ref-anchor]")), "got {errs:?}");
+    let errs = error_diagnostics(&src);
+    assert!(errs.iter().any(|d| d.id == Some("ref-anchor:not-a-handle")), "got {errs:?}");
 }

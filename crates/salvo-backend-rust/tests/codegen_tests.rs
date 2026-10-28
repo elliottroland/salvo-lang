@@ -9494,7 +9494,7 @@ fn main() [use] -> None {
 }
 "#,
     );
-    let consumed = "consumes its parameter `s` (`=> !s`), and here it would be given a borrowed `proj Str`, which cannot be given away. Keep the parameter, or pass a lambda that copies the argument [fn-kept-borrow]";
+    let consumed = "consumes its parameter `s` (`=> !s`), and here it would be given a borrowed `proj Str`, which cannot be given away. Keep the parameter, or pass a lambda that copies the argument";
     for needle in [
         format!("no matching overload for `any(Mut List<proj Str>, (Str) -> Bool)`: `eat` {consumed}"),
         format!("expected `(proj Str) -> Bool`, found `(Str) -> Bool`: `eat` {consumed}"),

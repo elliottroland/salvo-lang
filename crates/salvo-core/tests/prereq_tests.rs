@@ -144,10 +144,11 @@ fn main() [use] {
     use MemFiles()
 }
 ";
-    let errs = errors(&[("streams.sv", STREAMS), ("files.sv", FILES), ("main.sv", main)]);
+    let errs = diags(&[("streams.sv", STREAMS), ("files.sv", FILES), ("main.sv", main)]);
     assert!(
-        errs.iter().any(|e| e.contains("implements `Files`, which needs `Streams` in scope")
-            && e.contains("[effect-prereq]")),
+        errs.iter().any(|d| d.is_error()
+            && d.id == Some("effect-prereq:face-needs")
+            && d.message.contains("implements `Files`, which needs `Streams` in scope")),
         "{errs:?}"
     );
 }

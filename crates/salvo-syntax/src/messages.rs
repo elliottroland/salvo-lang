@@ -1767,6 +1767,3094 @@ messages! {
          ({which}): their parameter types, qualifiers, implicit parameters and return \
          types all agree, so neither backend can give them names of their own"
     );
+    // ===== check =====
+
+    // [actor-effect-kind]
+    /// A plain effect bound to an actor.
+    actor_effect_kind_plain_effect_actor = "actor-effect-kind:plain-effect-actor" (form: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "`{form}` cannot bind `{name}` to an actor: it is a plain effect, and a \
+         synchronous protocol has no mailbox — declare `actor effect {name}` (its \
+         members then give up kept and `Mut` parameters, `proj` returns and non-sendable \
+         payloads)"
+    );
+
+    // [actor-free-send-fn]
+    /// A generic free `send fn`.
+    actor_free_send_fn_generic = "actor-free-send-fn:generic" (fn_name: &dyn std::fmt::Display, generic: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` cannot be generic: a mint carries captures and no type \
+         arguments, so `{generic}` would have nothing to be chosen by"
+    );
+    /// A free `send fn` that keeps a parameter.
+    actor_free_send_fn_kept_param = "actor-free-send-fn:kept-param" (fn_name: &dyn std::fmt::Display, param: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` cannot keep `{param}`: a scheduled body outlives the frame \
+         that minted it, so what it is given is always consumed — write `=> !{param}`, \
+         or make `{fn_name}` an ordinary `fn`"
+    );
+    /// A free `send fn` with a `Mut` parameter.
+    actor_free_send_fn_mut_param = "actor-free-send-fn:mut-param" (fn_name: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` cannot take a `Mut` parameter: mutating a value from a \
+         scheduled body would share what the minting frame still owns"
+    );
+    /// A free `send fn` taking a type that cannot cross.
+    actor_free_send_fn_unsendable_param = "actor-free-send-fn:unsendable-param" (fn_name: &dyn std::fmt::Display, ty: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` cannot take `{ty}`: {why}, and everything a scheduled body \
+         is given crosses a thread boundary"
+    );
+    /// A free `send fn` returning a `proj` view.
+    actor_free_send_fn_borrowed_return = "actor-free-send-fn:borrowed-return" (fn_name: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` cannot return a `proj` view: it would borrow a value the \
+         minting frame owns"
+    );
+    /// A free `send fn` declaring an effect.
+    actor_free_send_fn_effect = "actor-free-send-fn:effect" (fn_name: &dyn std::fmt::Display, eff: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` cannot declare `{eff}`: {why}. Take an `eff[…]` as a capture \
+         and send to it — reaching an actor needs no effect declaration — or do that \
+         work in the function that mints"
+    );
+    /// A `send fn` passed as a value.
+    actor_free_send_fn_not_a_value = "actor-free-send-fn:not-a-value" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is a `send fn`, so it is not a value: it runs by being scheduled, and a \
+         function value runs by being called. Mint a continuation for it instead — \
+         `replyto {name}(…)`"
+    );
+    /// A free `send fn` called directly.
+    actor_free_send_fn_called = "actor-free-send-fn:called" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is a `send fn`, so it runs by being scheduled rather than called: mint \
+         a continuation for it with `replyto {name}(…)` and let whoever answers the \
+         token run it"
+    );
+
+    // [actor-group]
+    /// `in` of something that is not a group handle.
+    actor_group_not_a_group = "actor-group:not-a-group" (gty: &dyn std::fmt::Display) => format!(
+        "`in` takes a group handle — an `eff[ActorGroup<E>]` — and this is `{gty}`"
+    );
+    /// A spawn joining a group of none of its faces.
+    actor_group_no_face = "actor-group:no-face" (of: &dyn std::fmt::Display, serves: &dyn std::fmt::Display) => format!(
+        "this spawn answers no `eff[{of}]` to join the group with: it serves {serves} — \
+         `in` needs a group of one of the handler's faces"
+    );
+
+    // [actor-mailbox]
+    /// A handler with a mailbox that does not say how deep it is.
+    actor_mailbox_no_capacity = "actor-mailbox:no-capacity" (handler: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "`{handler}` has a mailbox — {why} — and has to say how deep it is: add `mailbox \
+         {{ capacity: 16 }}` (or take it as a constructor parameter — `mailbox \
+         {{ capacity: capacity }}`). There is no default, because a queue bound chosen \
+         by the compiler is a performance cliff nobody wrote"
+    );
+    /// A mailbox slot on a handler with nothing to enqueue.
+    actor_mailbox_nothing_to_enqueue = "actor-mailbox:nothing-to-enqueue" (handler: &dyn std::fmt::Display) => format!(
+        "only a handler with something to enqueue has a mailbox, and `{handler}` has no \
+         actor face and no `send fn` member: its members run on the caller's thread, so \
+         there is no queue to bound"
+    );
+    /// A mailbox slot of the wrong type.
+    actor_mailbox_slot_type = "actor-mailbox:slot-type" (expected: &dyn std::fmt::Display, got: &dyn std::fmt::Display) => format!(
+        "a `mailbox` slot builds a `{expected}`, found `{got}`"
+    );
+
+    // [actor-mixed-handler]
+    /// An `init` block in a mixed handler.
+    actor_mixed_handler_init_block = "actor-mixed-handler:init-block" (handler: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` is mixed, and a mixed handler has no `init` block yet: start \
+         it with a send member instead"
+    );
+    /// A handler of both actor and plain effects.
+    actor_mixed_handler_two_kinds = "actor-mixed-handler:two-kinds" (handler: &dyn std::fmt::Display, async_kind: &dyn std::fmt::Display, sync_kind: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` implements effects of two kinds — {async_kind} is an `actor \
+         effect` and {sync_kind} is not: a handler is bound one way or the other \
+         (`spawn` or `use`), so its faces must agree"
+    );
+    /// A mixed handler bound with `use`.
+    actor_mixed_handler_use_bound = "actor-mixed-handler:use-bound" (handler: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` is mixed — its state is confined to `send fn` members, and \
+         its sync members send to that servant — so it can only be `spawn`ed: bound with \
+         `use` there would be no mailbox for the sends to arrive on. Write `let handle = \
+         spawn {handler}(...)` and `use handle`"
+    );
+    /// A servant `send fn` without a written deduction clause.
+    actor_mixed_handler_send_clause = "actor-mixed-handler:send-clause" (fn_name: &dyn std::fmt::Display, entries: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` implements no effect member, so its deduction clause must be \
+         written out: a scheduled body outlives the frame that enqueued it, so every \
+         parameter is consumed — `=> {entries}`"
+    );
+    /// A servant `send fn` that keeps a parameter.
+    actor_mixed_handler_kept_param = "actor-mixed-handler:kept-param" (fn_name: &dyn std::fmt::Display, param: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` cannot keep `{param}`: a scheduled body outlives the frame \
+         that enqueued it, so every parameter is consumed (`=> !{param}`)"
+    );
+    /// A generic servant `send fn`.
+    actor_mixed_handler_generic_send = "actor-mixed-handler:generic-send" (fn_name: &dyn std::fmt::Display, generic: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` cannot be generic: a message carries payloads and no type \
+         arguments, so `{generic}` would have nothing to be chosen by"
+    );
+    /// A servant `send fn` with a `Mut` parameter.
+    actor_mixed_handler_mut_param = "actor-mixed-handler:mut-param" (fn_name: &dyn std::fmt::Display, param: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` cannot take `Mut` parameter `{param}`: mutating a value \
+         across a seam would share what the servant owns alone"
+    );
+    /// A servant `send fn` carrying a type that cannot cross.
+    actor_mixed_handler_unsendable_param = "actor-mixed-handler:unsendable-param" (fn_name: &dyn std::fmt::Display, ty: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` cannot carry `{ty}`: {why}, and everything crossing to the \
+         servant must be sendable"
+    );
+    /// An overloaded servant `send fn`.
+    actor_mixed_handler_overloaded_send = "actor-mixed-handler:overloaded-send" (fn_name: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` is overloaded, which a servant protocol does not support \
+         yet: the message dispatch is by member name — rename one"
+    );
+    /// A call that is both a servant send and an effect member.
+    actor_mixed_handler_send_or_member = "actor-mixed-handler:send-or-member" (name: &dyn std::fmt::Display, effects: &dyn std::fmt::Display) => format!(
+        "`{name}` is both a `send fn` of this handler and a member of {effects} available \
+         here: say which — `{name}@self(…)` for a send to this handler's servant, or \
+         name the effect (`{name}@E(…)`)"
+    );
+    /// A servant send with the wrong number of arguments.
+    actor_mixed_handler_arg_count = "actor-mixed-handler:arg-count" (name: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "`{name}` takes {expected} argument(s), found {found}"
+    );
+    /// A servant send argument of the wrong type.
+    actor_mixed_handler_arg_mismatch = "actor-mixed-handler:arg-mismatch" (want: &dyn std::fmt::Display, got: &dyn std::fmt::Display) => format!(
+        "expected `{want}`, found `{got}`"
+    );
+    /// A received reply whose answer outlives the activation undeclared.
+    actor_mixed_handler_undeclared_defer = "actor-mixed-handler:undeclared-defer" (name: &dyn std::fmt::Display, how: &dyn std::fmt::Display) => format!(
+        "`{name}` is a reply this member received, and {how} lets its answer outlive the \
+         activation: declare it — `=> defer {name}` — which is the handler's opt-in to \
+         deferred answers, and what the deadlock graph prices"
+    );
+    /// A mixed handler of several plain effects.
+    actor_mixed_handler_several_faces = "actor-mixed-handler:several-faces" (handler: &dyn std::fmt::Display, faces: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` implements several plain effects ({faces}), and a façade \
+         behind several faces is not supported yet: split the handler, or give it a \
+         single face"
+    );
+    /// A mixed handler with a `Mut` constructor parameter.
+    actor_mixed_handler_mut_ctor_param = "actor-mixed-handler:mut-ctor-param" (handler: &dyn std::fmt::Display, param: &dyn std::fmt::Display) => format!(
+        "`{handler}` cannot be shared: its constructor parameter `{param}` is `Mut`, and \
+         the façade value carries a copy of every parameter — a mutable one would go two \
+         ways at once. Move the mutable state into a field (the servant owns it), or \
+         pass immutable data"
+    );
+    /// A mixed handler whose constructor parameter cannot cross.
+    actor_mixed_handler_unsendable_ctor_param = "actor-mixed-handler:unsendable-ctor-param" (handler: &dyn std::fmt::Display, param: &dyn std::fmt::Display, ty: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "`{handler}` cannot be shared: its constructor parameter `{param}` is `{ty}` — \
+         {why}, and the façade value carries a copy of it to every thread that binds the \
+         handle"
+    );
+    /// A servant's state read from a sync member.
+    actor_mixed_handler_servant_state_sync = "actor-mixed-handler:servant-state-sync" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is the servant's state, which a mixed handler confines to its `send fn` \
+         members: a sync member runs on the caller's thread, where reading it would race \
+         an activation — send to a member that answers instead"
+    );
+    /// A mixed handler's sync member calling a dependency.
+    actor_mixed_handler_sync_member_dependency = "actor-mixed-handler:sync-member-dependency" (member: &dyn std::fmt::Display, effect: &dyn std::fmt::Display) => format!(
+        "`{member}` is a member of `{effect}`, a dependency of this handler, and a mixed \
+         handler's dependencies are its servant's: a sync member runs on the caller's \
+         thread and cannot reach them. Call it from a `send fn` member and send to that"
+    );
+
+    // [actor-monitor-handler]
+    /// A `with` clause on a spawn that shares a monitor.
+    actor_monitor_handler_with_clause = "actor-monitor-handler:with-clause" (handler: &dyn std::fmt::Display) => format!(
+        "`{handler}` is shared as a monitor, and a monitor's dependencies come from the \
+         enclosing scope at the spawn — not from a `with` clause: bind the dependency \
+         with `use` before this spawn and drop the clause"
+    );
+    /// A monitor's dependency with no handler in scope.
+    actor_monitor_handler_missing_dep = "actor-monitor-handler:missing-dep" (handler: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` depends on effect `{want}`, which has no handler in scope \
+         here: register one before this spawn"
+    );
+    /// A monitor of several plain effects.
+    actor_monitor_handler_several_faces = "actor-monitor-handler:several-faces" (handler: &dyn std::fmt::Display, faces: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` implements several plain effects ({faces}), and a shared \
+         instance behind several faces is not supported yet: split the handler, or give \
+         it a single face"
+    );
+    /// A monitor spawn with an `on` clause.
+    actor_monitor_handler_on_pool = "actor-monitor-handler:on-pool" (handler: &dyn std::fmt::Display) => format!(
+        "`{handler}` implements a plain effect, so this spawn shares it as a monitor — \
+         its members run on the callers' threads, and there is nothing to place `on` a \
+         pool. Remove the `on` clause"
+    );
+    /// A monitor spawn of a handler with a send member (a compiler bug).
+    actor_monitor_handler_send_member = "actor-monitor-handler:send-member" (handler: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "internal: monitor spawn of `{handler}` with send member `{member}` — the mixed \
+         path should have taken it"
+    );
+    /// A monitor whose constructor parameter cannot cross.
+    actor_monitor_handler_unsendable_param = "actor-monitor-handler:unsendable-param" (handler: &dyn std::fmt::Display, param: &dyn std::fmt::Display, ty: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "`{handler}` cannot be shared: its constructor parameter `{param}` is `{ty}` — \
+         {why}, and a shared handler's state must be sendable"
+    );
+    /// A monitor whose state field cannot cross.
+    actor_monitor_handler_unsendable_field = "actor-monitor-handler:unsendable-field" (handler: &dyn std::fmt::Display, field: &dyn std::fmt::Display, ty: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "`{handler}` cannot be shared: its state field `{field}` is `{ty}` — {why}, and a \
+         shared handler's state must be sendable"
+    );
+
+    // [actor-replyto]
+    /// A handler that mints continuations, bound with `use`.
+    actor_replyto_use_bound = "actor-replyto:use-bound" (handler: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` mints a continuation with `replyto`, or names its own \
+         address with `self@…`, so it can only be `spawn`ed: bound with `use` its \
+         members run inline, and there is no mailbox for the answer to arrive on and no \
+         address to name — write `spawn {handler}(...) on pool(1)` instead"
+    );
+    /// A continuation `on` something that is not a pool.
+    actor_replyto_pool_type = "actor-replyto:pool-type" (pool_type: &dyn std::fmt::Display, pool_ty: &dyn std::fmt::Display) => format!(
+        "a continuation runs on a `{pool_type}`, found `{pool_ty}`: `on pool(2)` builds \
+         one, `on thread()` a dedicated one"
+    );
+    /// A `replyto` with the wrong number of captures.
+    actor_replyto_capture_count = "actor-replyto:capture-count" (member: &dyn std::fmt::Display, params: &dyn std::fmt::Display, wanted: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "`{member}` takes {params} parameter(s): the last is the answer the token carries \
+         and the {wanted} before it are the captures, so `replyto` here wants {wanted} \
+         capture(s), found {found}"
+    );
+    /// A `replyto` capture of the wrong type.
+    actor_replyto_capture_mismatch = "actor-replyto:capture-mismatch" (want: &dyn std::fmt::Display, got: &dyn std::fmt::Display) => format!(
+        "expected `{want}`, found `{got}`"
+    );
+    /// An `on` clause on a mint whose target is a member of this handler.
+    actor_replyto_own_member_on = "actor-replyto:own-member-on" (form: &dyn std::fmt::Display) => format!(
+        "`{form}` targeting a member of this handler takes no `on` clause: the answer \
+         arrives on the actor's own mailbox, which is where the continuation belongs. A \
+         placement is written where the *actor* is spawned, or on a mint whose target is \
+         a free `send fn`"
+    );
+    /// A mint into the own handler outside a handler member.
+    actor_replyto_outside_member = "actor-replyto:outside-member" (form: &dyn std::fmt::Display, detail: &dyn std::fmt::Display) => format!(
+        "`{form}` mints a continuation into the handler it is written in, so it is legal \
+         only inside a handler member{detail}"
+    );
+    /// A mint toward another actor's member.
+    actor_replyto_other_actor_member = "actor-replyto:other-actor-member" (form: &dyn std::fmt::Display, member: &dyn std::fmt::Display, handlers: &dyn std::fmt::Display) => format!(
+        "`{form}` targets a member of the handler it is written in, and `{member}` is a \
+         member of {handlers} instead: minting toward another actor's member is not \
+         supported yet. Have the handler that owns `{member}` mint the token and pass it \
+         here — a `Reply<T>` is an ordinary linear value"
+    );
+    /// A mint naming no member of this handler.
+    actor_replyto_unknown_member = "actor-replyto:unknown-member" (handler: &dyn std::fmt::Display, member: &dyn std::fmt::Display, form: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` has no member `{member}` for `{form}` to deliver to"
+    );
+    /// A mint targeting a member that is not a `send fn`.
+    actor_replyto_not_send = "actor-replyto:not-send" (member: &dyn std::fmt::Display, form: &dyn std::fmt::Display) => format!(
+        "`{member}` is not a `send fn`, so `{form}` cannot deliver to it: an answer \
+         arrives as a message"
+    );
+    /// A mint into the own handler with the wrong number of captures.
+    actor_replyto_member_capture_count = "actor-replyto:member-capture-count" (member: &dyn std::fmt::Display, params: &dyn std::fmt::Display, wanted: &dyn std::fmt::Display, form: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "`{member}` takes {params} parameter(s): the last is the answer the token carries \
+         and the {wanted} before it are the captures, so `{form}` here wants {wanted} \
+         capture(s), found {found}"
+    );
+
+    // [actor-route-stub]
+    /// A member marking several parameters `Key`.
+    actor_route_stub_several_keys = "actor-route-stub:several-keys" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display, count: &dyn std::fmt::Display) => format!(
+        "`{effect}.{member}` marks {count} parameters `Key`; a member routes on at most \
+         one"
+    );
+    /// `use any` of something that is not a group handle.
+    actor_route_stub_not_a_group = "actor-route-stub:not-a-group" (ty: &dyn std::fmt::Display) => format!(
+        "`use any` binds a group handle — an `eff[ActorGroup<E>]` for a non-generic actor \
+         effect `E` — and this is `{ty}`"
+    );
+    /// `use any` with no route selector in scope.
+    actor_route_stub_no_selector = "actor-route-stub:no-selector" (shown: &dyn std::fmt::Display) => format!(
+        "`use any` routes each send through a `RouteSelector<{shown}>` policy, and none \
+         is in scope: bind one first — `use Sharded<{shown}>()`, `use \
+         LeastLoaded<{shown}>(true)`, `use Elected<{shown}>()`, or a handler of your own"
+    );
+
+    // [actor-self-send]
+    /// `k@self(…)` outside a handler member.
+    actor_self_send_outside_member = "actor-self-send:outside-member" (member: &dyn std::fmt::Display, detail: &dyn std::fmt::Display) => format!(
+        "`{member}@self(…)` names a member of the enclosing handler, so it is legal only \
+         inside a handler member{detail}"
+    );
+    /// A self-send naming no member.
+    actor_self_send_no_member = "actor-self-send:no-member" (handler: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` has no member `{member}` to send to"
+    );
+    /// A self-send to a member that is not a `send fn`.
+    actor_self_send_not_send = "actor-self-send:not-send" (member: &dyn std::fmt::Display) => format!(
+        "`{member}` is not a `send fn`, so `{member}@self(…)` cannot reach it: a \
+         self-send is a message, and a member that answers would have to wait for itself"
+    );
+    /// A self-send with the wrong number of arguments.
+    actor_self_send_arg_count = "actor-self-send:arg-count" (member: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "`{member}` takes {expected} argument(s), found {found}"
+    );
+    /// A self-send argument of the wrong type.
+    actor_self_send_arg_mismatch = "actor-self-send:arg-mismatch" (want: &dyn std::fmt::Display, got: &dyn std::fmt::Display) => format!(
+        "expected `{want}`, found `{got}`"
+    );
+    /// `k@self` as a value.
+    actor_self_send_member_value = "actor-self-send:member-value" (member: &dyn std::fmt::Display) => format!(
+        "`{member}@self` names a member of the enclosing handler, which is not a value: \
+         call it (`{member}@self(…)`) to send it a message"
+    );
+    /// `self@…` outside a handler member.
+    actor_self_send_address_outside_member = "actor-self-send:address-outside-member" () =>
+        "`self@…` names the enclosing handler's own address, so it is legal only inside a \
+         handler member or its `init` block";
+    /// `self@Face` naming no actor face of the handler.
+    actor_self_send_no_face = "actor-self-send:no-face" (ty: &dyn std::fmt::Display, handler: &dyn std::fmt::Display, faces: &dyn std::fmt::Display) => format!(
+        "`self@{ty}`: handler `{handler}` has no actor face `{ty}` — it implements \
+         `{faces}` — and an address is a face of an actor effect"
+    );
+
+    // [actor-send-fn]
+    /// A `send fn` in a plain effect.
+    actor_send_fn_plain_effect = "actor-send-fn:plain-effect" (member: &dyn std::fmt::Display, effect: &dyn std::fmt::Display) => format!(
+        "`send fn {member}` needs an `actor effect`: a message is enqueued on an actor, \
+         which a synchronous effect never has — declare `actor effect {effect}` if this \
+         protocol is meant to be spawned"
+    );
+    /// A `send fn` with a return type.
+    actor_send_fn_return_type = "actor-send-fn:return-type" (fn_name: &dyn std::fmt::Display) => format!(
+        "`send fn {fn_name}` cannot declare a return type: sending a member enqueues it \
+         and answers nothing, so a reply travels as a parameter — `send fn {fn_name}(…, \
+         out: Reply<T>)`, which the sender mints with `replyto`"
+    );
+
+    // [actor-sendable]
+    /// An actor effect member that keeps a parameter.
+    actor_sendable_kept_payload = "actor-sendable:kept-payload" (member: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, param: &dyn std::fmt::Display) => format!(
+        "member `{member}` of `actor effect {effect}` cannot keep `{param}`: a message \
+         payload crosses to another actor, so it is always consumed — write `=> \
+         !{param}`, or make `{effect}` a plain effect"
+    );
+    /// An actor effect member with a `Mut` parameter.
+    actor_sendable_mut_payload = "actor-sendable:mut-payload" (member: &dyn std::fmt::Display, effect: &dyn std::fmt::Display) => format!(
+        "member `{member}` of `actor effect {effect}` cannot take a `Mut` parameter: \
+         mutating a value across a actor boundary would share it, and an actor owns its \
+         state alone"
+    );
+    /// An actor effect member carrying a type that cannot cross.
+    actor_sendable_unsendable_payload = "actor-sendable:unsendable-payload" (member: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, ty: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "member `{member}` of `actor effect {effect}` cannot carry `{ty}`: {why}, and \
+         everything crossing to another actor must be sendable"
+    );
+    /// An actor effect member returning a `ref` or `proj`.
+    actor_sendable_borrowed_return = "actor-sendable:borrowed-return" (member: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, what: &dyn std::fmt::Display) => format!(
+        "member `{member}` of `actor effect {effect}` cannot return {what}: it would \
+         borrow state the actor owns and keeps mutating"
+    );
+    /// A task capture of a type that cannot cross.
+    actor_sendable_capture = "actor-sendable:capture" (member: &dyn std::fmt::Display, got: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "a capture of `{member}` cannot be `{got}`: {why}, and a task's captures cross a \
+         thread boundary"
+    );
+
+    // [actor-spawn-effect]
+    /// `spawn` in a fn type.
+    actor_spawn_effect_fn_type = "actor-spawn-effect:fn-type" () =>
+        "a fn type cannot declare `spawn`: creating an actor is local to a body, so a \
+         lambda may spawn exactly when the function containing it may";
+    /// `spawn` inside a lambda.
+    actor_spawn_effect_in_lambda = "actor-spawn-effect:in-lambda" () =>
+        "`spawn` cannot be written inside a lambda: a function value's body runs wherever \
+         it is called, and a fn type cannot declare `spawn` — spawn in the function that \
+         holds the capability and pass the `eff[…]` handle";
+    /// `spawn` without the `spawn` capability.
+    actor_spawn_effect_missing = "actor-spawn-effect:missing" () =>
+        "`spawn` requires the `spawn` capability in the function's effect list (`[use, \
+         spawn]`)";
+    /// A call of a fn needing `spawn` from one without it.
+    actor_spawn_effect_callee_needs_spawn = "actor-spawn-effect:callee-needs-spawn" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` requires the `spawn` capability, so this function must declare it too \
+         (`[spawn]` in its effect list)"
+    );
+
+    // [actor-spawn-expr]
+    /// A spawn `on` something that is not a pool.
+    actor_spawn_expr_pool_type = "actor-spawn-expr:pool-type" (pool_type: &dyn std::fmt::Display, pool_ty: &dyn std::fmt::Display) => format!(
+        "a spawn runs on a `{pool_type}`, found `{pool_ty}`: `on pool(2)` builds one"
+    );
+    /// A spawn without `on`.
+    actor_spawn_expr_no_pool = "actor-spawn-expr:no-pool" (handler: &dyn std::fmt::Display) => format!(
+        "`spawn` must name the pool it runs on: write `on pool(n)` (or `on POOL` for a \
+         pool already built). To register `{handler}` in this scope instead, write `use \
+         {handler}(...)`"
+    );
+    /// A handler of several effects constructed in a spawn's `with` clause.
+    actor_spawn_expr_with_several_faces = "actor-spawn-expr:with-several-faces" (handler: &dyn std::fmt::Display, faces: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` implements several effects ({faces}), so it cannot be \
+         constructed in a spawn's `with` clause: the child would own it, and one \
+         instance cannot be two of its dependencies — spawn it separately and pass an \
+         `eff[…]` per face"
+    );
+    /// A handler with dependencies constructed in a spawn's `with` clause.
+    actor_spawn_expr_with_dependencies = "actor-spawn-expr:with-dependencies" (handler: &dyn std::fmt::Display, dep: &dyn std::fmt::Display, effect: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` depends on effect `{dep}`, so it cannot be constructed in a \
+         spawn's `with` clause: give the child a `eff[…]` of an actor serving `{effect}` \
+         instead, or construct it inside the child with `use`"
+    );
+    /// A spawn's `with` item that is neither a handler nor a handle.
+    actor_spawn_expr_with_not_a_handler = "actor-spawn-expr:with-not-a-handler" (ty: &dyn std::fmt::Display) => format!(
+        "a spawn's `with` clause supplies handlers: write a handler construction \
+         (`SomeHandler(...)`) or a `eff[…]` of the effect an actor already serves, not a \
+         `{ty}`"
+    );
+
+    // [actor-spawn-inherit]
+    /// A dependency several instances in scope could supply.
+    actor_spawn_inherit_ambiguous_dep = "actor-spawn-inherit:ambiguous-dep" (handler: &dyn std::fmt::Display, want: &dyn std::fmt::Display, instances: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` depends on effect `{want}`, and this scope has several \
+         instances it could mean ({instances}): name the one you want with `with`"
+    );
+    /// A dependency neither the spawn nor the scope supplies.
+    actor_spawn_inherit_missing_dep = "actor-spawn-inherit:missing-dep" (handler: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` depends on effect `{want}`, which this spawn does not supply \
+         and this scope has no handler for: bind one before the spawn (it is then \
+         inherited), or supply it in the clause (`spawn {handler}(...) with \
+         SomeHandler()`)"
+    );
+    /// A spawn's `with` item the handler does not depend on.
+    actor_spawn_inherit_not_a_dep = "actor-spawn-inherit:not-a-dep" (handler: &dyn std::fmt::Display, eff: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` does not depend on effect `{eff}`, so supplying it here has \
+         no effect"
+    );
+
+    // [actor-use-addr]
+    /// `use … on POOL` of a handler with several faces.
+    actor_use_addr_several_faces = "actor-use-addr:several-faces" () =>
+        "`use … on POOL` binds one face, and this handler has several: spawn it (`let (a, \
+         b) = spawn H(...) on POOL`) and `use` each face yourself";
+    /// `use` of a tuple that is not all handles.
+    actor_use_addr_tuple = "actor-use-addr:tuple" (ty: &dyn std::fmt::Display) => format!(
+        "`use` binds a handler or an effect handle, and `{ty}` is a tuple that is not all \
+         handles"
+    );
+    /// `use` of something that is neither a handler nor a handle.
+    actor_use_addr_not_a_handle = "actor-use-addr:not-a-handle" (ty: &dyn std::fmt::Display) => format!(
+        "`use` registers a handler or binds an `eff[…]`, and `{ty}` is neither: write a \
+         handler construction (`use SomeHandler(...)`), or bind the addr a `spawn` \
+         answered"
+    );
+    /// A send through an effect not in scope.
+    actor_use_addr_not_in_scope = "actor-use-addr:not-in-scope" (effect_name: &dyn std::fmt::Display) => format!(
+        "effect `{effect_name}` is not in scope here"
+    );
+    /// A send through a handle that argument counts cannot choose.
+    actor_use_addr_overload_by_count = "actor-use-addr:overload-by-count" (effect_name: &dyn std::fmt::Display, member: &dyn std::fmt::Display, count: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "effect `{effect_name}` overloads `{member}`, and {count} of its overloads take \
+         {found} argument(s): a send through a `eff[…]` picks by argument count, so this \
+         call cannot say which one it means"
+    );
+    /// A send through a handle naming no member.
+    actor_use_addr_no_member = "actor-use-addr:no-member" (instance: &dyn std::fmt::Display, effect_name: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "actor `{instance}` serves effect `{effect_name}`, which has no member named \
+         `{member}`"
+    );
+    /// A call through a handle to a member that is not a `send fn`.
+    actor_use_addr_not_send = "actor-use-addr:not-send" (member: &dyn std::fmt::Display) => format!(
+        "`{member}` is not a `send fn`, so it cannot be called through a `eff[…]`: an \
+         actor serves messages, and a member that answers would have to park its caller"
+    );
+    /// A send through a handle with the wrong number of arguments.
+    actor_use_addr_arg_count = "actor-use-addr:arg-count" (member: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "`{member}` takes {expected} argument(s), found {found}"
+    );
+    /// A send-through-a-handle argument of the wrong type.
+    actor_use_addr_arg_mismatch = "actor-use-addr:arg-mismatch" (want: &dyn std::fmt::Display, got: &dyn std::fmt::Display) => format!(
+        "expected `{want}`, found `{got}`"
+    );
+
+    // [actor-waitfor]
+    /// A `waitfor` inside a lambda.
+    actor_waitfor_in_lambda = "actor-waitfor:in-lambda" () =>
+        "`waitfor` cannot be written inside a lambda: a function value runs wherever it \
+         is called, so the wait would occupy call sites nothing can enumerate — wait in \
+         the function that calls the value, and pass what it needs";
+    /// A `waitfor` binding annotated with something other than a `Reply<T>`.
+    actor_waitfor_binding_type = "actor-waitfor:binding-type" (reply_type: &dyn std::fmt::Display, other: &dyn std::fmt::Display) => format!(
+        "`waitfor` mints a reply token, so its binding is a `{reply_type}<T>`, not a \
+         `{other}`"
+    );
+
+    // [assert-fn]
+    /// An assertion message that is not a `Str`.
+    assert_fn_message_not_str = "assert-fn:message-not-str" (t: &dyn std::fmt::Display) => format!(
+        "an assertion's message must be a `Str`, found `{t}`"
+    );
+    /// A `todo!()` (a warning).
+    assert_fn_todo = "assert-fn:todo" () =>
+        "`todo!()` marks code that is not implemented yet";
+
+    // [call-resolve]
+    /// A call or fn value naming no function in scope.
+    call_resolve_unknown_fn = "call-resolve:unknown-fn" (name: &dyn std::fmt::Display) => format!(
+        "no function named `{name}` is in scope"
+    );
+    /// A call of a local whose type is a type parameter.
+    call_resolve_type_param_call = "call-resolve:type-param-call" (name: &dyn std::fmt::Display, vty: &dyn std::fmt::Display) => format!(
+        "`{name}` is a type parameter (`{vty}`), so nothing is known about its values — \
+         including whether they are functions. Declare it with a fn type to call it"
+    );
+    /// A call of a local that is not a function.
+    call_resolve_not_callable_local = "call-resolve:not-callable-local" (name: &dyn std::fmt::Display, vty: &dyn std::fmt::Display) => format!(
+        "`{name}` is not callable: its type is `{vty}`"
+    );
+    /// A call of an expression that is not a function.
+    call_resolve_not_callable = "call-resolve:not-callable" (cty: &dyn std::fmt::Display) => format!(
+        "this expression is not callable: its type is `{cty}`"
+    );
+    /// A fn value called with an argument of the wrong type.
+    call_resolve_fn_value_arg_mismatch = "call-resolve:fn-value-arg-mismatch" (callee: &dyn std::fmt::Display, p: &dyn std::fmt::Display, aty: &dyn std::fmt::Display) => format!(
+        "{callee} takes `{p}` here, found `{aty}`"
+    );
+    /// A fn value called with an argument that lacks what the parameter claims.
+    call_resolve_fn_value_claim_mismatch = "call-resolve:fn-value-claim-mismatch" (callee: &dyn std::fmt::Display, p: &dyn std::fmt::Display, aty: &dyn std::fmt::Display) => format!(
+        "{callee} takes `{p}` here, found `{aty}`: the argument does not carry what the \
+         parameter claims"
+    );
+    /// A fn value called with the wrong number of arguments.
+    call_resolve_fn_value_arg_count = "call-resolve:fn-value-arg-count" (callee: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "{callee} takes {expected} argument(s), found {found}"
+    );
+    /// A call no overload fits, with the reason.
+    call_resolve_no_overload_why = "call-resolve:no-overload-why" (name: &dyn std::fmt::Display, args: &dyn std::fmt::Display, hint: &dyn std::fmt::Display) => format!(
+        "no matching overload for `{name}({args})`: {hint}"
+    );
+    /// A call no overload fits.
+    call_resolve_no_overload = "call-resolve:no-overload" (name: &dyn std::fmt::Display, args: &dyn std::fmt::Display, hint: &dyn std::fmt::Display) => format!(
+        "no matching overload for `{name}({args})`{hint}"
+    );
+
+    // [call-type-args]
+    /// A call whose type arguments nothing determines.
+    call_type_args_cannot_infer = "call-type-args:cannot-infer" (plural: &dyn std::fmt::Display, list: &dyn std::fmt::Display, name: &dyn std::fmt::Display, pronoun: &dyn std::fmt::Display) => format!(
+        "cannot infer type argument{plural} {list} of `{name}`: no argument determines \
+         {pronoun} and neither does the context — write the type argument{plural} \
+         (`{name}<...>(...)`) or annotate where the result goes"
+    );
+
+    // [cmp-binder]
+    /// A `?name` argument naming no function slot.
+    cmp_binder_unknown_slot = "cmp-binder:unknown-slot" (slot: &dyn std::fmt::Display, known: &dyn std::fmt::Display) => format!(
+        "`?{slot}` names no function slot here{known}"
+    );
+    /// More function-slot arguments than slots.
+    cmp_binder_too_many = "cmp-binder:too-many" (count: &dyn std::fmt::Display, names: &dyn std::fmt::Display) => format!(
+        "too many arguments: this declaration has {count} function slot(s){names}"
+    );
+    /// A function slot filled twice.
+    cmp_binder_filled_twice = "cmp-binder:filled-twice" (slot: &dyn std::fmt::Display) => format!(
+        "the function slot `?{slot}` is filled twice"
+    );
+
+    // [cmp-carry]
+    /// A carried identity that does not fit the callee's implicit.
+    cmp_carry_carried_mismatch = "cmp-carry:carried-mismatch" (callee: &dyn std::fmt::Display, implicit: &dyn std::fmt::Display, id: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
+        "`{callee}` needs the `{implicit}` this value was \
+         built                                              with — `{id}` — and it does \
+         not fit `?{implicit}: {want}`                                              here"
+    );
+    /// A value with no identity where a carried one is claimed.
+    cmp_carry_no_identity = "cmp-carry:no-identity" () =>
+        "this value has no identity a type can carry: the position's claim names the \
+         function it was built with, so pass a named top-level `fn` (a lambda or a local \
+         cannot be named in a type)";
+    /// A carried identity that does not fit its slot.
+    cmp_carry_slot_mismatch = "cmp-carry:slot-mismatch" (id: &dyn std::fmt::Display, slot: &dyn std::fmt::Display, name: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
+        "`{id}` does not fit the `{slot}` slot of `{name}`, which needs `{want}`"
+    );
+    /// A `?Group` slot spread naming no group.
+    cmp_carry_unknown_group = "cmp-carry:unknown-group" (name: &dyn std::fmt::Display) => format!(
+        "no `fns` group named `{name}` is in scope: `?{name}` spreads a group's members \
+         as function slots"
+    );
+    /// A type where a function identity goes.
+    cmp_carry_type_not_identity = "cmp-carry:type-not-identity" () =>
+        "a function slot takes a function identity — a name like `cmp`, `cmp@Person` or \
+         the signature's `?cmp` — not a type";
+    /// A function identity written with qualifiers or type arguments.
+    cmp_carry_identity_not_plain = "cmp-carry:identity-not-plain" () =>
+        "a function identity is a plain name (`cmp`, `cmp@Person`): it takes no \
+         qualifiers and no type arguments of its own";
+    /// A local or lambda where a function identity goes.
+    cmp_carry_local_identity = "cmp-carry:local-identity" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is a local here, and a lambda or local has no identity a type can \
+         carry: declare it as a `fn` (a type carries only what it can print — a named, \
+         top-level, capture-free function)"
+    );
+    /// A type parameter where a function identity goes.
+    cmp_carry_type_param_identity = "cmp-carry:type-param-identity" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is a type parameter, and this position carries a function identity: \
+         name a function, or the signature's binder (`?{name}`)"
+    );
+    /// A function identity naming no function in scope.
+    cmp_carry_unknown_fn = "cmp-carry:unknown-fn" (name: &dyn std::fmt::Display) => format!(
+        "no function `{name}` in scope to carry here"
+    );
+    /// A function identity several functions fit.
+    cmp_carry_ambiguous = "cmp-carry:ambiguous" (shown: &dyn std::fmt::Display, want: &dyn std::fmt::Display, text: &dyn std::fmt::Display) => format!(
+        "the identity `{shown}` is ambiguous at `{want}`: {text}"
+    );
+
+    // [col-index-resolve]
+    /// `[]` on something that is not an array.
+    col_index_resolve_not_indexable = "col-index-resolve:not-indexable" (other: &dyn std::fmt::Display) => format!(
+        "`{other}` cannot be indexed with `[]`: only arrays can, and other collections \
+         expose element access as functions (e.g. `get(collection, index)`)"
+    );
+
+    // [col-key-eligible]
+    /// A set or map keyed by something not hashable.
+    col_key_eligible_key = "col-key-eligible:key" (ty: &dyn std::fmt::Display, reason: &dyn std::fmt::Display) => format!(
+        "`{ty}` cannot be a key: {reason}. A `Set` element and a `Map` key have to be \
+         hashable"
+    );
+
+    // [col-sorted]
+    /// A sorted collection keyed by something not orderable.
+    col_sorted_key = "col-sorted:key" (ty: &dyn std::fmt::Display, reason: &dyn std::fmt::Display) => format!(
+        "`{ty}` cannot be a sorted collection's key: {reason}. A `SortedSet` element and \
+         a `SortedMap` key have to be orderable"
+    );
+
+    // [col-sorted-list]
+    /// A `Sorted List` of elements that are not orderable.
+    col_sorted_list_element = "col-sorted-list:element" (elem: &dyn std::fmt::Display, reason: &dyn std::fmt::Display) => format!(
+        "`{elem}` cannot be the element of a `Sorted List`: {reason}. Sorting compares \
+         the elements, so they have to be orderable"
+    );
+
+    // [comptime-fields]
+    /// A compile-time type in an ordinary type position.
+    comptime_fields_data_position = "comptime-fields:data-position" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is a compile-time type (`core.comptime`): it describes a type to a \
+         `comptime fn` and is never a value, so it cannot appear in an ordinary type \
+         position"
+    );
+    /// A literal of a compile-time type.
+    comptime_fields_literal = "comptime-fields:literal" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is a compile-time type (`core.comptime`) and has no values: the \
+         compiler fills it for a `comptime fn`, and nothing constructs one"
+    );
+
+    // [comptime-inline]
+    /// A comptime statement that reached the checker (a compiler bug).
+    comptime_inline_not_expanded = "comptime-inline:not-expanded" () =>
+        "internal: a comptime statement reached the checker — the comptime expansion did \
+         not run";
+
+    // [comptime-qualifier]
+    /// A comptime qualifier written in a type.
+    comptime_qualifier_in_type = "comptime-qualifier:in-type" (qualifier: &dyn std::fmt::Display) => format!(
+        "`{qualifier}` is a comptime qualifier: it is written before a field's name \
+         (`{qualifier}(…) port: Int`) or a declaration, and is never part of a type"
+    );
+    /// A comptime qualifier applied twice.
+    comptime_qualifier_applied_twice = "comptime-qualifier:applied-twice" (name: &dyn std::fmt::Display) => format!(
+        "qualifier `{name}` is applied more than once"
+    );
+    /// A qualifier that is not comptime written where a comptime one goes.
+    comptime_qualifier_not_comptime_annotation = "comptime-qualifier:not-comptime-annotation" (name: &dyn std::fmt::Display, place: &dyn std::fmt::Display, subject: &dyn std::fmt::Display) => format!(
+        "`{name}` is not a comptime qualifier: what is written {place} is a `comptime \
+         qualifier … of {subject}`, read by comptime code; a claim about the value goes \
+         in the type"
+    );
+    /// A comptime qualifier written with type arguments.
+    comptime_qualifier_type_args = "comptime-qualifier:type-args" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` takes no type arguments"
+    );
+    /// A comptime qualifier with the wrong number of constants.
+    comptime_qualifier_const_count = "comptime-qualifier:const-count" (name: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "`{name}` takes {expected} constant(s), found {found}"
+    );
+    /// A comptime qualifier's slot given something other than a constant.
+    comptime_qualifier_slot_not_constant = "comptime-qualifier:slot-not-constant" () =>
+        "a comptime qualifier's slot takes a constant (`'p'`, `\"rm\"`, `3`): nothing \
+         else exists where it is written";
+    /// A comptime qualifier of something other than `Field` or `Struct`.
+    comptime_qualifier_subject = "comptime-qualifier:subject" (subject: &dyn std::fmt::Display) => format!(
+        "a comptime qualifier describes a `core.comptime` `Field` or `Struct`, not \
+         `{subject}`"
+    );
+    /// A comptime qualifier with a body.
+    comptime_qualifier_body = "comptime-qualifier:body" (qualifier: &dyn std::fmt::Display) => format!(
+        "comptime qualifier `{qualifier}` cannot have a body: it is written on a \
+         declaration and read by comptime code, so there is nothing to test or refine"
+    );
+    /// A comptime qualifier with type parameters or fn slots.
+    comptime_qualifier_generics = "comptime-qualifier:generics" (qualifier: &dyn std::fmt::Display, subject: &dyn std::fmt::Display) => format!(
+        "comptime qualifier `{qualifier}` takes no type parameters or fn slots: \
+         `{subject}` already ranges over every declaration it can describe"
+    );
+    /// A comptime qualifier slot of a type other than `Int`, `Char` or `Str`.
+    comptime_qualifier_slot_type = "comptime-qualifier:slot-type" (ty: &dyn std::fmt::Display) => format!(
+        "a comptime qualifier's slot holds a constant: `Int`, `Char` or `Str`, not `{ty}`"
+    );
+
+    // [copy-scalar-free]
+    /// A `!v` on a Copy scalar parameter (a warning).
+    copy_scalar_free_moved_scalar = "copy-scalar-free:moved-scalar" (ty: &dyn std::fmt::Display, param: &dyn std::fmt::Display) => format!(
+        "moving an `{ty}` is a copy, so `!{param}` changes nothing for the caller: drop it"
+    );
+
+    // [decl-body]
+    /// A bodiless declaration without a return type.
+    decl_body_return_type = "decl-body:return-type" (kind: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "{kind} `{name}` must declare its return type (write `-> None` when it returns no \
+         value): with no body to infer from, the signature is the whole contract"
+    );
+    /// A bodiless declaration without an effect list.
+    decl_body_effect_list = "decl-body:effect-list" (kind: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "{kind} `{name}` must declare its effect list (write `[]` when it is pure): with \
+         no body to infer from, the signature is the whole contract"
+    );
+
+    // [deduce-conditional]
+    /// A conditional response naming no parameter.
+    deduce_conditional_not_a_param = "deduce-conditional:not-a-param" (subject: &dyn std::fmt::Display, fn_name: &dyn std::fmt::Display) => format!(
+        "a conditional response names `{subject}`, which is not a parameter of `{fn_name}`"
+    );
+    /// A conditional response about a moved parameter.
+    deduce_conditional_moved = "deduce-conditional:moved" (subject: &dyn std::fmt::Display, fn_name: &dyn std::fmt::Display) => format!(
+        "a conditional response speaks about `{subject}`, but `{fn_name}` moves it — a \
+         caller knows nothing about a moved value afterwards. Keep the parameter (drop \
+         its `!{subject}`)"
+    );
+    /// A conditional response naming no qualifier.
+    deduce_conditional_unknown_qualifier = "deduce-conditional:unknown-qualifier" (qualifier: &dyn std::fmt::Display) => format!(
+        "unknown qualifier `{qualifier}`"
+    );
+    /// A conditional response's qualifier that does not apply to its subject.
+    deduce_conditional_not_applicable = "deduce-conditional:not-applicable" (qualifier: &dyn std::fmt::Display, subject: &dyn std::fmt::Display) => format!(
+        "`{qualifier}` does not apply to `{subject}`"
+    );
+    /// A `return true` claiming `!is` where the claim holds.
+    deduce_conditional_claims_not = "deduce-conditional:claims-not" (subject: &dyn std::fmt::Display, qualifier: &dyn std::fmt::Display) => format!(
+        "this `return true` claims `{subject} !is {qualifier}`, but `{subject}` carries \
+         `{qualifier}` on this path"
+    );
+    /// A `return true` claiming `is` where nothing proved it.
+    deduce_conditional_unproven = "deduce-conditional:unproven" (subject: &dyn std::fmt::Display, qualifier: &dyn std::fmt::Display) => format!(
+        "this `return true` claims `{subject} is {qualifier}`, but nothing on this path \
+         proved it — narrow `{subject}` with `is` first"
+    );
+
+    // [deduce-field]
+    /// A mutation outside the fields a clause promises.
+    deduce_field_unpromised_mutation = "deduce-field:unpromised-mutation" (promised: &dyn std::fmt::Display, param: &dyn std::fmt::Display, did: &dyn std::fmt::Display) => format!(
+        "this function's clause promises it mutates only {promised} of `{param}`, but the \
+         body mutates {did}: widen the entry, or write `{param}: Mut` for the whole value"
+    );
+
+    // [deduce-reapply]
+    /// A trusted `+Q` outside the file that declares `Q`.
+    deduce_reapply_other_file = "deduce-reapply:other-file" (name: &dyn std::fmt::Display) => format!(
+        "`+{name}` is trusted, so it is allowed only in the file that declares `{name}` — \
+         exactly like a constructor"
+    );
+    /// A `+Q` in a `=>[…]` group.
+    deduce_reapply_group_claim = "deduce-reapply:group-claim" (qualifier: &dyn std::fmt::Display, fn_name: &dyn std::fmt::Display) => format!(
+        "`+{qualifier}` cannot appear in `{fn_name}`'s contract: a `=>[{fn_name}]` group \
+         says what *that* function does, and nothing here could establish the claim on \
+         its behalf. State what a call of someone else's function leaves behind with a \
+         `refn` in the qualifier"
+    );
+    /// A `+Q` on no parameter.
+    deduce_reapply_no_param = "deduce-reapply:no-param" (qualifier: &dyn std::fmt::Display) => format!(
+        "`+{qualifier}` states what this function establishes about a *parameter*, so it \
+         needs one: write it on the parameter's entry (`=> p: +{qualifier} Mut`)"
+    );
+    /// A `+Q` of a compiler qualifier.
+    deduce_reapply_compiler_qualifier = "deduce-reapply:compiler-qualifier" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` cannot be established: it is the compiler's own qualifier — a \
+         representation choice rather than a claim about the value — and nothing could \
+         establish it. Only a qualifier declared in this file may be written `+{name}`"
+    );
+    /// A `+Q` of a qualifier another file declares.
+    deduce_reapply_foreign_qualifier = "deduce-reapply:foreign-qualifier" (name: &dyn std::fmt::Display) => format!(
+        "`+{name}` establishes `{name}`, which this file does not declare: a function may \
+         only claim to establish a qualifier its own file owns, the same rule a \
+         constructor fn and a refinement follow. Declare a constructor there, or consume \
+         the value and return it as `{name}`"
+    );
+    /// A `+Q<…>` whose arguments differ from the parameter's claim.
+    deduce_reapply_args_differ = "deduce-reapply:args-differ" (name: &dyn std::fmt::Display, args: &dyn std::fmt::Display, param: &dyn std::fmt::Display, declared: &dyn std::fmt::Display) => format!(
+        "`+{name}<{args}>` does not match the claim on `{param}`, which is \
+         `{name}<{declared}>`: a re-established claim is the parameter's own, so its \
+         arguments cannot differ — a *different* one is a new value, and belongs in the \
+         return type (`-> … as {name}<{args}>`)"
+    );
+    /// A `+Q` of a qualifier that does not apply to the parameter.
+    deduce_reapply_does_not_apply = "deduce-reapply:does-not-apply" (name: &dyn std::fmt::Display, param_ty: &dyn std::fmt::Display, param: &dyn std::fmt::Display) => format!(
+        "qualifier `{name}` does not apply to `{param_ty}`, so this function cannot \
+         establish it on `{param}`"
+    );
+    /// A `+Q` of a qualifier with fn slots, written without them.
+    deduce_reapply_no_identity = "deduce-reapply:no-identity" (name: &dyn std::fmt::Display, what: &dyn std::fmt::Display, slots: &dyn std::fmt::Display) => format!(
+        "`+{name}` establishes a claim with no identity: `{name}` holds {what} that every \
+         operation reading the claim binds, so the claim has to name what this function \
+         established it with — write `+{name}<…, {slots}>`"
+    );
+
+    // [deduce-std-explicit]
+    /// An exported std fn whose deduction clause leaves parameters out.
+    deduce_std_explicit_uncovered_params = "deduce-std-explicit:uncovered-params" (fn_name: &dyn std::fmt::Display, params: &dyn std::fmt::Display, verb: &dyn std::fmt::Display, fix: &dyn std::fmt::Display) => format!(
+        "exported `fn {fn_name}` in a `std = true` tree must declare a deduction clause \
+         naming every parameter, so its ownership contract does not depend on the \
+         program that uses it: {params} {verb} not covered{fix}"
+    );
+
+    // [deduce-syntax]
+    /// A bodiless declaration whose clause leaves a parameter out.
+    deduce_syntax_bodiless_clause = "deduce-syntax:bodiless-clause" (what: &dyn std::fmt::Display, param: &dyn std::fmt::Display) => format!(
+        "{what} has no body to infer from, so its deduction clause must say what happens \
+         to `{param}`: `=> {param}` to keep it, `=> !{param}` to consume it"
+    );
+
+    // [default-fits]
+    /// A default that does not fit its parameter's type.
+    default_fits_mismatch = "default-fits:mismatch" (expected: &dyn std::fmt::Display, got: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "this default does not fit its type: expected `{expected}`, found `{got}`{why}"
+    );
+
+    // [doc-compilerrules]
+    /// An `@compilerrules` without its bracketed rule list (a warning).
+    doc_compilerrules_no_rules = "doc-compilerrules:no-rules" () =>
+        "`@compilerrules` lists the rules it cites in brackets: `@compilerrules [rule-a, \
+         rule-b]`, then how they apply here, if that needs saying";
+
+    // [doc-tags]
+    /// A doc tag this version does not know (a warning).
+    doc_tags_unknown_tag = "doc-tags:unknown-tag" (tag: &dyn std::fmt::Display, known: &dyn std::fmt::Display) => format!(
+        "`@{tag}` is not a doc tag: the tags are {known}"
+    );
+    /// An `@param` naming no parameter (a warning).
+    doc_tags_param_unnamed = "doc-tags:param-unnamed" () =>
+        "`@param` names the parameter it describes: `@param name  what it is`";
+    /// An `@param` naming a parameter the fn does not have (a warning).
+    doc_tags_param_unknown = "doc-tags:param-unknown" (param: &dyn std::fmt::Display, fn_name: &dyn std::fmt::Display) => format!(
+        "`@param {param}`: `{fn_name}` has no parameter `{param}`"
+    );
+    /// An `@param` on something that is not a fn (a warning).
+    doc_tags_param_not_fn = "doc-tags:param-not-fn" (name: &dyn std::fmt::Display) => format!(
+        "`@param` describes a fn's parameter, and `{name}` is not a fn"
+    );
+
+    // [effect-alias]
+    /// `use` or `spawn` in an effect alias.
+    effect_alias_capability = "effect-alias:capability" () =>
+        "an effect alias names effects: `use` and `spawn` are per-function capabilities, \
+         not effects a group can stand for";
+    /// `any` in an effect alias.
+    effect_alias_any = "effect-alias:any" () =>
+        "`any` has no meaning in an effect alias: an alias is a set of effects, and `any` \
+         is about one instance of one effect — write it where the effect is required";
+    /// `any` on an effect alias.
+    effect_alias_any_alias = "effect-alias:any-alias" (name: &dyn std::fmt::Display) => format!(
+        "`any {name}` is not allowed: `{name}` is an effect alias (several effects), and \
+         `any` is about one instance of one effect — write `any` on the individual effect"
+    );
+    /// An effect alias that is cyclic.
+    effect_alias_cycle = "effect-alias:cycle" (alias: &dyn std::fmt::Display, chain: &dyn std::fmt::Display) => format!(
+        "the effect alias `{alias}` is cyclic: {chain}"
+    );
+
+    // [effect-any]
+    /// `any E` in a fn type.
+    effect_any_fn_type = "effect-any:fn-type" (effect: &dyn std::fmt::Display) => format!(
+        "a fn type's effects carry no strength — `any {effect}` is refused here: declare \
+         `[any {effect}]` on the function that calls the value, which inherits the \
+         requirement"
+    );
+    /// A callee of one instance called where many are bound.
+    effect_any_single_instance_callee = "effect-any:single-instance-callee" (name: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
+        "`{name}` declares `[{want}]` — one instance, sends in order — but `{want}` is \
+         bound to many instances here (`any {want}`): declare `[any {want}]` on `{name}` \
+         if any member may take each send, or bind one instance"
+    );
+
+    // [effect-at]
+    /// A `member@Effect` value whose own implicits cannot be filled.
+    effect_at_value_incomplete = "effect-at:value-incomplete" (member: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, want: &dyn std::fmt::Display, text: &dyn std::fmt::Display) => format!(
+        "`{member}@{effect}` fits `{want}` here, but cannot be completed: {text}"
+    );
+    /// A `member@Effect` value several candidates fit.
+    effect_at_value_ambiguous = "effect-at:value-ambiguous" (member: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, want: &dyn std::fmt::Display, text: &dyn std::fmt::Display) => format!(
+        "`{member}@{effect}` is ambiguous at `{want}`: {text}"
+    );
+    /// A `member@Effect` value that does not fit, with the reason.
+    effect_at_value_near_miss = "effect-at:value-near-miss" (member: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, want: &dyn std::fmt::Display, reason: &dyn std::fmt::Display) => format!(
+        "`{member}@{effect}` does not fit `{want}`: {reason}"
+    );
+    /// A `member@Effect` value that does not fit.
+    effect_at_value_no_fit = "effect-at:value-no-fit" (member: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
+        "`{member}@{effect}` does not fit `{want}`"
+    );
+    /// A `member@Effect` value where no function type is expected.
+    effect_at_value_not_expected = "effect-at:value-not-expected" (member: &dyn std::fmt::Display, effect: &dyn std::fmt::Display) => format!(
+        "`{member}@{effect}` selects an effect's member, which is a value only where a \
+         function type is expected and a handler for it is in scope: call it \
+         (`{member}@{effect}(…)`), or pass it where a function is wanted"
+    );
+    /// An `@Effect` naming no effect in scope.
+    effect_at_unknown_effect = "effect-at:unknown-effect" (effect: &dyn std::fmt::Display) => format!(
+        "no effect named `{effect}` is in scope"
+    );
+    /// An `@Effect` call naming no member of the effect.
+    effect_at_no_member = "effect-at:no-member" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "effect `{effect}` has no member named `{member}`"
+    );
+    /// A member call several effects in scope could go through.
+    effect_at_ambiguous_member = "effect-at:ambiguous-member" (name: &dyn std::fmt::Display, owners: &dyn std::fmt::Display, first: &dyn std::fmt::Display) => format!(
+        "`{name}` is a member of {owners} — more than one is in scope, so the call must \
+         pick its effect: `{name}@{first}(…)`"
+    );
+
+    // [effect-available]
+    /// A lambda passed where a member and a function of one name both take it.
+    effect_available_lambda_member_or_fn = "effect-available:lambda-member-or-fn" (name: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "cannot type this lambda: `{name}` is both a member of `{effect}` and a function, \
+         and {why}; write the lambda's parameter types"
+    );
+    /// A call no member or function of its name accepts.
+    effect_available_no_candidate = "effect-available:no-candidate" (name: &dyn std::fmt::Display, args: &dyn std::fmt::Display, candidates: &dyn std::fmt::Display) => format!(
+        "no `{name}` accepts ({args}): the candidates are {candidates}"
+    );
+    /// A call a member and a function both accept, neither more specific.
+    effect_available_member_or_fn = "effect-available:member-or-fn" (name: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, member_params: &dyn std::fmt::Display, fn_params: &dyn std::fmt::Display, args: &dyn std::fmt::Display, module: &dyn std::fmt::Display) => format!(
+        "ambiguous call to `{name}`: the member `{effect}.{name}({member_params})` and \
+         the function `{name}({fn_params})` both accept ({args}), and neither is more \
+         specific — write `{name}@{effect}(…)` for the member or `{name}@{module}(…)` \
+         for the function"
+    );
+    /// A function value whose effect has no handler in scope.
+    effect_available_fn_value = "effect-available:fn-value" (want: &dyn std::fmt::Display) => format!(
+        "no handler for effect `{want}` in scope, required by this function value \
+         (declare it in the function's effect list or `use` a handler)"
+    );
+    /// A member call none of whose effects has a handler in scope.
+    effect_available_member_no_handler = "effect-available:member-no-handler" (name: &dyn std::fmt::Display, owners: &dyn std::fmt::Display) => format!(
+        "`{name}` is a member of {owners}, none of which has a handler in scope: declare \
+         one in the function's effect list or `use` a handler"
+    );
+    /// A callee's effect with no handler in scope.
+    effect_available_callee_no_handler = "effect-available:callee-no-handler" (want: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "no handler for effect `{want}` in scope, required by `{name}` (declare it in the \
+         function's effect list or `use` a handler)"
+    );
+    /// An effect with no handler in scope.
+    effect_available_no_handler = "effect-available:no-handler" (want: &dyn std::fmt::Display) => format!(
+        "no handler for effect `{want}` in scope (declare it in the function's effect \
+         list or `use` a handler)"
+    );
+    /// A handler member calling a member of its own handler's effect.
+    effect_available_own_effect = "effect-available:own-effect" (member: &dyn std::fmt::Display, of: &dyn std::fmt::Display, remedy: &dyn std::fmt::Display) => format!(
+        "a handler member cannot call `{member}`, a member of `{of}` — the effect its own \
+         handler implements: a handler cannot dispatch to itself, and declaring `{of}` \
+         as a dependency would bind to the handler registered *before* this one. {remedy}"
+    );
+    /// A member call no handler in scope matches.
+    effect_available_no_handler_matches = "effect-available:no-handler-matches" (effect: &dyn std::fmt::Display) => format!(
+        "no handler for effect `{effect}` in scope matches this call (declare it in the \
+         function's effect list or `use` a handler)"
+    );
+
+    // [effect-disambiguation]
+    /// A member call several handlers of one effect could take.
+    effect_disambiguation_ambiguous = "effect-disambiguation:ambiguous" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "ambiguous effect call: multiple `{effect}` handlers in scope; specify the type, \
+         e.g. `{member}<T>()`"
+    );
+
+    // [effect-eff-handle]
+    /// A projection `e[A]` of something that is not an effect handle.
+    effect_eff_handle_not_a_handle = "effect-eff-handle:not-a-handle" (base_ty: &dyn std::fmt::Display) => format!(
+        "`{base_ty}` is not an effect handle, so it has no effects to project — \
+         projection `e[A]` narrows an `eff[…]` handle"
+    );
+    /// A projection of an effect the handle does not carry.
+    effect_eff_handle_effect_not_carried = "effect-eff-handle:effect-not-carried" (base_ty: &dyn std::fmt::Display, w: &dyn std::fmt::Display) => format!(
+        "`{base_ty}` does not carry effect `{w}`, so it cannot be projected out — \
+         projection narrows to a subset"
+    );
+    /// An `eff[…]` merge item that is not a handle.
+    effect_eff_handle_merge_not_handle = "effect-eff-handle:merge-not-handle" (ty: &dyn std::fmt::Display) => format!(
+        "`eff[…]` merges effect handles, and `{ty}` is not one: each item is a bound \
+         handle"
+    );
+
+    // [effect-generic-decl]
+    /// An effect-argument effect bound while a sibling instance is.
+    effect_generic_decl_sibling_bound = "effect-generic-decl:sibling-bound" (effect: &dyn std::fmt::Display, sibling: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "`{effect}` cannot be bound while `{sibling}` is: an effect whose arguments are \
+         effects is one type in the generated code, so one scope holds one instance of \
+         `{name}` — bind this one in a nested block (`{{ use …; … }}`), or after the \
+         other has gone out of scope"
+    );
+
+    // [effect-handler-deps]
+    /// A handler whose dependency has no handler in scope.
+    effect_handler_deps_missing = "effect-handler-deps:missing" (handler: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` depends on effect `{want}`, which has no handler in scope \
+         here: register one before it, or supply it with `with {want}Handler(...)`"
+    );
+    /// A handler depending on `use`.
+    effect_handler_deps_use = "effect-handler-deps:use" (handler: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` cannot depend on `use`: a handler registers no handlers of \
+         its own"
+    );
+    /// A handler depending on `Throw`.
+    effect_handler_deps_throw = "effect-handler-deps:throw" (handler: &dyn std::fmt::Display, throw_effect: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` cannot depend on `{throw_effect}`: a throw is delimited by a \
+         `try {{ ... }}` block, not supplied by a handler"
+    );
+    /// A handler declaring one dependency twice.
+    effect_handler_deps_duplicate = "effect-handler-deps:duplicate" (handler: &dyn std::fmt::Display, effect: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` declares `{effect}` twice"
+    );
+
+    // [effect-handler-generics]
+    /// A handler written with the wrong number of type arguments.
+    effect_handler_generics_type_arg_count = "effect-handler-generics:type-arg-count" (handler: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` takes {expected} type argument(s), found {found}"
+    );
+    /// A handler type argument an argument contradicts.
+    effect_handler_generics_conflict = "effect-handler-generics:conflict" (handler: &dyn std::fmt::Display, name: &dyn std::fmt::Display, written: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` was used at `{name} = {written}`, but an argument makes it \
+         `{ty}`"
+    );
+    /// A handler argument that does not fit its parameter.
+    effect_handler_generics_arg_mismatch = "effect-handler-generics:arg-mismatch" (handler: &dyn std::fmt::Display, pname: &dyn std::fmt::Display, sp: &dyn std::fmt::Display, logical: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` declares `{pname}: {sp}`, and this argument is `{logical}`"
+    );
+
+    // [effect-handler-multi]
+    /// A handler naming one effect twice.
+    effect_handler_multi_face_twice = "effect-handler-multi:face-twice" (handler: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` already implements `{ty}`: a handler wears each face once"
+    );
+    /// An intrinsic or platform handler of several effects.
+    effect_handler_multi_bodyless_faces = "effect-handler-multi:bodyless-faces" (kind: &dyn std::fmt::Display, handler: &dyn std::fmt::Display) => format!(
+        "`{kind} handler {handler}` implements several effects: its members are \
+         implemented outside Salvo, where one class implements one generated interface — \
+         declare one handler per effect"
+    );
+    /// A handler missing a member of an effect it implements.
+    effect_handler_multi_missing_member = "effect-handler-multi:missing-member" (handler: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display, params: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` does not implement `{effect}.{member}({params})`: a handler \
+         covers every member of every effect it implements"
+    );
+    /// One member implementing two faces' members whose signatures differ.
+    effect_handler_multi_member_conflict = "effect-handler-multi:member-conflict" (member: &dyn std::fmt::Display, first: &dyn std::fmt::Display, first_member: &dyn std::fmt::Display, other: &dyn std::fmt::Display, other_member: &dyn std::fmt::Display) => format!(
+        "`{member}` implements `{first}.{first_member}` and `{other}.{other_member}`, \
+         whose signatures differ in what overloading cannot see — the parameters are the \
+         same, so one member cannot answer for both: give them different parameters, or \
+         split the faces across two handlers"
+    );
+
+    // [effect-intercept]
+    /// An intercepting handler with nothing in scope to wrap.
+    effect_intercept_nothing_to_wrap = "effect-intercept:nothing-to-wrap" (handler: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` intercepts `{want}` — it depends on the effect it implements \
+         — but no handler for `{want}` is registered before this `use`, and the `with` \
+         clause does not supply one: an intercepting handler wraps the instance already \
+         in scope, or the one you name with `with`"
+    );
+
+    // [effect-member-call]
+    /// A member call with the wrong number of arguments.
+    effect_member_call_arg_count = "effect-member-call:arg-count" (member: &dyn std::fmt::Display, fixed: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "`{member}` takes {fixed} argument(s), found {found}"
+    );
+    /// A member call argument of the wrong type.
+    effect_member_call_arg_mismatch = "effect-member-call:arg-mismatch" (member: &dyn std::fmt::Display, want: &dyn std::fmt::Display, got: &dyn std::fmt::Display) => format!(
+        "`{member}` expects `{want}` here, found `{got}`"
+    );
+
+    // [effect-member-no-effects]
+    /// Effect dependencies on a member.
+    effect_member_no_effects_declared = "effect-member-no-effects:declared" (what: &dyn std::fmt::Display) => format!(
+        "{what} cannot declare effect dependencies yet"
+    );
+
+    // [effect-member-overload]
+    /// A member call no overload of the member takes.
+    effect_member_overload_no_fit = "effect-member-overload:no-fit" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display, args: &dyn std::fmt::Display) => format!(
+        "no overload of `{effect}.{member}` takes ({args})"
+    );
+    /// A member call several overloads take equally.
+    effect_member_overload_ambiguous = "effect-member-overload:ambiguous" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display, args: &dyn std::fmt::Display) => format!(
+        "ambiguous call to `{effect}.{member}`: several overloads take ({args}), and none \
+         is more specific"
+    );
+
+    // [effect-member-unique]
+    /// Two members of an effect with one name and parameter types.
+    effect_member_unique_duplicate = "effect-member-unique:duplicate" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "effect `{effect}` already declares a member named `{member}` with these \
+         parameter types: members overload like functions, so two of them must differ in \
+         what they take"
+    );
+
+    // [effect-no-dup]
+    /// One effect twice in an effect list.
+    effect_no_dup_duplicate = "effect-no-dup:duplicate" (effect: &dyn std::fmt::Display) => format!(
+        "duplicate effect `{effect}` in the effect list (two effects of the same type \
+         must differ in their generic arguments)"
+    );
+
+    // [effect-not-data]
+    /// An effect in a data position.
+    effect_not_data_data_position = "effect-not-data:data-position" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is an effect, not a data type: effects appear in a function's effect \
+         list (`[{name}]`) or a handler's `of` clause, and their handlers are reached \
+         with `use`"
+    );
+
+    // [effect-prereq]
+    /// Prerequisites on an actor effect.
+    effect_prereq_actor_effect = "effect-prereq:actor-effect" (name: &dyn std::fmt::Display) => format!(
+        "`actor effect {name}` cannot have prerequisites: a mailbox protocol that needs \
+         another effect in scope is not supported yet"
+    );
+    /// `use` or `spawn` as a prerequisite.
+    effect_prereq_capability = "effect-prereq:capability" () =>
+        "a prerequisite names an effect: `use` and `spawn` are capabilities of a \
+         function, not something an effect can require";
+    /// `any` in a prerequisite.
+    effect_prereq_any = "effect-prereq:any" () =>
+        "`any` has no meaning in a prerequisite: the prerequisite is the one instance \
+         bound around every use of the effect";
+    /// A prerequisite naming no effect.
+    effect_prereq_unknown = "effect-prereq:unknown" (pname: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "unknown effect `{pname}` in the prerequisites of `{name}`"
+    );
+    /// An actor effect as a prerequisite.
+    effect_prereq_actor_prereq = "effect-prereq:actor-prereq" (prereq: &dyn std::fmt::Display) => format!(
+        "`{prereq}` is an actor effect, which cannot be a prerequisite yet"
+    );
+    /// An exported effect whose prerequisite is not exported.
+    effect_prereq_not_exported = "effect-prereq:not-exported" (name: &dyn std::fmt::Display, prereq: &dyn std::fmt::Display) => format!(
+        "`{name}` is exported but its prerequisite `{prereq}` is not: every module that \
+         names `{name}` needs `{prereq}` too — export it"
+    );
+    /// Prerequisites that form a cycle.
+    effect_prereq_cycle = "effect-prereq:cycle" (chain: &dyn std::fmt::Display) => format!(
+        "effect prerequisites form a cycle: {chain}"
+    );
+    /// A handler whose face's prerequisite is not in scope.
+    effect_prereq_face_needs = "effect-prereq:face-needs" (handler: &dyn std::fmt::Display, face: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` implements `{face}`, which needs `{want}` in scope: `use` a \
+         handler of `{want}` before it"
+    );
+
+    // [effect-state-store]
+    /// A value moved out of handler storage the handler still owns.
+    effect_state_store_moved_out = "effect-state-store:moved-out" (action: &dyn std::fmt::Display, name: &dyn std::fmt::Display, kind: &dyn std::fmt::Display, handler: &dyn std::fmt::Display) => format!(
+        "cannot {action} `{name}`: it is a {kind} of handler `{handler}`, which still \
+         owns it after this member returns — so the value cannot move out. Use \
+         `copy({name})` to hand over an independent value"
+    );
+
+    // [effect-use-requires-use]
+    /// A `use` in a fn without the `use` effect.
+    effect_use_requires_use_missing = "effect-use-requires-use:missing" () =>
+        "`use` requires the `use` effect in the function's effect list";
+
+    // [effect-with-clause]
+    /// A `with` clause on a `use` of an existing handle.
+    effect_with_clause_on_handle = "effect-with-clause:on-handle" () =>
+        "`with` supplies a handler's dependencies at construction, and this `use` binds \
+         an existing handle — its dependencies were settled where it was built: drop the \
+         clause";
+    /// A `with` item that is neither a handler nor a handle.
+    effect_with_clause_not_a_handler = "effect-with-clause:not-a-handler" (ty: &dyn std::fmt::Display) => format!(
+        "a `with` clause supplies handlers: write a handler construction \
+         (`SomeHandler(...)`) or an `eff[…]` of the effect a shared handler already \
+         serves, not a `{ty}`"
+    );
+    /// A handler of several effects constructed in a `with` clause.
+    effect_with_clause_several_faces = "effect-with-clause:several-faces" (handler: &dyn std::fmt::Display, faces: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` implements several effects ({faces}), so it cannot be \
+         constructed in a `with` clause: the clause builds one private instance per item \
+         — bind it with its own `use` (or spawn it) and supply an `eff[…]` per face"
+    );
+    /// A handler with dependencies constructed in a `with` clause.
+    effect_with_clause_has_dependencies = "effect-with-clause:has-dependencies" (handler: &dyn std::fmt::Display, dep: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` depends on effect `{dep}`, so it cannot be constructed in a \
+         `with` clause: a clause item is a private instance with no scope to resolve its \
+         own dependencies — register it with `use` before this one instead"
+    );
+    /// A `with` item the handler does not depend on.
+    effect_with_clause_not_a_dep = "effect-with-clause:not-a-dep" (handler: &dyn std::fmt::Display, eff: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` does not depend on effect `{eff}`, so supplying it with \
+         `with` has no effect"
+    );
+
+    // [expr-cond-bool]
+    /// An `assert!` condition that is not a `Bool`.
+    expr_cond_bool_assert_condition = "expr-cond-bool:assert-condition" (t: &dyn std::fmt::Display) => format!(
+        "an `assert!` condition must be a `Bool`, found `{t}`"
+    );
+    /// A condition that is not a `Bool`.
+    expr_cond_bool_not_bool = "expr-cond-bool:not-bool" (ty: &dyn std::fmt::Display) => format!(
+        "a condition must be a `Bool` (found `{ty}`): Salvo has no truthiness — compare \
+         explicitly (`n != 0`, `list.size() > 0`) or test the type with `is`"
+    );
+
+    // [expr-dead-code]
+    /// Code after a statement that never returns (a warning).
+    expr_dead_code_unreachable = "expr-dead-code:unreachable" () =>
+        "this code is unreachable: an earlier statement never returns";
+
+    // [expr-escape]
+    /// `break` outside a loop.
+    expr_escape_break_outside_loop = "expr-escape:break-outside-loop" () =>
+        "`break` outside of a loop";
+    /// `continue` outside a loop.
+    expr_escape_continue_outside_loop = "expr-escape:continue-outside-loop" () =>
+        "`continue` outside of a loop";
+
+    // [expr-pipe]
+    /// A `|>` whose right side does not use `_`.
+    expr_pipe_unused_placeholder = "expr-pipe:unused-placeholder" () =>
+        "the right side of `|>` must use the piped value `_` (`x |> f(_)`); it reads \
+         nothing here, so write a plain statement instead";
+
+    // [expr-placeholder]
+    /// `_` read outside a pick or a pipe.
+    expr_placeholder_outside_pick = "expr-placeholder:outside-pick" () =>
+        "`_` is the arms a pick left behind, so it reads only in the right-hand side of a \
+         pick (`r ?: f(_)`) or a pipe (`x |> f(_)`)";
+
+    // [expr-safe-pipe]
+    /// `?>` on a value with one arm.
+    expr_safe_pipe_single_arm = "expr-safe-pipe:single-arm" (lhs_ty: &dyn std::fmt::Display) => format!(
+        "`?>` pipes the first arm of a union, but this value is `{lhs_ty}` — it has only \
+         one arm, so write a plain `|>`"
+    );
+    /// A `?>` whose right side does not use `_`.
+    expr_safe_pipe_unused_placeholder = "expr-safe-pipe:unused-placeholder" () =>
+        "the right side of `?>` must use the piped value `_` (`x ?> f(_)`); it reads \
+         nothing here, so write a plain statement instead";
+
+    // [expr-tuple-index]
+    /// An assignment to a tuple element.
+    expr_tuple_index_assign = "expr-tuple-index:assign" (index: &dyn std::fmt::Display) => format!(
+        "cannot assign to tuple element `{index}`: `Mut` cannot apply to a tuple, so \
+         tuple elements are read-only — rebuild the tuple instead"
+    );
+    /// A tuple element index past the end.
+    expr_tuple_index_out_of_range = "expr-tuple-index:out-of-range" (base_ty: &dyn std::fmt::Display, len: &dyn std::fmt::Display, index: &dyn std::fmt::Display) => format!(
+        "tuple `{base_ty}` has {len} element(s), so it has no element `{index}`"
+    );
+    /// A tuple element read on something that is not a tuple.
+    expr_tuple_index_not_a_tuple = "expr-tuple-index:not-a-tuple" (index: &dyn std::fmt::Display, base_ty: &dyn std::fmt::Display) => format!(
+        "`.{index}` reads a tuple element, but `{base_ty}` is not a tuple"
+    );
+
+    // [fate-derived-readonly]
+    /// A view moved or mutated where it can only be read.
+    fate_derived_readonly_view_moved = "fate-derived-readonly:view-moved" (action: &dyn std::fmt::Display, root: &dyn std::fmt::Display) => format!(
+        "cannot {action} this value: it is a view of `{root}` (it borrows from it), so it \
+         can only be read here; use `copy` to make an independent value, or declare the \
+         borrow on this function's return (`proj({root})`)"
+    );
+
+    // [fate-elem-distinct]
+    /// Two mutable handles into one container in one call.
+    fate_elem_distinct_two_handles = "fate-elem-distinct:two-handles" (root: &dyn std::fmt::Display) => format!(
+        "a mutable element handle of `{root}` cannot be passed here: an earlier argument \
+         of this call is already a mutable handle into `{root}`, and the two may be the \
+         same element; bind both and prove them apart first (`b is NotSame(a)`), or \
+         mutate through one handle at a time"
+    );
+
+    // [fate-lambda]
+    /// A lambda that captures and mutates a kept parameter.
+    fate_lambda_captures_kept = "fate-lambda:captures-kept" (name: &dyn std::fmt::Display) => format!(
+        "this lambda captures and mutates `{name}`, which is a kept parameter (the caller \
+         keeps it): capture `copy({name})` instead, or declare the move with `=> !{name}`"
+    );
+
+    // [fate-move-mode]
+    /// Mutable data moved out of a kept parameter.
+    fate_move_mode_kept_mutable = "fate-move-mode:kept-mutable" (root: &dyn std::fmt::Display) => format!(
+        "cannot move mutable data out of `{root}`: it is a kept parameter (the caller \
+         keeps it), so its projections can only be read; use `copy` to pass an \
+         independent value"
+    );
+
+    // [fn-attached]
+    /// A function passed by name with an `@Type` that declares none.
+    fn_attached_no_fn_on_type = "fn-attached:no-fn-on-type" (name: &dyn std::fmt::Display, wanted: &dyn std::fmt::Display) => format!(
+        "no `fn {name}@{wanted}` is declared: `@{wanted}` names the canonical `{name}` \
+         for that type, which is declared in the type's own file"
+    );
+    /// An `@Type` call whose type declares no fitting fn.
+    fn_attached_no_fit_on_type = "fn-attached:no-fit-on-type" (name: &dyn std::fmt::Display, wanted: &dyn std::fmt::Display, args: &dyn std::fmt::Display) => format!(
+        "no `fn {name}@{wanted}` fits `{name}({args})`: `@{wanted}` names the canonical \
+         `{name}` for that type, declared in the type's own file"
+    );
+    /// A function identity `name@Type` whose type declares no such fn.
+    fn_attached_no_identity_on_type = "fn-attached:no-identity-on-type" (name: &dyn std::fmt::Display, at_name: &dyn std::fmt::Display) => format!(
+        "no `{name}@{at_name}` in scope: declare `fn {name}@{at_name}(…)` in the file \
+         that declares `{at_name}`"
+    );
+
+    // [fn-contract]
+    /// A lambda consuming a parameter its contract keeps.
+    fn_contract_consume_kept = "fn-contract:consume-kept" (name: &dyn std::fmt::Display) => format!(
+        "cannot consume `{name}`: this lambda's contract keeps it (the caller retains the \
+         value); use `copy({name})`"
+    );
+    /// A fn type's contract naming no parameter of it.
+    fn_contract_not_a_param = "fn-contract:not-a-param" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` names no parameter of this function type (name the parameter in the \
+         type: `({name}: ...) -> ...`)"
+    );
+
+    // [fn-dot]
+    /// A dot-notation call naming no function in scope.
+    fn_dot_unknown_fn = "fn-dot:unknown-fn" (name: &dyn std::fmt::Display) => format!(
+        "no function named `{name}` is in scope: dot-notation calls a function with the \
+         receiver as its first argument, so a target-language method is reached by \
+         declaring it in an effect a `platform handler` implements"
+    );
+
+    // [fn-effects]
+    /// `use` in a fn type.
+    fn_effects_use = "fn-effects:use" () =>
+        "a fn type cannot declare `use`: registering a handler is local to a body, so a \
+         lambda may `use` exactly when the function containing it may";
+    /// An effect written as a qualifier of a fn type.
+    fn_effects_in_qualifier_position = "fn-effects:in-qualifier-position" (effect: &dyn std::fmt::Display) => format!(
+        "a function type declares its effects in its own list (`(…) [{effect}] -> …`), \
+         not in qualifier position"
+    );
+    /// An effect written as a qualifier of a type.
+    fn_effects_effect_as_qualifier = "fn-effects:effect-as-qualifier" (effect: &dyn std::fmt::Display) => format!(
+        "`{effect}` is an effect, not a qualifier: an iterator performs its effects in \
+         its `next`, so declare them there (`yield fn next(…) [{effect}] -> …`) rather \
+         than on the type"
+    );
+
+    // [fn-must-return]
+    /// A path through a fn that returns no value.
+    fn_must_return_missing_return = "fn-must-return:missing-return" (fn_name: &dyn std::fmt::Display, ret: &dyn std::fmt::Display) => format!(
+        "missing return: not all paths in `{fn_name}` return a value (declared return \
+         type is `{ret}`)"
+    );
+
+    // [fn-overload-ambiguous]
+    /// An implicit several candidates fit equally.
+    fn_overload_ambiguous_implicit = "fn-overload-ambiguous:implicit" (implicit: &dyn std::fmt::Display, callee: &dyn std::fmt::Display, want: &dyn std::fmt::Display, text: &dyn std::fmt::Display) => format!(
+        "`{implicit}` is ambiguous for `{callee}` at `?{implicit}: {want}`: {text}"
+    );
+    /// A call several overloads fit with none more specific.
+    fn_overload_ambiguous_call = "fn-overload-ambiguous:call" (name: &dyn std::fmt::Display, args: &dyn std::fmt::Display, candidates: &dyn std::fmt::Display, remedy: &dyn std::fmt::Display) => format!(
+        "ambiguous call to `{name}({args})`: {candidates} all fit and none is more \
+         specific — a broader union, a smaller qualifier set and a type variable are \
+         each less specific, but these differ in ways the rule does not rank. {remedy}"
+    );
+
+    // [fn-overload-at]
+    /// An `@` selector that is a suffix of several modules.
+    fn_overload_at_ambiguous_suffix = "fn-overload-at:ambiguous-suffix" (wanted: &dyn std::fmt::Display, modules: &dyn std::fmt::Display) => format!(
+        "`@{wanted}` is ambiguous: it is a suffix of {modules} — write more of the path"
+    );
+    /// A function passed by name with an `@module` that declares none.
+    fn_overload_at_no_fn_in_module = "fn-overload-at:no-fn-in-module" (name: &dyn std::fmt::Display, wanted: &dyn std::fmt::Display) => format!(
+        "no function named `{name}` is declared in module `{wanted}`"
+    );
+    /// An `@module` call whose module declares no fitting overload.
+    fn_overload_at_no_overload_in_module = "fn-overload-at:no-overload-in-module" (name: &dyn std::fmt::Display, args: &dyn std::fmt::Display, wanted: &dyn std::fmt::Display, modules: &dyn std::fmt::Display) => format!(
+        "no overload of `{name}({args})` is declared in module `{wanted}`; the modules \
+         that declare a fitting one are: {modules}"
+    );
+    /// An `@` selector the call does not need (a warning).
+    fn_overload_at_not_needed = "fn-overload-at:not-needed" (written: &dyn std::fmt::Display, name: &dyn std::fmt::Display, args: &dyn std::fmt::Display) => format!(
+        "this `@{written}` is not needed: `{name}({args})` resolves to the same function \
+         without it, and no refinement of it disagrees here"
+    );
+    /// A function identity `name@module` whose module declares no such fn.
+    fn_overload_at_no_identity_in_module = "fn-overload-at:no-identity-in-module" (name: &dyn std::fmt::Display, at_name: &dyn std::fmt::Display) => format!(
+        "no `{name}@{at_name}` in scope: module `{at_name}` declares no `{name}`"
+    );
+    /// A receiver on a scope-selected fn value.
+    fn_overload_at_value_receiver = "fn-overload-at:value-receiver" (name: &dyn std::fmt::Display, module: &dyn std::fmt::Display) => format!(
+        "`{name}` here is a *value*, so it takes no receiver: write `{name}@{module}` to \
+         name the function, or call it"
+    );
+
+    // [fn-overload-rank]
+    /// A lambda argument the overloads cannot type.
+    fn_overload_rank_lambda_untyped = "fn-overload-rank:lambda-untyped" (name: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "cannot type this lambda: the overloads of `{name}` {why}; write the lambda's \
+         parameter types"
+    );
+
+    // [fn-overload-return]
+    /// Return-type overloads whose return types overlap.
+    fn_overload_return_overlap = "fn-overload-return:overlap" (fn_name: &dyn std::fmt::Display, a: &dyn std::fmt::Display, b: &dyn std::fmt::Display, expected: &dyn std::fmt::Display) => format!(
+        "`{fn_name}` is overloaded on its return type alone, and `{a}` and `{b}` overlap: \
+         where `{expected}` is expected both would fit, so nothing could choose. Give \
+         the overloads return types neither of which is a subtype of the other, or \
+         different parameters"
+    );
+    /// Return-type overloads the call site does not choose between.
+    fn_overload_return_ambiguous = "fn-overload-return:ambiguous" (name: &dyn std::fmt::Display, args: &dyn std::fmt::Display, rets: &dyn std::fmt::Display, why: &dyn std::fmt::Display, first: &dyn std::fmt::Display) => format!(
+        "`{name}({args})` has overloads that differ only in their return type ({rets}), \
+         and {why}: annotate where the result goes (`let x: {first} = {name}(…)`), or \
+         pass it where one type is expected"
+    );
+
+    // [fn-param-const]
+    /// An assignment to a parameter.
+    fn_param_const_assigned = "fn-param-const:assigned" (how: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "cannot {how} parameter `{name}`: a parameter is a constant binding. Bind a local \
+         instead (`let next = {name} + 1`), or — to change what the caller holds — \
+         assign a field of it (`{name}.field = …`)"
+    );
+
+    // [fn-param-default]
+    /// A handler argument given by name that has no default.
+    fn_param_default_named_without_default = "fn-param-default:named-without-default" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` has no default, so it cannot be given by name here: only a defaulted \
+         parameter may be named"
+    );
+    /// A named argument to a handler with a variadic parameter.
+    fn_param_default_variadic_named = "fn-param-default:variadic-named" (handler: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` has a variadic constructor parameter, so its arguments are \
+         given positionally"
+    );
+    /// A handler argument given both by position and by name.
+    fn_param_default_named_and_positional = "fn-param-default:named-and-positional" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is already given positionally"
+    );
+    /// A handler argument given by name twice.
+    fn_param_default_named_twice = "fn-param-default:named-twice" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is given by name twice"
+    );
+    /// A handler constructed with the wrong number of arguments.
+    fn_param_default_handler_arg_count = "fn-param-default:handler-arg-count" (handler: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display, dep_note: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` expects {expected} constructor argument(s), found \
+         {found}{dep_note}"
+    );
+    /// A handler constructed with too many arguments.
+    fn_param_default_handler_too_many = "fn-param-default:handler-too-many" (handler: &dyn std::fmt::Display, max: &dyn std::fmt::Display, found: &dyn std::fmt::Display, dep_note: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` takes at most {max} constructor argument(s), found \
+         {found}{dep_note}"
+    );
+    /// A handler constructed without a parameter that has no default.
+    fn_param_default_handler_missing = "fn-param-default:handler-missing" (handler: &dyn std::fmt::Display, missing: &dyn std::fmt::Display, verb: &dyn std::fmt::Display, dep_note: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` is constructed without {missing}, which ha{verb} no \
+         default{dep_note}"
+    );
+
+    // [fn-rename]
+    /// A rename whose new name is a function in scope.
+    fn_rename_name_is_fn = "fn-rename:name-is-fn" (new_name: &dyn std::fmt::Display, target: &dyn std::fmt::Display) => format!(
+        "`{new_name}` is already a function in scope, so it cannot name a renamed \
+         overload too: pick a name of its own (a rename is not an alias — the overload \
+         stops answering to `{target}`)"
+    );
+    /// A rename whose new name is an effect member in scope.
+    fn_rename_name_is_member = "fn-rename:name-is-member" (new_name: &dyn std::fmt::Display) => format!(
+        "`{new_name}` is already an effect member in scope"
+    );
+    /// Two renames with one new name.
+    fn_rename_name_taken = "fn-rename:name-taken" (new_name: &dyn std::fmt::Display, start: &dyn std::fmt::Display, end: &dyn std::fmt::Display) => format!(
+        "`{new_name}` already names a renamed overload in this scope (declared at \
+         {start}..{end})"
+    );
+    /// A rename of a function that is not visible.
+    fn_rename_no_target = "fn-rename:no-target" (target: &dyn std::fmt::Display) => format!(
+        "no function `{target}` is visible here, so there is nothing to rename"
+    );
+    /// A rename whose parameters match no overload.
+    fn_rename_no_overload = "fn-rename:no-overload" (target: &dyn std::fmt::Display, shapes: &dyn std::fmt::Display) => format!(
+        "this names no `{target}` in scope: a rename repeats one overload's parameters \
+         exactly — same names, same types (type parameters match by position). In scope: \
+         {shapes}"
+    );
+    /// An `@module` on a renamed overload.
+    fn_rename_at_on_renamed = "fn-rename:at-on-renamed" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is a renamed overload, so it already names one declaration: drop the \
+         `@module`"
+    );
+
+    // [fn-return-none]
+    /// A bare `return` in a fn that returns a value.
+    fn_return_none_bare_return = "fn-return-none:bare-return" (expected: &dyn std::fmt::Display) => format!(
+        "bare `return` in a function returning `{expected}`"
+    );
+
+    // [fn-syntax]
+    /// A returned value that does not fit the return type.
+    fn_syntax_return_mismatch = "fn-syntax:return-mismatch" (expected: &dyn std::fmt::Display, vty: &dyn std::fmt::Display) => format!(
+        "expected return type `{expected}`, found `{vty}`"
+    );
+
+    // [fn-type-named]
+    /// A type-named function without a return type.
+    fn_type_named_no_return = "fn-type-named:no-return" () =>
+        "a type-named function must declare a return type";
+    /// A type-named function whose return type lacks its qualifier.
+    fn_type_named_missing_qualifier = "fn-type-named:missing-qualifier" (fn_name: &dyn std::fmt::Display, named: &dyn std::fmt::Display, q: &dyn std::fmt::Display) => format!(
+        "`{fn_name}` is named after `{named}`, so its return type must carry the `{q}` \
+         qualifier"
+    );
+    /// A type-named function whose return type lacks its provenance qualifier.
+    fn_type_named_missing_provenance = "fn-type-named:missing-provenance" (fn_name: &dyn std::fmt::Display, bn: &dyn std::fmt::Display) => format!(
+        "`{fn_name}` is named after the provenance qualifier `{bn}`, so its return type \
+         must carry it (`-> +{bn} T`)"
+    );
+    /// A type-named function whose return type has another base.
+    fn_type_named_wrong_base = "fn-type-named:wrong-base" (fn_name: &dyn std::fmt::Display, named: &dyn std::fmt::Display, bn: &dyn std::fmt::Display, ret: &dyn std::fmt::Display) => format!(
+        "`{fn_name}` is named after `{named}`, so its return type's base must be `{bn}`, \
+         not `{ret}`"
+    );
+    /// A type-named function whose name has no base type.
+    fn_type_named_no_base = "fn-type-named:no-base" () =>
+        "a type-named function's name must have a base type";
+
+    // [fn-value-select]
+    /// An overloaded function passed by name with nothing to select by.
+    fn_value_select_overloaded = "fn-value-select:overloaded" (name: &dyn std::fmt::Display, candidates: &dyn std::fmt::Display) => format!(
+        "`{name}` is overloaded, so passing it by name is ambiguous: {candidates} all fit \
+         here. Annotate the position with the fn type you mean, or give one overload its \
+         own name with `rename fn <new> = {name}(...)`"
+    );
+    /// A name passed as a function that is an effect member here.
+    fn_value_select_member = "fn-value-select:member" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is not a function here"
+    );
+    /// A function passed by name that several overloads fit equally.
+    fn_value_select_ambiguous = "fn-value-select:ambiguous" (name: &dyn std::fmt::Display, want: &dyn std::fmt::Display, text: &dyn std::fmt::Display) => format!(
+        "`{name}` passed by name is ambiguous at `{want}`: {text}"
+    );
+    /// A function passed by name that no overload fits.
+    fn_value_select_no_fit = "fn-value-select:no-fit" (name: &dyn std::fmt::Display, want: &dyn std::fmt::Display, candidates: &dyn std::fmt::Display) => format!(
+        "no overload of `{name}` fits `{want}` here: {candidates}"
+    );
+
+    // [group-not-a-value]
+    /// A `fns` group in a type position.
+    group_not_a_value_data_position = "group-not-a-value:data-position" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is a `fns` group, not a type: no value may have a group as its type — a \
+         named type satisfies it with `: {name}<...>` on its declaration, or a signature \
+         spreads its members with `?{name}<...>`"
+    );
+
+    // [group-obligation]
+    /// One obligation written twice.
+    group_obligation_duplicate = "group-obligation:duplicate" (obligation: &dyn std::fmt::Display) => format!(
+        "obligation `{obligation}` is declared more than once"
+    );
+    /// An obligation naming no `fns` group.
+    group_obligation_unknown_group = "group-obligation:unknown-group" (name: &dyn std::fmt::Display, hint: &dyn std::fmt::Display) => format!(
+        "unknown `fns` group `{name}`{hint}"
+    );
+    /// An obligation with the wrong number of type arguments.
+    group_obligation_type_arg_count = "group-obligation:type-arg-count" (group: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "`{group}` takes {expected} type argument(s), found {found}"
+    );
+    /// An obligation with no visible fn for a member.
+    group_obligation_no_member = "group-obligation:no-member" (name: &dyn std::fmt::Display, obligation: &dyn std::fmt::Display, member: &dyn std::fmt::Display, params: &dyn std::fmt::Display, ret: &dyn std::fmt::Display) => format!(
+        "`{name}` declares `: {obligation}` but no visible `{member}` matches `fn \
+         {member}({params}) -> {ret}`"
+    );
+
+    // [handler-init]
+    /// A member named `init` beside an `init` block.
+    handler_init_member_named_init = "handler-init:member-named-init" (handler: &dyn std::fmt::Display) => format!(
+        "handler `{handler}` has an `init` block, so it cannot also declare a member \
+         named `init`: the block is that member"
+    );
+
+    // [handler-not-value]
+    /// `use`/`spawn` of something that is not a handler name or construction.
+    handler_not_value_construction = "handler-not-value:construction" (form: &dyn std::fmt::Display) => format!(
+        "`{form}` expects a handler name or constructor call"
+    );
+    /// A handler called like a function.
+    handler_not_value_called = "handler-not-value:called" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is a handler, not a value: register it with `use {name}(...)` and call \
+         the effect's members"
+    );
+
+    // [handler-state-name]
+    /// A handler whose default state name is a type's.
+    handler_state_name_default_clash = "handler-state-name:default-clash" (handler: &dyn std::fmt::Display) => format!(
+        "handler `{handler}`'s state is named `{handler}` by default, which is also a \
+         type's name here: name it explicitly, `state {handler}State {{ … }}`"
+    );
+    /// A handler state named like a declaration in scope.
+    handler_state_name_declared_clash = "handler-state-name:declared-clash" (handler: &dyn std::fmt::Display, state: &dyn std::fmt::Display) => format!(
+        "handler `{handler}`'s state `{state}` has the name of a declaration already in \
+         scope: rename the state"
+    );
+
+    // [implicit-fit]
+    /// A call whose only fitting overload needs an implicit nothing fills.
+    implicit_fit_no_fill = "implicit-fit:no-fill" (name: &dyn std::fmt::Display, args: &dyn std::fmt::Display, module: &dyn std::fmt::Display, missing: &dyn std::fmt::Display) => format!(
+        "no matching overload for `{name}({args})`: the one from `{module}` that fits by \
+         type needs `{missing}`, which nothing in scope fills"
+    );
+
+    // [implicit-fn-only]
+    /// An implicit parameter on something other than a fn.
+    implicit_fn_only_implicit_param = "implicit-fn-only:implicit-param" (what: &dyn std::fmt::Display) => format!(
+        "{what} cannot take implicit parameters: only a fn declaration has a call site \
+         that resolves them"
+    );
+    /// A `fns` group spread on something other than a fn.
+    implicit_fn_only_group_spread = "implicit-fn-only:group-spread" (what: &dyn std::fmt::Display) => format!(
+        "{what} cannot spread a `fns` group: only a fn declaration has a call site that \
+         resolves one"
+    );
+
+    // [implicit-group]
+    /// A `fns` group member with a body.
+    implicit_group_member_body = "implicit-group:member-body" (group: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "`{group}.{member}` is a signature, not an implementation: a `fns` group declares \
+         what a caller must supply, and the default comes from a matching top- level fn"
+    );
+    /// A `?Group` spread naming no group.
+    implicit_group_unknown_group = "implicit-group:unknown-group" (group: &dyn std::fmt::Display) => format!(
+        "no `fns` group named `{group}` is in scope: `?{group}` spreads a group's members \
+         as implicit parameters"
+    );
+    /// A group spread with the wrong number of type arguments.
+    implicit_group_type_arg_count = "implicit-group:type-arg-count" (group: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "`{group}` takes {expected} type argument(s), found {found}"
+    );
+    /// A function slot declared twice at different types.
+    implicit_group_slot_twice = "implicit-group:slot-twice" (owner: &dyn std::fmt::Display, slot: &dyn std::fmt::Display, first: &dyn std::fmt::Display, second: &dyn std::fmt::Display) => format!(
+        "`{owner}` declares the function slot `?{slot}` twice, at two different types \
+         (`{first}` and `{second}`): with no binder nothing tells two slots of one name \
+         apart"
+    );
+
+    // [implicit-override]
+    /// A named argument naming no implicit parameter of a callee.
+    implicit_override_no_implicit = "implicit-override:no-implicit" (callee: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "`{callee}` has no implicit parameter named `{name}`"
+    );
+    /// An override that does not fit its implicit.
+    implicit_override_does_not_fit = "implicit-override:does-not-fit" (implicit: &dyn std::fmt::Display, detail: &dyn std::fmt::Display) => format!(
+        "`{implicit}` does not fit here: {detail}"
+    );
+
+    // [implicit-param]
+    /// A handler's implicit parameter that is not of a function type.
+    implicit_param_handler_not_fn_type = "implicit-param:handler-not-fn-type" () =>
+        "an implicit parameter must have a function type: what fills it is resolved as a \
+         function of that name";
+    /// An implicit parameter that is not of a function type.
+    implicit_param_not_fn_type = "implicit-param:not-fn-type" (param: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "an implicit parameter must have a function type, but `{param}` is `{ty}`: what \
+         fills it is resolved as a function of that name"
+    );
+
+    // [implicit-recursive]
+    /// An implicit of a nested fill that cannot be filled.
+    implicit_recursive_nested_unfilled = "implicit-recursive:nested-unfilled" (implicit: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
+        "`?{implicit}: {want}` cannot be filled"
+    );
+    /// An implicit whose candidate's own implicits cannot be filled.
+    implicit_recursive_incomplete = "implicit-recursive:incomplete" (implicit: &dyn std::fmt::Display, want: &dyn std::fmt::Display, callee: &dyn std::fmt::Display, text: &dyn std::fmt::Display) => format!(
+        "`?{implicit}: {want}` for `{callee}` cannot be completed: {text}"
+    );
+    /// A function value whose own implicits cannot be filled.
+    implicit_recursive_value_incomplete = "implicit-recursive:value-incomplete" (name: &dyn std::fmt::Display, w: &dyn std::fmt::Display, reason: &dyn std::fmt::Display) => format!(
+        "`{name}` fits `{w}` here, but cannot be completed: {reason}"
+    );
+
+    // [implicit-resolve]
+    /// No function of an implicit's name.
+    implicit_resolve_none = "implicit-resolve:none" (implicit: &dyn std::fmt::Display, callee: &dyn std::fmt::Display, want: &dyn std::fmt::Display, remedy: &dyn std::fmt::Display) => format!(
+        "no `{implicit}` for this call: `{callee}` needs `?{implicit}: {want}` — {remedy}"
+    );
+    /// Functions of an implicit's name, none of which fits.
+    implicit_resolve_no_fit = "implicit-resolve:no-fit" (implicit: &dyn std::fmt::Display, want: &dyn std::fmt::Display, callee: &dyn std::fmt::Display, reason: &dyn std::fmt::Display) => format!(
+        "no `{implicit}` fits `?{implicit}: {want}` for `{callee}`: {reason}"
+    );
+
+    // [implicit-same-name]
+    /// An override by name of an implicit two positions share.
+    implicit_same_name_override = "implicit-same-name:override" (callee: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "`{callee}` has more than one implicit named `{name}`, at different types, so \
+         `{name} = …` does not say which it fills; the typed override (`{name}: (…) -> … \
+         = f`) is not built yet"
+    );
+    /// A call that could go through several implicits of one name.
+    implicit_same_name_ambiguous = "implicit-same-name:ambiguous" (name: &dyn std::fmt::Display, candidates: &dyn std::fmt::Display) => format!(
+        "`{name}` here could go through more than one implicit of that name \
+         ({candidates}): the arguments fit each and none is more specific"
+    );
+    /// An operator several implicits of its name could go through.
+    implicit_same_name_operator = "implicit-same-name:operator" (sym: &dyn std::fmt::Display, lt: &dyn std::fmt::Display, member: &dyn std::fmt::Display, rt: &dyn std::fmt::Display, tied: &dyn std::fmt::Display, candidates: &dyn std::fmt::Display) => format!(
+        "`{sym}` on `{lt}` is `{member}({lt}, {rt})`, and this function has {tied} of \
+         them in scope ({candidates}), and none is more specific: the operator cannot \
+         choose, so call the one you mean"
+    );
+
+    // [implicit-with]
+    /// A `with` entry naming no implicit parameter.
+    implicit_with_not_implicit = "implicit-with:not-implicit" (missing: &dyn std::fmt::Display) => format!(
+        "`{missing}` is not an implicit parameter of this signature, so it cannot be \
+         filled together with anything: a `with` entry relates the `?name` positions a \
+         call fills"
+    );
+    /// Implicits filled together that come from different places.
+    implicit_with_different_places = "implicit-with:different-places" (names: &dyn std::fmt::Display, callee: &dyn std::fmt::Display, places: &dyn std::fmt::Display, remedy: &dyn std::fmt::Display) => format!(
+        "{names} of `{callee}` are filled together, but they come from different places \
+         here: {places}. {remedy}"
+    );
+
+    // [interp-no-none]
+    /// `None` interpolated into a string.
+    interp_no_none_none_value = "interp-no-none:none-value" () =>
+        "cannot interpolate `None` into a string: it has no text form";
+    /// A value that may be `None` interpolated into a string.
+    interp_no_none_optional_value = "interp-no-none:optional-value" (ty: &dyn std::fmt::Display) => format!(
+        "cannot interpolate a value that may be `None` (its type is `{ty}`): narrow it \
+         first (`is` / `when`) or assert it with `!`"
+    );
+
+    // [interp-to-str]
+    /// A value whose text form several functions give.
+    interp_to_str_ambiguous = "interp-to-str:ambiguous" (ty: &dyn std::fmt::Display, text: &dyn std::fmt::Display) => format!(
+        "the text form of `{ty}` is ambiguous: {text}"
+    );
+    /// A value with no text form, interpolated.
+    interp_to_str_no_text = "interp-to-str:no-text" (ty: &dyn std::fmt::Display, remedy: &dyn std::fmt::Display) => format!(
+        "`{ty}` has no text form, so it cannot be interpolated: declare `fn to_str({ty}) \
+         -> Str` (or one that accepts it) and it will be used here{remedy}"
+    );
+
+    // [interp-union]
+    /// A union with an arm that has no text form.
+    interp_union_arm_no_text = "interp-union:arm-no-text" (ty: &dyn std::fmt::Display, arm: &dyn std::fmt::Display) => format!(
+        "`{ty}` cannot be interpolated: its arm `{arm}` has no text form. Declare `fn \
+         to_str({arm}) -> Str` (or one that accepts it); a union is rendered by the \
+         `to_str` of the arm it holds"
+    );
+
+    // [is-bind-once]
+    /// A binding `is` on a subject that cannot be evaluated once.
+    is_bind_once_not_hoistable = "is-bind-once:not-hoistable" (what: &dyn std::fmt::Display) => format!(
+        "this `is` binds its subject, and the subject is not a variable or a field chain \
+         — so it has to be evaluated exactly once, which is only possible when the `is` \
+         is the whole condition of a `while` or of an `if`'s first branch (here it is \
+         {what}). Bind the subject first: `let x = …` and then test `x`"
+    );
+
+    // [is-binding]
+    /// An `is` binding whose check matches several types.
+    is_binding_several_types = "is-binding:several-types" () =>
+        "an `is` binding requires a check matching a single type";
+
+    // [is-qualifies]
+    /// An `is Q` whose qualifier does not apply to the subject.
+    is_qualifies_does_not_apply = "is-qualifies:does-not-apply" (q: &dyn std::fmt::Display, subj_ty: &dyn std::fmt::Display) => format!(
+        "qualifier `{q}` does not apply to `{subj_ty}`"
+    );
+    /// An `is Q T` whose subject can never be a `T`.
+    is_qualifies_never_succeeds = "is-qualifies:never-succeeds" () =>
+        "this check can never succeed";
+    /// An `is` test of a qualifier with no runtime test.
+    is_qualifies_unknown_qualifier = "is-qualifies:unknown-qualifier" () =>
+        "this qualifier check cannot be performed at runtime (unknown qualifier)";
+
+    // [is-qualifies-effects]
+    /// A predicate qualifier whose effect has no handler in scope.
+    is_qualifies_effects_no_handler = "is-qualifies-effects:no-handler" (q: &dyn std::fmt::Display, ename: &dyn std::fmt::Display) => format!(
+        "predicate qualifier `{q}` requires effect `{ename}`, but no handler for it is in \
+         scope (declare it in the function's effect list or `use` a handler)"
+    );
+
+    // [is-union]
+    /// An `is` that matches no arm of its union subject.
+    is_union_no_arm_matches = "is-union:no-arm-matches" () =>
+        "this check can never succeed";
+
+    // [iter-drive-in-place]
+    /// A `for` that would consume a linear iterator.
+    iter_drive_in_place_linear_consumed = "iter-drive-in-place:linear-consumed" (bare: &dyn std::fmt::Display, hint: &dyn std::fmt::Display) => format!(
+        "a `for` cannot consume a linear iterator (`{bare}`): the loop never discharges \
+         what it drives — bind the iterator with `let`, loop over it, then discharge it \
+         with {hint}"
+    );
+    /// A `for` that would consume an iterator that may be linear.
+    iter_drive_in_place_maybe_linear_consumed = "iter-drive-in-place:maybe-linear-consumed" (bare: &dyn std::fmt::Display) => format!(
+        "a `for` cannot consume an iterator that may be linear (`{bare}` is `canbe \
+         linear`): the loop never discharges what it drives — keep the iterator (drive \
+         it in place and let the caller discharge it), or take a consuming callback \
+         (`end: ({bare}) -> None` with `=>[end] !it`) and hand the iterator to it after \
+         the loop"
+    );
+
+    // [iter-fn]
+    /// A mutation of what an open `for` iterates.
+    iter_fn_origin_mutated = "iter-fn:origin-mutated" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is being iterated, so it cannot be mutated here: the pass reads its \
+         origin as it goes, and what it would see has no answer both backends agree on. \
+         Mutate it before or after the loop, or iterate `copy({name})` to work from a \
+         snapshot"
+    );
+
+    // [iter-group]
+    /// A type that is both a source and an iterator.
+    iter_group_source_and_iterator = "iter-group:source-and-iterator" (name: &dyn std::fmt::Display, obligation: &dyn std::fmt::Display) => format!(
+        "`{name}` declares both `: {obligation}` and `: Next`: a type is either a source \
+         (`{obligation}` mints an iterator from it) or an iterator struct (`next` \
+         advances it), not both — `for x in {name}` would have two answers"
+    );
+
+    // [iter-protocol]
+    /// A `for` whose `iter(…)` result no `next` takes.
+    iter_protocol_no_next = "iter-protocol:no-next" (subject: &dyn std::fmt::Display, call: &dyn std::fmt::Display, it: &dyn std::fmt::Display, state: &dyn std::fmt::Display) => format!(
+        "`{subject}` is not iterable: `for` over it is `{call}`, and `iter({subject})` is \
+         a `{it}`, which no `next` in scope takes — declare `next(it: Mut {state}) -> \
+         Emitted T | Finished` beside it"
+    );
+    /// A `next` that does not return `Emitted T | Finished`.
+    iter_protocol_next_return = "iter-protocol:next-return" (subject: &dyn std::fmt::Display, call: &dyn std::fmt::Display, ret: &dyn std::fmt::Display) => format!(
+        "`for` over `{subject}` is `{call}`, which must return `Emitted T | Finished`, \
+         and the `next` it resolves to returns `{ret}`"
+    );
+    /// A `next` that does not take its state as `Mut`.
+    iter_protocol_next_not_mut = "iter-protocol:next-not-mut" (state: &dyn std::fmt::Display) => format!(
+        "`next` has to take its state as `Mut {state}` — advancing an iterator mutates \
+         its position"
+    );
+
+    // [iter-resolve]
+    /// A `for` subject no `next` or `iter` takes.
+    iter_resolve_not_iterable = "iter-resolve:not-iterable" (subject: &dyn std::fmt::Display, remedy: &dyn std::fmt::Display) => format!(
+        "`{subject}` is not iterable: `for x in e` is `next(e)` when a `next` takes `e`, \
+         and `next(iter(e))` otherwise, and no `next` or `iter` in scope takes \
+         `{subject}`{remedy}"
+    );
+
+    // [iter-step-call]
+    /// A step's result iterated instead of its call.
+    iter_step_call_step_value = "iter-step-call:step-value" (iter_ty: &dyn std::fmt::Display) => format!(
+        "`{iter_ty}` is a step's result, not something to iterate: `for` re-invokes a \
+         step *call* each turn (`for x in next(p)`), so write the call in the loop \
+         header rather than its value"
+    );
+    /// A step call in a `for` header with an argument that is not a place.
+    iter_step_call_argument_not_place = "iter-step-call:argument-not-place" () =>
+        "a step call in a `for` header is re-invoked every turn, so each argument has to \
+         be a place (a variable or a field path) or a literal: bind this expression with \
+         `let` first";
+    /// A step call in a `for` header that consumes an argument.
+    iter_step_call_consumes_argument = "iter-step-call:consumes-argument" (callee_name: &dyn std::fmt::Display, param: &dyn std::fmt::Display) => format!(
+        "`{callee_name}` consumes its parameter `{param}`, so it cannot be re-invoked on \
+         the same argument each turn: a step called from a `for` header keeps every \
+         argument (`=> {param}: Mut`)"
+    );
+
+    // [iter-yield-proj]
+    /// A `proj` obligation whose member returns an owned element.
+    iter_yield_proj_owned_element = "iter-yield-proj:owned-element" (name: &dyn std::fmt::Display, obligation: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "`{name}` declares `: {obligation}<self, proj …>`, but its `{member}` returns an \
+         owned element: write `Emitted (proj(p) T) | Finished`, or drop the `proj` from \
+         the obligation"
+    );
+    /// A member returning a borrow its obligation does not declare.
+    iter_yield_proj_undeclared_borrow = "iter-yield-proj:undeclared-borrow" (name: &dyn std::fmt::Display, member: &dyn std::fmt::Display, obligation: &dyn std::fmt::Display) => format!(
+        "`{name}`'s `{member}` returns a borrowed element (`proj`), so its obligation \
+         must say so: `: {obligation}<self, proj T>`"
+    );
+
+    // [linear-composite]
+    /// A linear type in a component that cannot hold it.
+    linear_composite_position = "linear-composite:position" (linear: &dyn std::fmt::Display, reason: &dyn std::fmt::Display) => format!(
+        "`{linear}` is linear, so it cannot go here: {reason}"
+    );
+    /// A linear field in a struct not declared `linear`.
+    linear_composite_field = "linear-composite:field" (linear: &dyn std::fmt::Display, owner: &dyn std::fmt::Display, field: &dyn std::fmt::Display) => format!(
+        "`{linear}` is linear, so field `{owner}.{field}` makes the container a resource \
+         too: declare `linear struct {owner}` (and a same-file fn consuming it) to say so"
+    );
+    /// A linear value consumed out of a handler's storage.
+    linear_composite_handler_storage = "linear-composite:handler-storage" (action: &dyn std::fmt::Display, name: &dyn std::fmt::Display, kind: &dyn std::fmt::Display, handler: &dyn std::fmt::Display) => format!(
+        "cannot {action} `{name}`: it is a {kind} of handler `{handler}`, which owns it \
+         for its whole lifetime — and a linear value cannot be copied out of it, so \
+         there is nothing to hand over here. Discharge it where the handler itself is \
+         settled"
+    );
+
+    // [linear-container]
+    /// A linear type where nothing would carry its obligation.
+    linear_container_position = "linear-container:position" (linear: &dyn std::fmt::Display, position: &dyn std::fmt::Display) => format!(
+        "`{linear}` is linear, so it cannot be {position}: nothing here would carry its \
+         obligation onward. A linear value lives in a local, a parameter, a return \
+         value, a union arm, a `linear struct`'s field, or a container that opts in — a \
+         `Mut List<{linear}>` or a `Mut Map<K, {linear}>`, whose terminal is `drain`"
+    );
+
+    // [linear-discard]
+    /// `discard` of a linear value outside its type's own dischargers.
+    linear_discard_linear = "linear-discard:linear" (arg_ty: &dyn std::fmt::Display, set: &dyn std::fmt::Display) => format!(
+        "`discard` cannot drop a linear value (`{arg_ty}`) here: that is the leak the \
+         obligation exists to prevent — discharge it with {set}, or `discard` it inside \
+         one of those (a fn, or an effect member, declared in the type's own file and \
+         consuming it — for a member, inside any handler's implementation of it)"
+    );
+
+    // [linear-generics]
+    /// A function value instantiating an unopted generic with a linear type.
+    linear_generics_fn_value = "linear-generics:fn-value" (generic: &dyn std::fmt::Display, name: &dyn std::fmt::Display, bound: &dyn std::fmt::Display) => format!(
+        "cannot instantiate generic parameter `{generic}` of `{name}` with linear type \
+         `{bound}`: `{name}` does not declare `<{generic} canbe linear>`, so it does not \
+         honor the use obligation"
+    );
+    /// A type-parameter `with` clause naming something other than `linear`.
+    linear_generics_with_clause = "linear-generics:with-clause" (qualifier: &dyn std::fmt::Display) => format!(
+        "only `linear` is supported in a type-parameter `with` clause (found \
+         `{qualifier}`)"
+    );
+    /// `copy` of a linear value.
+    linear_generics_copy_linear = "linear-generics:copy-linear" (ty: &dyn std::fmt::Display) => format!(
+        "cannot `copy` a value of linear type `{ty}`: that would duplicate its \
+         obligation; every linear value has exactly one owner"
+    );
+    /// A generic instantiated with a linear type it does not opt into.
+    linear_generics_not_opted = "linear-generics:not-opted" (var_name: &dyn std::fmt::Display, name: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "cannot instantiate generic parameter `{var_name}` of `{name}` with linear type \
+         `{ty}`: `{name}` does not declare `<{var_name} canbe linear>`, so it does not \
+         honor the use obligation"
+    );
+    /// A linear value in a variadic position.
+    linear_generics_variadic = "linear-generics:variadic" () =>
+        "a linear value cannot be passed in a variadic position (variadic arguments are \
+         not tracked); add it to the collection individually instead";
+    /// An effect member instantiated with a linear type it does not opt into.
+    linear_generics_effect_member_not_opted = "linear-generics:effect-member-not-opted" (var_name: &dyn std::fmt::Display, member: &dyn std::fmt::Display, bound: &dyn std::fmt::Display) => format!(
+        "cannot instantiate generic parameter `{var_name}` of effect member `{member}` \
+         with linear type `{bound}`: the member does not declare `<{var_name} canbe \
+         linear>`, so its handlers do not honor the use obligation"
+    );
+
+    // [linear-group]
+    /// Linearity written as an obligation.
+    linear_group_linear_obligation = "linear-group:linear-obligation" () =>
+        "linearity is declared with the `linear struct` modifier, not as an obligation: \
+         write `linear struct …` and supply a same-file fn that consumes the value";
+    /// `canbe linear` on a type.
+    linear_group_canbe_linear = "linear-group:canbe-linear" () =>
+        "linearity is declared as an obligation, not granted with `canbe`: write `linear \
+         struct` and supply a same-file discharger";
+    /// `Linear` written in a type.
+    linear_group_linear_in_type = "linear-group:linear-in-type" () =>
+        "`Linear` cannot be written in a type: linearity is declared on the type itself \
+         (`canbe linear`) and applies to every value of it";
+
+    // [linear-lambda]
+    /// A lambda that consumes a linear value.
+    linear_lambda_consume = "linear-lambda:consume" (name: &dyn std::fmt::Display) => format!(
+        "a lambda cannot consume `{name}`: it holds a linear value, and the closure would \
+         inherit an obligation to be called exactly once (not supported yet); pass the \
+         value explicitly instead"
+    );
+    /// A lambda that captures and mutates a linear value.
+    linear_lambda_captures_linear = "linear-lambda:captures-linear" (name: &dyn std::fmt::Display) => format!(
+        "this lambda captures and mutates `{name}`, which holds a linear value: the \
+         closure would swallow its obligation; restructure so the value is passed \
+         explicitly"
+    );
+
+    // [linear-obligation]
+    /// A linear struct nothing in its file consumes.
+    linear_obligation_no_discharger = "linear-obligation:no-discharger" (what: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "{what} has no discharger: nothing in this file consumes a `{name}` — no fn, and \
+         no member of an effect declared here — so the obligation has no legal death; \
+         declare one (e.g. `fn close(x: {name}) -> None => !x {{ discard(x) }}`)"
+    );
+    /// A linear value dropped in statement position.
+    linear_obligation_dropped_statement = "linear-obligation:dropped-statement" () =>
+        "this expression produces a linear value that is dropped immediately; bind it, \
+         move it onward, or pass it to `discard`";
+
+    // [linear-opaque]
+    /// A linear intrinsic type nothing in its file consumes.
+    linear_opaque_no_discharger = "linear-opaque:no-discharger" (ty_name: &dyn std::fmt::Display) => format!(
+        "linear intrinsic type `{ty_name}` has no discharger: nothing in this file \
+         consumes a `{ty_name}` — no fn, and no member of an effect declared here — so \
+         the obligation has no legal death; declare one (e.g. `intrinsic fn send<T>(r: \
+         {ty_name}<T>, value: T) [] -> None => !r`)"
+    );
+
+    // [linear-state]
+    /// A linear value held directly in a handler's state.
+    linear_state_field = "linear-state:field" (linear: &dyn std::fmt::Display, owner: &dyn std::fmt::Display, field: &dyn std::fmt::Display) => format!(
+        "`{linear}` is linear, so field `{owner}.{field}` would hold an obligation this \
+         handler can never discharge: taking it back out would leave the state with a \
+         hole, and nothing could be put back. Hold it in a container instead — a `Mut \
+         List<{linear}>` or a `Mut Map<K, {linear}>`, whose `remove_first`/`remove` take \
+         one element at a time and whose `drain` is the terminal"
+    );
+
+    // [mod-namespace]
+    /// A leading-dot reference with no expected type to resolve against.
+    mod_namespace_no_expected_type = "mod-namespace:no-expected-type" (written: &dyn std::fmt::Display) => format!(
+        "`{written}` needs a known type to resolve against: there is no expected type \
+         here, so write the namespace (`Ns{written}`)"
+    );
+    /// A leading-dot reference matching no arm of the expected union.
+    mod_namespace_no_arm = "mod-namespace:no-arm" (written: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, arms: &dyn std::fmt::Display) => format!(
+        "`{written}` matches no arm of `{expected}` — its arms are {arms}"
+    );
+    /// A leading-dot reference several arms of the expected union match.
+    mod_namespace_ambiguous_arms = "mod-namespace:ambiguous-arms" (written: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, candidates: &dyn std::fmt::Display) => format!(
+        "`{written}` is ambiguous across the arms of `{expected}`: {candidates} — write \
+         more of the path"
+    );
+    /// A leading-dot reference naming no member of the expected type's namespace.
+    mod_namespace_no_member = "mod-namespace:no-member" (written: &dyn std::fmt::Display, expected: &dyn std::fmt::Display) => format!(
+        "`{written}` names no member in the namespace of `{expected}`"
+    );
+    /// A leading-dot reference several namespace members match.
+    mod_namespace_ambiguous = "mod-namespace:ambiguous" (written: &dyn std::fmt::Display, candidates: &dyn std::fmt::Display) => format!(
+        "`{written}` is ambiguous: {candidates} — write more of the path"
+    );
+    /// A leading-dot reference whose expected type exposes no namespace.
+    mod_namespace_not_namespaced = "mod-namespace:not-namespaced" (written: &dyn std::fmt::Display, expected: &dyn std::fmt::Display) => format!(
+        "`{written}` resolves against a namespaced type, but `{expected}` exposes none \
+         here — write the namespace explicitly"
+    );
+    /// A leading-dot arm naming no member of its alias's namespace.
+    mod_namespace_no_alias_member = "mod-namespace:no-alias-member" (written: &dyn std::fmt::Display, ns: &dyn std::fmt::Display, suffix: &dyn std::fmt::Display) => format!(
+        "`{written}` names no member of `{ns}` — its declared members are what \
+         `{ns}.{suffix}` would have to be"
+    );
+
+    // [mod-use]
+    /// A module-level `use` outside the runtime module.
+    mod_use_module_level = "mod-use:module-level" () =>
+        "a `use` belongs in a function body: a module-level binding is the runtime \
+         module's alone, since anywhere else it would be state every function reaches \
+         without declaring it";
+
+    // [name-bare]
+    /// A state field named like the handler's constructor parameter.
+    name_bare_state_param_clash = "name-bare:state-param-clash" (field: &dyn std::fmt::Display, handler: &dyn std::fmt::Display, param: &dyn std::fmt::Display) => format!(
+        "state field `{field}` of handler `{handler}` has the name of its constructor \
+         parameter `{param}`: a member reads both by bare name, so one must be renamed"
+    );
+    /// A member's parameter named like the handler's state or parameter.
+    name_bare_param_clash = "name-bare:param-clash" (param: &dyn std::fmt::Display, fn_name: &dyn std::fmt::Display, handler: &dyn std::fmt::Display, what: &dyn std::fmt::Display) => format!(
+        "parameter `{param}` of `{fn_name}` has the name of handler `{handler}`'s {what} \
+         `{param}`, which the body reads by bare name: rename the parameter"
+    );
+
+    // [name-camel]
+    /// Two names of one scope spelled alike in camel case.
+    name_camel_clash = "name-camel:clash" (second: &str, first: &str, camel: &str, what: &str) => format!(
+        "`{second}` and `{first}` are both `{camel}` in camel case, and {what} cannot \
+         hold both: the Kotlin backend writes camel case — rename one"
+    );
+
+    // [name-ident-resolve]
+    /// A name that is a declaration but not a value.
+    name_ident_resolve_not_a_value = "name-ident-resolve:not-a-value" (name: &dyn std::fmt::Display, what: &dyn std::fmt::Display) => format!(
+        "`{name}` is {what}"
+    );
+    /// A name that resolves to no variable or function.
+    name_ident_resolve_unknown = "name-ident-resolve:unknown" (name: &dyn std::fmt::Display) => format!(
+        "no variable or function named `{name}` is in scope"
+    );
+
+    // [name-resolve]
+    /// An effect list entry naming no effect.
+    name_resolve_unknown_effect = "name-resolve:unknown-effect" (name: &dyn std::fmt::Display) => format!(
+        "unknown effect `{name}`"
+    );
+    /// An effect written with the wrong number of type arguments.
+    name_resolve_effect_type_arg_count = "name-resolve:effect-type-arg-count" (name: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "effect `{name}` expects {expected} type argument(s), found {found}"
+    );
+    /// A `use`/`spawn` naming no handler.
+    name_resolve_unknown_handler = "name-resolve:unknown-handler" (handler: &dyn std::fmt::Display, form: &dyn std::fmt::Display) => format!(
+        "unknown handler `{handler}` in `{form}`"
+    );
+    /// A type or qualifier name that resolves to nothing visible.
+    name_resolve_unknown_type = "name-resolve:unknown-type" (what: &dyn std::fmt::Display, name: &dyn std::fmt::Display, hint: &dyn std::fmt::Display) => format!(
+        "unknown {what} `{name}`{hint}"
+    );
+    /// An assignment to a variable that is not declared.
+    name_resolve_assign_undeclared = "name-resolve:assign-undeclared" (name: &dyn std::fmt::Display) => format!(
+        "assignment to undeclared variable `{name}`"
+    );
+    /// An `is` naming no type or qualifier.
+    name_resolve_unknown_type_or_qualifier = "name-resolve:unknown-type-or-qualifier" (name: &dyn std::fmt::Display) => format!(
+        "unknown type or qualifier `{name}`"
+    );
+
+    // [net-noremote]
+    /// A wire-form argument of a type with none.
+    net_noremote_no_wire_form = "net-noremote:no-wire-form" (fn_name: &dyn std::fmt::Display, subject: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "`{fn_name}` needs a type with a wire form, and `{subject}` has none: {why}"
+    );
+    /// A group spanning nodes whose protocol has no wire form.
+    net_noremote_group_across_nodes = "net-noremote:group-across-nodes" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display, pty: &dyn std::fmt::Display, why: &dyn std::fmt::Display, via: &dyn std::fmt::Display) => format!(
+        "a group of `{effect}` cannot span nodes: `{effect}.{member}` takes `{pty}`, and \
+         {why} — so `{via}<{effect}>` has nothing to name on the wire. Keep the actor \
+         local, or give the payload a wire form"
+    );
+
+    // [obligation-by]
+    /// `by` on an obligation of an `intrinsic type`.
+    obligation_by_intrinsic_type = "obligation-by:intrinsic-type" (by: &dyn std::fmt::Display, obligation: &dyn std::fmt::Display) => format!(
+        "`by {by}` has no body to stamp on an `intrinsic type`: its implementation is a \
+         hand-written `intrinsic fn`, so declare `{obligation}` without `by` and write \
+         the `intrinsic fn`(s) it names"
+    );
+    /// `by` on an obligation whose argument is not `self`.
+    obligation_by_not_self = "obligation-by:not-self" (obligation: &dyn std::fmt::Display, by: &dyn std::fmt::Display) => format!(
+        "`by` stamps the implementation for the type it is written on, so its argument is \
+         `self`: write `: {obligation}<self> by {by}`"
+    );
+    /// The removed `canbe hashed` / `canbe ordered`.
+    obligation_by_canbe_hashed = "obligation-by:canbe-hashed" (qualifier: &dyn std::fmt::Display, group: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "`canbe {qualifier}` no longer exists: being hashable or orderable is *having the \
+         function*, so declare it — `: {group}<self> by auto` on the type for the \
+         structural one, or a `{member}` of your own"
+    );
+
+    // [op-arith]
+    /// An arithmetic operator on operands that are not numbers.
+    op_arith_non_numeric = "op-arith:non-numeric" (sym: &dyn std::fmt::Display, l: &dyn std::fmt::Display, r: &dyn std::fmt::Display) => format!(
+        "`{sym}` needs numeric operands (`Int`, `Long`, `Float`, `Double`); found `{l}` \
+         and `{r}`"
+    );
+    /// Unary `-` on an operand that is not a number.
+    op_arith_unary_minus = "op-arith:unary-minus" (t: &dyn std::fmt::Display) => format!(
+        "unary `-` needs a numeric operand (`Int`, `Long`, `Float`, `Double`); found `{t}`"
+    );
+
+    // [op-assign]
+    /// An assignment to something that is not a place.
+    op_assign_not_a_place = "op-assign:not-a-place" () =>
+        "this is not a place, so it cannot be assigned to: an assignment writes a \
+         variable, a field path (`p.name`) or a subscript (`xs[i]`). A call answers a \
+         value, and writing to it would write to nothing";
+
+    // [op-bool]
+    /// A logical operator on an operand that is not a `Bool`.
+    op_bool_not_bool = "op-bool:not-bool" (sym: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "`{sym}` needs `Bool` operands (found `{ty}`): Salvo has no truthiness — compare \
+         explicitly (`n != 0`) or test the type with `is`"
+    );
+
+    // [op-elvis]
+    /// `?:` on a value with one arm.
+    op_elvis_single_arm = "op-elvis:single-arm" (subj_ty: &dyn std::fmt::Display) => format!(
+        "`?:` on `{subj_ty}` keeps its only arm and leaves nothing for the right-hand \
+         side: `?:` picks the first arm of a union with more than one (the same dead \
+         scaffolding a throw-free `try` is refused for)"
+    );
+
+    // [op-no-none]
+    /// `None` as an operand.
+    op_no_none_none_operand = "op-no-none:none-operand" (symbol: &dyn std::fmt::Display) => format!(
+        "`None` is not a valid operand of `{symbol}`"
+    );
+    /// An operand that may be `None`.
+    op_no_none_optional_operand = "op-no-none:optional-operand" (symbol: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "operand of `{symbol}` may be `None` (its type is `{ty}`): narrow it first (`is` \
+         / `when`) or assert it with `!`"
+    );
+
+    // [op-order]
+    /// A comparison's function that returns the wrong type.
+    op_order_return_type = "op-order:return-type" (sym: &dyn std::fmt::Display, lt: &dyn std::fmt::Display, member: &dyn std::fmt::Display, rt: &dyn std::fmt::Display, want: &dyn std::fmt::Display, got: &dyn std::fmt::Display) => format!(
+        "`{sym}` on `{lt}` is `{member}({lt}, {rt})`, which must return `{want}`, and the \
+         `{member}` it resolves to returns `{got}`"
+    );
+
+    // [op-promote]
+    /// An operator on an integer and a floating-point operand.
+    op_promote_mixed_classes = "op-promote:mixed-classes" (sym: &dyn std::fmt::Display, lw: &dyn std::fmt::Display, rw: &dyn std::fmt::Display) => format!(
+        "`{sym}` cannot mix `{lw}` and `{rw}`: integer and floating-point operands need \
+         an explicit conversion (`to_double`, `to_long`, …)"
+    );
+
+    // [op-safe-nav]
+    /// `?.` on a receiver with one arm.
+    op_safe_nav_single_arm = "op-safe-nav:single-arm" (base_ty: &dyn std::fmt::Display) => format!(
+        "`?.` guards the first arm of a union, but this receiver is `{base_ty}` — it has \
+         only one arm, so write a plain `.`"
+    );
+    /// A `?.` call naming no function in scope.
+    op_safe_nav_unknown_fn = "op-safe-nav:unknown-fn" (name: &dyn std::fmt::Display) => format!(
+        "no function named `{name}` is in scope: `?.` calls a function with the receiver \
+         as its first argument"
+    );
+    /// A `?.` method call whose receiver is not a place.
+    op_safe_nav_receiver_not_place = "op-safe-nav:receiver-not-place" () =>
+        "`?.` on a method call needs a variable or field as its receiver; bind the chain \
+         so far to a local first";
+
+    // [platform-check]
+    /// A `platform fn` returning a `proj` borrow.
+    platform_check_borrowed_return = "platform-check:borrowed-return" (fn_name: &dyn std::fmt::Display) => format!(
+        "`platform fn {fn_name}` returns a borrow (`proj`), which host code cannot hand \
+         back: return an owned value"
+    );
+    /// A host value checked element by element (a warning).
+    platform_check_element_cost = "platform-check:element-cost" (what: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "{what} is checked element by element when the host returns it, a cost that grows \
+         with its size ({ty})"
+    );
+    /// A host value's claim of a qualifier the boundary cannot check.
+    platform_check_unchecked_claim = "platform-check:unchecked-claim" (what: &dyn std::fmt::Display, qualifier: &dyn std::fmt::Display) => format!(
+        "{what} claims `{qualifier}`, whose `qualifies` needs effects or slot values the \
+         boundary does not have, so the claim cannot be checked when the host returns it"
+    );
+    /// A host value's claim of another module's constructive qualifier.
+    platform_check_foreign_constructive = "platform-check:foreign-constructive" (what: &dyn std::fmt::Display, qualifier: &dyn std::fmt::Display) => format!(
+        "{what} claims `{qualifier}`, a constructive qualifier declared in another \
+         module: nothing proves it of a value the host returns — declare the platform \
+         declaration in that module, or drop the claim"
+    );
+    /// A host value keyed by a Salvo-defined identity.
+    platform_check_custom_key = "platform-check:custom-key" (what: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "{what} is `{ty}`, a collection keyed by a Salvo-defined identity, which host \
+         code cannot build: key it by the canonical identity, or return a `List`"
+    );
+    /// A host value of a recursive type with checked fields.
+    platform_check_recursive_type = "platform-check:recursive-type" (what: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "{what} contains `{name}`, a recursive type with fields the boundary must check, \
+         which is not supported yet"
+    );
+
+    // [platform-fn]
+    /// A `platform fn` with implicits or effects.
+    platform_fn_not_allowed = "platform-fn:not-allowed" (fn_name: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "`platform fn {fn_name}` {why}"
+    );
+    /// Two platform fns of one name.
+    platform_fn_overloaded = "platform-fn:overloaded" (fn_name: &dyn std::fmt::Display) => format!(
+        "`platform fn {fn_name}` is declared twice: two platform fns may not overload \
+         each other — give one another name"
+    );
+
+    // [platform-fn-value]
+    /// A lambda or local where a platform fn keeps its callback.
+    platform_fn_value_kept_callback = "platform-fn-value:kept-callback" (fn_name: &dyn std::fmt::Display, param: &dyn std::fmt::Display) => format!(
+        "`{fn_name}` keeps its `{param}` callback past the call, so it takes a named \
+         top-level fn, not a lambda or a local: write the callback as a fn and pass it \
+         by name"
+    );
+
+    // [platform-handler]
+    /// A platform handler member with a body.
+    platform_handler_body = "platform-handler:body" (handler: &dyn std::fmt::Display) => format!(
+        "`platform handler {handler}` has no body in Salvo: the host implements its \
+         members, in the module's implementation file under the platform root — or drop \
+         `platform` to handle the effect here"
+    );
+    /// A platform handler with Salvo state.
+    platform_handler_state = "platform-handler:state" (handler: &dyn std::fmt::Display) => format!(
+        "`platform handler {handler}` declares Salvo state, but its implementation class \
+         owns its fields: keep them there, and pass what they need as the handler's \
+         parameters"
+    );
+    /// A platform handler with effect dependencies.
+    platform_handler_dependencies = "platform-handler:dependencies" (handler: &dyn std::fmt::Display) => format!(
+        "`platform handler {handler}` may not declare effect dependencies: its members \
+         are host code, which performs no Salvo effect — write a Salvo handler that \
+         depends on this one's effect if you need one in between"
+    );
+    /// A generic platform handler.
+    platform_handler_generic = "platform-handler:generic" (handler: &dyn std::fmt::Display) => format!(
+        "`platform handler {handler}` may not be generic: the host implements one \
+         concrete class, and an instance per type argument is not expressible on every \
+         backend"
+    );
+
+    // [platform-intrinsic-std-only]
+    /// An `intrinsic` declaration outside std.
+    platform_intrinsic_std_only_outside_std = "platform-intrinsic-std-only:outside-std" (kind: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "`intrinsic {kind} {name}` is the compiler's to declare, not yours: every backend \
+         lowers intrinsics from a table keyed by name, so one declared here has no \
+         implementation anywhere. To reach the target language, declare an effect for \
+         what you need and implement it with a `platform handler`"
+    );
+
+    // [platform-iterable]
+    /// An iterable platform type without `: Iter`.
+    platform_iterable_no_iter = "platform-iterable:no-iter" (name: &dyn std::fmt::Display) => format!(
+        "`iterable platform type {name}` must also declare `: Iter<self, It, T>`: the \
+         host's loop and Salvo's pass are two ways through one sequence, and the clause \
+         is what makes them agree on the element type"
+    );
+
+    // [platform-slots]
+    /// A linear platform type with no slots.
+    platform_slots_no_slots = "platform-slots:no-slots" (name: &dyn std::fmt::Display) => format!(
+        "`linear platform type {name}` declares no slots"
+    );
+
+    // [platform-type]
+    /// A platform type with an obligation clause other than `Iter`.
+    platform_type_obligation = "platform-type:obligation" (name: &dyn std::fmt::Display) => format!(
+        "`platform type {name}` cannot take this obligation clause: it has no fields to \
+         stamp over, and its comparisons are `platform fn`s; `: Iter<self, It, T>`, \
+         without `by`, is the one it may declare"
+    );
+    /// A platform type both `threadsafe` and `linear`.
+    platform_type_threadsafe_linear = "platform-type:threadsafe-linear" (name: &dyn std::fmt::Display) => format!(
+        "`platform type {name}` cannot be both `threadsafe` and `linear`: a linear value \
+         has one owner, so there is no sharing to make safe"
+    );
+
+    // [platform-value-type]
+    /// A platform type both `threadsafe` and `canbe Mut`.
+    platform_value_type_threadsafe_mut = "platform-value-type:threadsafe-mut" (name: &dyn std::fmt::Display) => format!(
+        "`platform type {name}` cannot be both `threadsafe` and `canbe Mut`: a value type \
+         is copied, never shared"
+    );
+
+    // [proj-anywhere]
+    /// A view of a temporary, bound or returned.
+    proj_anywhere_temporary = "proj-anywhere:temporary" (what: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "cannot {what} a view of a temporary: `{name}` borrows an argument that dies at \
+         the end of this statement; bind that argument with `let` first, so the view has \
+         something to borrow from"
+    );
+
+    // [proj-field]
+    /// A `proj` field that names a source.
+    proj_field_source_named = "proj-field:source-named" (owner: &dyn std::fmt::Display, field: &dyn std::fmt::Display) => format!(
+        "field `{owner}.{field}`: a `proj` field names no source — the value stored in it \
+         at each literal decides what it projects; write `proj` alone"
+    );
+
+    // [proj-infer]
+    /// A parameter both consumed and projected by the result.
+    proj_infer_consumed_and_projected = "proj-infer:consumed-and-projected" (param: &dyn std::fmt::Display) => format!(
+        "`{param}` cannot be both consumed (`!{param}`) and projected by the result: a \
+         borrow needs the caller to keep the value"
+    );
+    /// A `proj` element naming no source.
+    proj_infer_element_no_source = "proj-infer:element-no-source" () =>
+        "a `proj` element names no source: the container holds the borrow, and which \
+         parameter it is of is inferred from the body — or written after the type, `T \
+         holds proj(p)`";
+    /// A `proj` return type naming no source.
+    proj_infer_return_no_source = "proj-infer:return-no-source" () =>
+        "`proj` in a return type must name its source: `proj(param)`";
+    /// A `proj(…)` or `ref(…)` naming no parameter.
+    proj_infer_not_a_param = "proj-infer:not-a-param" (kind: &dyn std::fmt::Display, source: &dyn std::fmt::Display) => format!(
+        "`{kind}({source})` names no parameter of this function"
+    );
+    /// A `proj(p)` return whose source is moved.
+    proj_infer_moved_source = "proj-infer:moved-source" (source: &dyn std::fmt::Display) => format!(
+        "`proj({source})` requires `{source}` to be kept: a moved parameter is owned by \
+         this function, so its data is returned by ordinary moves"
+    );
+    /// Written `proj` entries that disagree with the body.
+    proj_infer_lends_disagree = "proj-infer:lends-disagree" (declared: &dyn std::fmt::Display, inferred: &dyn std::fmt::Display) => format!(
+        "the deduction list says the result projects {declared}, but the body returns a \
+         value that projects {inferred}: every lend the body performs must be written \
+         (or omit the `proj` entries and let them be inferred)"
+    );
+    /// A returned value holding a borrow of a local.
+    proj_infer_local_borrow = "proj-infer:local-borrow" (root: &dyn std::fmt::Display) => format!(
+        "cannot return this value: it holds a borrow of `{root}`, a local that dies with \
+         this call; return a `copy`, or borrow from a parameter instead"
+    );
+    /// A returned value holding a borrow the signature does not lend.
+    proj_infer_unlent_borrow = "proj-infer:unlent-borrow" (root: &dyn std::fmt::Display) => format!(
+        "cannot return this value: it holds a borrow of `{root}`, which this function's \
+         signature does not lend; declare it with `[{root}: proj]`, or keep `{root}` so \
+         the borrow can be inferred"
+    );
+    /// `proj` as a type argument of a struct.
+    proj_infer_struct_type_arg = "proj-infer:struct-type-arg" (name: &dyn std::fmt::Display) => format!(
+        "`proj` cannot be a type argument of `{name}`: a struct's fields own their \
+         values, so it cannot hold a borrow through a generic parameter (only the \
+         intrinsic containers — `List`, arrays — may be views)"
+    );
+
+    // [proj-infer-fn-type]
+    /// A `holds proj(…)` the fn type already infers (a warning).
+    proj_infer_fn_type_redundant_holds = "proj-infer-fn-type:redundant-holds" (names: &dyn std::fmt::Display) => format!(
+        "`holds proj({names})` here says what the signature already infers: a fn type \
+         whose return is a bare type parameter lends its named kept positions, because \
+         the result's real type is the caller's to choose and only a lend makes the \
+         borrow it may hold nameable. Drop the clause — it is still needed where the \
+         return is a concrete type"
+    );
+
+    // [proj-local]
+    /// An owned value assigned to a variable that holds a borrow.
+    proj_local_owned_into_borrow = "proj-local:owned-into-borrow" (name: &dyn std::fmt::Display, target_ty: &dyn std::fmt::Display, value_ty: &dyn std::fmt::Display) => format!(
+        "`{name}` holds a borrow (`{target_ty}`), and this is an owned `{value_ty}`: a \
+         variable is a borrow or an owner for its whole life. Make it the owner where it \
+         is declared, `let {name} = copy(…)`"
+    );
+
+    // [proj-readonly]
+    /// A parameter written `proj Mut`.
+    proj_readonly_proj_mut_param = "proj-readonly:proj-mut-param" (param: &dyn std::fmt::Display) => format!(
+        "parameter `{param}` cannot be written `proj Mut`: a `proj` value can only be \
+         read, whatever its `Mut` says, so no projection could ever be passed here and \
+         the body could never mutate it. Drop the `Mut` (a `proj` position accepts `proj \
+         Mut` arguments), or drop the `proj` to mutate an owned value in place"
+    );
+
+    // [proj-readonly-return]
+    /// A returned value not derived from the projected source.
+    proj_readonly_return_not_derived = "proj-readonly-return:not-derived" (shown: &dyn std::fmt::Display) => format!(
+        "this function returns `proj({shown})`, so every returned value must be derived \
+         from `{shown}` (a projection, element, or alias) or be `None`"
+    );
+
+    // [proj-type]
+    /// A projection passed where the callee consumes.
+    proj_type_projection_consumed = "proj-type:projection-consumed" (what: &dyn std::fmt::Display, arg_shown: &dyn std::fmt::Display, callee: &dyn std::fmt::Display, pname: &dyn std::fmt::Display) => format!(
+        "{what} is a projection (`{arg_shown}`), and `{callee}` consumes `{pname}`: a \
+         borrowed value cannot be given away. Pass `copy(...)`, or keep the parameter \
+         (`=> {pname}`)"
+    );
+    /// A borrowed value passed where the callee expects an owned one.
+    proj_type_nested_borrow = "proj-type:nested-borrow" (what: &dyn std::fmt::Display, arg_shown: &dyn std::fmt::Display, callee: &dyn std::fmt::Display, pname: &dyn std::fmt::Display) => format!(
+        "{what} holds a borrowed value (`{arg_shown}`) where `{callee}` expects an owned \
+         one for `{pname}`: the two are the same on the JVM and different in Rust. Write \
+         the parameter's type with the `proj` (as the argument has it), or pass \
+         `copy(...)`"
+    );
+
+    // [qual-canbe-optin]
+    /// A `canbe` of something that cannot be opted into.
+    qual_canbe_optin_unknown = "qual-canbe-optin:unknown" (qualifier: &dyn std::fmt::Display) => format!(
+        "only `Mut`, `once`, `hashed` and `ordered` can be opted into with `canbe` (found \
+         `{qualifier}`)"
+    );
+
+    // [qual-const]
+    /// A constant that does not fit its qualifier slot.
+    qual_const_slot_mismatch = "qual-const:slot-mismatch" (c: &dyn std::fmt::Display, slot: &dyn std::fmt::Display, qualifier: &dyn std::fmt::Display, want: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "`{c}` fills the `{slot}` slot of `{qualifier}`, which needs `{want}`, not \
+         `{found}`"
+    );
+
+    // [qual-constructive]
+    /// An `is` test of a constructive qualifier on a non-union value.
+    qual_constructive_is_test = "qual-constructive:is-test" (q: &dyn std::fmt::Display) => format!(
+        "`{q}` is a constructive qualifier; values only gain it from constructor \
+         functions, so it cannot be tested with `is` on a non-union value"
+    );
+
+    // [qual-ctor-fn]
+    /// A constructor return type naming no qualifier.
+    qual_ctor_fn_unknown_qualifier = "qual-ctor-fn:unknown-qualifier" (name: &dyn std::fmt::Display) => format!(
+        "unknown qualifier `{name}` in constructor return type"
+    );
+    /// A qualifier constructor without a return type.
+    qual_ctor_fn_no_return = "qual-ctor-fn:no-return" () =>
+        "a qualifier constructor must declare a return type";
+
+    // [qual-ctor-same-file]
+    /// A qualifier constructor outside the qualifier's file.
+    qual_ctor_same_file_other_file = "qual-ctor-same-file:other-file" (name: &dyn std::fmt::Display) => format!(
+        "constructor functions for `{name}` must be declared in the same file as the \
+         qualifier"
+    );
+
+    // [qual-ctor-simple]
+    /// A qualifier constructor returning a union.
+    qual_ctor_simple_union = "qual-ctor-simple:union" () =>
+        "a qualifier constructor must return a simple type, not a union";
+    /// A qualifier constructor returning a tuple.
+    qual_ctor_simple_tuple = "qual-ctor-simple:tuple" () =>
+        "a qualifier constructor must return a simple type, not a tuple";
+    /// A qualifier constructor whose return type the qualifier does not apply to.
+    qual_ctor_simple_does_not_apply = "qual-ctor-simple:does-not-apply" (name: &dyn std::fmt::Display, base: &dyn std::fmt::Display) => format!(
+        "qualifier `{name}` does not apply to `{base}`"
+    );
+
+    // [qual-depend]
+    /// A qualifier with both fn slots and value slots.
+    qual_depend_mixed_slots = "qual-depend:mixed-slots" () =>
+        "a qualifier declares fn slots or value slots, not both";
+    /// A dependent `qualifies` without one parameter per value slot.
+    qual_depend_param_count = "qual-depend:param-count" (count: &dyn std::fmt::Display) => format!(
+        "`qualifies` must take the candidate value and then one parameter per value slot \
+         ({count} more)"
+    );
+    /// A dependent `qualifies` parameter that does not accept its slot's type.
+    qual_depend_slot_param_type = "qual-depend:slot-param-type" (slot: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
+        "this parameter fills the `{slot}` slot, so it must accept `{want}`"
+    );
+    /// Value arguments to a qualifier that takes none.
+    qual_depend_no_value_args = "qual-depend:no-value-args" (q: &dyn std::fmt::Display) => format!(
+        "`{q}` takes no value arguments"
+    );
+    /// A dependent qualifier tested without its value arguments.
+    qual_depend_unfilled = "qual-depend:unfilled" (q: &dyn std::fmt::Display, count: &dyn std::fmt::Display, filled: &dyn std::fmt::Display) => format!(
+        "`{q}` depends on {count} value(s) ({filled}): write the filled form, \
+         `{q}({filled})`"
+    );
+    /// A dependent qualifier's argument that is not a value in scope.
+    qual_depend_not_a_value = "qual-depend:not-a-value" (path: &dyn std::fmt::Display) => format!(
+        "`{path}` is not a value in scope"
+    );
+    /// A dependent qualifier's argument that does not fit its slot.
+    qual_depend_slot_mismatch = "qual-depend:slot-mismatch" (path: &dyn std::fmt::Display, slot: &dyn std::fmt::Display, qualifier: &dyn std::fmt::Display, want: &dyn std::fmt::Display, place_ty: &dyn std::fmt::Display) => format!(
+        "`{path}` fills the `{slot}` slot of `{qualifier}`, which needs `{want}`, not \
+         `{place_ty}`"
+    );
+    /// A dependent qualifier's argument that is not a place.
+    qual_depend_arg_not_place = "qual-depend:arg-not-place" () =>
+        "a dependent qualifier's argument is a place: a variable or a field chain out of \
+         one";
+
+    // [qual-field-override]
+    /// A field override that is not a subtype of the field.
+    qual_field_override_not_subtype = "qual-field-override:not-subtype" (field: &dyn std::fmt::Display, override_ty: &dyn std::fmt::Display, orig: &dyn std::fmt::Display) => format!(
+        "field override `{field}: {override_ty}` is not a subtype of the declared `{orig}`"
+    );
+    /// A field override naming no field of the struct.
+    qual_field_override_no_field = "qual-field-override:no-field" (name: &dyn std::fmt::Display, field: &dyn std::fmt::Display) => format!(
+        "struct `{name}` has no field `{field}`"
+    );
+
+    // [qual-lift]
+    /// A `^` whose right side is not qualifier names.
+    qual_lift_not_qualifiers = "qual-lift:not-qualifiers" () =>
+        "`^` removes qualifiers, so its right side is qualifier names only (use `is` to \
+         check a type)";
+    /// A `^` naming no qualifier.
+    qual_lift_nothing_named = "qual-lift:nothing-named" () =>
+        "`^` needs a qualifier to remove";
+    /// A `^` of a qualifier that cannot be removed.
+    qual_lift_cannot_remove = "qual-lift:cannot-remove" (q: &dyn std::fmt::Display, reason: &dyn std::fmt::Display) => format!(
+        "`{q}` cannot be removed with `^`: {reason}"
+    );
+    /// An `is ^Q` matching several arms of the subject.
+    qual_lift_several_arms = "qual-lift:several-arms" (quals: &dyn std::fmt::Display, subj_ty: &dyn std::fmt::Display) => format!(
+        "`is ^{quals}` matches more than one arm of `{subj_ty}`: lifting re-reads the \
+         subject, which cannot stand for several arms at once — bind the lifted value \
+         instead (`is ^{quals} name`)"
+    );
+    /// An `is ^Q` whose subject has no arm carrying `Q`.
+    qual_lift_no_arm_carries = "qual-lift:no-arm-carries" (subj_ty: &dyn std::fmt::Display, quals: &dyn std::fmt::Display) => format!(
+        "no arm of `{subj_ty}` carries `{quals}`, so there is nothing for `^` to remove"
+    );
+    /// A `^Q` of a value that does not carry `Q`.
+    qual_lift_not_carried = "qual-lift:not-carried" (other: &dyn std::fmt::Display, quals: &dyn std::fmt::Display) => format!(
+        "`{other}` does not carry `{quals}`, so there is nothing for `^` to remove"
+    );
+    /// A `^` branch whose head is not qualifier names.
+    qual_lift_branch_not_qualifiers = "qual-lift:branch-not-qualifiers" () =>
+        "a `^` branch removes qualifiers, so its head is qualifier names only (use `is` \
+         to match a type)";
+    /// A `^` branch whose arm does not carry the qualifier.
+    qual_lift_arm_not_carried = "qual-lift:arm-not-carried" (quals: &dyn std::fmt::Display) => format!(
+        "this arm does not carry `{quals}`, so there is nothing for `^` to remove"
+    );
+
+    // [qual-no-dup]
+    /// A qualifier applied twice in one type.
+    qual_no_dup_applied_twice = "qual-no-dup:applied-twice" (qualifier: &dyn std::fmt::Display) => format!(
+        "qualifier `{qualifier}` is applied more than once"
+    );
+
+    // [qual-of]
+    /// A qualifier whose `of` type does not fit.
+    qual_of_does_not_apply = "qual-of:does-not-apply" (qualifier: &dyn std::fmt::Display, base: &dyn std::fmt::Display) => format!(
+        "qualifier `{qualifier}` does not apply to `{base}`"
+    );
+    /// A qualifier of a union type.
+    qual_of_union_subject = "qual-of:union-subject" () =>
+        "a qualifier cannot apply to a union type; qualify the arms instead";
+    /// A qualifier of a tuple type.
+    qual_of_tuple_subject = "qual-of:tuple-subject" () =>
+        "a qualifier cannot apply to a tuple type; qualify the parts instead";
+
+    // [qual-predicate]
+    /// A `qualifies` that does not take exactly one parameter.
+    qual_predicate_param_count = "qual-predicate:param-count" () =>
+        "`qualifies` must take exactly one parameter (the candidate value)";
+    /// A `qualifies` whose parameter does not accept the `of` type.
+    qual_predicate_param_type = "qual-predicate:param-type" (of_ty: &dyn std::fmt::Display) => format!(
+        "`qualifies` must accept a `{of_ty}` parameter"
+    );
+    /// A `qualifies` that does not return `Bool`.
+    qual_predicate_return_type = "qual-predicate:return-type" () =>
+        "`qualifies` must return `Bool`";
+    /// A `qualifies` with a deduction clause.
+    qual_predicate_deductions = "qual-predicate:deductions" () =>
+        "`qualifies` does not support deductions (it never moves the value)";
+
+    // [qual-preserve]
+    /// A `preserve` entry naming no parameter.
+    qual_preserve_not_a_param = "qual-preserve:not-a-param" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` names no parameter"
+    );
+    /// A call that may invalidate a claim the fn promises to preserve.
+    qual_preserve_call_invalidates = "qual-preserve:call-invalidates" (q: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "this call may invalidate `{q}` claims about `{name}`, which the enclosing \
+         function promises to preserve: only calls that themselves preserve `{q}` may \
+         take `{name}` as `Mut`"
+    );
+
+    // [qual-refn]
+    /// `preserve` on a bodiless declaration.
+    qual_refn_bodiless_preserve = "qual-refn:bodiless-preserve" () =>
+        "a bodiless declaration cannot promise `preserve`: there is nothing to check it \
+         against — the qualifier's owner writes a `refn` instead";
+
+    // [qual-refn-scope]
+    /// A qualifier body with members that need a `qualifies`.
+    qual_refn_scope_no_qualifies = "qual-refn-scope:no-qualifies" (qualifier: &dyn std::fmt::Display) => format!(
+        "qualifier `{qualifier}` has a body but no `qualifies`: a body may hold \
+         a                      `qualifies` (which makes the claim testable), \
+         refinements, or                      both — this one holds members that need a \
+         `qualifies` beside                      them"
+    );
+
+    // [qual-subject]
+    /// A provenance qualifier with a body.
+    qual_subject_provenance_body = "qual-subject:provenance-body" (qualifier: &dyn std::fmt::Display) => format!(
+        "provenance qualifier `{qualifier}` cannot have a body: provenance is not \
+         testable at runtime (no `qualifies`) and describes the handle, not its contents \
+         (no field overrides) — values gain it from constructor functions"
+    );
+
+    // [qual-value-arg]
+    /// A partial list of type arguments.
+    qual_value_arg_partial_type_args = "qual-value-arg:partial-type-args" (type_arity: &dyn std::fmt::Display) => format!(
+        "type arguments are all-or-none: this declaration has {type_arity} type \
+         parameter(s), so write all of them or none (value arguments go in the `(…)` \
+         block)"
+    );
+    /// A type written with the wrong number of type arguments.
+    qual_value_arg_type_arg_count = "qual-value-arg:type-arg-count" (name: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "`{name}` takes {expected} type argument(s), found {found}: write all of them \
+         (`{name}<...>`) — unlike a struct literal's fields, a type position like this \
+         has no values to infer a missing one from"
+    );
+
+    // [qual-whynot]
+    /// A `whynot?` that binds a name.
+    qual_whynot_binding = "qual-whynot:binding" () =>
+        "`whynot?` answers a message, and binds nothing: drop the name";
+    /// A `whynot?` of a qualifier that tests a union's arm.
+    qual_whynot_union_test = "qual-whynot:union-test" () =>
+        "`whynot?` explains a predicate qualifier's test, and this one tests which arm a \
+         union holds: write `x is T` as a condition";
+    /// An `@whynot` anywhere but on a qualifier's `fn qualifies` (a warning).
+    qual_whynot_misplaced_tag = "qual-whynot:misplaced-tag" () =>
+        "`@whynot` says why a value fails a predicate qualifier: it belongs on the \
+         qualifier's `fn qualifies`";
+    /// A `whynot` fn in a qualifier.
+    qual_whynot_on_fn = "qual-whynot:on-fn" (qualifier: &dyn std::fmt::Display) => format!(
+        "a qualifier says why a value fails it in a doc tag, not a fn: write `// @whynot \
+         …` above `{qualifier}.qualifies`, with `[name]` for its parameters"
+    );
+    /// An `@whynot` slot whose parameter type cannot be shown.
+    qual_whynot_slot_type = "qual-whynot:slot-type" (name: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "`@whynot` shows `[{name}]`, a `{ty}`: a slot shown in the message is an `Int`, \
+         `Long`, `Double`, `Bool`, `Char` or `Str`"
+    );
+    /// An `@whynot` slot naming no parameter of `qualifies`.
+    qual_whynot_unknown_slot = "qual-whynot:unknown-slot" (name: &dyn std::fmt::Display, qualifier: &dyn std::fmt::Display, names: &dyn std::fmt::Display) => format!(
+        "`@whynot` shows `[{name}]`, which is not a parameter of `{qualifier}.qualifies`: \
+         write one of {names} (`[[` is a literal `[`)"
+    );
+    /// A direct call of a `qualifies` that takes implicits.
+    qual_whynot_call_implicits = "qual-whynot:call-implicits" (qualifier: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "`{qualifier}.{member}` takes implicit parameters, which a direct call does not \
+         fill: test with `is`"
+    );
+    /// A direct call of a `qualifies` with the wrong number of arguments.
+    qual_whynot_call_arg_count = "qual-whynot:call-arg-count" (qualifier: &dyn std::fmt::Display, member: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
+        "`{qualifier}.{member}` takes {expected} argument(s) — the subject, then one per \
+         slot — found {found}"
+    );
+    /// A direct call of a `qualifies` with an argument of the wrong type.
+    qual_whynot_call_arg_mismatch = "qual-whynot:call-arg-mismatch" (qualifier: &dyn std::fmt::Display, member: &dyn std::fmt::Display, want: &dyn std::fmt::Display, got: &dyn std::fmt::Display) => format!(
+        "`{qualifier}.{member}` expects `{want}`, found `{got}`"
+    );
+
+    // [ref-anchor]
+    /// A `ref(…)` naming no other parameter.
+    ref_anchor_not_a_param = "ref-anchor:not-a-param" (source: &dyn std::fmt::Display) => format!(
+        "`ref({source})` names no other parameter of this function: a handle parameter \
+         names the container parameter it is a position in"
+    );
+    /// An argument for a `ref(…)` parameter that is not a handle into its container.
+    ref_anchor_not_a_handle = "ref-anchor:not-a-handle" () =>
+        "this argument must be a handle into the container passed for its `ref(…)` \
+         parameter — the callee reads and writes it at a position of that container; \
+         mint it from that container with `at(…)`";
+
+    // [ref-handle]
+    /// A platform handler of a member returning a `ref` handle.
+    ref_handle_platform_handler = "ref-handle:platform-handler" (handler: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "`platform handler {handler}` cannot implement `{member}`, whose result is a \
+         `ref` handle: a handle is a path into the caller's container, which host code \
+         does not answer — return the element's value, or handle the effect in Salvo"
+    );
+    /// A plain projection where a function value mutates.
+    ref_handle_plain_projection = "ref-handle:plain-projection" (t: &dyn std::fmt::Display) => format!(
+        "this argument is a plain projection (`{t}`), and the function value mutates it: \
+         a mutable element handle is written `ref(c)`, not a bare `proj` — `proj Mut` is \
+         read-only. Mint a handle with `at(...)` instead of projecting, or pass \
+         `copy(...)` for a value of your own"
+    );
+    /// A `ref` result from a function that answers a borrow.
+    ref_handle_from_reader = "ref-handle:from-reader" (name: &dyn std::fmt::Display) => format!(
+        "a `ref` result cannot come from a reader: `{name}` answers a borrow, not a \
+         position, and a handle is never recovered from a borrow. Declare `{name}` to \
+         return `ref(…)` (a position preserved), or return a place — a field path, a \
+         search loop's element, or a mint's result"
+    );
+    /// A read-only projection passed where the callee mutates.
+    ref_handle_read_only_projection = "ref-handle:read-only-projection" (what: &dyn std::fmt::Display, arg_shown: &dyn std::fmt::Display, callee: &dyn std::fmt::Display, pname: &dyn std::fmt::Display) => format!(
+        "{what} is a read-only projection (`{arg_shown}`), and `{callee}` mutates \
+         `{pname}` — a mutable handle needs a `Mut` element type (`List<Mut T>`). Use \
+         `copy(...)` for a value of your own"
+    );
+    /// A plain projection passed where the callee mutates.
+    ref_handle_plain_projection_mutated = "ref-handle:plain-projection-mutated" (what: &dyn std::fmt::Display, arg_shown: &dyn std::fmt::Display, callee: &dyn std::fmt::Display, pname: &dyn std::fmt::Display) => format!(
+        "{what} is a plain projection (`{arg_shown}`), and `{callee}` mutates `{pname}`: \
+         a mutable element handle is written `ref(c)`, not a bare `proj` — `proj Mut` is \
+         read-only. Mint a handle with `at(...)` instead of projecting, or pass \
+         `copy(...)` for a value of your own"
+    );
+
+    // [runtime-layers]
+    /// The runtime's core importing one of its services.
+    runtime_layers_core_imports_service = "runtime-layers:core-imports-service" (service: &dyn std::fmt::Display) => format!(
+        "the runtime's core may not import its service `{service}`: services are built on \
+         the core, which never calls them"
+    );
+
+    // [seq-lazy]
+    /// A stored iterator callback capturing mutable data.
+    seq_lazy_mutable_capture = "seq-lazy:mutable-capture" (what: &dyn std::fmt::Display, captured: &dyn std::fmt::Display, param_name: &dyn std::fmt::Display, fn_name: &dyn std::fmt::Display) => format!(
+        "this lambda {what} `{captured}`, and it is the `{param_name}` callback of the \
+         iterator function `{fn_name}`: a producer's callback runs once per element in \
+         *every* pass, so what the capture accumulates would depend on how often the \
+         producer was consumed. Capture an immutable snapshot instead (bind \
+         `copy({captured})` to a local at a non-`Mut` type *before* the lambda), or pass \
+         the state in and yield it back"
+    );
+
+    // [struct-decl]
+    /// A struct literal field value that does not fit the field.
+    struct_decl_field_mismatch = "struct-decl:field-mismatch" (field: &dyn std::fmt::Display, fty: &dyn std::fmt::Display, vty: &dyn std::fmt::Display) => format!(
+        "field `{field}` expects `{fty}`, found `{vty}`"
+    );
+
+    // [struct-defaults]
+    /// A struct literal missing a field that has no default.
+    struct_defaults_missing_field = "struct-defaults:missing-field" (field: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "missing field `{field}` in `{name}` literal"
+    );
+
+    // [struct-field-canbe-mut]
+    /// `canbe Mut` on a handler's state field.
+    struct_field_canbe_mut_handler_state = "struct-field-canbe-mut:handler-state" () =>
+        "`canbe Mut` is for a struct's fields; a handler's state is mutable already, so \
+         write `Mut` or nothing";
+    /// `canbe Mut` on a field of a struct that is not `canbe Mut`.
+    struct_field_canbe_mut_struct_not_canbe_mut = "struct-field-canbe-mut:struct-not-canbe-mut" (field: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "field `{field}` says `canbe Mut`, but struct `{name}` does not: a `{name}` value \
+         is never `Mut`, so the field never would be; declare `struct {name} canbe Mut`"
+    );
+    /// `canbe Mut` on a field that is `Mut` already.
+    struct_field_canbe_mut_already_mut = "struct-field-canbe-mut:already-mut" (field: &dyn std::fmt::Display) => format!(
+        "field `{field}` is already `Mut`; `canbe Mut` gives a field `Mut` only when the \
+         struct value has it, so write one or the other"
+    );
+    /// `canbe Mut` on a field of a type that does not opt into `Mut`.
+    struct_field_canbe_mut_not_applicable = "struct-field-canbe-mut:not-applicable" (ty: &dyn std::fmt::Display) => format!(
+        "`canbe Mut` does not apply to `{ty}` (its declaration does not say `canbe Mut`)"
+    );
+    /// A `Mut` literal taking a `canbe Mut` field from a plain spread.
+    struct_field_canbe_mut_plain_spread = "struct-field-canbe-mut:plain-spread" (name: &dyn std::fmt::Display, field: &dyn std::fmt::Display, sty: &dyn std::fmt::Display) => format!(
+        "a `Mut {name}` literal cannot take field `{field}` (`canbe Mut`) from a plain \
+         `{sty}`: it would make the field mutable where the plain value is not; spread a \
+         `Mut` value, or give `{field}` here"
+    );
+    /// A `Mut` literal leaving a `canbe Mut` field to its default.
+    struct_field_canbe_mut_default_not_mut = "struct-field-canbe-mut:default-not-mut" (name: &dyn std::fmt::Display, field: &dyn std::fmt::Display) => format!(
+        "a `Mut {name}` literal must give field `{field}`: its default is a plain value \
+         and the field is `canbe Mut`"
+    );
+
+    // [struct-field-resolve]
+    /// A field read naming no field of the struct.
+    struct_field_resolve_no_field = "struct-field-resolve:no-field" (name: &dyn std::fmt::Display, field: &dyn std::fmt::Display) => format!(
+        "struct `{name}` has no field `{field}`"
+    );
+    /// A field read on a value of a type parameter.
+    struct_field_resolve_type_param = "struct-field-resolve:type-param" (name: &dyn std::fmt::Display, field: &dyn std::fmt::Display) => format!(
+        "`{name}` is a type parameter, so nothing is known about its values: it has no \
+         field `{field}`. Take the concrete type as a parameter instead"
+    );
+    /// A field read on a value that is not a struct.
+    struct_field_resolve_not_a_struct = "struct-field-resolve:not-a-struct" (other: &dyn std::fmt::Display, field: &dyn std::fmt::Display) => format!(
+        "`{other}` has no field `{field}`: only structs have fields, and a \
+         target-language member needs an accessor fn"
+    );
+    /// A struct literal naming no field of the struct.
+    struct_field_resolve_literal_no_field = "struct-field-resolve:literal-no-field" (name: &dyn std::fmt::Display, field: &dyn std::fmt::Display) => format!(
+        "struct `{name}` has no field `{field}`"
+    );
+
+    // [struct-mut]
+    /// `Mut` on a type that does not opt into it.
+    struct_mut_not_canbe_mut = "struct-mut:not-canbe-mut" (base: &dyn std::fmt::Display) => format!(
+        "`Mut` does not apply to `{base}` (its declaration does not say `canbe Mut`)"
+    );
+    /// A field assignment on a value that is not `Mut`.
+    struct_mut_immutable_field_assign = "struct-mut:immutable-field-assign" (field: &dyn std::fmt::Display, base_ty: &dyn std::fmt::Display) => format!(
+        "cannot assign to field `{field}` of an immutable `{base_ty}` value: only \
+         `Mut`-qualified values may have fields assigned"
+    );
+
+    // [struct-opaque]
+    /// An opaque struct opened outside its module.
+    struct_opaque_outside_module = "struct-opaque:outside-module" (shown: &dyn std::fmt::Display, module: &dyn std::fmt::Display, what: &dyn std::fmt::Display, pointer: &dyn std::fmt::Display) => format!(
+        "`{shown}` is opaque outside `{module}`, so {what} is not allowed here{pointer}"
+    );
+
+    // [task-effects]
+    /// A task effect several instances in scope could supply.
+    task_effects_ambiguous = "task-effects:ambiguous" (target: &dyn std::fmt::Display, want: &dyn std::fmt::Display, instances: &dyn std::fmt::Display) => format!(
+        "`send fn {target}` performs `{want}`, and this scope has several instances the \
+         task could inherit ({instances}): the mint carries one, so bind only the \
+         instance this task means"
+    );
+    /// A task effect with no handler in scope.
+    task_effects_missing = "task-effects:missing" (target: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
+        "`send fn {target}` performs `{want}`, which a task inherits from the frame that \
+         mints it — and this scope has no handler for it. Bind one before the mint, or \
+         declare `{want}` here so it is supplied from further out"
+    );
+
+    // [task-mint]
+    /// A mint of a `send fn` several overloads could be.
+    task_mint_ambiguous_send = "task-mint:ambiguous-send" (form: &dyn std::fmt::Display, member: &dyn std::fmt::Display, count: &dyn std::fmt::Display, from: &dyn std::fmt::Display) => format!(
+        "`{form}` cannot tell which `send fn {member}` it means: {count} of them are \
+         visible from {from}, and a mint carries only the captures — not enough to \
+         choose an overload. Rename one, or bring in only the one this scope means"
+    );
+    /// `replyto!` of a free `send fn`.
+    task_mint_gated_free_send = "task-mint:gated-free-send" (member: &dyn std::fmt::Display) => format!(
+        "`replyto!` gates the minting actor's mailbox until the answer arrives, and \
+         `{member}` is a free `send fn` — a task has no mailbox to gate. Use a bare \
+         `replyto`"
+    );
+    /// A mint targeting a plain `fn`.
+    task_mint_plain_fn_target = "task-mint:plain-fn-target" (member: &dyn std::fmt::Display, form: &dyn std::fmt::Display) => format!(
+        "`{member}` is a plain `fn`, so `{form}` cannot target it: a free function minted \
+         this way runs as a detached task, which needs `send fn {member}(...)` instead \
+         of `fn {member}(...)`"
+    );
+
+    // [throw]
+    /// A handler of `Throw`.
+    throw_no_handlers = "throw:no-handlers" (throw_effect: &dyn std::fmt::Display) => format!(
+        "`{throw_effect}` has no handlers: a throw is delimited by a `try {{ ... }}` \
+         block, not handled"
+    );
+    /// A throw nothing receives.
+    throw_no_receiver = "throw:no-receiver" (throw_effect: &dyn std::fmt::Display, message: &dyn std::fmt::Display) => format!(
+        "nothing here can receive a throw: wrap the call in a `try {{ ... }}` block, or \
+         declare `[{throw_effect}<{message}>]` in this function's effect list to pass it \
+         on"
+    );
+    /// `throw` with other than one argument.
+    throw_argument_count = "throw:argument-count" (member: &dyn std::fmt::Display) => format!(
+        "`{member}` takes the throw message as its only argument"
+    );
+
+    // [throw-not-main]
+    /// `main` declaring `Throw`.
+    throw_not_main_declared = "throw-not-main:declared" (throw_effect: &dyn std::fmt::Display) => format!(
+        "`main` cannot declare `{throw_effect}`: there is no caller to receive the throw \
+         — delimit it inside `main` with a `try {{ ... }}` block instead"
+    );
+
+    // [throw-try]
+    /// A throw whose message the receiving throw does not carry.
+    throw_try_message_mismatch = "throw-try:message-mismatch" (message: &dyn std::fmt::Display, target: &dyn std::fmt::Display) => format!(
+        "this throw carries a `{message}` message, but the throw it lands in carries \
+         `{target}`"
+    );
+    /// A `try` block nothing in which can throw.
+    throw_try_nothing_throws = "throw-try:nothing-throws" (throw_effect: &dyn std::fmt::Display) => format!(
+        "nothing in this `try` block can throw, so it has no outcome to produce: drop the \
+         `try`, or call something that declares `[{throw_effect}<M>]`"
+    );
+    /// A `try` whose core-library qualifier is not in scope.
+    throw_try_core_qualifier_missing = "throw-try:core-qualifier-missing" (name: &dyn std::fmt::Display) => format!(
+        "`try` needs the `{name}` qualifier from the core library, which is not in scope \
+         (is `std` on the source path?)"
+    );
+
+    // [type-literal]
+    /// A literal arm beside its base type's arm (a warning).
+    type_literal_subsumed = "type-literal:subsumed" (value: &dyn std::fmt::Display, base: &dyn std::fmt::Display) => format!(
+        "`{value}` is subsumed by the `{base}` arm beside it, which already holds every \
+         `{base}`; for the rest of a set of values, write `Other {base}`"
+    );
+    /// An `is` of a literal its subject can never be.
+    type_literal_never_matches = "type-literal:never-matches" (repr: &dyn std::fmt::Display, lit: &dyn std::fmt::Display) => format!(
+        "this check can never succeed: a `{repr}` is never `{lit}`"
+    );
+    /// A literal the expected literal union does not list.
+    type_literal_not_listed = "type-literal:not-listed" (lit: &dyn std::fmt::Display, want: &dyn std::fmt::Display, listed: &dyn std::fmt::Display, hint: &dyn std::fmt::Display) => format!(
+        "`{lit}` is not one of the values `{want}` lists ({listed}){hint}"
+    );
+    /// A plain value where a literal union is expected.
+    type_literal_needs_narrowing = "type-literal:needs-narrowing" (base: &dyn std::fmt::Display, want: &dyn std::fmt::Display, listed: &dyn std::fmt::Display, hint: &dyn std::fmt::Display) => format!(
+        "a `{base}` is not a `{want}`: narrow it to one of {listed} with `is` or `when` \
+         first{hint}"
+    );
+
+    // [type-literal-qualified]
+    /// A union listing one literal twice under different qualifiers.
+    type_literal_qualified_listed_twice = "type-literal-qualified:listed-twice" (lit: &dyn std::fmt::Display, a: &dyn std::fmt::Display, b: &dyn std::fmt::Display) => format!(
+        "this union lists `{lit}` twice, as `{a}` and as `{b}`: qualifiers erase, so a \
+         value of `{lit}` cannot say which arm it is; list it once"
+    );
+
+    // [type-no-cycle]
+    /// A struct that contains itself.
+    type_no_cycle_contains_itself = "type-no-cycle:contains-itself" (start: &dyn std::fmt::Display, field: &dyn std::fmt::Display, via: &dyn std::fmt::Display) => format!(
+        "`{start}` contains itself through field `{field}`{via}, so a value of it would \
+         be infinitely large. Indirect through a container — `List<{start}>` holds any \
+         number of them, including none, and is how a tree or a linked structure is \
+         written"
+    );
+
+    // [type-union]
+    /// `None` where the expected union has no `None` arm.
+    type_union_none_not_arm = "type-union:none-not-arm" (expected: &dyn std::fmt::Display) => format!(
+        "`None` is not an arm of `{expected}`"
+    );
+    /// A value several arms of the expected union accept.
+    type_union_ambiguous_arm = "type-union:ambiguous-arm" (logical: &dyn std::fmt::Display, expected: &dyn std::fmt::Display) => format!(
+        "a value of type `{logical}` matches multiple arms of `{expected}`; qualify the \
+         value to disambiguate"
+    );
+    /// A value no arm of the expected union accepts.
+    type_union_no_arm = "type-union:no-arm" (expected: &dyn std::fmt::Display, logical: &dyn std::fmt::Display, deduplicated: bool) => format!(
+        "no arm of `{expected}` accepts a value of type `{logical}`{}",
+        if deduplicated {
+            "; a qualifier applied to a value that already carries it deduplicates, so bind \
+             the inner union to an annotated local first (`let inner: A | B = ...`)"
+        } else {
+            ""
+        }
+    );
+
+    // [type-union-spread]
+    /// A union with two spread arms.
+    type_union_spread_two_spreads = "type-union-spread:two-spreads" () =>
+        "a union may have at most one `...` spread arm: a second spread would make the \
+         split of the arms it captures ambiguous";
+    /// A spread arm that is not a bare generic parameter.
+    type_union_spread_not_generic = "type-union-spread:not-generic" (inner: &dyn std::fmt::Display) => format!(
+        "`...{inner}` is not a valid spread arm: a `...` spread captures one or more \
+         arms, so its type must be a bare generic parameter in scope"
+    );
+    /// A spread outside a union.
+    type_union_spread_alone = "type-union-spread:alone" () =>
+        "a `...` spread is only a union arm (`...T | Bool`): it has no meaning on its own";
+
+    // [var-let-destructure]
+    /// A tuple pattern of the wrong arity.
+    var_let_destructure_arity = "var-let-destructure:arity" (count: &dyn std::fmt::Display, what: &dyn std::fmt::Display) => format!(
+        "this pattern destructures a tuple of {count}, but {what}"
+    );
+
+    // [var-let-infer]
+    /// A `let` value that does not fit its annotation.
+    var_let_infer_annotation_mismatch = "var-let-infer:annotation-mismatch" (ann: &dyn std::fmt::Display, value_ty: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
+        "expected `{ann}`, found `{value_ty}`{why}"
+    );
+
+    // [var-no-shadow]
+    /// A local that shadows another.
+    var_no_shadow_already_declared = "var-no-shadow:already-declared" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is already declared (shadowing is not allowed)"
+    );
+
+    // [var-no-widen]
+    /// An assignment of a value that does not fit the variable's type.
+    var_no_widen_assign_mismatch = "var-no-widen:assign-mismatch" (value_ty: &dyn std::fmt::Display, target_ty: &dyn std::fmt::Display) => format!(
+        "cannot assign `{value_ty}` to `{target_ty}` (a variable's type can never widen)"
+    );
+
+    // [var-unused]
+    /// A local that is never used (a warning).
+    var_unused_never_used = "var-unused:never-used" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is never used; prefix it with `_` (`_{name}`) if that is deliberate"
+    );
+
+    // [waitfor-infer]
+    /// A `waitfor` whose token nothing passes to a `Reply<T>` parameter.
+    waitfor_infer_no_reply_param = "waitfor-infer:no-reply-param" (binding: &dyn std::fmt::Display, reply_type: &dyn std::fmt::Display) => format!(
+        "cannot tell what `{binding}` waits for: nothing in the block passes it to a \
+         `{reply_type}<T>` parameter. Write the type out (`waitfor {binding}: \
+         {reply_type}<Int> {{ … }}`) or send the token somewhere"
+    );
+    /// A `waitfor` whose token several `Reply<T>` types could take.
+    waitfor_infer_ambiguous = "waitfor-infer:ambiguous" (binding: &dyn std::fmt::Display, candidates: &dyn std::fmt::Display, first: &dyn std::fmt::Display) => format!(
+        "`{binding}` could wait for any of {candidates}: write the type out (`waitfor \
+         {binding}: {first} {{ … }}`)"
+    );
+
+    // [when-bind]
+    /// A `when` binding whose check matches several types.
+    when_bind_several_types = "when-bind:several-types" () =>
+        "a `when` binding requires a check matching a single type";
+
+    // [when-exhaustive]
+    /// A `when` branch that matches no remaining arm.
+    when_exhaustive_dead_branch = "when-exhaustive:dead-branch" () =>
+        "this `when` branch matches no remaining union arm";
+    /// A `when` that leaves union arms unhandled.
+    when_exhaustive_missing_arms = "when-exhaustive:missing-arms" (plural: &dyn std::fmt::Display, missing: &dyn std::fmt::Display) => format!(
+        "non-exhaustive `when`: unhandled union arm{plural} {missing}"
+    );
+
+    // [when-union-subject]
+    /// A `when` subject that is not a plain variable.
+    when_union_subject_not_a_variable = "when-union-subject:not-a-variable" () =>
+        "`when` requires a plain variable as its subject (or the binding form `when name \
+         = subject { … }`)";
+    /// A `when` subject that is a claim about a union.
+    when_union_subject_qualified_union = "when-union-subject:qualified-union" (subj_ty: &dyn std::fmt::Display, qual: &dyn std::fmt::Display, base: &dyn std::fmt::Display) => format!(
+        "`when` requires a union-typed subject, and `{subj_ty}` is the claim `{qual}` \
+         *about* a union: bind the inner union to a local and match that (`let inner: \
+         {base} = ...`)"
+    );
+    /// A `when` subject that is not a union.
+    when_union_subject_not_a_union = "when-union-subject:not-a-union" (subj_ty: &dyn std::fmt::Display) => format!(
+        "`when` requires a union-typed subject (found `{subj_ty}`)"
+    );
 }
 
 #[cfg(test)]

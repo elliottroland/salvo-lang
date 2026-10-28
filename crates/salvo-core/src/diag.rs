@@ -81,6 +81,13 @@ impl FileDiagnostic {
         }
     }
 
+    /// [diag-id] Gives the diagnostic `id`: for a text built (or reworded)
+    /// apart from the message it came from, which kept its id.
+    pub fn with_id(mut self, id: Option<&'static str>) -> Self {
+        self.id = id;
+        self
+    }
+
     /// [node-origin] Attributes the diagnostic to the declaration it was raised
     /// in (`FileDiagnostic::decl`).
     pub fn in_decl(mut self, decl: Option<crate::DeclId>) -> Self {

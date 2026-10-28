@@ -229,9 +229,10 @@ fn main() [use] {
     let _bad = h[B]
 }
 ";
-    let errs = errors(src);
+    let errs: Vec<_> = diags(src).into_iter().filter(|d| d.is_error()).collect();
     assert!(
-        errs.iter().any(|m| m.contains("does not carry effect `B`") && m.contains("[effect-eff-handle]")),
+        errs.iter().any(|d| d.id == Some("effect-eff-handle:effect-not-carried")
+            && d.message.contains("does not carry effect `B`")),
         "projecting an absent effect should be refused: {errs:?}"
     );
 }
@@ -293,9 +294,10 @@ fn main() [use] {
     let _bad = eff[ha, n]
 }
 ";
-    let errs = errors(src);
+    let errs: Vec<_> = diags(src).into_iter().filter(|d| d.is_error()).collect();
     assert!(
-        errs.iter().any(|m| m.contains("merges effect handles") && m.contains("[effect-eff-handle]")),
+        errs.iter().any(|d| d.id == Some("effect-eff-handle:merge-not-handle")
+            && d.message.contains("merges effect handles")),
         "merging a non-handle should be refused: {errs:?}"
     );
 }

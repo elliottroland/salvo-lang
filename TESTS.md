@@ -305,7 +305,7 @@ optionally a message fragment where the text itself is the point.
   * Order, one commit each, each green: (1, done) the machinery, `-v`, and the
     lexer, parser and desugar; (2, done) the core passes before the checker
     (expand, comptime, resolve, refine, deduce, unique_shape, platform,
-    deadlock); (3) the checker; (4) the IR passes; (5) the backends and the
+    deadlock); (3, done) the checker; (4) the IR passes; (5) the backends and the
     CLI's own errors, then the string impls go.
 
 ### T3. std checked once per test process
@@ -710,3 +710,6 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   platform, naming). Labels for citation-less messages chosen from the
   code's own comments; deadlock reports are `actor-deadlock-cycle:*`. Four
   texts keep long space runs from their old literals (second wave).
+- **Step 3b part 3 (2026-10-28).** The checker: 543 messages, ids through
+  every rewording. Left: the IR passes (part 4), the backends and the CLI
+  (part 5), then the text impl of `IntoMessage` goes.

@@ -303,8 +303,8 @@ fn a_module_level_use_is_the_runtime_module_s_alone() {
 
     let program = "effect Ticks {\n    fn tick() -> Int\n}\n\nhandler Ticking() of Ticks {\n    fn tick() -> Int {\n        return 1\n    }\n}\n\n\
                    use Ticking()\n\nfn twice() [] -> Int {\n    return tick()\n}\n";
-    let errs = diags(&[("main.sv", program)]);
-    assert!(errs.iter().any(|m| m.contains("[mod-use]")), "{errs:?}");
+    let errs = diagnostics_with_std(&[], &[("main.sv", program)]);
+    assert!(errs.iter().any(|d| d.id == Some("mod-use:module-level")), "{errs:?}");
 }
 
 /// [runtime-layers] The runtime's core may not import one of its services,
@@ -316,6 +316,6 @@ fn the_runtime_core_does_not_import_its_services() {
     let errs = diags_with_std(&[("runtime.sv", core_ok), ("runtime/timers.sv", service)], &[]);
     assert!(errs.is_empty(), "{errs:?}");
     let core_bad = "import std.runtime.timers.later\n\nexport fn now() [] -> Int {\n    return 1\n}\n";
-    let errs = diags_with_std(&[("runtime.sv", core_bad), ("runtime/timers.sv", service)], &[]);
-    assert!(errs.iter().any(|m| m.contains("[runtime-layers]")), "{errs:?}");
+    let errs = diagnostics_with_std(&[("runtime.sv", core_bad), ("runtime/timers.sv", service)], &[]);
+    assert!(errs.iter().any(|d| d.id == Some("runtime-layers:core-imports-service")), "{errs:?}");
 }

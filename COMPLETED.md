@@ -144,6 +144,35 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — The checker's diagnostics have ids (TESTS.md T2, step 3b part 3)
+
+**All 543 of check.rs's messages moved into `salvo_syntax::messages`**
+(`// ===== check =====`, by label), in two halves by script — a spec of
+`(line, id, doc, argument names)` per site applied to the source, then every
+new text compared with the old literal less its citations. The checker's
+funnels carry the id through every rewording: `Checker::error`, `error_if`,
+`warn` and `error_unresolved` split a message into id and text, apply the
+operator and `for` wording, the origin prefix, the export and send-member
+notes to the text, and attach the id (`FileDiagnostic::with_id`); the copy
+warnings store it beside the text. Helpers that returned reasons now return
+messages (`choose_by_name`, the key-eligibility checks, `case::module_clashes`).
+Citations also left the text fragments interpolated into messages
+(`Resolution::export_note`'s `[mod-export]` among them). What still cites a
+label in check.rs is panics, not diagnostics.
+
+- Ids are chosen from the cited label, else the rule the site's comments
+  name. Messages with one wording for different forms keep separate ids (the
+  four "expected `X`, found `Y`" sends; the `takes N argument(s)` counts);
+  identical text for the identical reason shares (`op-promote:mixed-classes`,
+  three sites).
+- Tests that matched a dropped citation assert the id where they hold the
+  diagnostic (deduce, actor, alias, compare, elem_distinct, export, platform,
+  prereq, str, eff_handle) or the message's own words (carry, copy_scalar,
+  wire, a Rust codegen test, a CLI run test). A negative `!contains("[label]")`
+  became a negative id check rather than going vacuous.
+- One text keeps ~46 spaces inside "built … with" (`cmp-carry:carried-mismatch`),
+  from an old joined line: for the second wave, with the four from part 2.
+
 ### 2026-10-28 — The core passes' diagnostics have ids (TESTS.md T2, step 3b part 2)
 
 **132 more messages moved into `salvo_syntax::messages`**: expand, comptime,
@@ -160,8 +189,8 @@ fed diagnostics take `IntoMessage` (comptime's `error`); `deduce`'s
 part. Tests that matched a dropped citation assert the id instead, or —
 where only stderr is in hand — the message's own ending (`salvo -v test` for
 the one whose whole expectation was the label). Judgement calls (which rule a
-citation-less message reports) are listed in the sub-agent's report kept with
-TESTS.md's log; one worth knowing: the deadlock reports are
+citation-less message reports) were made from the code's own comments; one
+worth knowing: the deadlock reports are
 `actor-deadlock-cycle:*`, not `waitfor-effect` (that capability is deleted).
 Some texts carry runs of 20–30 spaces from their original source
 (`comptime-name:when-over-derived-name` and three others); kept as they

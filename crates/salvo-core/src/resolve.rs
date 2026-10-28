@@ -342,11 +342,11 @@ impl Resolution<'_> {
         Some(match names.len() {
             1 => format!(
                 ": it is declared in module `{first}` but not exported — write `export` \
-                 in front of that declaration to let it out of its own file [mod-export]"
+                 in front of that declaration to let it out of its own file"
             ),
             n => format!(
                 ": it is declared privately in {n} modules (`{first}` among them) — \
-                 write `export` in front of the declaration you mean [mod-export]"
+                 write `export` in front of the declaration you mean"
             ),
         })
     }

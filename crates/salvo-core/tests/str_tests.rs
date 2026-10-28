@@ -284,10 +284,10 @@ fn interpolating_a_type_with_no_text_form_is_an_error() {
 fn a_union_needs_a_text_form_for_every_arm() {
     let src = "struct Opaque { n: Int }\n\
                fn probe(u: Int | Opaque) -> None => u {\n    let _s = \"${u}\"\n}\n";
-    let msgs = messages(src);
+    let errs = errors(src);
     assert!(
-        msgs.iter().any(|m| m.contains("its arm `Opaque` has no text form") && m.contains("[interp-union]")),
-        "got {msgs:?}"
+        errs.iter().any(|d| d.id == Some("interp-union:arm-no-text") && d.message.contains("its arm `Opaque` has no text form")),
+        "got {errs:?}"
     );
     let ok = "struct Opaque { n: Int }\n\
               fn to_str(o: Opaque) [] -> Str => o { return \"op\" }\n\

@@ -20,6 +20,8 @@
 use std::collections::{HashMap, HashSet};
 
 use salvo_syntax::ast::{self, *};
+use salvo_syntax::diag::IntoMessage;
+use salvo_syntax::messages::{self, Message};
 use salvo_syntax::Span;
 
 use crate::diag::FileDiagnostic;
@@ -2002,18 +2004,11 @@ fn check_std_deductions_total(program: &Program, out: &mut Checked) {
             out.errors.push(FileDiagnostic::error(
                 file_idx,
                 f.name.span,
-                format!(
-                    "exported `fn {}` in a `std = true` tree must declare a deduction \
-                     clause naming every parameter, so its ownership contract does not \
-                     depend on the program that uses it [deduce-std-explicit]: {} \
-                     {} not covered{fix}",
-                    f.name.name,
-                    missing
-                        .iter()
-                        .map(|n| format!("`{n}`"))
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    if missing.len() == 1 { "is" } else { "are" },
+                messages::deduce_std_explicit_uncovered_params(
+                    &f.name.name,
+                    &missing.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", "),
+                    &(if missing.len() == 1 { "is" } else { "are" }),
+                    &fix,
                 ),
             ));
         }
@@ -2586,10 +2581,7 @@ fn check_module_uses(program: &Program, out: &mut Checked) {
             out.errors.push(crate::diag::FileDiagnostic::error(
                 file_idx,
                 u.span,
-                "a `use` belongs in a function body: a module-level binding is the runtime \
-                 module's alone, since anywhere else it would be state every function \
-                 reaches without declaring it [mod-use]"
-                    .to_string(),
+                messages::mod_use_module_level(),
             ));
         }
     }
@@ -2617,11 +2609,7 @@ fn check_runtime_layers(program: &Program, out: &mut Checked) {
                 out.errors.push(crate::diag::FileDiagnostic::error(
                     file_idx,
                     import.span,
-                    format!(
-                        "the runtime's core may not import its service `{}`: services are \
-                         built on the core, which never calls them [runtime-layers]",
-                        path[..3].join(".")
-                    ),
+                    messages::runtime_layers_core_imports_service(&path[..3].join(".")),
                 ));
             }
         }
@@ -2644,13 +2632,7 @@ fn check_intrinsic_is_std_only(program: &Program, out: &mut Checked) {
             out.errors.push(crate::diag::FileDiagnostic::error(
                 file_idx,
                 span,
-                format!(
-                    "`intrinsic {kind} {name}` is the compiler's to declare, not \
-                     yours: every backend lowers intrinsics from a table keyed by \
-                     name, so one declared here has no implementation anywhere. To \
-                     reach the target language, declare an effect for what you need \
-                     and implement it with a `platform handler`"
-                ),
+                messages::platform_intrinsic_std_only_outside_std(&kind, &name),
             ));
         }
     }
@@ -3127,12 +3109,12 @@ struct Checker<'p, 'r> {
     /// [comptime-copy-warn] Warnings raised inside the current fn's copies,
     /// redirected and held until the fn is done, so each is reported once
     /// (`flush_copy_warnings`).
-    copy_warnings: Vec<(Span, String)>,
+    copy_warnings: Vec<(Span, Option<&'static str>, String)>,
     /// [comptime-copy-warn] Per written declaration in an expanded-in-place
     /// fn's copies: how many copies declared it, and how many left it unused
     /// (with the message). Reported only when every copy left it unused.
     copy_decls: HashMap<(u32, u32), usize>,
-    copy_unused: HashMap<(u32, u32), (usize, String)>,
+    copy_unused: HashMap<(u32, u32), (usize, Option<&'static str>, String)>,
     /// [fn-overload-return] Where the value of the next call checked is
     /// going, for choosing among overloads that differ only in their return
     /// type, when that position has no expected type of its own to pass: the
@@ -3615,16 +3597,20 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// An error, reported only when [report] (a check shared by the files of
     /// a module, reported in the one it is written in).
-    fn error_if(&mut self, report: bool, span: Span, msg: impl Into<String>) {
+    fn error_if(&mut self, report: bool, span: Span, msg: impl IntoMessage) {
         if report {
             self.error(span, msg);
         }
     }
 
-    fn error(&mut self, span: Span, msg: impl Into<String>) {
+    /// An error at `span`. [diag-id] However the text is reworded on the way
+    /// (an operator's or a `for`'s wording, a copy's origin), the id is the
+    /// message's.
+    fn error(&mut self, span: Span, msg: impl IntoMessage) {
+        let (id, msg) = msg.into_message();
         let msg: String = match &self.operator_site {
-            Some(site) => site.reword(msg.into()),
-            None => msg.into(),
+            Some(site) => site.reword(msg),
+            None => msg,
         };
         let (span, msg) = match &self.for_site {
             Some(site) => (if site.at == span { site.loc } else { span }, site.reword(msg)),
@@ -3633,7 +3619,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let (span, msg, decl) = self.render_origin(span, msg);
         self.out
             .errors
-            .push(FileDiagnostic::error(self.file_idx, span, msg).in_decl(decl));
+            .push(FileDiagnostic::error(self.file_idx, span, msg).with_id(id).in_decl(decl));
     }
 
     /// [node-origin] [comptime-instantiate] A diagnostic at a node a stamp copied
@@ -3656,19 +3642,20 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Reports without rejecting: the program still compiles, but
     /// something the author wrote is not doing what it looks like
     /// [qual-refn].
-    fn warn(&mut self, span: Span, msg: impl Into<String>) {
+    fn warn(&mut self, span: Span, msg: impl IntoMessage) {
+        let (id, msg) = msg.into_message();
         // [comptime-copy-warn] A warning inside a comptime copy lands where
         // an error there would (it kept the copy's span, past the end of the
         // file, before 2026-10-20), and is held so a warning every copy
         // raises alike is reported once.
         if self.own_stamp.is_some() && span.is_expanded() {
-            let (at, msg, _) = self.render_origin(span, msg.into());
-            self.copy_warnings.push((at, msg));
+            let (at, msg, _) = self.render_origin(span, msg);
+            self.copy_warnings.push((at, id, msg));
             return;
         }
         self.out
             .errors
-            .push(FileDiagnostic::warning(self.file_idx, span, msg));
+            .push(FileDiagnostic::warning(self.file_idx, span, msg).with_id(id));
     }
 
     /// [comptime-copy-warn] Where a span in a copy of an **expanded-in-place**
@@ -3683,21 +3670,22 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// each: an unused local only if no copy used it (as an unused pattern
     /// binder already is), anything else once per written place and text.
     fn flush_copy_warnings(&mut self) {
-        let mut unused: Vec<((u32, u32), (usize, String))> = self.copy_unused.drain().collect();
+        let mut unused: Vec<((u32, u32), (usize, Option<&'static str>, String))> =
+            self.copy_unused.drain().collect();
         unused.sort_by_key(|(k, _)| *k);
-        for ((start, end), (count, msg)) in unused {
+        for ((start, end), (count, id, msg)) in unused {
             let declared = self.copy_decls.get(&(start, end)).copied().unwrap_or(0);
             if count >= declared {
                 self.out
                     .errors
-                    .push(FileDiagnostic::warning(self.file_idx, Span::new(start, end), msg));
+                    .push(FileDiagnostic::warning(self.file_idx, Span::new(start, end), msg).with_id(id));
             }
         }
         self.copy_decls.clear();
         let mut seen: HashSet<(u32, u32, String)> = HashSet::new();
-        for (at, msg) in std::mem::take(&mut self.copy_warnings) {
+        for (at, id, msg) in std::mem::take(&mut self.copy_warnings) {
             if seen.insert((at.start, at.end, msg.clone())) {
-                self.out.errors.push(FileDiagnostic::warning(self.file_idx, at, msg));
+                self.out.errors.push(FileDiagnostic::warning(self.file_idx, at, msg).with_id(id));
             }
         }
     }
@@ -3711,9 +3699,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// is not something the *calling* file can fix by adding an import. This is
     /// the one funnel every unresolved-name diagnostic goes through, which is
     /// why the note is attached here and not at each site.
-    fn error_unresolved(&mut self, span: Span, msg: impl Into<String>, name: &str) {
+    fn error_unresolved(&mut self, span: Span, msg: impl IntoMessage, name: &str) {
         let imports = self.resolution.import_candidates(name);
-        let mut msg: String = msg.into();
+        // [diag-id] The notes below add to the text; the id is the message's.
+        let (id, mut msg) = msg.into_message();
         // The note is about a name that is *nowhere* usable here. A name that is
         // in scope under another kind — a qualifier written where a type belongs
         // — has a different problem, and telling it about exports would send the
@@ -3739,7 +3728,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let (span, msg, decl) = self.render_origin(span, msg);
         self.out
             .errors
-            .push(FileDiagnostic::error(self.file_idx, span, msg).with_imports(imports).in_decl(decl));
+            .push(FileDiagnostic::error(self.file_idx, span, msg).with_id(id).with_imports(imports).in_decl(decl));
     }
 
     // ================= module / function traversal =================
@@ -3915,12 +3904,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.validate_type(t);
                 }
                 if field.canbe_mut {
-                    self.error(
-                        field.span,
-                        "`canbe Mut` is for a struct's fields [struct-field-canbe-mut]; a \
-                         handler's state is mutable already, so write `Mut` or nothing"
-                            .to_string(),
-                    );
+                    self.error(field.span, messages::struct_field_canbe_mut_handler_state());
                 }
                 self.check_proj_field(&h.name.name, field);
                 self.check_linear_field(&h.name.name, field);
@@ -3970,23 +3954,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         // name would collide with its message variant.
         if let (true, Some(init)) = (iface, &h.init) {
             if mixed {
-                self.error(
-                    init.name.span,
-                    format!(
-                        "handler `{}` is mixed [actor-mixed-handler], and a mixed handler \
-                         has no `init` block yet: start it with a send member instead",
-                        h.name.name
-                    ),
-                );
+                self.error(init.name.span, messages::actor_mixed_handler_init_block(&h.name.name));
             }
             if let Some(clash) = h.fns.iter().find(|f| f.name.name == init.name.name) {
                 self.error(
                     clash.name.span,
-                    format!(
-                        "handler `{}` has an `init` block, so it cannot also declare a \
-                         member named `init`: the block is that member",
-                        h.name.name
-                    ),
+                    messages::handler_init_member_named_init(&h.name.name),
                 );
             }
         }
@@ -4128,12 +4101,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // lower where a bare `copy` of `T` it cannot [kt-copy].
         for p in &h.params {
             if p.implicit && !matches!(p.ty, ast::Type::Fn { .. }) {
-                self.error(
-                    p.span,
-                    "an implicit parameter must have a function type: what \
-                     fills it is resolved as a function of that name"
-                        .to_string(),
-                );
+                self.error(p.span, messages::implicit_param_handler_not_fn_type());
             }
         }
         let of_tys: Vec<Ty> =
@@ -4145,11 +4113,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if of_tys[..i].contains(ty) {
                 self.error(
                     written.span(),
-                    format!(
-                        "handler `{}` already implements `{ty}`: a handler \
-                         wears each face once",
-                        h.name.name
-                    ),
+                    messages::effect_handler_multi_face_twice(&h.name.name, &ty),
                 );
             }
         }
@@ -4182,12 +4146,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     };
                     self.error(
                         written.span(),
-                        format!(
-                            "handler `{}` implements effects of two kinds — \
-                             {async_kind} is an `actor effect` and {sync_kind} \
-                             is not: a handler is bound one way or the other \
-                             (`spawn` or `use`), so its faces must agree",
-                            h.name.name
+                        messages::actor_mixed_handler_two_kinds(
+                            &h.name.name,
+                            &async_kind,
+                            &sync_kind,
                         ),
                     );
                 }
@@ -4206,13 +4168,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             self.error(
                 h.of[1].span(),
-                format!(
-                    "`{kind} handler {}` implements several effects: its \
-                     members are implemented outside Salvo, where one class \
-                     implements one generated interface — declare one \
-                     handler per effect",
-                    h.name.name
-                ),
+                messages::effect_handler_multi_bodyless_faces(&kind, &h.name.name),
             );
         }
         // [throw] There is no handler for throwing: the
@@ -4223,13 +4179,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 of_ty.strip_quals(),
                 Ty::Named { name, .. } if name == THROW_EFFECT
             ) {
-                self.error(
-                    written.span(),
-                    format!(
-                        "`{THROW_EFFECT}` has no handlers: a throw is delimited by a \
-                         `try {{ ... }}` block, not handled"
-                    ),
-                );
+                self.error(written.span(), messages::throw_no_handlers(&THROW_EFFECT));
             }
         }
         for p in &h.params {
@@ -4287,11 +4237,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(p) = h.params.iter().find(|p| p.name.name == field.name.name) {
                 self.error(
                     field.name.span,
-                    format!(
-                        "state field `{}` of handler `{}` has the name of its constructor \
-                         parameter `{}`: a member reads both by bare name, so one must be \
-                         renamed [name-bare]",
-                        field.name.name, h.name.name, p.name.name
+                    messages::name_bare_state_param_clash(
+                        &field.name.name,
+                        &h.name.name,
+                        &p.name.name,
                     ),
                 );
             }
@@ -4308,11 +4257,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(what) = clash {
                     self.error(
                         p.name.span,
-                        format!(
-                            "parameter `{}` of `{}` has the name of handler `{}`'s {what} \
-                             `{}`, which the body reads by bare name: rename the parameter \
-                             [name-bare]",
-                            p.name.name, f.name.name, h.name.name, p.name.name
+                        messages::name_bare_param_clash(
+                            &p.name.name,
+                            &f.name.name,
+                            &h.name.name,
+                            &what,
                         ),
                     );
                 }
@@ -4331,19 +4280,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         match &h.state_name {
             None if is_type(&h.name.name) => self.error(
                 h.name.span,
-                format!(
-                    "handler `{0}`'s state is named `{0}` by default, which is also a type's \
-                     name here: name it explicitly, `state {0}State {{ … }}` [handler-state-name]",
-                    h.name.name
-                ),
+                messages::handler_state_name_default_clash(&h.name.name),
             ),
             Some(n) if is_type(&n.name) || self.scope.handlers.get(n.name.as_str()).is_some_and(|o| !std::ptr::eq(*o, h)) => self.error(
                 n.span,
-                format!(
-                    "handler `{}`'s state `{}` has the name of a declaration already in \
-                     scope: rename the state [handler-state-name]",
-                    h.name.name, n.name
-                ),
+                messages::handler_state_name_declared_clash(&h.name.name, &n.name),
             ),
             _ => {}
         }
@@ -4375,11 +4316,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if ast_mentions_proj(rt) && !self.is_std {
                             self.error(
                                 f.name.span,
-                                format!(
-                                    "`platform fn {}` returns a borrow (`proj`), which host code cannot \
-                                     hand back: return an owned value [platform-check]",
-                                    f.name.name
-                                ),
+                                messages::platform_check_borrowed_return(&f.name.name),
                             );
                         }
                         // Under the fn's own generics: the lowered type is
@@ -4528,13 +4465,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         };
         if plan.walks() {
-            self.warn(
-                span,
-                format!(
-                    "{what} is checked element by element when the host returns it, a cost that \
-                     grows with its size ({ty}) [platform-check]"
-                ),
-            );
+            self.warn(span, messages::platform_check_element_cost(&what, &ty));
         }
         let at = self.key(key);
         self.out.boundary_checks.insert(at, plan);
@@ -4572,12 +4503,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         {
                             self.error(
                                 span,
-                                format!(
-                                    "{what} claims `{}`, whose `qualifies` needs effects or slot values \
-                                     the boundary does not have, so the claim cannot be checked when the \
-                                     host returns it [platform-check]",
-                                    q.name
-                                ),
+                                messages::platform_check_unchecked_claim(&what, &q.name),
                             );
                         }
                         Some(_) => match self.symbols.qualifier_module(decl) {
@@ -4587,12 +4513,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         None if self.own_qualifiers.contains(&q.name) => {} // trusted (D7)
                         None => self.error(
                             span,
-                            format!(
-                                "{what} claims `{}`, a constructive qualifier declared in another \
-                                 module: nothing proves it of a value the host returns — declare the \
-                                 platform declaration in that module, or drop the claim [platform-check]",
-                                q.name
-                            ),
+                            messages::platform_check_foreign_constructive(&what, &q.name),
                         ),
                     }
                 }
@@ -4672,14 +4593,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [platform-check] D10 C2: the host cannot build a container
                 // keyed by a Salvo identity — its own types carry no slot for
                 // the functions — so it is refused rather than trusted.
-                self.error(
-                    span,
-                    format!(
-                        "{what} is `{ty}`, a collection keyed by a Salvo-defined identity, which host \
-                         code cannot build: key it by the canonical identity, or return a `List` \
-                         [platform-check]"
-                    ),
-                );
+                self.error(span, messages::platform_check_custom_key(&what, &ty));
                 None
             }
             Ty::Named { name, args } => match name.as_str() {
@@ -4720,13 +4634,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     let recursed = visiting.pop().is_some_and(|(_, r)| r);
                     if recursed && !fields.is_empty() {
-                        self.error(
-                            span,
-                            format!(
-                                "{what} contains `{name}`, a recursive type with fields the boundary \
-                                 must check, which is not supported yet [platform-check]"
-                            ),
-                        );
+                        self.error(span, messages::platform_check_recursive_type(&what, &name));
                     }
                     (!fields.is_empty()).then(|| C::Struct { name: name.clone(), fields })
                 }
@@ -4770,14 +4678,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if is_subtype(a, b) || is_subtype(b, a) {
                         self.error(
                             fns[j].name.span,
-                            format!(
-                                "`{}` is overloaded on its return type alone, and `{a}` and \
-                                 `{b}` overlap: where `{}` is expected both would fit, so \
-                                 nothing could choose. Give the overloads return types \
-                                 neither of which is a subtype of the other, or different \
-                                 parameters [fn-overload-return]",
-                                fns[j].name.name,
-                                if is_subtype(a, b) { b } else { a }
+                            messages::fn_overload_return_overlap(
+                                &fns[j].name.name,
+                                &a,
+                                &b,
+                                &(if is_subtype(a, b) { b } else { a }),
                             ),
                         );
                         break;
@@ -4860,7 +4765,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                             None
                         };
                         if let Some(why) = why {
-                            self.error(f.name.span, format!("`platform fn {}` {why} [platform-fn]", f.name.name));
+                            self.error(
+                                f.name.span,
+                                messages::platform_fn_not_allowed(&f.name.name, &why),
+                            );
                         }
                     }
                     // [platform-fn] Two platform fns may not overload each
@@ -4874,11 +4782,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if first.is_some_and(|i| i != item_idx) {
                             self.error(
                                 f.name.span,
-                                format!(
-                                    "`platform fn {}` is declared twice: two platform fns may not \
-                                     overload each other — give one another name [platform-fn]",
-                                    f.name.name
-                                ),
+                                messages::platform_fn_overloaded(&f.name.name),
                             );
                         }
                     }
@@ -4894,14 +4798,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if f.body.is_some() {
                             self.error(
                                 f.name.span,
-                                format!(
-                                    "`{}.{}` is a signature, not an \
-                                     implementation: a `fns` group \
-                                     declares what a caller must supply, and \
-                                     the default comes from a matching top- \
-                                     level fn",
-                                    g.name.name, f.name.name
-                                ),
+                                messages::implicit_group_member_body(&g.name.name, &f.name.name),
                             );
                         }
                         let inner = self.enter_generics(&f.generics);
@@ -4960,10 +4857,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // identity slot with a value slot, and the positional
                         // reading of a mixed block is undecided.
                         if !q.fn_slots.is_empty() && !q.value_slots.is_empty() {
-                            self.error(
-                                q.name.span,
-                                "a qualifier declares fn slots or value slots, not both",
-                            );
+                            self.error(q.name.span, messages::qual_depend_mixed_slots());
                         }
                         for v in &q.value_slots {
                             self.validate_type(&v.ty);
@@ -5092,13 +4986,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 self.error(
                     s.name.span,
-                    format!(
-                        "{what} has no discharger: nothing in this file consumes a \
-                         `{0}` — no fn, and no member of an effect declared here \
-                         — so the obligation has no legal death; declare one \
-                         (e.g. `fn close(x: {0}) -> None => !x {{ discard(x) }}`)",
-                        s.name.name
-                    ),
+                    messages::linear_obligation_no_discharger(&what, &s.name.name),
                 );
             }
         }
@@ -5134,14 +5022,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(by) = &entry.by {
                     self.error(
                         ob.span,
-                        format!(
-                            "`by {}` has no body to stamp on an `intrinsic type`: its \
-                             implementation is a hand-written `intrinsic fn`, so declare \
-                             `{}` without `by` and write the `intrinsic fn`(s) it names \
-                             [obligation-by]",
-                            by.text(),
-                            ob.name.name,
-                        ),
+                        messages::obligation_by_intrinsic_type(&by.text(), &ob.name.name),
                     );
                     continue;
                 }
@@ -5153,11 +5034,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             if entry.by.is_some() && !ob.args.iter().all(is_self_ref) {
                 self.error(
                     ob.span,
-                    format!(
-                        "`by` stamps the implementation for the type it is written on, so \
-                         its argument is `self`: write `: {}<self> by {}` [obligation-by]",
-                        ob.name.name,
-                        entry.by.as_ref().map(|b| b.text()).unwrap_or_default()
+                    messages::obligation_by_not_self(
+                        &ob.name.name,
+                        &entry.by.as_ref().map(|b| b.text()).unwrap_or_default(),
                     ),
                 );
                 continue;
@@ -5166,12 +5045,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // unknown-group error would puzzle: linearity is a declaration
             // modifier now.
             if ob.name.name == "Linear" {
-                self.error(
-                    ob.span,
-                    "linearity is declared with the `linear struct` modifier, \
-                     not as an obligation: write `linear struct …` and supply a \
-                     same-file fn that consumes the value",
-                );
+                self.error(ob.span, messages::linear_group_linear_obligation());
                 continue;
             }
             // The same group twice is a mistake, not an emphasis.
@@ -5179,10 +5053,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .any(|p| p.group.name.name == ob.name.name)
             {
-                self.error(
-                    ob.span,
-                    format!("obligation `{}` is declared more than once", ob.name.name),
-                );
+                self.error(ob.span, messages::group_obligation_duplicate(&ob.name.name));
                 continue;
             }
             // [lsp-definition] The group name in an obligation clause
@@ -5209,7 +5080,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let name = ob.name.name.clone();
                 self.error_unresolved(
                     ob.span,
-                    format!("unknown `fns` group `{name}`{hint}"),
+                    messages::group_obligation_unknown_group(&name, &hint),
                     &name,
                 );
                 continue;
@@ -5276,11 +5147,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             if args.len() != group.generics.len() {
                 self.error(
                     ob.span,
-                    format!(
-                        "`{}` takes {} type argument(s), found {}",
-                        group.name.name,
-                        group.generics.len(),
-                        args.len()
+                    messages::group_obligation_type_arg_count(
+                        &group.name.name,
+                        &group.generics.len(),
+                        &args.len(),
                     ),
                 );
                 continue;
@@ -5300,13 +5170,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             {
                 self.error(
                     ob.span,
-                    format!(
-                        "`{}` declares both `: {}` and `: Next`: a type is either a \
-                         source (`{}` mints an iterator from it) or an iterator struct \
-                         (`next` advances it), not both — `for x in {}` would have two \
-                         answers",
-                        name.name, ob.name.name, ob.name.name, name.name
-                    ),
+                    messages::iter_group_source_and_iterator(&name.name, &ob.name.name),
                 );
                 continue;
             }
@@ -5379,19 +5243,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 self.error(
                                     ob.span,
                                     if ob_proj {
-                                        format!(
-                                            "`{}` declares `: {}<self, proj …>`, but its `{}` \
-                                             returns an owned element: write \
-                                             `Emitted (proj(p) T) | Finished`, or drop \
-                                             the `proj` from the obligation",
-                                            name.name, ob.name.name, member.name.name
+                                        messages::iter_yield_proj_owned_element(
+                                            &name.name,
+                                            &ob.name.name,
+                                            &member.name.name,
                                         )
                                     } else {
-                                        format!(
-                                            "`{}`'s `{}` returns a borrowed element \
-                                             (`proj`), so its obligation must say so: \
-                                             `: {}<self, proj T>`",
-                                            name.name, member.name.name, ob.name.name
+                                        messages::iter_yield_proj_undeclared_borrow(
+                                            &name.name,
+                                            &member.name.name,
+                                            &ob.name.name,
                                         )
                                     },
                                 );
@@ -5408,15 +5269,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let shown: Vec<String> = params.iter().map(|p| p.to_string()).collect();
                     self.error(
                         ob.span,
-                        format!(
-                            "`{}` declares `: {}` but no visible `{}` matches \
-                             `fn {}({}) -> {}`",
-                            name.name,
-                            ob.name.name,
-                            member.name.name,
-                            member.name.name,
-                            shown.join(", "),
-                            ret
+                        messages::group_obligation_no_member(
+                            &name.name,
+                            &ob.name.name,
+                            &member.name.name,
+                            &shown.join(", "),
+                            &ret,
                         ),
                     );
                 }
@@ -5451,13 +5309,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 self.error(
                     q.span,
-                    format!(
-                        "`canbe {}` no longer exists: being hashable or orderable is \
-                         *having the function*, so declare it — `: {group}<self> by auto` \
-                         on the type for the structural one, or a `{member}` of your \
-                         own [obligation-by] [fn-attached]",
-                        q.name.name,
-                        member = if q.name.name == "hashed" { "hash" } else { "cmp" }
+                    messages::obligation_by_canbe_hashed(
+                        &q.name.name,
+                        &group,
+                        &(if q.name.name == "hashed" { "hash" } else { "cmp" }),
                     ),
                 );
                 continue;
@@ -5467,22 +5322,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             // that discharges it. The two were spelled alike until R4; now
             // `canbe` means only "may be qualified thus".
             if q.name.name == "linear" {
-                self.error(
-                    q.span,
-                    "linearity is declared as an obligation, not granted with \
-                     `canbe`: write `linear struct` and supply a same-file discharger"
-                        .to_string(),
-                );
+                self.error(q.span, messages::linear_group_canbe_linear());
                 continue;
             }
-            self.error(
-                q.span,
-                format!(
-                    "only `Mut`, `once`, `hashed` and `ordered` can be opted \
-                     into with `canbe` (found `{}`)",
-                    q.name.name
-                ),
-            );
+            self.error(q.span, messages::qual_canbe_optin_unknown(&q.name.name));
         }
     }
 
@@ -5546,12 +5389,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             {
                 self.error(
                     f.name.span,
-                    format!(
-                        "effect `{}` already declares a member named `{}` with these \
-                         parameter types: members overload like functions, so two of \
-                         them must differ in what they take",
-                        e.name.name, f.name.name
-                    ),
+                    messages::effect_member_unique_duplicate(&e.name.name, &f.name.name),
                 );
             }
             seen.push((f.name.name.as_str(), params));
@@ -5587,13 +5425,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if f.is_send && !e.is_actor {
                 self.error(
                     f.name.span,
-                    format!(
-                        "`send fn {}` needs an `actor effect`: a message is \
-                         enqueued on an actor, which a synchronous effect \
-                         never has — declare `actor effect {}` if this \
-                         protocol is meant to be spawned",
-                        f.name.name, e.name.name
-                    ),
+                    messages::actor_send_fn_plain_effect(&f.name.name, &e.name.name),
                 );
             }
             if e.is_actor {
@@ -5630,13 +5462,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.error(
                 d.span,
-                format!(
-                    "member `{}` of `actor effect {}` cannot keep `{}`: a \
-                     message payload crosses to another actor, so it is \
-                     always consumed — write `=> !{}`, or make `{}` a plain \
-                     effect",
-                    f.name.name, e.name.name, name.name, name.name, e.name.name
-                ),
+                messages::actor_sendable_kept_payload(&f.name.name, &e.name.name, &name.name),
             );
         }
         for p in f.params.iter().filter(|p| !p.implicit) {
@@ -5645,13 +5471,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(q) = qualifiers.iter().find(|q| q.name.name == "Mut") {
                     self.error(
                         q.span,
-                        format!(
-                            "member `{}` of `actor effect {}` cannot take a \
-                             `Mut` parameter: mutating a value across a \
-                             actor boundary would share it, and an actor \
-                             owns its state alone",
-                            f.name.name, e.name.name
-                        ),
+                        messages::actor_sendable_mut_payload(&f.name.name, &e.name.name),
                     );
                 }
             }
@@ -5660,11 +5480,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(why) = self.unsendable_reason(&ty) {
                 self.error(
                     p.ty.span(),
-                    format!(
-                        "member `{}` of `actor effect {}` cannot carry \
-                         `{ty}`: {why}, and everything crossing to another \
-                         actor must be sendable",
-                        f.name.name, e.name.name
+                    messages::actor_sendable_unsendable_payload(
+                        &f.name.name,
+                        &e.name.name,
+                        &ty,
+                        &why,
                     ),
                 );
             }
@@ -5674,11 +5494,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(span) = first_proj_span(rt) {
                 self.error(
                     span,
-                    format!(
-                        "member `{}` of `actor effect {}` cannot return {}: it would borrow state the actor owns \
-                         and keeps mutating",
-                        f.name.name, e.name.name,
-                        if first_ref_span(rt) == Some(span) { "a `ref` handle" } else { "a `proj` view" }
+                    messages::actor_sendable_borrowed_return(
+                        &f.name.name,
+                        &e.name.name,
+                        &(if first_ref_span(rt) == Some(span) { "a `ref` handle" } else { "a `proj` view" }),
                     ),
                 );
             }
@@ -5811,14 +5630,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // nothing, so the refusal list could not be checked here either. The
         // first pass refuses it rather than checking it at every mint.
         if let Some(g) = f.generics.first() {
-            self.error(
-                f.name.span,
-                format!(
-                    "`send fn {}` cannot be generic: a mint carries captures and no type \
-                     arguments, so `{}` would have nothing to be chosen by",
-                    f.name.name, g.name
-                ),
-            );
+            self.error(f.name.span, messages::actor_free_send_fn_generic(&f.name.name, &g.name));
         }
         let inner = self.enter_generics(&f.generics);
         for d in f.deductions.iter().flatten() {
@@ -5834,52 +5646,25 @@ impl<'p, 'r> Checker<'p, 'r> {
             if f.params.iter().any(|p| p.name.name == name.name && salvo_syntax::is_copy_scalar_type(&p.ty)) {
                 continue;
             }
-            self.error(
-                d.span,
-                format!(
-                    "`send fn {}` cannot keep `{}`: a scheduled body outlives the frame that \
-                     minted it, so what it is given is always consumed — write `=> !{}`, or \
-                     make `{}` an ordinary `fn`",
-                    f.name.name, name.name, name.name, f.name.name
-                ),
-            );
+            self.error(d.span, messages::actor_free_send_fn_kept_param(&f.name.name, &name.name));
         }
         for p in f.params.iter().filter(|p| !p.implicit) {
             if let ast::Type::Named { qualifiers, .. } = &p.ty {
                 if let Some(q) = qualifiers.iter().find(|q| q.name.name == "Mut") {
-                    self.error(
-                        q.span,
-                        format!(
-                            "`send fn {}` cannot take a `Mut` parameter: mutating a value \
-                             from a scheduled body would share what the minting frame still \
-                             owns",
-                            f.name.name
-                        ),
-                    );
+                    self.error(q.span, messages::actor_free_send_fn_mut_param(&f.name.name));
                 }
             }
             let ty = self.lower_type(&p.ty);
             if let Some(why) = self.unsendable_reason(&ty) {
                 self.error(
                     p.ty.span(),
-                    format!(
-                        "`send fn {}` cannot take `{ty}`: {why}, and everything a scheduled \
-                         body is given crosses a thread boundary",
-                        f.name.name
-                    ),
+                    messages::actor_free_send_fn_unsendable_param(&f.name.name, &ty, &why),
                 );
             }
         }
         if let Some(rt) = &f.return_type {
             if let Some(span) = first_proj_span(rt) {
-                self.error(
-                    span,
-                    format!(
-                        "`send fn {}` cannot return a `proj` view: it would borrow a value \
-                         the minting frame owns",
-                        f.name.name
-                    ),
-                );
+                self.error(span, messages::actor_free_send_fn_borrowed_return(&f.name.name));
             }
         }
         // [task-effects] An ordinary effect is **inherited from the frame that
@@ -5910,15 +5695,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Inherited at the mint.
                 EffectRef::Effect(_) | EffectRef::AnyEffect(_) => continue,
             };
-            self.error(
-                span,
-                format!(
-                    "`send fn {}` cannot declare `{eff}`: {why}. Take an `eff[…]` as a \
-                     capture and send to it — reaching an actor needs no effect declaration \
-                     — or do that work in the function that mints",
-                    f.name.name
-                ),
-            );
+            self.error(span, messages::actor_free_send_fn_effect(&f.name.name, &eff, &why));
         }
         self.generics = inner;
     }
@@ -5928,16 +5705,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         if let Some(ret) = &f.return_type {
-            self.error(
-                ret.span(),
-                format!(
-                    "`send fn {}` cannot declare a return type: sending a member \
-                     enqueues it and answers nothing, so a reply travels as a \
-                     parameter — `send fn {}(…, out: Reply<T>)`, which the sender \
-                     mints with `replyto`",
-                    f.name.name, f.name.name
-                ),
-            );
+            self.error(ret.span(), messages::actor_send_fn_return_type(&f.name.name));
         }
     }
 
@@ -5961,7 +5729,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // type declaration, and the identity a value carries is the host's
         // to keep. A linear handle has no use for one.
         if !t.fn_slots.is_empty() && t.linear {
-            self.error(t.name.span, format!("`linear platform type {name}` declares no slots [platform-slots]"));
+            self.error(t.name.span, messages::platform_slots_no_slots(&name));
         }
         // [platform-iterable] `: Iter<self, It, T>` is the one obligation a
         // platform type may take (checked as any type's is): it names the
@@ -5973,33 +5741,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             .iter()
             .find(|o| o.group.name.name != "Iter" || o.by.is_some())
         {
-            self.error(
-                o.group.span,
-                format!(
-                    "`platform type {name}` cannot take this obligation clause: it has no fields \
-                     to stamp over, and its comparisons are `platform fn`s; `: Iter<self, It, T>`, \
-                     without `by`, is the one it may declare [platform-type]"
-                ),
-            );
+            self.error(o.group.span, messages::platform_type_obligation(&name));
         }
         if t.iterable && !t.obligations.iter().any(|o| o.group.name.name == "Iter") {
-            self.error(
-                t.name.span,
-                format!(
-                    "`iterable platform type {name}` must also declare `: Iter<self, It, T>`: the \
-                     host's loop and Salvo's pass are two ways through one sequence, and the \
-                     clause is what makes them agree on the element type [platform-iterable]"
-                ),
-            );
+            self.error(t.name.span, messages::platform_iterable_no_iter(&name));
         }
         if t.threadsafe && t.linear {
-            self.error(
-                t.name.span,
-                format!(
-                    "`platform type {name}` cannot be both `threadsafe` and `linear`: a linear \
-                     value has one owner, so there is no sharing to make safe [platform-type]"
-                ),
-            );
+            self.error(t.name.span, messages::platform_type_threadsafe_linear(&name));
         }
         // [platform-value-type] A copyable platform type that `canbe Mut` is a
         // *value*: its copy is the host's own copy, never a shared object, so
@@ -6008,13 +5756,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // need the opposite promise, so `threadsafe` refuses it.
         for q in &t.auto_qualifiers {
             if q.name.name == "Mut" && t.threadsafe {
-                self.error(
-                    q.span,
-                    format!(
-                        "`platform type {name}` cannot be both `threadsafe` and `canbe Mut`: a \
-                         value type is copied, never shared [platform-value-type]"
-                    ),
-                );
+                self.error(q.span, messages::platform_value_type_threadsafe_mut(&name));
             }
         }
     }
@@ -6027,41 +5769,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         // a Salvo body is refused, and so is Salvo state — the implementation
         // class owns its fields (user decision 2026-10-01, ABI D8).
         if let Some(f) = h.fns.iter().find(|f| f.body.is_some()) {
-            self.error(
-                f.name.span,
-                format!(
-                    "`platform handler {}` has no body in Salvo: the host implements its members, in \
-                     the module's implementation file under the platform root — or drop `platform` to \
-                     handle the effect here [platform-handler]",
-                    h.name.name
-                ),
-            );
+            self.error(f.name.span, messages::platform_handler_body(&h.name.name));
         }
         if let Some(field) = h.state.first() {
-            self.error(
-                field.name.span,
-                format!(
-                    "`platform handler {}` declares Salvo state, but its implementation class owns \
-                     its fields: keep them there, and pass what they need as the handler's \
-                     parameters [platform-handler]",
-                    h.name.name
-                ),
-            );
+            self.error(field.name.span, messages::platform_handler_state(&h.name.name));
         }
         // Dependencies would have to be supplied *to host code*, which
         // cannot perform a Salvo effect: the host reaches the outside world
         // directly, which is why it is host code.
         if h.effects.as_ref().is_some_and(|e| !e.is_empty()) {
-            self.error(
-                h.name.span,
-                format!(
-                    "`platform handler {}` may not declare effect dependencies: \
-                     its members are host code, which performs no Salvo effect — \
-                     write a Salvo handler that depends on this one's effect if \
-                     you need one in between",
-                    h.name.name
-                ),
-            );
+            self.error(h.name.span, messages::platform_handler_dependencies(&h.name.name));
         }
         // [ref-handle] A `ref` return is a path into the caller's container,
         // which host code has no way to answer (user decision 2026-10-10).
@@ -6075,28 +5792,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let span = h.fns.iter().find(|g| g.name.name == f.name.name).and_then(|g| g.return_type.as_ref()).and_then(first_ref_span).unwrap_or(h.name.span);
                 self.error(
                     span,
-                    format!(
-                        "`platform handler {}` cannot implement `{}`, whose result is a `ref` \
-                         handle: a handle is a path into the caller's container, which host code \
-                         does not answer — return the element's value, or handle the effect in \
-                         Salvo [ref-handle]",
-                        h.name.name, f.name.name
-                    ),
+                    messages::ref_handle_platform_handler(&h.name.name, &f.name.name),
                 );
             }
         }
         // Generic-free: the host writes one concrete class, and there is no instance per type argument to
         // construct at a `use` site [backend-never-wrong].
         if !h.generics.is_empty() {
-            self.error(
-                h.name.span,
-                format!(
-                    "`platform handler {}` may not be generic: the host \
-                     implements one concrete class, and an instance per type \
-                     argument is not expressible on every backend",
-                    h.name.name
-                ),
-            );
+            self.error(h.name.span, messages::platform_handler_generic(&h.name.name));
         }
     }
 
@@ -6115,24 +5818,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // is one, is a `Reply<T>` parameter — so there is no return type to
         // require, and writing one is its own error (`check_send_member`).
         if f.return_type.is_none() && !f.is_send && kind != "effect member" {
-            self.error(
-                f.name.span,
-                format!(
-                    "{kind} `{name}` must declare its return type (write \
-                     `-> None` when it returns no value): with no body to \
-                     infer from, the signature is the whole contract"
-                ),
-            );
+            self.error(f.name.span, messages::decl_body_return_type(&kind, &name));
         }
         if want_effects && f.effects.is_none() {
-            self.error(
-                f.name.span,
-                format!(
-                    "{kind} `{name}` must declare its effect list (write `[]` \
-                     when it is pure): with no body to infer from, the \
-                     signature is the whole contract"
-                ),
-            );
+            self.error(f.name.span, messages::decl_body_effect_list(&kind, &name));
         }
         // The deduction clause: per parameter, in `require_full_clause`
         // [deduce-syntax] — a declaration with nothing to deduce (only Copy
@@ -6239,22 +5928,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// parameter, and a lambda's type has no room for one.
     fn reject_implicits(&mut self, f: &'p FnDecl, what: &str) {
         for p in f.params.iter().filter(|p| p.implicit) {
-            self.error(
-                p.span,
-                format!(
-                    "{what} cannot take implicit parameters: only a fn \
-                     declaration has a call site that resolves them"
-                ),
-            );
+            self.error(p.span, messages::implicit_fn_only_implicit_param(&what));
         }
         for g in &f.implicit_groups {
-            self.error(
-                g.span,
-                format!(
-                    "{what} cannot spread a `fns` group: only a fn \
-                     declaration has a call site that resolves one"
-                ),
-            );
+            self.error(g.span, messages::implicit_fn_only_group_spread(&what));
         }
     }
 
@@ -6298,14 +5975,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [implicit-param] Only a *function* can be resolved by name and
             // type: the name is a fn name, and what fills it is a fn value.
             if !matches!(ty.strip_quals(), Ty::Fn { .. }) && !ty.is_unknown() {
-                self.error(
-                    p.span,
-                    format!(
-                        "an implicit parameter must have a function type, but `{}` is \
-                         `{ty}`: what fills it is resolved as a function of that name",
-                        p.name.name
-                    ),
-                );
+                self.error(p.span, messages::implicit_param_not_fn_type(&p.name.name, &ty));
                 continue;
             }
             out.push(ImplicitParam {
@@ -6327,14 +5997,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         for g in &f.implicit_groups {
             let Some(group) = self.scope.fn_groups.get(g.name.name.as_str()).copied() else {
-                self.error(
-                    g.span,
-                    format!(
-                        "no `fns` group named `{}` is in scope: `?{}` spreads a \
-                         group's members as implicit parameters",
-                        g.name.name, g.name.name
-                    ),
-                );
+                self.error(g.span, messages::implicit_group_unknown_group(&g.name.name));
                 continue;
             };
             // The spread's type arguments bind the group's generics. Written
@@ -6348,11 +6011,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             if args.len() != group.generics.len() {
                 self.error(
                     g.span,
-                    format!(
-                        "`{}` takes {} type argument(s), found {}",
-                        group.name.name,
-                        group.generics.len(),
-                        args.len()
+                    messages::implicit_group_type_arg_count(
+                        &group.name.name,
+                        &group.generics.len(),
+                        &args.len(),
                     ),
                 );
                 continue;
@@ -6595,15 +6257,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // too, since only an implicit is *filled*.
                     let missing = if ia.is_none() { &a.name } else { &b.name };
                     let span = if ia.is_none() { a.span } else { b.span };
-                    self.error(
-                        span,
-                        format!(
-                            "`{missing}` is not an implicit parameter of this \
-                             signature, so it cannot be filled together with \
-                             anything: a `with` entry relates the `?name` positions \
-                             a call fills [implicit-with]"
-                        ),
-                    );
+                    self.error(span, messages::implicit_with_not_implicit(&missing));
                 }
             }
         }
@@ -7042,10 +6696,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.error(
                     arg.span,
-                    format!(
-                        "`{callee}` has no implicit parameter named `{}`",
-                        arg.name.name
-                    ),
+                    messages::implicit_override_no_implicit(&callee, &arg.name.name),
                 );
             }
             return Some(Vec::new());
@@ -7058,12 +6709,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if implicits.iter().filter(|p| p.name == arg.name.name).count() > 1 {
                 self.error(
                     arg.span,
-                    format!(
-                        "`{callee}` has more than one implicit named `{}`, at different types, \
-                         so `{} = …` does not say which it fills; the typed override \
-                         (`{}: (…) -> … = f`) is not built yet [implicit-same-name]",
-                        arg.name.name, arg.name.name, arg.name.name
-                    ),
+                    messages::implicit_same_name_override(&callee, &arg.name.name),
                 );
                 return None;
             }
@@ -7150,10 +6796,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             {
                 self.error(
                     arg.span,
-                    format!(
-                        "`{callee}` has no implicit parameter named `{}`",
-                        arg.name.name
-                    ),
+                    messages::implicit_override_no_implicit(&callee, &arg.name.name),
                 );
             }
         }
@@ -7219,11 +6862,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             self.error(
                 span,
-                format!(
-                    "{} of `{callee}` are filled together, but they come from \
-                     different places here: {}. {remedy} [implicit-with]",
-                    join_and(&all),
-                    shown.join(" and ")
+                messages::implicit_with_different_places(
+                    &join_and(&all),
+                    &callee,
+                    &shown.join(" and "),
+                    &remedy,
                 ),
             );
         }
@@ -7369,15 +7012,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// fit and neither is more specific (R10 D21): the ordinary ambiguity.
     fn own_implicit_tie(&mut self, name: &str, tied: &[Ty], span: Span) {
         let shown: Vec<String> = tied.iter().map(|t| format!("`{t}`")).collect();
-        self.error(
-            span,
-            format!(
-                "`{name}` here could go through more than one implicit of that name ({}): \
-                 the arguments fit each and none is more specific [implicit-same-name] \
-                 [fn-overload-ambiguous]",
-                shown.join(" and ")
-            ),
-        );
+        self.error(span, messages::implicit_same_name_ambiguous(&name, &shown.join(" and ")));
     }
 
     /// [effect-member-overload] [effect-available] The members named `name`
@@ -7517,9 +7152,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 Err(_) => {
                                     self.error(
                                         span,
-                                        format!(
-                                            "`{callee}` needs the `{}` this value was built                                              with — `{id}` — and it does not fit `?{}: {want}`                                              here [cmp-carry]",
-                                            imp.name, imp.name
+                                        messages::cmp_carry_carried_mismatch(
+                                            &callee,
+                                            &imp.name,
+                                            &id,
+                                            &want,
                                         ),
                                     );
                                     return None;
@@ -7543,7 +7180,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     };
                     self.error(
                         arg.span,
-                        format!("`{}` does not fit here: {detail}", imp.name),
+                        messages::implicit_override_does_not_fit(&imp.name, &detail),
                     );
                 }
                 // [cmp-carry] A binder filled by hand publishes what was
@@ -7685,25 +7322,27 @@ impl<'p, 'r> Checker<'p, 'r> {
                             }
                         };
                         self.nested_miss.get_or_insert(miss);
-                        self.error(span, format!("`?{}: {want}` cannot be filled", imp.name));
+                        self.error(
+                            span,
+                            messages::implicit_recursive_nested_unfilled(&imp.name, &want),
+                        );
                         return None;
                     }
                     match why {
                         // Nothing of that name at all: the remedy is the message.
                         ImplicitMiss::Unknown => self.error(
                             span,
-                            format!(
-                                "no `{}` for this call: `{}` needs `?{}: {want}` — {remedy}",
-                                imp.name, callee_name, imp.name
-                            ),
+                            messages::implicit_resolve_none(&imp.name, &callee_name, &want, &remedy),
                         ),
                         // Declared, but it does not fit — say why, since the
                         // printed types may look identical.
                         ImplicitMiss::NearMiss(reason) => self.error(
                             span,
-                            format!(
-                                "no `{}` fits `?{}: {want}` for `{}`: {reason}",
-                                imp.name, imp.name, callee_name
+                            messages::implicit_resolve_no_fit(
+                                &imp.name,
+                                &want,
+                                &callee_name,
+                                &reason,
                             ),
                         ),
                         // [fn-overload-ambiguous] The candidates, and the remedies
@@ -7717,9 +7356,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                             );
                             self.error(
                                 span,
-                                format!(
-                                    "`{}` is ambiguous for `{}` at `?{}: {want}`: {text}",
-                                    imp.name, callee_name, imp.name
+                                messages::fn_overload_ambiguous_implicit(
+                                    &imp.name,
+                                    &callee_name,
+                                    &want,
+                                    &text,
                                 ),
                             )
                         }
@@ -7728,7 +7369,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // and no other candidate stands in.
                         ImplicitMiss::Unfilled(u) => {
                             let text = Self::unfilled_text(&imp.name, &want, &u, true);
-                            self.error(span, format!("`?{}: {want}` for `{}` cannot be completed: {text}", imp.name, callee_name))
+                            self.error(
+                                span,
+                                messages::implicit_recursive_incomplete(
+                                    &imp.name,
+                                    &want,
+                                    &callee_name,
+                                    &text,
+                                ),
+                            )
                         }
                     }
                 }
@@ -8044,7 +7693,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         unfillable.get_or_insert_with(|| {
                             format!(
                                 "the `{name}` from `{}` that fits by type needs `{m}`, which nothing in \
-                                 scope fills [implicit-fit]",
+                                 scope fills",
                                 cand.origin()
                             )
                         });
@@ -8159,7 +7808,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         format!(
             "{} all fit and none is more specific. {pick} one its own name with \
-             `rename fn <new> = {name}(...)` [fn-overload-ambiguous]",
+             `rename fn <new> = {name}(...)`",
             shown.join(", "),
         )
     }
@@ -8209,13 +7858,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 qualify: false,
             }),
             other => {
-                self.error(
-                    other.span(),
-                    "this value has no identity a type can carry: the position's \
-                     claim names the function it was built with, so pass a named \
-                     top-level `fn` (a lambda or a local cannot be named in a type) \
-                     [cmp-carry]",
-                );
+                self.error(other.span(), messages::cmp_carry_no_identity());
                 None
             }
         }
@@ -8251,14 +7894,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // position a `send fn` could fill. (A mint is not a value use: it
         // names the target, and the name never becomes a `Ty::Fn`.)
         if entries.iter().all(|e| e.decl.is_send) {
-            self.error(
-                name_span,
-                format!(
-                    "`{name}` is a `send fn`, so it is not a value: it runs by being \
-                     scheduled, and a function value runs by being called. Mint a \
-                     continuation for it instead — `replyto {name}(…)`"
-                ),
-            );
+            self.error(name_span, messages::actor_free_send_fn_not_a_value(&name));
             return Ty::Unknown;
         }
         // `@module` (or `@Type`) first, exactly as in a call.
@@ -8291,10 +7927,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if modules.len() > 1 {
                     self.error(
                         name_span,
-                        format!(
-                            "`@{wanted}` is ambiguous: it is a suffix of {} — write more of the \
-                             path [mod-suffix] [fn-overload-at]",
-                            modules.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(" and ")
+                        messages::fn_overload_at_ambiguous_suffix(
+                            &wanted,
+                            &modules.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(" and "),
                         ),
                     );
                     return Ty::Unknown;
@@ -8308,14 +7943,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(
                     name_span,
                     match sel {
-                        Selector::Module(_) => format!(
-                            "no function named `{name}` is declared in module `{wanted}`"
-                        ),
-                        Selector::Type(_) => format!(
-                            "no `fn {name}@{wanted}` is declared: `@{wanted}` names the \
-                             canonical `{name}` for that type, which is declared in the \
-                             type's own file [fn-attached]"
-                        ),
+                        Selector::Module(_) => messages::fn_overload_at_no_fn_in_module(&name, &wanted),
+                        Selector::Type(_) => messages::fn_attached_no_fn_on_type(&name, &wanted),
                     },
                 );
                 return Ty::Unknown;
@@ -8365,7 +7994,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [implicit-recursive] It fits, and its own implicits cannot be
                 // filled: the chain is the error, as for an implicit.
                 Err((_, reason)) if self.fn_value_fit(entry.key, decl, w).is_ok() => {
-                    self.error(name_span, format!("`{name}` fits `{w}` here, but cannot be completed: {reason}"));
+                    self.error(
+                        name_span,
+                        messages::implicit_recursive_value_incomplete(&name, &w, &reason),
+                    );
                     return Ty::Unknown;
                 }
                 Err(_) => None,
@@ -8394,14 +8026,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if self.ty_own_linear(bound) {
                     self.error(
                         name_span,
-                        format!(
-                            "cannot instantiate generic parameter \
-                             `{}` of `{name}` with linear type \
-                             `{bound}`: `{name}` does not declare \
-                             `<{} canbe linear>`, so it does not \
-                             honor the use obligation",
-                            g.name, g.name
-                        ),
+                        messages::linear_generics_fn_value(&g.name, &name, &bound),
                     );
                     break;
                 }
@@ -8420,7 +8045,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         name: &str,
         pool: &[crate::resolve::FnEntry<'p>],
         expected: Option<&Ty>,
-    ) -> Result<crate::resolve::FnEntry<'p>, String> {
+    ) -> Result<crate::resolve::FnEntry<'p>, Message> {
         if pool.len() == 1 {
             return Ok(pool[0]);
         }
@@ -8428,20 +8053,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mut shown: Vec<String> = pool.iter().map(|e| format!("`{}`", self.fn_value_ty(e.key, e.decl))).collect();
             shown.sort();
             shown.dedup();
-            return Err(format!(
-                "`{name}` is overloaded, so passing it by name is ambiguous: \
-                 {} all fit here. Annotate the position with the fn type you \
-                 mean, or give one overload its own name with \
-                 `rename fn <new> = {name}(...)`",
-                shown.join(", ")
-            ));
+            return Err(messages::fn_value_select_overloaded(&name, &shown.join(", ")));
         };
         match self.select_fn_value(name, pool.iter().copied().map(ValueCand::Fn).collect(), want) {
             Ok((ValueCand::Fn(entry), _)) => Ok(entry),
-            Ok((ValueCand::Member(_), _)) => Err(format!("`{name}` is not a function here")),
-            Err(ImplicitMiss::Ambiguous(cands)) => Err(format!(
-                "`{name}` passed by name is ambiguous at `{want}`: {}",
-                Self::implicit_ambiguity(name, &cands, Some(&format!("`{name}@{{m}}`")))
+            Ok((ValueCand::Member(_), _)) => Err(messages::fn_value_select_member(&name)),
+            Err(ImplicitMiss::Ambiguous(cands)) => Err(messages::fn_value_select_ambiguous(
+                &name,
+                &want,
+                &Self::implicit_ambiguity(name, &cands, Some(&format!("`{name}@{{m}}`"))),
             )),
             Err(_) => {
                 // None of them fits — which is a *mismatch*, not an
@@ -8459,7 +8079,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .collect();
                 shown.sort();
                 shown.dedup();
-                Err(format!("no overload of `{name}` fits `{want}` here: {}", shown.join("; ")))
+                Err(messages::fn_value_select_no_fit(&name, &want, &shown.join("; ")))
             }
         }
     }
@@ -8489,34 +8109,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         // The new name must be free: a rename exists to remove an ambiguity,
         // so adding one to an existing name would defeat it.
         if self.scope.fns.contains_key(new_name) {
-            self.error_if(own,
+            self.error_if(
+                own,
                 decl.name.span,
-                format!(
-                    "`{new_name}` is already a function in scope, so it cannot \
-                     name a renamed overload too: pick a name of its own (a \
-                     rename is not an alias — the overload stops answering to \
-                     `{}`)",
-                    decl.target.name
-                ),
+                messages::fn_rename_name_is_fn(&new_name, &decl.target.name),
             );
             return;
         }
         if self.scope.effect_members.contains_key(new_name) {
-            self.error_if(own,
-                decl.name.span,
-                format!("`{new_name}` is already an effect member in scope"),
-            );
+            self.error_if(own, decl.name.span, messages::fn_rename_name_is_member(&new_name));
             return;
         }
         if let Some(prev) = self.renames.iter().find(|r| r.new_name == new_name) {
             let prev_span = prev.span;
-            self.error_if(own,
+            self.error_if(
+                own,
                 decl.name.span,
-                format!(
-                    "`{new_name}` already names a renamed overload in this scope \
-                     (declared at {}..{})",
-                    prev_span.start, prev_span.end
-                ),
+                messages::fn_rename_name_taken(&new_name, &prev_span.start, &prev_span.end),
             );
             return;
         }
@@ -8542,23 +8151,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     span: decl.span,
                 });
             }
-            Err(shapes) if shapes.is_empty() => self.error_if(own,
+            Err(shapes) if shapes.is_empty() => self.error_if(
+                own,
                 decl.target.span,
-                format!(
-                    "no function `{}` is visible here, so there is nothing to \
-                     rename",
-                    decl.target.name
-                ),
+                messages::fn_rename_no_target(&decl.target.name),
             ),
-            Err(shapes) => self.error_if(own,
+            Err(shapes) => self.error_if(
+                own,
                 decl.target.span,
-                format!(
-                    "this names no `{}` in scope: a rename repeats one overload's \
-                     parameters exactly — same names, same types (type \
-                     parameters match by position). In scope: {}",
-                    decl.target.name,
-                    shapes.join(", ")
-                ),
+                messages::fn_rename_no_overload(&decl.target.name, &shapes.join(", ")),
             ),
         }
     }
@@ -8706,10 +8307,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if modules.len() > 1 {
                     self.error(
                         span,
-                        format!(
-                            "`@{wanted}` is ambiguous: it is a suffix of {} — write more of the \
-                             path [mod-suffix] [fn-overload-at]",
-                            modules.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(" and ")
+                        messages::fn_overload_at_ambiguous_suffix(
+                            &wanted,
+                            &modules.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(" and "),
                         ),
                     );
                     return None;
@@ -8728,22 +8328,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                         modules.dedup();
                         self.error(
                             span,
-                            format!(
-                                "no overload of `{name}({})` is declared in module \
-                                 `{wanted}`; the modules that declare a fitting one are: {}",
-                                shown_args(),
-                                modules.join(", ")
+                            messages::fn_overload_at_no_overload_in_module(
+                                &name,
+                                &shown_args(),
+                                &wanted,
+                                &modules.join(", "),
                             ),
                         );
                     }
                     Selector::Type(_) => self.error(
                         span,
-                        format!(
-                            "no `fn {name}@{wanted}` fits `{name}({})`: `@{wanted}` names \
-                             the canonical `{name}` for that type, declared in the type's \
-                             own file [fn-attached]",
-                            shown_args()
-                        ),
+                        messages::fn_attached_no_fit_on_type(&name, &wanted, &shown_args()),
                     ),
                 }
                 return None;
@@ -8823,12 +8418,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let written = written.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(".");
                 self.warn(
                     span,
-                    format!(
-                        "this `@{written}` is not needed: `{name}({})` resolves to the same \
-                         function without it, and no refinement of it disagrees here \
-                         [fn-overload-at]",
-                        shown_args()
-                    ),
+                    messages::fn_overload_at_not_needed(&written, &name, &shown_args()),
                 );
             }
         }
@@ -8882,14 +8472,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         self.error(
             span,
-            format!(
-                "ambiguous call to `{name}({})`: {} all fit and none is more \
-                 specific — a broader union, a smaller qualifier set and a type \
-                 variable are each less specific, but these differ in ways the \
-                 rule does not rank. {remedy}",
-                shown_args(),
-                shown.join(", ")
-            ),
+            messages::fn_overload_ambiguous_call(&name, &shown_args(), &shown.join(", "), &remedy),
         );
     }
 
@@ -8974,13 +8557,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         self.error(
             span,
-            format!(
-                "`{name}({})` has overloads that differ only in their return type ({}), and \
-                 {why}: annotate where the result goes (`let x: {} = {name}(…)`), or pass it \
-                 where one type is expected [fn-overload-return]",
-                shown_args.join(", "),
-                shown_rets.join(", "),
-                rets.first().map(|r| r.to_string()).unwrap_or_default()
+            messages::fn_overload_return_ambiguous(
+                &name,
+                &shown_args.join(", "),
+                &shown_rets.join(", "),
+                &why,
+                &rets.first().map(|r| r.to_string()).unwrap_or_default(),
             ),
         );
         Err(true)
@@ -9169,11 +8751,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 };
                                 self.error(
                                     a.span(),
-                                    format!(
-                                        "cannot type this lambda: `{name}` is both a member of `{}` and a \
-                                         function, and {why}; write the lambda's parameter types \
-                                         [effect-available]",
-                                        effect.name.name,
+                                    messages::effect_available_lambda_member_or_fn(
+                                        &name,
+                                        &effect.name.name,
+                                        &why,
                                     ),
                                 );
                                 None
@@ -9234,10 +8815,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.error(
                     span,
-                    format!(
-                        "no `{name}` accepts ({}): the candidates are {}",
-                        shown(&arg_tys),
-                        sigs.join(", ")
+                    messages::effect_available_no_candidate(
+                        &name,
+                        &shown(&arg_tys),
+                        &sigs.join(", "),
                     ),
                 );
                 Route::Neither
@@ -9267,17 +8848,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let module = fn_cands[f[fb].0].module;
                         self.error(
                             span,
-                            format!(
-                                "ambiguous call to `{name}`: the member \
-                                 `{}.{name}({})` and the function `{name}({})` \
-                                 both accept ({}), and neither is more specific — \
-                                 write `{name}@{}(…)` for the member or \
-                                 `{name}@{module}(…)` for the function",
-                                effect.name.name,
-                                shown(&m_ranks[mb].patterns),
-                                shown(&f_ranks[fb].patterns),
-                                shown(&arg_tys),
-                                effect.name.name,
+                            messages::effect_available_member_or_fn(
+                                &name,
+                                &effect.name.name,
+                                &shown(&m_ranks[mb].patterns),
+                                &shown(&f_ranks[fb].patterns),
+                                &shown(&arg_tys),
+                                &module,
                             ),
                         );
                         // Recover as the member: that is what the call meant
@@ -9834,18 +9411,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // Str>`) stay legal: there the `Mut` belongs to the element
             // type a view really holds.
             if let Some(mut_ref) = top_level_proj_mut(&p.ty) {
-                self.error(
-                    mut_ref.span,
-                    format!(
-                        "parameter `{}` cannot be written `proj Mut`: a `proj` value \
-                         can only be read, whatever its `Mut` says, so no projection \
-                         could ever be passed here and the body could never mutate it. \
-                         Drop the `Mut` (a `proj` position accepts `proj Mut` \
-                         arguments), or drop the `proj` to mutate an owned value \
-                         in place",
-                        p.name.name
-                    ),
-                );
+                self.error(mut_ref.span, messages::proj_readonly_proj_mut_param(&p.name.name));
             }
         }
         // [implicit-param] [deduce-reapply] [fn-effects] The facts step one
@@ -9884,11 +9450,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let Some(p) = f.params.iter().find(|p| p.name.name == r.subject.name) else {
                     self.error(
                         r.span,
-                        format!(
-                            "a conditional response names `{}`, which is not a \
-                             parameter of `{}` [deduce-conditional]",
-                            r.subject.name, f.name.name
-                        ),
+                        messages::deduce_conditional_not_a_param(&r.subject.name, &f.name.name),
                     );
                     continue;
                 };
@@ -9904,18 +9466,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if moved {
                     self.error(
                         r.span,
-                        format!(
-                            "a conditional response speaks about `{}`, but `{}` moves \
-                             it — a caller knows nothing about a moved value afterwards. \
-                             Keep the parameter (drop its `!{}`) [deduce-conditional]",
-                            r.subject.name, f.name.name, r.subject.name
-                        ),
+                        messages::deduce_conditional_moved(&r.subject.name, &f.name.name),
                     );
                 }
                 if self.qualifier_named(r.qual.name.name.as_str()).is_none() {
                     self.error(
                         r.qual.span,
-                        format!("unknown qualifier `{}` [deduce-conditional]", r.qual.name.name),
+                        messages::deduce_conditional_unknown_qualifier(&r.qual.name.name),
                     );
                 } else {
                     let subj = self.lower_type(&p.ty);
@@ -9923,9 +9480,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if !self.qual_applies(decl, subj.strip_quals()) {
                             self.error(
                                 r.qual.span,
-                                format!(
-                                    "`{}` does not apply to `{}` [deduce-conditional]",
-                                    r.qual.name.name, subj
+                                messages::deduce_conditional_not_applicable(
+                                    &r.qual.name.name,
+                                    &subj,
                                 ),
                             );
                         }
@@ -9944,16 +9501,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             };
             if f.body.is_none() {
-                self.error(
-                    d.span,
-                    "a bodiless declaration cannot promise `preserve`: there is \
-                     nothing to check it against — the qualifier's owner writes a \
-                     `refn` instead [qual-refn]",
-                );
+                self.error(d.span, messages::qual_refn_bodiless_preserve());
                 continue;
             }
             if !f.params.iter().any(|p| p.name.name == name.name) {
-                self.error(d.span, format!("`{}` names no parameter", name.name));
+                self.error(d.span, messages::qual_preserve_not_a_param(&name.name));
                 continue;
             }
             let mut names: Vec<String> = Vec::new();
@@ -9964,15 +9516,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .get(q.name.name.as_str())
                     .is_some_and(|ds| ds.iter().any(|d| !d.value_slots.is_empty()));
                 if !dependent {
-                    self.error(
-                        q.span,
-                        format!(
-                            "`{}` is not a dependent qualifier [qual-depend]: \
-                             `preserve` speaks about claims other values hold, \
-                             which only a qualifier with value slots can be",
-                            q.name.name
-                        ),
-                    );
+                    self.error(q.span, messages::qual_depend_preserve_not_dependent(&q.name.name));
                     continue;
                 }
                 names.push(q.name.name.clone());
@@ -10017,11 +9561,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         for src in sources.iter().filter(|s| moved.contains(&s.name)) {
                             self.error(
                                 src.span,
-                                format!(
-                                    "`{}` cannot be both consumed (`!{}`) and projected by the \
-                                     result: a borrow needs the caller to keep the value",
-                                    src.name, src.name
-                                ),
+                                messages::proj_infer_consumed_and_projected(&src.name),
                             );
                         }
                     }
@@ -10046,22 +9586,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let is_held = held.contains(&r.span);
                 if is_held {
                     if let Some(from) = r.from.first() {
-                        self.error(
-                            from.span,
-                            "a `proj` element names no source: the container holds the \
-                             borrow, and which parameter it is of is inferred from the \
-                             body — or written after the type, `T holds proj(p)`"
-                                .to_string(),
-                        );
+                        self.error(from.span, messages::proj_infer_element_no_source());
                     }
                     continue;
                 }
                 if r.from.is_empty() {
-                    self.error(
-                        r.span,
-                        "`proj` in a return type must name its source: `proj(param)`"
-                            .to_string(),
-                    );
+                    self.error(r.span, messages::proj_infer_return_no_source());
                 }
                 for from in &r.from {
                     let is_param = f.params.iter().any(|p| p.name.name == from.name)
@@ -10069,10 +9599,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if !is_param {
                         self.error(
                             from.span,
-                            format!(
-                                "`{}({})` names no parameter of this function",
-                                r.name.name, from.name
-                            ),
+                            messages::proj_infer_not_a_param(&r.name.name, &from.name),
                         );
                     }
                 }
@@ -10091,14 +9618,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         && (f.params.iter().any(|q| q.name.name == from.name)
                             || extra_params.iter().any(|q| q.name.name == from.name));
                     if !ok {
-                        self.error(
-                            from.span,
-                            format!(
-                                "`ref({})` names no other parameter of this function: a handle \
-                                 parameter names the container parameter it is a position in [ref-anchor]",
-                                from.name
-                            ),
-                        );
+                        self.error(from.span, messages::ref_anchor_not_a_param(&from.name));
                     }
                 }
             }
@@ -10121,15 +9641,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .is_some_and(|d| d.kept),
                 };
                 if !kept {
-                    self.error(
-                        id.span,
-                        format!(
-                            "`proj({})` requires `{}` to be kept: a \
-                             moved parameter is owned by this function, so its \
-                             data is returned by ordinary moves",
-                            id.name, id.name
-                        ),
-                    );
+                    self.error(id.span, messages::proj_infer_moved_source(&id.name));
                 }
             }
         }
@@ -10145,14 +9657,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .collect();
         for (_, q) in &f.generic_canbe {
             if q.name.name != "linear" {
-                self.error(
-                    q.span,
-                    format!(
-                        "only `linear` is supported in a type-parameter `with` \
-                         clause (found `{}`)",
-                        q.name.name
-                    ),
-                );
+                self.error(q.span, messages::linear_generics_with_clause(&q.name.name));
             }
         }
         // [actor-spawn-effect] A handler member inherits its handler's
@@ -10177,14 +9682,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 })
                 .next()
             {
-                self.error(
-                    span,
-                    format!(
-                        "`main` cannot declare `{THROW_EFFECT}`: there is no caller to \
-                         receive the throw — delimit it inside `main` with a \
-                         `try {{ ... }}` block instead"
-                    ),
-                );
+                self.error(span, messages::throw_not_main_declared(&THROW_EFFECT));
             }
         }
         // [effect-handler-deps] A handler member body may use the effects
@@ -10223,14 +9721,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let mut strip: HashSet<String> = HashSet::new();
                 for (name, span) in &established {
                     if !self.own_qualifiers.contains(name.as_str()) {
-                        self.error(
-                            *span,
-                            format!(
-                                "`+{name}` is trusted, so it is allowed only in the \
-                                 file that declares `{name}` — exactly like a \
-                                 constructor [deduce-reapply]"
-                            ),
-                        );
+                        self.error(*span, messages::deduce_reapply_other_file(&name));
                     }
                     strip.insert(name.clone());
                 }
@@ -10311,14 +9802,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .unwrap_or(f.name.span);
             self.error(
                 span,
-                format!(
-                    "the deduction list says the result projects {}, but the \
-                     body returns a value that projects {}: every lend the body \
-                     performs must be written (or omit the `proj` entries and \
-                     let them be inferred)",
-                    show(&declared),
-                    show(&inferred)
-                ),
+                messages::proj_infer_lends_disagree(&show(&declared), &show(&inferred)),
             );
         }
     }
@@ -10545,11 +10029,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         {
             self.error(
                 f.name.span,
-                format!(
-                    "missing return: not all paths in `{}` return a value \
-                     (declared return type is `{}`)",
-                    f.name.name, self.ret_ty
-                ),
+                messages::fn_must_return_missing_return(&f.name.name, &self.ret_ty),
             );
         }
         self.effect_env = saved_env;
@@ -10577,15 +10057,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !is_param {
             return false;
         }
-        self.error(
-            span,
-            format!(
-                "cannot {how} parameter `{name}`: a parameter is a constant \
-                 binding. Bind a local instead (`let next = {name} + 1`), or — \
-                 to change what the caller holds — assign a field of it \
-                 (`{name}.field = …`)"
-            ),
-        );
+        self.error(span, messages::fn_param_const_assigned(&how, &name));
         true
     }
 
@@ -10599,7 +10071,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if f.deductions.is_none() {
             return;
         }
-        let mut reports: Vec<(Span, String)> = Vec::new();
+        let mut reports: Vec<(Span, Message)> = Vec::new();
         for p in f.params.iter().filter(|p| !p.implicit) {
             let Some(declared) = Self::declared_mut_paths(f, &p.name.name) else {
                 continue;
@@ -10640,14 +10112,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .collect();
                 reports.push((
                     p.name.span,
-                    format!(
-                        "this function's clause promises it mutates only {} of \
-                         `{}`, but the body mutates {}: widen the entry, or \
-                         write `{}: Mut` for the whole value",
-                        promised.join(", "),
-                        p.name.name,
-                        did,
-                        p.name.name
+                    messages::deduce_field_unpromised_mutation(
+                        &promised.join(", "),
+                        &p.name.name,
+                        &did,
                     ),
                 ));
                 break;
@@ -10780,14 +10248,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for e in self.expand_effect_refs(f.effects.as_deref().unwrap_or(&[]), true) {
             if e.origin == EffectOrigin::Written {
                 if written.contains(&e.ty) {
-                    self.error(
-                        e.span,
-                        format!(
-                            "duplicate effect `{}` in the effect list (two effects \
-                             of the same type must differ in their generic arguments)",
-                            e.ty
-                        ),
-                    );
+                    self.error(e.span, messages::effect_no_dup_duplicate(&e.ty));
                     continue;
                 }
                 written.push(e.ty.clone());
@@ -10847,30 +10308,20 @@ impl<'p, 'r> Checker<'p, 'r> {
             (None, true) if iface => {
                 self.error(
                     h.name.span,
-                    format!(
-                        "`{}` has a mailbox — {} — and has to \
-                         say how deep it is: add `mailbox {{ capacity: 16 }}` (or take \
-                         it as a constructor parameter — `mailbox {{ capacity: \
-                         capacity }}`). There is no default, because a queue bound \
-                         chosen by the compiler is a performance cliff nobody wrote",
-                        h.name.name,
-                        if is_actor {
+                    messages::actor_mailbox_no_capacity(
+                        &h.name.name,
+                        &(if is_actor {
                             "it handles an actor effect"
-                        } else {
+                            } else {
                             "its `send fn` members are delivered through one"
-                        }
+                            }),
                     ),
                 );
             }
             (Some(mailbox), false) if iface => {
                 self.error(
                     mailbox.span(),
-                    format!(
-                        "only a handler with something to enqueue has a mailbox, and \
-                         `{}` has no actor face and no `send fn` member: its members \
-                         run on the caller's thread, so there is no queue to bound",
-                        h.name.name
-                    ),
+                    messages::actor_mailbox_nothing_to_enqueue(&h.name.name),
                 );
             }
             (Some(mailbox), true) if body => {
@@ -10903,10 +10354,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let expected = Ty::named(MAILBOX_TYPE);
                 let got = self.check_expr(mailbox, Some(&expected));
                 if !got.is_unknown() && !is_subtype(&got, &expected) {
-                    self.error(
-                        mailbox.span(),
-                        format!("a `mailbox` slot builds a `{expected}`, found `{got}`"),
-                    );
+                    self.error(mailbox.span(), messages::actor_mailbox_slot_type(&expected, &got));
                 }
                 self.locals.pop();
                 // Consuming a constructor parameter here needs no rule of its
@@ -10925,15 +10373,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             match m {
                 EffectRef::Use(span) | EffectRef::Spawn(span) => self.error(
                     *span,
-                    "an effect alias names effects: `use` and `spawn` are per-function \
-                     capabilities, not effects a group can stand for [effect-alias]",
+                    messages::effect_alias_capability(),
                 ),
-                EffectRef::AnyEffect(r) => self.error(
-                    r.span,
-                    "`any` has no meaning in an effect alias: an alias is a set of \
-                     effects, and `any` is about one instance of one effect — write it \
-                     where the effect is required [effect-alias]",
-                ),
+                EffectRef::AnyEffect(r) => self.error(r.span, messages::effect_alias_any()),
                 EffectRef::Effect(r) => {
                     let mut stack = vec![a.name.name.clone()];
                     let mut sink = Vec::new();
@@ -10953,13 +10395,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let name = e.name.name.as_str();
         if e.is_actor {
-            self.error(
-                e.name.span,
-                format!(
-                    "`actor effect {name}` cannot have prerequisites: a mailbox protocol that \
-                     needs another effect in scope is not supported yet [effect-prereq]"
-                ),
-            );
+            self.error(e.name.span, messages::effect_prereq_actor_effect(&name));
             return;
         }
         let saved = self.enter_generics(&e.generics);
@@ -10967,19 +10403,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         for p in &e.prereqs {
             let r = match p {
                 EffectRef::Use(span) | EffectRef::Spawn(span) => {
-                    self.error(
-                        *span,
-                        "a prerequisite names an effect: `use` and `spawn` are capabilities \
-                         of a function, not something an effect can require [effect-prereq]",
-                    );
+                    self.error(*span, messages::effect_prereq_capability());
                     continue;
                 }
                 EffectRef::AnyEffect(r) => {
-                    self.error(
-                        r.span,
-                        "`any` has no meaning in a prerequisite: the prerequisite is the one \
-                         instance bound around every use of the effect [effect-prereq]",
-                    );
+                    self.error(r.span, messages::effect_prereq_any());
                     continue;
                 }
                 EffectRef::Effect(r) => r,
@@ -10987,10 +10415,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let pname = r.name.name.as_str();
             let scope = self.scope_of(r);
             if !scope.effects.contains_key(pname) && !scope.effect_aliases.contains_key(pname) {
-                self.error(
-                    r.span,
-                    format!("unknown effect `{pname}` in the prerequisites of `{name}` [effect-prereq]"),
-                );
+                self.error(r.span, messages::effect_prereq_unknown(&pname, &name));
                 continue;
             }
             for m in self.expand_effect_refs(std::slice::from_ref(p), false) {
@@ -11000,24 +10425,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 if let Some(t) = target {
                     if t.is_actor {
-                        self.error(
-                            r.span,
-                            format!(
-                                "`{}` is an actor effect, which cannot be a prerequisite yet \
-                                 [effect-prereq]",
-                                t.name.name
-                            ),
-                        );
+                        self.error(r.span, messages::effect_prereq_actor_prereq(&t.name.name));
                     }
                     if e.exported && !t.exported {
                         self.error(
                             r.span,
-                            format!(
-                                "`{name}` is exported but its prerequisite `{0}` is not: every \
-                                 module that names `{name}` needs `{0}` too — export it \
-                                 [effect-prereq]",
-                                t.name.name
-                            ),
+                            messages::effect_prereq_not_exported(&name, &t.name.name),
                         );
                     }
                 }
@@ -11034,9 +10447,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         if self.prereq_cycle(&key, &mut seen, &mut chain) {
             self.error(
                 e.name.span,
-                format!(
-                    "effect prerequisites form a cycle: {} [effect-prereq]",
-                    chain.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(" → ")
+                messages::effect_prereq_cycle(
+                    &chain.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(" → "),
                 ),
             );
         }
@@ -11105,23 +10517,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         let name = r.name.name.as_str();
         if let Some(&(alias, _)) = self.scope_of(r).effect_aliases.get(name) {
             if any {
-                self.error(
-                    r.span,
-                    format!(
-                        "`any {name}` is not allowed: `{name}` is an effect alias (several \
-                         effects), and `any` is about one instance of one effect — write \
-                         `any` on the individual effect [effect-alias]"
-                    ),
-                );
+                self.error(r.span, messages::effect_alias_any_alias(&name));
                 return;
             }
             if stack.iter().any(|s| s == name) {
                 let mut chain = stack.clone();
                 chain.push(name.to_string());
-                self.error(
-                    site,
-                    format!("the effect alias `{}` is cyclic: {} [effect-alias]", chain[0], chain.join(" -> ")),
-                );
+                self.error(site, messages::effect_alias_cycle(&chain[0], &chain.join(" -> ")));
                 return;
             }
             stack.push(name.to_string());
@@ -11208,16 +10610,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         let name = r.name.name.as_str();
         let written_in = self.scope_of(r);
         let Some(effect) = written_in.effects.get(name).copied() else {
-            self.error_unresolved(r.span, format!("unknown effect `{name}`"), name);
+            self.error_unresolved(r.span, messages::name_resolve_unknown_effect(&name), name);
             return None;
         };
         if r.args.len() != effect.generics.len() {
             self.error(
                 r.span,
-                format!(
-                    "effect `{name}` expects {} type argument(s), found {}",
-                    effect.generics.len(),
-                    r.args.len()
+                messages::name_resolve_effect_type_arg_count(
+                    &name,
+                    &effect.generics.len(),
+                    &r.args.len(),
                 ),
             );
         }
@@ -11235,10 +10637,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 EffectRef::Spawn(s) => *s,
                 EffectRef::Effect(r) | EffectRef::AnyEffect(r) => r.span,
             };
-            self.error(
-                span,
-                format!("{what} cannot declare effect dependencies yet"),
-            );
+            self.error(span, messages::effect_member_no_effects_declared(&what));
         }
     }
 
@@ -11258,12 +10657,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             if marked.len() > 1 {
                 self.error(
                     f.name.span,
-                    format!(
-                        "`{}.{}` marks {} parameters `Key`; a member routes on at most one \
-                         [actor-route-stub]",
-                        e.name.name,
-                        f.name.name,
-                        marked.len()
+                    messages::actor_route_stub_several_keys(
+                        &e.name.name,
+                        &f.name.name,
+                        &marked.len(),
                     ),
                 );
             }
@@ -11304,13 +10701,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let Some(effect) = effect else {
             if !ty.is_unknown() {
-                self.error(
-                    group.span(),
-                    format!(
-                        "`use any` binds a group handle — an `eff[ActorGroup<E>]` for a \
-                         non-generic actor effect `E` — and this is `{ty}` [actor-route-stub]"
-                    ),
-                );
+                self.error(group.span(), messages::actor_route_stub_not_a_group(&ty));
             }
             return;
         };
@@ -11324,15 +10715,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if crate::typekey::plain(name) == "RouteSelector" && args.len() == 1 && args[0] == effect)
         });
         let Some(selector) = selector else {
-            self.error(
-                span,
-                format!(
-                    "`use any` routes each send through a `RouteSelector<{shown}>` policy, and \
-                     none is in scope: bind one first — `use Sharded<{shown}>()`, \
-                     `use LeastLoaded<{shown}>(true)`, `use Elected<{shown}>()`, or a handler \
-                     of your own [actor-route-stub]"
-                ),
-            );
+            self.error(span, messages::actor_route_stub_no_selector(&shown));
             return;
         };
         self.out.route_uses.insert(self.key(span), effect_key.clone());
@@ -11370,12 +10753,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // (the instance is the child's), so nothing is left here.
             let ty = self.check_expr(handler, None);
             if matches!(ty, Ty::Tuple(_)) {
-                self.error(
-                    span,
-                    "`use … on POOL` binds one face, and this handler has several: \
-                     spawn it (`let (a, b) = spawn H(...) on POOL`) and `use` each \
-                     face yourself",
-                );
+                self.error(span, messages::actor_use_addr_several_faces());
                 return;
             }
             let Some(effect) = addr_effect(&ty) else {
@@ -11402,12 +10780,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [effect-with-clause] A handle is a finished instance: its
                 // dependencies were supplied where it was built.
                 for item in with_items {
-                    self.error(
-                        item.span(),
-                        "`with` supplies a handler's dependencies at construction, \
-                         and this `use` binds an existing handle — its dependencies \
-                         were settled where it was built: drop the clause",
-                    );
+                    self.error(item.span(), messages::effect_with_clause_on_handle());
                     self.check_expr(item, None);
                 }
                 self.check_use_addr(handler, span);
@@ -11444,17 +10817,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .copied()
             .is_some_and(|h| self.handler_is_mixed(h));
         if !mixed && self.parking_handlers.contains(id.name.as_str()) {
-            self.error(
-                span,
-                format!(
-                    "handler `{}` mints a continuation with `replyto`, or names its own \
-                     address with `self@…`, so it can only be `spawn`ed: bound with `use` \
-                     its members run inline, and there is no mailbox for the answer to \
-                     arrive on and no address to name — write `spawn {}(...) on pool(1)` \
-                     instead",
-                    id.name, id.name
-                ),
-            );
+            self.error(span, messages::actor_replyto_use_bound(&id.name));
         }
         // [actor-mixed-handler] The same reasoning, structural: a mixed handler's
         // sync members send to the servant and wait for its answers, so
@@ -11462,17 +10825,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // mailbox and no dispatcher. Spawn-only, refused where the binding
         // is chosen.
         if mixed {
-            self.error(
-                span,
-                format!(
-                    "handler `{}` is mixed — its state is confined to `send fn` \
-                     members, and its sync members send to that servant — so it can \
-                     only be `spawn`ed: bound with `use` there would be no mailbox \
-                     for the sends to arrive on. Write `let handle = spawn {}(...)` \
-                     and `use handle`",
-                    id.name, id.name
-                ),
-            );
+            self.error(span, messages::actor_mixed_handler_use_bound(&id.name));
         }
         // [actor-deadlock-cycle] A construction inside a handler's member
         // runs the constructed handler's members inline, so "may wait"
@@ -11511,14 +10864,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Some(effect) => Some(effect),
                 None if ty.is_unknown() => None,
                 None => {
-                    self.error(
-                        item.span(),
-                        format!(
-                            "a `with` clause supplies handlers: write a handler \
-                             construction (`SomeHandler(...)`) or an `eff[…]` of \
-                             the effect a shared handler already serves, not a `{ty}`"
-                        ),
-                    );
+                    self.error(item.span(), messages::effect_with_clause_not_a_handler(&ty));
                     None
                 }
             };
@@ -11535,30 +10881,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             let faces: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
             self.error(
                 item.span(),
-                format!(
-                    "handler `{}` implements several effects ({}), so it cannot be \
-                     constructed in a `with` clause: the clause builds one private \
-                     instance per item — bind it with its own `use` (or spawn it) and \
-                     supply an `eff[…]` per face",
-                    id.name,
-                    faces.join(", ")
-                ),
+                messages::effect_with_clause_several_faces(&id.name, &faces.join(", ")),
             );
         }
         // A private instance's *own* dependencies would have to resolve
         // somewhere, and the clause is not a scope: refused where written.
         for dep in &deps {
             let dep = &dep.ty;
-            self.error(
-                item.span(),
-                format!(
-                    "handler `{}` depends on effect `{dep}`, so it cannot be \
-                     constructed in a `with` clause: a clause item is a private \
-                     instance with no scope to resolve its own dependencies — \
-                     register it with `use` before this one instead",
-                    id.name
-                ),
-            );
+            self.error(item.span(), messages::effect_with_clause_has_dependencies(&id.name, &dep));
         }
         Some(effect)
     }
@@ -11594,16 +10924,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     _ => {
                         self.error(
                             span,
-                            format!(
-                                "handler `{}` depends on effect `{want}`, and this \
-                                 scope has several instances it could mean ({}): name \
-                                 the one you want with `with`",
-                                id.name,
-                                compatible
+                            messages::actor_spawn_inherit_ambiguous_dep(
+                                &id.name,
+                                &want,
+                                &compatible
                                     .iter()
                                     .map(|c| c.ty.to_string())
                                     .collect::<Vec<_>>()
-                                    .join(", ")
+                                    .join(", "),
                             ),
                         );
                         return None;
@@ -11612,16 +10940,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         };
         let Some(avail) = found else {
-            self.error(
-                span,
-                format!(
-                    "handler `{}` depends on effect `{want}`, which this spawn does \
-                     not supply and this scope has no handler for: bind one before \
-                     the spawn (it is then inherited), or supply it in the clause \
-                     (`spawn {}(...) with SomeHandler()`)",
-                    id.name, id.name
-                ),
-            );
+            self.error(span, messages::actor_spawn_inherit_missing_dep(&id.name, &want));
             return None;
         };
         Some(avail.ty)
@@ -11648,25 +10967,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return;
             }
             // A tuple that is not all handles is not a thing `use` can bind.
-            self.error(
-                span,
-                format!(
-                    "`use` binds a handler or an effect handle, and `{ty}` is a tuple that \
-                     is not all handles"
-                ),
-            );
+            self.error(span, messages::actor_use_addr_tuple(&ty));
             return;
         }
         let Some(effect) = addr_effect(&ty) else {
             if !ty.is_unknown() {
-                self.error(
-                    span,
-                    format!(
-                        "`use` registers a handler or binds an `eff[…]`, and `{ty}` is \
-                         neither: write a handler construction (`use SomeHandler(...)`), \
-                         or bind the addr a `spawn` answered"
-                    ),
-                );
+                self.error(span, messages::actor_use_addr_not_a_handle(&ty));
             }
             return;
         };
@@ -11721,20 +11027,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Expr::Ident(id) => Some((id, args.as_slice(), type_args.as_slice(), named.as_slice())),
                 _ => {
                     let span = handler.span();
-                    self.error(
-                        span,
-                        format!("`{form}` expects a handler name or constructor call"),
-                    );
+                    self.error(span, messages::handler_not_value_construction(&form));
                     self.check_expr(handler, None);
                     None
                 }
             },
             _ => {
                 let span = handler.span();
-                self.error(
-                    span,
-                    format!("`{form}` expects a handler name or constructor call"),
-                );
+                self.error(span, messages::handler_not_value_construction(&form));
                 self.check_expr(handler, None);
                 None
             }
@@ -11761,7 +11061,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(decl) = self.scope.handlers.get(id.name.as_str()).copied() else {
             self.error_unresolved(
                 id.span,
-                format!("unknown handler `{}` in `{form}`", id.name),
+                messages::name_resolve_unknown_handler(&id.name, &form),
                 &id.name,
             );
             for a in args {
@@ -11802,7 +11102,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !has_implicits {
                     self.error(
                         a.span,
-                        format!("`{}` has no implicit parameter named `{}`", id.name, a.name.name),
+                        messages::implicit_override_no_implicit(&id.name, &a.name.name),
                     );
                     self.check_expr(&a.value, None);
                 }
@@ -11810,25 +11110,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             let p = value_params[i];
             if p.default.is_none() {
-                self.error(
-                    a.span,
-                    format!(
-                        "`{}` has no default, so it cannot be given by name here: \
-                         only a defaulted parameter may be named [fn-param-default]",
-                        a.name.name
-                    ),
-                );
+                self.error(a.span, messages::fn_param_default_named_without_default(&a.name.name));
             }
             let refused = if has_variadic {
-                Some(format!(
-                    "handler `{}` has a variadic constructor parameter, so its arguments \
-                     are given positionally",
-                    id.name
-                ))
+                Some(messages::fn_param_default_variadic_named(&id.name))
             } else if i < args.len() {
-                Some(format!("`{}` is already given positionally", a.name.name))
+                Some(messages::fn_param_default_named_and_positional(&a.name.name))
             } else if by_name[i] {
-                Some(format!("`{}` is given by name twice", a.name.name))
+                Some(messages::fn_param_default_named_twice(&a.name.name))
             } else {
                 None
             };
@@ -11862,26 +11151,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                     )
                 };
                 let msg = if !value_params.iter().any(|p| p.default.is_some()) {
-                    format!(
-                        "handler `{}` expects {} constructor argument(s), found {}{dep_note}",
-                        id.name,
-                        value_params.len(),
-                        args.len()
+                    messages::fn_param_default_handler_arg_count(
+                        &id.name,
+                        &value_params.len(),
+                        &args.len(),
+                        &dep_note,
                     )
                 } else if too_many {
-                    format!(
-                        "handler `{}` takes at most {} constructor argument(s), found {}{dep_note}",
-                        id.name,
-                        value_params.len(),
-                        args.len()
+                    messages::fn_param_default_handler_too_many(
+                        &id.name,
+                        &value_params.len(),
+                        &args.len(),
+                        &dep_note,
                     )
                 } else {
-                    format!(
-                        "handler `{}` is constructed without {}, which ha{} no default \
-                         [fn-param-default]{dep_note}",
-                        id.name,
-                        missing.join(", "),
-                        if missing.len() == 1 { "s" } else { "ve" }
+                    messages::fn_param_default_handler_missing(
+                        &id.name,
+                        &missing.join(", "),
+                        &(if missing.len() == 1 { "s" } else { "ve" }),
+                        &dep_note,
                     )
                 };
                 self.error(span, msg);
@@ -11916,11 +11204,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             if written_type_args.len() != decl.generics.len() {
                 self.error(
                     id.span,
-                    format!(
-                        "handler `{}` takes {} type argument(s), found {}",
-                        id.name,
-                        decl.generics.len(),
-                        written_type_args.len()
+                    messages::effect_handler_generics_type_arg_count(
+                        &id.name,
+                        &decl.generics.len(),
+                        &written_type_args.len(),
                     ),
                 );
             }
@@ -11938,10 +11225,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     Some(written) if !ty.is_unknown() && !is_subtype(&ty, written) => {
                         self.error(
                             span,
-                            format!(
-                                "handler `{}` was used at `{name} = {written}`, but an \
-                                 argument makes it `{ty}`",
-                                id.name
+                            messages::effect_handler_generics_conflict(
+                                &id.name,
+                                &name,
+                                &written,
+                                &ty,
                             ),
                         );
                     }
@@ -11984,11 +11272,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .unwrap_or_else(|| format!("argument {}", i + 1));
                 self.error(
                     arg.span(),
-                    format!(
-                        "handler `{}` declares `{pname}: {sp}`, and this argument is \
-                         `{logical}`",
-                        id.name
-                    ),
+                    messages::effect_handler_generics_arg_mismatch(&id.name, &pname, &sp, &logical),
                 );
             }
         }
@@ -12129,14 +11413,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // wrapping".
                 None if concrete.contains(&want) => self.error(
                     span,
-                    format!(
-                        "handler `{}` intercepts `{want}` — it depends on the effect \
-                         it implements — but no handler for `{want}` is registered \
-                         before this `use`, and the `with` clause does not supply \
-                         one: an intercepting handler wraps the instance already in \
-                         scope, or the one you name with `with`",
-                        id.name
-                    ),
+                    messages::effect_intercept_nothing_to_wrap(&id.name, &want),
                 ),
                 None => {
                     // [effect-prereq] A dependency the handler never wrote is a
@@ -12156,20 +11433,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     match implied_by {
                         Some(face) => self.error(
                             span,
-                            format!(
-                                "handler `{}` implements `{face}`, which needs `{want}` in \
-                                 scope [effect-prereq]: `use` a handler of `{want}` before it",
-                                id.name
-                            ),
+                            messages::effect_prereq_face_needs(&id.name, &face, &want),
                         ),
                         None => self.error(
                             span,
-                            format!(
-                                "handler `{}` depends on effect `{want}`, which has no \
-                                 handler in scope here: register one before it, or supply it \
-                                 with `with {want}Handler(...)`",
-                                id.name
-                            ),
+                            messages::effect_handler_deps_missing(&id.name, &want),
                         ),
                     }
                 }
@@ -12178,14 +11446,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [effect-with-clause] Anything left over was supplied for nothing — worth
         // naming, since the reader believes it is being used.
         for (eff, sp, _) in &supplied {
-            self.error(
-                *sp,
-                format!(
-                    "handler `{}` does not depend on effect `{eff}`, so supplying it \
-                     with `with` has no effect",
-                    id.name
-                ),
-            );
+            self.error(*sp, messages::effect_with_clause_not_a_dep(&id.name, &eff));
         }
         if !resolved_deps.is_empty() {
             self.out.use_deps.insert(self.key(span), resolved_deps);
@@ -12245,13 +11506,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(sibling) = sibling {
             self.error(
                 span,
-                format!(
-                    "`{effect}` cannot be bound while `{}` is: an effect whose arguments are \
-                     effects is one type in the generated code, so one scope holds one \
-                     instance of `{name}` — bind this one in a nested block (`{{ use …; … }}`), \
-                     or after the other has gone out of scope [effect-generic-decl]",
-                    sibling.ty
-                ),
+                messages::effect_generic_decl_sibling_bound(&effect, &sibling.ty, &name),
             );
         }
     }
@@ -12331,12 +11586,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let symbol = op_symbol(op);
         let message = if stripped.is_none_ty() {
-            format!("`None` is not a valid operand of `{symbol}`")
+            messages::op_no_none_none_operand(&symbol)
         } else {
-            format!(
-                "operand of `{symbol}` may be `None` (its type is `{ty}`): narrow \
-                 it first (`is` / `when`) or assert it with `!`"
-            )
+            messages::op_no_none_optional_operand(&symbol, &ty)
         };
         self.error(operand.span(), message);
         true
@@ -12429,9 +11681,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         if self.lookup(&name.name).is_some() || self.shadows_by_written_name(&name.name) {
             self.error(
                 name.span,
-                format!(
-                    "`{}` is already declared (shadowing is not allowed)",
-                    crate::comptime::written_local(&name.name)
+                messages::var_no_shadow_already_declared(
+                    &crate::comptime::written_local(&name.name),
                 ),
             );
         }
@@ -12846,7 +12097,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // stand in when resolution found none).
         if let Err(ImplicitMiss::Ambiguous(cands)) = resolved {
             let text = Self::implicit_ambiguity("to_str", &cands, Some("`${to_str@{m}(…)}`"));
-            self.error(expr.span(), format!("the text form of `{ty}` is ambiguous: {text}"));
+            self.error(expr.span(), messages::interp_to_str_ambiguous(&ty, &text));
             return Some(ArmText::Native);
         }
         None
@@ -12923,15 +12174,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     } else if let Some(form) = self.interp_text_form(expr, arm) {
                         forms.push(form);
                     } else {
-                        self.error(
-                            expr.span(),
-                            format!(
-                                "`{ty}` cannot be interpolated: its arm `{arm}` has no text form. \
-                                 Declare `fn to_str({arm}) -> Str` (or one that accepts it); a \
-                                 union is rendered by the `to_str` of the arm it holds \
-                                 [interp-union]"
-                            ),
-                        );
+                        self.error(expr.span(), messages::interp_union_arm_no_text(&ty, &arm));
                         return;
                     }
                 }
@@ -12951,18 +12194,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         let remedy = match ty.strip_quals() {
             Ty::Named { name, .. } if self.symbols.structs.contains_key(name.as_str()) => format!(
                 " — declare `: ToStr<self> by auto` on `{name}` for the field-wise one, or a \
-                 `to_str` of your own [obligation-by]"
+                 `to_str` of your own"
             ),
             _ => String::new(),
         };
-        self.error(
-            expr.span(),
-            format!(
-                "`{ty}` has no text form, so it cannot be interpolated: \
-                 declare `fn to_str({ty}) -> Str` (or one that accepts it) \
-                 and it will be used here{remedy}"
-            ),
-        );
+        self.error(expr.span(), messages::interp_to_str_no_text(&ty, &remedy));
     }
 
     /// [fate-elem-distinct] The two-mutable-element-handles-in-one-call rule,
@@ -13022,12 +12258,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !into_it {
                 self.error(
                     arg.span(),
-                    concat!(
-                        "this argument must be a handle into the container passed for its ",
-                        "`ref(…)` parameter — the callee reads and writes it at a position ",
-                        "of that container; mint it from that container with `at(…)` [ref-anchor]"
-                    )
-                    .to_string(),
+                    messages::ref_anchor_not_a_handle(),
                 );
             }
         }
@@ -13095,17 +12326,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.out.distinct_pairs.insert(key, (*prev_param, i));
                 } else {
                     let root = &l.root_name;
-                    self.error(
-                        arg.span(),
-                        format!(
-                            "a mutable element handle of `{root}` cannot be \
-                             passed here: an earlier argument of this call is \
-                             already a mutable handle into `{root}`, and the \
-                             two may be the same element; bind both and prove \
-                             them apart first (`b is NotSame(a)`), or mutate \
-                             through one handle at a time"
-                        ),
-                    );
+                    self.error(arg.span(), messages::fate_elem_distinct_two_handles(&root));
                 }
             }
         }
@@ -13324,7 +12545,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let why = if action == "mutate" {
                 " — a read-only projection never satisfies a `Mut` position \
                  (a mutable handle is minted with `at(...)` from a container of `Mut` \
-                 elements, `List<Mut T>` [ref-handle])"
+                 elements, `List<Mut T>`)"
             } else {
                 ""
             };
@@ -13524,15 +12745,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .lookup(name)
             .is_some_and(|v| self.ty_own_linear(&v.declared));
         if is_linear {
-            self.error(
-                span,
-                format!(
-                    "a lambda cannot consume `{name}`: it holds a linear \
-                     value, and the closure would inherit an obligation to \
-                     be called exactly once (not supported yet); pass the \
-                     value explicitly instead"
-                ),
-            );
+            self.error(span, messages::linear_lambda_consume(&name));
             return true;
         }
         // Mark every enclosing lambda `once` (an outer lambda re-creating
@@ -13645,14 +12858,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if scalar {
                 continue;
             }
-            self.error(
-                p.name.span,
-                format!(
-                    "{what} has no body to infer from, so its deduction clause must say \
-                     what happens to `{}`: `=> {}` to keep it, `=> !{}` to consume it",
-                    p.name.name, p.name.name, p.name.name
-                ),
-            );
+            self.error(p.name.span, messages::deduce_syntax_bodiless_clause(&what, &p.name.name));
         }
     }
 
@@ -13726,14 +12932,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 });
             let root = l.root_name.clone();
             if !is_param_root {
-                self.error(
-                    span,
-                    format!(
-                        "cannot return this value: it holds a borrow of `{root}`, a local \
-                         that dies with this call; return a `copy`, or borrow from a \
-                         parameter instead"
-                    ),
-                );
+                self.error(span, messages::proj_infer_local_borrow(&root));
                 continue;
             }
             let lent = self.own_lends.iter().any(|n| n == &root)
@@ -13745,14 +12944,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // A written `[p: proj]` list is checked against the body as a
             // whole (in `check_fn`); the per-return report would repeat it.
             if !lent && !self.own_lends_declared {
-                self.error(
-                    span,
-                    format!(
-                        "cannot return this value: it holds a borrow of `{root}`, which \
-                         this function's signature does not lend; declare it with \
-                         `[{root}: proj]`, or keep `{root}` so the borrow can be inferred"
-                    ),
-                );
+                self.error(span, messages::proj_infer_unlent_borrow(&root));
             }
         }
     }
@@ -13804,14 +12996,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Field { field, .. } => field.name.clone(),
             _ => "this call".to_string(),
         };
-        self.error(
-            value.span(),
-            format!(
-                "cannot {what} a view of a temporary: `{name}` borrows an argument \
-                 that dies at the end of this statement; bind that argument with \
-                 `let` first, so the view has something to borrow from"
-            ),
-        );
+        self.error(value.span(), messages::proj_anywhere_temporary(&what, &name));
     }
 
     /// Validates a returned value against the fn's derived-return
@@ -13845,14 +13030,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             });
         if !ok {
             let shown = sources.join(", ");
-            self.error(
-                value.span(),
-                format!(
-                    "this function returns `proj({shown})`, so every \
-                     returned value must be derived from `{shown}` (a projection, \
-                     element, or alias) or be `None`"
-                ),
-            );
+            self.error(value.span(), messages::proj_readonly_return_not_derived(&shown));
         }
     }
 
@@ -13902,16 +13080,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let Some(t) = self.out.ty_of(self.file_idx, arg.span()).cloned() else { continue };
             if t.is_proj() && !t.is_ref() {
-                self.error(
-                    arg.span(),
-                    format!(
-                        "this argument is a plain projection (`{t}`), and the function \
-                         value mutates it: a mutable element handle is written `ref(c)`, \
-                         not a bare `proj` — `proj Mut` is read-only [ref-handle]. Mint a \
-                         handle with `at(...)` instead of projecting, or pass `copy(...)` \
-                         for a value of your own"
-                    ),
-                );
+                self.error(arg.span(), messages::ref_handle_plain_projection(&t));
             }
         }
         self.apply_call_contract(args, params, contract, span);
@@ -14054,13 +13223,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn consume_kept_lambda_param(&mut self, name: &str, span: Span) -> bool {
         let kept = self.lookup(name).is_some_and(|v| v.lambda_kept);
         if kept {
-            self.error(
-                span,
-                format!(
-                    "cannot consume `{name}`: this lambda's contract keeps it \
-                     (the caller retains the value); use `copy({name})`"
-                ),
-            );
+            self.error(span, messages::fn_contract_consume_kept(&name));
         }
         kept
     }
@@ -14119,14 +13282,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             if (var.is_param && !self.param_owned(&l.root_name)) || var.lambda_kept {
                 let root = l.root_name.clone();
-                self.error(
-                    span,
-                    format!(
-                        "cannot move mutable data out of `{root}`: it is a kept \
-                         parameter (the caller keeps it), so its projections can \
-                         only be read; use `copy` to pass an independent value"
-                    ),
-                );
+                self.error(span, messages::fate_move_mode_kept_mutable(&root));
                 return;
             }
         }
@@ -14235,12 +13391,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// it is instantiated, which is the same place [linear-generics] checks
     /// its own ban. `Unknown` passes for the usual reason
     /// [type-unknown-lenient] — one mistake, one diagnostic.
-    fn key_ineligible(&self, ty: &Ty, canonical: bool) -> Option<String> {
+    fn key_ineligible(&self, ty: &Ty, canonical: bool) -> Option<Message> {
         self.hash_ineligible(ty, 0, canonical).map(|reason| {
-            format!(
-                "`{ty}` cannot be a key: {reason}. A `Set` element and a `Map` \
-                 key have to be hashable"
-            )
+            messages::col_key_eligible_key(&ty, &reason)
         })
     }
 
@@ -14360,14 +13513,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let (lt, rt) = match (op_numeric(&lb), op_numeric(&rb)) {
             (Some((lf, lr)), Some((rf, rr))) => {
                 if lf != rf {
-                    self.error(
-                        span,
-                        format!(
-                            "`{sym}` cannot mix `{lw}` and `{rw}`: integer and \
-                             floating-point operands need an explicit conversion \
-                             (`to_double`, `to_long`, …)"
-                        ),
-                    );
+                    self.error(span, messages::op_promote_mixed_classes(&sym, &lw, &rw));
                     return;
                 }
                 match lr.cmp(&rr) {
@@ -14463,12 +13609,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn operator_implicit_tie(&mut self, sym: &str, member: &str, lt: &Ty, rt: &Ty, tied: usize, shown: &[String], span: Span) {
         self.error(
             span,
-            format!(
-                "`{sym}` on `{lt}` is `{member}({lt}, {rt})`, and this function has {tied} \
-                 of them in scope ({}), and none is more specific: the operator cannot \
-                 choose, so call the one you mean [cmp-binder] [implicit-same-name]",
-                shown.join(", ")
-            ),
+            messages::implicit_same_name_operator(&sym, &lt, &member, &rt, &tied, &shown.join(", ")),
         );
     }
 
@@ -14481,13 +13622,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if got.is_unknown() || matches!(got, Ty::Never) || is_subtype(got, want) {
             return;
         }
-        self.error(
-            span,
-            format!(
-                "`{sym}` on `{lt}` is `{member}({lt}, {rt})`, which must return `{want}`, and the \
-                 `{member}` it resolves to returns `{got}` [op-equality] [op-order]"
-            ),
-        );
+        self.error(span, messages::op_order_return_type(&sym, &lt, &member, &rt, &want, &got));
     }
 
     /// [op-order] [op-equality] The remedy a refused comparison names, which
@@ -14502,17 +13637,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         match base {
             Ty::Var(v) => format!(
                 " — nothing is knowable about `{v}` unless the signature asks: add \
-                 `?{group}<{v}>` (or `?{member}: …`) to this function's parameters \
-                 [implicit-forward]"
+                 `?{group}<{v}>` (or `?{member}: …`) to this function's parameters"
             ),
             Ty::Named { name, .. } if self.symbols.structs.contains_key(name.as_str()) => format!(
                 " — declare a `{member}` inside `{name}`'s body, or ask for the \
-                 structural one with `: …<self> by auto` on `{name}` [obligation-by] \
-                 [fn-attached]"
+                 structural one with `: …<self> by auto` on `{name}`"
             ),
             _ => format!(
                 " — declare a `{member}` for it, or ask for the structural one with \
-                 `: …<self> by auto` where the type is declared [obligation-by]"
+                 `: …<self> by auto` where the type is declared"
             ),
         }
     }
@@ -14574,14 +13707,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let (lt, rt) = match (op_numeric(&lb), op_numeric(&rb)) {
             (Some((lf, lr)), Some((rf, rr))) if !pow => {
                 if lf != rf {
-                    self.error(
-                        span,
-                        format!(
-                            "`{sym}` cannot mix `{lw}` and `{rw}`: integer and \
-                             floating-point operands need an explicit conversion \
-                             (`to_double`, `to_long`, …)"
-                        ),
-                    );
+                    self.error(span, messages::op_promote_mixed_classes(&sym, &lw, &rw));
                     return Ty::Unknown;
                 }
                 match lr.cmp(&rr) {
@@ -14639,21 +13765,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if is(l, "Byte") || is(r, "Byte") {
             return " — a `Byte` is an octet, not a number: compute with `to_int` and come back \
-                    with `to_byte` [type-byte]"
+                    with `to_byte`"
                 .to_string();
         }
         if matches!(op, ast::BinaryOp::Pow) && op_numeric(l.strip_quals()).is_some() {
             return " — std's `pow` takes `(Int, Int)`, `(Long, Int)`, `(Double, Int)` and \
-                    `(Double, Double)`: convert an operand (`to_int`, `to_double`) [op-pow]"
+                    `(Double, Double)`: convert an operand (`to_int`, `to_double`)"
                 .to_string();
         }
         match l.strip_quals() {
             Ty::Var(v) => format!(
                 " — nothing is knowable about `{v}` unless the signature asks: add `?{member}: \
-                 (a: {v}, b: {r}) -> {v}` to this function's parameters [implicit-forward]"
+                 (a: {v}, b: {r}) -> {v}` to this function's parameters"
             ),
             Ty::Named { name, .. } if self.symbols.structs.contains_key(name.as_str()) => format!(
-                " — declare a `{member}` taking `({l}, {r})` in `{name}`'s own file [op-unique-shape]"
+                " — declare a `{member}` taking `({l}, {r})` in `{name}`'s own file"
             ),
             _ => String::new(),
         }
@@ -14690,14 +13816,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         match (op_numeric(lb), op_numeric(rb)) {
             (Some((lf, lr)), Some((rf, rr))) => {
                 if lf != rf {
-                    self.error(
-                        span,
-                        format!(
-                            "`{sym}` cannot mix `{l}` and `{r}`: integer and \
-                             floating-point operands need an explicit conversion \
-                             (`to_double`, `to_long`, …)"
-                        ),
-                    );
+                    self.error(span, messages::op_promote_mixed_classes(&sym, &l, &r));
                     return Ty::Unknown;
                 }
                 match lr.cmp(&rr) {
@@ -14713,13 +13832,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             _ => {
-                self.error(
-                    span,
-                    format!(
-                        "`{sym}` needs numeric operands (`Int`, `Long`, `Float`, \
-                         `Double`); found `{l}` and `{r}`"
-                    ),
-                );
+                self.error(span, messages::op_arith_non_numeric(&sym, &l, &r));
                 Ty::Unknown
             }
         }
@@ -14735,14 +13848,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if matches!(tb, Ty::Named { name, .. } if name == "Bool") {
             return;
         }
-        self.error(
-            operand.span(),
-            format!(
-                "`{sym}` needs `Bool` operands (found `{ty}`): Salvo has no \
-                 truthiness — compare explicitly (`n != 0`) or test the type \
-                 with `is`"
-            ),
-        );
+        self.error(operand.span(), messages::op_bool_not_bool(&sym, &ty));
     }
 
     /// [op-promote] Records a numeric widening on an operand, for the
@@ -14816,7 +13922,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         Some(format!(
                             "`{name}` has no `hash`: declare one (with an `eq`) in its \
                              file, or ask for the structural pair with \
-                             `: Hashed<self> by auto` [obligation-by]"
+                             `: Hashed<self> by auto`"
                         ))
                     }
                 }
@@ -14871,8 +13977,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     } else {
                         Some(format!(
                             "`{name}` has no `cmp`: declare one in its file, or ask for \
-                             the structural one with `: Ordered<self> by auto` \
-                             [obligation-by]"
+                             the structural one with `: Ordered<self> by auto`"
                         ))
                     }
                 }
@@ -14946,10 +14051,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .unwrap_or_else(|| "?".to_string());
                     self.error(
                         written.span(),
-                        format!(
-                            "`{id}` does not fit the `{slot}` slot of `{name}`, which \
-                             needs `{want}`"
-                        ),
+                        messages::cmp_carry_slot_mismatch(&id, &slot, &name, &want),
                     );
                 }
             }
@@ -15017,22 +14119,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [col-sorted-list] The element rule for a `Sorted List<T>` claim.
-    fn sorted_list_elem_ineligible(&self, elem: &Ty) -> Option<String> {
+    fn sorted_list_elem_ineligible(&self, elem: &Ty) -> Option<Message> {
         self.order_ineligible(elem, 0, true).map(|reason| {
-            format!(
-                "`{elem}` cannot be the element of a `Sorted List`: {reason}. \
-                 Sorting compares the elements, so they have to be orderable"
-            )
+            messages::col_sorted_list_element(&elem, &reason)
         })
     }
 
     /// [col-sorted] The key rule for the sorted collections.
-    fn sorted_key_ineligible(&self, ty: &Ty, canonical: bool) -> Option<String> {
+    fn sorted_key_ineligible(&self, ty: &Ty, canonical: bool) -> Option<Message> {
         self.order_ineligible(ty, 0, canonical).map(|reason| {
-            format!(
-                "`{ty}` cannot be a sorted collection's key: {reason}. A \
-                 `SortedSet` element and a `SortedMap` key have to be orderable"
-            )
+            messages::col_sorted_key(&ty, &reason)
         })
     }
 
@@ -15214,17 +14310,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !self.discharge_set(self.symbols.key_or(t, &t.name.name)).is_empty() {
             return;
         }
-        self.error(
-            t.name.span,
-            format!(
-                "linear intrinsic type `{0}` has no discharger: nothing in this \
-                 file consumes a `{0}` — no fn, and no member of an effect \
-                 declared here — so the obligation has no legal death; declare \
-                 one (e.g. `intrinsic fn send<T>(r: {0}<T>, value: T) [] -> None \
-                 => !r`)",
-                t.name.name
-            ),
-        );
+        self.error(t.name.span, messages::linear_opaque_no_discharger(&t.name.name));
     }
 
     /// [linear-group] The discharge context a handler member's body runs in:
@@ -15287,13 +14373,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .collect();
                 self.error(
                     written.span(),
-                    format!(
-                        "handler `{}` does not implement `{}.{}({})`: a handler covers \
-                         every member of every effect it implements",
-                        h.name.name,
-                        effect.name.name,
-                        member.name.name,
-                        params.join(", ")
+                    messages::effect_handler_multi_missing_member(
+                        &h.name.name,
+                        &effect.name.name,
+                        &member.name.name,
+                        &params.join(", "),
                     ),
                 );
             }
@@ -15322,16 +14406,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.error(
                     f.name.span,
-                    format!(
-                        "`{}` implements `{}.{}` and `{}.{}`, whose signatures differ in \
-                         what overloading cannot see — the parameters are the same, so \
-                         one member cannot answer for both: give them different \
-                         parameters, or split the faces across two handlers",
-                        f.name.name,
-                        first.name.name,
-                        first_member.name.name,
-                        other.name.name,
-                        other_member.name.name
+                    messages::effect_handler_multi_member_conflict(
+                        &f.name.name,
+                        &first.name.name,
+                        &first_member.name.name,
+                        &other.name.name,
+                        &other_member.name.name,
                     ),
                 );
             }
@@ -15553,16 +14633,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `position` names where the value would have landed, so the message
     /// reads as a refusal of the *store* rather than of the type.
     fn refuse_linear_composite(&mut self, span: Span, linear: &str, position: String) {
-        self.error(
-            span,
-            format!(
-                "`{linear}` is linear, so it cannot be {position}: nothing here would \
-                 carry its obligation onward. A linear value lives in a local, a \
-                 parameter, a return value, a union arm, a `linear struct`'s field, or \
-                 a container that opts in — a `Mut List<{linear}>` or a \
-                 `Mut Map<K, {linear}>`, whose terminal is `drain` [linear-container]"
-            ),
-        );
+        self.error(span, messages::linear_container_position(&linear, &position));
     }
 
     /// [linear-container] Why a *particular* container position refuses an
@@ -15658,10 +14729,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.refuse_linear_composite(span, &linear, position);
         }
         for (span, linear, reason) in reasoned {
-            self.error(
-                span,
-                format!("`{linear}` is linear, so it cannot go here: {reason}"),
-            );
+            self.error(span, messages::linear_composite_position(&linear, &reason));
         }
     }
 
@@ -15674,36 +14742,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut out: Vec<Ty> = Vec::new();
         for eff in effects.into_iter().flatten() {
             match eff {
-                EffectRef::Use(span) => self.error(
-                    *span,
-                    "a fn type cannot declare `use`: registering a handler \
-                     is local to a body, so a lambda may `use` exactly when \
-                     the function containing it may"
-                        .to_string(),
-                ),
+                EffectRef::Use(span) => self.error(*span, messages::fn_effects_use()),
                 // [actor-spawn-effect] Same reasoning: the capability is a
                 // property of the body that spawns, not of a value's type.
                 EffectRef::Spawn(span) => self.error(
                     *span,
-                    "a fn type cannot declare `spawn`: creating an actor is \
-                     local to a body, so a lambda may spawn exactly when the \
-                     function containing it may"
-                        .to_string(),
+                    messages::actor_spawn_effect_fn_type(),
                 ),
                 // [effect-any] A fn type's requirement is inherited by the
                 // function that takes the value, and a type carries no
                 // strength: the function that calls the value states
                 // `[any E]` itself if any instance will do.
                 EffectRef::AnyEffect(r) => {
-                    self.error(
-                        r.span,
-                        format!(
-                            "a fn type's effects carry no strength — `any {}` is \
-                             refused here: declare `[any {}]` on the function that \
-                             calls the value, which inherits the requirement",
-                            r.name.name, r.name.name
-                        ),
-                    );
+                    self.error(r.span, messages::effect_any_fn_type(&r.name.name));
                     if let Some(ty) = self.lower_effect_ref(r) {
                         if !out.contains(&ty) {
                             out.push(ty);
@@ -15869,14 +14920,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     resolved.push(instance);
                 }
                 None => {
-                    self.error(
-                        span,
-                        format!(
-                            "no handler for effect `{want}` in scope, required by \
-                             this function value (declare it in the function's \
-                             effect list or `use` a handler)"
-                        ),
-                    );
+                    self.error(span, messages::effect_available_fn_value(&want));
                     resolved.push(want.clone());
                 }
             }
@@ -15927,14 +14971,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // Outside every `try`: the enclosing fn must declare it.
             None => {
                 let Some(target) = self.declared_throw_message() else {
-                    self.error(
-                        span,
-                        format!(
-                            "nothing here can receive a throw: wrap the call in a \
-                             `try {{ ... }}` block, or declare `[{THROW_EFFECT}<{message}>]` \
-                             in this function's effect list to pass it on"
-                        ),
-                    );
+                    self.error(span, messages::throw_no_receiver(&THROW_EFFECT, &message));
                     return;
                 };
                 let arm = self.throw_message_arm(span, &message, &target);
@@ -15967,26 +15004,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 None => {
                     if !is_subtype(message, target) {
-                        self.error(
-                            span,
-                            format!(
-                                "this throw carries a `{message}` message, but the \
-                                 throw it lands in carries `{target}`"
-                            ),
-                        );
+                        self.error(span, messages::throw_try_message_mismatch(&message, &target));
                     }
                     return None;
                 }
             }
         }
         if !is_subtype(message, target) {
-            self.error(
-                span,
-                format!(
-                    "this throw carries a `{message}` message, but the throw it \
-                     lands in carries `{target}`"
-                ),
-            );
+            self.error(span, messages::throw_try_message_mismatch(&message, &target));
         }
         None
     }
@@ -16004,13 +15029,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ty
             }
             None => {
-                self.error(
-                    span,
-                    format!(
-                        "`{}` takes the throw message as its only argument",
-                        member.name.name
-                    ),
-                );
+                self.error(span, messages::throw_argument_count(&member.name.name));
                 Ty::Unknown
             }
         };
@@ -16056,14 +15075,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             } else {
                 ""
             };
-            self.error(
-                span,
-                format!(
-                    "`{}@self(…)` names a member of the enclosing handler, so it is \
-                     legal only inside a handler member{detail}",
-                    member.name
-                ),
-            );
+            self.error(span, messages::actor_self_send_outside_member(&member.name, &detail));
             return Ty::Unknown;
         };
         let Some(target) = h.fns.iter().find(|f| f.name.name == member.name) else {
@@ -16072,10 +15084,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.error_unresolved(
                 member.span,
-                format!(
-                    "handler `{}` has no member `{}` to send to",
-                    h.name.name, member.name
-                ),
+                messages::actor_self_send_no_member(&h.name.name, &member.name),
                 &member.name,
             );
             return Ty::Unknown;
@@ -16084,15 +15093,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // ordinary member would have to answer, and a member cannot wait for
         // itself.
         if !target.is_send {
-            self.error(
-                span,
-                format!(
-                    "`{}` is not a `send fn`, so `{}@self(…)` cannot reach it: a \
-                     self-send is a message, and a member that answers would have to \
-                     wait for itself",
-                    member.name, member.name
-                ),
-            );
+            self.error(span, messages::actor_self_send_not_send(&member.name));
         }
         let saved = self.enter_generics(&h.generics);
         let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
@@ -16104,12 +15105,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.error(
                 span,
-                format!(
-                    "`{}` takes {} argument(s), found {}",
-                    member.name,
-                    param_tys.len(),
-                    args.len()
-                ),
+                messages::actor_self_send_arg_count(&member.name, &param_tys.len(), &args.len()),
             );
             return Ty::none();
         }
@@ -16117,7 +15113,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let want = &param_tys[i];
             let got = self.check_expr(a, Some(want));
             if !got.is_unknown() && !is_subtype(&got, want) {
-                self.error(a.span(), format!("expected `{want}`, found `{got}`"));
+                self.error(a.span(), messages::actor_self_send_arg_mismatch(&want, &got));
             }
             let repr = self.repr_of(a, &got);
             self.maybe_coerce(a.span(), &got, &repr, want);
@@ -16229,10 +15225,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             for a in args {
                 self.check_expr(a, None);
             }
-            self.error(
-                span,
-                format!("effect `{effect_name}` is not in scope here"),
-            );
+            self.error(span, messages::actor_use_addr_not_in_scope(&effect_name));
             return Ty::Unknown;
         };
         let members = crate::effect_members_named(effect, &member.name);
@@ -16268,14 +15261,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                         self.error(
                             span,
-                            format!(
-                                "effect `{effect_name}` overloads `{}`, and {} of its \
-                                 overloads take {} argument(s): a send through a \
-                                 `eff[…]` picks by argument count, so this call \
-                                 cannot say which one it means",
-                                member.name,
-                                fits.len(),
-                                args.len()
+                            messages::actor_use_addr_overload_by_count(
+                                &effect_name,
+                                &member.name,
+                                &fits.len(),
+                                &args.len(),
                             ),
                         );
                         return Ty::Unknown;
@@ -16289,11 +15279,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.error_unresolved(
                 member.span,
-                format!(
-                    "actor `{instance}` serves effect `{effect_name}`, which has no \
-                     member named `{}`",
-                    member.name
-                ),
+                messages::actor_use_addr_no_member(&instance, &effect_name, &member.name),
                 &member.name,
             );
             return Ty::Unknown;
@@ -16311,15 +15297,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // named question of whether an ordinary member may be actor-backed
         // at all).
         if !target.is_send {
-            self.error(
-                span,
-                format!(
-                    "`{}` is not a `send fn`, so it cannot be called through a \
-                     `eff[…]`: an actor serves messages, and a member that \
-                     answers would have to park its caller",
-                    member.name
-                ),
-            );
+            self.error(span, messages::actor_use_addr_not_send(&member.name));
         }
         self.record_def_ref(member.span, &member.name);
         let saved = self.enter_generics(&effect.generics);
@@ -16344,12 +15322,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.error(
                 span,
-                format!(
-                    "`{}` takes {} argument(s), found {}",
-                    member.name,
-                    param_tys.len(),
-                    args.len()
-                ),
+                messages::actor_use_addr_arg_count(&member.name, &param_tys.len(), &args.len()),
             );
             return Ty::none();
         }
@@ -16357,10 +15330,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let want = substitute_vars(&param_tys[i], &subst, &generic_set);
             let got = self.check_expr(a, Some(&want));
             if !got.is_unknown() && !is_subtype(&got, &want) {
-                self.error(
-                    a.span(),
-                    format!("expected `{want}`, found `{got}`"),
-                );
+                self.error(a.span(), messages::actor_use_addr_arg_mismatch(&want, &got));
             }
             let repr = self.repr_of(a, &got);
             self.maybe_coerce(a.span(), &got, &repr, &want);
@@ -16426,13 +15396,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let of = match addr_effect(&gty) {
             Some(Ty::Named { name, args }) if name == "ActorGroup" && args.len() == 1 => args[0].clone(),
             _ => {
-                self.error(
-                    group.span(),
-                    format!(
-                        "`in` takes a group handle — an `eff[ActorGroup<E>]` — and this is `{gty}` \
-                         [actor-group]"
-                    ),
-                );
+                self.error(group.span(), messages::actor_group_not_a_group(&gty));
                 return;
             }
         };
@@ -16446,10 +15410,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let names: Vec<String> = faces.iter().map(|f| f.to_string()).collect();
                 self.error(
                     group.span(),
-                    format!(
-                        "this spawn answers no `eff[{of}]` to join the group with: it serves \
-                         {} — `in` needs a group of one of the handler's faces [actor-group]",
-                        if names.is_empty() { "no actor effect".to_string() } else { format!("`{}`", names.join("`, `")) }
+                    messages::actor_group_no_face(
+                        &of,
+                        &(if names.is_empty() { "no actor effect".to_string() } else { format!("`{}`", names.join("`, `")) }),
                     ),
                 );
             }
@@ -16468,10 +15431,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !pool_ty.is_unknown() && !is_subtype(pool_ty.strip_quals(), &Ty::named(POOL_TYPE)) {
                 self.error(
                     pool.span(),
-                    format!(
-                        "a spawn runs on a `{POOL_TYPE}`, found `{pool_ty}`: `on pool(2)` \
-                         builds one"
-                    ),
+                    messages::actor_spawn_expr_pool_type(&POOL_TYPE, &pool_ty),
                 );
             }
             // [waitfor-dedicated] A dedicated thread has exactly one
@@ -16489,13 +15449,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // a missing capability gets its other errors too.
         if !self.can_spawn {
             let msg = if self.in_lambda() {
-                "`spawn` cannot be written inside a lambda: a function value's \
-                 body runs wherever it is called, and a fn type cannot declare \
-                 `spawn` — spawn in the function that holds the capability and \
-                 pass the `eff[…]` handle"
+                messages::actor_spawn_effect_in_lambda()
             } else {
-                "`spawn` requires the `spawn` capability in the function's effect \
-                 list (`[use, spawn]`)"
+                messages::actor_spawn_effect_missing()
             };
             self.error(span, msg);
         }
@@ -16545,16 +15501,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // never from a spawn clause (that clause builds *on the
                 // child*, and a monitor has no child thread to build on).
                 for u in uses {
-                    self.error(
-                        u.span(),
-                        format!(
-                            "`{}` is shared as a monitor, and a monitor's \
-                             dependencies come from the enclosing scope at the \
-                             spawn — not from a `with` clause: bind the dependency \
-                             with `use` before this spawn and drop the clause",
-                            id.name
-                        ),
-                    );
+                    self.error(u.span(), messages::actor_monitor_handler_with_clause(&id.name));
                     self.check_expr(u, None);
                 }
                 if !declared.is_empty() {
@@ -16587,15 +15534,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // retired with it. (A monitor spawn runs on no thread, so this
             // does not apply to it.)
             if pool.is_none() {
-                self.error(
-                    span,
-                    format!(
-                        "`spawn` must name the pool it runs on: write `on pool(n)` \
-                         (or `on POOL` for a pool already built) [actor-spawn-expr]. \
-                         To register `{}` in this scope instead, write `use {}(...)`",
-                        id.name, id.name
-                    ),
-                );
+                self.error(span, messages::actor_spawn_expr_no_pool(&id.name));
             }
         }
         // The clause item's own index travels with the effect it supplies:
@@ -16670,14 +15609,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Anything left over was supplied for nothing — a mistake worth
         // naming, since the reader believes it is being used.
         for (eff, sp, _) in &supplied {
-            self.error(
-                *sp,
-                format!(
-                    "handler `{}` does not depend on effect `{eff}`, so supplying it \
-                     here has no effect",
-                    id.name
-                ),
-            );
+            self.error(*sp, messages::actor_spawn_inherit_not_a_dep(&id.name, &eff));
         }
         if !resolved.is_empty() {
             self.out.spawn_deps.insert(self.key(span), resolved);
@@ -16729,11 +15661,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Some(avail) => resolved_deps.push(avail.ty),
                 None => self.error(
                     span,
-                    format!(
-                        "handler `{}` depends on effect `{want}`, which has no \
-                         handler in scope here: register one before this spawn",
-                        id.name
-                    ),
+                    messages::actor_monitor_handler_missing_dep(&id.name, &want),
                 ),
             }
         }
@@ -16778,26 +15706,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             let faces: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
             self.error(
                 span,
-                format!(
-                    "handler `{}` implements several plain effects ({}), and a shared \
-                     instance behind several faces is not supported yet: split the \
-                     handler, or give it a single face",
-                    id.name,
-                    faces.join(", ")
-                ),
+                messages::actor_monitor_handler_several_faces(&id.name, &faces.join(", ")),
             );
         }
         // A monitor runs on its callers' threads: there is nothing to place.
         if let Some(pool) = pool {
-            self.error(
-                pool.span(),
-                format!(
-                    "`{}` implements a plain effect, so this spawn shares it as a \
-                     monitor — its members run on the callers' threads, and there \
-                     is nothing to place `on` a pool. Remove the `on` clause",
-                    id.name
-                ),
-            );
+            self.error(pool.span(), messages::actor_monitor_handler_on_pool(&id.name));
         }
         // [actor-monitor-handler] [effect-handle] A monitor may declare deps —
         // captured as handles at construction, resolved from the enclosing
@@ -16807,14 +15721,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // A `send fn` member routes the spawn to the mixed path before this
         // check, so reaching one here is an internal inconsistency.
         if let Some(f) = decl.fns.iter().find(|f| f.is_send) {
-            self.error(
-                span,
-                format!(
-                    "internal: monitor spawn of `{}` with send member `{}` — the \
-                     mixed path should have taken it",
-                    id.name, f.name.name
-                ),
-            );
+            self.error(span, messages::actor_monitor_handler_send_member(&id.name, &f.name.name));
         }
         // [actor-sendable] The instance crosses to every thread that binds
         // the handle, so what it holds must be sendable: constructor
@@ -16824,11 +15731,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(why) = self.unshareable_reason(&ty) {
                 self.error(
                     span,
-                    format!(
-                        "`{}` cannot be shared: its constructor parameter `{}` is \
-                         `{ty}` — {why}, and a shared handler's state must be \
-                         sendable",
-                        id.name, p.name.name
+                    messages::actor_monitor_handler_unsendable_param(
+                        &id.name,
+                        &p.name.name,
+                        &ty,
+                        &why,
                     ),
                 );
             }
@@ -16846,10 +15753,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(why) = self.unshareable_reason(&ty) {
                 self.error(
                     span,
-                    format!(
-                        "`{}` cannot be shared: its state field `{}` is `{ty}` — \
-                         {why}, and a shared handler's state must be sendable",
-                        id.name, field.name.name
+                    messages::actor_monitor_handler_unsendable_field(
+                        &id.name,
+                        &field.name.name,
+                        &ty,
+                        &why,
                     ),
                 );
             }
@@ -16896,17 +15804,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         if f.deductions.is_none() && has_params {
             self.error(
                 f.name.span,
-                format!(
-                    "`send fn {}` implements no effect member, so its deduction clause \
-                     must be written out: a scheduled body outlives the frame that \
-                     enqueued it, so every parameter is consumed — `=> {}`",
-                    f.name.name,
-                    f.params
+                messages::actor_mixed_handler_send_clause(
+                    &f.name.name,
+                    &f.params
                         .iter()
                         .filter(|p| !p.implicit && !salvo_syntax::is_copy_scalar_type(&p.ty))
                         .map(|p| format!("!{}", p.name.name))
                         .collect::<Vec<_>>()
-                        .join(", ")
+                        .join(", "),
                 ),
             );
         }
@@ -16923,23 +15828,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             if f.params.iter().any(|p| p.name.name == name.name && salvo_syntax::is_copy_scalar_type(&p.ty)) {
                 continue;
             }
-            self.error(
-                d.span,
-                format!(
-                    "`send fn {}` cannot keep `{}`: a scheduled body outlives the \
-                     frame that enqueued it, so every parameter is consumed (`=> !{}`)",
-                    f.name.name, name.name, name.name
-                ),
-            );
+            self.error(d.span, messages::actor_mixed_handler_kept_param(&f.name.name, &name.name));
         }
         if let Some(g) = f.generics.first() {
             self.error(
                 f.name.span,
-                format!(
-                    "`send fn {}` cannot be generic: a message carries payloads and no \
-                     type arguments, so `{}` would have nothing to be chosen by",
-                    f.name.name, g.name
-                ),
+                messages::actor_mixed_handler_generic_send(&f.name.name, &g.name),
             );
         }
         let inner = self.enter_generics(&f.generics);
@@ -16951,11 +15845,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(q) = qualifiers.iter().find(|q| q.name.name == "Mut") {
                     self.error(
                         q.span,
-                        format!(
-                            "`send fn {}` cannot take `Mut` parameter `{}`: mutating a \
-                             value across a seam would share what the servant owns alone",
-                            f.name.name, p.name.name
-                        ),
+                        messages::actor_mixed_handler_mut_param(&f.name.name, &p.name.name),
                     );
                 }
             }
@@ -16963,11 +15853,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(why) = self.unsendable_reason(&ty) {
                 self.error(
                     p.ty.span(),
-                    format!(
-                        "`send fn {}` cannot carry `{ty}`: {why}, and everything crossing \
-                         to the servant must be sendable",
-                        f.name.name
-                    ),
+                    messages::actor_mixed_handler_unsendable_param(&f.name.name, &ty, &why),
                 );
             }
         }
@@ -16978,14 +15864,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .count()
             > 1
         {
-            self.error(
-                f.name.span,
-                format!(
-                    "`send fn {}` is overloaded, which a servant protocol does not \
-                     support yet: the message dispatch is by member name — rename one",
-                    f.name.name
-                ),
-            );
+            self.error(f.name.span, messages::actor_mixed_handler_overloaded_send(&f.name.name));
         }
     }
 
@@ -17035,15 +15914,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.error(
                 span,
-                format!(
-                    "`{}` is both a `send fn` of this handler and a member of {} \
-                     available here: say which — `{}@self(…)` for a send to this \
-                     handler's servant, or name the effect (`{}@E(…)`)",
-                    id.name,
-                    claimed.join(", "),
-                    id.name,
-                    id.name
-                ),
+                messages::actor_mixed_handler_send_or_member(&id.name, &claimed.join(", ")),
             );
             return Some(Ty::Unknown);
         }
@@ -17056,12 +15927,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.error(
                 span,
-                format!(
-                    "`{}` takes {} argument(s), found {}",
-                    id.name,
-                    param_tys.len(),
-                    args.len()
-                ),
+                messages::actor_mixed_handler_arg_count(&id.name, &param_tys.len(), &args.len()),
             );
             return Some(Ty::none());
         }
@@ -17069,7 +15935,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let want = &param_tys[i];
             let got = self.check_expr(a, Some(want));
             if !got.is_unknown() && !is_subtype(&got, want) {
-                self.error(a.span(), format!("expected `{want}`, found `{got}`"));
+                self.error(a.span(), messages::actor_mixed_handler_arg_mismatch(&want, &got));
             }
             let repr = self.repr_of(a, &got);
             self.maybe_coerce(a.span(), &got, &repr, want);
@@ -17115,15 +15981,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if deferred {
             return;
         }
-        self.error(
-            id.span,
-            format!(
-                "`{name}` is a reply this member received, and {how} lets its \
-                 answer outlive the activation: declare it — `=> defer {name}` — \
-                 which is the handler's opt-in to deferred answers, and what the \
-                 deadlock graph prices [actor-mixed-handler]"
-            ),
-        );
+        self.error(id.span, messages::actor_mixed_handler_undeclared_defer(&name, &how));
     }
 
     /// [actor-mixed-handler] The mixed spawn: `spawn H(args)`, every face plain,
@@ -17140,13 +15998,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let faces: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
             self.error(
                 span,
-                format!(
-                    "handler `{}` implements several plain effects ({}), and a façade \
-                     behind several faces is not supported yet: split the handler, or \
-                     give it a single face",
-                    id.name,
-                    faces.join(", ")
-                ),
+                messages::actor_mixed_handler_several_faces(&id.name, &faces.join(", ")),
             );
         }
         // [actor-sendable] The façade value copies the constructor
@@ -17160,14 +16012,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if qualifiers.iter().any(|q| q.name.name == "Mut") {
                     self.error(
                         span,
-                        format!(
-                            "`{}` cannot be shared: its constructor parameter `{}` is \
-                             `Mut`, and the façade value carries a copy of every \
-                             parameter — a mutable one would go two ways at once. \
-                             Move the mutable state into a field (the servant owns \
-                             it), or pass immutable data",
-                            id.name, p.name.name
-                        ),
+                        messages::actor_mixed_handler_mut_ctor_param(&id.name, &p.name.name),
                     );
                 }
             }
@@ -17175,11 +16020,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(why) = self.unsendable_reason(&ty) {
                 self.error(
                     span,
-                    format!(
-                        "`{}` cannot be shared: its constructor parameter `{}` is \
-                         `{ty}` — {why}, and the façade value carries a copy of it \
-                         to every thread that binds the handle",
-                        id.name, p.name.name
+                    messages::actor_mixed_handler_unsendable_ctor_param(
+                        &id.name,
+                        &p.name.name,
+                        &ty,
+                        &why,
                     ),
                 );
             }
@@ -17219,27 +16064,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let faces: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
                 self.error(
                     item.span(),
-                    format!(
-                        "handler `{}` implements several effects ({}), so it cannot be \
-                         constructed in a spawn's `with` clause: the child would own it, \
-                         and one instance cannot be two of its dependencies — spawn it \
-                         separately and pass an `eff[…]` per face",
-                        id.name,
-                        faces.join(", ")
-                    ),
+                    messages::actor_spawn_expr_with_several_faces(&id.name, &faces.join(", ")),
                 );
             }
             for dep in &deps {
                 let dep = &dep.ty;
                 self.error(
                     item.span(),
-                    format!(
-                        "handler `{}` depends on effect `{dep}`, so it cannot be \
-                         constructed in a spawn's `with` clause: give the child a \
-                         `eff[…]` of an actor serving `{effect}` instead, or \
-                         construct it inside the child with `use`",
-                        id.name
-                    ),
+                    messages::actor_spawn_expr_with_dependencies(&id.name, &dep, &effect),
                 );
             }
             return Some(effect);
@@ -17249,14 +16081,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Some(effect) => Some(effect),
             None if ty.is_unknown() => None,
             None => {
-                self.error(
-                    item.span(),
-                    format!(
-                        "a spawn's `with` clause supplies handlers: write a handler \
-                         construction (`SomeHandler(...)`) or a `eff[…]` of the \
-                         effect an actor already serves, not a `{ty}`"
-                    ),
-                );
+                self.error(item.span(), messages::actor_spawn_expr_with_not_a_handler(&ty));
                 None
             }
         }
@@ -17290,13 +16115,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         if sends.len() > 1 {
             self.error(
                 member.span,
-                format!(
-                    "`{form}` cannot tell which `send fn {}` it means: {} of them are visible \
-                     from {}, and a mint carries only the captures — not enough to choose an \
-                     overload. Rename one, or bring in only the one this scope means",
-                    member.name,
-                    sends.len(),
-                    best.describe()
+                messages::task_mint_ambiguous_send(
+                    &form,
+                    &member.name,
+                    &sends.len(),
+                    &best.describe(),
                 ),
             );
             return None;
@@ -17365,16 +16188,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                         _ => {
                             self.error(
                                 span,
-                                format!(
-                                    "`send fn {}` performs `{want}`, and this scope has \
-                                     several instances the task could inherit ({}): the mint \
-                                     carries one, so bind only the instance this task means",
-                                    target.name.name,
-                                    compatible
+                                messages::task_effects_ambiguous(
+                                    &target.name.name,
+                                    &want,
+                                    &compatible
                                         .iter()
                                         .map(|c| c.ty.to_string())
                                         .collect::<Vec<_>>()
-                                        .join(", ")
+                                        .join(", "),
                                 ),
                             );
                             continue;
@@ -17383,15 +16204,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             };
             let Some(avail) = found else {
-                self.error(
-                    span,
-                    format!(
-                        "`send fn {}` performs `{want}`, which a task inherits from the frame \
-                         that mints it — and this scope has no handler for it. Bind one before \
-                         the mint, or declare `{want}` here so it is supplied from further out",
-                        target.name.name
-                    ),
-                );
+                self.error(span, messages::task_effects_missing(&target.name.name, &want));
                 continue;
             };
             resolved.push(avail.ty.clone());
@@ -17413,15 +16226,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // A gate is a mailbox policy, and a task has no mailbox: there is
         // nothing to hold back while the answer is outstanding.
         if gated {
-            self.error(
-                span,
-                format!(
-                    "`replyto!` gates the minting actor's mailbox until the answer arrives, \
-                     and `{}` is a free `send fn` — a task has no mailbox to gate. Use a bare \
-                     `replyto`",
-                    member.name
-                ),
-            );
+            self.error(span, messages::task_mint_gated_free_send(&member.name));
         }
         // A placement is optional and may be dedicated: `thread()` answers a
         // `Dedicated Pool`, which the clause consumes [waitfor-dedicated] —
@@ -17430,13 +16235,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(p) = pool {
             let pool_ty = self.check_expr(p, Some(&Ty::named(POOL_TYPE)));
             if !pool_ty.is_unknown() && !is_subtype(pool_ty.strip_quals(), &Ty::named(POOL_TYPE)) {
-                self.error(
-                    p.span(),
-                    format!(
-                        "a continuation runs on a `{POOL_TYPE}`, found `{pool_ty}`: `on \
-                         pool(2)` builds one, `on thread()` a dedicated one"
-                    ),
-                );
+                self.error(p.span(), messages::actor_replyto_pool_type(&POOL_TYPE, &pool_ty));
             }
             if pool_ty.quals().iter().any(|q| q.name == DEDICATED_QUALIFIER) {
                 self.fate_move(p, "run on", p.span());
@@ -17449,15 +16248,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.error(
                 span,
-                format!(
-                    "`{}` takes {} parameter(s): the last is the answer the token carries and \
-                     the {} before it are the captures, so `replyto` here wants {} \
-                     capture(s), found {}",
-                    member.name,
-                    params.len(),
-                    params.len().saturating_sub(1),
-                    params.len().saturating_sub(1),
-                    captures.len()
+                messages::actor_replyto_capture_count(
+                    &member.name,
+                    &params.len(),
+                    &params.len().saturating_sub(1),
+                    &captures.len(),
                 ),
             );
             return Ty::Unknown;
@@ -17469,7 +16264,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let want = &param_tys[i];
             let got = self.check_expr(c, Some(want));
             if !got.is_unknown() && !is_subtype(&got, want) {
-                self.error(c.span(), format!("expected `{want}`, found `{got}`"));
+                self.error(c.span(), messages::actor_replyto_capture_mismatch(&want, &got));
             }
             // [actor-sendable] A capture crosses to another thread at the
             // crossing site, exactly as a spawn argument does.
@@ -17477,11 +16272,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(why) = self.unsendable_reason(&got) {
                     self.error(
                         c.span(),
-                        format!(
-                            "a capture of `{}` cannot be `{got}`: {why}, and a task's \
-                             captures cross a thread boundary",
-                            member.name
-                        ),
+                        messages::actor_sendable_capture(&member.name, &got, &why),
                     );
                 }
             }
@@ -17541,15 +16332,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if let Some(p) = pool {
             self.check_expr(p, Some(&Ty::named(POOL_TYPE)));
-            self.error(
-                p.span(),
-                format!(
-                    "`{form}` targeting a member of this handler takes no `on` clause: the \
-                     answer arrives on the actor's own mailbox, which is where the \
-                     continuation belongs. A placement is written where the *actor* is \
-                     spawned, or on a mint whose target is a free `send fn`"
-                ),
-            );
+            self.error(p.span(), messages::actor_replyto_own_member_on(&form));
         }
         let Some(h) = self.own_handler else {
             for c in captures {
@@ -17559,15 +16342,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // `send` yet — a more specific diagnostic than "no handler to
             // mint into" when that's the actual fix.
             if self.free_plain_fn(member).is_some() {
-                self.error(
-                    member.span,
-                    format!(
-                        "`{}` is a plain `fn`, so `{form}` cannot target it: a free \
-                         function minted this way runs as a detached task, which needs \
-                         `send fn {}(...)` instead of `fn {}(...)` [task-mint]",
-                        member.name, member.name, member.name
-                    ),
-                );
+                self.error(member.span, messages::task_mint_plain_fn_target(&member.name, &form));
                 return Ty::Unknown;
             }
             let detail = if self.in_lambda() {
@@ -17576,13 +16351,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             } else {
                 "; `main` gets its token from `waitfor` instead"
             };
-            self.error(
-                span,
-                format!(
-                    "`{form}` mints a continuation into the handler it is written in, \
-                     so it is legal only inside a handler member{detail}"
-                ),
-            );
+            self.error(span, messages::actor_replyto_outside_member(&form, &detail));
             return Ty::Unknown;
         };
         let Some(target) = h.fns.iter().find(|f| f.name.name == member.name) else {
@@ -17593,15 +16362,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // as a free `fn`, just not a `send` one, so saying so beats
             // reporting it as a missing handler member.
             if self.free_plain_fn(member).is_some() {
-                self.error(
-                    member.span,
-                    format!(
-                        "`{}` is a plain `fn`, so `{form}` cannot target it: a free \
-                         function minted this way runs as a detached task, which needs \
-                         `send fn {}(...)` instead of `fn {}(...)` [task-mint]",
-                        member.name, member.name, member.name
-                    ),
-                );
+                self.error(member.span, messages::task_mint_plain_fn_target(&member.name, &form));
                 return Ty::Unknown;
             }
             // [actor-replyto] A **remote** mint — `k` is a member of an
@@ -17628,25 +16389,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 names.dedup();
                 self.error(
                     member.span,
-                    format!(
-                        "`{form}` targets a member of the handler it is written in, and \
-                         `{}` is a member of {} instead: minting toward another \
-                         actor's member is not supported yet. Have the handler that \
-                         owns `{}` mint the token and pass it here — a `Reply<T>` is an \
-                         ordinary linear value",
-                        member.name,
-                        names.join(", "),
-                        member.name
+                    messages::actor_replyto_other_actor_member(
+                        &form,
+                        &member.name,
+                        &names.join(", "),
                     ),
                 );
                 return Ty::Unknown;
             }
             self.error_unresolved(
                 member.span,
-                format!(
-                    "handler `{}` has no member `{}` for `{form}` to deliver to",
-                    h.name.name, member.name
-                ),
+                messages::actor_replyto_unknown_member(&h.name.name, &member.name, &form),
                 &member.name,
             );
             return Ty::Unknown;
@@ -17655,14 +16408,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // send member: an ordinary member would have to answer, and there is
         // nothing to answer to.
         if !target.is_send {
-            self.error(
-                member.span,
-                format!(
-                    "`{}` is not a `send fn`, so `{form}` cannot deliver to it: an \
-                     answer arrives as a message",
-                    member.name
-                ),
-            );
+            self.error(member.span, messages::actor_replyto_not_send(&member.name, &form));
         }
         let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
         if params.len() != captures.len() + 1 {
@@ -17671,15 +16417,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.error(
                 span,
-                format!(
-                    "`{}` takes {} parameter(s): the last is the answer the token \
-                     carries and the {} before it are the captures, so `{form}` here \
-                     wants {} capture(s), found {}",
-                    member.name,
-                    params.len(),
-                    params.len().saturating_sub(1),
-                    params.len().saturating_sub(1),
-                    captures.len()
+                messages::actor_replyto_member_capture_count(
+                    &member.name,
+                    &params.len(),
+                    &params.len().saturating_sub(1),
+                    &form,
+                    &captures.len(),
                 ),
             );
             return Ty::Unknown;
@@ -17691,10 +16434,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let want = &param_tys[i];
             let got = self.check_expr(c, Some(want));
             if !got.is_unknown() && !is_subtype(&got, want) {
-                self.error(
-                    c.span(),
-                    format!("expected `{want}`, found `{got}`"),
-                );
+                self.error(c.span(), messages::actor_replyto_capture_mismatch(&want, &got));
             }
             // A capture travels with the continuation, so it is stored, not
             // borrowed [deduce-consume] — the same rule a `use` argument has.
@@ -17804,13 +16544,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             0 => {
                 self.error(
                     span,
-                    format!(
-                        "cannot tell what `{}` waits for: nothing in the block \
-                         passes it to a `{REPLY_TYPE}<T>` parameter. Write the \
-                         type out (`waitfor {}: {REPLY_TYPE}<Int> {{ … }}`) or \
-                         send the token somewhere",
-                        binding.name, binding.name
-                    ),
+                    messages::waitfor_infer_no_reply_param(&binding.name, &REPLY_TYPE),
                 );
                 Ty::Unknown
             }
@@ -17818,14 +16552,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let shown: Vec<String> = found.iter().map(|t| t.to_string()).collect();
                 self.error(
                     span,
-                    format!(
-                        "`{}` could wait for any of {}: write the type out \
-                         (`waitfor {}: {} {{ … }}`)",
-                        binding.name,
-                        shown.join(" or "),
-                        binding.name,
-                        shown[0]
-                    ),
+                    messages::waitfor_infer_ambiguous(&binding.name, &shown.join(" or "), &shown[0]),
                 );
                 Ty::Unknown
             }
@@ -17847,13 +16574,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // sites are not statically known, so the graph could not place the
         // occupancy a wait inside one would create.
         if self.in_lambda() {
-            self.error(
-                span,
-                "`waitfor` cannot be written inside a lambda: a function value \
-                 runs wherever it is called, so the wait would occupy call sites \
-                 nothing can enumerate — wait in the function that calls the \
-                 value, and pass what it needs",
-            );
+            self.error(span, messages::actor_waitfor_in_lambda());
         }
         // [actor-deadlock-cycle] The graph's input: this handler's members
         // wait, which the deleted `[waitfor]` declaration used to say.
@@ -17877,10 +16598,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !other.is_unknown() {
                     self.error(
                         ty.as_ref().map(|t| t.span()).unwrap_or(span),
-                        format!(
-                            "`waitfor` mints a reply token, so its binding is a \
-                             `{REPLY_TYPE}<T>`, not a `{other}`"
-                        ),
+                        messages::actor_waitfor_binding_type(&REPLY_TYPE, &other),
                     );
                 }
                 Ty::Unknown
@@ -17914,14 +16632,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let (value_ty, _) = self.check_branch_block(body, Vec::new());
         let ctx = self.try_stack.pop().expect("try ctx pushed above");
         if ctx.sites.is_empty() {
-            self.error(
-                span,
-                format!(
-                    "nothing in this `try` block can throw, so it has no outcome \
-                     to produce: drop the `try`, or call something that declares \
-                     `[{THROW_EFFECT}<M>]`"
-                ),
-            );
+            self.error(span, messages::throw_try_nothing_throws(&THROW_EFFECT));
             return Ty::Unknown;
         }
         // [throw-try] `M` is the union of the message types performed in the
@@ -17972,13 +16683,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 args: Vec::new(),
             }),
             None => {
-                self.error(
-                    span,
-                    format!(
-                        "`try` needs the `{name}` qualifier from the core library, \
-                         which is not in scope (is `std` on the source path?)"
-                    ),
-                );
+                self.error(span, messages::throw_try_core_qualifier_missing(&name));
                 None
             }
         }
@@ -18281,15 +16986,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .cloned()
         {
             let _ = subject_span;
-            self.error(
-                span,
-                format!(
-                    "`{name}` is being iterated, so it cannot be mutated here: the \
-                     pass reads its origin as it goes, and what it would see has no \
-                     answer both backends agree on. Mutate it before or after the \
-                     loop, or iterate `copy({name})` to work from a snapshot"
-                ),
-            );
+            self.error(span, messages::iter_fn_origin_mutated(&name));
         }
 
         // [deduce-syntax] Record the invalidation against the enclosing
@@ -18793,14 +17490,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         self.check_expr(test, None);
         if let Some(b) = binding {
-            self.error(b.span, "`whynot?` answers a message, and binds nothing: drop the name [qual-whynot]".to_string());
+            self.error(b.span, messages::qual_whynot_binding());
         }
         let key = self.key(*is_span);
         if self.out.is_tests.contains_key(&key) {
-            self.error(
-                span,
-                "`whynot?` explains a predicate qualifier's test, and this one tests which arm a union holds: write `x is T` as a condition [qual-whynot]".to_string(),
-            );
+            self.error(span, messages::qual_whynot_union_test());
         }
         self.whynot_text_form(subject, *is_span);
         opt_str
@@ -18836,10 +17530,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_assert_message(&mut self, message: &'p Expr) {
         let t = self.check_expr(message, Some(&Ty::named("Str")));
         if !matches!(t, Ty::Unknown) && t.to_string() != "Str" {
-            self.error(
-                message.span(),
-                format!("an assertion's message must be a `Str`, found `{t}`"),
-            );
+            self.error(message.span(), messages::assert_fn_message_not_str(&t));
         }
     }
 
@@ -19334,16 +18025,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let names: Vec<&str> = spare.iter().map(|i| i.name.as_str()).collect();
                     self.warn(
                         span,
-                        format!(
-                            "`holds proj({})` here says what the signature already \
-                             infers: a fn type whose return is a bare type parameter \
-                             lends its named kept positions, because the result's real \
-                             type is the caller's to choose and only a lend makes the \
-                             borrow it may hold nameable [proj-infer-fn-type]. Drop the \
-                             clause — it is still needed where the return is a concrete \
-                             type",
-                            names.join(", ")
-                        ),
+                        messages::proj_infer_fn_type_redundant_holds(&names.join(", ")),
                     );
                 }
             }
@@ -19361,14 +18043,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for n in named {
                     let known = param_names.iter().flatten().any(|p| p.name == n.name);
                     if !known {
-                        self.error(
-                            n.span,
-                            format!(
-                                "`{}` names no parameter of this function type \
-                                 (name the parameter in the type: `({}: ...) -> ...`)",
-                                n.name, n.name
-                            ),
-                        );
+                        self.error(n.span, messages::fn_contract_not_a_param(&n.name));
                     }
                 }
             }
@@ -19602,10 +18277,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 unprovable.join(", ")
             )
         };
-        self.error(
-            default.span(),
-            format!("this default does not fit its type: expected `{expected}`, found `{got}`{why} [default-fits]"),
-        );
+        self.error(default.span(), messages::default_fits_mismatch(&expected, &got, &why));
     }
 
     /// [default-predicate] Whether a slot's qualifier can be tested where a
@@ -19654,10 +18326,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let name = spread.name.name.clone();
                         self.error_unresolved(
                             spread.span,
-                            format!(
-                                "no `fns` group named `{name}` is in scope: `?{name}` \
-                                 spreads a group's members as function slots"
-                            ),
+                            messages::cmp_carry_unknown_group(&name),
                             &name,
                         );
                         continue;
@@ -19668,11 +18337,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if spread.args.len() != group.generics.len() {
                         self.error(
                             spread.span,
-                            format!(
-                                "`{}` takes {} type argument(s), found {}",
-                                group.name.name,
-                                group.generics.len(),
-                                spread.args.len()
+                            messages::implicit_group_type_arg_count(
+                                &group.name.name,
+                                &group.generics.len(),
+                                &spread.args.len(),
                             ),
                         );
                     }
@@ -19700,12 +18368,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let (first, second) = (ty.clone(), slot.ty.clone());
                     self.error(
                         self.slot_span(slots, &slot.name),
-                        format!(
-                            "`{owner}` declares the function slot `?{}` twice, at two \
-                             different types (`{first}` and `{second}`): with no binder \
-                             nothing tells two slots of one name apart",
-                            slot.name
-                        ),
+                        messages::implicit_group_slot_twice(&owner, &slot.name, &first, &second),
                     );
                 }
                 None => seen.push((slot.name.clone(), slot.ty)),
@@ -19865,14 +18528,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // an argument for.
         if !written.is_empty() && written.len() != type_arity {
             if let Some(span) = written.first().map(|w| w.span()) {
-                self.error(
-                    span,
-                    format!(
-                        "type arguments are all-or-none: this declaration has \
-                         {type_arity} type parameter(s), so write all of them or \
-                         none (value arguments go in the `(…)` block)"
-                    ),
-                );
+                self.error(span, messages::qual_value_arg_partial_type_args(&type_arity));
             }
         }
         let mut types: Vec<Ty> = Vec::new();
@@ -19892,14 +18548,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 slots.iter().map(|s| format!("`?{}`", s.name)).collect();
                             self.error(
                                 arg.span(),
-                                format!(
-                                    "`?{}` names no function slot here{}",
-                                    base.name.name,
-                                    if known.is_empty() {
+                                messages::cmp_binder_unknown_slot(
+                                    &base.name.name,
+                                    &(if known.is_empty() {
                                         String::new()
-                                    } else {
+                                        } else {
                                         format!(" (it has {})", known.join(", "))
-                                    }
+                                        }),
                                 ),
                             );
                             continue;
@@ -19914,15 +18569,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                             slots.iter().map(|s| format!("`?{}`", s.name)).collect();
                         self.error(
                             arg.span(),
-                            format!(
-                                "too many arguments: this declaration has {} function \
-                                 slot(s){}",
-                                slots.len(),
-                                if names.is_empty() {
+                            messages::cmp_binder_too_many(
+                                &slots.len(),
+                                &(if names.is_empty() {
                                     String::new()
-                                } else {
+                                    } else {
                                     format!(" ({})", names.join(", "))
-                                }
+                                    }),
                             ),
                         );
                         continue;
@@ -19932,10 +18585,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             let Some(at) = named else { continue };
             if filled[at].is_some() {
-                self.error(
-                    arg.span(),
-                    format!("the function slot `?{}` is filled twice", slots[at].name),
-                );
+                self.error(arg.span(), messages::cmp_binder_filled_twice(&slots[at].name));
                 continue;
             }
             // [cmp-carry] The slot's fn type at these type arguments, so a
@@ -20017,19 +18667,11 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn written_fn_id_here(&mut self, arg: &ast::Type, want: Option<&Ty>, own_file: bool) -> Option<FnId> {
         let ast::Type::Named { qualifiers, base } = arg else {
-            self.error(
-                arg.span(),
-                "a function slot takes a function identity — a name like `cmp`, \
-                 `cmp@Person` or the signature's `?cmp` — not a type",
-            );
+            self.error(arg.span(), messages::cmp_carry_type_not_identity());
             return None;
         };
         if !qualifiers.is_empty() || !base.args.is_empty() || !base.from.is_empty() {
-            self.error(
-                arg.span(),
-                "a function identity is a plain name (`cmp`, `cmp@Person`): it takes \
-                 no qualifiers and no type arguments of its own",
-            );
+            self.error(arg.span(), messages::cmp_carry_identity_not_plain());
             return None;
         }
         let name = base.name.name.clone();
@@ -20043,18 +18685,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(at) = &base.at {
             let at_name = at.name.clone();
             if !self.fn_exists_at(&name, &at_name) {
-                let where_ = if at_name.starts_with(|c: char| c.is_uppercase()) {
-                    format!(
-                        "declare `fn {name}@{at_name}(…)` in the file that declares \
-                         `{at_name}` [fn-attached]"
-                    )
+                let msg = if at_name.starts_with(|c: char| c.is_uppercase()) {
+                    messages::fn_attached_no_identity_on_type(&name, &at_name)
                 } else {
-                    format!("module `{at_name}` declares no `{name}` [fn-overload-at]")
+                    messages::fn_overload_at_no_identity_in_module(&name, &at_name)
                 };
-                self.error(
-                    arg.span(),
-                    format!("no `{name}@{at_name}` in scope: {where_}"),
-                );
+                self.error(arg.span(), msg);
                 return None;
             }
             return self.written_declaration(&name, Some(&at_name), want, arg.span());
@@ -20062,34 +18698,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         // A bare name: a top-level fn, and nothing else. (A local is the
         // checking fn's, so it only shadows in the file that is checking.)
         if own_file && self.lookup(&name).is_some() {
-            self.error(
-                arg.span(),
-                format!(
-                    "`{name}` is a local here, and a lambda or local has no identity a \
-                     type can carry: declare it as a `fn` (a type carries only what it \
-                     can print — a named, top-level, capture-free function) \
-                     [cmp-carry]"
-                ),
-            );
+            self.error(arg.span(), messages::cmp_carry_local_identity(&name));
             return None;
         }
         if self.generics.contains(&name) {
-            self.error(
-                arg.span(),
-                format!(
-                    "`{name}` is a type parameter, and this position carries a \
-                     function identity: name a function, or the signature's binder \
-                     (`?{name}`)"
-                ),
-            );
+            self.error(arg.span(), messages::cmp_carry_type_param_identity(&name));
             return None;
         }
         if !self.has_callable(&name) {
-            self.error_unresolved(
-                arg.span(),
-                format!("no function `{name}` in scope to carry here"),
-                &name,
-            );
+            self.error_unresolved(arg.span(), messages::cmp_carry_unknown_fn(&name), &name);
             return None;
         }
         self.written_declaration(&name, None, want, arg.span())
@@ -20120,7 +18737,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     };
                     if self.reported_identities.insert((self.file_idx, span)) {
                         let text = Self::implicit_ambiguity(name, &cands, Some(&format!("`{name}@{{m}}`")));
-                        self.error(span, format!("the identity `{shown}` is ambiguous at `{want}`: {text} [cmp-carry]"));
+                        self.error(span, messages::cmp_carry_ambiguous(&shown, &want, &text));
                     }
                     return None;
                 }
@@ -20323,12 +18940,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if expected > 0 && base.args.len() != expected && !self.in_struct_lit_ty && name != ADDR_TYPE {
                 self.error(
                     base.span,
-                    format!(
-                        "`{name}` takes {expected} type argument(s), found {}: write all of \
-                         them (`{name}<...>`) — unlike a struct literal's fields, a type \
-                         position like this has no values to infer a missing one from",
-                        base.args.len()
-                    ),
+                    messages::qual_value_arg_type_arg_count(&name, &expected, &base.args.len()),
                 );
             }
         }
@@ -20341,15 +18953,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !matches!(name, "List") && self.scope.structs.contains_key(name) {
             for arg in &base.args {
                 if let Some(span) = first_proj_span(arg) {
-                    self.error(
-                        span,
-                        format!(
-                            "`proj` cannot be a type argument of `{name}`: a struct's \
-                             fields own their values, so it cannot hold a borrow \
-                             through a generic parameter (only the intrinsic \
-                             containers — `List`, arrays — may be views)"
-                        ),
-                    );
+                    self.error(span, messages::proj_infer_struct_type_arg(&name));
                 }
             }
         }
@@ -20552,7 +19156,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   (`NS1.T | NS2.K` exposes `{NS1, NS2}`);
     /// * a **single namespaced type** `Foo.Bar` exposes `Foo` — a sibling
     ///   lookup, `.Baz` → `Foo.Baz`, last segment replaced (D4a).
-    fn resolve_dot_ref(&self, written: &str, expected: Option<&Ty>) -> Result<(String, Option<Ty>), String> {
+    fn resolve_dot_ref(&self, written: &str, expected: Option<&Ty>) -> Result<(String, Option<Ty>), Message> {
         // `written` is a leading-dot *suffix* of a namespaced name: `.Thing`,
         // `.C.Thing`, `.B.C.Thing` … The suffix is everything after the
         // leading dot. A candidate full name matches when it equals the suffix
@@ -20561,10 +19165,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let suffix = written.trim_start_matches('.');
         let matches_suffix = |full: &str| full == suffix || full.ends_with(&format!(".{suffix}"));
         let Some(expected) = expected else {
-            return Err(format!(
-                "`{written}` needs a known type to resolve against: there is no \
-                 expected type here, so write the namespace (`Ns{written}`) [mod-namespace]"
-            ));
+            return Err(messages::mod_namespace_no_expected_type(&written));
         };
         match expected.strip_quals() {
             // A union resolves against its **arms** directly: the arm whose
@@ -20584,14 +19185,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 match hits.as_slice() {
                     [(name, ty)] => Ok((name.clone(), Some(ty.clone()))),
-                    [] => Err(format!(
-                        "`{written}` matches no arm of `{expected}` — its arms are {} [mod-namespace]",
-                        arm_names(arms)
-                    )),
-                    many => Err(format!(
-                        "`{written}` is ambiguous across the arms of `{expected}`: {} — \
-                         write more of the path [mod-namespace]",
-                        many.iter().map(|(m, _)| format!("`{m}`")).collect::<Vec<_>>().join(" or ")
+                    [] => Err(messages::mod_namespace_no_arm(&written, &expected, &arm_names(arms))),
+                    many => Err(messages::mod_namespace_ambiguous_arms(
+                        &written,
+                        &expected,
+                        &many.iter().map(|(m, _)| format!("`{m}`")).collect::<Vec<_>>().join(" or "),
                     )),
                 }
             }
@@ -20621,20 +19219,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 match hits.as_slice() {
                     [one] => Ok((one.clone(), None)),
-                    [] => Err(format!(
-                        "`{written}` names no member in the namespace of `{expected}` \
-                         [mod-namespace]"
-                    )),
-                    many => Err(format!(
-                        "`{written}` is ambiguous: {} — write more of the path [mod-namespace]",
-                        many.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(" or ")
+                    [] => Err(messages::mod_namespace_no_member(&written, &expected)),
+                    many => Err(messages::mod_namespace_ambiguous(
+                        &written,
+                        &many.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(" or "),
                     )),
                 }
             }
-            _ => Err(format!(
-                "`{written}` resolves against a namespaced type, but `{expected}` exposes \
-                 none here — write the namespace explicitly [mod-namespace]"
-            )),
+            _ => Err(messages::mod_namespace_not_namespaced(&written, &expected)),
         }
     }
 
@@ -20646,16 +19238,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `namespace Arg { type Type = .Int | .Str }` means the unique declared
     /// `Arg.Int`. Only `ns` itself is searched — not its ancestors — since an
     /// alias's own namespace is exact, not a path to walk upward from.
-    fn resolve_alias_arm_dot_ref(&self, written: &str, ns: &str) -> Result<String, String> {
+    fn resolve_alias_arm_dot_ref(&self, written: &str, ns: &str) -> Result<String, Message> {
         let suffix = written.trim_start_matches('.');
         let cand = format!("{ns}.{suffix}");
         if self.type_name_exists(&cand) || self.qual_name_exists(&cand) {
             Ok(cand)
         } else {
-            Err(format!(
-                "`{written}` names no member of `{ns}` — its declared members are what \
-                 `{ns}.{suffix}` would have to be [mod-namespace]"
-            ))
+            Err(messages::mod_namespace_no_alias_member(&written, &ns, &suffix))
         }
     }
 
@@ -20721,7 +19310,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             String::new()
         };
         let name = name.to_string();
-        self.error_unresolved(r.span, format!("unknown {what} `{name}`{hint}"), &name);
+        self.error_unresolved(
+            r.span,
+            messages::name_resolve_unknown_type(&what, &name, &hint),
+            &name,
+        );
     }
 
     /// [effect-handler-deps] The effects a handler declares as dependencies
@@ -20770,14 +19363,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for eff in h.effects.iter().flatten() {
             let (r, any) = match eff {
                 EffectRef::Use(span) => {
-                    self.error(
-                        *span,
-                        format!(
-                            "handler `{}` cannot depend on `use`: a handler registers \
-                             no handlers of its own",
-                            h.name.name
-                        ),
-                    );
+                    self.error(*span, messages::effect_handler_deps_use(&h.name.name));
                     continue;
                 }
                 // [actor-spawn-effect] A handler *may* depend on `spawn` — a
@@ -20793,12 +19379,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if r.name.name == THROW_EFFECT {
                 self.error(
                     r.span,
-                    format!(
-                        "handler `{}` cannot depend on `{THROW_EFFECT}`: a throw is \
-                         delimited by a `try {{ ... }}` block, not supplied by a \
-                         handler",
-                        h.name.name
-                    ),
+                    messages::effect_handler_deps_throw(&h.name.name, &THROW_EFFECT),
                 );
                 continue;
             }
@@ -20810,7 +19391,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if e.origin == EffectOrigin::Written {
                         self.error(
                             r.span,
-                            format!("handler `{}` declares `{}` twice", h.name.name, e.ty),
+                            messages::effect_handler_deps_duplicate(&h.name.name, &e.ty),
                         );
                     }
                     continue;
@@ -20880,15 +19461,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if decl.is_actor {
             return;
         }
-        self.error(
-            span,
-            format!(
-                "`{form}` cannot bind `{name}` to an actor: it is a plain effect, and \
-                 a synchronous protocol has no mailbox — declare `actor effect {name}` \
-                 (its members then give up kept and `Mut` parameters, `proj` returns \
-                 and non-sendable payloads)"
-            ),
-        );
+        self.error(span, messages::actor_effect_kind_plain_effect_actor(&form, &name));
     }
 
     /// [actor-effect-kind] [actor-monitor-handler] The kind gate on an `Addr`'s
@@ -20936,14 +19509,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let name = name.to_string();
-        self.error(
-            r.span,
-            format!(
-                "`{name}` is an effect, not a data type: effects appear in a \
-                 function's effect list (`[{name}]`) or a handler's `of` clause, \
-                 and their handlers are reached with `use`"
-            ),
-        );
+        self.error(r.span, messages::effect_not_data_data_position(&name));
     }
 
     /// [group-not-a-value] A `fns` group names an *obligation*, not a
@@ -20966,14 +19532,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let is_comptime = self.scope.structs.get(name).is_some_and(|s| s.comptime)
             || self.scope.type_aliases.get(name).is_some_and(|t| t.comptime);
         if is_comptime {
-            self.error(
-                base.span,
-                format!(
-                    "`{name}` is a compile-time type (`core.comptime`): it describes a type \
-                     to a `comptime fn` and is never a value, so it cannot appear in an \
-                     ordinary type position [comptime-fields]"
-                ),
-            );
+            self.error(base.span, messages::comptime_fields_data_position(&name));
         }
     }
 
@@ -20986,15 +19545,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let name = name.to_string();
-        self.error(
-            r.span,
-            format!(
-                "`{name}` is a `fns` group, not a type: no value may have a \
-                 group as its type — a named type satisfies it with `: {name}<...>` \
-                 on its declaration, or a signature spreads its members with \
-                 `?{name}<...>`"
-            ),
-        );
+        self.error(r.span, messages::group_not_a_value_data_position(&name));
     }
 
     /// Validates a written type: every name resolves [name-resolve], and
@@ -21127,13 +19678,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         self.error(
             field.name.span,
-            format!(
-                "`{start}` contains itself through field `{}`{via}, so a value of \
-                 it would be infinitely large. Indirect through a container — \
-                 `List<{start}>` holds any number of them, including none, and \
-                 is how a tree or a linked structure is written",
-                field.name.name
-            ),
+            messages::type_no_cycle_contains_itself(&start, &field.name.name, &via),
         );
     }
 
@@ -21289,15 +19834,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(field_ty) = &field.ty else { return };
         for r in proj_refs(field_ty) {
             if let Some(from) = r.from.first() {
-                self.error(
-                    from.span,
-                    format!(
-                        "field `{owner}.{}`: a `proj` field names no source — the value \
-                         stored in it at each literal decides what it projects; write \
-                         `proj` alone",
-                        field.name.name
-                    ),
-                );
+                self.error(from.span, messages::proj_field_source_named(&owner, &field.name.name));
             }
         }
     }
@@ -21325,12 +19862,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if self.scope.structs.contains_key(owner) {
                 self.error(
                     field_ty.span(),
-                    format!(
-                        "`{linear}` is linear, so field `{owner}.{}` makes the \
-                         container a resource too: declare `linear struct {owner}` \
-                         (and a same-file fn consuming it) to say so",
-                        field.name.name
-                    ),
+                    messages::linear_composite_field(&linear, &owner, &field.name.name),
                 );
                 return;
             }
@@ -21355,16 +19887,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if self.has_auto_linear(&self.type_key(&linear)) && self.container_of_linear(field_ty).is_none() {
                 self.error(
                     field_ty.span(),
-                    format!(
-                        "`{linear}` is linear, so field `{owner}.{}` would hold an \
-                         obligation this handler can never discharge: taking it back \
-                         out would leave the state with a hole, and nothing could be \
-                         put back. Hold it in a container instead — a \
-                         `Mut List<{linear}>` or a `Mut Map<K, {linear}>`, whose \
-                         `remove_first`/`remove` take one element at a time and whose \
-                         `drain` is the terminal",
-                        field.name.name
-                    ),
+                    messages::linear_state_field(&linear, &owner, &field.name.name),
                 );
             }
         }
@@ -21478,11 +20001,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some((lit, a, b)) = crate::literal::literal_conflict(&lowered.value_arms()) {
                     self.error(
                         ty.span(),
-                        format!(
-                            "this union lists `{lit}` twice, as `{a}` and as `{b}`: qualifiers erase, \
-                             so a value of `{lit}` cannot say which arm it is; list it once \
-                             [type-literal-qualified]"
-                        ),
+                        messages::type_literal_qualified_listed_twice(&lit, &a, &b),
                     );
                 }
                 for a in arms {
@@ -21502,13 +20021,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     arms.iter().filter(|a| matches!(a, ast::Type::Spread { .. })).collect();
                 if spreads.len() > 1 {
                     if let ast::Type::Spread { span, .. } = spreads[1] {
-                        self.error(
-                            *span,
-                            "a union may have at most one `...` spread arm: a second \
-                             spread would make the split of the arms it captures \
-                             ambiguous [type-union-spread]"
-                                .to_string(),
-                        );
+                        self.error(*span, messages::type_union_spread_two_spreads());
                     }
                 }
                 for s in &spreads {
@@ -21517,14 +20030,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             if qualifiers.is_empty() && base.args.is_empty()
                                 && self.generics.contains(base.name.name.as_str()));
                         if !bare_generic {
-                            self.error(
-                                *span,
-                                format!(
-                                    "`...{inner}` is not a valid spread arm: a `...` spread \
-                                     captures one or more arms, so its type must be a bare \
-                                     generic parameter in scope [type-union-spread]"
-                                ),
-                            );
+                            self.error(*span, messages::type_union_spread_not_generic(&inner));
                         }
                     }
                 }
@@ -21539,14 +20045,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 if qualifiers.is_empty() && r.args.is_empty() && r.name.name == base)
                         });
                         if bare {
-                            self.warn(
-                                *span,
-                                format!(
-                                    "`{value}` is subsumed by the `{base}` arm beside it, which already \
-                                     holds every `{base}`; for the rest of a set of values, write \
-                                     `Other {base}` [type-literal]"
-                                ),
-                            );
+                            self.warn(*span, messages::type_literal_subsumed(&value, &base));
                         }
                     }
                 }
@@ -21562,12 +20061,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [type-union-spread] A `...T` is only meaningful as a union arm;
                 // elsewhere it captures nothing.
                 self.validate_type(inner);
-                self.error(
-                    *span,
-                    "a `...` spread is only a union arm (`...T | Bool`): it has no \
-                     meaning on its own [type-union-spread]"
-                        .to_string(),
-                );
+                self.error(*span, messages::type_union_spread_alone());
             }
             ast::Type::Fn { params, ret, .. } => {
                         for p in params {
@@ -21599,24 +20093,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // not a value: it is never part of a type.
         for q in qualifiers {
             if self.qual_decl(&q.name.name).is_some_and(|d| d.comptime) {
-                self.error(
-                    q.name.span,
-                    format!(
-                        "`{0}` is a comptime qualifier: it is written before a field's name \
-                         (`{0}(…) port: Int`) or a declaration, and is never part of a type \
-                         [comptime-qualifier]",
-                        q.name.name
-                    ),
-                );
+                self.error(q.name.span, messages::comptime_qualifier_in_type(&q.name.name));
             }
         }
         // The same qualifier cannot be applied twice [qual-no-dup].
         for (i, q) in qualifiers.iter().enumerate() {
             if qualifiers[..i].iter().any(|p| p.name.name == q.name.name) {
-                self.error(
-                    q.span,
-                    format!("qualifier `{}` is applied more than once", q.name.name),
-                );
+                self.error(q.span, messages::qual_no_dup_applied_twice(&q.name.name));
             }
         }
         // [qual-overload] The subject picks among same-named qualifiers here:
@@ -21643,9 +20126,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !want.is_unknown() && !matches!(want.strip_quals(), Ty::Named { name, args } if args.is_empty() && name == c.base()) {
                     self.error(
                         wb.span,
-                        format!(
-                            "`{c}` fills the `{}` slot of `{}`, which needs `{want}`, not `{}` [qual-const]",
-                            slot.name.name, q.name.name, c.base()
+                        messages::qual_const_slot_mismatch(
+                            &c,
+                            &slot.name.name,
+                            &q.name.name,
+                            &want,
+                            &c.base(),
                         ),
                     );
                 }
@@ -21664,13 +20150,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [struct-mut] [type-canbe-mut].
                 if q.name.name == "Mut" {
                     if !self.has_auto_mut(base) {
-                        self.error(
-                            q.span,
-                            format!(
-                                "`Mut` does not apply to `{base}` (its declaration \
-                                 does not say `canbe Mut`)"
-                            ),
-                        );
+                        self.error(q.span, messages::struct_mut_not_canbe_mut(&base));
                     }
                     continue;
                 }
@@ -21679,12 +20159,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // `Linear` at a use site is meaningless (and forgetting
                 // it must not silently drop the protection).
                 if q.name.name == "linear" {
-                    self.error(
-                        q.span,
-                        "`Linear` cannot be written in a type: linearity is \
-                         declared on the type itself (`canbe linear`) and applies \
-                         to every value of it",
-                    );
+                    self.error(q.span, messages::linear_group_linear_in_type());
                     continue;
                 }
                 // [fn-once] `once` is the language-level *use*-multiplicity
@@ -21711,18 +20186,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         q.span,
                         if fn_type {
-                            format!(
-                                "a function type declares its effects in its own list \
-                                 (`(…) [{}] -> …`), not in qualifier position",
-                                q.name.name
-                            )
+                            messages::fn_effects_in_qualifier_position(&q.name.name)
                         } else {
-                            format!(
-                                "`{}` is an effect, not a qualifier: an iterator performs its \
-                                 effects in its `next`, so declare them there \
-                                 (`yield fn next(…) [{}] -> …`) rather than on the type",
-                                q.name.name, q.name.name
-                            )
+                            messages::fn_effects_effect_as_qualifier(&q.name.name)
                         },
                     );
                     continue;
@@ -21743,18 +20209,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // found none, which must be the same error as a single
                     // declaration that does not apply rather than silence.
                     if self.qualifier_named(q.name.name.as_str()).is_some() {
-                        self.error(
-                            q.span,
-                            format!("qualifier `{}` does not apply to `{base}`", q.name.name),
-                        );
+                        self.error(q.span, messages::qual_of_does_not_apply(&q.name.name, &base));
                     }
                     continue;
                 };
                 if !self.qual_applies(decl, base) {
-                    self.error(
-                        q.span,
-                        format!("qualifier `{}` does not apply to `{base}`", q.name.name),
-                    );
+                    self.error(q.span, messages::qual_of_does_not_apply(&q.name.name, &base));
                 }
             }
         }
@@ -22109,11 +20569,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !s.auto_qualifiers.iter().any(|q| q.name.name == "Mut") {
             self.error(
                 span,
-                format!(
-                    "field `{}` says `canbe Mut`, but struct `{}` does not: a `{}` value is \
-                     never `Mut`, so the field never would be; declare `struct {} canbe Mut` \
-                     [struct-field-canbe-mut]",
-                    field.name.name, s.name.name, s.name.name, s.name.name
+                messages::struct_field_canbe_mut_struct_not_canbe_mut(
+                    &field.name.name,
+                    &s.name.name,
                 ),
             );
             return;
@@ -22123,22 +20581,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         if ty.quals().iter().any(|q| q.name == "Mut") {
-            self.error(
-                span,
-                format!(
-                    "field `{}` is already `Mut`; `canbe Mut` gives a field `Mut` only when \
-                     the struct value has it, so write one or the other [struct-field-canbe-mut]",
-                    field.name.name
-                ),
-            );
+            self.error(span, messages::struct_field_canbe_mut_already_mut(&field.name.name));
         } else if !self.has_auto_mut(&ty) {
-            self.error(
-                span,
-                format!(
-                    "`canbe Mut` does not apply to `{ty}` (its declaration does not say \
-                     `canbe Mut`) [struct-field-canbe-mut]"
-                ),
-            );
+            self.error(span, messages::struct_field_canbe_mut_not_applicable(&ty));
         }
     }
 
@@ -22173,31 +20618,31 @@ impl<'p, 'r> Checker<'p, 'r> {
             Fn(&'a [ast::Param], bool),
             Other,
         }
-        let mut found: Vec<(Span, String)> = Vec::new();
+        let mut found: Vec<(Span, Message)> = Vec::new();
         let mut visit = |docs: &[String], name: &ast::Ident, owner: Owner| {
             for tag in salvo_syntax::doc::split(docs).tags {
                 if !salvo_syntax::doc::KNOWN_TAGS.contains(&tag.name.as_str()) {
                     let known: Vec<String> = salvo_syntax::doc::KNOWN_TAGS.iter().map(|t| format!("@{t}")).collect();
-                    found.push((name.span, format!("`@{}` is not a doc tag: the tags are {} [doc-tags]", tag.name, known.join(", "))));
+                    found.push((name.span, messages::doc_tags_unknown_tag(&tag.name, &known.join(", "))));
                     continue;
                 }
                 match (tag.name.as_str(), &owner) {
                     ("param", Owner::Fn(params, _)) => match &tag.target {
-                        None => found.push((name.span, "`@param` names the parameter it describes: `@param name  what it is` [doc-tags]".to_string())),
+                        None => found.push((name.span, messages::doc_tags_param_unnamed())),
                         Some(t) if !params.iter().any(|p| p.name.name == *t) => {
-                            found.push((name.span, format!("`@param {t}`: `{}` has no parameter `{t}` [doc-tags]", name.name)))
+                            found.push((name.span, messages::doc_tags_param_unknown(&t, &name.name)))
                         }
                         Some(_) => {}
                     },
-                    ("param", Owner::Other) => found.push((name.span, format!("`@param` describes a fn's parameter, and `{}` is not a fn [doc-tags]", name.name))),
+                    ("param", Owner::Other) => found.push((name.span, messages::doc_tags_param_not_fn(&name.name))),
                     ("compilerrules", _) if salvo_syntax::doc::compiler_rules(&tag.text).is_none() => found.push((
                         name.span,
-                        "`@compilerrules` lists the rules it cites in brackets: `@compilerrules [rule-a, rule-b]`, then how they apply here, if that needs saying [doc-compilerrules]".to_string(),
+                        messages::doc_compilerrules_no_rules(),
                     )),
                     ("whynot", Owner::Fn(_, true)) => {}
                     ("whynot", _) => found.push((
                         name.span,
-                        "`@whynot` says why a value fails a predicate qualifier: it belongs on the qualifier's `fn qualifies` [doc-tags] [qual-whynot]".to_string(),
+                        messages::qual_whynot_misplaced_tag(),
                     )),
                     _ => {}
                 }
@@ -22256,7 +20701,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if self.is_std {
             return;
         }
-        let mut found: Vec<(Span, String)> = Vec::new();
+        let mut found: Vec<(Span, Message)> = Vec::new();
         let mut visit = |f: &ast::FnDecl| {
             for d in f.deductions.iter().flatten() {
                 if !matches!(d.kind, ast::DeductionKind::Moved) {
@@ -22267,7 +20712,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if salvo_syntax::is_copy_scalar_type(&p.ty) {
                     found.push((
                         d.span,
-                        format!("moving an `{}` is a copy, so `!{}` changes nothing for the caller: drop it [copy-scalar-free]", p.ty, name.name),
+                        messages::copy_scalar_free_moved_scalar(&p.ty, &name.name),
                     ));
                 }
             }
@@ -22294,13 +20739,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `explain` it replaced is refused, naming the tag.
     fn check_whynot_decl(&mut self, q: &'p QualifierDecl) {
         if let Some(explain) = q.fns.iter().find(|f| f.name.name == "explain") {
-            self.error(
-                explain.name.span,
-                format!(
-                    "a qualifier says why a value fails it in a doc tag, not a fn: write `// @whynot …` above `{}.qualifies`, with `[name]` for its parameters [qual-whynot]",
-                    q.name.name
-                ),
-            );
+            self.error(explain.name.span, messages::qual_whynot_on_fn(&q.name.name));
         }
         let Some(qualifies) = q.fns.iter().find(|f| f.name.name == "qualifies") else { return };
         let parts = salvo_syntax::doc::split(&qualifies.docs);
@@ -22317,10 +20756,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if !scalar {
                         self.error(
                             qualifies.name.span,
-                            format!(
-                                "`@whynot` shows `[{name}]`, a `{}`: a slot shown in the message is an `Int`, `Long`, `Double`, `Bool`, `Char` or `Str` [qual-whynot]",
-                                params[i].ty
-                            ),
+                            messages::qual_whynot_slot_type(&name, &params[i].ty),
                         );
                     }
                 }
@@ -22328,11 +20764,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let names: Vec<String> = params.iter().map(|p| format!("[{}]", p.name.name)).collect();
                     self.error(
                         qualifies.name.span,
-                        format!(
-                            "`@whynot` shows `[{name}]`, which is not a parameter of `{}.qualifies`: write one of {} (`[[` is a literal `[`) [qual-whynot]",
-                            q.name.name,
-                            names.join(", ")
-                        ),
+                        messages::qual_whynot_unknown_slot(&name, &q.name.name, &names.join(", ")),
                     );
                 }
             }
@@ -22346,17 +20778,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         let saved = self.enter_generics(&q.generics);
         let params: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
         if f.params.iter().any(|p| p.implicit) {
-            self.error(span, format!("`{}.{}` takes implicit parameters, which a direct call does not fill: test with `is` [qual-whynot]", q.name.name, f.name.name));
+            self.error(span, messages::qual_whynot_call_implicits(&q.name.name, &f.name.name));
         }
         if params.len() != args.len() {
             self.error(
                 span,
-                format!(
-                    "`{}.{}` takes {} argument(s) — the subject, then one per slot — found {} [qual-whynot]",
-                    q.name.name,
-                    f.name.name,
-                    params.len(),
-                    args.len()
+                messages::qual_whynot_call_arg_count(
+                    &q.name.name,
+                    &f.name.name,
+                    &params.len(),
+                    &args.len(),
                 ),
             );
             for a in args {
@@ -22373,7 +20804,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             unify(&want, got.strip_quals(), &mut subst);
             let want = if gens.is_empty() { want } else { substitute_vars(&want, &subst, &gens) };
             if !got.is_unknown() && !want.is_unknown() && !is_subtype(&got, &want) && !is_subtype(got.strip_quals(), &want) {
-                self.error(a.span(), format!("`{}.{}` expects `{want}`, found `{got}`", q.name.name, f.name.name));
+                self.error(
+                    a.span(),
+                    messages::qual_whynot_call_arg_mismatch(&q.name.name, &f.name.name, &want, &got),
+                );
             }
         }
         let ret = match &f.return_type {
@@ -22398,7 +20832,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (i, a) in annotations.iter().enumerate() {
             let name = a.name.name.as_str();
             if annotations[..i].iter().any(|b| b.name.name == name) {
-                self.error(a.span, format!("qualifier `{name}` is applied more than once"));
+                self.error(a.span, messages::comptime_qualifier_applied_twice(&name));
                 continue;
             }
             self.require_name(a, true);
@@ -22410,11 +20844,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let place = if subject == "Field" { "before a field's name" } else { "before a declaration" };
                 self.error(
                     a.name.span,
-                    format!(
-                        "`{name}` is not a comptime qualifier: what is written {place} is a \
-                         `comptime qualifier … of {subject}`, read by comptime code; a claim \
-                         about the value goes in the type [comptime-qualifier]"
-                    ),
+                    messages::comptime_qualifier_not_comptime_annotation(&name, &place, &subject),
                 );
                 continue;
             }
@@ -22425,20 +20855,20 @@ impl<'p, 'r> Checker<'p, 'r> {
             if of != subject {
                 self.error(
                     a.name.span,
-                    format!("`{name}` describes a `{of}`, not a `{subject}` [comptime-qualifier]"),
+                    messages::comptime_qualifier_wrong_subject(&name, &of, &subject),
                 );
                 continue;
             }
             if !a.args.is_empty() {
-                self.error(a.span, format!("`{name}` takes no type arguments [comptime-qualifier]"));
+                self.error(a.span, messages::comptime_qualifier_type_args(&name));
             }
             if a.value_args.len() != decl.value_slots.len() {
                 self.error(
                     a.span,
-                    format!(
-                        "`{name}` takes {} constant(s), found {} [comptime-qualifier]",
-                        decl.value_slots.len(),
-                        a.value_args.len()
+                    messages::comptime_qualifier_const_count(
+                        &name,
+                        &decl.value_slots.len(),
+                        &a.value_args.len(),
                     ),
                 );
                 continue;
@@ -22458,16 +20888,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                     Some((c, _)) if c.base() == want => {}
                     Some((c, span)) => self.error(
                         span,
-                        format!(
-                            "`{c}` fills the `{}` slot of `{name}`, which needs `{want}`, not `{}` [qual-const]",
-                            slot.name.name,
-                            c.base()
+                        messages::qual_const_slot_mismatch(
+                            &c,
+                            &slot.name.name,
+                            &name,
+                            &want,
+                            &c.base(),
                         ),
                     ),
                     None => self.error(
                         written.span(),
-                        "a comptime qualifier's slot takes a constant (`'p'`, `\"rm\"`, `3`): \
-                         nothing else exists where it is written [comptime-qualifier]",
+                        messages::comptime_qualifier_slot_not_constant(),
                     ),
                 }
             }
@@ -22488,49 +20919,22 @@ impl<'p, 'r> Checker<'p, 'r> {
             _ => None,
         };
         if of.is_none() {
-            self.error(
-                q.of.span(),
-                format!(
-                    "a comptime qualifier describes a `core.comptime` `Field` or `Struct`, \
-                     not `{}` [comptime-qualifier]",
-                    q.of
-                ),
-            );
+            self.error(q.of.span(), messages::comptime_qualifier_subject(&q.of));
         }
         if q.has_body {
-            self.error(
-                q.name.span,
-                format!(
-                    "comptime qualifier `{}` cannot have a body: it is written on a \
-                     declaration and read by comptime code, so there is nothing to test or \
-                     refine [comptime-qualifier]",
-                    q.name.name
-                ),
-            );
+            self.error(q.name.span, messages::comptime_qualifier_body(&q.name.name));
         }
         if !q.generics.is_empty() || !q.fn_slots.is_empty() {
             self.error(
                 q.name.span,
-                format!(
-                    "comptime qualifier `{}` takes no type parameters or fn slots: `{}` already \
-                     ranges over every declaration it can describe [comptime-qualifier]",
-                    q.name.name,
-                    of.unwrap_or("Field")
-                ),
+                messages::comptime_qualifier_generics(&q.name.name, &of.unwrap_or("Field")),
             );
         }
         for v in &q.value_slots {
             let ok = matches!(&v.ty, ast::Type::Named { qualifiers, base }
                 if qualifiers.is_empty() && base.args.is_empty() && matches!(base.name.name.as_str(), "Int" | "Char" | "Str"));
             if !ok {
-                self.error(
-                    v.ty.span(),
-                    format!(
-                        "a comptime qualifier's slot holds a constant: `Int`, `Char` or `Str`, \
-                         not `{}` [comptime-qualifier]",
-                        v.ty
-                    ),
-                );
+                self.error(v.ty.span(), messages::comptime_qualifier_slot_type(&v.ty));
             }
         }
     }
@@ -22543,14 +20947,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.validate_type(&q.of);
         let of_ty = self.lower_type(&q.of);
         match &of_ty {
-            Ty::Union(_) => self.error(
-                q.of.span(),
-                "a qualifier cannot apply to a union type; qualify the arms instead",
-            ),
-            Ty::Tuple(_) => self.error(
-                q.of.span(),
-                "a qualifier cannot apply to a tuple type; qualify the parts instead",
-            ),
+            Ty::Union(_) => self.error(q.of.span(), messages::qual_of_union_subject()),
+            Ty::Tuple(_) => self.error(q.of.span(), messages::qual_of_tuple_subject()),
             _ => {}
         }
         // [qual-subject] Provenance is mint-only: no inspection of the
@@ -22558,16 +20956,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // body (and the field overrides that come with one — those are
         // claims about *contents*) is a contradiction.
         if q.subject == QualSubject::Provenance && q.has_body {
-            self.error(
-                q.name.span,
-                format!(
-                    "provenance qualifier `{}` cannot have a body: provenance is not \
-                     testable at runtime (no `qualifies`) and describes the handle, \
-                     not its contents (no field overrides) — values gain it from \
-                     constructor functions",
-                    q.name.name
-                ),
-            );
+            self.error(q.name.span, messages::qual_subject_provenance_body(&q.name.name));
             return;
         }
         if !q.has_body {
@@ -22584,13 +20973,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !q.refns.is_empty() && q.fns.is_empty() && q.field_overrides.is_empty() {
                 return;
             }
-            self.error(
-                q.name.span,
-                format!(
-                    "qualifier `{}` has a body but no `qualifies`: a body may hold a                      `qualifies` (which makes the claim testable), refinements, or                      both — this one holds members that need a `qualifies` beside                      them",
-                    q.name.name
-                ),
-            );
+            self.error(q.name.span, messages::qual_refn_scope_no_qualifies(&q.name.name));
             return;
         };
         // [col-idx] Implicit parameters trail and are filled where the test is
@@ -22601,27 +20984,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             // then one parameter per value slot — `KeyOf`'s `qualifies` is
             // `(key: K, map: Map<K, V>)`.
             if q.value_slots.is_empty() {
-                self.error(
-                    qualifies.name.span,
-                    "`qualifies` must take exactly one parameter (the candidate value)",
-                );
+                self.error(qualifies.name.span, messages::qual_predicate_param_count());
             } else {
                 self.error(
                     qualifies.name.span,
-                    format!(
-                        "`qualifies` must take the candidate value and then one \
-                         parameter per value slot ({} more)",
-                        q.value_slots.len()
-                    ),
+                    messages::qual_depend_param_count(&q.value_slots.len()),
                 );
             }
         } else {
             let pt = self.lower_type(&fixed[0].ty);
             if !is_subtype(&of_ty, &pt) {
-                self.error(
-                    fixed[0].span,
-                    format!("`qualifies` must accept a `{of_ty}` parameter"),
-                );
+                self.error(fixed[0].span, messages::qual_predicate_param_type(&of_ty));
             }
             // [qual-depend] Each dependency parameter matches its slot's
             // declared type, in slot order.
@@ -22631,11 +21004,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !is_subtype(&want, &got) {
                     self.error(
                         param.span,
-                        format!(
-                            "this parameter fills the `{}` slot, so it must accept \
-                             `{want}`",
-                            slot.name.name
-                        ),
+                        messages::qual_depend_slot_param_type(&slot.name.name, &want),
                     );
                 }
             }
@@ -22646,13 +21015,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             .map(|t| self.lower_type(t))
             .unwrap_or_else(Ty::none);
         if !matches!(&ret, Ty::Named { name, args } if name == "Bool" && args.is_empty()) {
-            self.error(qualifies.name.span, "`qualifies` must return `Bool`");
+            self.error(qualifies.name.span, messages::qual_predicate_return_type());
         }
         if qualifies.deductions.as_ref().is_some_and(|d| !d.is_empty()) {
-            self.error(
-                qualifies.name.span,
-                "`qualifies` does not support deductions (it never moves the value)",
-            );
+            self.error(qualifies.name.span, messages::qual_predicate_deductions());
         }
         for fo in &q.field_overrides {
             self.validate_type(fo.written_ty());
@@ -22662,10 +21028,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if !is_subtype(&override_ty, &orig) {
                         self.error(
                             fo.span,
-                            format!(
-                                "field override `{}: {override_ty}` is not a subtype \
-                                 of the declared `{orig}`",
-                                fo.name.name
+                            messages::qual_field_override_not_subtype(
+                                &fo.name.name,
+                                &override_ty,
+                                &orig,
                             ),
                         );
                     }
@@ -22676,7 +21042,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             let name = name.clone();
                             self.error(
                                 fo.name.span,
-                                format!("struct `{name}` has no field `{}`", fo.name.name),
+                                messages::qual_field_override_no_field(&name, &fo.name.name),
                             );
                         }
                     }
@@ -22723,14 +21089,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for q in reapplied {
                     self.error(
                         q.span,
-                        format!(
-                            "`+{}` cannot appear in `{}`'s contract: a `=>[{}]` \
-                             group says what *that* function does, and nothing \
-                             here could establish the claim on its behalf. State \
-                             what a call of someone else's function leaves behind \
-                             with a `refn` in the qualifier",
-                            q.name.name, p.name.name, p.name.name
-                        ),
+                        messages::deduce_reapply_group_claim(&q.name.name, &p.name.name),
                     );
                 }
             }
@@ -22744,15 +21103,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let Some(param_name) = d.param_name() else {
                 for q in reapplied {
-                    self.error(
-                        q.span,
-                        format!(
-                            "`+{}` states what this function establishes about a \
-                             *parameter*, so it needs one: write it on the \
-                             parameter's entry (`=> p: +{} Mut`)",
-                            q.name.name, q.name.name
-                        ),
-                    );
+                    self.error(q.span, messages::deduce_reapply_no_param(&q.name.name));
                 }
                 continue;
             };
@@ -22768,30 +21119,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             for q in reapplied {
                 let name = q.name.name.as_str();
                 if matches!(name, "Mut" | "proj" | "ref" | "linear" | "once") {
-                    self.error(
-                        q.span,
-                        format!(
-                            "`{name}` cannot be established: it is the \
-                             compiler's own qualifier — a representation choice \
-                             rather than a claim about the value — and nothing \
-                             could establish it. Only a qualifier declared in \
-                             this file may be written `+{name}`"
-                        ),
-                    );
+                    self.error(q.span, messages::deduce_reapply_compiler_qualifier(&name));
                     continue;
                 }
                 if !self.own_qualifiers.contains(name) {
-                    self.error(
-                        q.span,
-                        format!(
-                            "`+{name}` establishes `{name}`, which this file \
-                             does not declare: a function may only claim to \
-                             establish a qualifier its own file owns, the same \
-                             rule a constructor fn and a refinement follow. \
-                             Declare a constructor there, or consume the value \
-                             and return it as `{name}`"
-                        ),
-                    );
+                    self.error(q.span, messages::deduce_reapply_foreign_qualifier(&name));
                     continue;
                 }
                 let Some(param_ty) = &param else { continue };
@@ -22816,16 +21148,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         };
                         self.error(
                             q.span,
-                            format!(
-                                "`+{name}<{}>` does not match the claim on `{}`, \
-                                 which is `{name}<{}>`: a re-established claim is \
-                                 the parameter's own, so its arguments cannot \
-                                 differ — a *different* one is a new value, and \
-                                 belongs in the return type (`-> … as {name}<{}>`)",
-                                show(&lowered.args),
-                                param_name.name,
-                                show(&pq.args),
-                                show(&lowered.args)
+                            messages::deduce_reapply_args_differ(
+                                &name,
+                                &show(&lowered.args),
+                                &param_name.name,
+                                &show(&pq.args),
                             ),
                         );
                         continue;
@@ -22839,11 +21166,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                             if !self.qual_applies(decl, param_ty.strip_quals()) {
                                 self.error(
                                     q.span,
-                                    format!(
-                                        "qualifier `{name}` does not apply to \
-                                         `{param_ty}`, so this function cannot \
-                                         establish it on `{}`",
-                                        param_name.name
+                                    messages::deduce_reapply_does_not_apply(
+                                        &name,
+                                        &param_ty,
+                                        &param_name.name,
                                     ),
                                 );
                                 continue;
@@ -22867,19 +21193,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     .collect();
                                 self.error(
                                     q.span,
-                                    format!(
-                                        "`+{name}` establishes a claim with no \
-                                         identity: `{name}` holds {} that every \
-                                         operation reading the claim binds, so \
-                                         the claim has to name what this function \
-                                         established it with — write \
-                                         `+{name}<…, {}>`",
-                                        if slots.len() == 1 {
+                                    messages::deduce_reapply_no_identity(
+                                        &name,
+                                        &(if slots.len() == 1 {
                                             "a function"
-                                        } else {
+                                            } else {
                                             "functions"
-                                        },
-                                        slots.join(", ")
+                                            }),
+                                        &slots.join(", "),
                                     ),
                                 );
                                 continue;
@@ -22929,10 +21250,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         let base_is_provenance = base_name.as_deref().is_some_and(|n| self.is_provenance_qual(n));
         let Some(rt) = &f.return_type else {
-            self.error(
-                span,
-                "a type-named function must declare a return type [fn-type-named]",
-            );
+            self.error(span, messages::fn_type_named_no_return());
             return;
         };
         let ret = self.lower_type(rt);
@@ -22950,11 +21268,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !carries(q) {
                 self.error(
                     rt.span(),
-                    format!(
-                        "`{}` is named after `{named}`, so its return type must carry \
-                         the `{q}` qualifier [fn-type-named]",
-                        f.name.name
-                    ),
+                    messages::fn_type_named_missing_qualifier(&f.name.name, &named, &q),
                 );
             }
         }
@@ -22969,11 +21283,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !has {
                     self.error(
                         rt.span(),
-                        format!(
-                            "`{}` is named after the provenance qualifier `{bn}`, so its \
-                             return type must carry it (`-> +{bn} T`) [fn-type-named]",
-                            f.name.name
-                        ),
+                        messages::fn_type_named_missing_provenance(&f.name.name, &bn),
                     );
                 }
             } else {
@@ -22984,19 +21294,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if ret_base.as_deref() != Some(bn.as_str()) {
                     self.error(
                         rt.span(),
-                        format!(
-                            "`{}` is named after `{named}`, so its return type's base must \
-                             be `{bn}`, not `{ret}` [fn-type-named]",
-                            f.name.name
-                        ),
+                        messages::fn_type_named_wrong_base(&f.name.name, &named, &bn, &ret),
                     );
                 }
             }
         } else {
-            self.error(
-                span,
-                "a type-named function's name must have a base type [fn-type-named]",
-            );
+            self.error(span, messages::fn_type_named_no_base());
         }
     }
 
@@ -23005,44 +21308,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         let name = cref.name.name.as_str();
         let subject = f.return_type.as_ref().map(|t| self.lower_type(t));
         let Some(decl) = self.qualifier_for(name, subject.as_ref()) else {
-            self.error(
-                cref.span,
-                format!("unknown qualifier `{name}` in constructor return type"),
-            );
+            self.error(cref.span, messages::qual_ctor_fn_unknown_qualifier(&name));
             return;
         };
         if !self.own_qualifiers.contains(name) {
-            self.error(
-                cref.span,
-                format!(
-                    "constructor functions for `{name}` must be declared in the \
-                     same file as the qualifier"
-                ),
-            );
+            self.error(cref.span, messages::qual_ctor_same_file_other_file(&name));
         }
         let Some(rt) = &f.return_type else {
-            self.error(
-                cref.span,
-                "a qualifier constructor must declare a return type",
-            );
+            self.error(cref.span, messages::qual_ctor_fn_no_return());
             return;
         };
         let base = self.lower_type(rt);
         match base.strip_quals() {
-            Ty::Union(_) => self.error(
-                rt.span(),
-                "a qualifier constructor must return a simple type, not a union",
-            ),
-            Ty::Tuple(_) => self.error(
-                rt.span(),
-                "a qualifier constructor must return a simple type, not a tuple",
-            ),
+            Ty::Union(_) => self.error(rt.span(), messages::qual_ctor_simple_union()),
+            Ty::Tuple(_) => self.error(rt.span(), messages::qual_ctor_simple_tuple()),
             other => {
                 if !self.qual_applies(decl, other) {
-                    self.error(
-                        rt.span(),
-                        format!("qualifier `{name}` does not apply to `{base}`"),
-                    );
+                    self.error(rt.span(), messages::qual_ctor_simple_does_not_apply(&name, &base));
                 }
             }
         }
@@ -23794,15 +22076,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             _ => vec![subj_ty.clone()],
         };
         if declared.len() < 2 {
-            self.error(
-                span,
-                format!(
-                    "`?:` on `{subj_ty}` keeps its only arm and leaves nothing for \
-                     the right-hand side: `?:` picks the first arm of a union with \
-                     more than one (the same dead scaffolding a throw-free `try` is \
-                     refused for)"
-                ),
-            );
+            self.error(span, messages::op_elvis_single_arm(&subj_ty));
             let _ = self.check_expr(rhs, None);
             return Ty::Unknown;
         }
@@ -23902,13 +22176,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let read = std::mem::replace(&mut self.placeholder_read, saw_before);
         self.placeholder_ty = saved;
         if !read && !rhs_ty.is_unknown() {
-            self.error(
-                rhs.span(),
-                "the right side of `|>` must use the piped value `_` \
-                 (`x |> f(_)`); it reads nothing here, so write a plain \
-                 statement instead"
-                    .to_string(),
-            );
+            self.error(rhs.span(), messages::expr_pipe_unused_placeholder());
         }
         rhs_ty
     }
@@ -23934,13 +22202,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             _ => vec![lhs_ty.clone()],
         };
         if declared.len() < 2 {
-            self.error(
-                span,
-                format!(
-                    "`?>` pipes the first arm of a union, but this value is \
-                     `{lhs_ty}` — it has only one arm, so write a plain `|>`"
-                ),
-            );
+            self.error(span, messages::expr_safe_pipe_single_arm(&lhs_ty));
             let saved = self.placeholder_ty.replace(Ty::Unknown);
             let _ = self.check_expr(rhs, None);
             self.placeholder_ty = saved;
@@ -23957,13 +22219,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let read = std::mem::replace(&mut self.placeholder_read, saw_before);
         self.placeholder_ty = saved;
         if !read && !rhs_ty.is_unknown() && !matches!(rhs_ty, Ty::Never) {
-            self.error(
-                rhs.span(),
-                "the right side of `?>` must use the piped value `_` \
-                 (`x ?> f(_)`); it reads nothing here, so write a plain \
-                 statement instead"
-                    .to_string(),
-            );
+            self.error(rhs.span(), messages::expr_safe_pipe_unused_placeholder());
         }
         // A diverging right side: the first-arm path left, so the result is
         // the pass-through arms only ([expr-escape], mirroring `?:`'s
@@ -24010,23 +22266,18 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `^` removes qualifiers: a base type in the check would be an `is`
         // question, not a widening one.
         if pat.base.is_some() || pat.is_none {
-            self.error(
-                span,
-                "`^` removes qualifiers, so its right side is qualifier \
-                 names only (use `is` to check a type)"
-                    .to_string(),
-            );
+            self.error(span, messages::qual_lift_not_qualifiers());
             return unchanged;
         }
         if pat.quals.is_empty() {
-            self.error(span, "`^` needs a qualifier to remove".to_string());
+            self.error(span, messages::qual_lift_nothing_named());
             return unchanged;
         }
         // [qual-lift] The single exclusion list, shared with `Qual T <: T`.
         let mut blocked = false;
         for q in &pat.quals {
             if let Some(reason) = self.removal_block(q) {
-                self.error(span, format!("`{q}` cannot be removed with `^`: {reason}"));
+                self.error(span, messages::qual_lift_cannot_remove(&q, &reason));
                 blocked = true;
             }
         }
@@ -24055,14 +22306,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // The diagnostic names that remedy.
                     self.error(
                         span,
-                        format!(
-                            "`is ^{}` matches more than one arm of \
-                             `{subj_ty}`: lifting re-reads the subject, which \
-                             cannot stand for several arms at once — bind the \
-                             lifted value instead (`is ^{} name`)",
-                            pat.quals.join(" ^"),
-                            pat.quals.join(" ^")
-                        ),
+                        messages::qual_lift_several_arms(&pat.quals.join(" ^"), &subj_ty),
                     );
                     return unchanged;
                 }
@@ -24073,11 +22317,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if stripped.len() != m.len() || m.is_empty() {
                     self.error(
                         span,
-                        format!(
-                            "no arm of `{subj_ty}` carries `{}`, so there is \
-                             nothing for `^` to remove",
-                            pat.quals.join(" ")
-                        ),
+                        messages::qual_lift_no_arm_carries(&subj_ty, &pat.quals.join(" ")),
                     );
                     return unchanged;
                 }
@@ -24091,11 +22331,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if !other.is_unknown() && !matches!(other, Ty::Never) {
                         self.error(
                             span,
-                            format!(
-                                "`{other}` does not carry `{}`, so there is \
-                                 nothing for `^` to remove",
-                                pat.quals.join(" ")
-                            ),
+                            messages::qual_lift_not_carried(&other, &pat.quals.join(" ")),
                         );
                     }
                     return unchanged;
@@ -24183,15 +22419,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // that reorders between runs is not comparable in tests.
         unused.sort_by_key(|(_, span)| span.order_key());
         for (name, span) in unused {
-            let msg = format!(
-                "`{name}` is never used; prefix it with `_` (`_{name}`) if \
-                 that is deliberate"
-            );
+            let msg = messages::var_unused_never_used(&name);
             // [comptime-copy-warn] In a copy of an expanded-in-place fn,
             // counted against the copies that declared it: reported once,
             // and only if no copy used it.
             if let Some(at) = self.in_place_written(span) {
-                let entry = self.copy_unused.entry((at.start, at.end)).or_insert((0, msg));
+                let (id, text) = msg.into_message();
+                let entry = self.copy_unused.entry((at.start, at.end)).or_insert((0, id, text));
                 entry.0 += 1;
                 continue;
             }
@@ -24228,7 +22462,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let last = block.stmts.len().saturating_sub(1);
         for (si, stmt) in block.stmts.iter().enumerate() {
             if diverged && !self.is_std {
-                self.warn(stmt.span(), "this code is unreachable: an earlier statement never returns");
+                self.warn(stmt.span(), messages::expr_dead_code_unreachable());
                 diverged = false; // one warning per run of dead code
             }
             if si == last {
@@ -24269,11 +22503,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // parse error; inside one, the expansion removed it. Reaching here
             // means the expansion did not run, which every driver arranges.
             Stmt::Comp(c) => {
-                self.error(
-                    c.span(),
-                    "internal: a comptime statement reached the checker — the comptime \
-                     expansion did not run [comptime-inline]",
-                );
+                self.error(c.span(), messages::comptime_inline_not_expanded());
                 Ty::none()
             }
             Stmt::Let {
@@ -24302,7 +22532,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let why = consumed_borrow_hint(&value_ty, ann, &what).map(|h| format!(": {h}")).unwrap_or_default();
                         self.error(
                             value.span(),
-                            format!("expected `{ann}`, found `{value_ty}`{why}"),
+                            messages::var_let_infer_annotation_mismatch(&ann, &value_ty, &why),
                         );
                     }
                 }
@@ -24345,7 +22575,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         None => {
                             self.error(
                                 id.span,
-                                format!("assignment to undeclared variable `{}`", id.name),
+                                messages::name_resolve_assign_undeclared(&id.name),
                             );
                             Ty::Unknown
                         }
@@ -24360,14 +22590,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // rule of the assignment it desugars to.
                         let place_ok = is_assignable_place(other);
                         if !place_ok {
-                            self.error(
-                                other.span(),
-                                "this is not a place, so it cannot be assigned \
-                                 to: an assignment writes a variable, a field \
-                                 path (`p.name`) or a subscript (`xs[i]`). A \
-                                 call answers a value, and writing to it would \
-                                 write to nothing",
-                            );
+                            self.error(other.span(), messages::op_assign_not_a_place());
                         }
                         let ty = self.check_expr(other, None);
                         // A target that is not a place has been reported:
@@ -24394,11 +22617,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                             if is_struct && !has_mut {
                                 self.error(
                                     field.span,
-                                    format!(
-                                        "cannot assign to field `{}` of an immutable \
-                                         `{base_ty}` value: only `Mut`-qualified \
-                                         values may have fields assigned",
-                                        field.name
+                                    messages::struct_mut_immutable_field_assign(
+                                        &field.name,
+                                        &base_ty,
                                     ),
                                 );
                             }
@@ -24408,14 +22629,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // cannot apply to a tuple [qual-union-arm], so no
                         // tuple value can grant mutation permission.
                         if let Expr::TupleIndex { index, span, .. } = other {
-                            self.error(
-                                *span,
-                                format!(
-                                    "cannot assign to tuple element `{index}`: `Mut` \
-                                     cannot apply to a tuple, so tuple elements are \
-                                     read-only — rebuild the tuple instead"
-                                ),
-                            );
+                            self.error(*span, messages::expr_tuple_index_assign(&index));
                         }
                         // Assigning through a projection mutates the root
                         // variable [fate-poison]; mutating a derived
@@ -24435,10 +22649,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !is_subtype(&value_ty, &target_ty) {
                     self.error(
                         value.span(),
-                        format!(
-                            "cannot assign `{value_ty}` to `{target_ty}` \
-                             (a variable's type can never widen)"
-                        ),
+                        messages::var_no_widen_assign_mismatch(&value_ty, &target_ty),
                     );
                 } else if let Expr::Ident(id) = target {
                     let value_ty = value_ty.clone();
@@ -24453,12 +22664,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if holds_top_borrow(&target_ty) && !holds_top_borrow(&value_ty) && !value_ty.is_none_ty() && !value_ty.is_unknown() && !matches!(value_ty, Ty::Never) {
                         self.error(
                             value.span(),
-                            format!(
-                                "`{}` holds a borrow (`{target_ty}`), and this is an owned `{value_ty}`: a variable \
-                                 is a borrow or an owner for its whole life. Make it the owner where it is declared, \
-                                 `let {} = copy(…)` [proj-local]",
-                                id.name, id.name
-                            ),
+                            messages::proj_local_owned_into_borrow(&id.name, &target_ty, &value_ty),
                         );
                     }
                     // [fn-param-const] A parameter is a constant binding.
@@ -24529,10 +22735,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => {
                 // [effect-use-requires-use] only `[use]` fns may register handlers.
                 if !self.can_use {
-                    self.error(
-                        *span,
-                        "`use` requires the `use` effect in the function's effect list",
-                    );
+                    self.error(*span, messages::effect_use_requires_use_missing());
                 }
                 self.check_use(handler, with_items, *any, *span);
                 Ty::none()
@@ -24542,12 +22745,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [linear-obligation] A linear value in statement
                 // position is dropped on the spot.
                 if self.ty_own_linear(&ty) {
-                    self.error(
-                        e.span(),
-                        "this expression produces a linear value that is \
-                         dropped immediately; bind it, move it onward, or \
-                         pass it to `discard`",
-                    );
+                    self.error(e.span(), messages::linear_obligation_dropped_statement());
                 }
                 ty
             }
@@ -24611,10 +22809,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         };
                         self.error(
                             *span,
-                            format!(
-                                "this pattern destructures a tuple of {}, but {what}",
-                                elems.len()
-                            ),
+                            messages::var_let_destructure_arity(&elems.len(), &what),
                         );
                         vec![Ty::Unknown; elems.len()]
                     }
@@ -24724,12 +22919,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     self.error(
                         inner.span(),
-                        format!(
-                            "cannot {action} this value: it is a view of `{root}` (it \
-                             borrows from it), so it can only be read here; use `copy` \
-                             to make an independent value, or declare the borrow on \
-                             this function's return (`proj({root})`)"
-                        ),
+                        messages::fate_derived_readonly_view_moved(&action, &root),
                     );
                     return;
                 }
@@ -24851,23 +23041,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         if linear {
             self.error(
                 span,
-                format!(
-                    "cannot {action} `{name}`: it is a {kind} of handler `{handler}`, \
-                     which owns it for its whole lifetime — and a linear value cannot \
-                     be copied out of it, so there is nothing to hand over here \
-                     [linear-composite]. Discharge it where the handler itself is \
-                     settled"
-                ),
+                messages::linear_composite_handler_storage(&action, &name, &kind, &handler),
             );
         } else {
             self.error(
                 span,
-                format!(
-                    "cannot {action} `{name}`: it is a {kind} of handler `{handler}`, \
-                     which still owns it after this member returns — so the value \
-                     cannot move out. Use `copy({name})` to hand over an independent \
-                     value"
-                ),
+                messages::effect_state_store_moved_out(&action, &name, &kind, &handler),
             );
         }
         true
@@ -24978,15 +23157,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                             let stripped = ty.strip_quals();
                             if stripped.has_none_arm() || stripped.is_none_ty() {
                                 let message = if stripped.is_none_ty() {
-                                    "cannot interpolate `None` into a string: it \
-                                     has no text form"
-                                        .to_string()
+                                    messages::interp_no_none_none_value()
                                 } else {
-                                    format!(
-                                        "cannot interpolate a value that may be \
-                                         `None` (its type is `{ty}`): narrow it \
-                                         first (`is` / `when`) or assert it with `!`"
-                                    )
+                                    messages::interp_no_none_optional_value(&ty)
                                 };
                                 self.error(e.span(), message);
                                 continue;
@@ -25086,13 +23259,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if self.confined_state.iter().any(|n| n == &id.name) {
                     self.error(
                         id.span,
-                        format!(
-                            "`{}` is the servant's state, which a mixed handler \
-                             confines to its `send fn` members: a sync member runs \
-                             on the caller's thread, where reading it would race an \
-                             activation — send to a member that answers instead",
-                            id.name
-                        ),
+                        messages::actor_mixed_handler_servant_state_sync(&id.name),
                     );
                     return Ty::Unknown;
                 }
@@ -25125,10 +23292,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     None
                 };
                 match kind {
-                    Some(what) => self.error(id.span, format!("`{}` is {what}", id.name)),
+                    Some(what) => self.error(
+                        id.span,
+                        messages::name_ident_resolve_not_a_value(&id.name, &what),
+                    ),
                     None => self.error_unresolved(
                         id.span,
-                        format!("no variable or function named `{}` is in scope", id.name),
+                        messages::name_ident_resolve_unknown(&id.name),
                         &id.name,
                     ),
                 }
@@ -25189,7 +23359,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                                             Ok(n) => nested = n,
                                             Err(u) => {
                                                 let text = Self::unfilled_text(&name.name, &want, &u, false);
-                                                self.error(name.span, format!("`{}@{}` fits `{want}` here, but cannot be completed: {text}", name.name, effect.name));
+                                                self.error(
+                                                    name.span,
+                                                    messages::effect_at_value_incomplete(
+                                                        &name.name,
+                                                        &effect.name,
+                                                        &want,
+                                                        &text,
+                                                    ),
+                                                );
                                                 return Ty::Unknown;
                                             }
                                         }
@@ -25209,15 +23387,38 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 Ok(_) => {}
                                 Err(ImplicitMiss::Ambiguous(c)) => {
                                     let text = Self::implicit_ambiguity(&name.name, &c, None);
-                                    self.error(name.span, format!("`{}@{}` is ambiguous at `{want}`: {text}", name.name, effect.name));
+                                    self.error(
+                                        name.span,
+                                        messages::effect_at_value_ambiguous(
+                                            &name.name,
+                                            &effect.name,
+                                            &want,
+                                            &text,
+                                        ),
+                                    );
                                     return Ty::Unknown;
                                 }
                                 Err(ImplicitMiss::NearMiss(reason)) => {
-                                    self.error(name.span, format!("`{}@{}` does not fit `{want}`: {reason}", name.name, effect.name));
+                                    self.error(
+                                        name.span,
+                                        messages::effect_at_value_near_miss(
+                                            &name.name,
+                                            &effect.name,
+                                            &want,
+                                            &reason,
+                                        ),
+                                    );
                                     return Ty::Unknown;
                                 }
                                 Err(_) => {
-                                    self.error(name.span, format!("`{}@{}` does not fit `{want}`", name.name, effect.name));
+                                    self.error(
+                                        name.span,
+                                        messages::effect_at_value_no_fit(
+                                            &name.name,
+                                            &effect.name,
+                                            &want,
+                                        ),
+                                    );
                                     return Ty::Unknown;
                                 }
                             }
@@ -25226,13 +23427,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.error(
                     name.span,
-                    format!(
-                        "`{}@{}` selects an effect's member, which is a value only \
-                         where a function type is expected and a handler for it is in \
-                         scope: call it (`{}@{}(…)`), or pass it where a function is \
-                         wanted",
-                        name.name, effect.name, name.name, effect.name
-                    ),
+                    messages::effect_at_value_not_expected(&name.name, &effect.name),
                 );
                 Ty::Unknown
             }
@@ -25251,16 +23446,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_expr(base, None);
                     self.error(
                         *span,
-                        format!(
-                            "`{}` here is a *value*, so it takes no receiver: \
-                             write `{}@{}` to name the function, or call it",
-                            name.name,
-                            name.name,
-                            module
-                                .iter()
-                                .map(|m| m.name.as_str())
-                                .collect::<Vec<_>>()
-                                .join(".")
+                        messages::fn_overload_at_value_receiver(
+                            &name.name,
+                            &module.iter().map(|m| m.name.as_str()).collect::<Vec<_>>().join("."),
                         ),
                     );
                     return Ty::Unknown;
@@ -25268,7 +23456,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !self.has_callable(&name.name) {
                     self.error_unresolved(
                         name.span,
-                        format!("no function named `{}` is in scope", name.name),
+                        messages::call_resolve_unknown_fn(&name.name),
                         &name.name,
                     );
                     return Ty::Unknown;
@@ -25353,15 +23541,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     Ty::Unknown | Ty::Never => Ty::Unknown,
                     other => {
                         let other = other.clone();
-                        self.error(
-                            *span,
-                            format!(
-                                "`{other}` cannot be indexed with `[]`: only \
-                                 arrays can, and other collections expose \
-                                 element access as functions (e.g. \
-                                 `get(collection, index)`)"
-                            ),
-                        );
+                        self.error(*span, messages::col_index_resolve_not_indexable(&other));
                         Ty::Unknown
                     }
                 }
@@ -25427,13 +23607,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let t = self.check_expr(operand, expected);
                         let tb = t.strip_quals();
                         if !op_lenient(tb) && op_numeric(tb).is_none() {
-                            self.error(
-                                operand.span(),
-                                format!(
-                                    "unary `-` needs a numeric operand (`Int`, `Long`, \
-                                     `Float`, `Double`); found `{t}`"
-                                ),
-                            );
+                            self.error(operand.span(), messages::op_arith_unary_minus(&t));
                         }
                         t
                     }
@@ -25547,13 +23721,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [expr-cond-bool] No truthiness: the condition is a `Bool`.
                 if let Some(t) = cond_ty {
                     if !matches!(t, Ty::Unknown) && t.to_string() != "Bool" {
-                        self.error(
-                            cond.span(),
-                            format!(
-                                "an `assert!` condition must be a `Bool`, found \
-                                 `{t}` [expr-cond-bool]"
-                            ),
-                        );
+                        self.error(cond.span(), messages::expr_cond_bool_assert_condition(&t));
                     }
                 }
                 self.install_narrows(&info.then_narrows);
@@ -25589,7 +23757,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_assert_message(m);
                 }
                 if !self.is_std {
-                    self.warn(*span, "`todo!()` marks code that is not implemented yet");
+                    self.warn(*span, messages::assert_fn_todo());
                 }
                 Ty::Never
             }
@@ -25709,13 +23877,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ty
                 }
                 None => {
-                    self.error(
-                        *span,
-                        "`_` is the arms a pick left behind, so it reads only in \
-                         the right-hand side of a pick (`r ?: f(_)`) or a pipe \
-                         (`x |> f(_)`)"
-                            .to_string(),
-                    );
+                    self.error(*span, messages::expr_placeholder_outside_pick());
                     Ty::Unknown
                 }
             },
@@ -25741,20 +23903,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if r.negated && present {
                             self.error(
                                 *span,
-                                format!(
-                                    "this `return true` claims `{} !is {}`, but `{}` \
-                                     carries `{}` on this path [deduce-conditional]",
-                                    r.subject.name, r.qual.name.name, r.subject.name, r.qual.name.name
+                                messages::deduce_conditional_claims_not(
+                                    &r.subject.name,
+                                    &r.qual.name.name,
                                 ),
                             );
                         } else if !r.negated && !present {
                             self.error(
                                 *span,
-                                format!(
-                                    "this `return true` claims `{} is {}`, but nothing on \
-                                     this path proved it — narrow `{}` with `is` first \
-                                     [deduce-conditional]",
-                                    r.subject.name, r.qual.name.name, r.subject.name
+                                messages::deduce_conditional_unproven(
+                                    &r.subject.name,
+                                    &r.qual.name.name,
                                 ),
                             );
                         }
@@ -25798,16 +23957,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // element is.
                         if ref_mint {
                             if let Some(name) = self.reader_call(v) {
-                                self.error(
-                                    v.span(),
-                                    format!(
-                                        "a `ref` result cannot come from a reader: `{name}` answers a borrow, \
-                                         not a position, and a handle is never recovered from a borrow \
-                                         [ref-handle]. Declare `{name}` to return `ref(…)` (a position \
-                                         preserved), or return a place — a field path, a search loop's \
-                                         element, or a mint's result"
-                                    ),
-                                );
+                                self.error(v.span(), messages::ref_handle_from_reader(&name));
                             }
                         }
                         if ref_mint {
@@ -25839,7 +23989,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         {
                             self.error(
                                 v.span(),
-                                format!("expected return type `{expected}`, found `{vty}`"),
+                                messages::fn_syntax_return_mismatch(&expected, &vty),
                             );
                         }
                         // [proj-readonly-return] A derived-return fn
@@ -25888,10 +24038,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     None => {
                         if !expected.is_none_ty() && !expected.is_unknown() {
-                            self.error(
-                                *span,
-                                format!("bare `return` in a function returning `{expected}`"),
-                            );
+                            self.error(*span, messages::fn_return_none_bare_return(&expected));
                         }
                     }
                 }
@@ -25899,7 +24046,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             Expr::Break { value, span } => {
                 if self.loop_stack.is_empty() {
-                    self.error(*span, "`break` outside of a loop");
+                    self.error(*span, messages::expr_escape_break_outside_loop());
                 }
                 // [loop-while-value] `break value` contributes to the loop's
                 // value; a bare `break` may leave the loop without a value.
@@ -25957,7 +24104,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Continue { span } => {
                 match self.loop_stack.last_mut() {
                     Some(ctx) => ctx.may_skip_value = true,
-                    None => self.error(*span, "`continue` outside of a loop"),
+                    None => self.error(*span, messages::expr_escape_continue_outside_loop()),
                 }
                 // [ir-analyze] The continue-path linear leak check moved to
                 // the IR analysis.
@@ -26014,13 +24161,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let mut have: Vec<Ty> = Vec::new();
                 let ok = self.collect_handle_tuple(&base_ty, &mut have);
                 if !ok && !base_ty.is_unknown() {
-                    self.error(
-                        *span,
-                        format!(
-                            "`{base_ty}` is not an effect handle, so it has no effects to \
-                             project — projection `e[A]` narrows an `eff[…]` handle [effect-eff-handle]"
-                        ),
-                    );
+                    self.error(*span, messages::effect_eff_handle_not_a_handle(&base_ty));
                     return Ty::Unknown;
                 }
                 // The requested effects (an alias expands to its members).
@@ -26039,10 +24180,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if !have.iter().any(|h| h == w) {
                         self.error(
                             *span,
-                            format!(
-                                "`{base_ty}` does not carry effect `{w}`, so it cannot be \
-                                 projected out — projection narrows to a subset [effect-eff-handle]"
-                            ),
+                            messages::effect_eff_handle_effect_not_carried(&base_ty, &w),
                         );
                     }
                 }
@@ -26083,10 +24221,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         } else if !ty.is_unknown() {
                             self.error(
                                 item.span(),
-                                format!(
-                                    "`eff[…]` merges effect handles, and `{ty}` is not one: \
-                                     each item is a bound handle [effect-eff-handle]"
-                                ),
+                                messages::effect_eff_handle_merge_not_handle(&ty),
                             );
                         }
                     }
@@ -26131,14 +24266,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // member is [effect-not-data]. Reached only when one is written
             // without a call.
             Expr::SelfScoped { name, span } => {
-                self.error(
-                    *span,
-                    format!(
-                        "`{}@self` names a member of the enclosing handler, which is \
-                         not a value: call it (`{}@self(…)`) to send it a message",
-                        name.name, name.name
-                    ),
-                );
+                self.error(*span, messages::actor_self_send_member_value(&name.name));
                 Ty::Unknown
             }
             // [handler-init] `self@Face`: the enclosing handler's own address
@@ -26147,12 +24275,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // activation has an address to read.
             Expr::SelfAddr { face, span } => {
                 let Some(h) = self.own_handler else {
-                    self.error(
-                        *span,
-                        "`self@…` names the enclosing handler's own address, so it is legal \
-                         only inside a handler member or its `init` block"
-                            .to_string(),
-                    );
+                    self.error(*span, messages::actor_self_send_address_outside_member());
                     return Ty::Unknown;
                 };
                 let Some(ty) = self.lower_effect_ref(face) else {
@@ -26167,12 +24290,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let faces: Vec<String> = self.handler_ofs.iter().map(|t| t.to_string()).collect();
                     self.error(
                         *span,
-                        format!(
-                            "`self@{ty}`: handler `{}` has no actor face `{ty}` — it implements `{}` — \
-                             and an address is a face of an actor effect",
-                            h.name.name,
-                            faces.join("`, `")
-                        ),
+                        messages::actor_self_send_no_face(&ty, &h.name.name, &faces.join("`, `")),
                     );
                     return Ty::Unknown;
                 }
@@ -26548,7 +24666,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let name = name.clone();
                         self.error(
                             field.span,
-                            format!("struct `{name}` has no field `{}`", field.name),
+                            messages::struct_field_resolve_no_field(&name, &field.name),
                         );
                     }
                     Ty::Unknown | Ty::Never => {}
@@ -26564,24 +24682,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let name = name.clone();
                         self.error(
                             field.span,
-                            format!(
-                                "`{name}` is a type parameter, so nothing is known \
-                                 about its values: it has no field `{}`. Take the \
-                                 concrete type as a parameter instead",
-                                field.name
-                            ),
+                            messages::struct_field_resolve_type_param(&name, &field.name),
                         );
                     }
                     other => {
                         let other = other.clone();
                         self.error(
                             field.span,
-                            format!(
-                                "`{other}` has no field `{}`: only structs have \
-                                 fields, and a target-language member needs an \
-                                 accessor fn",
-                                field.name
-                            ),
+                            messages::struct_field_resolve_not_a_struct(&other, &field.name),
                         );
                     }
                 }
@@ -26611,23 +24719,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let len = elems.len();
                     self.error(
                         span,
-                        format!(
-                            "tuple `{base_ty}` has {len} element(s), so it has no \
-                             element `{index}`"
-                        ),
+                        messages::expr_tuple_index_out_of_range(&base_ty, &len, &index),
                     );
                     Ty::Unknown
                 }
             },
             other if other.is_unknown() || matches!(other, Ty::Never) => Ty::Unknown,
             _ => {
-                self.error(
-                    span,
-                    format!(
-                        "`.{index}` reads a tuple element, but `{base_ty}` is not a \
-                         tuple"
-                    ),
-                );
+                self.error(span, messages::expr_tuple_index_not_a_tuple(&index, &base_ty));
                 Ty::Unknown
             }
         }
@@ -26881,14 +24980,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ..
         } = iterable
         else {
-            self.error(
-                span,
-                format!(
-                    "`{iter_ty}` is a step's result, not something to iterate: `for` \
-                     re-invokes a step *call* each turn (`for x in next(p)`), so \
-                     write the call in the loop header rather than its value"
-                ),
-            );
+            self.error(span, messages::iter_step_call_step_value(&iter_ty));
             return Some(Ty::Unknown);
         };
         let mut all: Vec<&'p Expr> = Vec::new();
@@ -26899,12 +24991,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         all.extend(named.iter().map(|n| &n.value));
         for a in &all {
             if !is_step_call_arg(a) {
-                self.error(
-                    a.span(),
-                    "a step call in a `for` header is re-invoked every turn, so each \
-                     argument has to be a place (a variable or a field path) or a \
-                     literal: bind this expression with `let` first",
-                );
+                self.error(a.span(), messages::iter_step_call_argument_not_place());
             }
         }
         // The callee's contract: every argument kept, so the call can repeat.
@@ -26929,12 +25016,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let at = all.get(i).map(|a| a.span()).unwrap_or(span);
                         self.error(
                             at,
-                            format!(
-                                "`{callee_name}` consumes its parameter `{}`, so it cannot be \
-                                 re-invoked on the same argument each turn: a step called \
-                                 from a `for` header keeps every argument (`=> {}: Mut`)",
-                                p.name.name, p.name.name
-                            ),
+                            messages::iter_step_call_consumes_argument(&callee_name, &p.name.name),
                         );
                     }
                 }
@@ -27182,12 +25264,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !self.for_fits("next", &it) {
                 self.error(
                     span,
-                    format!(
-                        "`{subject}` is not iterable: `for` over it is `{call}`, and `iter({subject})` \
-                         is a `{it}`, which no `next` in scope takes — declare `next(it: Mut {}) -> \
-                         Emitted T | Finished` beside it [iter-protocol]",
-                        it.strip_quals()
-                    ),
+                    messages::iter_protocol_no_next(&subject, &call, &it, &it.strip_quals()),
                 );
                 return Ty::Unknown;
             }
@@ -27227,7 +25304,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let (d, f) = home.expect("checked above");
                 format!(
                     ": a `next` over it is declared in `{}`, and is not in scope here — import \
-                     `{}.{}`, whose `next` travels with it [fn-attached]",
+                     `{}.{}`, whose `next` travels with it",
                     self.files[f].module,
                     self.files[f].module,
                     d.name.name
@@ -27240,14 +25317,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ),
             _ => String::new(),
         };
-        self.error(
-            span,
-            format!(
-                "`{subject}` is not iterable: `for x in e` is `next(e)` when a `next` takes `e`, and \
-                 `next(iter(e))` otherwise, and no `next` or `iter` in scope takes \
-                 `{subject}`{remedy} [iter-resolve]"
-            ),
-        );
+        self.error(span, messages::iter_resolve_not_iterable(&subject, &remedy));
         Ty::Unknown
     }
 
@@ -27326,26 +25396,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         }
         let Some((elem, emitted_arm, arms)) = emitted_arm_ty(ret.strip_quals()) else {
-            self.error(
-                span,
-                format!(
-                    "`for` over `{subject}` is `{call}`, which must return `Emitted T | Finished`, \
-                     and the `next` it resolves to returns `{ret}` [iter-protocol]"
-                ),
-            );
+            self.error(span, messages::iter_protocol_next_return(&subject, &call, &ret));
             return Ty::Unknown;
         };
         // [iter-protocol] Advancing an iterator mutates its position, and the
         // backends pass a mutable place.
         let (mutable, state) = self.for_next_state(next_key, pass);
         if !mutable {
-            self.error(
-                span,
-                format!(
-                    "`next` has to take its state as `Mut {state}` — advancing an iterator \
-                     mutates its position"
-                ),
-            );
+            self.error(span, messages::iter_protocol_next_not_mut(&state));
         }
         let bare = pass.strip_quals().clone();
         // [linear-group] No implicit discharge sites (user decision
@@ -27355,26 +25413,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         let in_place = minted.is_none() && self.drives_in_place(iterable);
         if !in_place && !matches!(bare, Ty::Var(_)) && self.ty_own_linear(&bare) {
             let hint = self.linear_discharge_hint(&bare);
-            self.error(
-                span,
-                format!(
-                    "a `for` cannot consume a linear iterator (`{bare}`): the loop never \
-                     discharges what it drives — bind the iterator with `let`, loop over it, \
-                     then discharge it with {hint}"
-                ),
-            );
+            self.error(span, messages::iter_drive_in_place_linear_consumed(&bare, &hint));
         } else if !in_place && minted.is_none() && matches!(bare, Ty::Var(_)) && self.ty_own_linear(&bare) {
-            self.error(
-                span,
-                format!(
-                    "a `for` cannot consume an iterator that may be linear \
-                     (`{bare}` is `canbe linear`): the loop never discharges \
-                     what it drives — keep the iterator (drive it in place and let \
-                     the caller discharge it), or take a consuming callback \
-                     (`end: ({bare}) -> None` with `=>[end] !it`) and hand \
-                     the iterator to it after the loop"
-                ),
-            );
+            self.error(span, messages::iter_drive_in_place_maybe_linear_consumed(&bare));
         }
         self.out.for_drivers.insert(
             self.key(span),
@@ -27587,16 +25628,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .var_by_id(cap.var_id)
                     .is_some_and(|v| self.ty_own_linear(&v.declared));
                 if is_linear {
-                    self.error(
-                        span,
-                        format!(
-                            "this lambda captures and mutates `{}`, which \
-                             holds a linear value: the closure would swallow \
-                             its obligation; restructure so the value is \
-                             passed explicitly",
-                            cap.name
-                        ),
-                    );
+                    self.error(span, messages::linear_lambda_captures_linear(&cap.name));
                     continue;
                 }
                 let is_kept_param = self.var_by_id(cap.var_id).is_some_and(|v| v.is_param)
@@ -27609,16 +25641,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // by the capture; there is no such inference now, so the
                     // move must be declared with `=> !p`, or the capture made
                     // over a `copy`.)
-                    self.error(
-                        span,
-                        format!(
-                            "this lambda captures and mutates `{}`, which is a kept \
-                             parameter (the caller keeps it): capture \
-                             `copy({})` instead, or declare the move with \
-                             `=> !{}`",
-                            cap.name, cap.name, cap.name
-                        ),
-                    );
+                    self.error(span, messages::fate_lambda_captures_kept(&cap.name));
                     continue;
                 }
                 // Consume the original: the closure owns the value now.
@@ -27809,15 +25832,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [comptime-fields] A compile-time type is never constructed.
         if decl.comptime {
-            self.error(
-                span,
-                format!(
-                    "`{}` is a compile-time type (`core.comptime`) and has no values: the \
-                     compiler fills it for a `comptime fn`, and nothing constructs one \
-                     [comptime-fields]",
-                    decl.name.name
-                ),
-            );
+            self.error(span, messages::comptime_fields_literal(&decl.name.name));
         }
         // [linear-composite] A generic field type hides the store from the
         // struct's own declaration (`struct Box<T> { item: T }`), so the
@@ -27911,7 +25926,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             if !is_subtype(&vty, &fty) {
                                 self.error(
                                     value.span(),
-                                    format!("field `{}` expects `{fty}`, found `{vty}`", name.name),
+                                    messages::struct_decl_field_mismatch(&name.name, &fty, &vty),
                                 );
                             }
                             provided.insert(&name.name);
@@ -27920,7 +25935,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                             self.check_expr(value, None);
                             self.error(
                                 name.span,
-                                format!("struct `{}` has no field `{}`", decl.name.name, name.name),
+                                messages::struct_field_resolve_literal_no_field(
+                                    &decl.name.name,
+                                    &name.name,
+                                ),
                             );
                         }
                     }
@@ -27949,12 +25967,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if !sty.is_unknown() && !sty.quals().iter().any(|q| q.name == "Mut") {
                         self.error(
                             e.span(),
-                            format!(
-                                "a `Mut {}` literal cannot take field `{}` (`canbe Mut`) from a \
-                                 plain `{sty}`: it would make the field mutable where the plain \
-                                 value is not; spread a `Mut` value, or give `{}` here \
-                                 [struct-field-canbe-mut]",
-                                decl.name.name, df.name.name, df.name.name
+                            messages::struct_field_canbe_mut_plain_spread(
+                                &decl.name.name,
+                                &df.name.name,
+                                &sty,
                             ),
                         );
                     }
@@ -27962,10 +25978,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if spreads.is_empty() && df.default.is_some() {
                     self.error(
                         span,
-                        format!(
-                            "a `Mut {}` literal must give field `{}`: its default is a plain \
-                             value and the field is `canbe Mut` [struct-field-canbe-mut]",
-                            decl.name.name, df.name.name
+                        messages::struct_field_canbe_mut_default_not_mut(
+                            &decl.name.name,
+                            &df.name.name,
                         ),
                     );
                     provided.insert(&df.name.name);
@@ -27977,10 +25992,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if df.default.is_none() && !provided.contains(df.name.name.as_str()) {
                     self.error(
                         span,
-                        format!(
-                            "missing field `{}` in `{}` literal",
-                            df.name.name, decl.name.name
-                        ),
+                        messages::struct_defaults_missing_field(&df.name.name, &decl.name.name),
                     );
                 }
             }
@@ -28054,16 +26066,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         });
         for span in offenders {
-            self.error(
-                span,
-                format!(
-                    "this `is` binds its subject, and the subject is not a variable or \
-                     a field chain — so it has to be evaluated exactly once, which is \
-                     only possible when the `is` is the whole condition of a `while` or \
-                     of an `if`'s first branch (here it is {what}). Bind the subject \
-                     first: `let x = …` and then test `x`"
-                ),
-            );
+            self.error(span, messages::is_bind_once_not_hoistable(&what));
         }
     }
 
@@ -28328,14 +26331,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if ty.is_unknown() || matches!(ty, Ty::Never) || ty.is_bool() {
             return;
         }
-        self.error(
-            span,
-            format!(
-                "a condition must be a `Bool` (found `{ty}`): Salvo has no \
-                 truthiness — compare explicitly (`n != 0`, `list.size() > 0`) or \
-                 test the type with `is`"
-            ),
-        );
+        self.error(span, messages::expr_cond_bool_not_bool(&ty));
     }
 
     /// [is-qualifies] [qual-depend] Validates a predicate-qualifier check —
@@ -28355,10 +26351,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (q, decl) in pat.quals.iter().zip(resolved) {
             let Some(decl) = *decl else { continue };
             if !self.qual_applies(decl, subj_ty.strip_quals()) {
-                self.error(
-                    span,
-                    format!("qualifier `{q}` does not apply to `{subj_ty}`"),
-                );
+                self.error(span, messages::is_qualifies_does_not_apply(&q, &subj_ty));
             }
         }
         // [qual-depend] A dependent qualifier's value slots are filled
@@ -28372,10 +26365,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // (`type_ref_files`), and recorded at its own node.
             let slots: &'p [ast::ValueSlot] = decl.map(|d| d.value_slots.as_slice()).unwrap_or(&[]);
             if slots.is_empty() && !args.is_empty() {
-                self.error(
-                    args[0].1,
-                    format!("`{q}` takes no value arguments"),
-                );
+                self.error(args[0].1, messages::qual_depend_no_value_args(&q));
                 checks.push(PredicateCheck { name: q.clone(), args: Vec::new(), implicits_at: None });
                 continue;
             }
@@ -28384,13 +26374,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     slots.iter().map(|s| s.name.name.clone()).collect();
                 self.error(
                     span,
-                    format!(
-                        "`{q}` depends on {} value(s) ({}): write the filled \
-                         form, `{q}({})`",
-                        slots.len(),
-                        filled.join(", "),
-                        filled.join(", ")
-                    ),
+                    messages::qual_depend_unfilled(&q, &slots.len(), &filled.join(", ")),
                 );
                 checks.push(PredicateCheck { name: q.clone(), args: Vec::new(), implicits_at: None });
                 continue;
@@ -28413,7 +26397,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if !matches!(want.strip_quals(), Ty::Named { name, args } if args.is_empty() && name == c.base()) && !want.is_unknown() {
                         self.error(
                             *pspan,
-                            format!("`{c}` fills the `{}` slot of `{q}`, which needs `{want}`, not `{}` [qual-const]", slot.name.name, c.base()),
+                            messages::qual_const_slot_mismatch(
+                                &c,
+                                &slot.name.name,
+                                &q,
+                                &want,
+                                &c.base(),
+                            ),
                         );
                     }
                     rendered.push(PredicateArg {
@@ -28423,10 +26413,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue;
                 }
                 let Some((place_ty, place_roots)) = self.place_ty_and_roots(path) else {
-                    self.error(
-                        *pspan,
-                        format!("`{path}` is not a value in scope"),
-                    );
+                    self.error(*pspan, messages::qual_depend_not_a_value(&path));
                     continue;
                 };
                 // [ref-notsame] A `NotSame` claim is about the handle itself,
@@ -28457,10 +26444,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !fits {
                     self.error(
                         *pspan,
-                        format!(
-                            "`{path}` fills the `{}` slot of `{q}`, which needs \
-                             `{want}`, not `{place_ty}`",
-                            slot.name.name
+                        messages::qual_depend_slot_mismatch(
+                            &path,
+                            &slot.name.name,
+                            &q,
+                            &want,
+                            &place_ty,
                         ),
                     );
                 }
@@ -28528,14 +26517,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .iter()
                     .any(|c| matches!(&c.ty, Ty::Named { name, .. } if name == ename));
                 if !available {
-                    self.error(
-                        span,
-                        format!(
-                            "predicate qualifier `{q}` requires effect `{ename}`, \
-                             but no handler for it is in scope (declare it in the \
-                             function's effect list or `use` a handler)"
-                        ),
-                    );
+                    self.error(span, messages::is_qualifies_effects_no_handler(&q, &ename));
                 }
             }
         }
@@ -28586,7 +26568,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if is_predicate {
             if let Some(base) = &pat.base {
                 if !is_subtype(subj_ty.strip_quals(), base) {
-                    self.error(*span, "this check can never succeed".to_string());
+                    self.error(*span, messages::is_qualifies_never_succeeds());
                 }
             }
             dependent_args = self.check_predicate_quals(&pat, &resolved, &subj_ty, *span);
@@ -28608,7 +26590,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     UnionTest { size: 1, arms: vec![0], nullable: false, match_none: false, values: vec![(0, false, vec![lit.clone()])] },
                 );
             } else {
-                self.error(*span, format!("this check can never succeed: a `{repr}` is never `{lit}`"));
+                self.error(*span, messages::type_literal_never_matches(&repr, &lit));
             }
         } else if !pat.quals.is_empty() && !matches!(subj_ty, Ty::Union(_)) && !pat.unresolved {
             // [qual-constructive] no runtime test exists for constructive
@@ -28620,19 +26602,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .find(|(_, d)| d.is_some_and(|d| !d.has_body))
                 .map(|(q, _)| q);
             match constructive {
-                Some(q) => self.error(
-                    *span,
-                    format!(
-                        "`{q}` is a constructive qualifier; values only gain it \
-                         from constructor functions, so it cannot be tested with `is` \
-                         on a non-union value"
-                    ),
-                ),
-                None => self.error(
-                    *span,
-                    "this qualifier check cannot be performed at runtime \
-                     (unknown qualifier)",
-                ),
+                Some(q) => self.error(*span, messages::qual_constructive_is_test(&q)),
+                None => self.error(*span, messages::is_qualifies_unknown_qualifier()),
             }
         }
 
@@ -28659,7 +26630,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .cloned()
                     .partition(|arm| self.arm_matches(arm, &pat));
                 if m.is_empty() {
-                    self.error(*span, "this check can never succeed".to_string());
+                    self.error(*span, messages::is_union_no_arm_matches());
                 }
                 (self.mk_union(m), Some(self.mk_union(r)))
             }
@@ -28674,7 +26645,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .cloned()
                     .partition(|arm| self.arm_matches(arm, &pat));
                 if m.is_empty() {
-                    self.error(*span, "this check can never succeed".to_string());
+                    self.error(*span, messages::is_union_no_arm_matches());
                 }
                 let m = self.mk_union(m).qualify(quals.clone());
                 let r = self.mk_union(r).qualify(quals.clone());
@@ -28718,10 +26689,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         });
         let binding = binding.as_ref().map(|b| {
             let bty = if matches!(matched, Ty::Union(_)) {
-                self.error(
-                    b.span,
-                    "an `is` binding requires a check matching a single type",
-                );
+                self.error(b.span, messages::is_binding_several_types());
                 matched.clone()
             } else {
                 matched.clone()
@@ -28833,11 +26801,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 Some((base.name.name.clone(), base.span))
                             }
                             other => {
-                                self.error(
-                                    other.span(),
-                                    "a dependent qualifier's argument is a place: a \
-                                     variable or a field chain out of one",
-                                );
+                                self.error(other.span(), messages::qual_depend_arg_not_place());
                                 None
                             }
                         })
@@ -28852,7 +26816,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Both namespaces are admissible here, so neither wording
                 // fits on its own.
                 let name = name.to_string();
-                self.error_unresolved(r.span, format!("unknown type or qualifier `{name}`"), &name);
+                self.error_unresolved(
+                    r.span,
+                    messages::name_resolve_unknown_type_or_qualifier(&name),
+                    &name,
+                );
                 unresolved = true;
             }
         }
@@ -29102,11 +27070,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if scoped {
                         self.locals.pop();
                     }
-                    self.error(
-                        span,
-                        "`when` requires a plain variable as its subject (or the \
-                         binding form `when name = subject { … }`)",
-                    );
+                    self.error(span, messages::when_union_subject_not_a_variable());
                     for b in branches {
                         self.check_branch_block(&b.body, Vec::new());
                     }
@@ -29153,13 +27117,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .map(|q| q.name.clone())
                         .collect::<Vec<_>>()
                         .join(" ");
-                    format!(
-                        "`when` requires a union-typed subject, and `{subj_ty}` is the \
-                         claim `{qual}` *about* a union: bind the inner union to a \
-                         local and match that (`let inner: {base} = ...`)"
-                    )
+                    messages::when_union_subject_qualified_union(&subj_ty, &qual, &base)
                 }
-                _ => format!("`when` requires a union-typed subject (found `{subj_ty}`)"),
+                _ => messages::when_union_subject_not_a_union(&subj_ty),
             };
             self.error(span, message);
             for b in branches {
@@ -29187,10 +27147,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if pat.unresolved {
                 unresolved_check = true;
             } else if matched.is_empty() {
-                self.error(
-                    branch.span,
-                    "this `when` branch matches no remaining union arm",
-                );
+                self.error(branch.span, messages::when_exhaustive_dead_branch());
             }
             if let Some(test) = self.union_test_for(&repr, &pat) {
                 self.out.is_tests.insert(self.key(branch.span), test);
@@ -29202,20 +27159,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             let narrow_ty = if branch.widen {
                 let mut ok = !matched.is_empty();
                 if pat.base.is_some() || pat.is_none {
-                    self.error(
-                        branch.span,
-                        "a `^` branch removes qualifiers, so its head is \
-                         qualifier names only (use `is` to match a type)"
-                            .to_string(),
-                    );
+                    self.error(branch.span, messages::qual_lift_branch_not_qualifiers());
                     ok = false;
                 }
                 for q in &pat.quals {
                     if let Some(reason) = self.removal_block(q) {
-                        self.error(
-                            branch.span,
-                            format!("`{q}` cannot be removed with `^`: {reason}"),
-                        );
+                        self.error(branch.span, messages::qual_lift_cannot_remove(&q, &reason));
                         ok = false;
                     }
                 }
@@ -29229,11 +27178,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if ok {
                         self.error(
                             branch.span,
-                            format!(
-                                "this arm does not carry `{}`, so there is \
-                                 nothing for `^` to remove",
-                                pat.quals.join(" ")
-                            ),
+                            messages::qual_lift_arm_not_carried(&pat.quals.join(" ")),
                         );
                     }
                     self.mk_union(matched.clone())
@@ -29244,10 +27189,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mut bindings = Vec::new();
             if let Some(b) = &branch.binding {
                 if matches!(narrow_ty, Ty::Union(_)) {
-                    self.error(
-                        b.span,
-                        "a `when` binding requires a check matching a single type",
-                    );
+                    self.error(b.span, messages::when_bind_several_types());
                 }
                 self.out.expr_ty.insert(self.key(b.span), narrow_ty.clone());
                 // The `when` binding aliases the subject [fate-link].
@@ -29299,10 +27241,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             let missing: Vec<String> = remaining.iter().map(|a| a.to_string()).collect();
             self.error(
                 span,
-                format!(
-                    "non-exhaustive `when`: unhandled union arm{} {}",
-                    if missing.len() == 1 { "" } else { "s" },
-                    missing.join(", ")
+                messages::when_exhaustive_missing_arms(
+                    &(if missing.len() == 1 { "" } else { "s" }),
+                    &missing.join(", "),
                 ),
             );
         } else if !branches.is_empty() && !unresolved_check {
@@ -29350,13 +27291,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             _ => vec![base_ty.clone()],
         };
         if declared.len() < 2 {
-            self.error(
-                span,
-                format!(
-                    "`?.` guards the first arm of a union, but this receiver is \
-                     `{base_ty}` — it has only one arm, so write a plain `.`"
-                ),
-            );
+            self.error(span, messages::op_safe_nav_single_arm(&base_ty));
             return Ty::Unknown;
         }
         let inner = declared[0].clone();
@@ -29405,11 +27340,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     self.error_unresolved(
                         field.span,
-                        format!(
-                            "no function named `{name}` is in scope: `?.` calls a \
-                             function with the receiver as its first argument \
-                             ([fn-dot])"
-                        ),
+                        messages::op_safe_nav_unknown_fn(&name),
                         name,
                     );
                     return Ty::Unknown;
@@ -29418,11 +27349,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // and the call reads it at the non-`None` type, so a call
                 // receiver must be a place to carry the narrowing.
                 let Some(place) = Place::of_expr(base) else {
-                    self.error(
-                        span,
-                        "`?.` on a method call needs a variable or field as its \
-                         receiver; bind the chain so far to a local first",
-                    );
+                    self.error(span, messages::op_safe_nav_receiver_not_place());
                     for a in args {
                         self.check_expr(a, None);
                     }
@@ -29711,7 +27638,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             if effective.is_none_ty() {
                 if !expected.has_none_arm() {
-                    self.error(span, format!("`None` is not an arm of `{expected}`"));
+                    self.error(span, messages::type_union_none_not_arm(&expected));
                 }
                 return;
             }
@@ -29789,24 +27716,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.error(span, msg);
                         return;
                     }
-                    let mut msg =
-                        format!("no arm of `{expected}` accepts a value of type `{logical}`");
-                    if deduplicated {
-                        msg.push_str(
-                            "; a qualifier applied to a value that already carries it \
-                             deduplicates, so bind the inner union to an annotated local \
-                             first (`let inner: A | B = ...`)",
-                        );
-                    }
-                    self.error(span, msg)
+                    self.error(span, messages::type_union_no_arm(&expected, &logical, deduplicated))
                 }
-                _ => self.error(
-                    span,
-                    format!(
-                        "a value of type `{logical}` matches multiple arms of `{expected}`; \
-                         qualify the value to disambiguate"
-                    ),
-                ),
+                _ => self.error(span, messages::type_union_ambiguous_arm(&logical, &expected)),
             }
         }
         // Nullable-style or plain expected types need no union wrapping; a
@@ -29838,7 +27750,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 /// often), or a plain value of the literals' base, which must be narrowed to
 /// one of them first — or, where the union has an open arm, wrapped with
 /// `other(…)`. `None` when the mismatch is something else.
-fn literal_refusal(want: &Ty, got: &Ty, written: Option<&TypeLit>) -> Option<String> {
+fn literal_refusal(want: &Ty, got: &Ty, written: Option<&TypeLit>) -> Option<Message> {
     let lits: Vec<&TypeLit> = want
         .arms()
         .iter()
@@ -29859,14 +27771,11 @@ fn literal_refusal(want: &Ty, got: &Ty, written: Option<&TypeLit>) -> Option<Str
     Some(match written {
         Some(lit) => {
             let hint = if open { format!(" — or `other({lit})` for the open arm") } else { String::new() };
-            format!("`{lit}` is not one of the values `{want}` lists ({listed}){hint} [type-literal]")
+            messages::type_literal_not_listed(&lit, &want, &listed, &hint)
         }
         None => {
             let hint = if open { ", or wrap it with `other(…)` for the open arm" } else { "" };
-            format!(
-                "a `{base}` is not a `{want}`: narrow it to one of {listed} with `is` or `when` first{hint} \
-                 [type-literal]"
-            )
+            messages::type_literal_needs_narrowing(&base, &want, &listed, &hint)
         }
     })
 }
@@ -29932,7 +27841,7 @@ fn consumed_borrow_hint(value: &Ty, want: &Ty, what: &str) -> Option<String> {
     Some(format!(
         "{what} consumes its parameter `{pname}` (`=> !{pname}`), and here it would be given a \
          borrowed `{}`, which cannot be given away. Keep the parameter, or pass a lambda \
-         that copies the argument [fn-kept-borrow]",
+         that copies the argument",
         wp[j]
     ))
 }
@@ -30852,16 +28761,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             for a in args {
                 self.check_expr(a, None);
             }
-            self.error_unresolved(
-                field.span,
-                format!(
-                    "no function named `{name}` is in scope: dot-notation calls a \
-                     function with the receiver as its first argument \
-                     ([fn-dot]), so a target-language method is reached by \
-                     declaring it in an effect a `platform handler` implements"
-                ),
-                name,
-            );
+            self.error_unresolved(field.span, messages::fn_dot_unknown_fn(&name), name);
             return Ty::Unknown;
         }
 
@@ -30907,7 +28807,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.error_unresolved(
                     effect.span,
-                    format!("no effect named `{}` is in scope", effect.name),
+                    messages::effect_at_unknown_effect(&effect.name),
                     &effect.name,
                 );
                 return Ty::Unknown;
@@ -30921,13 +28821,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for a in &all_args {
                     self.check_expr(a, None);
                 }
-                self.error(
-                    name.span,
-                    format!(
-                        "effect `{}` has no member named `{}`",
-                        effect.name, name.name
-                    ),
-                );
+                self.error(name.span, messages::effect_at_no_member(&effect.name, &name.name));
                 return Ty::Unknown;
             }
             self.record_def_ref(name.span, &name.name);
@@ -30956,7 +28850,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.error_unresolved(
                     name.span,
-                    format!("no function named `{}` is in scope", name.name),
+                    messages::call_resolve_unknown_fn(&name.name),
                     &name.name,
                 );
                 return Ty::Unknown;
@@ -31186,15 +29080,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let detail = if matches!(vty, Ty::Var(_)) {
                         // Adding a declaration cannot make a `T` callable:
                         // there are no bounds to say it is a function.
-                        format!(
-                            "`{}` is a type parameter (`{vty}`), so nothing is \
-                             known about its values — including whether they \
-                             are functions. Declare it with a fn type to call \
-                             it",
-                            id.name
-                        )
+                        messages::call_resolve_type_param_call(&id.name, &vty)
                     } else {
-                        format!("`{}` is not callable: its type is `{vty}`", id.name)
+                        messages::call_resolve_not_callable_local(&id.name, &vty)
                     };
                     self.error(span, detail);
                 }
@@ -31241,10 +29129,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.check_expr(a, None);
         }
         if !cty.is_unknown() && !matches!(cty, Ty::Never) {
-            self.error(
-                span,
-                format!("this expression is not callable: its type is `{cty}`"),
-            );
+            self.error(span, messages::call_resolve_not_callable(&cty));
         }
         Ty::Unknown
     }
@@ -31544,13 +29429,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             format!(": use its functions ({})", fns.join(", "))
         };
-        self.error(
-            span,
-            format!(
-                "`{shown}` is opaque outside `{module}`, so {what} is not allowed here{pointer} \
-                 [struct-opaque]"
-            ),
-        );
+        self.error(span, messages::struct_opaque_outside_module(&shown, &module, &what, &pointer));
         true
     }
 
@@ -31609,7 +29488,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             // (accepted unchecked until 2026-10-05, and the target compiler
             // refused it).
             if !Self::arg_fits_fn_value(&aty, p) {
-                self.error(a.span(), format!("{callee} takes `{p}` here, found `{aty}` [call-resolve]"));
+                self.error(
+                    a.span(),
+                    messages::call_resolve_fn_value_arg_mismatch(&callee, &p, &aty),
+                );
                 continue;
             }
             // [call-resolve] The base fits; the claims the parameter demands
@@ -31622,17 +29504,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !self.fn_value_claims_fit(&aty, &claimed, kept) {
                 self.error(
                     a.span(),
-                    format!(
-                        "{callee} takes `{p}` here, found `{aty}`: the argument does not carry \
-                         what the parameter claims [call-resolve]"
-                    ),
+                    messages::call_resolve_fn_value_claim_mismatch(&callee, &p, &aty),
                 );
             }
         }
         if args.len() != params.len() && !args.iter().any(|a| matches!(a, Expr::Spread { .. })) {
             self.error(
                 span,
-                format!("{callee} takes {} argument(s), found {} [call-resolve]", params.len(), args.len()),
+                messages::call_resolve_fn_value_arg_count(&callee, &params.len(), &args.len()),
             );
         }
         // [fn-contract] Apply the fn value's contract to the arguments
@@ -31761,12 +29640,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                         self.error(
                             span,
-                            format!(
-                                "`{name}` is a member of {}, none of which has a \
-                                 handler in scope: declare one in the function's \
-                                 effect list or `use` a handler",
-                                owners()
-                            ),
+                            messages::effect_available_member_no_handler(&name, &owners()),
                         );
                         return Ty::Unknown;
                     }
@@ -31779,12 +29653,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                         self.error(
                             span,
-                            format!(
-                                "`{name}` is a member of {} — more than one is in \
-                                 scope, so the call must pick its effect: \
-                                 `{name}@{first}(…)` [effect-at]",
-                                owners()
-                            ),
+                            messages::effect_at_ambiguous_member(&name, &owners(), &first),
                         );
                         return Ty::Unknown;
                     }
@@ -31838,13 +29707,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let candidates: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(name);
         if self.renamed(name).is_some() {
             if at.is_some() {
-                self.error(
-                    span,
-                    format!(
-                        "`{name}` is a renamed overload, so it already names one \
-                         declaration: drop the `@module`"
-                    ),
-                );
+                self.error(span, messages::fn_rename_at_on_renamed(&name));
             }
         }
         if candidates.is_empty() {
@@ -31862,24 +29725,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // is always a handler *value* — which neither backend can
                 // render (Rust emits `Name()` for a struct with no such
                 // constructor, `E0423`).
-                self.error(
-                    name_span,
-                    format!(
-                        "`{name}` is a handler, not a value: register it with \
-                         `use {name}(...)` and call the effect's members"
-                    ),
-                );
+                self.error(name_span, messages::handler_not_value_called(&name));
                 return Ty::Unknown;
             }
             // Nothing declares this name [call-resolve]. Reaching a target
             // function means declaring it, so an
             // unresolved callee is an error rather than interop
             // pass-through (user decision 2026-09-03).
-            self.error_unresolved(
-                name_span,
-                format!("no function named `{name}` is in scope"),
-                name,
-            );
+            self.error_unresolved(name_span, messages::call_resolve_unknown_fn(&name), name);
             return Ty::Unknown;
         }
 
@@ -31992,10 +29845,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             };
                             self.error(
                                 a.span(),
-                                format!(
-                                    "cannot type this lambda: the overloads of `{name}` {why}; write the \
-                                     lambda's parameter types [fn-overload-rank]"
-                                ),
+                                messages::fn_overload_rank_lambda_untyped(&name, &why),
                             );
                             self.check_expr(a, None)
                         }
@@ -32329,17 +30179,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some((module, missing)) = unfillable.first() {
                 self.error(
                     span,
-                    format!(
-                        "no matching overload for `{name}({})`: the one from `{module}` that \
-                         fits by type needs `{missing}`, which nothing in scope fills \
-                         [implicit-fit]",
-                        shown.join(", ")
-                    ),
+                    messages::implicit_fit_no_fill(&name, &shown.join(", "), &module, &missing),
                 );
                 return Ty::Unknown;
             }
             if let Some(hint) = consumed_blocked {
-                self.error(span, format!("no matching overload for `{name}({})`: {hint}", shown.join(", ")));
+                self.error(
+                    span,
+                    messages::call_resolve_no_overload_why(&name, &shown.join(", "), &hint),
+                );
                 return Ty::Unknown;
             }
             // [proj-type] When a projection is all that stands between the
@@ -32351,29 +30199,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     _ => "this argument".to_string(),
                 };
                 let msg = match why {
-                    ProjBlock::Mutates => format!(
-                        "{what} is a read-only projection (`{arg_shown}`), and `{callee}` \
-                         mutates `{pname}` — a mutable handle needs a `Mut` element type \
-                         (`List<Mut T>`) [ref-handle]. Use `copy(...)` for a value of your own"
+                    ProjBlock::Mutates => messages::ref_handle_read_only_projection(&what, &arg_shown, &callee, &pname),
+                    ProjBlock::NotHandle => messages::ref_handle_plain_projection_mutated(
+                        &what,
+                        &arg_shown,
+                        &callee,
+                        &pname,
                     ),
-                    ProjBlock::NotHandle => format!(
-                        "{what} is a plain projection (`{arg_shown}`), and `{callee}` \
-                         mutates `{pname}`: a mutable element handle is written \
-                         `ref(c)`, not a bare `proj` — `proj Mut` is read-only \
-                         [ref-handle]. Mint a handle with `at(...)` instead \
-                         of projecting, or pass `copy(...)` for a value of your own"
-                    ),
-                    ProjBlock::Consumes => format!(
-                        "{what} is a projection (`{arg_shown}`), and `{callee}` consumes \
-                         `{pname}`: a borrowed value cannot be given away. Pass \
-                         `copy(...)`, or keep the parameter (`=> {pname}`)"
-                    ),
-                    ProjBlock::Nested => format!(
-                        "{what} holds a borrowed value (`{arg_shown}`) where `{callee}` \
-                         expects an owned one for `{pname}`: the two are the same on the \
-                         JVM and different in Rust. Write the parameter's type with the \
-                         `proj` (as the argument has it), or pass `copy(...)`"
-                    ),
+                    ProjBlock::Consumes => messages::proj_type_projection_consumed(&what, &arg_shown, &callee, &pname),
+                    ProjBlock::Nested => messages::proj_type_nested_borrow(&what, &arg_shown, &callee, &pname),
                 };
                 self.error(span, msg);
                 return Ty::Unknown;
@@ -32401,13 +30235,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             } else {
                 ""
             };
-            self.error(
-                span,
-                format!(
-                    "no matching overload for `{name}({})`{hint}",
-                    shown.join(", ")
-                ),
-            );
+            self.error(span, messages::call_resolve_no_overload(&name, &shown.join(", "), &hint));
             return Ty::Unknown;
         }
         let Some(best_idx) = self.select_overload(name, &viable, &arg_tys, at, expected, span) else {
@@ -32466,17 +30294,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 if !allowed {
                     let set = self.linear_discharge_hint(&arg_ty);
-                    self.error(
-                        span,
-                        format!(
-                            "`discard` cannot drop a linear value (`{arg_ty}`) here: \
-                             that is the leak the obligation exists to prevent — \
-                             discharge it with {set}, or `discard` it inside one of \
-                             those (a fn, or an effect member, declared in the \
-                             type's own file and consuming it — for a member, \
-                             inside any handler's implementation of it)"
-                        ),
-                    );
+                    self.error(span, messages::linear_discard_linear(&arg_ty, &set));
                 }
             }
         }
@@ -32516,12 +30334,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.error(
                     arg.span(),
-                    format!(
-                        "`{}` keeps its `{}` callback past the call, so it takes a named \
-                         top-level fn, not a lambda or a local: write the callback as a \
-                         fn and pass it by name [platform-fn-value]",
-                        decl.name.name, p.name.name
-                    ),
+                    messages::platform_fn_value_kept_callback(&decl.name.name, &p.name.name),
                 );
             }
         }
@@ -32562,15 +30375,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     };
                     self.error(
                         arg.span(),
-                        format!(
-                            "this lambda {what} `{captured}`, and it is the `{param_name}` \
-                             callback of the iterator function `{}`: a producer's callback \
-                             runs once per element in *every* pass, so what the capture \
-                             accumulates would depend on how often the producer was \
-                             consumed. Capture an immutable snapshot instead (bind \
-                             `copy({captured})` to a local at a non-`Mut` type *before* the \
-                             lambda), or pass the state in and yield it back",
-                            decl.name.name
+                        messages::seq_lazy_mutable_capture(
+                            &what,
+                            &captured,
+                            &param_name,
+                            &decl.name.name,
                         ),
                     );
                 }
@@ -32641,11 +30450,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if p.default.is_none() {
                     self.error(
                         a.span,
-                        format!(
-                            "`{}` has no default, so it cannot be given by name here: \
-                             only a defaulted parameter may be named [fn-param-default]",
-                            a.name.name
-                        ),
+                        messages::fn_param_default_named_without_default(&a.name.name),
                     );
                 }
                 let saved = self.enter_generics(&decl.generics);
@@ -32751,24 +30556,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             if decl.intrinsic && decl.name.name == "copy" {
-                self.error(
-                    span,
-                    format!(
-                        "cannot `copy` a value of linear type `{ty}`: \
-                         that would duplicate its obligation; every \
-                         linear value has exactly one owner"
-                    ),
-                );
+                self.error(span, messages::linear_generics_copy_linear(&ty));
             } else {
-                self.error(
-                    span,
-                    format!(
-                        "cannot instantiate generic parameter `{var_name}` \
-                         of `{name}` with linear type `{ty}`: `{name}` does \
-                         not declare `<{var_name} canbe linear>`, so it does \
-                         not honor the use obligation"
-                    ),
-                );
+                self.error(span, messages::linear_generics_not_opted(&var_name, &name, &ty));
             }
             break;
         }
@@ -32865,12 +30655,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .cloned()
                         .unwrap_or(Ty::Unknown);
                     if self.ty_own_linear(&ty) {
-                        self.error(
-                            arg.span(),
-                            "a linear value cannot be passed in a variadic \
-                             position (variadic arguments are not tracked); \
-                             add it to the collection individually instead",
-                        );
+                        self.error(arg.span(), messages::linear_generics_variadic());
                     }
                     continue;
                 }
@@ -33013,13 +30798,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 if !preserved.contains(&q) {
                                     self.error(
                                         span,
-                                        format!(
-                                            "this call may invalidate `{q}` claims \
-                                             about `{name}`, which the enclosing \
-                                             function promises to preserve: only \
-                                             calls that themselves preserve `{q}` \
-                                             may take `{name}` as `Mut`"
-                                        ),
+                                        messages::qual_preserve_call_invalidates(&q, &name),
                                     );
                                 }
                             }
@@ -33297,10 +31076,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(block) = crate::wire::wire_blocker(self.symbols, &subject) {
                     self.error(
                         span,
-                        format!(
-                            "`{}` needs a type with a wire form, and `{subject}` has none: {}                              [net-noremote]",
-                            decl.name.name,
-                            block.describe()
+                        messages::net_noremote_no_wire_form(
+                            &decl.name.name,
+                            &subject,
+                            &block.describe(),
                         ),
                     );
                 }
@@ -33347,15 +31126,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(block) = crate::wire::wire_blocker(self.symbols, &pty) {
                     self.error(
                         span,
-                        format!(
-                            "a group of `{}` cannot span nodes: `{}.{}` takes `{pty}`, and {} — \
-                             so `{via}<{}>` has nothing to name on the wire. Keep the \
-                             actor local, or give the payload a wire form [net-noremote]",
-                            effect.name.name,
-                            effect.name.name,
-                            f.name.name,
-                            block.describe(),
-                            effect.name.name
+                        messages::net_noremote_group_across_nodes(
+                            &effect.name.name,
+                            &f.name.name,
+                            &pty,
+                            &block.describe(),
+                            &via,
                         ),
                     );
                     return;
@@ -33458,12 +31234,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             let plural = if missing.len() == 1 { "" } else { "s" };
             self.error(
                 span,
-                format!(
-                    "cannot infer type argument{plural} {list} of `{name}`: no \
-                     argument determines {} and neither does the context — write \
-                     the type argument{plural} (`{name}<...>(...)`) or annotate \
-                     where the result goes",
-                    if missing.len() == 1 { "it" } else { "them" }
+                messages::call_type_args_cannot_infer(
+                    &plural,
+                    &list,
+                    &name,
+                    &(if missing.len() == 1 { "it" } else { "them" }),
                 ),
             );
         }
@@ -33504,26 +31279,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .flatten()
                 .any(|e| matches!(e, EffectRef::Spawn(_)))
         {
-            self.error(
-                span,
-                format!(
-                    "`{name}` requires the `spawn` capability, so this function must \
-                     declare it too (`[spawn]` in its effect list)"
-                ),
-            );
+            self.error(span, messages::actor_spawn_effect_callee_needs_spawn(&name));
         }
         // [actor-free-send-fn] A send-kind function is *scheduled*, never called: a
         // call would run it here, on this thread, inside this frame — which is
         // the callback anti-pattern the kind exists to refuse.
         if decl.is_send {
-            self.error(
-                span,
-                format!(
-                    "`{name}` is a `send fn`, so it runs by being scheduled rather than \
-                     called: mint a continuation for it with `replyto {name}(…)` and let \
-                     whoever answers the token run it"
-                ),
-            );
+            self.error(span, messages::actor_free_send_fn_called(&name));
         }
         // The callee's *effective* effect list: what it declares, plus what
         // it inherited from its fn-typed parameters [fn-effects] — a caller
@@ -33616,12 +31378,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if !req_any && avail.any {
                         self.error(
                             span,
-                            format!(
-                                "`{name}` declares `[{want}]` — one instance, sends in \
-                                 order — but `{want}` is bound to many instances here \
-                                 (`any {want}`): declare `[any {want}]` on `{name}` if any \
-                                 member may take each send, or bind one instance"
-                            ),
+                            messages::effect_any_single_instance_callee(&name, &want),
                         );
                     }
                     // [fn-effects] Feeds an enclosing lambda's inferred set.
@@ -33629,14 +31386,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     resolved.push(avail.ty);
                 }
                 None => {
-                    self.error(
-                        span,
-                        format!(
-                            "no handler for effect `{want}` in scope, required \
-                             by `{name}` (declare it in the function's effect \
-                             list or `use` a handler)"
-                        ),
-                    );
+                    self.error(span, messages::effect_available_callee_no_handler(&want, &name));
                     resolved.push(want);
                 }
             }
@@ -33765,11 +31515,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             0 => {
                 self.error(
                     span,
-                    format!(
-                        "no overload of `{}.{}` takes ({})",
-                        effect.name.name,
-                        members[0].name.name,
-                        shown()
+                    messages::effect_member_overload_no_fit(
+                        &effect.name.name,
+                        &members[0].name.name,
+                        &shown(),
                     ),
                 );
                 Picked::None
@@ -33782,12 +31531,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     None => {
                         self.error(
                             span,
-                            format!(
-                                "ambiguous call to `{}.{}`: several overloads take \
-                                 ({}), and none is more specific",
-                                effect.name.name,
-                                members[0].name.name,
-                                shown()
+                            messages::effect_member_overload_ambiguous(
+                                &effect.name.name,
+                                &members[0].name.name,
+                                &shown(),
                             ),
                         );
                         Picked::ByArgs(pool[viable[0].0], arg_tys)
@@ -33916,13 +31663,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             {
                 Some(want)
             } else {
-                self.error(
-                    span,
-                    format!(
-                        "no handler for effect `{want}` in scope (declare it in \
-                         the function's effect list or `use` a handler)"
-                    ),
-                );
+                self.error(span, messages::effect_available_no_handler(&want));
                 None
             }
         } else if candidates.len() == 1 {
@@ -33959,13 +31700,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     };
                     self.error(
                         span,
-                        format!(
-                            "a handler member cannot call `{}`, a member of `{of}` — the \
-                             effect its own handler implements: a handler cannot dispatch \
-                             to itself, and declaring `{of}` as a dependency would bind to \
-                             the handler registered *before* this one. {remedy}",
-                            member.name.name
-                        ),
+                        messages::effect_available_own_effect(&member.name.name, &of, &remedy),
                     )
                 }
                 // [actor-mixed-handler] A façade member reaching for one of the
@@ -33978,22 +31713,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     })
                 }) => self.error(
                     span,
-                    format!(
-                        "`{}` is a member of `{}`, a dependency of this handler, and a \
-                         mixed handler's dependencies are its servant's: a sync member \
-                         runs on the caller's thread and cannot reach them. Call it \
-                         from a `send fn` member and send to that",
-                        member.name.name, effect.name.name
+                    messages::actor_mixed_handler_sync_member_dependency(
+                        &member.name.name,
+                        &effect.name.name,
                     ),
                 ),
-                None => self.error(
-                    span,
-                    format!(
-                        "no handler for effect `{}` in scope (declare it in the \
-                         function's effect list or `use` a handler)",
-                        effect.name.name
-                    ),
-                ),
+                None => self.error(span, messages::effect_available_no_handler(&effect.name.name)),
             }
             None
         } else {
@@ -34039,22 +31764,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 0 => {
                     self.error(
                         span,
-                        format!(
-                            "no handler for effect `{}` in scope matches this \
-                             call (declare it in the function's effect list or \
-                             `use` a handler)",
-                            effect.name.name
-                        ),
+                        messages::effect_available_no_handler_matches(&effect.name.name),
                     );
                     None
                 }
                 _ => {
                     self.error(
                         span,
-                        format!(
-                            "ambiguous effect call: multiple `{}` handlers in \
-                             scope; specify the type, e.g. `{}<T>()`",
-                            effect.name.name, member.name.name
+                        messages::effect_disambiguation_ambiguous(
+                            &effect.name.name,
+                            &member.name.name,
                         ),
                     );
                     Some(narrowed[0].clone())
@@ -34120,12 +31839,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if self.ty_own_linear(bound) {
                     self.error(
                         span,
-                        format!(
-                            "cannot instantiate generic parameter `{var_name}` of \
-                             effect member `{}` with linear type `{bound}`: the \
-                             member does not declare `<{var_name} canbe linear>`, \
-                             so its handlers do not honor the use obligation",
-                            member.name.name
+                        messages::linear_generics_effect_member_not_opted(
+                            &var_name,
+                            &member.name.name,
+                            &bound,
                         ),
                     );
                     break;
@@ -34163,11 +31880,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !arity_ok {
                 self.error(
                     span,
-                    format!(
-                        "`{}` takes {fixed} argument(s), found {}",
-                        member.name.name,
-                        args.len()
-                    ),
+                    messages::effect_member_call_arg_count(&member.name.name, &fixed, &args.len()),
                 );
             }
             for (i, a) in args.iter().enumerate() {
@@ -34191,10 +31904,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !self.arg_fits_param(&got, &want, kept) {
                     self.error(
                         a.span(),
-                        format!(
-                            "`{}` expects `{want}` here, found `{got}`",
-                            member.name.name
-                        ),
+                        messages::effect_member_call_arg_mismatch(&member.name.name, &want, &got),
                     );
                 }
             }

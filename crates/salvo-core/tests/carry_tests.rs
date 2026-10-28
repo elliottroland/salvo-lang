@@ -1119,7 +1119,7 @@ fn conditional_response_narrows_and_is_proof_checked() {
          return true\n}}\n"
     ));
     assert!(
-        lies.iter().any(|e| e.contains("[deduce-conditional]")),
+        lies.iter().any(|e| e.contains("claims `list is NonEmpty`, but nothing on this path proved it")),
         "an unproven `return true` is refused: {lies:?}"
     );
 

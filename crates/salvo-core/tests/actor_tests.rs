@@ -108,6 +108,11 @@ fn warnings(src: &str) -> Vec<String> {
 
 /// Every diagnostic the program produces, as `(is_error, message)`.
 fn diagnostics(src: &str) -> Vec<(bool, String)> {
+    diagnostics_with_ids(src).into_iter().map(|(error, _, message)| (error, message)).collect()
+}
+
+/// [diag-id] Every diagnostic with its id: `(is an error, id, message)`.
+fn diagnostics_with_ids(src: &str) -> Vec<(bool, Option<&'static str>, String)> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -142,16 +147,16 @@ fn diagnostics(src: &str) -> Vec<(bool, String)> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    let mut msgs: Vec<(bool, String)> = resolution
+    let mut msgs: Vec<(bool, Option<&'static str>, String)> = resolution
         .errors
         .iter()
         .chain(checked.errors.iter())
-        .map(|d| (d.is_error(), d.message.clone()))
+        .map(|d| (d.is_error(), d.id, d.message.clone()))
         .collect();
     msgs.extend(
         salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
             .into_iter()
-            .map(|d| (d.is_error(), d.message)),
+            .map(|d| (d.is_error(), d.id, d.message)),
     );
     msgs
 }
@@ -762,7 +767,7 @@ fn main() [use] {
 /// old implicit main-pool default was retired with the rule.)
 #[test]
 fn a_spawn_must_name_its_pool() {
-    let errs = errors(
+    let errs = diagnostics_with_ids(
         "\
 fn main() [use, spawn] {
     let counter = spawn Counting() with Printing()
@@ -774,8 +779,9 @@ fn main() [use, spawn] {
 ",
     );
     assert!(
-        errs.iter().any(|m| m.contains("must name the pool it runs on")
-            && m.contains("[actor-spawn-expr]")),
+        errs.iter().any(|(error, id, m)| *error
+            && *id == Some("actor-spawn-expr:no-pool")
+            && m.contains("must name the pool it runs on")),
         "a pool-less actor spawn must be refused: {errs:?}"
     );
 }

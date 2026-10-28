@@ -84,7 +84,7 @@ fn a_stored_or_moved_int_stays_usable_and_a_written_move_warns() {
     let (errs, warns) = diagnostics(src);
     assert!(errs.is_empty(), "{errs:?}");
     assert!(
-        warns.iter().any(|w| w.contains("moving an `Int` is a copy, so `!v` changes nothing for the caller: drop it [copy-scalar-free]")),
+        warns.iter().any(|w| w.contains("moving an `Int` is a copy, so `!v` changes nothing for the caller: drop it")),
         "{warns:?}"
     );
 }

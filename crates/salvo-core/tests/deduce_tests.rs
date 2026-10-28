@@ -2161,7 +2161,7 @@ fn a_projected_non_scalar_is_still_a_view() {
 /// Checks `src` as the one file of a `std = true` tree (so it is
 /// `is_std && is_shadow`, exactly what `mark_std_tree` sets), with the
 /// prelude as embedded std. Returns the rendered error messages.
-fn check_std_tree(src: &str) -> Vec<String> {
+fn check_std_tree(src: &str) -> Vec<(Option<&'static str>, String)> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -2197,9 +2197,12 @@ fn check_std_tree(src: &str) -> Vec<String> {
         .errors
         .iter()
         .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
+        .map(|d| (d.id, d.message.clone()))
         .collect()
 }
+
+/// [deduce-std-explicit] The refusal of an exported std fn's partial clause.
+const UNCOVERED: Option<&str> = Some("deduce-std-explicit:uncovered-params");
 
 /// [deduce-std-explicit] An exported bodied fn with a non-scalar parameter
 /// and no clause is refused, and the diagnostic names the missing parameter
@@ -2210,8 +2213,8 @@ fn an_exported_std_fn_without_a_clause_is_refused() {
         "export fn keep(s: List<Int>) [] -> List<Int> {\n    return s\n}\n",
     );
     assert!(
-        errs.iter().any(|m| {
-            m.contains("[deduce-std-explicit]")
+        errs.iter().any(|(id, m)| {
+            *id == UNCOVERED
                 && m.contains("`s`")
                 && m.contains("`fn keep`")
         }),
@@ -2219,7 +2222,7 @@ fn an_exported_std_fn_without_a_clause_is_refused() {
     );
     // `keep` returns its parameter, so the inferred clause moves it.
     assert!(
-        errs.iter().any(|m| m.contains("=> !s")),
+        errs.iter().any(|(_, m)| m.contains("=> !s")),
         "the diagnostic should suggest the inferred total clause: {errs:?}"
     );
 }
@@ -2232,7 +2235,7 @@ fn an_exported_std_fn_with_a_total_clause_is_accepted() {
         "export fn keep(s: List<Int>) [] -> List<Int> => !s {\n    return s\n}\n",
     );
     assert!(
-        !errs.iter().any(|m| m.contains("[deduce-std-explicit]")),
+        !errs.iter().any(|(id, _)| *id == UNCOVERED),
         "a total clause should satisfy the rule: {errs:?}"
     );
 }
@@ -2247,7 +2250,7 @@ fn a_partial_std_clause_is_still_refused() {
          return a\n}\n",
     );
     assert!(
-        errs.iter().any(|m| m.contains("[deduce-std-explicit]") && m.contains("`b`")),
+        errs.iter().any(|(id, m)| *id == UNCOVERED && m.contains("`b`")),
         "the unmentioned parameter should still be refused: {errs:?}"
     );
 }
@@ -2258,7 +2261,7 @@ fn a_partial_std_clause_is_still_refused() {
 fn a_scalar_parameter_needs_no_entry() {
     let errs = check_std_tree("export fn id(n: Int) [] -> Int {\n    return n\n}\n");
     assert!(
-        !errs.iter().any(|m| m.contains("[deduce-std-explicit]")),
+        !errs.iter().any(|(id, _)| *id == UNCOVERED),
         "a scalar-only exported fn should not be flagged: {errs:?}"
     );
 }
@@ -2269,7 +2272,7 @@ fn a_scalar_parameter_needs_no_entry() {
 fn a_private_std_fn_is_not_flagged() {
     let errs = check_std_tree("fn helper(s: List<Int>) [] -> List<Int> {\n    return s\n}\n");
     assert!(
-        !errs.iter().any(|m| m.contains("[deduce-std-explicit]")),
+        !errs.iter().any(|(id, _)| *id == UNCOVERED),
         "a private fn should not be flagged: {errs:?}"
     );
 }
@@ -2284,7 +2287,7 @@ fn an_ordinary_fn_is_not_flagged() {
         !checked
             .errors
             .iter()
-            .any(|d| d.message.contains("[deduce-std-explicit]")),
+            .any(|d| d.id == UNCOVERED),
         "a non-std fn should never be flagged"
     );
 }

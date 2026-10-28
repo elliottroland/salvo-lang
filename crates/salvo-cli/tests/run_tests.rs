@@ -1064,7 +1064,7 @@ fn a_reassigned_local_owns_or_borrows_for_its_whole_life_on_both_backends() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "a borrow assigned an owned value must be refused");
     assert!(
-        stderr.contains("`k` holds a borrow (`proj Str?`), and this is an owned `Str?`") && stderr.contains("`let k = copy(…)` [proj-local]"),
+        stderr.contains("`k` holds a borrow (`proj Str?`), and this is an owned `Str?`") && stderr.contains("`let k = copy(…)` --> "),
         "{stderr}"
     );
     let dir = work_dir("projlocal");

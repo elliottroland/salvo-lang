@@ -75,21 +75,14 @@ where
 /// - every fn, member and lambda's parameters with the names the body binds
 ///   (`let`, `for`, `is` bindings, lambda parameters), as one set — Kotlin
 ///   would refuse or shadow a second spelling the Salvo program means apart.
-pub fn module_clashes(module: &salvo_syntax::ast::Module) -> Vec<(salvo_syntax::Span, String)> {
+pub fn module_clashes(module: &salvo_syntax::ast::Module) -> Vec<(salvo_syntax::Span, salvo_syntax::messages::Message)> {
     use salvo_syntax::ast::{FnDecl, Ident, Item};
     let mut out = Vec::new();
     let mut report = |what: &str, ids: &[&Ident]| {
         let names: Vec<&str> = ids.iter().map(|i| i.name.as_str()).collect();
         if let Some((first, second)) = camel_clash(names.iter().copied()) {
             let span = ids.iter().filter(|i| i.name == second).map(|i| i.span).next().unwrap_or_default();
-            out.push((
-                span,
-                format!(
-                    "`{second}` and `{first}` are both `{}` in camel case, and {what} cannot hold \
-                     both: the Kotlin backend writes camel case — rename one [name-camel]",
-                    camel(second)
-                ),
-            ));
+            out.push((span, salvo_syntax::messages::name_camel_clash(second, first, &camel(second), what)));
         }
     };
     let fn_scope = |f: &FnDecl, extra: &[&Ident], report: &mut dyn FnMut(&str, &[&Ident])| {
@@ -221,7 +214,9 @@ mod tests {
                    fn fine(a_b: Int) [] -> Int {\n    let f = { a_c: Int -> a_c }\n    let a_b2 = a_b\n    return a_b\n}\n\
                    fn other(read_x: Int) [] -> Int {\n    return read_x\n}\n";
         let (module, _) = salvo_syntax::parse_module(src);
-        let msgs: Vec<String> = module_clashes(&module).into_iter().map(|(_, m)| m).collect();
+        let clashes = module_clashes(&module);
+        assert!(clashes.iter().all(|(_, m)| m.id == "name-camel:clash"), "{clashes:#?}");
+        let msgs: Vec<String> = clashes.into_iter().map(|(_, m)| m.text).collect();
         assert_eq!(msgs.len(), 3, "{msgs:#?}");
         assert!(msgs.iter().any(|m| m.contains("`readTo` and `read_to`") && m.contains("one module")));
         assert!(msgs.iter().any(|m| m.contains("`dataType` and `data_type`") && m.contains("struct `P`")));
