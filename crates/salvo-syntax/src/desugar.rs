@@ -62,6 +62,7 @@ use std::collections::BTreeMap;
 
 use crate::ast::*;
 use crate::diag::Diagnostic;
+use crate::messages;
 use crate::span::Span;
 
 /// Expands every `iter fn` in `module` into its three declarations, in place.
@@ -102,69 +103,35 @@ enum Hold {
 
 fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
     let span = f.name.span;
-    let mut error = |message: String, span: Span| diags.push(Diagnostic::error(message, span));
+    let mut error = |message: messages::Message, span: Span| diags.push(Diagnostic::error(message, span));
 
     let Some(body) = f.body.clone() else {
-        error(
-            "an `iter fn` needs a body: it *is* the `next` the compiler would \
-             otherwise generate"
-                .to_string(),
-            span,
-        );
+        error(messages::iter_fn_missing_body(), span);
         return None;
     };
     if f.params.iter().any(|p| p.implicit) || !f.implicit_groups.is_empty() {
         // Round 6 of the design (a stage over a generic source) needs the
         // generated `next` to carry the forwarded implicits and the obligation
         // match to ignore them; not in this cut.
-        error(
-            "an `iter fn` cannot take implicit parameters yet: write the \
-             iterator struct and its `next` by hand, or take the iterator as a \
-             concrete type"
-                .to_string(),
-            span,
-        );
+        error(messages::iter_fn_implicit_params(), span);
         return None;
     }
     // Every parameter is held by the iterator struct, so each has to be a
     // named type the struct can hold [iter-fn].
     for p in &f.params {
         if p.variadic {
-            error(
-                format!(
-                    "an `iter fn` cannot take a variadic parameter (`...{}`): the \
-                     iterator struct holds each parameter as a field",
-                    p.name.name
-                ),
-                p.span,
-            );
+            error(messages::iter_fn_variadic_param(&p.name.name), p.span);
             return None;
         }
         let Type::Named { qualifiers, .. } = &p.ty else {
-            error(
-                format!(
-                    "an `iter fn`'s parameter `{}` must be a named type — the \
-                     iterator struct holds it as a field; wrap an array, tuple or \
-                     union in a struct of your own",
-                    p.name.name
-                ),
-                p.span,
-            );
+            error(messages::iter_fn_unnamed_param_type(&p.name.name), p.span);
             return None;
         };
         if let Some(q) = qualifiers.first() {
             // The parameters are ordinary data the caller keeps: a fresh
             // iterator is minted per call, so advancing never writes through
             // them. `Mut` would promise the opposite.
-            error(
-                format!(
-                    "an `iter fn`'s parameter is read, not advanced: drop the `{}` \
-                     from `{}` — the generated iterator struct holds the position, \
-                     and each call mints a fresh one",
-                    q.name.name, p.name.name
-                ),
-                p.span,
-            );
+            error(messages::iter_fn_qualified_param(&q.name.name, &p.name.name), p.span);
             return None;
         }
     }
@@ -173,9 +140,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
     // obligation's own shape.
     let elem = element_type(f.return_type.as_ref()).or_else(|| {
         error(
-            "an `iter fn` returns `Emitted T | Finished`: it reports either an \
-             element or the end of the sequence"
-                .to_string(),
+            messages::iter_fn_return_type(),
             f.return_type
                 .as_ref()
                 .map(|t| t.span())
@@ -190,23 +155,14 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
     let mut reserved: Vec<&Ident> = f.params.iter().map(|p| &p.name).collect();
     for (i, field) in f.iter_state.iter().enumerate() {
         if f.params.iter().any(|p| p.name.name == field.name.name) {
-            error(
-                format!(
-                    "`{}` is a parameter's name: a `state` field may not shadow it",
-                    field.name.name
-                ),
-                field.span,
-            );
+            error(messages::iter_fn_state_shadows_param(&field.name.name), field.span);
             return None;
         }
         if f.iter_state[..i]
             .iter()
             .any(|prev| prev.name.name == field.name.name)
         {
-            error(
-                format!("`state` field `{}` is declared twice", field.name.name),
-                field.span,
-            );
+            error(messages::iter_fn_duplicate_state_field(&field.name.name), field.span);
             return None;
         }
         reserved.push(&field.name);
@@ -214,14 +170,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
     let mut shadowed = Vec::new();
     collect_shadowing(&body, &reserved, &mut shadowed);
     if let Some((name, at)) = shadowed.first() {
-        error(
-            format!(
-                "`{name}` is already a name of `iter fn {}` (a parameter or a \
-                 `state` field), and a binding may not reuse it: rename the binding",
-                f.name.name
-            ),
-            *at,
-        );
+        error(messages::iter_fn_shadowing_binding(name, &f.name.name), *at);
         return None;
     }
 
@@ -704,12 +653,7 @@ pub fn expand_tests(module: &mut Module, mangled: &str) -> (Vec<ExpandedTest>, V
         if let Some(prior) = tests.iter().find(|t: &&ExpandedTest| t.name == test.name) {
             let _ = prior;
             diags.push(Diagnostic::error(
-                format!(
-                    "a test called `{}` is already declared in this file: test names \
-                     identify a test to the runner, so they have to differ \
-                     [test-unique]",
-                    test.name
-                ),
+                messages::test_unique_duplicate(&test.name),
                 test.name_span,
             ));
             continue;
@@ -1566,16 +1510,7 @@ fn prefix_item_name(
     macro_rules! reject {
         ($span:expr, $what:literal) => {{
             if in_namespace {
-                diags.push(Diagnostic::error(
-                    concat!(
-                        "a `",
-                        $what,
-                        "` cannot appear inside a `namespace`: it is file- or \
-                         module-scoped, not a named declaration [mod-namespace]"
-                    )
-                    .to_string(),
-                    $span,
-                ));
+                diags.push(Diagnostic::error(messages::mod_namespace_not_a_declaration($what), $span));
             }
         }};
     }

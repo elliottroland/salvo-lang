@@ -36,14 +36,7 @@ pub fn parse_file(file: &SourceFile) -> Parsed {
 
 /// A parse diagnostic, attributed to file `file`.
 pub fn file_diagnostic(file: usize, d: Diagnostic) -> FileDiagnostic {
-    FileDiagnostic {
-        file,
-        severity: d.severity,
-        message: d.message,
-        span: d.span,
-        suggested_imports: Vec::new(),
-        decl: None,
-    }
+    FileDiagnostic::from_parse(file, d)
 }
 
 pub struct StdFront {

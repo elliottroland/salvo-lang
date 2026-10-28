@@ -1,6 +1,7 @@
 //! Hand-written lexer for Salvo source code.
 
 use crate::diag::Diagnostic;
+use crate::messages;
 use crate::span::Span;
 use crate::token::{StrPart, Token, TokenKind};
 
@@ -133,7 +134,7 @@ impl<'s> Lexer<'s> {
         self.push(kind, span);
     }
 
-    fn error(&mut self, message: impl Into<String>, span: Span) {
+    fn error(&mut self, message: impl crate::diag::IntoMessage, span: Span) {
         self.diagnostics.push(Diagnostic::error(message, span));
     }
 
@@ -243,37 +244,31 @@ impl<'s> Lexer<'s> {
         let span = Span::new(start, self.offset());
         if span.end > lit_end {
             let source = &self.source[start as usize..span.end as usize];
-            self.error(format!("invalid numeric literal `{source}`"), span);
+            self.error(messages::type_lit_numeric_invalid_literal(source), span);
             return;
         }
         match suffix {
             Some('f') if !is_float => {
-                self.error(
-                    format!("float suffix `f` requires a decimal point (write `{text}.0f`)"),
-                    span,
-                );
+                self.error(messages::type_lit_numeric_float_suffix_without_point(&text), span);
             }
             Some('L') if is_float => {
-                self.error(
-                    format!("long suffix `L` is not valid on the float literal `{text}`"),
-                    span,
-                );
+                self.error(messages::type_lit_numeric_long_suffix_on_float(&text), span);
             }
             Some('f') => match text.parse::<f64>() {
                 Ok(value) => self.push(TokenKind::Float { value, single: true }, span),
-                Err(_) => self.error(format!("invalid float literal `{text}`"), span),
+                Err(_) => self.error(messages::type_lit_numeric_invalid_float(&text), span),
             },
             Some('L') => match text.parse::<i64>() {
                 Ok(value) => self.push(TokenKind::Int { value, long: true }, span),
-                Err(_) => self.error(format!("invalid integer literal `{text}`"), span),
+                Err(_) => self.error(messages::type_lit_numeric_invalid_integer(&text), span),
             },
             _ if is_float => match text.parse::<f64>() {
                 Ok(value) => self.push(TokenKind::Float { value, single: false }, span),
-                Err(_) => self.error(format!("invalid float literal `{text}`"), span),
+                Err(_) => self.error(messages::type_lit_numeric_invalid_float(&text), span),
             },
             _ => match text.parse::<i64>() {
                 Ok(value) => self.push(TokenKind::Int { value, long: false }, span),
-                Err(_) => self.error(format!("invalid integer literal `{text}`"), span),
+                Err(_) => self.error(messages::type_lit_numeric_invalid_integer(&text), span),
             },
         }
     }
@@ -286,7 +281,7 @@ impl<'s> Lexer<'s> {
         loop {
             let Some(c) = self.peek() else {
                 let span = Span::new(start, self.offset());
-                self.error("unterminated string literal", span);
+                self.error(messages::type_str_unterminated_string(), span);
                 break;
             };
             match c {
@@ -296,7 +291,7 @@ impl<'s> Lexer<'s> {
                 }
                 '\n' => {
                     let span = Span::new(start, self.offset());
-                    self.error("unterminated string literal", span);
+                    self.error(messages::type_str_unterminated_string(), span);
                     break;
                 }
                 '\\' => {
@@ -314,8 +309,8 @@ impl<'s> Lexer<'s> {
                             let span = Span::new(self.offset().saturating_sub(1), self.offset());
                             self.error(
                                 match other {
-                                    Some(c) => format!("unknown escape sequence `\\{c}`"),
-                                    None => "unterminated string literal".to_string(),
+                                    Some(c) => messages::type_str_unknown_escape(c),
+                                    None => messages::type_str_unterminated_string(),
                                 },
                                 span,
                             );
@@ -363,7 +358,7 @@ impl<'s> Lexer<'s> {
                         self.bump();
                     } else {
                         let span = Span::new(expr_start, expr_end);
-                        self.error("unterminated `${...}` interpolation", span);
+                        self.error(messages::type_str_unterminated_interpolation(), span);
                     }
                     let source = self.source[expr_start as usize..expr_end as usize].to_string();
                     parts.push(StrPart::Interp {
@@ -462,7 +457,7 @@ impl<'s> Lexer<'s> {
         let span = Span::new(start, self.offset());
         match (c, closed) {
             (Some(c), true) => self.push(TokenKind::Char(c), span),
-            _ => self.error("invalid character literal", span),
+            _ => self.error(messages::type_basic_invalid_char_literal(), span),
         }
     }
 
@@ -584,7 +579,7 @@ impl<'s> Lexer<'s> {
             ('@', _) => TokenKind::At,
             _ => {
                 let span = Span::new(start, self.offset());
-                self.error(format!("unexpected character `{c}`"), span);
+                self.error(messages::syntax_expected_unexpected_character(c), span);
                 return;
             }
         };

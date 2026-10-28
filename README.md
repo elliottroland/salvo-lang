@@ -75,6 +75,7 @@ cargo run -- run --backend rust --src ./my_project --main ./my_project/bin/tool.
 
 # Type-check a directory of .sv sources without generating code:
 cargo run -- analyze --src ./my_project              # or --format json
+cargo run -- -v analyze --src ./my_project           # each diagnostic with its id, error[rule:name]
 
 # Run the tests a source tree declares (`test "name" { ... }` blocks in
 # `<module>.test.sv` files beside the modules they test):

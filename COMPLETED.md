@@ -144,6 +144,36 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Diagnostics carry ids, shown under `-v`; the parser's have them (TESTS.md T2, step 3b part 1)
+
+**Every diagnostic now has a place for an id, `<rule label>:<name>`
+([diag-id]), and the parser's, lexer's and desugarer's 179 messages have
+theirs**, their text moved into `salvo_syntax::messages` — one function per
+diagnostic named after its id (`assert_op_postfix_bang` is
+`assert-op:postfix-bang`), defined by a `messages!` macro that also lists
+`ALL` for the tests. Built as TESTS.md T2's plan says:
+
+- `Diagnostic` and `FileDiagnostic` gain `id: Option<&'static str>`; their
+  constructors take `impl IntoMessage` — a `Message` (keeps its id) or, until
+  the last part, any text (no id). Parse diagnostics keep their id through
+  `FileDiagnostic::from_parse`, which the three hand-built conversions now
+  call.
+- **`-v`/`--verbose`**, a global CLI flag: `error[id]: …`, and `"id"` in
+  `analyze --format json`; without it nothing changes but the dropped label.
+  A process-wide switch (`diag::show_ids`), since the backends render to
+  strings before the CLI prints. `salvo compile`'s own notes are as before.
+- **Messages lost their `[label]` suffix** as they moved (user decision
+  TD7: no rule labels in what users read). Five parser tests and one CLI test
+  that matched a label now assert the id (`parser_tests::ids_of`).
+- **New rules**: [diag-id], and [syntax-expected] for the generic
+  `expected …, found …` errors (12 messages), which cited no rule.
+- **Tests**: `messages::every_message_is_named_after_its_id`,
+  `docs_tests::every_diagnostic_id_names_a_defined_rule`,
+  `analyze_tests::ids_are_shown_only_under_verbose`.
+- **Next** (T2's order): the core passes before the checker, the checker,
+  the IR passes, the backends and the CLI; then the text impl of
+  `IntoMessage` goes, so the compiler lists what is left.
+
 ### 2026-10-28 — Every rule label leads with its feature, and std cites rules in `@compilerrules` (TESTS.md T2, TD10, TD12)
 
 **83 rule labels whose first word was not a feature were renamed so that it

@@ -37,6 +37,10 @@ use analysis::load_embedded_std;
 struct Cli {
     #[command(subcommand)]
     command: Command,
+    /// [diag-id] Show each diagnostic's id (`error[op-arith:mixed-classes]:`),
+    /// the compiler rule it reports and which way the rule failed.
+    #[arg(short = 'v', long = "verbose", global = true)]
+    verbose: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -276,6 +280,8 @@ enum LangCommand {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    // [diag-id] Ids are shown only when asked for (user decision 2026-10-28).
+    salvo_syntax::diag::show_ids(cli.verbose);
     match cli.command {
         Command::Init { path } => init(path),
         Command::Compile {
@@ -653,6 +659,10 @@ fn diagnostics_json(diagnostics: &[FileDiagnostic], program: &Program) -> String
             diag.span.end,
             json_str(&diag.message)
         ));
+        // [diag-id] The id, under `-v` only, as the text rendering shows it.
+        if let Some(id) = diag.id.filter(|_| salvo_syntax::diag::ids_shown()) {
+            out.push_str(&format!(", \"id\": {}", json_str(id)));
+        }
         // Import suggestions [diag-import-suggest], present only when
         // there are any.
         if !diag.suggested_imports.is_empty() {

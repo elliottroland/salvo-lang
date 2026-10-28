@@ -277,6 +277,36 @@ optionally a message fragment where the text itself is the point.
   `-v`/`--verbose` flag. (Today `verbose` is an internal argument —
   `salvo compile` passes `true`, `run` and `test` `false` — with no flag; the
   flag would gate those notes too.)
+- **The build plan (2026-10-28, step 3b)**, from a survey of every emission
+  site (~1,000: check.rs ~540 through `Checker::error/warn/error_if/
+  error_unresolved`; parser ~162 and lexer 13 through `Parser::error`,
+  `Lexer::error`; comptime ~78; resolve 29; refine 16; IR ~32 through
+  `flow::report_*`, `check::report_one`, `Lower::error`; the backends ~108
+  through `ModuleEmitter::error` and direct pushes, all plain strings):
+  * `salvo_syntax::messages::Message { id, text }`, defined by a
+    `messages!` macro that also lists every `(fn name, id)` for the
+    name-matches-id test; `Diagnostic` and `FileDiagnostic` gain
+    `id: Option<&'static str>`.
+  * The constructors take `impl IntoMessage`, implemented for `Message`
+    and — during the migration only — for `String`/`&str` (no id). The last
+    step deletes the string impls, so the compiler lists whatever was not
+    converted; then `id` stops being optional where it can.
+  * A message rewritten on its way out (`Checker::error`'s operator and
+    `for` rewording, `origin::render`'s prefix, `shown`'s key rewriting)
+    keeps its id.
+  * Rendering: `error[id]: text --> file:line:col` when ids are shown, as
+    rustc prints codes; the CLI's global `-v` sets a process-wide switch in
+    `salvo_syntax::diag` (the backends render their errors to strings before
+    the CLI sees them, so a switch is simpler than threading a flag);
+    `analyze --format json` adds `"id"` under `-v` too. The language server
+    never sends it (TD11).
+  * Each message loses its `[label]` suffix as it moves; a test that matched
+    a label matches the id instead (`salvo_testkit::front::Checked::ids`).
+  * Order, one commit each, each green: (1, done) the machinery, `-v`, and the
+    lexer, parser and desugar; (2) the core passes before the checker
+    (expand, comptime, resolve, refine, deduce, unique_shape, platform,
+    deadlock); (3) the checker; (4) the IR passes; (5) the backends and the
+    CLI's own errors, then the string impls go.
 
 ### T3. std checked once per test process
 
@@ -670,3 +700,8 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   | `union-spread` | `type-union-spread` |
   | `use-no-dup` | `effect-use-no-dup` |
   | `use-requires-use` | `effect-use-requires-use` |
+- **Step 3b part 1 (2026-10-28).** The id machinery (`Message`,
+  `messages!`, `IntoMessage`, the `id` field), `-v`, and the lexer's,
+  parser's and desugarer's 179 messages with ids (labels judged per message
+  where the text cited none; `syntax-expected` added for the generic
+  ones). Parts 2–5 follow T2's order.

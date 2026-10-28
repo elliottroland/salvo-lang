@@ -233,14 +233,7 @@ pub fn analyze_std() -> Analysis {
     let mut diagnostics: Vec<FileDiagnostic> = Vec::new();
     for file in &sources.files {
         let (module, diags) = salvo_syntax::parse_module_deferred(&file.content);
-        diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic {
-            file: modules.len(),
-            severity: d.severity,
-            message: d.message,
-            span: d.span,
-            suggested_imports: Vec::new(),
-            decl: None,
-        }));
+        diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic::from_parse(modules.len(), d)));
         modules.push(module);
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
@@ -424,14 +417,7 @@ fn analyze_project_with(
             }
             None => parse_file(file),
         };
-        diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic {
-            file: idx,
-            severity: d.severity,
-            message: d.message,
-            span: d.span,
-            suggested_imports: Vec::new(),
-            decl: None,
-        }));
+        diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic::from_parse(idx, d)));
         (module, tests)
     };
     let first = front.map_or(0, |f| f.files().len());

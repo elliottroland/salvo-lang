@@ -178,7 +178,7 @@ fn duplicate_names_are_refused() {
     let out = salvo_in(&dir, &["test", "--src", ".", "--list"]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    assert!(stderr.contains("[test-unique]"), "{stderr}");
+    assert!(stderr.contains("a test called `same` is already declared in this file"), "{stderr}");
 }
 
 // ===== running =====

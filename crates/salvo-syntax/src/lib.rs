@@ -5,6 +5,7 @@ pub mod doc;
 pub mod desugar;
 pub mod diag;
 pub mod lexer;
+pub mod messages;
 pub mod node_id;
 pub mod parser;
 pub mod span;

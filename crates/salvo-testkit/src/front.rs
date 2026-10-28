@@ -114,6 +114,12 @@ impl Checked {
         self.checked.errors.iter().filter(|d| d.is_error()).map(|d| d.render(&self.program.files)).collect()
     }
 
+    /// [diag-id] Every diagnostic's id, in order; `?` for one not yet given
+    /// an id (TESTS.md T2).
+    pub fn ids(&self) -> Vec<&'static str> {
+        self.diagnostics().map(|d| d.id.unwrap_or("?")).collect()
+    }
+
     /// Every warning, rendered.
     pub fn warnings(&self) -> Vec<String> {
         self.diagnostics().filter(|d| !d.is_error()).map(|d| d.render(&self.program.files)).collect()

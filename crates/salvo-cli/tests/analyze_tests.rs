@@ -34,6 +34,24 @@ fn clean_program_exits_zero() {
     assert!(stderr.contains("no errors"), "stderr: {stderr}");
 }
 
+/// [diag-id] A diagnostic's id shows only under `-v`: in the text
+/// (`error[id]:`) and as the JSON's `"id"`.
+#[test]
+fn ids_are_shown_only_under_verbose() {
+    let dir = src_dir("ids");
+    fs::write(dir.join("main.sv"), "fn main() [] -> None {\n    let x = 1!\n}\n").unwrap();
+    let src = dir.to_str().unwrap();
+    let id = "assert-op:postfix-bang";
+    let plain = String::from_utf8_lossy(&salvo(&["analyze", "--src", src]).stderr).to_string();
+    assert!(plain.contains("error: a postfix `!`") && !plain.contains(id), "{plain}");
+    let verbose = String::from_utf8_lossy(&salvo(&["-v", "analyze", "--src", src]).stderr).to_string();
+    assert!(verbose.contains(&format!("error[{id}]: a postfix `!`")), "{verbose}");
+    let json = String::from_utf8_lossy(&salvo(&["analyze", "-v", "--format", "json", "--src", src]).stdout).to_string();
+    assert!(json.contains(&format!("\"id\": \"{id}\"")), "{json}");
+    let json = String::from_utf8_lossy(&salvo(&["analyze", "--format", "json", "--src", src]).stdout).to_string();
+    assert!(!json.contains("\"id\""), "{json}");
+}
+
 #[test]
 fn type_errors_render_with_location_and_exit_nonzero() {
     let dir = src_dir("type_error");

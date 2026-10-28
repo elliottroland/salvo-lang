@@ -9,7 +9,7 @@
 //!
 //! [`Program`]: crate::Program
 
-use salvo_syntax::diag::{Diagnostic, Severity};
+use salvo_syntax::diag::{Diagnostic, IntoMessage, Severity};
 use salvo_syntax::Span;
 
 use crate::source::SourceFile;
@@ -32,17 +32,22 @@ pub struct FileDiagnostic {
     /// origin rendered it (a field, the `by` site), which is another
     /// declaration's text, so this is what attributes it (`ir::gate`).
     pub decl: Option<crate::DeclId>,
+    /// [diag-id] What the diagnostic is, `label:name`; `None` only for one
+    /// not yet given an id (TESTS.md T2).
+    pub id: Option<&'static str>,
 }
 
 impl FileDiagnostic {
-    pub fn error(file: usize, span: Span, message: impl Into<String>) -> Self {
+    pub fn error(file: usize, span: Span, message: impl IntoMessage) -> Self {
+        let (id, message) = message.into_message();
         FileDiagnostic {
             file,
             severity: Severity::Error,
-            message: shown(message.into()),
+            message: shown(message),
             span,
             suggested_imports: Vec::new(),
             decl: None,
+            id,
         }
     }
 
@@ -50,14 +55,16 @@ impl FileDiagnostic {
     /// intend without rejecting the program — used where a rule
     /// deliberately degrades instead of failing (a suppressed refinement
     /// conflict [qual-refn]).
-    pub fn warning(file: usize, span: Span, message: impl Into<String>) -> Self {
+    pub fn warning(file: usize, span: Span, message: impl IntoMessage) -> Self {
+        let (id, message) = message.into_message();
         FileDiagnostic {
             file,
             severity: Severity::Warning,
-            message: shown(message.into()),
+            message: shown(message),
             span,
             suggested_imports: Vec::new(),
             decl: None,
+            id,
         }
     }
 
@@ -70,6 +77,7 @@ impl FileDiagnostic {
             span: d.span,
             suggested_imports: Vec::new(),
             decl: None,
+            id: d.id,
         }
     }
 
@@ -99,6 +107,7 @@ impl FileDiagnostic {
             severity: self.severity,
             message: self.message.clone(),
             span: self.span,
+            id: self.id,
         }
         .render(&f.name, &f.content);
         for import in &self.suggested_imports {

@@ -193,14 +193,7 @@ pub fn program_expansion(per_file: Vec<Vec<FileTest>>, comptime: crate::comptime
         }));
     }
     for (file_idx, d) in comptime.diagnostics {
-        out.diagnostics.push(FileDiagnostic {
-            file: file_idx,
-            severity: d.severity,
-            message: d.message,
-            span: d.span,
-            suggested_imports: Vec::new(),
-            decl: None,
-        });
+        out.diagnostics.push(FileDiagnostic::from_parse(file_idx, d));
     }
     out.comptime_hovers = comptime.hovers;
     out.comptime_when_arms = comptime.when_arms;

@@ -18,6 +18,7 @@ use crate::ast::*;
 use crate::diag::Diagnostic;
 use crate::lexer;
 use crate::lexer::Comment;
+use crate::messages;
 use crate::span::Span;
 use crate::token::{StrPart, Token, TokenKind};
 
@@ -369,12 +370,12 @@ impl<'s> Parser<'s> {
         } else {
             let found = self.kind().describe();
             let span = self.peek().span;
-            self.error(format!("expected {}, found {found}", kind.describe()), span);
+            self.error(messages::syntax_expected_token(&kind.describe(), &found), span);
             None
         }
     }
 
-    fn error(&mut self, message: impl Into<String>, span: Span) {
+    fn error(&mut self, message: impl crate::diag::IntoMessage, span: Span) {
         self.diagnostics.push(Diagnostic::error(message, span));
     }
 
@@ -384,10 +385,7 @@ impl<'s> Parser<'s> {
     fn ident_type(&mut self, what: &str) -> Option<Ident> {
         let id = self.ident()?;
         if !id.name.starts_with(|c: char| c.is_uppercase()) {
-            self.error(
-                format!("{what} names must start with an uppercase letter [name-casing]"),
-                id.span,
-            );
+            self.error(messages::name_casing_type_name_lowercase(what), id.span);
         }
         Some(id)
     }
@@ -400,10 +398,7 @@ impl<'s> Parser<'s> {
     fn ident_value(&mut self, what: &str) -> Option<Ident> {
         let id = self.ident()?;
         if id.name.starts_with(|c: char| c.is_uppercase()) {
-            self.error(
-                format!("{what} names must not start with an uppercase letter [name-casing]"),
-                id.span,
-            );
+            self.error(messages::name_casing_value_name_uppercase(what), id.span);
         }
         Some(id)
     }
@@ -431,10 +426,7 @@ impl<'s> Parser<'s> {
             self.bump();
             let extra = self.ident()?;
             span = span.to(extra.span);
-            self.error(
-                "a dot-name has exactly two segments (`Ns.Name`) [name-dot]",
-                span,
-            );
+            self.error(messages::name_dot_too_many_segments(), span);
         }
         Some(Ident {
             name: format!("{}.{}", head.name, tail.name),
@@ -472,7 +464,7 @@ impl<'s> Parser<'s> {
             _ => {
                 let found = self.kind().describe();
                 let span = self.peek().span;
-                self.error(format!("expected identifier, found {found}"), span);
+                self.error(messages::syntax_expected_identifier(&found), span);
                 None
             }
         }
@@ -603,11 +595,7 @@ impl<'s> Parser<'s> {
                     Some(Item::Struct(s))
                 }
                 other => {
-                    self.error(
-                        "a comptime qualifier before a declaration describes a struct: \
-                         only a `struct` may follow it [comptime-qualifier]",
-                        start,
-                    );
+                    self.error(messages::comptime_qualifier_not_before_struct(), start);
                     Some(other)
                 }
             };
@@ -668,38 +656,19 @@ impl<'s> Parser<'s> {
                 Some(Item::EffectAlias(d))
             }
             Item::Import(_) => {
-                self.error(
-                    "`export` cannot precede an `import`: a module states what *it* \
-                     declares, and there is no re-export — import the original name \
-                     where you need it [mod-export]",
-                    span,
-                );
+                self.error(messages::mod_export_export_import(), span);
                 Some(item)
             }
             Item::Refn(_) => {
-                self.error(
-                    "`export` cannot precede a `refn`: a refinement travels with the \
-                     qualifier whose claim it is about, so it is visible wherever that \
-                     qualifier is [mod-export]",
-                    span,
-                );
+                self.error(messages::mod_export_export_refn(), span);
                 Some(item)
             }
             Item::Rename(_) => {
-                self.error(
-                    "`export` cannot precede a `rename`: a rename is a name for this \
-                     file's own use, not a declaration — export the function it names \
-                     instead [mod-export]",
-                    span,
-                );
+                self.error(messages::mod_export_export_rename(), span);
                 Some(item)
             }
             Item::Test(_) => {
-                self.error(
-                    "`export` cannot precede a `test`: a test is run, never referenced, \
-                     so there is nothing to make visible [test-decl]",
-                    span,
-                );
+                self.error(messages::test_decl_exported_test(), span);
                 Some(item)
             }
         }
@@ -723,14 +692,7 @@ impl<'s> Parser<'s> {
         } else if !self.at(&TokenKind::LBrace) {
             let found = self.kind().describe();
             let span = self.peek().span;
-            self.error(
-                format!(
-                    "expected `{{` or `...` after the namespace name `{}`, found {found} \
-                     [mod-namespace]",
-                    name.name
-                ),
-                span,
-            );
+            self.error(messages::mod_namespace_expected_body(&name.name, &found), span);
             return None;
         } else {
             self.bump(); // `{`
@@ -747,10 +709,7 @@ impl<'s> Parser<'s> {
                 self.bump();
                 break;
             } else if self.at_eof() {
-                self.error(
-                    format!("unterminated `namespace {}`: expected `}}` [mod-namespace]", name.name),
-                    start,
-                );
+                self.error(messages::mod_namespace_unterminated(&name.name), start);
                 break;
             }
             let before = self.pos;
@@ -794,13 +753,7 @@ impl<'s> Parser<'s> {
                     _ => {
                         let found = self.kind().describe();
                         let span = self.peek().span;
-                        self.error(
-                            format!(
-                                "expected `type`, `fn`, `qualifier`, or `handler` after \
-                                 `intrinsic`, found {found}"
-                            ),
-                            span,
-                        );
+                        self.error(messages::syntax_expected_after_intrinsic(&found), span);
                         None
                     }
                 }
@@ -812,14 +765,7 @@ impl<'s> Parser<'s> {
                 // one to mean, so it is a parse error naming both forms that
                 // do exist.
                 if t.alias.is_none() {
-                    self.error(
-                        format!(
-                            "`type {}` declares nothing: give it a definition \
-                             (`type {} = ...`)",
-                            t.name.name, t.name.name
-                        ),
-                        t.span,
-                    );
+                    self.error(messages::decl_body_type_without_definition(&t.name.name), t.span);
                 }
                 Some(Item::Type(t))
             }
@@ -905,13 +851,7 @@ impl<'s> Parser<'s> {
                     }
                     _ => {
                         let found = self.peek_at(1).kind.describe();
-                        self.error(
-                            format!(
-                                "expected `fn`, `struct`, `type` or `qualifier` after `comptime`, \
-                                 found {found} [comptime-bound]"
-                            ),
-                            span,
-                        );
+                        self.error(messages::comptime_bound_after_comptime(&found), span);
                         None
                     }
                 }
@@ -920,10 +860,7 @@ impl<'s> Parser<'s> {
             // model gained `comptime struct`: one word for the facility.
             TokenKind::Ident(name) if name == "compfn" => {
                 let span = self.peek().span;
-                self.error(
-                    "`compfn` is spelled `comptime fn` [comptime-bound]",
-                    span,
-                );
+                self.error(messages::comptime_bound_compfn_keyword(), span);
                 self.bump();
                 self.parse_fn(false).map(Item::Fn)
             }
@@ -934,12 +871,7 @@ impl<'s> Parser<'s> {
                 if name == "auto" && matches!(self.peek_at(1).kind, TokenKind::KwFn) =>
             {
                 let span = self.peek().span;
-                self.error(
-                    "`auto fn` no longer exists: write `fn cmp(a: T, b: T) -> Int by auto` \
-                     — the structural implementation is stamped from `core.auto`'s \
-                     `compfn` [fn-by]",
-                    span,
-                );
+                self.error(messages::fn_by_auto_fn(), span);
                 self.bump();
                 self.parse_fn(false).map(Item::Fn)
             }
@@ -991,12 +923,7 @@ impl<'s> Parser<'s> {
                         Some(Item::Type(d))
                     }
                     other => {
-                        self.error(
-                            "`noremote` keeps a *type* off the wire, so it precedes a \
-                             `struct` or `type` declaration — a function, handler or \
-                             effect has no wire form to refuse [net-noremote]",
-                            span,
-                        );
+                        self.error(messages::net_noremote_not_before_type(), span);
                         Some(other)
                     }
                 }
@@ -1016,11 +943,7 @@ impl<'s> Parser<'s> {
                         Some(Item::Struct(d))
                     }
                     other => {
-                        self.error(
-                            "`opaque` hides a struct's fields outside its module, so it \
-                             precedes a `struct` declaration [struct-opaque]",
-                            span,
-                        );
+                        self.error(messages::struct_opaque_not_before_struct(), span);
                         Some(other)
                     }
                 }
@@ -1039,13 +962,7 @@ impl<'s> Parser<'s> {
                 if !self.at(&TokenKind::KwType) {
                     let found = self.kind().describe();
                     let span = self.peek().span;
-                    self.error(
-                        format!(
-                            "`linear platform` declares a linear host handle, so `type` must \
-                             follow: `linear platform type HostIn` (found {found}) [platform-type]"
-                        ),
-                        span,
-                    );
+                    self.error(messages::platform_type_linear_platform_not_type(&found), span);
                     return None;
                 }
                 self.parse_platform_type(false, true)
@@ -1061,14 +978,7 @@ impl<'s> Parser<'s> {
                 if !self.at(&TokenKind::KwType) {
                     let found = self.kind().describe();
                     let span = self.peek().span;
-                    self.error(
-                        format!(
-                            "`linear` before `intrinsic` declares an opaque linear \
-                             type, so `type` must follow: `linear intrinsic type \
-                             Reply<T>` (found {found})"
-                        ),
-                        span,
-                    );
+                    self.error(messages::linear_opaque_linear_intrinsic_not_type(&found), span);
                     return None;
                 }
                 self.parse_type_decl_linear(true, true).map(Item::Type)
@@ -1083,10 +993,7 @@ impl<'s> Parser<'s> {
                 if !self.at(&TokenKind::KwQualifier) {
                     let found = self.kind().describe();
                     let span = self.peek().span;
-                    self.error(
-                        format!("expected `qualifier` after `provenance`, found {found}"),
-                        span,
-                    );
+                    self.error(messages::syntax_expected_after_provenance(&found), span);
                     return None;
                 }
                 self.parse_qualifier(false, QualSubject::Provenance)
@@ -1114,12 +1021,7 @@ impl<'s> Parser<'s> {
                     other => {
                         let found = other.describe();
                         self.error(
-                            format!(
-                                "expected `handler` or `type` after `threadsafe platform`, \
-                                 found {found}: the thread-safety contract is a claim about a \
-                                 host class, so it belongs on a `platform handler` or a \
-                                 `platform type` [platform-threadsafe]"
-                            ),
+                            messages::platform_threadsafe_not_before_handler_or_type(&found),
                             span,
                         );
                         None
@@ -1137,14 +1039,7 @@ impl<'s> Parser<'s> {
                 self.bump();
                 if !self.at(&TokenKind::KwType) {
                     let found = self.kind().describe();
-                    self.error(
-                        format!(
-                            "expected `type` after `iterable platform`, found {found}: \
-                             native iteration is a claim about a host type, so it belongs \
-                             on a `platform type` [platform-iterable]"
-                        ),
-                        span,
-                    );
+                    self.error(messages::platform_iterable_not_before_type(&found), span);
                     return None;
                 }
                 let item = self.parse_platform_type(false, false)?;
@@ -1176,12 +1071,7 @@ impl<'s> Parser<'s> {
                 if name == "async" && matches!(self.peek_at(1).kind, TokenKind::KwEffect) =>
             {
                 let span = self.peek().span;
-                self.error(
-                    "an asynchronous protocol is declared `actor effect`, not `async \
-                     effect`: what runs one is an **actor** — and there is no `async` \
-                     anywhere in Salvo, since nothing is coloured",
-                    span,
-                );
+                self.error(messages::actor_effect_kind_async_effect(), span);
                 self.bump();
                 self.parse_effect_kinded(true).map(Item::Effect)
             }
@@ -1194,15 +1084,7 @@ impl<'s> Parser<'s> {
             TokenKind::KwRefn => {
                 let sp = self.peek().span;
                 let decl = self.parse_refn()?;
-                self.error(
-                    format!(
-                        "a refinement belongs to the qualifier whose claim it is \
-                         about: move `refn {}` into that qualifier's body \
-                         [qual-refn-scope]",
-                        decl.name.name
-                    ),
-                    sp,
-                );
+                self.error(messages::qual_refn_scope_top_level_refn(&decl.name.name), sp);
                 Some(Item::Refn(decl))
             }
             // [fn-rename] A module-scoped name for one overload.
@@ -1213,21 +1095,14 @@ impl<'s> Parser<'s> {
                 // [decl-body] [platform-fn] A top-level `fn` without a body:
                 // the host's to implement only when it says so.
                 if f.body.is_none() && f.by.is_none() {
-                    self.error(
-                        format!(
-                            "`fn {}` has no body: write one, or declare it `platform fn {}` \
-                             for the host to implement [platform-fn]",
-                            f.name.name, f.name.name
-                        ),
-                        f.span,
-                    );
+                    self.error(messages::platform_fn_missing_body(&f.name.name), f.span);
                 }
                 Some(Item::Fn(f))
             }
             _ => {
                 let found = self.kind().describe();
                 let span = self.peek().span;
-                self.error(format!("expected item, found {found}"), span);
+                self.error(messages::syntax_expected_item(&found), span);
                 None
             }
         }
@@ -1285,10 +1160,7 @@ impl<'s> Parser<'s> {
                     let value_token = self.peek().clone();
                     let TokenKind::Int { value, .. } = value_token.kind else {
                         self.error(
-                            format!(
-                                "an actor test's `{}` must be an integer literal [test-actor]",
-                                arg.name
-                            ),
+                            messages::test_actor_non_integer_argument(&arg.name),
                             value_token.span,
                         );
                         return None;
@@ -1297,12 +1169,7 @@ impl<'s> Parser<'s> {
                     match arg.name.as_str() {
                         "seed" => seed = if negative { -value } else { value },
                         other => {
-                            self.error(
-                                format!(
-                                    "an actor test takes `seed`, not `{other}` [test-actor]"
-                                ),
-                                arg.span,
-                            );
+                            self.error(messages::test_actor_unknown_argument(other), arg.span);
                             return None;
                         }
                     }
@@ -1319,22 +1186,14 @@ impl<'s> Parser<'s> {
             // Unreachable: the caller only dispatches here on a string
             // literal. Kept honest rather than panicking.
             let found = self.kind().describe();
-            self.error(
-                format!("a test's name must be a string literal, found {found} [test-decl]"),
-                name_token.span,
-            );
+            self.error(messages::test_decl_name_not_string(&found), name_token.span);
             return None;
         };
         let name = match parts.as_slice() {
             [] => String::new(),
             [StrPart::Text(text)] => text.clone(),
             _ => {
-                self.error(
-                    "a test's name must be a plain string literal: `salvo test` lists \
-                     and filters tests without running them, so an interpolated name \
-                     could not be known [test-decl]",
-                    name_token.span,
-                );
+                self.error(messages::test_decl_interpolated_name(), name_token.span);
                 return None;
             }
         };
@@ -1374,11 +1233,7 @@ impl<'s> Parser<'s> {
             // [qual-depend] Value slots belong to qualifiers alone: a type's
             // values carry identities [cmp-carry], not claims about other
             // values.
-            self.error(
-                "a value slot belongs to a qualifier, not a type: only a \
-                 claim can depend on another value",
-                v.span,
-            );
+            self.error(messages::qual_depend_value_slot_outside_qualifier(), v.span);
         }
         // `canbe Mut` — auto-qualifiers the type opts into
         // [type-canbe-mut] [qual-canbe-optin].
@@ -1402,12 +1257,7 @@ impl<'s> Parser<'s> {
         // because an alias has to be read before what it promises.
         let obligations = self.parse_obligations()?;
         if linear && alias.is_some() {
-            self.error(
-                "an alias cannot be linear: the obligation belongs to the type \
-                 itself, so write `linear intrinsic type` (or `linear struct`) \
-                 where it is declared",
-                name.span,
-            );
+            self.error(messages::type_alias_linear_alias(), name.span);
         }
         let end = obligations
             .last()
@@ -1442,10 +1292,7 @@ impl<'s> Parser<'s> {
     fn parse_generics(&mut self) -> Vec<Ident> {
         let (generics, canbe, slots) = self.parse_generics_all();
         for (ident, _) in &canbe {
-            self.error(
-                "`canbe` on a type parameter is only supported on functions, structs and qualifiers",
-                ident.span,
-            );
+            self.error(messages::linear_generics_canbe_type_param_unsupported(), ident.span);
         }
         for slot in &slots {
             // [cmp-carry] A fn slot belongs to a declaration whose *values*
@@ -1454,15 +1301,7 @@ impl<'s> Parser<'s> {
             // decision 11): it is an indirect way of declaring a fn in the
             // parameter scope, so it does not belong in the generics list.
             let (name, span) = slot_name_span(slot);
-            self.error(
-                format!(
-                    "`?{name}` declares a function slot, which only a qualifier or an \
-                     `intrinsic type` may have: on a function, write the implicit \
-                     parameter (`?{name}: …`) in the parameter list, and use `?{name}` \
-                     in the types it applies to"
-                ),
-                span,
-            );
+            self.error(messages::cmp_carry_fn_slot_on_function(&name), span);
         }
         generics
     }
@@ -1481,13 +1320,7 @@ impl<'s> Parser<'s> {
         let (generics, canbe, slots) = self.parse_generics_all();
         for slot in &slots {
             let (name, span) = slot_name_span(slot);
-            self.error(
-                format!(
-                    "`?{name}` declares a function slot, which only a qualifier, a \
-                     struct or an `intrinsic type` may have [cmp-carry]"
-                ),
-                span,
-            );
+            self.error(messages::cmp_carry_fn_slot_misplaced(&name), span);
         }
         (generics, canbe)
     }
@@ -1509,11 +1342,7 @@ impl<'s> Parser<'s> {
                 // `qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T>`.
                 // Parsed as before for recovery; the error stops the build.
                 if let Some(q) = self.eat(&TokenKind::Question).map(|t| t.span) {
-                    self.error(
-                        "a slot is declared in a `(…)` block after the type generics \
-                         — `Sorted<T>(?cmp: (T, T) -> Int)` — not in the `<…>` list",
-                        q,
-                    );
+                    self.error(messages::qual_value_arg_slot_in_generics(), q);
                     if self.at_type_name() {
                         match self.parse_type_ref() {
                             Some(group) => slots.push(SlotDecl::Group(group)),
@@ -1550,12 +1379,7 @@ impl<'s> Parser<'s> {
                         if !slots.is_empty() {
                             // [cmp-carry] Slots trail the type parameters, as
                             // an implicit parameter trails the ordinary ones.
-                            self.error(
-                                "a type parameter cannot follow a function slot: \
-                                 slots come last, so the types they are written \
-                                 over are already in scope",
-                                id.span,
-                            );
+                            self.error(messages::cmp_carry_type_param_after_slot(), id.span);
                         }
                         if self.eat(&TokenKind::KwCanbe).is_some() {
                             if let Some(q) = self.parse_type_ref() {
@@ -1664,14 +1488,7 @@ impl<'s> Parser<'s> {
         if !matches!(ty, Type::Fn { .. }) {
             // The same requirement an implicit parameter has, for the same
             // reason: what fills it is a function [implicit-param].
-            self.error(
-                format!(
-                    "a function slot must have a function type, but `{ty}` is not \
-                     one: write `?{}: (T, T) -> Int`",
-                    name.name
-                ),
-                ty.span(),
-            );
+            self.error(messages::cmp_carry_slot_not_fn_type(&ty, &name.name), ty.span());
         }
         // [cmp-carry] No `= default`: the slot's **name** is what an unwritten
         // one resolves by, exactly as an implicit parameter's is
@@ -1714,11 +1531,7 @@ impl<'s> Parser<'s> {
         let (block_slots, value_slots) = self.parse_slot_block();
         fn_slots.extend(block_slots);
         for v in &value_slots {
-            self.error(
-                "a value slot belongs to a qualifier, not a type: only a \
-                 claim can depend on another value",
-                v.span,
-            );
+            self.error(messages::qual_depend_value_slot_outside_qualifier(), v.span);
         }
         // `: Next<self, Str>` — obligation groups this type satisfies
         // [group-obligation]. Before `canbe`, because `:` states what the
@@ -1750,12 +1563,7 @@ impl<'s> Parser<'s> {
                 && matches!(self.peek_at(1).kind, TokenKind::KwFn)
             {
                 let sp = self.peek().span;
-                self.error(
-                    "a function declared inside a struct takes the struct's own \
-                     visibility: drop the `export` (export the struct instead) \
-                     [fn-attached]",
-                    sp,
-                );
+                self.error(messages::fn_attached_export_inside_struct(), sp);
                 self.bump();
             }
             // [comptime-bound] A concrete `compfn` inside the body: its own
@@ -1767,12 +1575,7 @@ impl<'s> Parser<'s> {
             }
             if self.at_word("auto") && matches!(self.peek_at(1).kind, TokenKind::KwFn) {
                 let sp = self.peek().span;
-                self.error(
-                    "`auto fn` no longer exists: write `fn cmp(a: T, b: T) -> Int by auto` \
-                     — the structural implementation is stamped from `core.auto`'s \
-                     `compfn` [fn-by]",
-                    sp,
-                );
+                self.error(messages::fn_by_auto_fn(), sp);
                 self.bump();
             }
             if self.at(&TokenKind::KwFn) {
@@ -1827,11 +1630,7 @@ impl<'s> Parser<'s> {
                 )
             {
                 let sp = self.peek().span;
-                self.error(
-                    "`: auto Group<self>` no longer exists: write `: Group<self> by auto` — \
-                     the members are stamped from `core.auto`'s `compfn`s [obligation-by]",
-                    sp,
-                );
+                self.error(messages::obligation_by_auto_obligation(), sp);
                 self.bump();
             }
             let group = self.parse_type_ref()?;
@@ -1871,11 +1670,7 @@ impl<'s> Parser<'s> {
         if self.at(&TokenKind::At) && self.same_line() {
             let at_span = self.bump().span;
             if at.is_some() {
-                self.error(
-                    "`by @x@y` says both readings: `by @x` is the module `x`, `by x@y` the \
-                     comptime fn `x` of module `y` [obligation-by]",
-                    at_span,
-                );
+                self.error(messages::obligation_by_double_at(), at_span);
                 return None;
             }
             let mut sel = vec![self.ident_value("module after `@`")?];
@@ -1925,13 +1720,7 @@ impl<'s> Parser<'s> {
                 TokenKind::Ident(n) if n == "Union" => CompKind::Union,
                 other => {
                     let found = other.describe();
-                    self.error(
-                        format!(
-                            "a `comptime fn`'s type parameter is bound to a kind: write \
-                             `<T is Struct>` or `<T is Union>` (found {found}) [comptime-bound]"
-                        ),
-                        kind_span,
-                    );
+                    self.error(messages::comptime_bound_unbounded_param(&found), kind_span);
                     self.group_depth -= 1;
                     return None;
                 }
@@ -1939,11 +1728,7 @@ impl<'s> Parser<'s> {
             self.bump();
             if self.at(&TokenKind::Comma) {
                 let sp = self.peek().span;
-                self.error(
-                    "a `comptime fn` takes exactly one bounded type parameter: the type \
-                     it is stamped at [comptime-bound]",
-                    sp,
-                );
+                self.error(messages::comptime_bound_param_count(), sp);
             }
             self.group_depth -= 1;
             self.expect(&TokenKind::Gt)?;
@@ -1959,24 +1744,10 @@ impl<'s> Parser<'s> {
             f.generics = vec![param.clone()];
         }
         if f.body.is_none() && f.by.is_none() {
-            self.error(
-                format!(
-                    "`comptime fn {}` has no body: it is the code that is stamped, so \
-                     it always has one [comptime-bound]",
-                    f.name.name
-                ),
-                f.span,
-            );
+            self.error(messages::comptime_bound_missing_body(&f.name.name), f.span);
         }
         if f.by.is_some() {
-            self.error(
-                format!(
-                    "`comptime fn {}` cannot itself say `by`: it is what `by` stamps \
-                     from [comptime-bound]",
-                    f.name.name
-                ),
-                f.span,
-            );
+            self.error(messages::comptime_bound_says_by(&f.name.name), f.span);
         }
         f.compfn = Some(CompFn {
             bound,
@@ -1992,7 +1763,7 @@ impl<'s> Parser<'s> {
         }
         let found = self.kind().describe();
         let span = self.peek().span;
-        self.error(format!("expected `{word}`, found {found}"), span);
+        self.error(messages::syntax_expected_word(word, &found), span);
         None
     }
 
@@ -2013,11 +1784,7 @@ impl<'s> Parser<'s> {
         }
         if allow_inferred {
             if let Some(a) = annotations.first() {
-                self.error(
-                    "a comptime qualifier describes a struct's field; a `state` field is \
-                     never walked by comptime code [comptime-qualifier]",
-                    a.span,
-                );
+                self.error(messages::comptime_qualifier_on_state_field(), a.span);
             }
         }
         // [comptime-fields] `type` is a keyword, and `Field.type` is the one
@@ -2060,10 +1827,7 @@ impl<'s> Parser<'s> {
             self.bump();
             let q = self.ident_type("`Mut`")?;
             if q.name != "Mut" {
-                self.error(
-                    format!("only `Mut` may follow `canbe` on a field type, found `{}`", q.name),
-                    q.span,
-                );
+                self.error(messages::struct_field_canbe_mut_not_mut(&q.name), q.span);
             }
             true
         } else {
@@ -2129,11 +1893,7 @@ impl<'s> Parser<'s> {
                 } else {
                     let field = self.parse_field_decl(false)?;
                     if let Some(a) = field.annotations.first() {
-                        self.error(
-                            "a qualifier's field override is a claim about the field's value; a \
-                             comptime qualifier belongs on the struct's own field [comptime-qualifier]",
-                            a.span,
-                        );
+                        self.error(messages::comptime_qualifier_on_field_override(), a.span);
                     }
                     field_overrides.push(field);
                     self.eat(&TokenKind::Comma);
@@ -2190,15 +1950,7 @@ impl<'s> Parser<'s> {
         // group spread here is the same mistake as an effect list.
         if !implicit_groups.is_empty() {
             let span = name.span;
-            self.error(
-                format!(
-                    "`rename fn {}` names an overload by its ordinary \
-                     parameters: implicit parameters take no part in choosing \
-                     one, so `?Group` does not belong here",
-                    name.name
-                ),
-                span,
-            );
+            self.error(messages::fn_rename_implicit_group(&name.name), span);
             return None;
         }
         let params_end = params
@@ -2207,28 +1959,12 @@ impl<'s> Parser<'s> {
             .unwrap_or(target.span);
         if (self.at(&TokenKind::LBracket) || self.at(&TokenKind::FatArrow)) && self.same_line() {
             let span = self.peek().span;
-            self.error(
-                format!(
-                    "`rename fn {}` names an overload by its parameters, so it \
-                     takes no effect or deduction clause: neither takes part in \
-                     choosing an overload",
-                    name.name
-                ),
-                span,
-            );
+            self.error(messages::fn_rename_effects_or_deductions(&name.name), span);
             return None;
         }
         if self.at(&TokenKind::Arrow) && self.same_line() {
             let span = self.peek().span;
-            self.error(
-                format!(
-                    "`rename fn {}` names an overload by its parameters, so it \
-                     takes no return type: overloads are never chosen by what \
-                     they return",
-                    name.name
-                ),
-                span,
-            );
+            self.error(messages::fn_rename_return_type(&name.name), span);
             return None;
         }
         Some(RenameDecl {
@@ -2289,15 +2025,7 @@ impl<'s> Parser<'s> {
         // belong to the function.
         if self.at(&TokenKind::LBracket) {
             let span = self.peek().span;
-            self.error(
-                format!(
-                    "a refinement cannot declare effects: `refn {}` only states \
-                     what is known about the arguments afterwards, so write \
-                     `=> param: +Qual` here",
-                    name.name
-                ),
-                span,
-            );
+            self.error(messages::qual_refn_effects(&name.name), span);
             return None;
         }
         // [deduce-conditional] A refn may carry a `-> subject is Q` response
@@ -2316,14 +2044,9 @@ impl<'s> Parser<'s> {
             if !is_cond {
                 let span = self.peek().span;
                 self.error(
-                    format!(
-                        "a refinement cannot declare a return type: `refn {}` \
-                         refines an existing function's deductions, and the \
-                         function decides what it returns; write `=> {}: +Qual` \
-                         (or `-> {} is Qual` for a Bool predicate)",
-                        name.name,
+                    messages::qual_refn_return_type(
+                        &name.name,
                         params.first().map(|p| p.name.name.as_str()).unwrap_or("param"),
-                        params.first().map(|p| p.name.name.as_str()).unwrap_or("param")
                     ),
                     span,
                 );
@@ -2360,14 +2083,9 @@ impl<'s> Parser<'s> {
         } else {
             let span = self.peek().span;
             self.error(
-                format!(
-                    "expected a deduction clause in `refn {}`, e.g. \
-                     `=> {}: +Qual`: a refinement exists to state one",
-                    name.name,
-                    params
-                        .first()
-                        .map(|p| p.name.name.as_str())
-                        .unwrap_or("param")
+                messages::qual_refn_missing_deductions(
+                    &name.name,
+                    params.first().map(|p| p.name.name.as_str()).unwrap_or("param"),
                 ),
                 span,
             );
@@ -2404,14 +2122,7 @@ impl<'s> Parser<'s> {
             let mut remove: Vec<TypeRef> = Vec::new();
             let mut preserve: Vec<TypeRef> = Vec::new();
             if self.eat(&TokenKind::Colon).is_none() {
-                self.error(
-                    format!(
-                        "`{}` states nothing: a refinement entry adds or removes \
-                         qualifiers, e.g. `[{}: +Qual]`",
-                        param.name, param.name
-                    ),
-                    param.span,
-                );
+                self.error(messages::qual_refn_empty_entry(&param.name), param.span);
             }
             loop {
                 // [qual-preserve] `preserve Q`: the call does not invalidate
@@ -2435,17 +2146,7 @@ impl<'s> Parser<'s> {
                         // A plain name would be the exhaustive form, which
                         // decides keptness — not a refinement's business.
                         let r = self.parse_type_ref()?;
-                        self.error(
-                            format!(
-                                "a refinement's qualifiers need a sign: write \
-                                 `+{}` if the call establishes it or `-{}` if it \
-                                 invalidates it (a plain name would mean \"only \
-                                 this survives\", which is the function's own \
-                                 deduction to make)",
-                                r.name.name, r.name.name
-                            ),
-                            r.span,
-                        );
+                        self.error(messages::qual_refn_unsigned_qualifier(&r.name.name), r.span);
                         end = r.span;
                         continue;
                     }
@@ -2559,12 +2260,7 @@ impl<'s> Parser<'s> {
                     return None;
                 };
                 if !matches!(entry.kind, DeductionKind::With { .. }) {
-                    self.error(
-                        "a fns group's clause states only which of its members are \
-                         filled together (`=> eq with hash`): it has no body and no \
-                         parameters of its own",
-                        entry.span,
-                    );
+                    self.error(messages::implicit_group_clause_shape(), entry.span);
                     return None;
                 }
                 deductions.push(entry);
@@ -2574,7 +2270,7 @@ impl<'s> Parser<'s> {
                 }
             }
             if deductions.is_empty() {
-                self.error("expected a deduction entry after `=>`", arrow);
+                self.error(messages::deduce_syntax_missing_entry(), arrow);
                 return None;
             }
         }
@@ -2610,14 +2306,7 @@ impl<'s> Parser<'s> {
                 let mut f = self.parse_fn(false)?;
                 f.platform = true;
                 if f.body.is_some() || f.by.is_some() {
-                    self.error(
-                        format!(
-                            "`platform fn {}` has a body: a platform fn is implemented by \
-                             the host, so it is a signature only [platform-fn]",
-                            f.name.name
-                        ),
-                        f.name.span,
-                    );
+                    self.error(messages::platform_fn_has_body(&f.name.name), f.name.span);
                 }
                 Some(Item::Fn(f))
             }
@@ -2632,15 +2321,7 @@ impl<'s> Parser<'s> {
             other => {
                 let span = self.peek().span;
                 let found = other.describe();
-                self.error(
-                    format!(
-                        "expected `handler`, `fn` or `type` after `platform`, found {found}: a \
-                         platform declaration is a host implementation of a Salvo effect \
-                         (`platform handler`), of one function (`platform fn`), or a host \
-                         object's handle (`platform type`)"
-                    ),
-                    span,
-                );
+                self.error(messages::syntax_expected_after_platform(&found), span);
                 None
             }
         }
@@ -2655,14 +2336,7 @@ impl<'s> Parser<'s> {
         t.threadsafe = threadsafe;
         t.noremote = true;
         if t.alias.is_some() {
-            self.error(
-                format!(
-                    "`platform type {}` cannot be an alias: a platform type is an opaque \
-                     handle to the host class of the same name [platform-type]",
-                    t.name.name
-                ),
-                t.name.span,
-            );
+            self.error(messages::platform_type_alias(&t.name.name), t.name.span);
         }
         Some(Item::Type(t))
     }
@@ -2733,7 +2407,7 @@ impl<'s> Parser<'s> {
                     let name_tok = self.bump();
                     let body = self.parse_block()?;
                     if init.is_some() {
-                        self.error("a handler declares one `init` block", name_tok.span);
+                        self.error(messages::handler_init_duplicate(), name_tok.span);
                     }
                     let name = Ident { name: INIT_BLOCK.to_string(), span: name_tok.span };
                     let span = name_tok.span.to(body.span);
@@ -2792,7 +2466,7 @@ impl<'s> Parser<'s> {
                         },
                     }))?;
                     if mailbox.is_some() {
-                        self.error("a handler declares one `mailbox` slot", start);
+                        self.error(messages::actor_mailbox_duplicate(), start);
                     }
                     mailbox = Some(lit);
                 } else if self.at(&TokenKind::KwState) {
@@ -2806,7 +2480,7 @@ impl<'s> Parser<'s> {
                     // name is optional, and the handler's own by default.
                     let state_kw = self.bump().span;
                     if state_seen {
-                        self.error("a handler declares one `state` block", state_kw);
+                        self.error(messages::handler_state_name_duplicate_block(), state_kw);
                     }
                     state_seen = true;
                     if self.at_ident() {
@@ -2819,12 +2493,7 @@ impl<'s> Parser<'s> {
                                 Some(field) => {
                                     if field.default.is_none() {
                                         self.error(
-                                            format!(
-                                                "state field `{}` needs an initializer: a \
-                                                 handler's state is built once, at \
-                                                 construction",
-                                                field.name.name
-                                            ),
+                                            messages::handler_state_missing_initializer(&field.name.name),
                                             field.span,
                                         );
                                     }
@@ -2845,12 +2514,7 @@ impl<'s> Parser<'s> {
                     // … }` block (user decision 2026-10-20). Name the block so
                     // the fix is obvious.
                     let fspan = self.peek().span;
-                    self.error(
-                        "a handler's state goes in a `state { … }` block now, not \
-                         as a bare field in the body: wrap it (`state { count: \
-                         Int = 0 }`, or `state { count = 0 }` to infer the type)",
-                        fspan,
-                    );
+                    self.error(messages::handler_state_name_bare_field(), fspan);
                     // Recover by parsing it as a field anyway, so one stray
                     // field is one diagnostic rather than a cascade.
                     let before = self.pos;
@@ -2972,15 +2636,7 @@ impl<'s> Parser<'s> {
             let at = self.bump().span;
             let target = self.ident();
             let target = target.map(|t| t.name).unwrap_or_else(|| "Type".to_string());
-            self.error(
-                format!(
-                    "a declaration does not take a `@` selector: write the function \
-                     inside `{target}`'s body to declare it on the type, or let it \
-                     fulfil one of `{target}`'s obligations (`: Hashed<self>`) in \
-                     this file [fn-attached]"
-                ),
-                at,
-            );
+            self.error(messages::fn_attached_at_selector(&target), at);
         }
         // [fn-type-named] A type-named fn's generics came from the type
         // (`fn Mut List<T>` → `T`, `fn Ok<T canbe linear>` → the opt-in);
@@ -3012,11 +2668,7 @@ impl<'s> Parser<'s> {
             self.bump();
             if self.at(&TokenKind::LBracket) {
                 let span = self.peek().span;
-                self.error(
-                    "deductions are written after the return type, behind `=>` \
-                     (`-> Int => list: Mut`), not in brackets after `->`",
-                    span,
-                );
+                self.error(messages::deduce_syntax_bracketed_deductions(), span);
                 return None;
             }
             // [qual-ctor-fn] `-> +Qualifier T` marks a constructive-qualifier
@@ -3123,14 +2775,7 @@ impl<'s> Parser<'s> {
         };
         if by.is_some() && self.at(&TokenKind::LBrace) && self.same_line() {
             let sp = self.peek().span;
-            self.error(
-                format!(
-                    "`fn {}` says `by`, so its body is stamped: drop the body, or drop \
-                     the `by` to write it yourself [fn-by]",
-                    name.name
-                ),
-                sp,
-            );
+            self.error(messages::fn_by_body(&name.name), sp);
             self.parse_block()?;
         }
 
@@ -3195,7 +2840,7 @@ impl<'s> Parser<'s> {
             let implicit_at = self.eat(&TokenKind::Question).map(|t| t.span);
             if let Some(span) = implicit_at {
                 if variadic {
-                    self.error("a variadic parameter cannot be implicit", span);
+                    self.error(messages::implicit_param_variadic(), span);
                     self.group_depth -= 1;
                     return None;
                 }
@@ -3213,11 +2858,7 @@ impl<'s> Parser<'s> {
                     continue;
                 }
             } else if let Some(prev) = seen_implicit {
-                self.error(
-                    "implicit parameters must come last: a parameter after one \
-                     could not be passed positionally",
-                    prev,
-                );
+                self.error(messages::implicit_param_not_last(), prev);
                 self.group_depth -= 1;
                 return None;
             }
@@ -3238,16 +2879,12 @@ impl<'s> Parser<'s> {
             // takes a default.
             let default = if let Some(eq) = self.eat(&TokenKind::Eq) {
                 if variadic {
-                    self.error("a variadic parameter cannot have a default value", eq.span);
+                    self.error(messages::fn_param_default_variadic_default(), eq.span);
                     self.group_depth -= 1;
                     return None;
                 }
                 if implicit_at.is_some() {
-                    self.error(
-                        "an implicit parameter cannot have a default value: it is \
-                         resolved automatically, or overridden with `name = value`",
-                        eq.span,
-                    );
+                    self.error(messages::fn_param_default_implicit_default(), eq.span);
                     self.group_depth -= 1;
                     return None;
                 }
@@ -3307,12 +2944,7 @@ impl<'s> Parser<'s> {
                 // error like any other — named, because the fix is deletion.
                 TokenKind::Ident(name) if name == "waitfor" => {
                     let tok = self.bump();
-                    self.error(
-                        "`waitfor` is not a declarable effect: occupancy is inferred \
-                         (a wait needs no capability since 2026-09-19) — delete it \
-                         from this list",
-                        tok.span,
-                    );
+                    self.error(messages::waitfor_effect_declared(), tok.span);
                 }
                 // [effect-any] `any E` (contextual): the requirement that
                 // accepts a binding spread over many instances. `any`
@@ -3390,10 +3022,7 @@ impl<'s> Parser<'s> {
         }
         let close = self.expect(&TokenKind::RParen)?.span;
         if sources.is_empty() {
-            self.error(
-                "`holds` needs the sources the result borrows: `T holds proj(a)`",
-                start.to(close),
-            );
+            self.error(messages::proj_infer_holds_without_sources(), start.to(close));
         }
         Some((sources, start.to(close)))
     }
@@ -3429,7 +3058,7 @@ impl<'s> Parser<'s> {
                 }
             }
             if entries.is_empty() {
-                self.error("expected a deduction entry after `=>`", arrow);
+                self.error(messages::deduce_syntax_missing_entry(), arrow);
                 return None;
             }
             match group_of {
@@ -3437,7 +3066,7 @@ impl<'s> Parser<'s> {
                 Some(name) => {
                     let Some(param) = params.iter_mut().find(|p| p.name.name == name.name) else {
                         self.error(
-                            format!("`=>[{}]` names no parameter of this function", name.name),
+                            messages::fn_contract_group_unknown_param(&name.name),
                             name.span,
                         );
                         return None;
@@ -3458,11 +3087,7 @@ impl<'s> Parser<'s> {
                         }
                         _ => {
                             self.error(
-                                format!(
-                                    "`=>[{}]` scopes deductions to a fn-typed parameter, but `{}` \
-                                     is not one",
-                                    name.name, name.name
-                                ),
+                                messages::fn_contract_group_not_fn_param(&name.name),
                                 name.span,
                             );
                             return None;
@@ -3608,17 +3233,11 @@ impl<'s> Parser<'s> {
                 others.push(other);
             }
             let Some(name) = target else {
-                self.error(
-                    "a `with` entry names implicit parameters, not a result path",
-                    start.to(end),
-                );
+                self.error(messages::implicit_with_result_path(), start.to(end));
                 return None;
             };
             if !path.is_empty() {
-                self.error(
-                    "a `with` entry's subject is a parameter, not a field path",
-                    start.to(end),
-                );
+                self.error(messages::implicit_with_field_path(), start.to(end));
             }
             for subject in plural_subjects {
                 self.pending_deductions.push(Deduction {
@@ -3643,7 +3262,7 @@ impl<'s> Parser<'s> {
             if matches!(&self.peek().kind, TokenKind::KwProj | TokenKind::KwRef) {
                 let r = self.parse_type_ref()?;
                 if r.from.is_empty() {
-                    self.error("a projection entry needs its sources: `proj(c)`", r.span);
+                    self.error(messages::deduce_syntax_projection_without_sources(), r.span);
                 }
                 end = r.span;
                 DeductionKind::Proj(r.from)
@@ -3704,11 +3323,7 @@ impl<'s> Parser<'s> {
                     removed.is_empty(),
                 ) {
                     (true, true) => {
-                        self.error(
-                            "expected qualifiers after `:` — `None` to strip every \
-                             qualifier, `Never` to consume the value",
-                            end,
-                        );
+                        self.error(messages::deduce_syntax_missing_qualifiers(), end);
                         exhaustive(Vec::new(), Vec::new())
                     }
                     (false, true) => {
@@ -3728,14 +3343,7 @@ impl<'s> Parser<'s> {
                     }
                     (true, false) => DeductionKind::Remove(removed),
                     (false, false) => {
-                        self.error(
-                            "a deduction entry is either exhaustive (plain \
-                             qualifier names, `+Qual` for one this function \
-                             re-establishes) or a delta (`-Qual`), not both: \
-                             an exhaustive list already drops everything it \
-                             does not name",
-                            start.to(end),
-                        );
+                        self.error(messages::deduce_syntax_exhaustive_and_delta(), start.to(end));
                         exhaustive(plain, reapplied)
                     }
                 }
@@ -3748,10 +3356,7 @@ impl<'s> Parser<'s> {
             None => DeductionTarget::Result { path },
         };
         if matches!(target, DeductionTarget::Result { .. }) && !matches!(kind, DeductionKind::Proj(_)) {
-            self.error(
-                "a result path (`.field`) can only state a projection: `.field: proj(p)`",
-                start.to(end),
-            );
+            self.error(messages::deduce_field_result_path_not_projection(), start.to(end));
         }
         if let DeductionTarget::Param { path, .. } = &target {
             // [deduce-field] A parameter's **field path** may state a
@@ -3766,10 +3371,7 @@ impl<'s> Parser<'s> {
                 DeductionKind::Proj(_) | DeductionKind::Exhaustive { .. } | DeductionKind::Moved
             );
             if !path.is_empty() && !field_ok {
-                self.error(
-                    "a parameter's field path can state a projection                      (`v.field: proj(p)`), a field-granular mutation                      (`v.field: Mut`) or a replacement (`!v.field`)",
-                    start.to(end),
-                );
+                self.error(messages::deduce_field_param_path_shape(), start.to(end));
             }
         }
         Some(Deduction { span: start.to(end), target, kind })
@@ -3821,7 +3423,7 @@ impl<'s> Parser<'s> {
                     match part {
                         StrPart::Text(t) => text.push_str(t),
                         StrPart::Interp { .. } => {
-                            self.error("a literal type cannot interpolate", start);
+                            self.error(messages::type_literal_interpolated(), start);
                             self.bump();
                             return Some(Type::Literal { value: TypeLit::Str(String::new()), span: start });
                         }
@@ -3840,10 +3442,7 @@ impl<'s> Parser<'s> {
                     self.bump();
                 }
                 let span = self.bump().span;
-                self.error(
-                    "a float cannot be a literal type: equality on floats does not name a value [type-literal]",
-                    start.to(span),
-                );
+                self.error(messages::type_literal_float(), start.to(span));
                 return Some(Type::Literal { value: TypeLit::Int(0), span: start.to(span) });
             }
             _ => return None,
@@ -3996,7 +3595,7 @@ impl<'s> Parser<'s> {
         self.group_depth -= 1;
         let end = self.expect(&TokenKind::RBracket)?.span;
         if args.is_empty() {
-            self.error("`eff[…]` names at least one effect", start.to(end));
+            self.error(messages::effect_eff_handle_empty(), start.to(end));
             return None;
         }
         let base = TypeRef {
@@ -4091,11 +3690,7 @@ impl<'s> Parser<'s> {
             && matches!(self.peek_at(1).kind, TokenKind::Lt)
         {
             let span = self.peek().span;
-            self.error(
-                "`Addr<…>` is not a type you write: a first-class effect handle is \
-                 spelled `eff[E]` (several effects: `eff[A, B]`) [effect-eff-handle]",
-                span,
-            );
+            self.error(messages::effect_eff_handle_addr_type(), span);
             return None;
         }
         if let Some(lit) = self.parse_type_literal() {
@@ -4259,11 +3854,7 @@ impl<'s> Parser<'s> {
             self.bump();
             if self.at(&TokenKind::LBracket) && self.same_line() {
                 let span = self.peek().span;
-                self.error(
-                    "a fn type's deductions are written on the enclosing declaration as a \
-                     group, `=>[name] …`, not in brackets after its `->`",
-                    span,
-                );
+                self.error(messages::fn_contract_bracketed_deductions(), span);
                 return None;
             }
             let ret = self.parse_type()?;
@@ -4304,16 +3895,12 @@ impl<'s> Parser<'s> {
             });
         }
         if names.iter().any(|n| n.is_some()) {
-            self.error(
-                "named parameters are only meaningful in function types \
-                 (expected `->` after `)`)",
-                start,
-            );
+            self.error(messages::fn_contract_named_params_outside_fn_type(), start);
         }
         if let Some(effects) = effects {
             // `[...]` after a paren type only makes sense for fn types.
             let _ = effects;
-            self.error("expected `->` after effect list in function type", start);
+            self.error(messages::syntax_expected_fn_type_arrow(), start);
         }
         if elems.len() == 1 {
             return Some(elems.into_iter().next().unwrap());
@@ -4369,14 +3956,7 @@ impl<'s> Parser<'s> {
             self.bump();
             let end = self.bump().span;
             let span = binder.span.to(end);
-            self.error(
-                format!(
-                    "a binder's type is spliced into a type position in brackets: write \
-                     `[{0}.type]`, not `{0}.type` [comptime-inline]",
-                    binder.name
-                ),
-                span,
-            );
+            self.error(messages::comptime_inline_unbracketed_binder_type(&binder.name), span);
             return Some(Ident { name: format!("{}.type", binder.name), span });
         }
         let head = self.ident()?;
@@ -4384,13 +3964,7 @@ impl<'s> Parser<'s> {
         // names it generates must not be writable, so that none can clash
         // with a program's own.
         if head.name.starts_with('_') {
-            self.error(
-                format!(
-                    "`{}` is a compiler-generated name and cannot be written",
-                    head.name
-                ),
-                head.span,
-            );
+            self.error(messages::comptime_hygiene_generated_name(&head.name), head.span);
             return Some(head);
         }
         if !head.name.starts_with(|c: char| c.is_uppercase()) {
@@ -4515,11 +4089,7 @@ impl<'s> Parser<'s> {
                 // spelling: value arguments moved to the round-bracket block
                 // (user decision 2026-09-23).
                 if let Some(q) = self.eat(&TokenKind::Question).map(|t| t.span) {
-                    self.error(
-                        "`?` names a value argument, which lives in a `(…)` block \
-                         after the type generics: `Sorted(?cmp)`, `Heap<Person>(?cmp)`",
-                        q,
-                    );
+                    self.error(messages::qual_value_arg_value_arg_in_generics(), q);
                     let _ = self.ident();
                     if self.eat(&TokenKind::Colon).is_some() {
                         let _ = self.ident();
@@ -4626,7 +4196,7 @@ impl<'s> Parser<'s> {
                         }
                         if !plain {
                             let span = self.peek().span;
-                            self.error("a constant in a qualifier cannot interpolate [qual-const]", span);
+                            self.error(messages::qual_const_interpolated(), span);
                         }
                         Some(format!("\"{text}\""))
                     }
@@ -4738,22 +4308,14 @@ impl<'s> Parser<'s> {
         let saved_depth = std::mem::replace(&mut self.group_depth, 0);
         let saved_no_struct = std::mem::replace(&mut self.no_struct, false);
         if !self.at(&TokenKind::KwState) {
-            self.error(
-                "an `iter fn` names its iterator struct: begin the body with \
-                 `state Name { … }`",
-                self.peek().span,
-            );
+            self.error(messages::iter_fn_missing_state(), self.peek().span);
         } else {
             let state_span = self.peek().span;
             self.bump();
             if self.at_ident() {
                 *state_name = self.ident();
             } else {
-                self.error(
-                    "an `iter fn`'s `state` block names the iterator struct: \
-                     `state Name { … }`",
-                    state_span,
-                );
+                self.error(messages::iter_fn_unnamed_state(), state_span);
             }
             if self.expect(&TokenKind::LBrace).is_some() {
                 while !self.at(&TokenKind::RBrace) && !self.at_eof() {
@@ -4762,11 +4324,7 @@ impl<'s> Parser<'s> {
                         Some(field) => {
                             if field.default.is_none() {
                                 self.error(
-                                    format!(
-                                        "`state` field `{}` needs an initializer: it is \
-                                         evaluated once, when the pass is minted",
-                                        field.name.name
-                                    ),
+                                    messages::iter_fn_state_missing_initializer(&field.name.name),
                                     field.span,
                                 );
                             }
@@ -4846,15 +4404,7 @@ impl<'s> Parser<'s> {
         if self.at(&TokenKind::Ellipsis) {
             if !self.allow_terminal || self.group_depth != 0 {
                 let span = self.peek().span;
-                self.error(
-                    format!(
-                        "`...` is a terminal scope — the rest of the enclosing \
-                         block becomes {what}'s body — so it is only a statement, \
-                         never a value or a nested expression: write a `{{ … }}` \
-                         block here"
-                    ),
-                    span,
-                );
+                self.error(messages::expr_terminal_scope_nested_body(what), span);
                 return None;
             }
             self.bump(); // `...`
@@ -5045,14 +4595,7 @@ impl<'s> Parser<'s> {
     /// "expected item".
     fn require_compfn(&mut self, span: Span, what: &str) {
         if !self.in_compfn {
-            self.error(
-                format!(
-                    "{what} is comptime syntax and belongs inside a `comptime fn`: an \
-                     ordinary fn has no fields to walk or instantiations to refuse \
-                     [comptime-inline]"
-                ),
-                span,
-            );
+            self.error(messages::comptime_inline_outside_compfn(what), span);
         }
     }
 
@@ -5092,12 +4635,7 @@ impl<'s> Parser<'s> {
                 if self.at(&TokenKind::Ellipsis) {
                     if !self.allow_terminal || self.group_depth != 0 {
                         let span = self.peek().span;
-                        self.error(
-                            "`...` is a terminal scope — the rest of the enclosing block \
-                             becomes the `[if …]`'s body — so it is only a statement: write \
-                             a `{ … }` block",
-                            span,
-                        );
+                        self.error(messages::expr_terminal_scope_nested_comptime_if(), span);
                         return None;
                     }
                     self.bump();
@@ -5107,9 +4645,7 @@ impl<'s> Parser<'s> {
                         if self.at(&TokenKind::Ellipsis) {
                             let span = self.peek().span;
                             self.error(
-                                "`else ...` is not allowed on a terminal `[if …]`: only the \
-                                 `[if]` branch is the terminal scope, and its `else` is an \
-                                 ordinary `{ … }` block",
+                                messages::expr_terminal_scope_terminal_comptime_if_else(),
                                 span,
                             );
                             return None;
@@ -5207,11 +4743,7 @@ impl<'s> Parser<'s> {
                 let body = self.parse_block()?;
                 if !self.at(&TokenKind::RBrace) {
                     let sp = self.peek().span;
-                    self.error(
-                        "a `[when value]` over a union has exactly one written arm, \
-                         `[arm] { … }`, stamped once per declared arm [comptime-inline]",
-                        sp,
-                    );
+                    self.error(messages::comptime_inline_union_when_arms(), sp);
                 }
                 let end = self.expect(&TokenKind::RBrace)?.span;
                 Some(CompStmt::WhenArms {
@@ -5254,13 +4786,7 @@ impl<'s> Parser<'s> {
     /// and dropped, so the rest of the dispatch still parses.
     fn comp_when_else(&mut self, remedy: &str) -> Option<()> {
         let span = self.bump().span;
-        self.error(
-            format!(
-                "a `[when]` with a subject takes no `else`, as a `when` with one does not: \
-                 {remedy} [when-exhaustive]"
-            ),
-            span,
-        );
+        self.error(messages::when_exhaustive_comptime_when_else(remedy), span);
         self.parse_block()?;
         Some(())
     }
@@ -5297,14 +4823,7 @@ impl<'s> Parser<'s> {
         };
         let Some(word) = word else {
             let found = self.kind().describe();
-            self.error(
-                format!(
-                    "expected an arm of `Kind` — `Struct`, `Union`, `Tuple`, `FnType`, \
-                     `Opaque` (or its halves `Basic`, `Generic`) — found {found} \
-                     [comptime-inline]"
-                ),
-                span,
-            );
+            self.error(messages::comptime_inline_expected_kind_arm(&found), span);
             return None;
         };
         self.bump();
@@ -5361,14 +4880,7 @@ impl<'s> Parser<'s> {
             Some(t) => Some(t),
             None => {
                 let found = self.kind().describe();
-                self.error(
-                    format!(
-                        "expected a compile-time type — the bound parameter (`T`), a type \
-                         name, or a binder's type (`field.type`) — found {found} \
-                         [comptime-fields]"
-                    ),
-                    span,
-                );
+                self.error(messages::comptime_fields_expected_type(&found), span);
                 None
             }
         }
@@ -5385,13 +4897,7 @@ impl<'s> Parser<'s> {
             // [comptime-literals] A literal union's members.
             "literals" => (false, true),
             other => {
-                self.error(
-                    format!(
-                        "a `[for …]` walks `.fields` (of a struct), `.arms` (of a union) or \
-                         `.literals` (of a literal union), not `.{other}` [comptime-fields]"
-                    ),
-                    what.span,
-                );
+                self.error(messages::comptime_fields_unknown_sequence(other), what.span);
                 return None;
             }
         };
@@ -5460,13 +4966,7 @@ impl<'s> Parser<'s> {
         let lit_span = self.peek().span;
         let TokenKind::Str(parts) = self.kind().clone() else {
             let found = self.kind().describe();
-            self.error(
-                format!(
-                    "expected a string literal naming a field or arm, found {found} \
-                     [comptime-name]"
-                ),
-                lit_span,
-            );
+            self.error(messages::comptime_name_expected_string(&found), lit_span);
             return None;
         };
         self.bump();
@@ -5475,11 +4975,7 @@ impl<'s> Parser<'s> {
             match part {
                 StrPart::Text(t) => lit.push_str(&t),
                 StrPart::Interp { .. } => {
-                    self.error(
-                        "the name a binder is compared to is a plain literal, with no \
-                         interpolation [comptime-name]",
-                        lit_span,
-                    );
+                    self.error(messages::comptime_name_interpolated(), lit_span);
                     return None;
                 }
             }
@@ -5517,11 +5013,7 @@ impl<'s> Parser<'s> {
                     Type::Named { qualifiers, base } if qualifiers.is_empty() => base,
                     other => {
                         self.error(
-                            format!(
-                                "`{} is …` tests a comptime qualifier (`{} is Short`); a type is \
-                                 tested on `.type` (`{}.type is Int`) [comptime-qualifier]",
-                                subject.name, subject.name, subject.name
-                            ),
+                            messages::comptime_qualifier_type_test(&subject.name),
                             other.span(),
                         );
                         return None;
@@ -5553,13 +5045,7 @@ impl<'s> Parser<'s> {
                             other => {
                                 let found = other.describe();
                                 let sp = self.peek().span;
-                                self.error(
-                                    format!(
-                                        "a position is compared to another binder's position: \
-                                         `x.index == y.index` (found {found}) [comptime-inline]"
-                                    ),
-                                    sp,
-                                );
+                                self.error(messages::comptime_inline_position_compare(&found), sp);
                                 return None;
                             }
                         };
@@ -5568,11 +5054,7 @@ impl<'s> Parser<'s> {
                         self.expect(&TokenKind::Dot)?;
                         let what = self.ident_value("`index`")?;
                         if what.name != "index" {
-                            self.error(
-                                "a position compares to a position: write `y.index` \
-                                 [comptime-inline]",
-                                what.span,
-                            );
+                            self.error(messages::comptime_inline_position_rhs(), what.span);
                             return None;
                         }
                         return Some(CompCond::IndexCmp {
@@ -5635,12 +5117,7 @@ impl<'s> Parser<'s> {
                             self.comp_name_lits()?
                         } else {
                             let sp = self.peek().span;
-                            self.error(
-                                "a binder's name is compared to a literal: `field.name == \
-                                 \"value\"`, or tested against a union of them: `field.name \
-                                 is \"a\" | \"b\"` [comptime-name]",
-                                sp,
-                            );
+                            self.error(messages::comptime_name_name_compare(), sp);
                             return None;
                         };
                         let end = lits.last().map(|(_, s)| *s).unwrap_or(proj.span);
@@ -5690,11 +5167,7 @@ impl<'s> Parser<'s> {
         }
         if self.at(&TokenKind::KwCanbe) {
             let sp = self.peek().span;
-            self.error(
-                "a type's mutability is read as `T.mutable` in a comptime condition \
-                 (`core.comptime`'s `Struct.mutable`), not with `canbe` [comptime-inline]",
-                sp,
-            );
+            self.error(messages::comptime_inline_canbe_test(), sp);
             return None;
         }
         // A written type: equality, never a kind test [comptime-kind] — a
@@ -5713,15 +5186,12 @@ impl<'s> Parser<'s> {
         let negated = self.comp_is_or_not_is()?;
         let none = self.peek().span;
         if !matches!(self.kind(), TokenKind::Ident(n) if n == "None") {
-            let (what, label) = if docs { ("docs", "comptime-docs") } else { ("default", "comptime-default") };
-            self.error(
-                format!(
-                    "a {what} is tested for being there: `{}.{what} is None` or `!is None` \
-                     [{label}]",
-                    binder.name
-                ),
-                none,
-            );
+            let message = if docs {
+                messages::comptime_docs_unset_test(&binder.name)
+            } else {
+                messages::comptime_default_unset_test(&binder.name)
+            };
+            self.error(message, none);
             return None;
         }
         self.bump();
@@ -5986,22 +5456,12 @@ impl<'s> Parser<'s> {
         if self.at(&TokenKind::Ellipsis) {
             if !self.in_stmt_expr {
                 let span = self.peek().span;
-                self.error(
-                    "a `(…) -> ...` lambda body is a terminal scope — the rest of the \
-                     enclosing block becomes it — so it is only the last argument of a \
-                     statement's call, never a nested or stored expression: write a \
-                     `{ … }` body here",
-                    span,
-                );
+                self.error(messages::expr_terminal_lambda_nested(), span);
                 return None;
             }
             if self.pending_terminal_lambda {
                 let span = self.peek().span;
-                self.error(
-                    "only one `(…) -> ...` terminal lambda per statement: the rest of \
-                     the block cannot be two bodies — write `{ … }` on all but one",
-                    span,
-                );
+                self.error(messages::expr_terminal_lambda_two_per_statement(), span);
                 return None;
             }
             self.bump(); // `...`
@@ -6179,27 +5639,23 @@ impl<'s> Parser<'s> {
                 self.bump();
                 let (more, b, l) = self.parse_is_check()?;
                 if let Some(b) = b {
-                    self.error("an `is` over several tests binds nothing: bind the narrowed value with `let` after the test [is-union]", b.span);
+                    self.error(messages::is_union_binding(), b.span);
                 }
                 if l > 0 {
-                    self.error("an `is` over several tests cannot lift `^`: lift in one test [is-union]", end);
+                    self.error(messages::is_union_lift(), end);
                 }
                 end = more.last().map(|r| r.span).unwrap_or(end);
                 checks.push(more);
             }
             let span = lhs.span().to(end);
             if let Some(b) = &binding {
-                self.error("an `is` over several tests binds nothing: bind the narrowed value with `let` after the test [is-union]", b.span);
+                self.error(messages::is_union_binding(), b.span);
             }
             if lifted > 0 {
-                self.error("an `is` over several tests cannot lift `^`: lift in one test [is-union]", span);
+                self.error(messages::is_union_lift(), span);
             }
             if !is_place_expr(&lhs) {
-                self.error(
-                    "an `is` over several tests reads its subject once per test, so the subject \
-                     is a variable or a field: bind the value first (`let v = …`) [is-union]",
-                    lhs.span(),
-                );
+                self.error(messages::is_union_subject_not_place(), lhs.span());
             }
             let mut tests = checks.into_iter().map(|c| {
                 let s = c.last().map(|r| lhs.span().to(r.span)).unwrap_or(span);
@@ -6223,22 +5679,10 @@ impl<'s> Parser<'s> {
             // A negated test narrows nothing in its *then* branch, so there is
             // no value for a binding to name.
             if let Some(b) = &binding {
-                self.error(
-                    "`!is` binds nothing: the value is only known on the \
-                     branch the test *fails*, so there is nothing to \
-                     name — drop the binding, or write the positive test \
-                     with an `else`",
-                    b.span,
-                );
+                self.error(messages::is_not_binding(), b.span);
             }
             if lifted > 0 {
-                self.error(
-                    "`!is ^Q` is not a check: `^` widens the value it \
-                     tested [qual-lift], and a negated test produces no \
-                     value to widen — write `!(x is ^Q)` if the boolean \
-                     is all you want",
-                    start.to(end),
-                );
+                self.error(messages::is_not_lift(), start.to(end));
             }
             let span = lhs.span().to(end);
             let inner = self.is_or_widen(lhs, check, binding, lifted, span)?;
@@ -6274,11 +5718,7 @@ impl<'s> Parser<'s> {
             });
         }
         if lifted != check.len() {
-            self.error(
-                "an `is` check either lifts every qualifier or none: mark them \
-                 all with `^` (`is ^Mut ^NonEmpty`), or split the check",
-                span,
-            );
+            self.error(messages::qual_lift_partial(), span);
         }
         Some(Expr::Widen {
             subject: Box::new(subject),
@@ -6362,7 +5802,7 @@ impl<'s> Parser<'s> {
         if refs.is_empty() {
             let span = self.peek().span;
             let found = self.kind().describe();
-            self.error(format!("expected type after `is`, found {found}"), span);
+            self.error(messages::syntax_expected_type_after_is(&found), span);
             return None;
         }
         Some((refs, binding, lifted))
@@ -6547,18 +5987,12 @@ impl<'s> Parser<'s> {
         };
         let token = self.bump();
         if long {
-            self.error(
-                "a tuple index has no `L` suffix [expr-tuple-index]",
-                token.span,
-            );
+            self.error(messages::expr_tuple_index_long_suffix(), token.span);
         }
         let index = match usize::try_from(value) {
             Ok(i) => i,
             Err(_) => {
-                self.error(
-                    format!("`{value}` is not a valid tuple index [expr-tuple-index]"),
-                    token.span,
-                );
+                self.error(messages::expr_tuple_index_invalid(value), token.span);
                 0
             }
         };
@@ -6657,11 +6091,7 @@ impl<'s> Parser<'s> {
                         expr = match expr {
                             Expr::Ident(name) => Expr::SelfScoped { name, span },
                             other => {
-                                self.error(
-                                    "`@self` selects a member of the enclosing handler, \
-                                     so it follows a plain member name (`k@self(…)`)",
-                                    at,
-                                );
+                                self.error(messages::actor_self_send_misplaced_selector(), at);
                                 other
                             }
                         };
@@ -6694,13 +6124,7 @@ impl<'s> Parser<'s> {
                                 }
                             }
                             other => {
-                                self.error(
-                                    "`@` selects which effect's member a *name* \
-                                     means, so it follows a member name \
-                                     (`close@Fs(s)`) or a dot-notation call \
-                                     (`s.close@Fs()`)",
-                                    at,
-                                );
+                                self.error(messages::effect_at_misplaced(), at);
                                 other
                             }
                         };
@@ -6737,13 +6161,7 @@ impl<'s> Parser<'s> {
                             }
                         }
                         other => {
-                            self.error(
-                                "`@` selects which module's overload a *name* \
-                                 means, so it follows a function name \
-                                 (`add@core.list(x)`) or a dot-notation call \
-                                 (`xs.add@core.list(x)`)",
-                                at,
-                            );
+                            self.error(messages::fn_overload_at_misplaced(), at);
                             other
                         }
                     };
@@ -6858,10 +6276,7 @@ impl<'s> Parser<'s> {
                         && !matches!(self.peek_at(1).kind, TokenKind::KwIs) =>
                 {
                     let end = self.bump().span;
-                    self.error(
-                        "a postfix `!` asserts nothing in Salvo: write `x ?: unreachable!(\"why\")` for the value, or `assert!(x !is None)` to narrow a variable [assert-op]",
-                        end,
-                    );
+                    self.error(messages::assert_op_postfix_bang(), end);
                 }
                 // [op-inc-dec] Postfix, same line so a leading `++`/`--` on the
                 // next line is not swallowed as this expression's suffix.
@@ -6981,12 +6396,7 @@ impl<'s> Parser<'s> {
                 // [col-pairs] `k: v` — a key-value pair argument.
                 let colon = self.bump().span;
                 if saw_plain || !named.is_empty() {
-                    self.error(
-                        "a `k: v` pair argument cannot be mixed with positional \
-                         or named arguments: a call uses pairs for every argument \
-                         or none",
-                        colon,
-                    );
+                    self.error(messages::col_pairs_pair_after_other(), colon);
                     self.group_depth -= 1;
                     return None;
                 }
@@ -7004,11 +6414,7 @@ impl<'s> Parser<'s> {
                 self.bump();
                 let Expr::Ident(name) = arg else {
                     let span = arg.span();
-                    self.error(
-                        "only an implicit parameter can be given by name here: \
-                         write `name = value`",
-                        span,
-                    );
+                    self.error(messages::implicit_override_named_ordinary_param(), span);
                     self.group_depth -= 1;
                     return None;
                 };
@@ -7021,11 +6427,7 @@ impl<'s> Parser<'s> {
             } else {
                 if saw_pair {
                     let span = arg.span();
-                    self.error(
-                        "a positional argument cannot be mixed with `k: v` pair \
-                         arguments: a call uses pairs for every argument or none",
-                        span,
-                    );
+                    self.error(messages::col_pairs_positional_after_pair(), span);
                     self.group_depth -= 1;
                     return None;
                 }
@@ -7033,10 +6435,7 @@ impl<'s> Parser<'s> {
                     let span = arg.span();
                     let prev_span = prev.span;
                     let _ = prev_span;
-                    self.error(
-                        "a positional argument cannot follow a named one",
-                        span,
-                    );
+                    self.error(messages::implicit_override_positional_after_named(), span);
                     self.group_depth -= 1;
                     return None;
                 }
@@ -7122,11 +6521,7 @@ impl<'s> Parser<'s> {
             }
             self.rollback(snap);
             let span = self.peek().span;
-            self.error(
-                "a type splice in an expression is the head of a struct literal or a \
-                 constructor call: `[arm.type] { … }`, `[arm.type](value)` [comptime-inline]",
-                span,
-            );
+            self.error(messages::comptime_inline_splice_not_head(), span);
             return None;
         }
         match self.kind().clone() {
@@ -7179,7 +6574,7 @@ impl<'s> Parser<'s> {
                 self.rollback(snap);
                 let found = self.kind().describe();
                 let span = self.peek().span;
-                self.error(format!("expected expression, found {found}"), span);
+                self.error(messages::syntax_expected_expression(&found), span);
                 None
             }
             // [expr-placeholder] `_` is the value the enclosing construct left
@@ -7256,10 +6651,7 @@ impl<'s> Parser<'s> {
                 let end = self.expect(&TokenKind::RParen)?.span;
                 self.group_depth = saved_depth;
                 if !matches!(test, Expr::Is { .. }) {
-                    self.error(
-                        "`whynot?` explains an `is` test — `whynot?(port is InRange(1, 65535))` [qual-whynot]",
-                        test.span(),
-                    );
+                    self.error(messages::qual_whynot_not_is_test(), test.span());
                 }
                 Some(Expr::WhyNot { test: Box::new(test), span: start.to(end) })
             }
@@ -7343,11 +6735,7 @@ impl<'s> Parser<'s> {
                 // outside this repository writes Salvo.
                 if self.at_word(SELF_SELECTOR) && matches!(self.peek_at(1).kind, TokenKind::Dot) {
                     let span = self.peek().span;
-                    self.error(
-                        "`self.k(…)` is not the self-send form: write `k@self(…)`, the \
-                         selector that names the enclosing handler",
-                        span,
-                    );
+                    self.error(messages::actor_self_send_self_dot_call(), span);
                     self.bump();
                     return Some(Expr::Error { span });
                 }
@@ -7404,7 +6792,7 @@ impl<'s> Parser<'s> {
             _ => {
                 let found = self.kind().describe();
                 let span = self.peek().span;
-                self.error(format!("expected expression, found {found}"), span);
+                self.error(messages::syntax_expected_expression(&found), span);
                 None
             }
         }
@@ -7681,13 +7069,7 @@ impl<'s> Parser<'s> {
         // [col-no-literal] Neither a lambda nor a struct literal. The old
         // brace-collection reading is gone; point at the constructor form.
         let span = self.peek().span;
-        self.error(
-            "a `{...}` here is neither a struct literal nor a lambda. Collection \
-             literals are retired: build a collection with its constructor — \
-             `List(1, 2, 3)`, `Set(\"a\", \"b\")`, `Map(\"k\": v)` (or the `Mut`, \
-             `Sorted…` variants) [col-no-literal]",
-            span,
-        );
+        self.error(messages::col_no_literal_brace_literal(), span);
         None
     }
 
@@ -7780,36 +7162,21 @@ impl<'s> Parser<'s> {
         if self.at(&TokenKind::Ellipsis) {
             if !self.allow_terminal || self.group_depth != 0 {
                 let span = self.peek().span;
-                self.error(
-                    "`...` is a terminal scope — the rest of the enclosing block \
-                     becomes the `if`'s then-body — so it is only a statement, \
-                     never a value or a nested expression: write a `{ … }` block",
-                    span,
-                );
+                self.error(messages::expr_terminal_scope_nested_if(), span);
                 return None;
             }
             self.bump(); // `...`
             let mut else_block = None;
             if self.at(&TokenKind::KwElif) {
                 let span = self.peek().span;
-                self.error(
-                    "a terminal `if … ...` cannot have `elif`: the `...` body is \
-                     the rest of the block, so there is nowhere for an `elif` to \
-                     go — write the braced `if { … } elif { … }` form",
-                    span,
-                );
+                self.error(messages::expr_terminal_scope_terminal_if_elif(), span);
                 return None;
             }
             if self.at(&TokenKind::KwElse) {
                 self.bump();
                 if self.at(&TokenKind::Ellipsis) {
                     let span = self.peek().span;
-                    self.error(
-                        "`else ...` is not allowed on a terminal `if`: only the \
-                         `if` branch is the terminal scope, and its `else` is an \
-                         ordinary `{ … }` block",
-                        span,
-                    );
+                    self.error(messages::expr_terminal_scope_terminal_if_else(), span);
                     return None;
                 }
                 else_block = Some(self.parse_block()?);
@@ -7860,7 +7227,7 @@ impl<'s> Parser<'s> {
         let start = self.expect(&TokenKind::KwTry)?.span;
         if !self.at(&TokenKind::LBrace) && !self.at(&TokenKind::Ellipsis) {
             let span = self.peek().span;
-            self.error("`try` takes a block: `try { ... }` (or `try ...`)", span);
+            self.error(messages::throw_try_missing_block(), span);
             return None;
         }
         let (body, _terminal) = self.parse_body("the `try`")?;
@@ -8016,12 +7383,7 @@ impl<'s> Parser<'s> {
         // one (no dual-accepting grammar — the standing invariant).
         if self.at(&TokenKind::KwUse) && self.same_line() {
             let span = self.peek().span;
-            self.error(
-                "the dependency clause of a `use`/`spawn` is spelled `with` now \
-                 (`spawn H(args) with D(), addr on POOL`): `use` is the statement's \
-                 word",
-                span,
-            );
+            self.error(messages::effect_with_clause_use_spelling(), span);
             self.bump();
             loop {
                 items.push(self.parse_expr()?);
@@ -8083,12 +7445,7 @@ impl<'s> Parser<'s> {
                 Some(Expr::ReplyTo { member, captures, gated, pool, span })
             }
             other => {
-                self.error(
-                    "a trailing `replyto` fills the final `Reply<T>` argument of \
-                     the call before it (`send(x) replyto k(…)`), so it must \
-                     follow a call",
-                    other.span().to(reply.span()),
-                );
+                self.error(messages::actor_replyto_not_after_call(), other.span().to(reply.span()));
                 // Recover with the base unchanged; the reply is dropped.
                 Some(other)
             }
@@ -8130,18 +7487,12 @@ impl<'s> Parser<'s> {
         // capture — `replyto k()` reads as the continuation it is.
         if !self.at(&TokenKind::LParen) {
             let span = self.peek().span;
-            self.error(
-                "`replyto` names a member and its captures: `replyto k()`",
-                span,
-            );
+            self.error(messages::actor_replyto_missing_member(), span);
             return None;
         }
         let (captures, named, end) = self.parse_call_args()?;
         if let Some(first) = named.first() {
-            self.error(
-                "a `replyto` takes the continuation's captures positionally",
-                first.span,
-            );
+            self.error(messages::actor_replyto_named_captures(), first.span);
         }
         // [task-pool-inherit] The optional placement clause.
         let mut end = end;
@@ -8176,12 +7527,7 @@ impl<'s> Parser<'s> {
         };
         if !self.at(&TokenKind::LBrace) && !self.at(&TokenKind::Ellipsis) {
             let span = self.peek().span;
-            self.error(
-                "`waitfor` takes a binder and a block that sends the token \
-                 somewhere: `waitfor out { p.total(out) }`, or \
-                 `waitfor out: Reply<Int> { … }` to write the type out",
-                span,
-            );
+            self.error(messages::actor_waitfor_shape(), span);
             return None;
         }
         let (body, _terminal) = self.parse_body("the `waitfor`")?;
@@ -8222,12 +7568,7 @@ impl<'s> Parser<'s> {
             // rather than reporting a missing `is`.
             if self.at(&TokenKind::KwElse) {
                 let span = self.bump().span;
-                self.error(
-                    "`when` over a subject is exhaustive over the union's arms, so \
-                     it takes no `else`: drop the subject to write a condition chain \
-                     (`when { cond { … } else { … } }`)",
-                    span,
-                );
+                self.error(messages::when_union_subject_else(), span);
                 self.parse_block()?;
                 continue;
             }
@@ -8237,11 +7578,7 @@ impl<'s> Parser<'s> {
             let (check, binding, lifted) = self.parse_is_check()?;
             let widen = lifted > 0;
             if widen && lifted != check.len() {
-                self.error(
-                    "a branch head either lifts every qualifier or none: mark \
-                     them all with `^`, or split the branch",
-                    head_span,
-                );
+                self.error(messages::qual_lift_partial_branch(), head_span);
             }
             let body = self.parse_block()?;
             let span = head_span.to(body.span);
@@ -8275,11 +7612,7 @@ impl<'s> Parser<'s> {
                 let else_span = self.bump().span;
                 let block = self.parse_block()?;
                 if !self.at(&TokenKind::RBrace) && !self.at_eof() {
-                    self.error(
-                        "`else` is the last branch of a `when`: it runs when no \
-                         condition above it held",
-                        else_span,
-                    );
+                    self.error(messages::when_condition_else_not_last(), else_span);
                 }
                 else_block = Some(block);
                 continue;
@@ -8291,20 +7624,11 @@ impl<'s> Parser<'s> {
         let end = self.expect(&TokenKind::RBrace)?.span;
         let span = start.to(end);
         let Some(else_block) = else_block else {
-            self.error(
-                "a subject-less `when` must end with an `else`: `when` is always \
-                 exhaustive, and with no subject the `else` is what makes it so \
-                 (use `if`/`elif` when there is nothing to fall back to)",
-                span,
-            );
+            self.error(messages::when_condition_missing_else(), span);
             return Some(Expr::Error { span });
         };
         if branches.is_empty() {
-            self.error(
-                "a `when` with only an `else` has nothing to decide: write the \
-                 block on its own",
-                span,
-            );
+            self.error(messages::when_condition_only_else(), span);
             return Some(Expr::Error { span });
         }
         Some(Expr::WhenCond {
@@ -8407,10 +7731,7 @@ fn parse_interpolated_expr(source: &str, offset: u32, in_compfn: bool) -> (Expr,
     if !parser.at_eof() {
         let span = parser.peek().span;
         let found = parser.kind().describe();
-        parser.error(
-            format!("unexpected {found} in string interpolation"),
-            span,
-        );
+        parser.error(messages::syntax_expected_in_interpolation(&found), span);
     }
     diagnostics.extend(parser.into_diagnostics());
     (expr, diagnostics)

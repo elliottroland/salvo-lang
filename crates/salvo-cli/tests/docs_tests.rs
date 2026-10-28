@@ -175,3 +175,19 @@ fn std_docs_cite_rules_only_in_compilerrules() {
     assert!(inline.is_empty(), "std documentation cites rules in its prose, where hover shows them; move them to `@compilerrules`:\n{}", inline.join("\n"));
     assert!(unknown.is_empty(), "`@compilerrules` cites rules no spec defines:\n{}", unknown.join("\n"));
 }
+
+/// [diag-id] Every diagnostic id names a rule a spec defines (its label,
+/// before the `:`), and no two messages share an id.
+#[test]
+fn every_diagnostic_id_names_a_defined_rule() {
+    let labels = defined_labels();
+    let mut seen = std::collections::HashSet::new();
+    let mut unknown = Vec::new();
+    for (name, id) in salvo_syntax::messages::ALL {
+        assert!(seen.insert(*id), "two messages are `{id}`");
+        if !labels.contains(salvo_syntax::messages::label_of(id)) {
+            unknown.push(format!("{name}: `{id}`"));
+        }
+    }
+    assert!(unknown.is_empty(), "ids naming rules no spec defines:\n{}", unknown.join("\n"));
+}

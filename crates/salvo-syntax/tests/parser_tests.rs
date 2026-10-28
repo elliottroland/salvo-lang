@@ -434,6 +434,16 @@ fn errors_of(source: &str) -> Vec<String> {
         .collect()
 }
 
+/// [diag-id] The ids of the errors `source` parses with, in order.
+fn ids_of(source: &str) -> Vec<&'static str> {
+    let (_module, diagnostics) = salvo_syntax::parse_module(source);
+    diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .filter_map(|d| d.id)
+        .collect()
+}
+
 // [name-dot] A struct or qualifier may be declared `Ns.Name`, and the pair
 // is kept as one dotted name.
 #[test]
@@ -1162,7 +1172,7 @@ fn threadsafe_on_a_non_handler_is_an_error_naming_the_form() {
     assert!(
         diagnostics.iter().any(|d| d.is_error()
             && d.message.contains("expected `handler` or `type` after `threadsafe platform`")
-            && d.message.contains("[platform-threadsafe]")),
+            && d.id == Some("platform-threadsafe:not-before-handler-or-type")),
         "expected the misplaced-`threadsafe` error, got: {:?}",
         diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
@@ -1235,8 +1245,8 @@ fn platform_fn_parses_and_a_bare_bodiless_fn_is_refused() {
     );
     let errors = errors_of("platform fn chars(s: Str) [] -> Str => s {\n    return s\n}\n");
     assert!(errors.iter().any(|m| m.contains("`platform fn chars` has a body")), "{errors:?}");
-    let errors = errors_of("threadsafe platform fn chars(s: Str) [] -> Str => s\n");
-    assert!(errors.iter().any(|m| m.contains("[platform-threadsafe]")), "{errors:?}");
+    let ids = ids_of("threadsafe platform fn chars(s: Str) [] -> Str => s\n");
+    assert!(ids.contains(&"platform-threadsafe:not-before-handler-or-type"), "{ids:?}");
 }
 
 /// [decl-body] A `type` with no `= ...` alias (and not `intrinsic`) was only
@@ -2729,9 +2739,9 @@ fn not_is_parses_as_a_negated_check() {
 fn a_postfix_bang_is_refused_beside_not_is() {
     let source = "fn f() -> None {\n    let x = first(xs)! + 1\n}\n";
     let (_, diagnostics) = salvo_syntax::parse_module(source);
-    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).map(|d| (d.message.clone(), d.id)).collect();
     assert!(
-        errors.iter().any(|m| m.contains("a postfix `!` asserts nothing") && m.contains("[assert-op]")),
+        errors.iter().any(|(m, id)| m.contains("a postfix `!` asserts nothing") && *id == Some("assert-op:postfix-bang")),
         "expected the postfix-`!` refusal, got {errors:?}"
     );
     let expr = parse_expr_stmt("s !is Str");
@@ -3102,7 +3112,7 @@ fn noremote_on_a_fn_is_an_error() {
     let source = "noremote fn go() -> None {\n}\n";
     let (_, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
-        diagnostics.iter().any(|d| d.is_error() && d.message.contains("[net-noremote]")),
+        diagnostics.iter().any(|d| d.is_error() && d.id == Some("net-noremote:not-before-type")),
         "expected the misplaced-`noremote` error, got: {:?}",
         diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
@@ -3301,7 +3311,7 @@ fn a_struct_literal_field_may_be_written_by_its_name_alone() {
     assert!(
         diagnostics
             .iter()
-            .any(|d| d.is_error() && d.message.contains("Collection literals are retired") && d.message.contains("[col-no-literal]")),
+            .any(|d| d.is_error() && d.message.contains("Collection literals are retired") && d.id == Some("col-no-literal:brace-literal")),
         "{diagnostics:?}"
     );
 }

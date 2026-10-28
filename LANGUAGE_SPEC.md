@@ -12557,6 +12557,24 @@ replaced the working document TESTING.md).
     program, which is what a redundant selector needs [fn-overload-at].
     `salvo analyze` counts warnings separately and exits 0 when there are no
     errors.
+* [diag-id] **Every diagnostic has an id, `<rule label>:<name>`** (user
+  decisions 2026-10-28, TESTS.md TD1, TD2, TD7): the rule it reports and the
+  way that rule failed (`op-unique-shape:bare-type-param`). The text comes
+  from one function per diagnostic, named after the id
+  (`op_unique_shape_bare_type_param`), in one messages file per layer —
+  `salvo_syntax::messages` for the parser and the core passes, a backend's
+  own `messages.rs` for its `kt-`/`rs-` diagnostics [core-layers] — so the
+  wording lives in one place and tests assert ids, not text.
+  * **Shown only on request**: the CLI's `-v` renders `error[id]: …` (and
+    adds `"id"` to `analyze --format json`); without it a diagnostic is its
+    text alone, which no longer ends in a rule label. The language server
+    does not send it.
+  * A message reworded on its way out (an operator's or a `for`'s site, a
+    stamp's origin prefix) keeps its id.
+  * Being built (TESTS.md T2): a diagnostic not yet given an id has none.
+* [syntax-expected] **A token the grammar does not allow is an error saying
+  what was expected there** (`expected …, found …`), at the token; the
+  parser recovers at the next item, so one file can report several.
 * [fn-ref-table] The checker records every fn-*name* reference —
   declaration names, call-site callees (incl. dot-notation), and
   fn-by-name uses — as `Checked::fn_refs: Key -> DeclId`, keyed by the
