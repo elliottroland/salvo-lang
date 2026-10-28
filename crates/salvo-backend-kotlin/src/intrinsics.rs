@@ -54,8 +54,11 @@ pub fn fn_call(
         // into 0..255 exactly as `as i32` does.
         ("to_byte", Some("Int")) => format!("({}).toUByte()", a(0)),
         ("to_int", Some("Byte")) => format!("({}).toInt()", a(0)),
-        // std.core.compare ---------------------------------------------------
-        // [cmp-groups] The canonical `cmp`/`eq`/`hash` at each intrinsic type.
+        // std.core.basic and std.core.string (`cmp`, `eq`), std.core.compare
+        // (`hash`) ------------------------------------------------------------
+        // [cmp-groups] The canonical `cmp`/`eq`/`hash` at each intrinsic type;
+        // `cmp` and `eq` are declared beside their types [unique-shape], and
+        // the table keys on name and receiver, not module.
         //
         // Every one of these is `Comparable` on the JVM *except* `Str`, whose
         // `compareTo` is UTF-16 code-unit order where Salvo's `Str` order is

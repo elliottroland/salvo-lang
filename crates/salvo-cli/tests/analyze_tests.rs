@@ -3037,14 +3037,15 @@ fn src_lib_std_is_refused_promptly() {
     );
 }
 
-/// [implicit-resolve] [fn-overload-ambiguous] A module's own same-signature
-/// overload beside std's is ambiguous at an implicit position, as it is at a
-/// call (user decision 2026-10-14) — it no longer replaces std's by being on a
-/// nearer rung. The errors name the candidates and the remedies: at an
-/// interpolation, the selected call; at a call's implicit, the written
-/// override; and `rename fn` at both.
+/// [unique-shape] A module's own `to_str(List<T>)` beside std's is refused
+/// where it is declared (user decision O1-D, 2026-10-27): `to_str` on `List` is
+/// interpolation's function, declared only in `List`'s file, so no module can
+/// put a second one beside it — whether or not anything uses it. Before, it
+/// sat beside std's and every interpolation and implicit of a list was an
+/// ambiguity (PIPELINE.md §II.13 D2, dissolved). The error names the type's
+/// file and the remedy.
 #[test]
-fn a_same_signature_overload_beside_std_is_ambiguous_at_an_implicit() {
+fn a_same_signature_overload_beside_std_is_refused_at_its_declaration() {
     let dir = src_dir("implicit_same_signature");
     fs::write(
         dir.join("main.sv"),
@@ -3059,35 +3060,49 @@ fn a_same_signature_overload_beside_std_is_ambiguous_at_an_implicit() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "{stderr}");
     assert!(
-        stderr.contains("the text form of `NonEmpty List<Int>` is ambiguous: `to_str(List<T>)` from `main`, `to_str(List<T>)` from `std.core.list` all fit and none is more specific")
-            && stderr.contains("`${to_str@main(…)}` or `${to_str@std.core.list(…)}`")
-            && stderr.contains("--> main.sv:7:16"),
+        stderr.contains("`to_str(List<T>)` has the shape of `to_str` on `List`")
+            && stderr.contains("(module `std.core.list`)")
+            && stderr.contains("Give this one another name and pass it explicitly")
+            && stderr.contains("[unique-shape] --> main.sv:1:4"),
         "{stderr}"
     );
-    assert!(
-        stderr.contains("`to_str` is ambiguous for `render` at `?to_str: (NonEmpty List<Int>) -> Str`")
-            && stderr.contains("`to_str = to_str@main` or `to_str = to_str@std.core.list`")
-            && stderr.contains("rename fn <new> = to_str(...)")
-            && stderr.contains("--> main.sv:8:13"),
-        "{stderr}"
-    );
+    // The refused declaration is still a candidate where it is visible, so
+    // its uses still report the ambiguity it causes (ROADMAP 0ag).
 }
 
 /// [implicit-recursive] The winner's own implicits are filled after it is
 /// chosen, and a failure there is an error naming the chain — no other
-/// candidate stands in (user decision 2026-10-14). With a catch-all
-/// `to_str<T>` beside std's, a list nested past the depth cap used to fall
-/// back to the catch-all at the top and print `?`; now std's `List` overload
-/// wins at every level, and the cap is the error. The plain chain, with no
-/// catch-all, names each link down to the type with no text form.
+/// candidate stands in (user decision 2026-10-14). A list nested past the
+/// depth cap is that error: std's `List` overload wins at every level, and the
+/// cap is the error. (Before 2026-10-14 a module's catch-all `to_str<T>` made
+/// the top fall back and print `?`; a catch-all is now refused where it is
+/// declared, [unique-shape], so it cannot stand in either.) The plain chain
+/// names each link down to the type with no text form.
 #[test]
 fn an_unfillable_winner_is_an_error_naming_the_chain() {
-    let dir = src_dir("implicit_unfillable_winner");
+    // [unique-shape] The catch-all itself: a `to_str` on a type parameter has
+    // no type's file to live in, so it is refused at its declaration.
+    let dir = src_dir("implicit_unfillable_catch_all");
     fs::write(
         dir.join("main.sv"),
         "fn to_str<T>(x: T) [] -> Str => x { return \"?\" }\n\
          \n\
-         fn main() [use] {\n    use StdConsole()\n    \
+         fn main() [use] {\n    use StdConsole()\n    println(\"${List(1)}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("`to_str(T)` has the shape of `to_str` on the type parameter `T`, which has no declaring file")
+            && stderr.contains("[unique-shape] --> main.sv:1:4"),
+        "{stderr}"
+    );
+
+    let dir = src_dir("implicit_unfillable_winner");
+    fs::write(
+        dir.join("main.sv"),
+        "fn main() [use] {\n    use StdConsole()\n    \
          let deep = List(List(List(List(List(List(List(List(List(List(List(1)))))))))))\n    \
          println(\"${deep}\")\n}\n",
     )
@@ -3162,17 +3177,17 @@ fn an_unfillable_winner_is_an_error_naming_the_chain() {
 /// [implicit-recursive] The error for a chain that cannot be completed stays
 /// a few types long however deep the chain went: before 2026-10-14 every
 /// level repeated the whole phrase of the level below, and the 11-deep
-/// catch-all case reached the depth cap in a 3 KB line. Now the position
-/// written and the one that failed are named once, and the chain between is
-/// elided in the middle: at most four of its types are printed.
+/// case reached the depth cap in a 3 KB line. Now the position written and
+/// the one that failed are named once, and the chain between is elided in the
+/// middle: at most four of its types are printed. (The program had a
+/// catch-all `to_str<T>` beside it, refused since [unique-shape]; the cap
+/// needs none.)
 #[test]
 fn an_unfillable_chain_error_stays_short_at_the_depth_cap() {
     let dir = src_dir("implicit_unfillable_bounded");
     fs::write(
         dir.join("main.sv"),
-        "fn to_str<T>(x: T) [] -> Str => x { return \"?\" }\n\
-         \n\
-         fn main() [use] {\n    use StdConsole()\n    \
+        "fn main() [use] {\n    use StdConsole()\n    \
          let deep = List(List(List(List(List(List(List(List(List(List(List(1)))))))))))\n    \
          println(\"${deep}\")\n}\n",
     )

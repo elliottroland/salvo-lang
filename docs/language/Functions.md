@@ -139,14 +139,16 @@ So an imported `tag(v: Int)` beside a `tag<T>(v: T)` of your own wins by name ex
 **Filling an implicit parameter** is the same query against a type rather than an argument list, so it follows the same rule — every visible overload that fits competes, the most specific signature wins, and no single winner is an error — and a renamed overload no longer fills an implicit of its old name:
 
 ```
-fn to_str<T>(x: T) -> Str => x { return "?" }    // a catch-all of your own
+struct Foo { n: Int }
+fn to_str(f: Foo) -> Str => f { return "?" }     // Foo's text form, in Foo's file
 
-"${List(1, 2)}"           // [1, 2]: std's `to_str(List<T>)`, then its `to_str(Int)`,
-                          // are each more specific than `T`
-"${List(Foo { n: 1 })}"   // [?]: yours fills only what nothing more specific takes
+"${List(1, 2)}"           // [1, 2]: std's `to_str(List<T>)`, then its `to_str(Int)`
+"${List(Foo { n: 1 })}"   // [?]: the list's, then Foo's own for each element
 ```
 
-A `to_str(List<T>)` of your own beside std's is therefore ambiguous at `"${xs}"`, just as two `size(List<T>)`s are at a call: write `to_str = to_str@main` where the implicit is filled (or `${to_str@main(xs)}`), or rename one. The chosen function's own implicits are filled after it is chosen; if they cannot be, that is the error, and no other candidate is tried instead.
+The chosen function's own implicits are filled after it is chosen; if they cannot be, that is the error, and no other candidate is tried instead.
+
+`to_str` is an operator's function (interpolation calls it), so a second one for a type cannot be declared outside the type's file: a `to_str(List<T>)` of your own, or a catch-all `to_str<T>(x: T)`, is an error where it is written. A rendering of your own takes another name and is passed explicitly — `to_str = as_hex` where the implicit is filled. See [Comparison, equality and hashing](Comparison-and-Hashing.md#one-per-type-where-an-operator-is-declared).
 
 Beyond the declaration itself, two things hang off the arrow: effects and deductions.
 

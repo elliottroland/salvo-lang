@@ -10,3 +10,31 @@ pub fn to_str__TupleAB<A: Clone, B: Clone>(value: &(A, B), to_str: &mut dyn FnMu
 pub fn to_str__TupleABC<A: Clone, B: Clone, C: Clone>(value: &(A, B, C), to_str: &mut dyn FnMut(&A) -> String, to_str__1: &mut dyn FnMut(&B) -> String, to_str__2: &mut dyn FnMut(&C) -> String) -> String {
     return format!("({}, {}, {})", to_str(&value.0), to_str__1(&value.1), to_str__2(&value.2));
 }
+
+pub fn eq__TupleAB_TupleAB<A: Clone, B: Clone>(a: &(A, B), b: &(A, B), eq: &mut dyn FnMut(&A, &A) -> bool, eq__1: &mut dyn FnMut(&B, &B) -> bool) -> bool {
+    return (eq(&a.0, &b.0) && eq__1(&a.1, &b.1));
+}
+
+pub fn cmp__TupleAB_TupleAB<A: Clone, B: Clone>(a: &(A, B), b: &(A, B), cmp: &mut dyn FnMut(&A, &A) -> i32, cmp__1: &mut dyn FnMut(&B, &B) -> i32) -> i32 {
+    let mut c: i32 = cmp(&a.0, &b.0);
+    if (c != 0i32) {
+        return c;
+    };
+    return cmp__1(&a.1, &b.1);
+}
+
+pub fn eq__TupleABC_TupleABC<A: Clone, B: Clone, C: Clone>(a: &(A, B, C), b: &(A, B, C), eq: &mut dyn FnMut(&A, &A) -> bool, eq__1: &mut dyn FnMut(&B, &B) -> bool, eq__2: &mut dyn FnMut(&C, &C) -> bool) -> bool {
+    return ((eq(&a.0, &b.0) && eq__1(&a.1, &b.1)) && eq__2(&a.2, &b.2));
+}
+
+pub fn cmp__TupleABC_TupleABC<A: Clone, B: Clone, C: Clone>(a: &(A, B, C), b: &(A, B, C), cmp: &mut dyn FnMut(&A, &A) -> i32, cmp__1: &mut dyn FnMut(&B, &B) -> i32, cmp__2: &mut dyn FnMut(&C, &C) -> i32) -> i32 {
+    let mut c: i32 = cmp(&a.0, &b.0);
+    if (c != 0i32) {
+        return c;
+    };
+    let mut d: i32 = cmp__1(&a.1, &b.1);
+    if (d != 0i32) {
+        return d;
+    };
+    return cmp__2(&a.2, &b.2);
+}

@@ -12,7 +12,7 @@ struct Fighter canbe Mut wire {
 
 fn main::named(lent roster: List<Fighter>, lent name: Str) -> proj Fighter? borrows [roster] {
   foreach#1 f: proj Fighter in read roster {
-    branch#2 cond#0 call std.core.compare::eq(Str, Str)(read f.name, read name) {
+    branch#2 cond#0 call std.core.string::eq(read f.name, read name) {
       return present(read f)
     }
   }
@@ -113,7 +113,7 @@ fn main::main() -> None {
   call std.core.console::println(read __handle~2, concat("1. found ", read ada.name, ", hp ", call std.core.basic::to_str(Int)(read ada.hp)))
   bind#11 let names: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   call std.core.list::add<Str>(read names, call std.core.basic::copy<Str>(read ada.name))
-  call std.core.console::println(read __handle~2, concat("1. copied out ", call std.core.list::to_str<Str>(drop_mut(read names), fn std.core.basic::to_str(Str))))
+  call std.core.console::println(read __handle~2, concat("1. copied out ", call std.core.list::to_str<Str>(drop_mut(read names), fn std.core.string::to_str)))
   bind#12 let w: Mut Window = call main::window(read roster)
   assign w.at = 1
   call std.core.console::println(read __handle~2, concat("1. window at ", call std.core.basic::to_str(Int)(read w.at), ": ", branch#20 cond#0 true {
@@ -359,5 +359,5 @@ fn main::main() -> None {
   alias#172 banners: Mut List<Str> = camp.banners
   call main::spend(read camp, 3)
   call main::hoist(read camp, "blue")
-  call std.core.console::println(read __handle~2, concat("5. supplies ", call std.core.basic::to_str(Int)(read camp.supplies), ", banners ", call std.core.list::to_str<Str>(drop_mut(read banners), fn std.core.basic::to_str(Str))))
+  call std.core.console::println(read __handle~2, concat("5. supplies ", call std.core.basic::to_str(Int)(read camp.supplies), ", banners ", call std.core.list::to_str<Str>(drop_mut(read banners), fn std.core.string::to_str)))
 }

@@ -45,7 +45,7 @@ impl Indexing(lent words: List<Str>) of Search {
   fn query(lent word: Str, lent out: Reply<Int>) -> None {
     bind#1 let n: Int = 0
     foreach#2 w: proj Str in read words {
-      branch#3 cond#0 call std.core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](read w), read word) {
+      branch#3 cond#0 call std.core.string::eq(borrow_as[proj Str -> Str](read w), read word) {
         assign n = (read n + 1)
       }
     }
@@ -187,7 +187,7 @@ impl LastHost(lent nodes: eff[NodeGroup], lent me: NodeEndpoint) of Leader {
     bind#2 let best_host: Str = call std.core.basic::copy<Str>(read me.host)
     bind#3 let best: NodeId = call std.net::this_node()
     foreach#4 n: proj Node in read peers {
-      branch#5 cond#0 (call std.core.compare::cmp(Str, Str)(read n.at.host, read best_host) > 0) {
+      branch#5 cond#0 (call std.core.string::cmp(read n.at.host, read best_host) > 0) {
         assign best_host = call std.core.basic::copy<Str>(read n.at.host)
         assign best = call std.core.basic::copy<NodeId>(read n.id)
       }
@@ -232,7 +232,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       }
     }, " reserved on its shard so far"))
   }
-  call std.core.console::println(read console, concat("  apple and apple on one shard: ", call std.core.basic::to_str(Bool)(call std.core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#22 cond#0 true {
+  call std.core.console::println(read console, concat("  apple and apple on one shard: ", call std.core.basic::to_str(Bool)(call std.core.string::eq(borrow_as[proj Str -> Str](branch#22 cond#0 true {
     bind#17 let __pick~7: proj Str? = call std.core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value branch#18 cond#0 check#21 (read __pick~7 is arm 0) {
       narrow#19[branch#18.cond#0] __picked~8: proj Str = __pick~7
@@ -249,7 +249,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       value unreachable() at main:231:103
     }
   })))))
-  call std.core.console::println(read console, concat("  apple and fig on one shard: ", call std.core.basic::to_str(Bool)(call std.core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#34 cond#0 true {
+  call std.core.console::println(read console, concat("  apple and fig on one shard: ", call std.core.basic::to_str(Bool)(call std.core.string::eq(borrow_as[proj Str -> Str](branch#34 cond#0 true {
     bind#29 let __pick~13: proj Str? = call std.core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value branch#30 cond#0 check#33 (read __pick~13 is arm 0) {
       narrow#31[branch#30.cond#0] __picked~14: proj Str = __pick~13
@@ -266,7 +266,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       value unreachable() at main:232:101
     }
   })))))
-  call std.core.console::println(read console, concat("  apple and pear on one shard: ", call std.core.basic::to_str(Bool)(call std.core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#46 cond#0 true {
+  call std.core.console::println(read console, concat("  apple and pear on one shard: ", call std.core.basic::to_str(Bool)(call std.core.string::eq(borrow_as[proj Str -> Str](branch#46 cond#0 true {
     bind#41 let __pick~19: proj Str? = call std.core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value branch#42 cond#0 check#45 (read __pick~19 is arm 0) {
       narrow#43[branch#42.cond#0] __picked~20: proj Str = __pick~19

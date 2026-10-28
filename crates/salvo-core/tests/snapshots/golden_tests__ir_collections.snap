@@ -14,7 +14,7 @@ struct Note wire {
 }
 
 fn main::by_len(lent a: Str, lent b: Str) -> Int {
-  return call std.core.compare::cmp(Int, Int)(call std.core.string::size(read a), call std.core.string::size(read b))
+  return call std.core.basic::cmp(Int, Int)(call std.core.string::size(read a), call std.core.string::size(read b))
 }
 
 fn main::count_unique(lent xs: List<Int>) -> Int {
@@ -25,22 +25,22 @@ fn main::main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let primes: List<Int> = call std.core.list::List(T, T[])<Int>(2, array[Int[]](3, 5, 7))
-  bind#4 let vowels: Set<Str>(hash, eq) = call std.core.set::Set<Str>(array[Str[]]("a", "e", "i", "o", "u"), fn std.core.compare::hash(Str), fn std.core.compare::eq(Str, Str))
-  bind#5 let ages: Map<Str, Int>(hash, eq) = call std.core.map::Map<Str, Int>(array[(Str, Int)[]](tuple("ada", 36), tuple("grace", 45)), fn std.core.compare::hash(Str), fn std.core.compare::eq(Str, Str))
+  bind#4 let vowels: Set<Str>(hash, eq) = call std.core.set::Set<Str>(array[Str[]]("a", "e", "i", "o", "u"), fn std.core.compare::hash(Str), fn std.core.string::eq)
+  bind#5 let ages: Map<Str, Int>(hash, eq) = call std.core.map::Map<Str, Int>(array[(Str, Int)[]](tuple("ada", 36), tuple("grace", 45)), fn std.core.compare::hash(Str), fn std.core.string::eq)
   call std.core.console::println(read __handle~2, concat("1. list ", call std.core.list::to_str<Int>(read primes, fn std.core.basic::to_str(Int))))
-  call std.core.console::println(read __handle~2, concat("1. set ", call std.core.set::to_str<Str>(read vowels, fn std.core.basic::to_str(Str)), " of ", call std.core.basic::to_str(Int)(call std.core.set::size<Str>(read vowels))))
-  call std.core.console::println(read __handle~2, concat("1. map ", call std.core.map::to_str<Str, Int>(read ages, fn std.core.basic::to_str(Str), fn std.core.basic::to_str(Int), fn std.core.compare::hash(Str), fn std.core.compare::eq(Str, Str))))
+  call std.core.console::println(read __handle~2, concat("1. set ", call std.core.set::to_str<Str>(read vowels, fn std.core.string::to_str), " of ", call std.core.basic::to_str(Int)(call std.core.set::size<Str>(read vowels))))
+  call std.core.console::println(read __handle~2, concat("1. map ", call std.core.map::to_str<Str, Int>(read ages, fn std.core.string::to_str, fn std.core.basic::to_str(Int), fn std.core.compare::hash(Str), fn std.core.string::eq)))
   bind#6 let note: Note = construct Note { text: "still a struct literal" }
   call std.core.console::println(read __handle~2, concat("1. struct ", read note.text))
-  bind#7 let seen: Mut Set<Str> = call std.core.set::Mut_Set<Str>(array[Str[]](), fn std.core.compare::hash(Str), fn std.core.compare::eq(Str, Str))
-  call std.core.set::add<Str>(read seen, "first", fn std.core.compare::hash(Str), fn std.core.compare::eq(Str, Str))
-  call std.core.console::println(read __handle~2, concat("1. empty then filled ", call std.core.set::to_str<Str>(drop_mut(read seen), fn std.core.basic::to_str(Str))))
-  bind#8 let tally: Mut Map<Str, Int> = call std.core.map::Mut_Map<Str, Int>(array[(Str, Int)[]](tuple("pear", 1), tuple("apple", 2)), fn std.core.compare::hash(Str), fn std.core.compare::eq(Str, Str))
-  call std.core.map::put<Str, Int>(read tally, "fig", 3, fn std.core.compare::hash(Str), fn std.core.compare::eq(Str, Str))
-  call std.core.map::put<Str, Int>(read tally, "pear", 99, fn std.core.compare::hash(Str), fn std.core.compare::eq(Str, Str))
-  call std.core.console::println(read __handle~2, concat("2. insertion order kept ", call std.core.map::to_str<Str, Int>(drop_mut(read tally), fn std.core.basic::to_str(Str), fn std.core.basic::to_str(Int), fn std.core.compare::hash(Str), fn std.core.compare::eq(Str, Str))))
-  bind#9 let ranked: Mut SortedSet<Str> = call std.core.sorted::Mut_SortedSet<Str>(array[Str[]]("pear", "apple", "fig"), fn std.core.compare::cmp(Str, Str))
-  call std.core.console::println(read __handle~2, concat("2. key order ", call std.core.sorted::to_str(SortedSet<T>)<Str>(drop_mut(read ranked), fn std.core.basic::to_str(Str))))
+  bind#7 let seen: Mut Set<Str> = call std.core.set::Mut_Set<Str>(array[Str[]](), fn std.core.compare::hash(Str), fn std.core.string::eq)
+  call std.core.set::add<Str>(read seen, "first", fn std.core.compare::hash(Str), fn std.core.string::eq)
+  call std.core.console::println(read __handle~2, concat("1. empty then filled ", call std.core.set::to_str<Str>(drop_mut(read seen), fn std.core.string::to_str)))
+  bind#8 let tally: Mut Map<Str, Int> = call std.core.map::Mut_Map<Str, Int>(array[(Str, Int)[]](tuple("pear", 1), tuple("apple", 2)), fn std.core.compare::hash(Str), fn std.core.string::eq)
+  call std.core.map::put<Str, Int>(read tally, "fig", 3, fn std.core.compare::hash(Str), fn std.core.string::eq)
+  call std.core.map::put<Str, Int>(read tally, "pear", 99, fn std.core.compare::hash(Str), fn std.core.string::eq)
+  call std.core.console::println(read __handle~2, concat("2. insertion order kept ", call std.core.map::to_str<Str, Int>(drop_mut(read tally), fn std.core.string::to_str, fn std.core.basic::to_str(Int), fn std.core.compare::hash(Str), fn std.core.string::eq)))
+  bind#9 let ranked: Mut SortedSet<Str> = call std.core.sorted::Mut_SortedSet<Str>(array[Str[]]("pear", "apple", "fig"), fn std.core.string::cmp)
+  call std.core.console::println(read __handle~2, concat("2. key order ", call std.core.sorted::to_str(SortedSet<T>)<Str>(drop_mut(read ranked), fn std.core.string::to_str)))
   bind#10 let smallest: Str? = call std.core.sorted::min(SortedSet<T>)<Str>(drop_mut(read ranked))
   branch#11 cond#0 check#12 (read smallest is arm 0) {
     narrow#13[check#12] smallest~3: Str = smallest
@@ -71,7 +71,7 @@ fn main::main() -> None {
     value (read i * read i)
   })
   call std.core.console::println(read __handle~2, concat("5. generated ", call std.core.list::to_str<Int>(read squares, fn std.core.basic::to_str(Int))))
-  bind#30 let deduped: Set<Int>(hash, eq) = call std.core.set::to_set<Int>(read primes, fn std.core.compare::hash(Int), fn std.core.compare::eq(Int, Int))
+  bind#30 let deduped: Set<Int>(hash, eq@Int) = call std.core.set::to_set<Int>(read primes, fn std.core.compare::hash(Int), fn std.core.basic::eq(Int, Int))
   call std.core.console::println(read __handle~2, concat("5. to_set ", call std.core.set::to_str<Int>(read deduped, fn std.core.basic::to_str(Int))))
   bind#31 let words: List<Str> = call std.core.list::List(T, T[])<Str>("alpha", array[Str[]]("be"))
   bind#34 let lengths: Map<Str, Int>(hash, eq) = call std.core.map::to_map(List<T>, (T) -> (K, V))<Str, Str, Int>(read words, lambda(lent w: Str) -> (Str, Int) {
@@ -79,26 +79,26 @@ fn main::main() -> None {
       bind#32 let __part~5: Int = call std.core.string::size(read w)
       value tuple(!read w, !read __part~5)
     }
-  }, fn std.core.compare::hash(Str), fn std.core.compare::eq(Str, Str))
-  call std.core.console::println(read __handle~2, concat("5. to_map with a rule ", call std.core.map::to_str<Str, Int>(read lengths, fn std.core.basic::to_str(Str), fn std.core.basic::to_str(Int), fn std.core.compare::hash(Str), fn std.core.compare::eq(Str, Str))))
+  }, fn std.core.compare::hash(Str), fn std.core.string::eq)
+  call std.core.console::println(read __handle~2, concat("5. to_map with a rule ", call std.core.map::to_str<Str, Int>(read lengths, fn std.core.string::to_str, fn std.core.basic::to_str(Int), fn std.core.compare::hash(Str), fn std.core.string::eq)))
   bind#35 let filled: List<Str> = call std.core.list::List(T, T[])<Str>("ada", array[Str[]]("grace"))
   call std.core.console::println(read __handle~2, concat("6. first is ", call std.core.list::first(NonEmpty List<T>)<Str>(read filled), ", no optional"))
   bind#36 let growing: Mut List<Int> = call std.core.list::Mut_List()<Int>()
   call std.core.list::add<Int>(read growing, 7)
   call std.core.console::println(read __handle~2, concat("6. after add, first is ", call std.core.basic::to_str(Int)(call std.core.list::first(NonEmpty List<T>)<Int>(drop_mut(read growing)))))
-  bind#37 let ordered: List<Int> = call std.core.list::sort<Int>(call std.core.list::List(T, T[])<Int>(40, array[Int[]](10, 30, 20)), fn std.core.compare::cmp(Int, Int))
+  bind#37 let ordered: List<Int> = call std.core.list::sort<Int>(call std.core.list::List(T, T[])<Int>(40, array[Int[]](10, 30, 20)), fn std.core.basic::cmp(Int, Int))
   call std.core.console::println(read __handle~2, concat("6. sorted ", call std.core.list::to_str<Int>(read ordered, fn std.core.basic::to_str(Int))))
-  bind#40 let __subject~6: Int? = call std.core.list::binary_search<Int>(read ordered, 30, fn std.core.compare::cmp(Int, Int))
+  bind#40 let __subject~6: Int? = call std.core.list::binary_search<Int>(read ordered, 30, fn std.core.basic::cmp(Int, Int))
   branch#38 cond#0 check#39 (read __subject~6 is arm 0) {
     narrow#41[check#39] at: Int = __subject~6
     call std.core.console::println(read __handle~2, concat("6. found 30 at ", call std.core.basic::to_str(Int)(read at)))
   }
-  bind#42 let live: Mut List<Int> = call std.core.list::mut_sort<Int>(call std.core.list::List(T, T[])<Int>(10, array[Int[]](30)), fn std.core.compare::cmp(Int, Int))
-  call std.core.list::add_sorted<Int>(read live, 20, fn std.core.compare::cmp(Int, Int))
-  call std.core.list::add_sorted<Int>(read live, 5, fn std.core.compare::cmp(Int, Int))
+  bind#42 let live: Mut List<Int> = call std.core.list::mut_sort<Int>(call std.core.list::List(T, T[])<Int>(10, array[Int[]](30)), fn std.core.basic::cmp(Int, Int))
+  call std.core.list::add_sorted<Int>(read live, 20, fn std.core.basic::cmp(Int, Int))
+  call std.core.list::add_sorted<Int>(read live, 5, fn std.core.basic::cmp(Int, Int))
   call std.core.console::println(read __handle~2, concat("6. still sorted ", call std.core.list::to_str<Int>(drop_mut(read live), fn std.core.basic::to_str(Int))))
   bind#43 let bylen: List<Str> = call std.core.list::sort<Str>(call std.core.list::List(T, T[])<Str>("alpha", array[Str[]]("be", "z")), fn main::by_len)
-  call std.core.console::println(read __handle~2, concat("6. by length ", call std.core.list::to_str<Str>(read bylen, fn std.core.basic::to_str(Str))))
+  call std.core.console::println(read __handle~2, concat("6. by length ", call std.core.list::to_str<Str>(read bylen, fn std.core.string::to_str)))
   bind#46 let __subject~7: Int? = call std.core.list::binary_search<Str>(read bylen, "hi", fn main::by_len)
   branch#44 cond#0 check#45 (read __subject~7 is arm 0) {
     narrow#47[check#45] at_len: Int = __subject~7
@@ -128,7 +128,7 @@ fn main::main() -> None {
       arm#0 (arm 0) {
         narrow#59[switch#58.arm#0] __emitted~13: Str = __step~12
         bind#60 let name: Str = !read __emitted~13
-        bind#61 let age: Int? = call std.core.map::get(Map<K, V>(?hash, ?eq), K)<Str, Int>(read ages, read name, fn std.core.compare::hash(Str), fn std.core.compare::eq(Str, Str))
+        bind#61 let age: Int? = call std.core.map::get(Map<K, V>(?hash, ?eq), K)<Str, Int>(read ages, read name, fn std.core.compare::hash(Str), fn std.core.string::eq)
         branch#62 cond#0 check#63 (read age is arm 0) {
           narrow#64[check#63] age~14: Int = age
           call std.core.console::println(read __handle~2, concat("7. ", read name, " is ", call std.core.basic::to_str(Int)(read age~14)))
@@ -142,11 +142,11 @@ fn main::main() -> None {
 }
 
 fn main::cmp(lent a: Point, lent b: Point) -> Int {
-  bind#1 let c__c1: Int = call std.core.compare::cmp(Int, Int)(read a.x, read b.x)
+  bind#1 let c__c1: Int = call std.core.basic::cmp(Int, Int)(read a.x, read b.x)
   branch#2 cond#0 (read c__c1 != 0) {
     return !read c__c1
   }
-  bind#3 let c__c2: Int = call std.core.compare::cmp(Int, Int)(read a.y, read b.y)
+  bind#3 let c__c2: Int = call std.core.basic::cmp(Int, Int)(read a.y, read b.y)
   branch#4 cond#0 (read c__c2 != 0) {
     return !read c__c2
   }
@@ -161,17 +161,17 @@ fn main::hash(lent value: Point) -> Long {
 }
 
 fn main::eq(Point, Point)(lent a: Point, lent b: Point) -> Bool {
-  branch#1 cond#0 !(call std.core.compare::eq(Int, Int)(read a.x, read b.x)) {
+  branch#1 cond#0 !(call std.core.basic::eq(Int, Int)(read a.x, read b.x)) {
     return false
   }
-  branch#2 cond#0 !(call std.core.compare::eq(Int, Int)(read a.y, read b.y)) {
+  branch#2 cond#0 !(call std.core.basic::eq(Int, Int)(read a.y, read b.y)) {
     return false
   }
   return true
 }
 
 fn main::eq(Note, Note)(lent a: Note, lent b: Note) -> Bool {
-  branch#1 cond#0 !(call std.core.compare::eq(Str, Str)(read a.text, read b.text)) {
+  branch#1 cond#0 !(call std.core.string::eq(read a.text, read b.text)) {
     return false
   }
   return true

@@ -728,3 +728,44 @@ export fn binary_search<T>(list: Sorted<T>(?cmp) List<T>, elem: T) [] -> (Idx(li
     }
     return None
 }
+
+// [unique-shape] [col-hashed-ordered] [implicit-recursive] What `==` and `<`
+// mean on a list, declared beside the type (an operator on a type is declared
+// in the type's own file, user decision O1-D, 2026-10-27): element by
+// element, **through the elements' own identities** — a `List<Person>`
+// compares by `Person`'s declared `eq` and orders by its `cmp`. Ordinary
+// Salvo over the implicits of the element types (ROADMAP §0j step 8);
+// resolving one of these for `List<Person>` fills the element's in turn. (The
+// list's `hash`, not an operator, is in `std.core.compare`.)
+export fn eq<T>(a: List<T>, b: List<T>, ?eq: (x: T, y: T) -> Bool) [] -> Bool => a, b {
+    if size(a) != size(b) {
+        return false
+    }
+    for p in enumerate(a) {
+        let j = p.index
+        if j is Idx(b) {
+            if !eq(p.elem, get(b, j)) {
+                return false
+            }
+        }
+    }
+    return true
+}
+
+export fn cmp<T>(a: List<T>, b: List<T>, ?cmp: (x: T, y: T) -> Int) [] -> Int => a, b {
+    for p in enumerate(a) {
+        let j = p.index
+        if j is Idx(b) {
+            let c = cmp(p.elem, get(b, j))
+            if c != 0 {
+                return c
+            }
+        } else {
+            return 1
+        }
+    }
+    if size(a) < size(b) {
+        return -1
+    }
+    return 0
+}

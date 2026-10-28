@@ -3522,10 +3522,10 @@ export struct Person {
 // Only the *type* is imported; its canonical rides along [fn-attached].
 import people.Person
 
-// An ordinary overload of the same shape, in *this* module — the `Own` rung,
-// which today's ladder would let win silently. It cannot: an ambiguity around a
-// canonical is always an error [fn-attached], so every call below selects.
-fn cmp(a: Person, b: Person) [] -> Int => a, b {
+// A second ordering is named for what it does and passed explicitly: a second
+// `cmp(Person, Person)` here would be refused, since `cmp` on `Person` is
+// declared only in `Person`'s file [unique-shape].
+fn by_name(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
 
@@ -3543,7 +3543,7 @@ fn main() [use] {
     // Both spellings of the selector: at a call, and as a value filling an
     // implicit parameter [implicit-override].
     println("by age ${cmp@Person(ada, bob)}")
-    println("by name ${cmp@main(ada, bob)}")
+    println("by name ${by_name(ada, bob)}")
     let younger = min_of(ada, bob, cmp = cmp@Person)
     println("younger ${younger.name}")
 }
@@ -4473,7 +4473,8 @@ fn main() [use] -> None {
 "#;
 
 /// [interp-to-str] A `to_str` resolved in another module the file never names:
-/// the symbol was unresolved on this backend too.
+/// the symbol was unresolved on this backend too. [unique-shape] Now `Pair`'s
+/// own, attached and imported with it (the Rust backend's test says why).
 const INTERP_TO_STR_MODULES: &[(&str, &str)] = &[
     (
         "pair.sv",
@@ -4481,24 +4482,17 @@ const INTERP_TO_STR_MODULES: &[(&str, &str)] = &[
 export struct Pair {
     a: Int,
     b: Int
-}
-"#,
-    ),
-    (
-        "fmt.sv",
-        r#"
-import pair
 
-export fn to_str(p: Pair) -> Str => p {
-    return "(${p.a}, ${p.b})"
+    fn to_str(p: Pair) -> Str => p {
+        return "(${p.a}, ${p.b})"
+    }
 }
 "#,
     ),
     (
         "main.sv",
         r#"
-import pair
-import fmt
+import pair.Pair
 
 fn main() [use] -> None {
     use StdConsole()
@@ -6105,15 +6099,21 @@ fn safe_navigation_field_chain_is_native_kotlin() {
 }
 
 /// [implicit-resolve] [implicit-recursive] [implicit-forward] An implicit is
-/// chosen as a call is (user decision 2026-10-14): beside a module's catch-all
-/// `to_str<T>`, std's `to_str(List<T>)` and `to_str(Int)` are more specific
-/// and win, the catch-all fills only what nothing more specific takes (the
-/// element `Foo`), a written override names it for the elements, and an
-/// enclosing fn's implicit still shadows every candidate at each level.
+/// chosen as a call is (user decision 2026-10-14): std's `to_str(List<T>)`
+/// and `to_str(Int)` fill a list of `Int`, `Foo`'s own `to_str` (declared in
+/// `Foo`'s file) fills the element `Foo`, a written override names a
+/// catch-all for the elements, and an enclosing fn's implicit still shadows
+/// every candidate at each level. [unique-shape] The catch-all is `any_text`,
+/// not `to_str<T>`: a `to_str` on a type parameter is refused where it is
+/// declared (the Rust backend's tests keep the program as it was, with a
+/// catch-all `to_str<T>`, as a test of the refusal), so it is passed
+/// explicitly.
 const IMPLICIT_CALL_RULE_DEMO: &str = r##"
-fn to_str<T>(x: T) [] -> Str => x { return "?" }
+fn any_text<T>(x: T) [] -> Str => x { return "?" }
 
 struct Foo { n: Int }
+
+fn to_str(f: Foo) [] -> Str => f { return "?" }
 
 fn hex(n: Int) [] -> Str => n { return "#${n}" }
 
@@ -6127,7 +6127,7 @@ fn main() [use] {
     println("${List(1, 2)}")
     println(to_str(xs))
     println("${List(Foo { n: 1 })}")
-    println("${to_str(xs, to_str = to_str@main)}")
+    println("${to_str(xs, to_str = any_text)}")
     let xsss = List(List(List(1, 2), List(3)), List(List(4)))
     show(xsss, to_str = hex)
 }
@@ -6247,8 +6247,8 @@ fn kotlinc_compiles_and_runs_a_fn_value_by_name_ranked_as_a_call() -> KotlinCase
 /// `shout(s: Str)` a `(Ok Str) -> Str` — passed as written, with no adapter,
 /// since neither qualifier is rendered.
 const ERASED_VARIANCE_DEMO: &str = r#"
-fn to_str<T>(x: T) [] -> Str => x { return "?" }
-fn render_row(xs: List<Int>) [] -> Str => xs { return to_str(xs, to_str = to_str@main) }
+fn any_text<T>(x: T) [] -> Str => x { return "?" }
+fn render_row(xs: List<Int>) [] -> Str => xs { return to_str(xs, to_str = any_text) }
 fn apply(f: (xs: NonEmpty List<Int>) -> Str, xs: NonEmpty List<Int>) [] -> Str => f, xs { return f(xs) }
 fn shout(s: Str) [] -> Str => s { return "${s}!" }
 fn apply_ok(f: (s: Ok Str) -> Str, s: Ok Str) [] -> Str => f, s { return f(s) }
@@ -9926,7 +9926,7 @@ fn main() [use] -> None {
     // A keyed container over a tuple used to live here, exercising the
     // generated class's structural comparison. It cannot today: a keyed
     // constructor asks for its identity as a capability (user decision
-    // 2026-09-26) and `std.core.compare` declares `cmp`/`hash` for the intrinsic
+    // 2026-09-26) and std declared `cmp`/`hash` for the intrinsic
     // scalars only, so a tuple has no identity to pass — the same gap that
     // stops `(1, 2) == (1, 2)` and `(1, 2) < (1, 3)` from resolving, which
     // never worked either. ROADMAP's "Recursive implicit resolution" is the
@@ -12565,7 +12565,9 @@ fns Field<T> {
 
 fn add(a: Int, b: Int) -> Int { return a + b }
 fn zero() -> Int { return 0 }
-fn times(a: Int, b: Int) -> Int { return a * b }
+// [unique-shape] Not `times`: that is the `*` operator on `Int`, declared
+// only in `Int`'s own file; an override is named for what it does.
+fn multiply(a: Int, b: Int) -> Int { return a * b }
 fn one() -> Int { return 1 }
 
 fn total<T>(xs: List<T>, ?Field<T>) -> T => xs {
@@ -12591,7 +12593,7 @@ fn sum_pair<T>(a: T, b: T, ?add: (T, T) -> T) -> T {
 fn main() [use] {
     use StdConsole()
     println("total=${total(List(1, 2, 3))}")
-    println("product=${total(List(2, 3, 4), add = times, zero = one)}")
+    println("product=${total(List(2, 3, 4), add = multiply, zero = one)}")
     // [col-of-nonempty] Literals rather than constructor calls: the element
     // constructors claim `NonEmpty`, and a `List<NonEmpty List<Int>>` does not
     // fit a `List<List<Int>>` position (type arguments are invariant). A literal
@@ -12621,11 +12623,8 @@ fn implicit_parameters_lower_to_trailing_fn_parameters() {
     for expected in [
         "fun<T> total(xs: List<T>, add: (T, T) -> T, zero: () -> T): T {",
         "total(listOf<Int>(1, 2, 3), ::add, ::zero)",
-        // `times__2`, not `times`: std's `time` module declares a `times` of
-        // its own ([time-types], `times(Duration, Long)`), and overload
-        // mangling is program-wide — so a user fn sharing the name takes a
-        // suffix whether or not the module is imported [kt-fn-mangling].
-        "total(listOf<Int>(2, 3, 4), ::times, ::one)",
+        // An override written at the call site [implicit-override].
+        "total(listOf<Int>(2, 3, 4), ::multiply, ::one)",
     ] {
         assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
     }

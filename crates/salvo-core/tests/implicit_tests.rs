@@ -19,7 +19,12 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n";
+/// [unique-shape] `cmp` and `times` are operators on `Int`, so they are
+/// declared in `Int`'s own file, here, and reach the tests' programs as any
+/// std overload does.
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
+                           export fn cmp(a: Int, b: Int) -> Int { return 0 }\n\
+                           export fn times(a: Int, b: Int) -> Int { return 0 }\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -72,8 +77,6 @@ fns Field<T> {
 
 fn add(a: Int, b: Int) -> Int { return 0 }
 fn zero() -> Int { return 0 }
-fn cmp(a: Int, b: Int) -> Int { return 0 }
-fn times(a: Int, b: Int) -> Int { return 0 }
 "#;
 
 // ===== [implicit-resolve] the default is an ordinary overload =====
@@ -458,23 +461,24 @@ fn an_override_with_the_wrong_contract_is_explained() {
 }
 
 /// [implicit-resolve] [fn-overload-rank] An implicit is chosen as a call is
-/// (user decision 2026-10-14): of a generic `cmp<T>` and a concrete `cmp(Int,
-/// Int)`, both fitting `(Int, Int) -> Int`, the more specific wins. Under the
-/// old rule — the most specific *scope*, then "two hits are ambiguous" — this
-/// was an ambiguity.
+/// (user decision 2026-10-14): of a generic `order<T>` and a concrete
+/// `order(Int, Int)`, both fitting `(Int, Int) -> Int`, the more specific wins.
+/// Under the old rule — the most specific *scope*, then "two hits are
+/// ambiguous" — this was an ambiguity. (`order`, not `cmp`: a `cmp` on a type
+/// parameter or on `Int` outside `Int`'s file is refused [unique-shape].)
 #[test]
 fn a_more_specific_candidate_wins_at_an_implicit() {
     let errs = errors(
-        "fn cmp<T>(a: T, b: T) -> Int { return 0 }\n\
-         fn cmp(a: Int, b: Int) -> Int { return 0 }\n\
-         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> Int => !a, !b {\n\
-         return cmp(a, b)\n\
+        "fn order<T>(a: T, b: T) -> Int { return 0 }\n\
+         fn order(a: Int, b: Int) -> Int { return 0 }\n\
+         fn pick<T>(a: T, b: T, ?order: (T, T) -> Int) -> Int => !a, !b {\n\
+         return order(a, b)\n\
          }\n\
          fn probe() -> Int {\n\
          return pick(1, 2)\n\
          }\n",
     );
-    assert!(errs.is_empty(), "expected the concrete `cmp` to win, got: {errs:?}");
+    assert!(errs.is_empty(), "expected the concrete `order` to win, got: {errs:?}");
 }
 
 /// [implicit-resolve] [fn-overload-ambiguous] No single most specific
@@ -484,21 +488,21 @@ fn a_more_specific_candidate_wins_at_an_implicit() {
 #[test]
 fn an_ambiguous_implicit_says_so() {
     let errs = errors(
-        "fn cmp(a: Int | Bool, b: Int) -> Int { return 0 }\n\
-         fn cmp(a: Int, b: Int | Bool) -> Int { return 0 }\n\
-         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> Int => !a, !b {\n\
-         return cmp(a, b)\n\
+        "fn order(a: Int | Bool, b: Int) -> Int { return 0 }\n\
+         fn order(a: Int, b: Int | Bool) -> Int { return 0 }\n\
+         fn pick<T>(a: T, b: T, ?order: (T, T) -> Int) -> Int => !a, !b {\n\
+         return order(a, b)\n\
          }\n\
          fn probe() -> Int {\n\
          return pick(1, 2)\n\
          }\n",
     );
     assert!(
-        errs.iter().any(|e| e.contains("`cmp` is ambiguous for `pick` at `?cmp: (Int, Int) -> Int`")
-            && e.contains("`cmp(Int | Bool, Int)` from `main`")
-            && e.contains("`cmp(Int, Int | Bool)` from `main`")
+        errs.iter().any(|e| e.contains("`order` is ambiguous for `pick` at `?order: (Int, Int) -> Int`")
+            && e.contains("`order(Int | Bool, Int)` from `main`")
+            && e.contains("`order(Int, Int | Bool)` from `main`")
             && e.contains("none is more specific")
-            && e.contains("rename fn <new> = cmp(...)")),
+            && e.contains("rename fn <new> = order(...)")),
         "expected the ambiguity error, got: {errs:?}"
     );
 }

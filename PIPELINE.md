@@ -2589,6 +2589,19 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   rule; (b) rank members there too and refuse a member that wins, as a
   lambda written there is refused. Recommendation (a). ROADMAP 0af.
 
+- **P10. DECISION (open, B3.3b, 2026-10-28): three readings of
+  [unique-shape].** D-1 to D-7 decide the rule; three cases they do not name
+  were built on the reading that follows from them: (1) a **non-union alias
+  names its target** (`type Grid = List<Int>` puts `to_str(g: Grid)` on
+  `List`, since aliases are structural [type-alias] and D-2 says "base type";
+  a union alias is its own home, O4) — the alternative, every alias its own
+  home, would let an alias give a concrete type a second operator; (2) a
+  **handler's members are exempt** (they implement the effect's member, which
+  is the covered declaration); (3) a **qualifier's fns are covered**, like
+  effect members. Recommendation: as built. ROADMAP 0ah. Recorded, not a
+  decision (the doc's obvious candidate, as instructed): the anonymous
+  unions' std home is `std.core.basic`, with tuples and fn types.
+
 ## II.11. Rounds
 
 ### 2026-10-27, first
@@ -2951,6 +2964,63 @@ this log current so the work can resume after a context reset). Newest last.
   pair is `iter with next`, so `for x in c` lowering to `next(iter(c))`
   (O1) has both names in the group already.
 
+- **B3.3b: done** (committed "Declare each operator shape in its type's
+  file"). Built ([unique-shape]; COMPLETED.md "Each operator on a type is
+  declared in the type's file"): `salvo_core::unique_shape`, a per-declaration
+  check run by `resolve` once the scopes are built (an interface fact; no
+  program-wide search): the class is `SHAPES` (D-3's table), "on `T`" the
+  first explicit parameter's base type resolved in the declaring file's scope
+  (alias before struct, as `lower_base_ref`), the home a type's declaring
+  file, the structural types' std homes (tuples, fn types, anonymous unions
+  `std.core.basic`; arrays `std.core.array`; `eff[E]` is `Addr`,
+  `std.core.actor`), a bare type parameter none. Exempt: `fns` group
+  members, comptime templates (a kind-bound `comptime fn`), handler members;
+  covered: top-level, body, stamped fns, effect members, qualifier fns.
+  **The census first** (`SALVO_XP_SHAPE`, removed: every refusal logged over
+  the whole suite, `salvo analyze` of every example, `modules/aws`, both
+  benches and `demo/`): std 21 (`compare.sv`'s 20, and `basic.sv`'s
+  `to_str(Str)`, `Str` being declared in `string.sv`); Rust test sources 22
+  declarations (18 in the census run, refused 48 times across the tests that
+  share them; 4 more in the first toolchain run, since a skipped toolchain
+  test returns before it checks: both backends' canonical-implementation
+  program's second `cmp(Person, Person)` and to_str-from-another-module
+  program's `fmt.to_str(Pair)`) (implicit_tests'
+  prelude `cmp`/`times` on `Int`, shared by 18 tests, its `cmp<T>`/`cmp(Int,
+  Int)` pair and `cmp(Int, Int | Bool)` — its twin `cmp(Int | Bool, Int)` is
+  on an anonymous union, which a std-less fixture has no home for; both codegen suites' `times(Int,
+  Int)`; the four codegen and two CLI catch-all `to_str<T>(x: T)`; the CLI's
+  `to_str<T>(List<T>)`; compare_tests' second `cmp(Person, Person)` in
+  another module, twice, and `cmp(Int, Int) by auto`/`cmp(Str, Str) by
+  auto`); examples, `modules/aws`, bench and `demo/`: none. One false
+  positive found and fixed before adoption: a file's own union alias beside a
+  whole-module-imported struct of its name (CLI `comptime_token_clash`) —
+  the alias is what the name means there.
+  **Adoption (D-7):** std's 14 scalar `cmp`/`eq` and 4 tuple ones to
+  `basic.sv` (the tuples' home, where their `to_str` already was), `Str`'s
+  `cmp`/`eq` and its `to_str` to `string.sv` (**deviation**: D-7 says "14
+  scalar and `Str` into `basic.sv`", but `Str` is declared in
+  `std.core.string`, so D-1 puts them there), `List`'s 2 to `list.sv`
+  (appended at the ends of the files, so no trap line moved);
+  `std.core.compare` keeps the groups, the hashes and `mix_hash`. Tests
+  rewritten per what each meant (COMPLETED.md lists them). **Found and
+  fixed:** [obligation-return]'s attachment let either half of a signature
+  attach, so `eq(Int, Int) -> Bool` beside `Bool : Eq<self>` was attached to
+  `Bool` (printed `Set<Int>(hash, eq@Bool)`); now the member decides.
+  **Visible changes:** the scalars' and `Str`'s `cmp`/`eq` are now
+  [fn-attached] (in their type's file, fulfilling its obligation), so a
+  carried identity prints `cmp@Int` (`Sorted<Int>(cmp@Int)`, the IR's
+  `Set<Int>(hash, eq@Int)`); emitted code changed only in std's
+  `core/{basic,compare,list,string}` files (the fns' module) and the Kotlin
+  runtime `compare.kt`'s comment; user code, `expected.txt` unchanged on both
+  backends. Selection unchanged.
+  **Open:** P10 (three readings, ROADMAP 0ah); 0ag (a refused declaration
+  still competes, so its uses also report the ambiguity it causes).
+  **What B3.3c needs:** every operator now has one candidate per concrete
+  type, so lowering `a < b` to `cmp(a, b) < 0`, `==` to `eq`, the parts to
+  `to_str` and `for` to `next(iter(c))` cannot meet a competitor at a
+  concrete type; D2 is gone (§II.13). `plus`…`pow` are reserved shapes with
+  no operator yet; `**` is not lexed.
+
 ## II.13. The call census (B1, 2026-10-27)
 
 Kept here, not in `tmp/`, because B2 and B3 work from it. The probe programs
@@ -3116,6 +3186,10 @@ same signature and is ambiguous.
 such programs would newly be refused. **Under O1-D** these declarations are
 refused where they are written (a shape on a type declared elsewhere), so D2
 dissolves once D's placement check exists. **Decision:** none.
+
+Dissolved (commit "Declare each operator shape in its type's file", B3.3b):
+a module's `eq(Str, Str)` or `to_str(Int)` is refused at its declaration
+[unique-shape], naming `std.core.string`'s or `std.core.basic`'s file.
 
 #### D3. Effect members never fill interpolation, operator or implicit positions
 

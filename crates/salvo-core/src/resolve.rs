@@ -997,6 +997,28 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                     continue;
                 };
                 for member in &group.fns {
+                    // [obligation-return] Which half of the member's signature
+                    // the declaring type appears in: a member taking the
+                    // group's `self` parameter (`eq(a: T, b: T)`) is
+                    // fulfilled by a fn *taking* the type; only one that
+                    // takes none (`from_args(…) -> Ok T | …`) by a fn
+                    // returning it. Without the distinction `eq(Int, Int) ->
+                    // Bool` in a file declaring both `Int` and `Bool` was
+                    // attached to whichever was looked at last (found
+                    // 2026-10-27 [unique-shape], when std's scalar `eq`s moved
+                    // beside their types).
+                    let self_param = ob
+                        .group
+                        .args
+                        .iter()
+                        .position(|a| {
+                            matches!(a, salvo_syntax::ast::Type::Named { qualifiers, base }
+                                if qualifiers.is_empty() && base.args.is_empty() && base.name.name == "self")
+                        })
+                        .and_then(|i| group.generics.get(i))
+                        .map(|g| g.name.as_str());
+                    let by_params = self_param
+                        .is_none_or(|g| member.params.iter().any(|p| mentions_type(&p.ty, g)));
                     for (key, key_file, f) in &items.fns {
                         if *key_file != file_idx
                             || f.name.name != member.name.name
@@ -1004,12 +1026,10 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                         {
                             continue;
                         }
-                        // [obligation-return] A member that only *returns*
-                        // the type (`from_args(args: List<Str>) -> Ok T | …`)
-                        // is fulfilled by a fn returning it.
-                        if f.params.iter().any(|p| mentions_type(&p.ty, type_name))
-                            || f.return_type.as_ref().is_some_and(|r| mentions_type(r, type_name))
-                        {
+                        let in_params = f.params.iter().any(|p| mentions_type(&p.ty, type_name));
+                        let in_return =
+                            f.return_type.as_ref().is_some_and(|r| mentions_type(r, type_name));
+                        if (by_params && in_params) || (!by_params && in_return) {
                             attached.insert(*key, type_name.to_string());
                         }
                     }
@@ -1266,6 +1286,13 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                 _ => {}
             }
         }
+    }
+
+    // [unique-shape] Each operator (unique function shape) on a type is
+    // declared in the type's file: a per-declaration interface fact, checked
+    // once the scopes say which declaration each written type names.
+    if !scopes_only {
+        crate::unique_shape::check_program(files, &modules, &scopes, &decl_files, &mut errors);
     }
 
     if scopes_only {

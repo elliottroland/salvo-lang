@@ -223,7 +223,11 @@ Conventions:
     the *value* half of a map needs the rule.
   * **Otherwise a `to_str`**, resolved *at the interpolation site* like an
     implicit parameter (user decision 2026-09-11): a `to_str` in scope
-    whose parameter accepts the type and which returns `Str`. The winner is
+    whose parameter accepts the type and which returns `Str`. A type's
+    `to_str` is declared in the type's own file [unique-shape], so a
+    module's `to_str(List<T>)` beside std's, or a catch-all `to_str<T>(x: T)`,
+    is refused where it is written (the 2026-10-14 hazard of PIPELINE.md
+    §II.10 P5). The winner is
     recorded in `Checked::interp_to_str` and the emitters call it.
   * **std provides** `fn to_str<T>(list: List<T>, ?to_str: (x: T) -> Str)
     -> Str`, rendering `[1, 2, 3]`, in Salvo since 2026-10-04
@@ -1125,8 +1129,10 @@ Conventions:
     always been and only a container that says something *different* about its
     keys grows an argument to say it in.
   * **A tuple or a list is a key** since recursive implicit resolution
-    (2026-10-06) [implicit-recursive]: `std.core.compare` declares `hash`/`eq`/`cmp`
-    in Salvo for `List<T>` and for pairs and triples, each taking its parts'
+    (2026-10-06) [implicit-recursive]: std declares `hash`/`eq`/`cmp`
+    in Salvo for `List<T>` and for pairs and triples (`eq`/`cmp` beside the
+    types, in `std.core.list` and `std.core.basic` [unique-shape]; the hashes
+    in `std.core.compare`), each taking its parts'
     own by implicit, so `Mut Set<(Int, Str)>` carries `(hash, eq)` like any
     other key. (Until then this was a deliberate, diagnosed limitation of
     2026-09-26; the text stating it outlived the lift and was corrected
@@ -1292,8 +1298,9 @@ Conventions:
     `Double`/`Float` have `eq` and neither `cmp` nor `hash` (Rust's `f64` is not
     `Eq`, `Hash` or `Ord`), so `: Eq<self> by auto` on a struct holding one
     works and `: Hashed<self> by auto` reports the field; a nested struct must
-    have its own; a **`List` or a tuple** resolves `std.core.compare`'s Salvo
-    `eq`/`cmp`/`hash` for it, which take the element types' own (an element
+    have its own; a **`List` or a tuple** resolves std's Salvo
+    `eq`/`cmp`/`hash` for it (`std.core.list`'s and `std.core.basic`'s
+    `eq`/`cmp`, `std.core.compare`'s `hash`), which take the element types' own (an element
     struct's *declared* `cmp` is what orders a list of them, since 2026-10-06
     [implicit-recursive]). Ordering is lexicographic, with a shorter list
     that is a prefix comparing less.
@@ -2459,7 +2466,9 @@ Conventions:
   * **Everything else resolves `cmp`** [implicit-resolve]: `Str` now orders (by
     code point, on both backends, which is what `cmp(Str, Str)` promises and
     the JVM's `<` does not), a struct orders when it has a `cmp`, and a tuple,
-    a container or a fn value orders when someone declares one. With none in
+    a container or a fn value orders when its home declares one — std, for the
+    built-in and structural types, since a `cmp` on a type is declared only in
+    its declaring file [unique-shape]. With none in
     scope the operator is an error naming the remedy — a `cmp` inside the
     type's body, or `: Ordered<self> by auto`.
   * **At a generic `T`** the only candidate is an enclosing implicit parameter
@@ -2481,6 +2490,9 @@ Conventions:
   * The checker records which function each comparison resolved to, and both
     emitters read it: the operator and the call cannot disagree about what
     `==` means.
+  * **Each type has one**: an `eq` (or `cmp`) on a type is declared only in
+    the type's own file [unique-shape], so for a concrete type the call has
+    one candidate and no import changes what `==` means.
 * [op-bool] `&&`, `||` and unary `!` take `Bool` operands only — the
   value-position twin of [cond-bool], with the same no-truthiness
   reasoning and remedy text. Condition position reports once, through
@@ -3818,7 +3830,8 @@ Conventions:
     chain that needs itself is refused at once as a cycle (`` the `eq` for
     `?eq: …` needs itself, a cycle ``); both name `eq = …` as the remedy.
   * std's `List` and tuple `eq`/`cmp`/`hash`/`to_str` are Salvo on it
-    (`std.core.compare`, `std.core.basic`); the host's structural comparisons are
+    (`eq`/`cmp`/`to_str` beside the types in `std.core.list` and
+    `std.core.basic` [unique-shape], `hash` in `std.core.compare`); the host's structural comparisons are
     gone. A tuple takes one implicit per part, of one name at different types
     [implicit-same-name].
   * Not yet: the carried identity is still a flat name [cmp-carry] — a
@@ -5015,7 +5028,10 @@ Conventions:
     ([cmp-hash-values]). What *is* checked is the ordinary thing — a call
     resolves to exactly one visible overload, or says so.
   * **The canonical implementations for the intrinsic types are `intrinsic`
-    overloads** [intrinsic-fn], one per type: `cmp` for `Int`, `Long`, `Byte`,
+    overloads** [intrinsic-fn], one per type, `cmp` and `eq` declared beside
+    the type [unique-shape] (the scalars' in `std.core.basic`, `Str`'s in
+    `std.core.string`; `List`'s and the tuples', in Salvo, in `std.core.list`
+    and `std.core.basic`) and `hash` in `std.core.compare`: `cmp` for `Int`, `Long`, `Byte`,
     `Char`, `Bool` and `Str`; `eq` for those plus `Double` and `Float`; `hash`
     for the ones `cmp` covers. So `Double`/`Float` compare for equality and
     have no ordering and no hash — `NaN` ties with nothing, so no total order
@@ -5095,10 +5111,79 @@ Conventions:
     hand-written implementation colliding with a generated one.)
   * The selector is **erased**: the checker records which declaration a
     selected name means, and both backends emit an ordinary call of it.
-  * For the intrinsic types the canonicals stay plain std overloads: `Int` is
-    declared in `std.core.basic` and `cmp(Int, Int)` in `std.core.compare`, so neither
-    route is available — and `std.core.*` is implicitly visible everywhere, which
-    is the travelling that attachment exists to provide.
+  * For the intrinsic types the canonicals are std overloads declared beside
+    the types [unique-shape]: `Int : Ordered<self>` and `cmp(Int, Int)` are both
+    in `std.core.basic`, so the second route attaches it (`cmp@Int` names it,
+    and a carried identity prints so, `Sorted<Int>(cmp@Int)`); `std.core.*` is
+    implicitly visible everywhere anyway. (Until 2026-10-27 the canonicals were
+    in `std.core.compare`, so neither route was available.)
+* [unique-shape] **A function of a unique shape on a type is declared in the
+  type's own file** (user decision O1-D, 2026-10-27; OPERATOR_OVERLOAD.md
+  "D's details", D-1 to D-7). An operator is the call it names (O1-B: `a == b`
+  is `eq(a, b)`, `a < b` is `cmp(a, b) < 0`, `"${x}"` is `to_str(x)`, `for x
+  in c` is `next(iter(c))`), and this placement rule makes that call *the*
+  type's operator: for a concrete type there is one candidate, so no import or
+  local declaration changes what an operator means on it. A second one in
+  any other file is an error **at its declaration**, used or not, naming the
+  type's file and the remedy — move it there, or give it another name and pass
+  it explicitly (`cmp = by_name`); overriding stays explicit [implicit-override]
+  [cmp-carry]. A `resolve`-phase interface fact: a per-declaration check
+  (`salvo_core::unique_shape`, after the scopes are built), no whole-program
+  search.
+  * **The class (D-3, D-6)** — a name, an explicit arity (implicit parameters
+    not counted) and, for three, a return type: `eq` (2, `Bool`), `cmp` (2,
+    `Int`), `plus`, `minus`, `times`, `divide`, `pow` (2, any), `to_str` (1,
+    any), `iter` (1, any), `next` (1, `Emitted T | Finished` for any `T`).
+    Anything else is an ordinary fn, allowed anywhere: `fn iter(list:
+    List<Str>, step: Int)` and an effect member `fn next(step: Int) -> Int`
+    are not shapes. `hash`, `default` and `from_str` are not in the class yet
+    (adding one is a row of `SHAPES`). The arithmetic names are reserved ahead
+    of their operators: `+ - * /` are still numbers only [op-arith], and `**`
+    is not yet an operator (PIPELINE.md §II.12, piece 3c).
+  * **"On `T`" (D-2)** is the first explicit parameter's base type,
+    qualifiers stripped — `eq(a: NonEmpty List<T>, b: List<T>)` is on `List`,
+    `pow(p: Person, power: Int)` on `Person` — resolved in the declaring
+    file's scope as the checker lowers it (an alias before a struct of its
+    name). A literal type is on its base (`"A"` on `Str`).
+  * **The declaring file (D-1)**, as [fn-attached]'s "travels with the type":
+    a `.test.sv` annex is a different file, so it declares shapes only for the
+    types it declares itself. **Several overloads in the type's own file**
+    stay legal (uniqueness is across files; inside the file the author
+    controls the set, and ranking and [fn-overload-duplicate] apply).
+  * **Covered and exempt (D-4).** Covered: top-level fns, fns written in a
+    struct's body, stamped fns (a stamp outside the type's file — `fn eq(a:
+    Pt, b: Pt) -> Bool by auto` in another module — is refused like a written
+    fn), effect members (functions in scope, PIPELINE.md §II.10 P4), a
+    qualifier's fns. Exempt: a `fns` group's member signatures (they state a
+    shape and implement nothing), comptime templates (a `comptime fn` with a
+    kind bound; what it stamps is checked where it lands), and a handler's
+    members (each implements its effect's member, which is the declaration
+    checked). The last exemption and the qualifier fns' coverage are readings
+    to confirm (P10, ROADMAP 0ah).
+  * **Structural types have a std home (D-5)**: tuples, fn types and
+    anonymous unions (`T?` included) `std.core.basic`; arrays `T[]`
+    `std.core.array`; an `eff[E]` handle is the type `Addr`, whose home is
+    `std.core.actor`, where it is declared. These were the doc's obvious
+    candidates; the anonymous unions' home was not named and is
+    `std.core.basic` (2026-10-27, recorded in PIPELINE.md §II.12). A
+    program without std (a test fixture) has no structural homes and the
+    check skips them. **A bare type parameter has no home**, so a shape on `T`
+    is refused: the catch-all `fn to_str<T>(x: T)`.
+  * **Aliases** (O4, [type-alias]): a union alias is a declared union, its own
+    home (`type Shape = A | B` may declare `to_str(s: Shape)` in its file);
+    any other alias names the type it expands to, so `type Grid = List<Int>`
+    gives `to_str(g: Grid)` `List`'s home. **DECISION** (open, PIPELINE.md
+    §II.10 P10, ROADMAP 0ah): built as the reading of D-2's "base type",
+    recorded for confirmation with the two below.
+  * **std follows it (D-7)**: `cmp`/`eq` for the scalars and the tuples are in
+    `std.core.basic`, `Str`'s (and its `to_str`) in `std.core.string`,
+    `List`'s in `std.core.list`; `std.core.compare` keeps the groups, the
+    hashes and `mix_hash`. `unique_shape_tests.rs` checks std has no refusal.
+  * **A refused declaration is still a candidate** where it is visible, so
+    its uses may also report the ambiguity it causes (ROADMAP 0ag).
+  * Not changed by the rule: how an operator selects its function (that is
+    [op-order], [op-equality], [interp-to-str] and [iter-resolve] until
+    PIPELINE.md §II.9 B3 piece 3c lowers them to calls).
 * [obligation-by] **`by X` on an obligation clause stamps every member of the
   group from `X`'s `comptime fn`s** (user decisions 2026-09-28, the comptime
   rounds; replaces `auto`, which is deleted from the grammar):
@@ -5229,7 +5314,14 @@ Conventions:
   * A **hand-written** fulfilment of such a member (`fn default() ->
     Point` for `: Default<self>`) is attached to the type when its return
     type names it, as one whose parameter does is [fn-attached]: it is
-    imported with the type.
+    imported with the type. Which half counts is the *member's*: a member
+    taking the group's `self` parameter (`eq(a: T, b: T) -> Bool`) is
+    fulfilled by a fn whose parameters name the type, and only a member
+    taking none by one whose return does (2026-10-27: until then either half
+    attached, so `eq(Int, Int) -> Bool` in a file declaring both `Int :
+    Eq<self>` and `Bool : Eq<self>` was attached to whichever was looked at
+    last, found when std's scalar `eq`s moved beside their types
+    [unique-shape]).
 * [fn-by] **`by X` on a fn declaration stamps that one member**, keeping the
   full written signature [decl-explicit]:
 
@@ -5285,7 +5377,7 @@ Conventions:
     (or "the name … uses" for a non-call use, such as a fn passed by name) —
     and nothing is stamped for the member. Through a clause the group
     member's parameter is the one named, at the clause [obligation-by]. A
-    dot-form call (`a.cmp(b)`) and a scoped one (`cmp@std.core.compare`) are
+    dot-form call (`a.cmp(b)`) and a scoped one (`cmp@std.core.basic`) are
     not captured and not reported.
   * **An obligation clause is this, once per member** [obligation-by]; a
     written declaration at a generic type is refused for now

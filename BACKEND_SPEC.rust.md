@@ -1452,7 +1452,8 @@ the blanket rule:
     named fn, so nothing in this backend learns the member was not written by
     hand — and it takes part in overload mangling like any other body-bearing
     fn. The identities of a `List` or a tuple [col-hashed-ordered] are Salvo
-    (`std.core.compare`), not lowerings; `mix_hash` is Salvo too.
+    (`eq`/`cmp` in `std.core.list` and `std.core.basic` [unique-shape],
+    `hash` in `std.core.compare`), not lowerings; `mix_hash` is Salvo too.
   * [cmp-hash-values] `hash` is a block expression holding its own
     `std::hash::DefaultHasher`:
     `{ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(v), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }`

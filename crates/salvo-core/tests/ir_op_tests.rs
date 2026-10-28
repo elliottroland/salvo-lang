@@ -66,11 +66,12 @@ fn basic_types_compare_with_the_host_operator_and_the_rest_call() {
     ] {
         assert!(ir.contains(op), "missing `{op}` in:\n{ir}");
     }
-    // `Str` is not basic: its operators are calls, intrinsic or not.
+    // `Str` is not basic: its operators are calls, intrinsic or not, of the
+    // fns declared beside it [unique-shape].
     for call in [
-        "(call std.core.compare::cmp(Str, Str)(read s, \"c\") < 0)",
-        "call std.core.compare::eq(Str, Str)(read s, \"b\")",
-        "!(call std.core.compare::eq(Str, Str)(read s, \"a\"))",
+        "(call std.core.string::cmp(read s, \"c\") < 0)",
+        "call std.core.string::eq(read s, \"b\")",
+        "!(call std.core.string::eq(read s, \"a\"))",
     ] {
         assert!(ir.contains(call), "missing `{call}` in:\n{ir}");
     }
@@ -79,7 +80,7 @@ fn basic_types_compare_with_the_host_operator_and_the_rest_call() {
     assert!(ir.contains("(call local cmp(read a, read b) > 0)"), "{ir}");
     // No basic-type comparison goes through `cmp`/`eq`; the intrinsic is only
     // the value passed to a generic.
-    assert!(!ir.contains("call std.core.compare::cmp(Int, Int)("), "{ir}");
-    assert!(!ir.contains("call std.core.compare::eq(Int, Int)("), "{ir}");
-    assert!(ir.contains("fn std.core.compare::cmp(Int, Int)"), "{ir}");
+    assert!(!ir.contains("call std.core.basic::cmp(Int, Int)("), "{ir}");
+    assert!(!ir.contains("call std.core.basic::eq(Int, Int)("), "{ir}");
+    assert!(ir.contains("fn std.core.basic::cmp(Int, Int)"), "{ir}");
 }

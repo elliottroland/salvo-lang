@@ -2,63 +2,6 @@ package salvo.std.core.compare
 
 import salvo.*
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<T> eq__List_List(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {
-    if ((salvo.std.core.list.sizePlatform(a) != salvo.std.core.list.sizePlatform(b))) {
-        return false
-    }
-    val __pass_1: salvo.std.core.list.ListEnumerate<T> = salvo.std.core.list.enumerate(a)
-    while (true) {
-        val __step_2: Union2<salvo.std.core.list.Enumerated<T>, salvo.std.core.iterator.Finished> = salvo.std.core.list.next__ListEnumerate(__pass_1)
-        when {
-            (__step_2 is Union2.U1<*, *>) -> {
-                val __emitted_3: salvo.std.core.list.Enumerated<T> = ((__step_2 as Union2.U1<*, *>).value as salvo.std.core.list.Enumerated<T>)
-                val p: salvo.std.core.list.Enumerated<T> = __emitted_3
-                val j: Int = p.index
-                if (salvo.std.core.index.Idx_qualifies(j, b, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
-                    if (!(eq(p.elem, salvo.std.core.list.get(b, j)))) {
-                        return false
-                    }
-                }
-            }
-            else -> {
-                break
-            }
-        }
-    }
-    return true
-}
-
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<T> cmp__List_List(a: List<T>, b: List<T>, cmp: (T, T) -> Int): Int {
-    val __pass_1: salvo.std.core.list.ListEnumerate<T> = salvo.std.core.list.enumerate(a)
-    while (true) {
-        val __step_2: Union2<salvo.std.core.list.Enumerated<T>, salvo.std.core.iterator.Finished> = salvo.std.core.list.next__ListEnumerate(__pass_1)
-        when {
-            (__step_2 is Union2.U1<*, *>) -> {
-                val __emitted_3: salvo.std.core.list.Enumerated<T> = ((__step_2 as Union2.U1<*, *>).value as salvo.std.core.list.Enumerated<T>)
-                val p: salvo.std.core.list.Enumerated<T> = __emitted_3
-                val j: Int = p.index
-                if (salvo.std.core.index.Idx_qualifies(j, b, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
-                    val c: Int = cmp(p.elem, salvo.std.core.list.get(b, j))
-                    if ((c != 0)) {
-                        return c
-                    }
-                } else {
-                    return 1
-                }
-            }
-            else -> {
-                break
-            }
-        }
-    }
-    if ((salvo.std.core.list.sizePlatform(a) < salvo.std.core.list.sizePlatform(b))) {
-        return (-1)
-    }
-    return 0
-}
-
 fun<T> hash__List(value: List<T>, hash: (T) -> Long): Long {
     var h: Long = 7L
     for (x in salvo.platform.std.core.list.each(value)) {
@@ -67,36 +10,8 @@ fun<T> hash__List(value: List<T>, hash: (T) -> Long): Long {
     return h
 }
 
-fun<A, B> eq__TupleAB_TupleAB(a: kotlin.Pair<A, B>, b: kotlin.Pair<A, B>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean): Boolean {
-    return (eq(a.first, b.first) && eq__1(a.second, b.second))
-}
-
-fun<A, B> cmp__TupleAB_TupleAB(a: kotlin.Pair<A, B>, b: kotlin.Pair<A, B>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int): Int {
-    val c: Int = cmp(a.first, b.first)
-    if ((c != 0)) {
-        return c
-    }
-    return cmp__1(a.second, b.second)
-}
-
 fun<A, B> hash__TupleAB(value: kotlin.Pair<A, B>, hash: (A) -> Long, hash__1: (B) -> Long): Long {
     return salvo.std.core.compare.mixHash(salvo.std.core.compare.mixHash(7L, hash(value.first)), hash__1(value.second))
-}
-
-fun<A, B, C> eq__TupleABC_TupleABC(a: kotlin.Triple<A, B, C>, b: kotlin.Triple<A, B, C>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean, eq__2: (C, C) -> Boolean): Boolean {
-    return ((eq(a.first, b.first) && eq__1(a.second, b.second)) && eq__2(a.third, b.third))
-}
-
-fun<A, B, C> cmp__TupleABC_TupleABC(a: kotlin.Triple<A, B, C>, b: kotlin.Triple<A, B, C>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int, cmp__2: (C, C) -> Int): Int {
-    val c: Int = cmp(a.first, b.first)
-    if ((c != 0)) {
-        return c
-    }
-    val d: Int = cmp__1(a.second, b.second)
-    if ((d != 0)) {
-        return d
-    }
-    return cmp__2(a.third, b.third)
 }
 
 fun<A, B, C> hash__TupleABC(value: kotlin.Triple<A, B, C>, hash: (A) -> Long, hash__1: (B) -> Long, hash__2: (C) -> Long): Long {

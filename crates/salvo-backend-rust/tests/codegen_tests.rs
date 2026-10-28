@@ -3396,7 +3396,7 @@ fn main() [use] -> None {
     // A keyed container over a tuple used to live here, exercising the
     // generated class's structural comparison. It cannot today: a keyed
     // constructor asks for its identity as a capability (user decision
-    // 2026-09-26) and `std.core.compare` declares `cmp`/`hash` for the intrinsic
+    // 2026-09-26) and std declared `cmp`/`hash` for the intrinsic
     // scalars only, so a tuple has no identity to pass — the same gap that
     // stops `(1, 2) == (1, 2)` and `(1, 2) < (1, 3)` from resolving, which
     // never worked either. ROADMAP's "Recursive implicit resolution" is the
@@ -5372,7 +5372,9 @@ fns Field<T> {
 
 fn add(a: Int, b: Int) -> Int { return a + b }
 fn zero() -> Int { return 0 }
-fn times(a: Int, b: Int) -> Int { return a * b }
+// [unique-shape] Not `times`: that is the `*` operator on `Int`, declared
+// only in `Int`'s own file; an override is named for what it does.
+fn multiply(a: Int, b: Int) -> Int { return a * b }
 fn one() -> Int { return 1 }
 
 fn total<T>(xs: List<T>, ?Field<T>) -> T => xs {
@@ -5398,7 +5400,7 @@ fn sum_pair<T>(a: T, b: T, ?add: (T, T) -> T) -> T {
 fn main() [use] {
     use StdConsole()
     println("total=${total(List(1, 2, 3))}")
-    println("product=${total(List(2, 3, 4), add = times, zero = one)}")
+    println("product=${total(List(2, 3, 4), add = multiply, zero = one)}")
     // [col-of-nonempty] Literals rather than constructor calls: the element
     // constructors claim `NonEmpty`, and a `List<NonEmpty List<Int>>` does not
     // fit a `List<List<Int>>` position (type arguments are invariant). A literal
@@ -5489,7 +5491,7 @@ fn implicit_parameters_lower_to_trailing_fn_arguments() {
         "&mut |__a0: &i32, __a1: &i32| crate::add(*__a0, *__a1)",
         // The same bridging for an override written at the call site
         // [implicit-override].
-        "&mut |__a0: &i32, __a1: &i32| crate::times(*__a0, *__a1)",
+        "&mut |__a0: &i32, __a1: &i32| crate::multiply(*__a0, *__a1)",
         // Forwarding reborrows the enclosing fn's own parameter.
         "&mut *add",
     ] {
@@ -5658,10 +5660,10 @@ pub const CANONICAL_MAIN: &str = r#"
 // Only the *type* is imported; its canonical rides along [fn-attached].
 import people.Person
 
-// An ordinary overload of the same shape, in *this* module — the `Own` rung,
-// which today's ladder would let win silently. It cannot: an ambiguity around a
-// canonical is always an error [fn-attached], so every call below selects.
-fn cmp(a: Person, b: Person) [] -> Int => a, b {
+// A second ordering is named for what it does and passed explicitly: a second
+// `cmp(Person, Person)` here would be refused, since `cmp` on `Person` is
+// declared only in `Person`'s file [unique-shape].
+fn by_name(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
 
@@ -5680,7 +5682,7 @@ fn main() [use] {
     // Both spellings of the selector: at a call, and as a value filling an
     // implicit parameter [implicit-override].
     println("by age ${cmp@Person(ada, bob)}")
-    println("by name ${cmp@main(ada, bob)}")
+    println("by name ${by_name(ada, bob)}")
     let younger = min_of(ada, bob, cmp = cmp@Person)
     println("younger ${younger.name}")
 }
@@ -16453,7 +16455,7 @@ fn rustc_compiles_and_runs_a_generic_keyed_container() {
 #[test]
 fn a_tuple_key_resolves_the_structural_identity() {
     // [col-hashed-ordered] **Interim** (2026-09-28): a tuple or a list key
-    // resolves the structural host identity `std.core.compare` declares for it,
+    // resolves the structural identity std declares for it,
     // so this container builds — the same on both backends for scalar
     // elements. What is still not consulted is an element struct's *own*
     // `cmp` inside a tuple; std owning these waits on ROADMAP §6.
@@ -16713,10 +16715,15 @@ fn rustc_compiles_and_runs_a_user_struct_named_like_stds() {
 }
 
 /// [interp-to-str] [iter-resolve] A `to_str` the checker resolved in **another
-/// module** that the file never *names*: name-based reachability left the
+/// module**, which the file never *names*: name-based reachability left the
 /// module un-emitted and name-based imports left it un-imported, so the call
 /// had nothing to bind to. Resolution edges now reach it
-/// (`reach::resolved_dep_files`).
+/// (`reach::resolved_dep_files`). [unique-shape] The `to_str` used to be in a
+/// third module (`fmt`) the file imported whole and never named; it now has to
+/// be in `Pair`'s own file, so the case is `Pair`'s attached `to_str`,
+/// imported with `Pair` [fn-attached] and never named: the import half of the
+/// bug (the reachability half cannot arise for an operator, whose module is
+/// the type's).
 const INTERP_TO_STR_MODULES: &[(&str, &str)] = &[
     (
         "pair.sv",
@@ -16724,24 +16731,17 @@ const INTERP_TO_STR_MODULES: &[(&str, &str)] = &[
 export struct Pair {
     a: Int,
     b: Int
-}
-"#,
-    ),
-    (
-        "fmt.sv",
-        r#"
-import pair
 
-export fn to_str(p: Pair) -> Str => p {
-    return "(${p.a}, ${p.b})"
+    fn to_str(p: Pair) -> Str => p {
+        return "(${p.a}, ${p.b})"
+    }
 }
 "#,
     ),
     (
         "main.sv",
         r#"
-import pair
-import fmt
+import pair.Pair
 
 fn main() [use] -> None {
     use StdConsole()
@@ -16760,7 +16760,7 @@ fn rustc_compiles_and_runs_a_to_str_from_another_module() {
     }
     let files = generate(INTERP_TO_STR_MODULES);
     assert!(
-        files.iter().any(|f| f.rel_path.ends_with("fmt.rs")),
+        files.iter().any(|f| f.rel_path.ends_with("pair.rs")),
         "the module the interpolation resolved into must be emitted"
     );
     run_rust_files(&files, "interp_to_str_module", "(1, 2)\n");
@@ -17668,15 +17668,20 @@ fn rustc_compiles_and_runs_a_union_interpolates_by_the_text_of_its_arm() {
 }
 
 /// [implicit-resolve] [implicit-recursive] [implicit-forward] An implicit is
-/// chosen as a call is (user decision 2026-10-14): beside a module's catch-all
-/// `to_str<T>`, std's `to_str(List<T>)` and `to_str(Int)` are more specific
-/// and win, the catch-all fills only what nothing more specific takes (the
-/// element `Foo`), a written override names it for the elements, and an
-/// enclosing fn's implicit still shadows every candidate at each level.
+/// chosen as a call is (user decision 2026-10-14): std's `to_str(List<T>)`
+/// and `to_str(Int)` fill a list of `Int`, `Foo`'s own `to_str` (declared in
+/// `Foo`'s file) fills the element `Foo`, a written override names a
+/// catch-all for the elements, and an enclosing fn's implicit still shadows
+/// every candidate at each level. [unique-shape] The catch-all is `any_text`,
+/// not `to_str<T>`: a `to_str` on a type parameter is refused where it is
+/// declared (the program as it was, with a catch-all `to_str<T>`, is
+/// `IMPLICIT_CATCH_ALL_DEMO`), so it is passed explicitly.
 const IMPLICIT_CALL_RULE_DEMO: &str = r##"
-fn to_str<T>(x: T) [] -> Str => x { return "?" }
+fn any_text<T>(x: T) [] -> Str => x { return "?" }
 
 struct Foo { n: Int }
+
+fn to_str(f: Foo) [] -> Str => f { return "?" }
 
 fn hex(n: Int) [] -> Str => n { return "#${n}" }
 
@@ -17690,7 +17695,7 @@ fn main() [use] {
     println("${List(1, 2)}")
     println(to_str(xs))
     println("${List(Foo { n: 1 })}")
-    println("${to_str(xs, to_str = to_str@main)}")
+    println("${to_str(xs, to_str = any_text)}")
     let xsss = List(List(List(1, 2), List(3)), List(List(4)))
     show(xsss, to_str = hex)
 }
@@ -17702,6 +17707,33 @@ const IMPLICIT_CALL_RULE_OUTPUT: &str = "[1, 2]\n[1, 2]\n[?]\n[?, ?]\n[[[#1, #2]
 fn rustc_compiles_and_runs_implicits_chosen_as_calls_are() {
     let files = generate(&[("main.sv", IMPLICIT_CALL_RULE_DEMO)]);
     run_rust_files(&files, "implicit-call-rule", IMPLICIT_CALL_RULE_OUTPUT);
+}
+
+/// [unique-shape] The program above as it was before 2026-10-27, with a
+/// module's catch-all `to_str<T>` beside std's: refused at the catch-all's
+/// declaration, used or not — a `to_str` on a type parameter would be
+/// interpolation's function for every type at once, and a type parameter has
+/// no file to declare it in. The written override (`to_str = to_str@main`)
+/// goes with it; the catch-all is given another name and passed explicitly.
+const IMPLICIT_CATCH_ALL_DEMO: &str = r##"
+fn to_str<T>(x: T) [] -> Str => x { return "?" }
+
+fn main() [use] {
+    use StdConsole()
+    let xs = List(1, 2)
+    println("${to_str(xs, to_str = to_str@main)}")
+}
+"##;
+
+#[test]
+fn a_catch_all_to_str_is_refused_at_its_declaration() {
+    let errors = expect_errors(IMPLICIT_CATCH_ALL_DEMO);
+    assert!(
+        errors.iter().any(|e| e.contains("`to_str(T)` has the shape of `to_str` on the type parameter `T`")
+            && e.contains("give this one another name and pass it explicitly")
+            && e.contains("[unique-shape]")),
+        "{errors:?}"
+    );
 }
 
 /// [effect-member-overload] [effect-available] [implicit-resolve] [implicit-infer]
@@ -17802,8 +17834,8 @@ fn rustc_compiles_and_runs_a_fn_value_by_name_ranked_as_a_call() {
 /// `shout(s: Str)` a `(Ok Str) -> Str` — passed as written, with no adapter,
 /// since neither qualifier is rendered.
 const ERASED_VARIANCE_DEMO: &str = r#"
-fn to_str<T>(x: T) [] -> Str => x { return "?" }
-fn render_row(xs: List<Int>) [] -> Str => xs { return to_str(xs, to_str = to_str@main) }
+fn any_text<T>(x: T) [] -> Str => x { return "?" }
+fn render_row(xs: List<Int>) [] -> Str => xs { return to_str(xs, to_str = any_text) }
 fn apply(f: (xs: NonEmpty List<Int>) -> Str, xs: NonEmpty List<Int>) [] -> Str => f, xs { return f(xs) }
 fn shout(s: Str) [] -> Str => s { return "${s}!" }
 fn apply_ok(f: (s: Ok Str) -> Str, s: Ok Str) [] -> Str => f, s { return f(s) }

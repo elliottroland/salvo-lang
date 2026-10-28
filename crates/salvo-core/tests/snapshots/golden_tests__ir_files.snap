@@ -592,7 +592,7 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
     arm#0 (arm 0) {
       narrow#155[switch#154.arm#0] not_a_dir~54: List<Str> = not_a_dir
       obligation discharge [not_a_dir.arms{1}]
-      call std.core.console::println(read console, concat("unexpected: ", call std.core.list::to_str(read not_a_dir~54, fn std.core.basic::to_str(Str))))
+      call std.core.console::println(read console, concat("unexpected: ", call std.core.list::to_str(read not_a_dir~54, fn std.core.string::to_str)))
     }
     arm#1 (arm 1) {
       narrow#156[switch#154.arm#1] not_a_dir~55: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = not_a_dir

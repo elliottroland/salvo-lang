@@ -360,7 +360,8 @@ Conventions:
   comparator, `salvo.__salvoCompare` (runtime file `compare.kt`, emitted only
   when something needs it): `cmp(Str, Str)` reaches it, since `String.compareTo`
   is the wrong order (UTF-16 code units; Salvo's is code points). A `List`'s and
-  a tuple's `cmp` are Salvo (`std.core.compare`, 2026-10-06), and the generated
+  a tuple's `cmp` are Salvo (2026-10-06; beside their types, `std.core.list` and
+  `std.core.basic`, since 2026-10-27 [unique-shape]), and the generated
   `TupleN` classes carry nothing for ordering.
 * [struct-spread] `P {...p, f: v}` emits as `p.copy(f = v)`. The shallow
   copy aliases `Mut` fields where Rust deep-clones, which is

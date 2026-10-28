@@ -649,7 +649,10 @@ fn run() [] -> None {
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("Sorted<Int>(by_size)") && e.contains("Sorted<Int>(cmp)")),
+            // [fn-attached] std's `cmp(Int, Int)` is declared beside `Int` and
+            // fulfils its `Ordered<self>`, so it is shown as declared on it
+            // (since [unique-shape] put it in `Int`'s file, 2026-10-27).
+            .any(|e| e.contains("Sorted<Int>(by_size)") && e.contains("Sorted<Int>(cmp@Int)")),
         "expected both orderings named: {errs:?}"
     );
 }

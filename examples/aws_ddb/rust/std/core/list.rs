@@ -567,3 +567,52 @@ pub fn binary_search<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, 
     };
     return None;
 }
+
+pub fn eq<T: Clone>(a: &Vec<T>, b: &Vec<T>, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+    if (crate::std_core_list::size_platform::<T>(a) != crate::std_core_list::size_platform::<T>(b)) {
+        return false;
+    };
+    let mut __pass_1: crate::std_core_list::ListEnumerate<'_, T> = crate::std_core_list::enumerate::<T>(a);
+    loop {
+        let mut __step_2: crate::unions::Union2<crate::std_core_list::Enumerated<'_, T>, crate::std_core_iterator::Finished> = crate::std_core_list::next__ListEnumerate(&mut __pass_1);
+        if matches!(__step_2, crate::unions::Union2::U1(_)) {
+            let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+            let mut p: crate::std_core_list::Enumerated<'_, T> = __emitted_3;
+            let mut j: i32 = p.index;
+            if crate::std_core_index::Idx__Int_qualifies(j, b, &mut |__a0| crate::std_core_list::size_platform(__a0)) {
+                if !(eq(p.elem, crate::std_core_list::get::<T>(b, j))) {
+                    return false;
+                };
+            };
+        } else {
+            break;
+        };
+    }
+    return true;
+}
+
+pub fn cmp<T: Clone>(a: &Vec<T>, b: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> i32 {
+    let mut __pass_1: crate::std_core_list::ListEnumerate<'_, T> = crate::std_core_list::enumerate::<T>(a);
+    loop {
+        let mut __step_2: crate::unions::Union2<crate::std_core_list::Enumerated<'_, T>, crate::std_core_iterator::Finished> = crate::std_core_list::next__ListEnumerate(&mut __pass_1);
+        if matches!(__step_2, crate::unions::Union2::U1(_)) {
+            let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+            let mut p: crate::std_core_list::Enumerated<'_, T> = __emitted_3;
+            let mut j: i32 = p.index;
+            if crate::std_core_index::Idx__Int_qualifies(j, b, &mut |__a0| crate::std_core_list::size_platform(__a0)) {
+                let mut c: i32 = cmp(p.elem, crate::std_core_list::get::<T>(b, j));
+                if (c != 0i32) {
+                    return c;
+                };
+            } else {
+                return 1i32;
+            };
+        } else {
+            break;
+        };
+    }
+    if (crate::std_core_list::size_platform::<T>(a) < crate::std_core_list::size_platform::<T>(b)) {
+        return i32::wrapping_neg(1i32);
+    };
+    return 0i32;
+}

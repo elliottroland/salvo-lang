@@ -596,11 +596,15 @@ fn cmp(a: Point, b: Point) [] -> Int => a, b {
     assert!(private_type.is_empty(), "unexpected errors: {private_type:?}");
 }
 
-/// [fn-overload-ambiguous] An attached fn is an ordinary overload, so two that
-/// fit are an ordinary ambiguity: refused, naming the places. Until 2026-09-26
-/// this needed a carve-out, because scope otherwise decided in silence.
+/// [unique-shape] A second `cmp` for `Person` in another module is refused
+/// where it is declared (user decision O1-D, 2026-10-27): `cmp` is what `<`
+/// means on `Person`, and a function of that shape is declared only in
+/// `Person`'s own file. Until 2026-10-27 it was an ordinary overload beside the
+/// attached one, and every call and implicit at `Person` was an ambiguity
+/// naming both (before 2026-09-26 the scope ladder took this module's in
+/// silence).
 #[test]
-fn ambiguity_around_a_canonical_is_an_error_on_every_rung() {
+fn a_second_canonical_in_another_module_is_refused() {
     let files = &[
         (
             "people.sv",
@@ -621,53 +625,28 @@ export struct Person {
             r#"
 import people.Person
 
-// This module's own `cmp` for the same shape: the old scope ladder took it
-// silently, because `Own` outranked `Import`.
+// This module's own `cmp` for the same shape.
 fn cmp(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
-}
-
-fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T
-=> !a, !b {
-    if cmp(a, b) <= 0 {
-        return a
-    }
-    return b
-}
-
-fn go(a: Person, b: Person) [] -> Person => !a, !b {
-    let direct = cmp(a, b)
-    return min_of(a, b)
 }
 "#,
         ),
     ];
     let errs = errors_in(files);
-    // The *call* is refused and names the places [fn-overload-ambiguous]: the
-    // rule is general now, so an attached fn needs no carve-out of its own.
     assert!(
-        errs.iter()
-            .any(|e| e.contains("ambiguous call to `cmp(Person, Person)`")
-                && e.contains("cmp@people")
-                && e.contains("cmp@main")),
-        "expected the call ambiguity to name both places, got: {errs:?}"
-    );
-    // [implicit-resolve] And so is the *implicit* at `min_of(a, b)`, which the
-    // scope ladder used to give to this module's `cmp` in silence (user
-    // decision 2026-10-14: an implicit is chosen as a call is).
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("`cmp` is ambiguous for `min_of` at `?cmp: (Person, Person) -> Int`")
-                && e.contains("`cmp = cmp@main`")
-                && e.contains("`cmp = cmp@people`")),
-        "expected the implicit ambiguity to name both places, got: {errs:?}"
+        errs.iter().any(|e| e.contains("`cmp(Person, Person)` has the shape of `cmp` on `Person`")
+            && e.contains("`people.sv` (module `people`)")
+            && e.contains("give it another name and pass it explicitly")
+            && e.contains("[unique-shape]")),
+        "expected the refusal naming `Person`'s file, got: {errs:?}"
     );
 }
 
-/// The remedy the diagnostics name, which is the point of the selector being
-/// one token: both spellings resolve.
+/// [unique-shape] [implicit-override] The remedy the refusal names: a second
+/// ordering is named for what it does and passed explicitly, and `cmp@Person`
+/// still names the one declared on the type [fn-attached].
 #[test]
-fn the_selector_resolves_an_ambiguity_around_a_canonical() {
+fn a_second_ordering_is_named_and_passed_explicitly() {
     let errs = errors_in(&[
         (
             "people.sv",
@@ -688,7 +667,7 @@ export struct Person {
             r#"
 import people.Person
 
-fn cmp(a: Person, b: Person) [] -> Int => a, b {
+fn by_name(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
 
@@ -702,8 +681,9 @@ fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T
 
 fn go(a: Person, b: Person) [] -> Person => !a, !b {
     let by_age = cmp@Person(a, b)
-    let by_name = cmp@main(a, b)
-    return min_of(a, b, cmp = cmp@Person)
+    let named = by_name(a, b)
+    let by_default = cmp(a, b)
+    return min_of(a, b, cmp = by_name)
 }
 "#,
         ),
@@ -1122,8 +1102,10 @@ struct A : Hashed<self> by auto {
 /// remedy rather than leaving a body unwritten.
 #[test]
 fn an_auto_fn_is_checked_at_its_declaration() {
-    // Not at a struct or union: there are no fields or arms to walk.
-    let errs = errors("fn cmp(a: Int, b: Int) [] -> Int => a, b by auto\n");
+    // Not at a struct or union: there are no fields or arms to walk. (`hash`,
+    // not `cmp`: a `cmp` on `Int` outside `Int`'s file is refused for its
+    // placement first [unique-shape].)
+    let errs = errors("fn hash(value: Int) [] -> Long => value by auto\n");
     assert!(
         errs.iter().any(|e| e.contains("not a struct or a declared union type")),
         "expected the target requirement: {errs:?}"
@@ -1187,7 +1169,7 @@ struct Point {
     );
 
     // The same, at a type with no fields to read: an intrinsic is not a target.
-    let errs = errors("fn cmp(a: Str, b: Str) [] -> Int => a, b by auto\n");
+    let errs = errors("fn hash(value: Str) [] -> Long => value by auto\n");
     assert!(
         errs.iter().any(|e| e.contains("not a struct or a declared union type")),
         "expected the target requirement: {errs:?}"

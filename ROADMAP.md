@@ -851,6 +851,44 @@ interpolation parts and operators (pieces 2–3); and at implicit positions
 two available effects' same-named members are already ranked as one set,
 while a bare *call* still refuses them (D15, piece 5).
 
+### 0ag — Open defect: a refused unique shape is still a candidate (found 2026-10-28, B3.3b)
+
+A declaration refused by [unique-shape] stays in its scopes, so where it is
+visible it still competes, and its uses report the ambiguity it causes as well
+as the refusal: a module's `to_str<T>(list: List<T>, …)` beside std's gives
+the refusal at the declaration and two `[fn-overload-ambiguous]` errors, at
+`"${List(1, 2)}"` and at `render(List(1, 2))`
+(`analyze_tests::a_same_signature_overload_beside_std_is_refused_at_its_declaration`).
+One mistake, two or three diagnostics. The fix is to leave a refused
+declaration out of the candidate sets (resolution knows it at scope-building
+time), which is a selection change and so was kept out of B3.3b; a natural
+part of B3 piece 3c.
+
+### 0ah — DECISION: three readings of [unique-shape] built for confirmation (B3.3b, 2026-10-28)
+
+OPERATOR_OVERLOAD.md D-1 to D-7 decide the rule; three cases it does not name
+were built on the reading that follows from it, and are yours to confirm
+(PIPELINE.md §II.10 P10):
+
+1. **A non-union alias names its target.** `type Grid = List<Int>` makes
+   `to_str(g: Grid)` a shape on `List` (refused outside `list.sv`), since an
+   alias expands structurally [type-alias] and D-2 says "base type"; a union
+   alias is a declared union and its own home (O4). Alternative: every alias
+   is its own home (its declaring file), which lets a module give `List<Int>`
+   a second `to_str` through an alias, i.e. a competitor for a concrete type,
+   which D exists to prevent. Recommendation: as built.
+2. **A handler's members are exempt**: a handler implements its effect's
+   members, and the effect member (covered, D-4) is the declaration in scope.
+   Alternative: check them too (a handler in another file than the type would
+   then be refused for implementing a covered member). Recommendation: as
+   built.
+3. **A qualifier's fns are covered**, like effect members (functions reached
+   by calls, B3 piece 5). Alternative: exempt them. No program has one of a
+   shape today. Recommendation: as built.
+
+Also recorded, not a decision: the anonymous unions' std home, which D-5 does
+not name, is `std.core.basic` (with tuples and fn types).
+
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
 **What it is.** When a message makes an actor runnable, the scheduler unparks
@@ -1066,7 +1104,7 @@ in build order:
   the relaxation above and recursive implicit resolution (section 6); it is
   §0j step 8. Until
   then the **interim** structural `cmp`/`eq`/`hash` intrinsics over `List` and
-  2-/3-tuples in `std.core.compare` stand in — they relaxed the recorded "tuple key
+  2-/3-tuples in std stand in — they relaxed the recorded "tuple key
   refused by name" limitation on both backends, and an element struct's *own*
   `cmp` is still not consulted inside a list (the Rust backend keeps
   `Hash`/`Ord` derives on structs that have the functions for exactly this).
@@ -1079,7 +1117,8 @@ in build order:
   Researched 2026-10-20 (user: research only, not built — COMPLETED.md's
   2026-10-20 comptime entry, design record): today's equivalent is one line
   (`fn my_hash(p: P) -> Long by hash@auto`, then `hash = my_hash`), and
-  tuples already have identities in `std.core.compare` since 2026-10-06, so the
+  tuples already have identities in std (`std.core.basic`, `std.core.compare`)
+  since 2026-10-06, so the
   feature is a convenience. The decisions it would need:
   1. **The identity it carries into a type.** Identities are names
      (`FnId { name, at }`) compared and printed by name, and a binder later
@@ -1563,7 +1602,7 @@ log for the round itself).
 [implicit-resolve] **skips a candidate that itself needs implicits**, so
 `fn eq<T>(a: List<T>, b: List<T>, ?Eq<T>)` can never be what a `Set<List<Person>>`
 resolves, and the container identities have to be structural host intrinsics
-(the interim ones `std.core.compare` carries since 2026-09-28, see section 2c). The
+(the interim ones std carried since 2026-09-28, see section 2c). The
 lift has two halves: resolution — `resolve_implicit_fn_at`'s one-line skip
 becomes a recursive resolution — and emission — a filled implicit that itself
 needs implicits is handed its own, so `ImplicitArg::Resolved` needs nested

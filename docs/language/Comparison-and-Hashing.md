@@ -40,6 +40,11 @@ let yes = eq(1.5, 1.5)          // true
 there is no total order to promise — the same reason a sorted collection of
 them is refused.
 
+The intrinsic types' `cmp` and `eq` are declared beside the types: the
+scalars' in `std.core.basic`, `Str`'s in `std.core.string`, and `List`'s and
+the tuples' (below) with theirs. The hashes are in `std.core.compare`, with the
+groups.
+
 A type of your own joins in by declaring the function. A function **declared on
 a type** travels with it, and there are two ways to declare one on a struct —
 inside its body, or as your file's answer to an obligation it states:
@@ -85,13 +90,90 @@ and as a value:
 
 ```
 let by_age = cmp@Person(ada, bob)      // the one declared on the type
-let by_name = cmp@main(ada, bob)       // this module's own
 let younger = min_of(ada, bob, cmp = cmp@Person)
 ```
 
-You need the selector exactly when two `cmp`s fit: ambiguity is always refused
-rather than resolved by scope, at a call and where an implicit is filled alike
-(see [Functions](Functions.md)).
+### One per type: where an operator is declared
+
+`a < b` is `cmp(a, b) < 0`, `a == b` is `eq(a, b)`, `"${x}"` is `to_str(x)`
+and `for x in c` is `next(iter(c))`: an operator is the call it names. What
+makes that call *the* type's operator is where such a function may be
+declared: **a function with an operator's shape on a type is declared in the
+type's own file**, and nowhere else. A second one in another file is an error
+at its declaration, whether anything uses it or not:
+
+```
+// people.sv
+export struct Person { name: Str, age: Int }
+export fn cmp(a: Person, b: Person) -> Int { return cmp(a.age, b.age) }
+
+// other.sv
+import people.Person
+fn cmp(a: Person, b: Person) -> Int { … }   // ERROR: `cmp` on `Person` is
+                                            // declared only in people.sv
+```
+
+So nothing a module imports, and nothing it declares, can change what `<` or
+`==` means on a type: for a concrete type there is exactly one candidate. A
+second ordering is not a second `cmp`; it is a function named for what it
+does, passed where it is wanted, which is how overriding has always been
+spelled:
+
+```
+fn by_name(a: Person, b: Person) -> Int { return cmp(a.name, b.name) }
+
+let sorted = sort(people, cmp = by_name)
+let byname: Mut SortedSet<Person>(by_name) = Mut SortedSet(cmp = by_name)
+```
+
+The shapes are a name, a count of explicit parameters (implicit ones do not
+count) and, for three of them, a return type:
+
+| name | explicit parameters | returns | used by |
+|---|---|---|---|
+| `eq` | 2 | `Bool` | `==`, `!=` |
+| `cmp` | 2 | `Int` | `<`, `>`, `<=`, `>=` |
+| `plus`, `minus`, `times`, `divide`, `pow` | 2 | anything | `+`, `-`, `*`, `/`, `**` (reserved) |
+| `to_str` | 1 | anything | interpolation |
+| `iter` | 1 | anything | `for` |
+| `next` | 1 | `Emitted T \| Finished` | `for` |
+
+The arithmetic names are reserved ahead of their operators: today `+`, `-`,
+`*` and `/` are defined on numbers only, and `**` is not yet an operator, but a
+`plus(a: Person, b: Person)` already has to live with `Person`.
+
+Anything else is an ordinary function, allowed anywhere: a stepping
+`iter(list: List<Str>, step: Int)` takes two parameters, and an effect member
+`next(step: Int) -> Int` does not return a step, so neither is an operator.
+
+The type a shape is *on* is its first explicit parameter's, qualifiers
+stripped: `eq(a: NonEmpty List<T>, b: List<T>)` is on `List`, and
+`pow(p: Person, power: Int)` on `Person`. A few cases follow from that:
+
+* **Several overloads in the type's own file** are fine — the file's author
+  chooses the set, and the usual ranking applies among them.
+* **Effect members count**, as the functions in scope they are; a `fns`
+  group's members do not (they state a shape, they implement nothing), and
+  neither does a `comptime fn` template — what it stamps lands on the type,
+  and a stamp outside the type's file (`fn eq(a: Person, b: Person) -> Bool
+  by auto` in another module) is refused like a written one.
+* **The built-in and structural types** have their home in std: the scalars'
+  and tuples' and fn types' operators are in `std.core.basic`, `Str`'s in
+  `std.core.string`, `List`'s in `std.core.list`, arrays' in
+  `std.core.array`, an anonymous union's (and `T?`'s) in `std.core.basic`,
+  and an `eff[E]` handle's in `std.core.actor`. A program gives none of them
+  new operators; it passes a named function instead.
+* **A type parameter has no home**, so `fn to_str<T>(x: T)` — a catch-all
+  that would be every type's text form — is refused.
+* **A declared union is its own home**: `type Shape = Circle | Square` may
+  declare `to_str(s: Shape)` in its file. Any other alias names the type it
+  stands for, so `type Grid = List<Int>` gives `to_str(g: Grid)` no home of
+  its own: that is `List`'s.
+* **A test annex is a file of its own**: `person.test.sv` may declare shapes
+  for the types it declares, not for `Person`.
+
+`hash`, `default` and `from_str` are not operators: they are filled by name,
+like any implicit, and may be declared anywhere.
 
 For the everyday case — compare the fields, in order — you do not write the
 bodies at all. `by auto` **stamps** them from the standard library's
@@ -295,7 +377,8 @@ fn has<T>(s: Set<T>(?hash, ?eq), e: T) -> Bool => s, e {
 Written as a plain `Set<T>`, the parameter would ask for the `hash` of a bare
 `T`, which nothing can answer.
 
-A keyed container over a **tuple or a list** works the same way:
-`std.core.compare` declares `hash`, `eq` and `cmp` for them in Salvo, each taking
-its parts' own, so `Mut Set<(Int, Str)>()` is keyed by `(hash, eq)` like any
-other set.
+A keyed container over a **tuple or a list** works the same way: std declares
+`hash`, `eq` and `cmp` for them in Salvo, each taking its parts' own — `eq` and
+`cmp` beside the types (the tuples' in `std.core.basic`, `List`'s in
+`std.core.list`), the hashes in `std.core.compare` — so `Mut Set<(Int, Str)>()`
+is keyed by `(hash, eq)` like any other set.

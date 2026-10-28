@@ -38,6 +38,7 @@ pub mod source;
 pub mod timing;
 pub mod typekey;
 pub mod types;
+pub mod unique_shape;
 pub mod wire;
 
 pub use check::{

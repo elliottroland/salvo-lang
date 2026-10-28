@@ -295,7 +295,7 @@ const LIT_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
     "export intrinsic fn hash(value: Str) [] -> Long => value\n",
     // [col-hashed-ordered] The interim structural container identities, as
-    // `std.core.compare` declares them.
+    // std declared them (the fixture's one std file is every type's home).
     "export intrinsic fn cmp<T>(a: List<T>, b: List<T>) [] -> Int => a, b\n",
     "export intrinsic fn eq<T>(a: List<T>, b: List<T>) [] -> Bool => a, b\n",
     "export intrinsic fn hash<T>(value: List<T>) [] -> Long => value\n",

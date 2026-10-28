@@ -245,16 +245,16 @@ The rule turns on the **basic types**: `Byte`, `Int`, `Long`, `Float`,
   `(read i < 4)` and `i != 2` is `(read i != 2)`. No basic-type operator goes through
   `cmp` or `eq`. Those intrinsics exist only so a scalar's ordering can be
   passed to generic code, where they appear as a value:
-  `call main::bigger<Int>(2, 7, fn std.core.compare::cmp(Int, Int))`.
+  `call main::bigger<Int>(2, 7, fn std.core.basic::cmp(Int, Int))`.
 * **On every other type, `Str` included, an operator is a call** of the
   function the checker resolved, whether it is declared in Salvo or is an
-  intrinsic. `a == b` is `call std.core.compare::eq(Str, Str)(read a, read b)`,
+  intrinsic. `a == b` is `call std.core.string::eq(read a, read b)`,
   and `a != b` is `!` of that call. An ordering is the `cmp` call
   followed by a sign test of its `Int` result, which is inline because `Int`
   is basic:
 
   ```
-  (call std.core.compare::cmp(Str, Str)(read s, "c") < 0)
+  (call std.core.string::cmp(read s, "c") < 0)
   (call main::cmp(read p, read q) < 0)
   (call local cmp(read a, read b) > 0)     // a forwarded ?cmp
   ```

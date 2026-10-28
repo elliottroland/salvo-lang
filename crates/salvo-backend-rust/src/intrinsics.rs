@@ -108,8 +108,11 @@ pub fn fn_call(
         // meaning 255 on both backends.
         ("to_byte", Some("Int")) => format!("((({}) as i32) as u8)", a(0)),
         ("to_int", Some("Byte")) => format!("(({}) as i32)", a(0)),
-        // std.core.compare ---------------------------------------------------
-        // [cmp-groups] The canonical `cmp`/`eq`/`hash` at each intrinsic type.
+        // std.core.basic and std.core.string (`cmp`, `eq`), std.core.compare
+        // (`hash`) ------------------------------------------------------------
+        // [cmp-groups] The canonical `cmp`/`eq`/`hash` at each intrinsic type;
+        // `cmp` and `eq` are declared beside their types [unique-shape], and
+        // the table keys on name and receiver, not module.
         //
         // `Ord::cmp` answers an `Ordering`, which is a fieldless `#[repr(i8)]`
         // enum whose discriminants are exactly the sign convention Salvo's

@@ -132,6 +132,9 @@ By what you would come looking for.
   and every node has an id of its own [node-id], so the tables tell copies apart; `origin.rs` renders a
   diagnostic at a copied node through that chain [origin].
 * `resolve.rs`: per-file scopes (`ModuleScope`): what names a file sees.
+* `unique_shape.rs`: the placement rule for operator functions
+  [unique-shape], run by `resolve` once the scopes exist: an `eq`, `cmp`,
+  `to_str`, `next`, … on a type is declared in the type's own file.
 * `erase.rs`: an effect-only generic (`ActorGroup<E>`) is erased for the
   backends.
 

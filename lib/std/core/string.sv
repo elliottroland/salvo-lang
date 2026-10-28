@@ -290,3 +290,19 @@ export fn split_last(str: Str, sep: Str) [] -> (Str, Str)? => str, sep {
     }
     return None
 }
+
+// [unique-shape] [cmp-groups] `Str`'s operators, declared beside the type: an
+// operator on a type is declared in the type's own file (user decision O1-D,
+// 2026-10-27). `cmp` is what `<` means on strings, `eq` what `==` means, and
+// `to_str` what interpolating one means (itself). `intrinsic`: the host's
+// comparison, lowered by each backend [backend-intrinsic].
+//
+// `cmp(Str, Str)` keeps the code-point contract both backends already owe
+// [col-sorted]: Rust's `String: Ord` is byte-wise UTF-8, which *is* code-point
+// order, while the JVM's `String.compareTo` is UTF-16 code-unit order and has
+// to be corrected [kt-ordered].
+export intrinsic fn cmp(a: Str, b: Str) [] -> Int => a, b
+export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b
+// [interp-to-str] A string's text form, as a function, for a `?ToStr<Str>`
+// implicit (the scalars' are in `std.core.basic`).
+export intrinsic fn to_str(value: Str) [] -> Str => value

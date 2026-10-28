@@ -521,3 +521,60 @@ fun<T> binarySearch(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? {
     return null
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun<T> eq(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {
+    if ((salvo.std.core.list.sizePlatform(a) != salvo.std.core.list.sizePlatform(b))) {
+        return false
+    }
+    val __pass_1: ListEnumerate<T> = salvo.std.core.list.enumerate(a)
+    while (true) {
+        val __step_2: Union2<Enumerated<T>, salvo.std.core.iterator.Finished> = salvo.std.core.list.next__ListEnumerate(__pass_1)
+        when {
+            (__step_2 is Union2.U1<*, *>) -> {
+                val __emitted_3: Enumerated<T> = ((__step_2 as Union2.U1<*, *>).value as Enumerated<T>)
+                val p: Enumerated<T> = __emitted_3
+                val j: Int = p.index
+                if (salvo.std.core.index.Idx_qualifies(j, b, ::sizePlatform)) {
+                    if (!(eq(p.elem, salvo.std.core.list.get(b, j)))) {
+                        return false
+                    }
+                }
+            }
+            else -> {
+                break
+            }
+        }
+    }
+    return true
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun<T> cmp(a: List<T>, b: List<T>, cmp: (T, T) -> Int): Int {
+    val __pass_1: ListEnumerate<T> = salvo.std.core.list.enumerate(a)
+    while (true) {
+        val __step_2: Union2<Enumerated<T>, salvo.std.core.iterator.Finished> = salvo.std.core.list.next__ListEnumerate(__pass_1)
+        when {
+            (__step_2 is Union2.U1<*, *>) -> {
+                val __emitted_3: Enumerated<T> = ((__step_2 as Union2.U1<*, *>).value as Enumerated<T>)
+                val p: Enumerated<T> = __emitted_3
+                val j: Int = p.index
+                if (salvo.std.core.index.Idx_qualifies(j, b, ::sizePlatform)) {
+                    val c: Int = cmp(p.elem, salvo.std.core.list.get(b, j))
+                    if ((c != 0)) {
+                        return c
+                    }
+                } else {
+                    return 1
+                }
+            }
+            else -> {
+                break
+            }
+        }
+    }
+    if ((salvo.std.core.list.sizePlatform(a) < salvo.std.core.list.sizePlatform(b))) {
+        return (-1)
+    }
+    return 0
+}
+

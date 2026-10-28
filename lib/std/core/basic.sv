@@ -103,7 +103,6 @@ export intrinsic fn to_str(value: Long) [] -> Str => value
 export intrinsic fn to_str(value: Byte) [] -> Str => value
 export intrinsic fn to_str(value: Char) [] -> Str => value
 export intrinsic fn to_str(value: Bool) [] -> Str => value
-export intrinsic fn to_str(value: Str) [] -> Str => value
 // A float's text is Salvo's rule, the shortest digits that round-trip with a
 // decimal point always present [interp-float].
 export intrinsic fn to_str(value: Double) [] -> Str => value
@@ -117,4 +116,66 @@ export fn to_str<A, B>(value: (A, B), ?to_str: (x: A) -> Str, ?to_str: (x: B) ->
 
 export fn to_str<A, B, C>(value: (A, B, C), ?to_str: (x: A) -> Str, ?to_str: (x: B) -> Str, ?to_str: (x: C) -> Str) [] -> Str => value {
     return "(${to_str(value.0)}, ${to_str(value.1)}, ${to_str(value.2)})"
+}
+
+// ===== ordering and equality: the operators `<` and `==` =====
+//
+// [unique-shape] [cmp-groups] What `cmp` and `eq` at a scalar resolve to — so
+// what `a < b` (`cmp(a, b) < 0`) and `a == b` (`eq(a, b)`) mean on one —
+// declared here, beside the types, because an operator on a type is declared
+// in the type's own file (user decision O1-D, 2026-10-27; `std.core.compare`
+// declares the groups). `intrinsic` for the same reason every other primitive
+// operation is: the comparison is the host's, and each backend lowers it
+// [backend-intrinsic]. `Str`'s are in `std.core.string`, `List`'s in
+// `std.core.list`.
+export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b
+export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b
+export intrinsic fn cmp(a: Byte, b: Byte) [] -> Int => a, b
+export intrinsic fn cmp(a: Char, b: Char) [] -> Int => a, b
+export intrinsic fn cmp(a: Bool, b: Bool) [] -> Int => a, b
+
+// Equality covers the float widths where ordering cannot: comparing two
+// `Double`s is meaningful (and both backends agree on IEEE, `NaN` equalling
+// nothing), ordering a set of them is not.
+export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b
+export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b
+export intrinsic fn eq(a: Double, b: Double) [] -> Bool => a, b
+export intrinsic fn eq(a: Float, b: Float) [] -> Bool => a, b
+export intrinsic fn eq(a: Byte, b: Byte) [] -> Bool => a, b
+export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b
+export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b
+
+// [col-hashed-ordered] [implicit-recursive] A tuple compares and orders
+// **element by element, through the elements' own identities**: a
+// `(Person, Int)` compares by `Person`'s declared `eq`. Ordinary Salvo over the
+// implicits of the element types (ROADMAP §0j step 8). Tuples are a
+// structural type, and this file is their home [unique-shape]: their `to_str`
+// above, their `eq` and `cmp` here (their `hash`, not an operator, is in
+// `std.core.compare`).
+export fn eq<A, B>(a: (A, B), b: (A, B), ?eq: (x: A, y: A) -> Bool, ?eq: (x: B, y: B) -> Bool) [] -> Bool => a, b {
+    return eq(a.0, b.0) && eq(a.1, b.1)
+}
+
+export fn cmp<A, B>(a: (A, B), b: (A, B), ?cmp: (x: A, y: A) -> Int, ?cmp: (x: B, y: B) -> Int) [] -> Int => a, b {
+    let c = cmp(a.0, b.0)
+    if c != 0 {
+        return c
+    }
+    return cmp(a.1, b.1)
+}
+
+export fn eq<A, B, C>(a: (A, B, C), b: (A, B, C), ?eq: (x: A, y: A) -> Bool, ?eq: (x: B, y: B) -> Bool, ?eq: (x: C, y: C) -> Bool) [] -> Bool => a, b {
+    return eq(a.0, b.0) && eq(a.1, b.1) && eq(a.2, b.2)
+}
+
+export fn cmp<A, B, C>(a: (A, B, C), b: (A, B, C), ?cmp: (x: A, y: A) -> Int, ?cmp: (x: B, y: B) -> Int, ?cmp: (x: C, y: C) -> Int) [] -> Int => a, b {
+    let c = cmp(a.0, b.0)
+    if c != 0 {
+        return c
+    }
+    let d = cmp(a.1, b.1)
+    if d != 0 {
+        return d
+    }
+    return cmp(a.2, b.2)
 }

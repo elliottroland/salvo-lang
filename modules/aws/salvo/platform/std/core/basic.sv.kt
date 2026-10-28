@@ -14,3 +14,31 @@ fun<A, B, C> toStr__TupleABC(value: kotlin.Triple<A, B, C>, toStr: (A) -> String
     return "(${toStr(value.first)}, ${toStr__1(value.second)}, ${toStr__2(value.third)})"
 }
 
+fun<A, B> eq__TupleAB_TupleAB(a: kotlin.Pair<A, B>, b: kotlin.Pair<A, B>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean): Boolean {
+    return (eq(a.first, b.first) && eq__1(a.second, b.second))
+}
+
+fun<A, B> cmp__TupleAB_TupleAB(a: kotlin.Pair<A, B>, b: kotlin.Pair<A, B>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int): Int {
+    val c: Int = cmp(a.first, b.first)
+    if ((c != 0)) {
+        return c
+    }
+    return cmp__1(a.second, b.second)
+}
+
+fun<A, B, C> eq__TupleABC_TupleABC(a: kotlin.Triple<A, B, C>, b: kotlin.Triple<A, B, C>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean, eq__2: (C, C) -> Boolean): Boolean {
+    return ((eq(a.first, b.first) && eq__1(a.second, b.second)) && eq__2(a.third, b.third))
+}
+
+fun<A, B, C> cmp__TupleABC_TupleABC(a: kotlin.Triple<A, B, C>, b: kotlin.Triple<A, B, C>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int, cmp__2: (C, C) -> Int): Int {
+    val c: Int = cmp(a.first, b.first)
+    if ((c != 0)) {
+        return c
+    }
+    val d: Int = cmp__1(a.second, b.second)
+    if ((d != 0)) {
+        return d
+    }
+    return cmp__2(a.third, b.third)
+}
+

@@ -18,7 +18,8 @@ binding a claim to another value's identity, `KeyOf(m)`/`Idx(xs)`/`SpanOf(s)`
 with total `get`/`swap`/`substr` overloads, `preserve` entries, claim-minting
 passes, and constant slots), everything-is-an-expression control
 flow, algebraic effects with handler dependencies, non-resumption
-(`throw`/`try`), implicit parameters and obligation groups, linear types with a
+(`throw`/`try`), implicit parameters and obligation groups (each operator's
+function on a type declared once, in the type's own file [unique-shape]), linear types with a
 designated `close`, mutable element handles (`ref(c)`, minted by `at`,
 aliasing by a shared named container), and pull iteration reduced to a `next` that `for` drives —
 with `iter fn` writing the iterator struct its `state Name { … }` block names
@@ -61,7 +62,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2122 tests, complete: the toolchain tests are
+cargo test                  # 2134 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +141,113 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-28 — Each operator on a type is declared in the type's file (B3 piece 3b, user decision O1-D)
+
+**The placement rule [unique-shape]** (user decision O1-D, 2026-10-27:
+OPERATOR_OVERLOAD.md "Discussion", O1 "B plus D" and "D's details", D-1 to
+D-7, decided by the user): a function matching a unique function shape on a
+type `T` (or a qualified `T`) is declared in `T`'s declaring file, and a
+second one anywhere else is an error at its declaration, used or not. With
+O1-B (an operator is the call it names) it makes the name-based call *the*
+type's one operator: for a concrete type there is never a competitor, so no
+import or local fn can change what `==`, `<`, interpolation or `for` means.
+Built as the user decided it; what the decision did not name is P10
+(PIPELINE.md §II.10, ROADMAP 0ah).
+
+- **The check** (`salvo_core::unique_shape`, called from `resolve_impl` once
+  every file's scope is built, so a written type resolves as the checker
+  lowers it): per declaration, no program-wide search. The class is the
+  `SHAPES` table — `eq` (2 explicit parameters, `-> Bool`), `cmp` (2, `->
+  Int`), `plus`/`minus`/`times`/`divide`/`pow` (2), `to_str` (1), `iter` (1),
+  `next` (1, `-> Emitted T | Finished`), implicit parameters not counted
+  (D-3, D-6). "On `T`" is the first explicit parameter's base, qualifiers
+  stripped (D-2); its home is the declaring file (D-1, so a `.test.sv` annex
+  is another file). Covered: top-level, struct-body and stamped fns, effect
+  members, qualifier fns; exempt: `fns` group members, kind-bound comptime
+  templates, handler members (D-4). Structural homes (D-5): tuples, fn
+  types and anonymous unions in `std.core.basic` (the unions' home was not
+  named; the doc's obvious candidate, recorded), arrays in `std.core.array`,
+  and `eff[E]`, being the type `Addr`, in `std.core.actor`. A bare type
+  parameter has no home, so `fn to_str<T>(x: T)` is refused. The message
+  names the type's file and the remedy, and for a std home leaves out "move
+  it there".
+- **The census first**, as instructed: a temporary `SALVO_XP_SHAPE` log of
+  every refusal over the whole suite, plus `salvo analyze` of every example,
+  `modules/aws`, both benches and `demo/`. Refused: std 21 (`compare.sv`'s 20
+  `cmp`/`eq`, and `basic.sv`'s `to_str(Str)`); 22 declarations in Rust test
+  sources (18 in the census run, 48 refusals across the tests that share
+  them, and 4 found by the first toolchain run); no example, module, bench or
+  `demo/` program. One false positive fixed first: a file's own
+  union alias beside a whole-module-imported struct of the same name (the
+  checker expands the alias first, so the rule does too).
+- **std moved (D-7)**: the scalars' `cmp` (5) and `eq` (7) and the tuples'
+  `eq`/`cmp` (4) into `basic.sv`, the tuples' home, where their `to_str`
+  already was; `Str`'s `cmp`, `eq` and `to_str` into `string.sv`; `List`'s
+  `eq`/`cmp` into `list.sv`. **Deviation from D-7's wording** ("14 scalar and
+  `Str` into `basic.sv`"): `Str` is declared in `std.core.string`, so D-1
+  puts its three there, and `basic.sv`'s `to_str(Str)` went with them.
+  `std.core.compare` keeps the three groups, the six scalar and three
+  structural `hash`es (not a shape) and `mix_hash`. Each block was appended
+  at its file's end, so no trap location in the generated code moved. The
+  backends' intrinsic tables dispatch on name and receiver, not module, so
+  neither needed a change.
+- **Tests rewritten, by what each tested**: implicit_tests' prelude `cmp` and
+  `times` on `Int` moved into the fixture's std file, `Int`'s own (the tests
+  are about an overload at `Int` filling an implicit); its ranking pair
+  (`cmp<T>` vs `cmp(Int, Int)`) and ambiguity pair renamed `order` (they test
+  ranking, not `cmp`); both codegen suites' `times(Int, Int)` renamed
+  `multiply` (it is passed explicitly, `add = multiply`); the four codegen
+  catch-alls renamed `any_text` and passed explicitly, `Foo` given its own
+  `to_str` in its file (so std's list `to_str` still fills the list and
+  `Foo`'s the elements), and the original program kept as
+  `a_catch_all_to_str_is_refused_at_its_declaration`; the CLI's
+  `to_str<T>(List<T>)` beside std's is now a test of the refusal
+  (`a_same_signature_overload_beside_std_is_refused_at_its_declaration`),
+  its two depth-cap catch-alls removed (the cap needs none) and one turned
+  into a refusal check; compare_tests' second `cmp(Person, Person)` in
+  another module is a refusal test, and its selector test passes a
+  `by_name` explicitly; `cmp(Int, Int) by auto` / `cmp(Str, Str) by auto`
+  (testing `by`'s target requirement) became `hash(…) by auto`; both
+  backends' canonical-implementation program names its second ordering
+  `by_name` (same output), and the to_str-from-another-module program, whose
+  `to_str(Pair)` lived in a third module, now has it in `Pair`'s body,
+  imported with `Pair` and never named — the import half of the bug it pins
+  (the reachability half cannot arise for an operator).
+  `unique_shape_tests.rs` (11) covers each shape refused outside and
+  accepted inside, a qualified first parameter, wrong arity and return
+  (`iter(list, step)`, `effect Counter { fn next(step: Int) -> Int }`), the
+  implicit not counted, groups and templates exempt and a stamp refused,
+  effect members covered and handler members exempt, a bare `T`, the
+  structural homes, aliases, an annex, overloads in the own file, and std
+  itself clean.
+- **What fell out of building it:**
+  - **[obligation-return] attached by either half of a signature.** A fn
+    fulfilling a member was attached to every obligation-declaring type its
+    parameters *or* its return named, last one winning, so in `basic.sv`
+    `eq(Int, Int) -> Bool` was attached to `Bool` (an IR dump printed
+    `Set<Int>(hash, eq@Bool)`). The member decides now: one taking the
+    group's `self` is fulfilled through the parameters, one taking none
+    through the return. Latent until two such types shared a file.
+  - **The scalars' `cmp`/`eq` are now attached** [fn-attached]: they are in
+    their type's file and fulfil its `Ordered<self>`/`Eq<self>`, so
+    `cmp@Int` names one and a carried identity prints so
+    (`Sorted<Int>(cmp@Int)` in a mismatch, `Set<Int>(hash, eq@Int)` in the
+    IR dump). Selection is unchanged: std.core is visible everywhere.
+  - **A refused declaration still competes** where it is visible, so its uses
+    report the ambiguity it causes too (ROADMAP 0ag): leaving it out of the
+    candidate sets is a selection change, kept for piece 3c.
+- **Emitted code** changed only in std's `core/basic`, `core/compare`,
+  `core/list`, `core/string` (the moved fns, and the IR's
+  `std.core.string::eq` spelling, unique in its module so printed without
+  its signature) in every example's `rust/` and `kotlin/` trees, the
+  goldens and the `lib/platform` and `modules/aws` ABI mirrors, plus a
+  comment in the Kotlin runtime's `compare.kt`. No user module's code
+  changed; `expected.txt` unchanged on both backends. PIPELINE.md §II.13 D2
+  is dissolved.
+
+Tests: 2,134 (+12: `unique_shape_tests` 11, the codegen catch-all refusal 1),
+all green; `salvo test --src lib` 150.
 
 ### 2026-10-28 — Implicit groups are spelled `fns`, and `Yield` is `Next` (B3 piece 3a)
 
@@ -31085,7 +31193,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2122 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2134 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -32377,6 +32485,27 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A shape is on the type the checker would lower** (B3.3b, 2026-10-28,
+  [unique-shape]): a scope can hold a file's own alias *and* an imported
+  struct of one name (a whole-module import does not shadow a type of
+  another kind), and `lower_base_ref` takes the alias first. Look types up
+  in that order in any resolve-phase reading of a written type, or a stamped
+  `to_str(t: Token)` on the file's own union is judged against the import.
+- **Two obligation-declaring types in one file expose attachment by return**
+  (B3.3b, [obligation-return]): `eq(Int, Int) -> Bool` names `Bool` too.
+  Attach by the half of the signature the group member puts `self` in.
+- **A census under `SALVO_SKIP_E2E=1` misses the toolchain tests' programs**
+  (B3.3b): a skipped rustc/kotlinc test returns before it builds its
+  program, so nothing in it is checked, and the IR corpus does not stand in:
+  it checks each inline `const` alone, as `main.sv`, and counts a refused
+  program as an outcome (a multi-file program's half is refused anyway). Run
+  the census once without the skip (a warm run checks as much, the checking
+  being before the stamp).
+- **A census log written by parallel tests interleaves** unless each line is
+  one `write_all` of a preformatted string to an `O_APPEND` file; the test
+  name is the thread's name under `cargo test` (not under the CLI's
+  subprocesses or a thread pool).
 
 - **Inference fits each candidate at the position it makes** (B3.1,
   2026-10-28, [implicit-infer]): selecting for inference at the pattern with

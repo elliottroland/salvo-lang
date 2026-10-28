@@ -82,6 +82,8 @@ println("at ${point}")     // uses the `to_str` above
 
 Without one, the compiler says so rather than letting the backend fail. The standard library renders a list this way — `"${List(1, 2, 3)}"` gives `[1, 2, 3]` — and a `Mut Str` needs nothing special, since it drops its `Mut` first.
 
+**A type's `to_str` lives in the type's own file.** `to_str` is what interpolation calls, so a `to_str(p: Point)` may be declared only in the file that declares `Point` — anywhere else it is an error where it is written, used or not, and the same goes for a catch-all `to_str<T>(x: T)`, which would be every type's at once. Another rendering is a function of another name, passed where it is wanted (`to_str = as_hex`). The rule is the same for every operator; [Comparison, equality and hashing](Comparison-and-Hashing.md#one-per-type-where-an-operator-is-declared) has it whole.
+
 **A struct interpolates by opting in.** `: ToStr<self> by auto` stamps a
 `to_str` that renders the struct in the shape its literal has, identical on
 both backends:

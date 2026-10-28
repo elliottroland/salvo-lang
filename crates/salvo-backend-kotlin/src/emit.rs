@@ -188,8 +188,9 @@ pub(crate) fn generate_union_codec_file(n: usize) -> String {
 /// objects: structural `equals`/`hashCode` (so a big tuple is a `Set` element
 /// or a `Map` key on the same terms as a `Pair`) and `componentN` (so
 /// `let (a, b, c, d) = t` destructures). Ordering goes through
-/// Salvo's `eq`/`cmp`/`hash` for them are Salvo code
-/// (`std.core.compare`, ROADMAP §0j step 8), so the classes carry nothing more.
+/// Salvo's `eq`/`cmp`/`hash` for them are Salvo code (`eq`/`cmp` in
+/// `std.core.basic`, `hash` in `std.core.compare`; ROADMAP §0j step 8), so the
+/// classes carry nothing more.
 ///
 /// The property names are `first`, `second`, `third` and then `v3`, `v4`, …:
 /// keeping `Pair`/`Triple`'s three names is what lets one index rule serve

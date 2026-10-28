@@ -63,37 +63,18 @@ export fns Hashed<T> => eq with hash {
     fn eq(a: T, b: T) -> Bool
 }
 
-// ===== the canonical implementations for the intrinsic types =====
+// ===== where the implementations are =====
 //
-// [cmp-groups] These are what a `cmp`/`eq`/`hash` at a primitive resolves to,
-// and they are `intrinsic` for the same reason every other primitive
-// operation is: the comparison is the host's, and each backend lowers it
-// [backend-intrinsic].
+// [unique-shape] `cmp` and `eq` are operators (`<` is `cmp(a, b) < 0`, `==` is
+// `eq(a, b)`), so each one on a type is declared in the type's own file: the
+// scalars' and the tuples' in `std.core.basic`, `Str`'s in `std.core.string`,
+// `List`'s in `std.core.list` (user decision O1-D, 2026-10-27). `hash` is not
+// an operator, so the hashes stay here, with the fold they share.
+
+// [cmp-groups] The canonical `hash` for the intrinsic types, `intrinsic` for
+// the same reason every other primitive operation is: the digest is the
+// host's, and each backend lowers it [backend-intrinsic].
 //
-// `cmp(Str, Str)` keeps the code-point contract both backends already owe
-// [col-sorted]: Rust's `String: Ord` is byte-wise UTF-8, which *is* code-point
-// order, while the JVM's `String.compareTo` is UTF-16 code-unit order and has
-// to be corrected [kt-ordered].
-
-export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b
-export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b
-export intrinsic fn cmp(a: Byte, b: Byte) [] -> Int => a, b
-export intrinsic fn cmp(a: Char, b: Char) [] -> Int => a, b
-export intrinsic fn cmp(a: Bool, b: Bool) [] -> Int => a, b
-export intrinsic fn cmp(a: Str, b: Str) [] -> Int => a, b
-
-// Equality covers the float widths where ordering cannot: comparing two
-// `Double`s is meaningful (and both backends agree on IEEE, `NaN` equalling
-// nothing), ordering a set of them is not.
-export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b
-export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b
-export intrinsic fn eq(a: Double, b: Double) [] -> Bool => a, b
-export intrinsic fn eq(a: Float, b: Float) [] -> Bool => a, b
-export intrinsic fn eq(a: Byte, b: Byte) [] -> Bool => a, b
-export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b
-export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b
-export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b
-
 // [cmp-hash-values] A hash is a value **within one execution** and nothing
 // more: each backend hashes with its own host algorithm, so the same value
 // digests differently on Kotlin and on Rust — deliberately, on the analogy of
@@ -111,45 +92,11 @@ export intrinsic fn hash(value: Char) [] -> Long => value
 export intrinsic fn hash(value: Bool) [] -> Long => value
 export intrinsic fn hash(value: Str) [] -> Long => value
 
-// [col-hashed-ordered] [implicit-recursive] A `List` and a tuple compare, hash
-// and order **element by element, through the elements' own identities**: a
-// `List<Person>` compares by `Person`'s declared `eq`, hashes by its `hash`,
-// orders by its `cmp`. Ordinary Salvo over the implicits of the element types
-// (ROADMAP §0j step 8); resolving one of these for `List<Person>` fills the
-// element's in turn.
-export fn eq<T>(a: List<T>, b: List<T>, ?eq: (x: T, y: T) -> Bool) [] -> Bool => a, b {
-    if size(a) != size(b) {
-        return false
-    }
-    for p in enumerate(a) {
-        let j = p.index
-        if j is Idx(b) {
-            if !eq(p.elem, get(b, j)) {
-                return false
-            }
-        }
-    }
-    return true
-}
-
-export fn cmp<T>(a: List<T>, b: List<T>, ?cmp: (x: T, y: T) -> Int) [] -> Int => a, b {
-    for p in enumerate(a) {
-        let j = p.index
-        if j is Idx(b) {
-            let c = cmp(p.elem, get(b, j))
-            if c != 0 {
-                return c
-            }
-        } else {
-            return 1
-        }
-    }
-    if size(a) < size(b) {
-        return -1
-    }
-    return 0
-}
-
+// [col-hashed-ordered] [implicit-recursive] A `List` and a tuple hash
+// **element by element, through the elements' own identities**, as they
+// compare (their `eq` and `cmp` beside their types): a `List<Person>` hashes
+// by `Person`'s declared `hash`. Ordinary Salvo over the implicits of the
+// element types (ROADMAP §0j step 8).
 export fn hash<T>(value: List<T>, ?hash: (x: T) -> Long) [] -> Long => value {
     let h = 7L
     for x in value {
@@ -158,36 +105,8 @@ export fn hash<T>(value: List<T>, ?hash: (x: T) -> Long) [] -> Long => value {
     return h
 }
 
-export fn eq<A, B>(a: (A, B), b: (A, B), ?eq: (x: A, y: A) -> Bool, ?eq: (x: B, y: B) -> Bool) [] -> Bool => a, b {
-    return eq(a.0, b.0) && eq(a.1, b.1)
-}
-
-export fn cmp<A, B>(a: (A, B), b: (A, B), ?cmp: (x: A, y: A) -> Int, ?cmp: (x: B, y: B) -> Int) [] -> Int => a, b {
-    let c = cmp(a.0, b.0)
-    if c != 0 {
-        return c
-    }
-    return cmp(a.1, b.1)
-}
-
 export fn hash<A, B>(value: (A, B), ?hash: (x: A) -> Long, ?hash: (x: B) -> Long) [] -> Long => value {
     return mix_hash(mix_hash(7L, hash(value.0)), hash(value.1))
-}
-
-export fn eq<A, B, C>(a: (A, B, C), b: (A, B, C), ?eq: (x: A, y: A) -> Bool, ?eq: (x: B, y: B) -> Bool, ?eq: (x: C, y: C) -> Bool) [] -> Bool => a, b {
-    return eq(a.0, b.0) && eq(a.1, b.1) && eq(a.2, b.2)
-}
-
-export fn cmp<A, B, C>(a: (A, B, C), b: (A, B, C), ?cmp: (x: A, y: A) -> Int, ?cmp: (x: B, y: B) -> Int, ?cmp: (x: C, y: C) -> Int) [] -> Int => a, b {
-    let c = cmp(a.0, b.0)
-    if c != 0 {
-        return c
-    }
-    let d = cmp(a.1, b.1)
-    if d != 0 {
-        return d
-    }
-    return cmp(a.2, b.2)
 }
 
 export fn hash<A, B, C>(value: (A, B, C), ?hash: (x: A) -> Long, ?hash: (x: B) -> Long, ?hash: (x: C) -> Long) [] -> Long => value {
