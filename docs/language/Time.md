@@ -10,7 +10,7 @@ import std.time
 
 **Why there are two kinds of point, and not one.** The wall clock jumps — NTP steps and slews it, and a suspend advances it while the monotonic clock stops — so a deadline measured against it would move under the program. The monotonic clock never jumps, but its origin is arbitrary and no API reveals it, so a `Tick` on its own cannot say what day it is. Keeping them apart makes the mistake a *type* error rather than a plausible wrong answer: `between` takes two points of one timeline, and comparing an `Instant` with a `Tick` is refused where it is written. Measure with ticks; record and report with instants.
 
-The arithmetic is named functions, because operators are numeric-only: `millis(1500)` and its siblings build a span, `to_millis` and its siblings read one back, `plus`/`minus`/`times`/`abs` compute, and `between(start, end)` answers the span from one point to another — signed, so the argument order *is* the direction of the answer. Interpolating a `Duration` prints the largest unit that divides it exactly (`1500ms`, `120s`, `37ns`).
+The arithmetic is named functions, and the ones with an operator's name are its operator: `millis(1500)` and its siblings build a span, `to_millis` and its siblings read one back, `plus`/`minus`/`times`/`abs` compute — so `d1 + d2`, `deadline - d` and `d * 3L` work as well as `plus(d1, d2)` — and `between(start, end)` answers the span from one point to another — signed, so the argument order *is* the direction of the answer. Interpolating a `Duration` prints the largest unit that divides it exactly (`1500ms`, `120s`, `37ns`).
 
 **Reading a clock is a capability.** A function whose answer depends on when it was called has a dependency, and Salvo's dependencies live in signatures:
 

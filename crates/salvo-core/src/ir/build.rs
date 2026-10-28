@@ -77,14 +77,17 @@ impl<'p> Ctx<'p> {
         self.resolution.decls.fn_decl(&self.program.modules, key)
     }
 
-    /// [op-equality] [op-order] [core-layers] Whether `key` is std's intrinsic
-    /// `eq` or `cmp` at a basic type [type-basic]: the primitive comparison
-    /// itself, so a comparison operator resolved to it is the IR's own
-    /// operator (which every backend spells natively), and one resolved to
-    /// anything else is the call (R10 D1).
-    pub fn is_primitive_compare(&self, key: DeclId) -> bool {
+    /// [op-equality] [op-order] [op-arith] [core-layers] Whether `key` is
+    /// std's intrinsic `eq`, `cmp`, `plus`, `minus`, `times` or `divide` at a
+    /// basic type [type-basic]: the primitive operation itself, so an
+    /// operator resolved to it is the IR's own operator (which every backend
+    /// spells natively), and one resolved to anything else is the call (R10
+    /// D1). `pow` is not among them: no target has a native power operator,
+    /// so `**` is always the call, which the backends lower as an intrinsic
+    /// [op-pow].
+    pub fn is_primitive_operator(&self, key: DeclId) -> bool {
         let Some(decl) = self.fn_by_key(key) else { return false };
-        if !decl.intrinsic || !matches!(decl.name.name.as_str(), "eq" | "cmp") {
+        if !decl.intrinsic || !matches!(decl.name.name.as_str(), "eq" | "cmp" | "plus" | "minus" | "times" | "divide") {
             return false;
         }
         let Some(loc) = self.resolution.decls.loc(key) else { return false };

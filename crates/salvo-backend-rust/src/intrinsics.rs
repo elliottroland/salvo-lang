@@ -165,6 +165,42 @@ pub fn fn_call(
              (std::hash::Hasher::finish(&__h) as i64) }}",
             a(0)
         ),
+        // [op-arith] [rs-op-wrap] The arithmetic operators' functions, for a
+        // call written out or a function value (`reduce(xs, 0, plus)`): an
+        // operator resolved to one of these is the IR's own operator, spelled
+        // where `Op` is, and these are the same text. Integer arithmetic wraps
+        // [op-wrap]; `wrapping_div` still panics on a zero divisor, as the
+        // operator does.
+        ("plus", Some(t @ ("Int" | "Long"))) => format!("{}::wrapping_add({}, {})", rs_int(t), a(0), a(1)),
+        ("minus", Some(t @ ("Int" | "Long"))) => format!("{}::wrapping_sub({}, {})", rs_int(t), a(0), a(1)),
+        ("times", Some(t @ ("Int" | "Long"))) => format!("{}::wrapping_mul({}, {})", rs_int(t), a(0), a(1)),
+        ("divide", Some(t @ ("Int" | "Long"))) => format!("{}::wrapping_div({}, {})", rs_int(t), a(0), a(1)),
+        ("plus", Some("Float" | "Double")) => format!("(({}) + ({}))", a(0), a(1)),
+        ("minus", Some("Float" | "Double")) => format!("(({}) - ({}))", a(0), a(1)),
+        ("times", Some("Float" | "Double")) => format!("(({}) * ({}))", a(0), a(1)),
+        ("divide", Some("Float" | "Double")) => format!("(({}) / ({}))", a(0), a(1)),
+        // [op-pow] [rs-pow] `**`, which is always this call (no target has a
+        // power operator). The receiver key is `base^exponent`, since two
+        // overloads share a `Double` base. Each operand is evaluated once, in
+        // order, into a block local. An integer power is `wrapping_pow` (the
+        // low bits of the exact power, which is what the JVM's repeated
+        // wrapping multiplication gives), and a negative exponent panics, as
+        // a zero divisor does. `Double ** Int` is repeated squaring written
+        // out, the same multiplications in the same order as the Kotlin
+        // spelling, so the same bits; `Double ** Double` is the host's `powf`.
+        ("pow", Some(k @ ("Int^Int" | "Long^Int"))) => format!(
+            "({{ let __b: {t} = {}; let __e: i32 = {}; if __e < 0 {{ panic!(\"negative exponent in `**`: {{}}\", __e) }} {t}::wrapping_pow(__b, __e as u32) }})",
+            a(0),
+            a(1),
+            t = rs_int(&k[..k.find('^').unwrap_or(0)])
+        ),
+        ("pow", Some("Double^Int")) => format!(
+            "({{ let mut __x: f64 = {}; let __e: i32 = {}; let mut __n = __e.unsigned_abs(); let mut __r = 1.0f64; \
+             while __n > 0 {{ if __n & 1 == 1 {{ __r *= __x; }} __x *= __x; __n >>= 1; }} if __e < 0 {{ 1.0 / __r }} else {{ __r }} }})",
+            a(0),
+            a(1)
+        ),
+        ("pow", Some("Double^Double")) => format!("f64::powf({}, {})", a(0), a(1)),
         // [op-bits] Rust's operators for the three bitwise folds and `!`; the
         // shifts go through `wrapping_shl`/`wrapping_shr`, which take the
         // count modulo the width as the JVM does (a plain `<<` panics in a

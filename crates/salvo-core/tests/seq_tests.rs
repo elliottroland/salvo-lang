@@ -116,6 +116,11 @@ export intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => l
     "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
     "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+    // [op-arith] [op-pow] What the arithmetic operators call.
+    "export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn minus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn times(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
 fn checked(src: &str) -> (Program, salvo_core::Checked) {

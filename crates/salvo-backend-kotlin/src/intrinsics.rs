@@ -99,6 +99,42 @@ pub fn fn_call(
         }
         // [cmp-hash-values] The wrapping fold a structural `hash` combines
         // its fields with; the JVM's `Long` arithmetic wraps by itself.
+        // [op-arith] [kt-op-arith] The arithmetic operators' functions, for a
+        // call written out or a function value: an operator resolved to one of
+        // these is the IR's own operator, and these are the same text. The
+        // JVM's integer arithmetic wraps [op-wrap].
+        ("plus", Some("Int" | "Long" | "Float" | "Double")) => format!("(({}) + ({}))", a(0), a(1)),
+        ("minus", Some("Int" | "Long" | "Float" | "Double")) => format!("(({}) - ({}))", a(0), a(1)),
+        ("times", Some("Int" | "Long" | "Float" | "Double")) => format!("(({}) * ({}))", a(0), a(1)),
+        ("divide", Some("Int" | "Long" | "Float" | "Double")) => format!("(({}) / ({}))", a(0), a(1)),
+        // [op-pow] [kt-pow] `**`, which is always this call. The receiver key
+        // is `base^exponent`, since two overloads share a `Double` base. An
+        // immediately invoked lambda takes the operands as its parameters, so
+        // each is evaluated once, in order, and a nested `**` in an operand
+        // shadows nothing. The integer powers are repeated squaring in the
+        // wrapping arithmetic (the low bits of the exact power, as Rust's
+        // `wrapping_pow`), and a negative exponent throws, as a zero divisor
+        // does; `Double ** Int` is the same squaring, in the order the Rust
+        // spelling uses, so the same bits; `Double ** Double` is the host's
+        // `Math.pow`.
+        ("pow", Some(k @ ("Int^Int" | "Long^Int"))) => {
+            let (t, one) = if k.starts_with("Long") { ("Long", "1L") } else { ("Int", "1") };
+            format!(
+                "({{ __b: {t}, __e: Int -> if (__e < 0) throw ArithmeticException(\"negative exponent in `**`: \" + __e); \
+                 var __x = __b; var __n = __e; var __r = {one}; while (__n > 0) {{ if ((__n and 1) == 1) __r *= __x; \
+                 __x *= __x; __n = __n shr 1 }}; __r }})({}, {})",
+                a(0),
+                a(1)
+            )
+        }
+        ("pow", Some("Double^Int")) => format!(
+            "({{ __b: Double, __e: Int -> var __x = __b; var __n = kotlin.math.abs(__e.toLong()); var __r = 1.0; \
+             while (__n > 0L) {{ if ((__n and 1L) == 1L) __r *= __x; __x *= __x; __n = __n shr 1 }}; \
+             if (__e < 0) 1.0 / __r else __r }})({}, {})",
+            a(0),
+            a(1)
+        ),
+        ("pow", Some("Double^Double")) => format!("java.lang.Math.pow({}, {})", a(0), a(1)),
         // [op-bits] Kotlin's infix bit operations; its shifts already take
         // the count modulo the width, which is the language's rule.
         ("bit_and", Some("Int" | "Long")) => format!("(({}) and ({}))", a(0), a(1)),

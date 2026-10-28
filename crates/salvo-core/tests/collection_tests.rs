@@ -49,6 +49,19 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
     "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
+    // [op-arith] [op-pow] What the arithmetic operators call.
+    "export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn plus(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn plus(a: Double, b: Double) [] -> Double => a, b\n",
+    "export intrinsic fn minus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn minus(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn minus(a: Double, b: Double) [] -> Double => a, b\n",
+    "export intrinsic fn times(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn times(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn times(a: Double, b: Double) [] -> Double => a, b\n",
+    "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn divide(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn divide(a: Double, b: Double) [] -> Double => a, b\n",
 );
 
 fn checked(src: &str) -> salvo_core::Checked {
@@ -321,6 +334,15 @@ const LIT_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
     "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
+    // [op-arith] [op-pow] What the arithmetic operators call.
+    "export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn plus(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn minus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn minus(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn times(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn times(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn divide(a: Long, b: Long) [] -> Long => a, b\n",
 );
 
 /// [obligation-by] The structural `comptime fn`s `by auto` stamps, mirroring
@@ -809,6 +831,19 @@ const SORTED_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
     "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
+    // [op-arith] [op-pow] What the arithmetic operators call.
+    "export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn plus(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn plus(a: Double, b: Double) [] -> Double => a, b\n",
+    "export intrinsic fn minus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn minus(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn minus(a: Double, b: Double) [] -> Double => a, b\n",
+    "export intrinsic fn times(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn times(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn times(a: Double, b: Double) [] -> Double => a, b\n",
+    "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn divide(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn divide(a: Double, b: Double) [] -> Double => a, b\n",
 );
 
 fn sorted_messages(src: &str) -> Vec<String> {
@@ -943,6 +978,8 @@ fn the_generated_constructors_and_converters_type_correctly() {
         "export intrinsic type Bool\n",
         "export intrinsic fn hash(value: Int) [] -> Long => value\n",
         "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+        // [op-arith] What `+` calls.
+        "export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b\n",
     );
     let mut sources = SourceSet::default();
     sources.add(

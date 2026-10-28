@@ -48,3 +48,13 @@ test actor "each actor test starts its clock at zero" {
     use DefaultTicker()
     expect_eq(tick().nanos, 0L)
 }
+
+// [op-arith] A span's and a point's arithmetic functions are their operators.
+test "a duration's operators are its functions" {
+    let d = millis(1500) + seconds(2) - millis(500)
+    expect_eq(d.nanos, seconds(3).nanos)
+    expect_eq((d * 2L).nanos, seconds(6).nanos)
+    let at = epoch_milli(1000L) + d
+    expect_eq(to_epoch_milli(at), 4000L)
+    expect_eq(to_epoch_milli(at - seconds(1)), 3000L)
+}

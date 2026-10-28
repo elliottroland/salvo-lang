@@ -46,6 +46,11 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Byte, b: Byte) [] -> Bool => a, b\n",
     "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+    // [op-arith] [op-pow] What the arithmetic operators call.
+    "export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn minus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn times(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
 fn errors_of(src: &str) -> Vec<FileDiagnostic> {
@@ -166,7 +171,7 @@ fn bytes_hold_octets_not_numbers() {
          \x20   let sum = b + b",
     ));
     assert!(
-        msgs.iter().any(|m| m.contains("needs numeric operands")),
+        msgs.iter().any(|m| m.contains("no `plus` for `+` on `Byte`") && m.contains("`to_int`")),
         "{msgs:?}"
     );
     assert_ok(&body(

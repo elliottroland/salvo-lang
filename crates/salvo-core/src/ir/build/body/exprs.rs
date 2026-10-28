@@ -839,17 +839,47 @@ impl<'a, 'p> Lower<'a, 'p> {
                 };
                 Expr { ty, span, kind: ExprKind::Branch { id, arms, otherwise } }
             }
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
-                let l = self.promoted(lhs);
-                let r = self.promoted(rhs);
-                let o = match op {
-                    BinaryOp::Add => Op::Add,
-                    BinaryOp::Sub => Op::Sub,
-                    BinaryOp::Mul => Op::Mul,
-                    BinaryOp::Div => Op::Div,
-                    _ => Op::Rem,
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem | BinaryOp::Pow => {
+                // [op-arith] [op-pow] The operator is the call it names (O1):
+                // `plus(a, b)` …, `pow(a, b)`, lowered as that call is. std's
+                // intrinsic `plus`/`minus`/`times`/`divide` at a basic type is
+                // the primitive operation, so a call resolved to it is the IR's
+                // own operator [core-layers]; `%` names no function and is
+                // always the operator; with nothing recorded (a lenient
+                // operand) the operator stays the host's.
+                let key = self.key(span);
+                let info = self.ctx.checked.call_info(key);
+                let primitive = op == BinaryOp::Rem
+                    || match info.call_fn.copied() {
+                        Some(k) => self.ctx.is_primitive_operator(k),
+                        None => !info.local_call && info.member_call.is_none() && op != BinaryOp::Pow,
+                    };
+                if primitive {
+                    let l = self.promoted(lhs);
+                    let r = self.promoted(rhs);
+                    let o = match op {
+                        BinaryOp::Add => Op::Add,
+                        BinaryOp::Sub => Op::Sub,
+                        BinaryOp::Mul => Op::Mul,
+                        BinaryOp::Div => Op::Div,
+                        _ => Op::Rem,
+                    };
+                    return Expr { ty, span, kind: ExprKind::Op { op: o, args: vec![l, r] } };
+                }
+                let member = match op {
+                    BinaryOp::Add => "plus",
+                    BinaryOp::Sub => "minus",
+                    BinaryOp::Mul => "times",
+                    BinaryOp::Div => "divide",
+                    _ => "pow",
                 };
-                Expr { ty, span, kind: ExprKind::Op { op: o, args: vec![l, r] } }
+                match self.call_named(member, vec![lhs, rhs], &[], span, ty.clone()) {
+                    Some(call) => call,
+                    None => {
+                        self.error(span, format!("arithmetic `{op:?}` resolves to no `{member}`"));
+                        unsupported(ty, span, "arithmetic")
+                    }
+                }
             }
             BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq => {
                 // [op-arm-eq] `union == value` reduced by the checker to an arm
@@ -882,7 +912,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let key = self.key(span);
                 let info = self.ctx.checked.call_info(key);
                 let primitive = match info.call_fn.copied() {
-                    Some(k) => self.ctx.is_primitive_compare(k),
+                    Some(k) => self.ctx.is_primitive_operator(k),
                     None => !info.local_call && info.member_call.is_none(),
                 };
                 let o = match op {

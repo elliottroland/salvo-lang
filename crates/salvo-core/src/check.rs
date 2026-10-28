@@ -14392,7 +14392,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         let is_member = |p: &ImplicitParam| p.name == member || p.slot.as_deref() == Some(member);
         match self.pick_own_implicit_by(&is_member, &fits) {
             Ok(Some(own)) => {
-                self.operator_through_implicit(&own, sym, member, lhs, rhs, &tys, &ret, span);
+                let got = self.operator_through_implicit(&own, lhs, rhs, &tys, span);
+                self.operator_returns(&got, &ret, sym, member, &lt, &rt, span);
                 return;
             }
             Ok(None) => {}
@@ -14405,16 +14406,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .filter(|p| is_member(p) && fits(p))
                     .map(|p| format!("`{}`", p.local))
                     .collect();
-                self.error(
-                    span,
-                    format!(
-                        "`{sym}` on `{lt}` is `{member}({lt}, {rt})`, and this function has {} \
-                         of them in scope ({}), and none is more specific: the operator cannot \
-                         choose, so call the one you mean [cmp-binder] [implicit-same-name]",
-                        tied.len(),
-                        shown.join(", ")
-                    ),
-                );
+                self.operator_implicit_tie(sym, member, &lt, &rt, tied.len(), &shown, span);
                 return;
             }
         }
@@ -14440,18 +14432,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// implicit `own`: the call through it [implicit-resolve-body], recorded
     /// as a call through that local is (`local_calls`, and the local it is
     /// for the IR), with its arguments checked as a fn value's are.
-    #[allow(clippy::too_many_arguments)]
-    fn operator_through_implicit(
-        &mut self,
-        own: &ImplicitParam,
-        sym: &'static str,
-        member: &'static str,
-        lhs: &'p Expr,
-        rhs: &'p Expr,
-        tys: &[Ty],
-        ret: &Ty,
-        span: Span,
-    ) {
+    /// [op-arith] Arithmetic alike. Answers what the implicit returns.
+    fn operator_through_implicit(&mut self, own: &ImplicitParam, lhs: &'p Expr, rhs: &'p Expr, tys: &[Ty], span: Span) -> Ty {
         let key = self.key(span);
         self.out.local_calls.insert(key);
         self.out.local_call_names.insert(key, own.local.clone());
@@ -14459,7 +14441,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Some(Ty::Fn { params, ret, contract, effects }) => (params, *ret, contract, effects),
             _ => match own.ty.strip_quals().clone() {
                 Ty::Fn { params, ret, contract, effects } => (params, *ret, contract, effects),
-                _ => return,
+                _ => return Ty::Unknown,
             },
         };
         if let Some(v) = self.lookup_mut(&own.local) {
@@ -14468,7 +14450,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.check_fn_value_effects(&effects, span);
         let callee = format!("`{}`", own.local);
         self.check_fn_value_args(&callee, &[lhs, rhs], &params, contract.as_deref(), Some(tys.to_vec()), span);
-        self.operator_returns(&got, ret, sym, member, &tys[0], &tys[1], span);
+        got
+    }
+
+    /// [op-equality] [op-order] [op-arith] [implicit-same-name] Several of the
+    /// enclosing fn's own implicits fit an operator's operands and none is
+    /// more specific: the operator cannot choose (R10 D21).
+    #[allow(clippy::too_many_arguments)]
+    fn operator_implicit_tie(&mut self, sym: &str, member: &str, lt: &Ty, rt: &Ty, tied: usize, shown: &[String], span: Span) {
+        self.error(
+            span,
+            format!(
+                "`{sym}` on `{lt}` is `{member}({lt}, {rt})`, and this function has {tied} \
+                 of them in scope ({}), and none is more specific: the operator cannot \
+                 choose, so call the one you mean [cmp-binder] [implicit-same-name]",
+                shown.join(", ")
+            ),
+        );
     }
 
     /// [op-equality] [op-order] What the operator's call returned must be what
@@ -14516,14 +14514,156 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [op-arith] Arithmetic operand typing (user decision 2026-09-14):
-    /// numeric operands only — `Str +` is refused toward `${}`
-    /// interpolation — with implicit widening *within* a class
-    /// (`Int + Long → Long`, `Float + Double → Double`; the narrower side
-    /// records a promotion [op-promote]) and an explicit-conversion error
-    /// *across* classes. The result is the promoted operand type.
-    /// `Unknown`/`Never` and unconstrained generics stay lenient
-    /// [type-unknown-lenient].
+    /// [op-arith] [op-pow] An arithmetic operator is **the call it names**
+    /// (OPERATOR_OVERLOAD.md O1, PIPELINE.md §3 R10): `a + b` is `plus(a, b)`,
+    /// `-` `minus`, `*` `times`, `/` `divide`, and `a ** b` is `pow(a, b)`,
+    /// resolved exactly as the written call is, as the comparisons are
+    /// (B3.3c): the enclosing fn's own implicit of the name first, by name as
+    /// the call sees it, ranked like overloads [implicit-same-name]; then the
+    /// visible fns and the available effects' members by `resolve_named_call`
+    /// with the operands pre-typed (R10 D3: a member competes, a tie is the
+    /// call's ambiguity). Under [unique-shape] a concrete type has one
+    /// candidate, declared in its own file — std's intrinsic ones for the
+    /// numeric scalars, in `std.core.basic`.
+    ///
+    /// * **The result is the call's return type** (D-3: any).
+    /// * **[op-promote] stays a lowering before the call** for `+ - * /`, as at
+    ///   a comparison (§II.10 P11): mixed numeric widths widen the narrower
+    ///   operand and the call is made at the wide type (`i + l` is
+    ///   `plus(widen(i), l)`); mixing the integer and float classes is refused
+    ///   before any call. **`**` widens nothing**: an exponent is not the same
+    ///   kind of operand as a base (`pow(Long, Int)`), so `a ** b` is
+    ///   `pow(a, b)` at the written types.
+    /// * `Unknown` and `Never` stay lenient [type-unknown-lenient], a known
+    ///   numeric side carrying the result; a **type variable no longer is**:
+    ///   at a generic `T`, `a + b` needs an enclosing `?plus` (the call's
+    ///   answer), as `<` needs a `?cmp`.
+    ///
+    /// Whether the backends spell the host's operator is read off the
+    /// selected declaration (`Ctx::is_primitive_operator`), never the operand
+    /// types [core-layers].
+    #[allow(clippy::too_many_arguments)]
+    fn check_arith_call(
+        &mut self,
+        op: ast::BinaryOp,
+        span: Span,
+        lhs: &'p Expr,
+        rhs: &'p Expr,
+        l: &Ty,
+        r: &Ty,
+    ) -> Ty {
+        let pow = matches!(op, ast::BinaryOp::Pow);
+        // [type-literal] A literal (or a union of them) computes as its base.
+        let (lw, rw) = (crate::literal::widen(l), crate::literal::widen(r));
+        let (lb, rb) = (lw.strip_quals().clone(), rw.strip_quals().clone());
+        let lenient = |t: &Ty| t.is_unknown() || matches!(t, Ty::Never);
+        if lenient(&lb) || lenient(&rb) {
+            // One mistake, one diagnostic: an unknown side neither errors nor
+            // widens — a known numeric side carries the result.
+            return match (op_numeric(&lb), op_numeric(&rb)) {
+                (Some(_), _) => lb,
+                (_, Some(_)) if !pow => rb,
+                _ => Ty::Unknown,
+            };
+        }
+        let sym = op_symbol(op);
+        let member = arith_member(op);
+        let (lt, rt) = match (op_numeric(&lb), op_numeric(&rb)) {
+            (Some((lf, lr)), Some((rf, rr))) if !pow => {
+                if lf != rf {
+                    self.error(
+                        span,
+                        format!(
+                            "`{sym}` cannot mix `{lw}` and `{rw}`: integer and \
+                             floating-point operands need an explicit conversion \
+                             (`to_double`, `to_long`, …)"
+                        ),
+                    );
+                    return Ty::Unknown;
+                }
+                match lr.cmp(&rr) {
+                    std::cmp::Ordering::Less => {
+                        self.record_promotion(lhs.span(), &rb);
+                        (rb.clone(), rw.clone())
+                    }
+                    std::cmp::Ordering::Greater => {
+                        self.record_promotion(rhs.span(), &lb);
+                        (lw.clone(), lb.clone())
+                    }
+                    std::cmp::Ordering::Equal => (lw.clone(), rw.clone()),
+                }
+            }
+            _ => (lw.clone(), rw.clone()),
+        };
+        let tys = vec![lt.clone(), rt.clone()];
+        // 1. [implicit-resolve-body] The enclosing fn's own implicit of the
+        // name, when the operands fit it.
+        let fits = |p: &ImplicitParam| match p.ty.strip_quals() {
+            Ty::Fn { params, .. } => params.len() == 2 && tys.iter().zip(params).all(|(a, q)| Self::arg_fits_fn_value(a, q)),
+            _ => p.ty.is_unknown(),
+        };
+        let named = |p: &ImplicitParam| p.name == member;
+        match self.pick_own_implicit_by(&named, &fits) {
+            Ok(Some(own)) => return self.operator_through_implicit(&own, lhs, rhs, &tys, span),
+            Ok(None) => {}
+            Err(tied) => {
+                let shown: Vec<String> =
+                    self.own_implicits.iter().filter(|p| named(p) && fits(p)).map(|p| format!("`{}`", p.local)).collect();
+                self.operator_implicit_tie(sym, member, &lt, &rt, tied.len(), &shown, span);
+                return Ty::Unknown;
+            }
+        }
+        // 2. The call: visible fns and the available effects' members.
+        let remedy = self.arith_remedy(op, &lt, &rt);
+        let saved = self.operator_site.replace(OperatorSite { sym, member, lhs: lt.clone(), rhs: rt.clone(), remedy });
+        self.pending_arg_tys = Some(tys);
+        let args: [&'p Expr; 2] = [lhs, rhs];
+        let got = self.resolve_named_call(member, span, &[], &args, &[], None, None, span);
+        self.pending_arg_tys = None;
+        self.operator_site = saved;
+        got
+    }
+
+    /// [op-arith] [op-pow] The remedy a refused arithmetic operator names,
+    /// by what the left operand is (D-2: the operator is on it).
+    fn arith_remedy(&self, op: ast::BinaryOp, l: &Ty, r: &Ty) -> String {
+        let member = arith_member(op);
+        let is = |t: &Ty, n: &str| matches!(t.strip_quals(), Ty::Named { name, .. } if name == n);
+        if matches!(op, ast::BinaryOp::Add) && (is(l, "Str") || is(r, "Str")) {
+            return " — `+` does not concatenate strings: build the text with interpolation \
+                    (`\"${a}${b}\"`)"
+                .to_string();
+        }
+        if is(l, "Byte") || is(r, "Byte") {
+            return " — a `Byte` is an octet, not a number: compute with `to_int` and come back \
+                    with `to_byte` [byte-value]"
+                .to_string();
+        }
+        if matches!(op, ast::BinaryOp::Pow) && op_numeric(l.strip_quals()).is_some() {
+            return " — std's `pow` takes `(Int, Int)`, `(Long, Int)`, `(Double, Int)` and \
+                    `(Double, Double)`: convert an operand (`to_int`, `to_double`) [op-pow]"
+                .to_string();
+        }
+        match l.strip_quals() {
+            Ty::Var(v) => format!(
+                " — nothing is knowable about `{v}` unless the signature asks: add `?{member}: \
+                 (a: {v}, b: {r}) -> {v}` to this function's parameters [implicit-forward]"
+            ),
+            Ty::Named { name, .. } if self.symbols.structs.contains_key(name.as_str()) => format!(
+                " — declare a `{member}` taking `({l}, {r})` in `{name}`'s own file [unique-shape]"
+            ),
+            _ => String::new(),
+        }
+    }
+
+    /// [op-arith] `%`'s operand typing, the one arithmetic operator that names
+    /// no function (PIPELINE.md §II.10 P16; `+ - * /` and `**` are
+    /// [`Checker::check_arith_call`]). Numeric operands only (user decision
+    /// 2026-09-14), with implicit widening *within* a class
+    /// (`Int % Long → Long`; the narrower side records a promotion
+    /// [op-promote]) and an explicit-conversion error *across* classes. The
+    /// result is the promoted operand type. `Unknown`/`Never` stay lenient
+    /// [type-unknown-lenient]; a type variable does not.
     fn check_arith(
         &mut self,
         op: ast::BinaryOp,
@@ -14570,18 +14710,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             _ => {
-                let is_str = |t: &Ty| matches!(t, Ty::Named { name, .. } if name == "Str");
-                let message = if matches!(op, ast::BinaryOp::Add) && (is_str(lb) || is_str(rb)) {
-                    "`+` does not concatenate strings: build the text with \
-                     interpolation (`\"${a}${b}\"`)"
-                        .to_string()
-                } else {
+                self.error(
+                    span,
                     format!(
                         "`{sym}` needs numeric operands (`Int`, `Long`, `Float`, \
                          `Double`); found `{l}` and `{r}`"
-                    )
-                };
-                self.error(span, message);
+                    ),
+                );
                 Ty::Unknown
             }
         }
@@ -25307,19 +25442,30 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Binary { op, lhs, rhs, .. } => {
                 use BinaryOp::*;
                 match op {
-                    Add | Sub | Mul | Div | Rem => {
+                    Add | Sub | Mul | Div | Rem | Pow => {
                         let l = self.check_expr(lhs, None);
                         let r = self.check_expr(rhs, None);
                         // [op-no-none] Arithmetic never operates on a
                         // possibly-absent value.
-                        self.reject_optional_operand(*op, lhs, &l);
-                        self.reject_optional_operand(*op, rhs, &r);
+                        let refused = self.reject_optional_operand(*op, lhs, &l);
+                        let refused = self.reject_optional_operand(*op, rhs, &r) || refused;
                         // [str-drop-mut] An operator works on plain values.
                         self.drop_mut_operand(lhs, &l);
                         self.drop_mut_operand(rhs, &r);
-                        // [op-arith] Numeric operands, widening within a
-                        // class, promoted result type.
-                        self.check_arith(*op, expr.span(), lhs, rhs, &l, &r)
+                        if matches!(op, Rem) {
+                            // [op-arith] `%` names no function (O1's table has
+                            // none): numeric operands, widening within a
+                            // class, promoted result type (PIPELINE.md §II.10
+                            // P16).
+                            self.check_arith(*op, expr.span(), lhs, rhs, &l, &r)
+                        } else if refused {
+                            // One mistake, one diagnostic: the call would only
+                            // repeat the refusal.
+                            Ty::Unknown
+                        } else {
+                            // [op-arith] [op-pow] The call the operator names.
+                            self.check_arith_call(*op, expr.span(), lhs, rhs, &l, &r)
+                        }
                     }
                     And | Or => {
                         // Value-position boolean: no narrowing propagation.
@@ -34126,6 +34272,7 @@ fn op_symbol(op: BinaryOp) -> &'static str {
         Mul => "*",
         Div => "/",
         Rem => "%",
+        Pow => "**",
         Eq => "==",
         NotEq => "!=",
         Lt => "<",
@@ -34134,6 +34281,20 @@ fn op_symbol(op: BinaryOp) -> &'static str {
         GtEq => ">=",
         And => "&&",
         Or => "||",
+    }
+}
+
+/// [op-arith] [op-pow] The function an arithmetic operator names (O1's
+/// table): `+` `plus`, `-` `minus`, `*` `times`, `/` `divide`, `**` `pow`.
+/// `%` names none (PIPELINE.md §II.10 P16).
+fn arith_member(op: BinaryOp) -> &'static str {
+    match op {
+        BinaryOp::Add => "plus",
+        BinaryOp::Sub => "minus",
+        BinaryOp::Mul => "times",
+        BinaryOp::Div => "divide",
+        BinaryOp::Pow => "pow",
+        _ => unreachable!("not an arithmetic operator with a name"),
     }
 }
 
@@ -34163,11 +34324,14 @@ fn op_numeric(ty: &Ty) -> Option<(bool, u8)> {
 }
 
 /// [op-arith] Operands the operator rules stay silent about: a type the
-/// checker could not infer [type-unknown-lenient], a diverging expression,
-/// and an unconstrained generic parameter (whose leniency here is a
-/// documented leftover, matching the equality slice).
+/// checker could not infer [type-unknown-lenient] and a diverging expression.
+/// An unconstrained generic parameter is **not** lenient (B3.3e): nothing is
+/// knowable about a `T` [implicit-forward], and a `%`, unary `-` or `&&` on
+/// one passed the checker and was refused by both target compilers
+/// [backend-never-wrong]; `+ - * /` and `**` on a `T` are their calls, which
+/// need an enclosing implicit.
 fn op_lenient(ty: &Ty) -> bool {
-    ty.is_unknown() || matches!(ty, Ty::Never | Ty::Var(_))
+    ty.is_unknown() || matches!(ty, Ty::Never)
 }
 
 /// [lit-adopt] The numeric type an **unsuffixed** literal adopts from its

@@ -6502,6 +6502,115 @@ fn kotlinc_compiles_and_runs_a_for_as_the_calls_it_names() -> KotlinCase {
     kotlin_case(files, "for-calls", FOR_CALLS_OUTPUT)
 }
 
+/// [op-arith] [op-pow] [op-promote] [unique-shape] [implicit-resolve-body]
+/// Arithmetic operators are the calls they name (B3.3e, O1): `+ - * /` on a
+/// type of your own call its `plus`, `minus`, `times`, `divide`, declared in
+/// its file; the enclosing `?plus` takes `+` at an `Int` (R10 D1) and at a
+/// generic `T`, where the caller fills it with std's intrinsic or `V`'s; an
+/// available effect's member `times` takes `*` (R10 D3); mixed widths widen
+/// first; `**` on `Int`, `Long`, `Double` (by an `Int` and a `Double`) and on
+/// the brief's `Person`, with its precedence (`-2 ** 2`, `2 ** 3 ** 2`); and
+/// integer arithmetic wraps [op-wrap], `**` included.
+const ARITH_CALLS_DEMO: &str = r#"
+struct V {
+    x: Int,
+    y: Int
+}
+
+fn plus(a: V, b: V) [] -> V => a, b {
+    return V { x: a.x + b.x, y: a.y + b.y }
+}
+
+fn minus(a: V, b: V) [] -> V => a, b {
+    return V { x: a.x - b.x, y: a.y - b.y }
+}
+
+fn times(a: V, k: Int) [] -> V => a {
+    return V { x: a.x * k, y: a.y * k }
+}
+
+fn divide(a: V, k: Int) [] -> V => a {
+    return V { x: a.x / k, y: a.y / k }
+}
+
+fn show(v: V) [] -> Str => v {
+    return "(${v.x}, ${v.y})"
+}
+
+// The brief's `Person`: `**` is the `pow` in its body [fn-attached].
+struct Person {
+    name: Str,
+    age: Int
+
+    fn pow(p: Person, power: Int) [] -> Person => p {
+        return Person { name: copy(p.name), age: p.age ** power }
+    }
+}
+
+// R10 D3: the available effect's member is the `times` the operator calls.
+struct M {
+    k: Int
+}
+
+effect Scale {
+    fn times(a: M, b: M) -> M => a, b
+}
+
+handler Doubling of Scale {
+    fn times(a: M, b: M) -> M {
+        return M { k: a.k * b.k * 2 }
+    }
+}
+
+fn scaled(a: M, b: M) [Scale] -> Int => a, b {
+    let m = a * b
+    return m.k
+}
+
+// R10 D1: the enclosing `?plus` takes `+` on `Int`s, as it takes the call.
+fn add_with(a: Int, b: Int, ?plus: (x: Int, y: Int) -> Int) [] -> Int => a, b {
+    return a + b
+}
+
+fn digits(x: Int, y: Int) [] -> Int => x, y {
+    return x * 10 + y
+}
+
+// At a generic `T`, `+` is the `?plus` the caller fills.
+fn sum3<T>(a: T, b: T, c: T, ?plus: (x: T, y: T) -> T) [] -> T => a, b, c {
+    return a + b + c
+}
+
+fn main() [use] {
+    use StdConsole()
+    let a = V { x: 1, y: 2 }
+    let b = V { x: 3, y: 4 }
+    println("${show(a + b)} ${show(b - a)} ${show(a * 3)} ${show((a + b) / 2)}")
+    println("${add_with(1, 2, plus = digits)} ${add_with(1, 2)} ${sum3(1, 2, 3)} ${show(sum3(a, b, a))}")
+    use Doubling()
+    println("${scaled(M { k: 3 }, M { k: 4 })}")
+    let i = 7
+    let l = 3000000000L
+    println("${i + l} ${l - i} ${-7 / 2} ${2.5 * 2.0} ${1.0f + 0.5f}")
+    println("${2 ** 10} ${-2 ** 2} ${2 ** 3 ** 2} ${1 + 2 * 3 ** 2} ${3L ** 3} ${2L ** 40}")
+    println("${2.0 ** 3} ${2.0 ** -2} ${2.0 ** 0.5} ${9.0 ** 0.5}")
+    let p = Person { name: "Ann", age: 3 }
+    let q = p ** 2
+    println("${q.name} ${q.age}")
+    println("${2147483647 + 1} ${2 ** 31} ${3 ** 40} ${-2147483647 - 2}")
+}
+"#;
+
+const ARITH_CALLS_OUTPUT: &str = "(4, 6) (2, 2) (3, 6) (2, 3)\n12 3 6 (5, 8)\n24\n3000000007 2999999993 -3 5.0 1.5\n1024 -4 512 19 27 1099511627776\n8.0 0.25 1.4142135623730951 3.0\nAnn 9\n-2147483648 -2147483648 689956897 2147483647\n";
+
+fn kotlinc_compiles_and_runs_arithmetic_as_the_calls_it_names() -> KotlinCase {
+    let program = build_program(&[("main.sv", ARITH_CALLS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "arith-calls", ARITH_CALLS_OUTPUT)
+}
+
 /// [fn-value-select] [fn-overload-scope] A function passed by name is chosen
 /// as a call chooses (user decision 2026-10-14, ROADMAP 0w): an imported
 /// `tag(Int)` is more specific than this module's `tag<T>`, by name as at
@@ -6568,6 +6677,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_implicits_selected_as_calls_select,
     kotlinc_compiles_and_runs_comparisons_as_the_calls_they_name,
     kotlinc_compiles_and_runs_a_for_as_the_calls_it_names,
+    kotlinc_compiles_and_runs_arithmetic_as_the_calls_it_names,
     kotlinc_compiles_and_runs_safe_navigation,
     kotlinc_compiles_and_runs_a_copy_of_a_pick_over_a_temporary,
     kotlinc_compiles_and_runs_when_binding,

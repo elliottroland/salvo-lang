@@ -10,7 +10,7 @@ describe_container(List<Int>) -> None@main
   16:5    `for n in xs {…`               None
   16:9    `n`                            Int
   16:14   `xs`                           List<Int>
-  17:15   `sum + n`                      Int
+  17:15   `sum + n`                      Int  -> std.core.basic::plus(Int, Int)
   17:15   `sum`                          Int
   17:21   `n`                            Int
   19:5    `println("1. list of ${size…`  None  -> std.core.console::println
@@ -40,7 +40,7 @@ describe_container(List<Int>) -> None@main
   29:5    `for n in arr {…`              None
   29:9    `n`                            Int
   29:14   `arr`                          Int[]
-  30:22   `from_array + n`               Int
+  30:22   `from_array + n`               Int  -> std.core.basic::plus(Int, Int)
   30:22   `from_array`                   Int
   30:35   `n`                            Int
   32:5    `println("1. array sums to …`  None  -> std.core.console::println
@@ -66,7 +66,7 @@ next(Mut Countdown) -> Emitted Int | Finished@main
   58:20   `p`                            Mut Countdown
   59:5    `p.at`                         Int
   59:5    `p`                            Mut Countdown
-  59:12   `p.at - 1`                     Int
+  59:12   `p.at - 1`                     Int  -> std.core.basic::minus(Int, Int)
   59:12   `p.at`                         Int
   59:12   `p`                            Mut Countdown
   59:19   `1`                            Int
@@ -88,7 +88,7 @@ skip(Mut Countdown) -> Emitted Int | Finished@main
   70:20   `p`                            Mut Countdown
   71:5    `p.at`                         Int
   71:5    `p`                            Mut Countdown
-  71:12   `p.at - 2`                     Int
+  71:12   `p.at - 2`                     Int  -> std.core.basic::minus(Int, Int)
   71:12   `p.at`                         Int
   71:12   `p`                            Mut Countdown
   71:19   `2`                            Int
@@ -106,7 +106,7 @@ take(Mut Countdown, Int) -> None@main
   80:9    `println("2. got ${n}")`       None  -> std.core.console::println
   80:17   `"2. got ${n}"`                Str
   80:27   `n`                            Int
-  81:16   `seen + 1`                     Int
+  81:16   `seen + 1`                     Int  -> std.core.basic::plus(Int, Int)
   81:16   `seen`                         Int
   81:23   `1`                            Int
   82:9    `if seen == count {…`          None
@@ -133,7 +133,7 @@ next(Mut Halving) -> Emitted Int | Finished@main
   106:15  `copy(at)`                     Int  -> std.core.basic::copy
   106:20  `at`                           Int
   107:5   `at`                           Int
-  107:10  `at / 2`                       Int
+  107:10  `at / 2`                       Int  -> std.core.basic::divide(Int, Int)
   107:10  `at`                           Int
   107:15  `2`                            Int
   108:5   `return emitted(now)`          Never
@@ -163,7 +163,7 @@ next(Mut BagIter) -> Emitted Int | Finished@main
   132:9   `return finished()`            Never
   132:16  `finished()`                   Finished  -> std.core.iterator::finished  [coerced]
   134:5   `at`                           Int
-  134:10  `at + 1`                       Int
+  134:10  `at + 1`                       Int  -> std.core.basic::plus(Int, Int)
   134:10  `at`                           Int
   134:15  `1`                            Int
   135:5   `return emitted(copy(e))`      Never
@@ -193,7 +193,7 @@ next(Mut Fibs) -> Emitted Int | Finished@main
   152:15  `copy(a)`                      Int  -> std.core.basic::copy
   152:20  `a`                            Int
   153:9   `sum`                          Int
-  153:15  `a + b`                        Int
+  153:15  `a + b`                        Int  -> std.core.basic::plus(Int, Int)
   153:15  `a`                            Int
   153:19  `b`                            Int
   154:5   `a`                            Int
@@ -203,7 +203,7 @@ next(Mut Fibs) -> Emitted Int | Finished@main
   155:9   `copy(sum)`                    Int  -> std.core.basic::copy
   155:14  `sum`                          Int
   156:5   `made`                         Int
-  156:12  `made + 1`                     Int
+  156:12  `made + 1`                     Int  -> std.core.basic::plus(Int, Int)
   156:12  `made`                         Int
   156:19  `1`                            Int
   157:5   `return emitted(now)`          Never
@@ -222,7 +222,7 @@ next(Mut Naturals) -> Emitted Int | Finished@main
   166:15  `copy(at)`                     Int  -> std.core.basic::copy
   166:20  `at`                           Int
   167:5   `at`                           Int
-  167:10  `at + 1`                       Int
+  167:10  `at + 1`                       Int  -> std.core.basic::plus(Int, Int)
   167:10  `at`                           Int
   167:15  `1`                            Int
   168:5   `return emitted(now)`          Never
@@ -235,7 +235,7 @@ sum_of(Mut #0) -> Int@main
   179:5   `for n in it {…`               None
   179:9   `n`                            Int
   179:14  `it`                           Mut It
-  180:17  `total + n`                    Int
+  180:17  `total + n`                    Int  -> std.core.basic::plus(Int, Int)
   180:17  `total`                        Int
   180:25  `n`                            Int
   182:5   `return total`                 Never
@@ -247,7 +247,7 @@ total(#0) -> Int@main
   190:5   `for n in c {…`                None
   190:9   `n`                            Int
   190:14  `c`                            C
-  191:17  `total + n`                    Int
+  191:17  `total + n`                    Int  -> std.core.basic::plus(Int, Int)
   191:17  `total`                        Int
   191:25  `n`                            Int
   193:5   `return total`                 Never
@@ -350,7 +350,7 @@ main() -> None@main
   258:23  `xs`                           NonEmpty List<Int>
   258:27  `n -> n * 2`                   (Int) -> Int
   258:27  `n`                            Int
-  258:32  `n * 2`                        Int
+  258:32  `n * 2`                        Int  -> std.core.basic::times(Int, Int)
   258:32  `n`                            Int
   258:36  `2`                            Int
   259:9   `odd`                          Mut List<Int>
@@ -370,7 +370,7 @@ main() -> None@main
   260:31  `(acc, n) -> acc + n`          (Int, Int) -> Int
   260:32  `acc`                          Int
   260:37  `n`                            Int
-  260:43  `acc + n`                      Int
+  260:43  `acc + n`                      Int  -> std.core.basic::plus(Int, Int)
   260:43  `acc`                          Int
   260:49  `n`                            Int
   261:5   `println("5. list: ${size(d…`  None  -> std.core.console::println
@@ -402,7 +402,7 @@ main() -> None@main
   265:53  `(acc, n) -> acc + n`          (Int, Int) -> Int
   265:54  `acc`                          Int
   265:59  `n`                            Int
-  265:65  `acc + n`                      Int
+  265:65  `acc + n`                      Int  -> std.core.basic::plus(Int, Int)
   265:65  `acc`                          Int
   265:71  `n`                            Int
   269:9   `word`                         Str
@@ -433,7 +433,7 @@ main() -> None@main
   274:56  `(acc, n) -> acc + n`          (Int, Int) -> Int
   274:57  `acc`                          Int
   274:62  `n`                            Int
-  274:68  `acc + n`                      Int
+  274:68  `acc + n`                      Int  -> std.core.basic::plus(Int, Int)
   274:68  `acc`                          Int
   274:74  `n`                            Int
   281:9   `collected`                    Mut List<Int>
@@ -443,7 +443,7 @@ main() -> None@main
   281:55  `3`                            Int
   281:59  `(n: Int) -> n * 10`           (Int) -> Int
   281:60  `n`                            Int
-  281:71  `n * 10`                       Int
+  281:71  `n * 10`                       Int  -> std.core.basic::times(Int, Int)
   281:71  `n`                            Int
   281:75  `10`                           Int
   282:5   `println("6. collected ${si…`  None  -> std.core.console::println

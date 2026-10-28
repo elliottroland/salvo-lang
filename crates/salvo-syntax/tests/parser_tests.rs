@@ -3462,6 +3462,50 @@ fn subtraction_is_left_associative() {
     assert_eq!(bin(lhs).0, BinaryOp::Sub);
 }
 
+/// [op-pow] `**` binds tighter than `*` and is right-associative: `a * b ** c`
+/// is `a * (b ** c)`, `a ** b ** c` is `a ** (b ** c)`, and `a ** b * c` is
+/// `(a ** b) * c`.
+#[test]
+fn power_is_tighter_than_multiplication_and_right_associative() {
+    let e = parse_expr_stmt("a * b ** c");
+    let (op, _lhs, rhs) = bin(&e);
+    assert_eq!(op, BinaryOp::Mul);
+    assert_eq!(bin(rhs).0, BinaryOp::Pow);
+
+    let e = parse_expr_stmt("a ** b ** c");
+    let (op, lhs, rhs) = bin(&e);
+    assert_eq!(op, BinaryOp::Pow);
+    assert!(matches!(lhs, Expr::Ident(_)), "the base is `a`: {lhs:?}");
+    assert_eq!(bin(rhs).0, BinaryOp::Pow, "the exponent is `b ** c`");
+
+    let e = parse_expr_stmt("a ** b * c");
+    let (op, lhs, _rhs) = bin(&e);
+    assert_eq!(op, BinaryOp::Mul);
+    assert_eq!(bin(lhs).0, BinaryOp::Pow);
+}
+
+/// [op-pow] `**` binds tighter than a prefix operator on its left, and its
+/// exponent may be one: `-a ** b` is `-(a ** b)`, `2 ** -1` is `2 ** (-1)`,
+/// and `f(x).y ** 2` takes the whole postfix chain as the base.
+#[test]
+fn power_binds_tighter_than_unary_minus() {
+    let e = parse_expr_stmt("-a ** b");
+    let Expr::Unary { op: UnaryOp::Neg, operand, .. } = &e else {
+        panic!("expected a negation, got {e:?}");
+    };
+    assert_eq!(bin(operand).0, BinaryOp::Pow);
+
+    let e = parse_expr_stmt("2 ** -1");
+    let (op, _lhs, rhs) = bin(&e);
+    assert_eq!(op, BinaryOp::Pow);
+    assert!(matches!(rhs, Expr::Unary { op: UnaryOp::Neg, .. }), "the exponent is `-1`: {rhs:?}");
+
+    let e = parse_expr_stmt("f(x).y ** 2");
+    let (op, lhs, _rhs) = bin(&e);
+    assert_eq!(op, BinaryOp::Pow);
+    assert!(matches!(lhs, Expr::Field { .. }), "the base is `f(x).y`: {lhs:?}");
+}
+
 /// Elvis sits tighter than comparison, looser than additive:
 /// `m ?: 0 > 3` is `(m ?: 0) > 3`, and `a ?: b + 1` is `a ?: (b + 1)`.
 #[test]

@@ -14,13 +14,32 @@ Salvo has the following basic data types, similar to the JVM:
 * `Char`: a character, equivalent to `Char` in Kotlin and `char` in Rust.
 * `None`: a singleton type, used to represent expressions with no response.
 
-Of these, `Byte`, `Int`, `Long`, `Float`, `Double`, `Bool` and `Char` are the **basic types**: scalars whose operators are the host language's own (a comparison is the call it names, `eq(a, b)` or `cmp(a, b)`, and std's are the host's operators; see [Comparison, equality and hashing](Comparison-and-Hashing.md#what-an-operator-calls)). `Bytes`, `None` and `Str` (below) are not, so every operation on them is a function call.
+Of these, `Byte`, `Int`, `Long`, `Float`, `Double`, `Bool` and `Char` are the **basic types**: scalars whose operators are the host language's own (an operator is the call it names — `eq(a, b)`, `cmp(a, b)`, `plus(a, b)` — and std's are the host's operators; see [Comparison, equality and hashing](Comparison-and-Hashing.md#what-an-operator-calls)). `Bytes`, `None` and `Str` (below) are not, so every operation on them is a function call.
 
-All numbers include the usual arithmetic operations, on **numeric operands only**: `+`, `-`, `*`, `/` and `%` work on `Int`, `Long`, `Float` and `Double` (and unary `-` on the same). `/` between integers is integer division on every backend. `+` does not concatenate strings — `${}` interpolation is how text is built — and `&&`, `||` and `!` take `Bool` operands only: Salvo has no truthiness in value position any more than in conditions. Ordering (`<`, `<=`, `>`, `>=`) and equality (`==`, `!=`) are **capabilities**, not built-in operations: `a < b` means `cmp(a, b) < 0` and `a == b` means `eq(a, b)`, so they work wherever those functions exist. Numbers, and the other intrinsic types, come with theirs (see [Comparison, equality and hashing](Comparison-and-Hashing.md)).
+### Arithmetic
 
-`x += e` and its three siblings (`-=`, `*=`, `/=`) are shorthand for `x = x + e`, so they follow the same operand rules — `+=` on a `Str` is refused like `+` is — and they are statements rather than expressions, so they do not chain. `x++` and `x--` remain for a step of one, where the value of the expression matters. An assignment's left side must be a *place*: a variable, a field path, or a subscript.
+All numbers include the usual arithmetic operations: `+`, `-`, `*`, `/`, `%` and `**` work on `Int`, `Long`, `Float` and `Double` (and unary `-` on the same; `**` as below). `/` between integers is integer division on every backend. `+` does not concatenate strings — `${}` interpolation is how text is built — and `&&`, `||` and `!` take `Bool` operands only: Salvo has no truthiness in value position any more than in conditions.
 
-Mixed widths widen implicitly **within** a class: `Int + Long` computes at `Long`, `Float < Double` compares at `Double` — the compiler records the promotion and each backend renders it its own way. A comparison widens before it calls its `cmp` or `eq`, so `i < l` compares at `Long`. Mixing the integer and float classes never happens implicitly: `1 + 2.5` is a type error naming the explicit conversions — `to_int`, `to_long`, `to_float` and `to_double`, declared in `std.core.basic` for every source width, truncating toward zero and saturating at the target's bounds identically on both backends (`to_int(Long)` keeps the low 32 bits).
+Like ordering and equality, the arithmetic operators are **the calls they name**: `a + b` is `plus(a, b)`, `a - b` is `minus(a, b)`, `a * b` is `times(a, b)`, `a / b` is `divide(a, b)` and `a ** b` is `pow(a, b)`, chosen exactly as the written call would be. The numbers' functions are std's, declared beside the types, and the backends write the host's own operator for them. A type of your own gets an operator by declaring the function **in its own file** — any right operand, any result:
+
+```
+struct V { x: Int, y: Int }
+
+fn plus(a: V, b: V) -> V { return V { x: a.x + b.x, y: a.y + b.y } }
+fn times(a: V, k: Int) -> V { return V { x: a.x * k, y: a.y * k } }
+
+let w = (a + b) * 3
+```
+
+An implicit of the function you are in comes first, as for every call: inside `fn total<T>(a: T, b: T, ?plus: (a: T, b: T) -> T)`, `a + b` is that `?plus` — the only way generic code can add, and the error at a `T` without one says to ask for it. An available effect's member `plus` is a candidate like a function. Ordering (`<`, `<=`, `>`, `>=`) and equality (`==`, `!=`) work the same way: `a < b` means `cmp(a, b) < 0` and `a == b` means `eq(a, b)` (see [Comparison, equality and hashing](Comparison-and-Hashing.md)).
+
+`%`, unary `-` and `++`/`--` name no function: they work on the numbers alone.
+
+**`**` is the power operator.** It binds tighter than `*` and than a `-` on its left, and it is right-associative: `-2 ** 2` is `-4`, `2 ** 3 ** 2` is `2 ** 9`, and the exponent may be negative (`2.0 ** -1`). Nothing is widened, since an exponent is not a base: std has `Int ** Int`, `Long ** Int`, `Double ** Int` and `Double ** Double`. An integer power wraps like the rest of integer arithmetic, and a negative integer exponent is an error at run time, as a division by zero is; `Double ** Int` is computed by repeated multiplication, identically on every backend, and `Double ** Double` is the host's `pow`.
+
+`x += e` and its three siblings (`-=`, `*=`, `/=`) are shorthand for `x = x + e`, so they follow the same operand rules — `+=` on a `Str` is refused like `+` is, and `v += w` on a type with a `plus` calls it — and they are statements rather than expressions, so they do not chain. `x++` and `x--` remain for a step of one, where the value of the expression matters. An assignment's left side must be a *place*: a variable, a field path, or a subscript.
+
+Mixed widths widen implicitly **within** a class: `Int + Long` computes at `Long`, `Float < Double` compares at `Double` — the compiler records the promotion and each backend renders it its own way. An operator widens before it calls its function, so `i + l` is `plus` at `Long` and `i < l` compares at `Long`. Mixing the integer and float classes never happens implicitly: `1 + 2.5` is a type error naming the explicit conversions — `to_int`, `to_long`, `to_float` and `to_double`, declared in `std.core.basic` for every source width, truncating toward zero and saturating at the target's bounds identically on both backends (`to_int(Long)` keeps the low 32 bits).
 
 ```
 let count = 42          // Int, the default for a whole number
@@ -41,7 +60,7 @@ is `1234567.0` and `${12345678.0}` is `1.2345678E7`, with `NaN`, `Infinity` and
 `-Infinity` for the specials. That holds wherever a float becomes text: on its
 own, inside a list or a map value, and as a struct field.
 
-Integer arithmetic **wraps** on overflow: `Int` and `Long` `+`, `-`, `*`, unary `-` and `++`/`--` keep the low 32 or 64 bits, the same on both backends, so `2147483647 + 1` is `-2147483648`. Bitwise operations are functions rather than operators, since `&`, `|`, `^` and `>>` already mean other things in the grammar: `bit_and`, `bit_or`, `bit_xor`, `bit_not`, `bit_shl`, `bit_shr` (keeps the sign) and `bit_ushr` (fills with zeros), each for `Int` and `Long`. A shift count is taken modulo the width, so `bit_shl(1, 33)` is `2`.
+Integer arithmetic **wraps** on overflow: `Int` and `Long` `+`, `-`, `*`, `**`, unary `-` and `++`/`--` keep the low 32 or 64 bits, the same on both backends, so `2147483647 + 1` is `-2147483648`. Bitwise operations are functions rather than operators, since `&`, `|`, `^` and `>>` already mean other things in the grammar: `bit_and`, `bit_or`, `bit_xor`, `bit_not`, `bit_shl`, `bit_shr` (keeps the sign) and `bit_ushr` (fills with zeros), each for `Int` and `Long`. A shift count is taken modulo the width, so `bit_shl(1, 33)` is `2`.
 
 Numeric literals default to `Int` and `Double`: `1` is an `Int` and `1.2` is a `Double`. Suffixes select the other widths: `1L` is a `Long`, and `1.2f` is a `Float` (the `f` suffix requires a decimal point — write `1.0f`, not `1f`). Underscores may separate digits (`1_000_000L`). An **unsuffixed** literal also *adopts* the numeric type its position expects — `let x: Long = 1`, `let d: Double = 3` and passing `1` to a `Long` parameter all work, and `x + 1` needs no `1L` because the operator widening covers it. Adoption is for literals only: an `Int` *variable* never becomes a `Long` implicitly — write `to_long(n)`.
 

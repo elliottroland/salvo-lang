@@ -31,6 +31,11 @@ export effect Console {
     "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
     "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+    // [op-arith] [op-pow] What the arithmetic operators call.
+    "export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn minus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn times(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
 /// The design's own motivating handler: `Random` backed by state that lives

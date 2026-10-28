@@ -7,9 +7,11 @@
 //!
 //! Ordering and equality moved on 2026-09-21: they resolve through the
 //! capability groups [op-order] [op-equality], so `<` is `cmp(a, b) < 0` and
-//! what may be compared is "whatever has the function". Numerics keep the
-//! native fast path, which is what these tests cover; the capability half lives
-//! in `compare_tests.rs`.
+//! what may be compared is "whatever has the function"; the capability half
+//! lives in `compare_tests.rs`. Arithmetic followed on 2026-10-28 (B3.3e):
+//! `+ - * /` are the calls `plus`, `minus`, `times`, `divide` [op-arith] and
+//! `**` is `pow` [op-pow], which the second half of this file covers; a
+//! number's are std's intrinsics, which the prelude below models.
 
 use std::path::Path;
 
@@ -41,6 +43,28 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
     "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
+    // [op-arith] [op-pow] What the arithmetic operators call.
+    "export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn plus(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn plus(a: Float, b: Float) [] -> Float => a, b\n",
+    "export intrinsic fn plus(a: Double, b: Double) [] -> Double => a, b\n",
+    "export intrinsic fn minus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn minus(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn minus(a: Float, b: Float) [] -> Float => a, b\n",
+    "export intrinsic fn minus(a: Double, b: Double) [] -> Double => a, b\n",
+    "export intrinsic fn times(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn times(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn times(a: Float, b: Float) [] -> Float => a, b\n",
+    "export intrinsic fn times(a: Double, b: Double) [] -> Double => a, b\n",
+    "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn divide(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn divide(a: Float, b: Float) [] -> Float => a, b\n",
+    "export intrinsic fn divide(a: Double, b: Double) [] -> Double => a, b\n",
+    // [op-pow] What `**` calls, as std declares it.
+    "export intrinsic fn pow(base: Int, exponent: Int) [] -> Int => base, exponent\n",
+    "export intrinsic fn pow(base: Long, exponent: Int) [] -> Long => base, exponent\n",
+    "export intrinsic fn pow(base: Double, exponent: Int) [] -> Double => base, exponent\n",
+    "export intrinsic fn pow(base: Double, exponent: Double) [] -> Double => base, exponent\n",
 );
 
 fn checked(src: &str) -> salvo_core::Checked {
@@ -171,13 +195,15 @@ fn non_numeric_arithmetic_is_refused() {
         msgs[0].contains("does not concatenate strings") && msgs[0].contains("${"),
         "{msgs:?}"
     );
+    // [op-arith] The operator is the call it names: a missing function is
+    // said of the operator.
     let msgs = messages(&body("    let a = true * false"));
     assert!(
-        msgs[0].contains("needs numeric operands") && msgs[0].contains("`Bool`"),
+        msgs[0].contains("no `times` for `*` on `Bool`: `*` is `times(Bool, Bool)`"),
         "{msgs:?}"
     );
     let msgs = messages(&body("    let a = 1 - \"y\""));
-    assert!(msgs[0].contains("needs numeric operands"), "{msgs:?}");
+    assert!(msgs[0].contains("no `minus` for `-` on `Int` and `Str`"), "{msgs:?}");
 }
 
 /// [byte-value] [op-arith] A `Byte` is not a number to the operators, and
@@ -186,7 +212,7 @@ fn non_numeric_arithmetic_is_refused() {
 #[test]
 fn bytes_compute_through_int() {
     let msgs = messages(&body("    let b = to_byte(1)\n    let a = b + b"));
-    assert!(msgs[0].contains("needs numeric operands"), "{msgs:?}");
+    assert!(msgs[0].contains("no `plus` for `+` on `Byte`") && msgs[0].contains("`to_int`"), "{msgs:?}");
     assert_ok(&body(
         "    let b = to_byte(200)\n    let n = to_int(b) + 1\n    let c = to_byte(n)",
     ));
@@ -194,6 +220,197 @@ fn bytes_compute_through_int() {
     assert_ok(&body(
         "    let b = to_byte(10)\n    let same = b == to_byte(10)",
     ));
+}
+
+// ===== arithmetic operators are calls [op-arith] [op-pow] (B3.3e) =====
+
+/// The display of every declaration a call at some node went to.
+fn callees(out: &salvo_core::Checked) -> Vec<String> {
+    let mut v: Vec<String> = out.call_fn.values().map(|k| k.to_string()).collect();
+    v.sort();
+    v
+}
+
+/// [op-arith] [unique-shape] `+ - * /` on a type of your own are its `plus`,
+/// `minus`, `times` and `divide`, declared in its file (O1, D-3: any return
+/// type, any right operand), resolved as the written calls are.
+#[test]
+fn arithmetic_on_a_user_type_calls_its_functions() {
+    let out = checked(
+        r#"
+struct V {
+    x: Int
+}
+
+struct Scaled {
+    v: V
+}
+
+fn plus(a: V, b: V) -> V {
+    return V { x: a.x + b.x }
+}
+
+fn minus(a: V, b: V) -> V {
+    return V { x: a.x - b.x }
+}
+
+fn times(a: V, k: Int) -> Scaled {
+    return Scaled { v: V { x: a.x * k } }
+}
+
+fn divide(a: V, k: Int) -> V {
+    return V { x: a.x / k }
+}
+
+fn probe(a: V, b: V) -> Scaled {
+    let d = (a + b - a) / 2
+    return d * 3
+}
+"#,
+    );
+    let errs: Vec<_> = out.errors.iter().filter(|d| d.is_error()).collect();
+    assert!(errs.is_empty(), "{errs:?}");
+    let shown = callees(&out);
+    for want in ["plus(V, V) -> V@main", "minus(V, V) -> V@main", "times(V, Int) -> Scaled@main", "divide(V, Int) -> V@main"] {
+        assert!(shown.iter().any(|s| s == want), "{want} among {shown:?}");
+    }
+    // A scalar's operator went to std's intrinsic.
+    assert!(shown.iter().any(|s| s.starts_with("plus(Int, Int)")), "{shown:?}");
+}
+
+/// [op-arith] A missing function is said of the operator, with the remedy:
+/// declare it in the type's own file [unique-shape].
+#[test]
+fn a_missing_arithmetic_function_names_the_operator() {
+    let msgs = messages(
+        "struct V {\n    x: Int\n}\n\nfn plus(a: V, b: V) -> V {\n    return V { x: a.x + b.x }\n}\n\n\
+         fn probe(a: V) -> V {\n    return a + 1\n}\n",
+    );
+    assert_eq!(msgs.len(), 1, "{msgs:?}");
+    assert!(
+        msgs[0].starts_with("no `plus` for `+` on `V` and `Int`: `+` is `plus(V, Int)`, and no `plus` in scope takes `(V, Int)`")
+            && msgs[0].contains("in `V`'s own file"),
+        "{msgs:?}"
+    );
+}
+
+/// [op-arith] [implicit-resolve-body] The enclosing fn's own `?plus` takes
+/// `+`, at a scalar too (R10 D1), as it takes the call `plus(a, b)`; at a
+/// generic `T` it is the only way to add, and its absence is refused naming
+/// it [implicit-forward].
+#[test]
+fn an_enclosing_plus_takes_the_operator() {
+    let out = checked(
+        "fn add(a: Int, b: Int, ?plus: (x: Int, y: Int) -> Int) -> Int {\n    return a + b\n}\n\n\
+         fn twice<T>(a: T, ?plus: (x: T, y: T) -> T) -> T {\n    return a + a\n}\n\n\
+         fn probe() -> Int {\n    return add(1, 2) + twice(3)\n}\n",
+    );
+    let errs: Vec<_> = out.errors.iter().filter(|d| d.is_error()).collect();
+    assert!(errs.is_empty(), "{errs:?}");
+    assert_eq!(out.local_calls.len(), 2, "both bodies' `+` go through their `?plus`");
+    let msgs = messages("fn twice<T>(a: T) -> T {\n    return a + a\n}\n");
+    assert!(
+        msgs.len() == 1 && msgs[0].starts_with("no `plus` for `+` on `T`") && msgs[0].contains("`?plus: (a: T, b: T) -> T`"),
+        "{msgs:?}"
+    );
+}
+
+/// [op-arith] [effect-member-overload] R10 D3: an available effect's member
+/// `times` takes `*`; beside a fn of its signature the operator is the
+/// call's ambiguity, said of the operator.
+#[test]
+fn a_member_times_takes_the_operator_and_ties_with_a_fn() {
+    let src = r#"
+struct V {
+    x: Int
+}
+
+effect Scale {
+    fn times(a: V, b: V) -> V => a, b
+}
+
+fn probe(a: V, b: V) [Scale] -> V {
+    return a * b
+}
+"#;
+    let out = checked(src);
+    let errs: Vec<_> = out.errors.iter().filter(|d| d.is_error()).collect();
+    assert!(errs.is_empty(), "{errs:?}");
+    assert_eq!(out.member_calls.len(), 1, "`a * b` is a call of the member");
+    let tied = format!(
+        "{src}\nfn times(a: V, b: V) -> V {{\n    return V {{ x: a.x * b.x }}\n}}\n\nfn call(a: V, b: V) [Scale] -> V {{\n    return times(a, b)\n}}\n"
+    );
+    let msgs = messages(&tied);
+    assert_eq!(msgs.len(), 2, "the operator and the call, once each: {msgs:?}");
+    assert!(msgs[0].starts_with("`*` on `V` is `times(V, V)`: "), "{msgs:?}");
+    assert_eq!(msgs[0].trim_start_matches("`*` on `V` is `times(V, V)`: "), msgs[1], "the operator says what the call says");
+}
+
+/// [op-pow] `**` is `pow(a, b)` at the written types: std's `Int ** Int`,
+/// `Long ** Int`, `Double ** Int` and `Double ** Double`, each typed by its
+/// result; nothing widens, so `Long ** Long` and a `Float` base are refused
+/// naming what std declares.
+#[test]
+fn power_on_the_numeric_scalars() {
+    let out = checked(&body(
+        "    let a: Int = 2 ** 10\n    let b: Long = 3L ** 2\n    let c: Double = 2.0 ** 3\n    \
+         let d: Double = 2.0 ** 0.5\n    let e: Int = -2 ** 2 ** 3\n    let f: Double = 2.0 ** -1",
+    ));
+    let errs: Vec<_> = out.errors.iter().filter(|d| d.is_error()).collect();
+    assert!(errs.is_empty(), "{errs:?}");
+    let shown = callees(&out);
+    for want in ["pow(Int, Int)", "pow(Long, Int)", "pow(Double, Int)", "pow(Double, Double)"] {
+        assert!(shown.iter().any(|s| s.starts_with(want)), "{want} among {shown:?}");
+    }
+    let msgs = messages(&body("    let a = 2L ** 2L"));
+    assert!(
+        msgs.len() == 1 && msgs[0].starts_with("no `pow` for `**` on `Long`: `**` is `pow(Long, Long)`") && msgs[0].contains("(Long, Int)"),
+        "{msgs:?}"
+    );
+    let msgs = messages(&body("    let a = 1.5f ** 2"));
+    assert!(msgs.len() == 1 && msgs[0].starts_with("no `pow` for `**` on `Float` and `Int`"), "{msgs:?}");
+}
+
+/// [op-pow] [unique-shape] The brief's `Person`: `**` on a type of your own is
+/// the `pow` its own file declares (here inside its body [fn-attached]),
+/// with an `Int` exponent.
+#[test]
+fn power_on_a_user_type_is_its_pow() {
+    let out = checked(
+        r#"
+struct Person {
+    name: Str
+    age: Int
+
+    fn pow(p: Person, power: Int) -> Person {
+        return Person { name: p.name, age: p.age ** power }
+    }
+}
+
+fn probe(p: Person) -> Int {
+    let q = p ** 2
+    return q.age
+}
+"#,
+    );
+    let errs: Vec<_> = out.errors.iter().filter(|d| d.is_error()).collect();
+    assert!(errs.is_empty(), "{errs:?}");
+    let shown = callees(&out);
+    assert!(shown.iter().any(|s| s.starts_with("pow(Person, Int)")), "{shown:?}");
+}
+
+/// [op-arith] [backend-never-wrong] A type parameter is not lenient for the
+/// operators that name no function either: `%`, unary `-` and `&&` on a `T`
+/// passed the checker and both target compilers refused the code (rustc
+/// E0369/E0600). Refused here, as `+` on a `T` without a `?plus` is.
+#[test]
+fn a_generic_operand_is_refused_where_no_function_is_named() {
+    let msgs = messages("fn f<T>(a: T) -> T {\n    return a % a\n}\n");
+    assert!(msgs.len() == 1 && msgs[0].contains("`%` needs numeric operands") && msgs[0].contains("`T`"), "{msgs:?}");
+    let msgs = messages("fn g<T>(a: T) -> T {\n    return -a\n}\n");
+    assert!(msgs.len() == 1 && msgs[0].contains("unary `-` needs a numeric operand"), "{msgs:?}");
+    let msgs = messages("fn h<T>(a: T) -> Bool {\n    return a && true\n}\n");
+    assert!(msgs.iter().any(|m| m.contains("`&&` needs `Bool` operands (found `T`)")), "{msgs:?}");
 }
 
 /// Unary `-` is numeric; unary `!` is `Bool`.

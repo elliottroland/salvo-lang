@@ -264,8 +264,17 @@ against `0` — and the IR writes it as what that call resolved to
   (call local cmp(read a, read b) > 0)     // a forwarded ?cmp, on a T or an Int
   ```
 
-Arithmetic (`+`, `-`, `*`, `/`, `%`) is defined on numbers only, so it is
-always inline.
+Arithmetic is the call it names in the same way: `a + b` on two numbers is
+std's `plus`, so it is inline (`(read a + read b)`), and on anything else it
+is the call — a struct's `plus`, a forwarded `?plus`, an effect's member.
+`**` is always a call, `pow`, since no target has a power operator; `%` names
+no function and is always inline:
+
+```
+call main::plus(read v, read w)
+call local plus(read a, read b)          // a forwarded ?plus
+call std.core.basic::pow(Int, Int)(2, 10)
+```
 
 ## Control flow
 

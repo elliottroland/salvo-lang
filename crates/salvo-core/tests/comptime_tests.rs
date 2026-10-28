@@ -34,6 +34,15 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
     "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
+    // [op-arith] [op-pow] What the arithmetic operators call.
+    "export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn plus(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn minus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn minus(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn times(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn times(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn divide(a: Long, b: Long) [] -> Long => a, b\n",
 );
 
 /// A reported error: its message and the 1-based line it lands on in its file.
@@ -159,7 +168,7 @@ comptime fn total(p: P) [] -> Int => p {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.message.starts_with("when `field` is `b` (`Str`): `+` does not concatenate") && e.line == 10),
+        errs.iter().any(|e| e.message.starts_with("when `field` is `b` (`Str`): no `plus` for `+` on `Int` and `Str`") && e.message.contains("does not concatenate") && e.line == 10),
         "expected the `Str` field's copy to fail at the written `+`: {errs:?}"
     );
 }

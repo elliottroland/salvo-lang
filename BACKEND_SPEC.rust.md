@@ -241,6 +241,22 @@ Conventions:
   scalar operand is dereferenced first [rs-cmp-deref]. `bit_ushr` casts
   through the signed type before the unsigned one
   (`(u32::wrapping_shr(((x) as i32) as u32, (n) as u32) as i32)`).
+  * [op-arith] An arithmetic operator is this spelling exactly when the
+    checker resolved it to std's intrinsic `plus`/`minus`/`times`/`divide` at
+    a basic type — the IR's `Op` — and the call otherwise (`crate::plus(&a,
+    &b)` for a struct's, the parameter for an enclosing `?plus`; B3.3e). The
+    intrinsics themselves, written out or passed as a value, are the same
+    text (`i32::wrapping_add(a, b)`, `((a) + (b))` for the floats).
+* [rs-pow] [op-pow] `**` is always std's `pow` lowered as an intrinsic, keyed
+  `base^exponent` (two overloads share a `Double` base). Each operand is
+  evaluated once, in order, into a block local:
+  `({ let __b: i32 = a; let __e: i32 = n; if __e < 0 { panic!(…) }
+  i32::wrapping_pow(__b, __e as u32) })` for `Int ** Int` (`i64` for `Long **
+  Int`) — `wrapping_pow` is the low bits of the exact power, which is what
+  the JVM's wrapping multiplication gives; `Double ** Int` is repeated
+  squaring written out (`__e.unsigned_abs()`, the reciprocal for a negative
+  exponent), in the order the Kotlin spelling uses, so the bits agree;
+  `Double ** Double` is `f64::powf(a, b)`, the host's.
 * [lit-adopt] Every numeric literal renders at its **checked** type, suffixed
   (`1i32`, `1i64`, `3f64`, `0.5f32`) — an unsuffixed literal included, at its
   default type [lit-numeric] — so nothing is left to rustc's literal

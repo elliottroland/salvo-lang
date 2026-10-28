@@ -368,6 +368,21 @@ Conventions:
     `cmp`/`eq` at a basic type — the IR's `Op` — and the call otherwise: an
     enclosing `?eq` on a `Str` or `?cmp` on an `Int` is a call through the
     parameter (B3.3c, R10 D1), as the written `eq(a, b)` is.
+  * [kt-op-arith] [op-arith] An arithmetic operator likewise (B3.3e): Kotlin's
+    own `(a + b)` exactly when it resolved to std's intrinsic
+    `plus`/`minus`/`times`/`divide` at a basic type, the call otherwise. The
+    intrinsics, written out or passed as a value, are the same text
+    (`((a) + (b))`); the JVM's integer arithmetic wraps by itself [op-wrap].
+  * [kt-pow] [op-pow] `**` is always std's `pow` lowered as an intrinsic,
+    keyed `base^exponent`. Kotlin has no integer power, so an immediately
+    invoked lambda takes the operands as its parameters (each evaluated once,
+    in order, and a nested `**` in an operand shadows nothing) and squares:
+    `({ __b: Int, __e: Int -> if (__e < 0) throw ArithmeticException(…); var
+    __x = __b; var __n = __e; var __r = 1; while (__n > 0) { … }; __r })(a,
+    n)` — the low bits of the exact power, as Rust's `wrapping_pow`;
+    `Double ** Int` is the same squaring in the Rust spelling's order (so the
+    same bits), the reciprocal for a negative exponent; `Double ** Double` is
+    `java.lang.Math.pow(a, b)`, the host's.
 * [struct-spread] `P {...p, f: v}` emits as `p.copy(f = v)`. The shallow
   copy aliases `Mut` fields where Rust deep-clones, which is
   unobservable because the checker consumes the spread base

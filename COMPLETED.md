@@ -19,8 +19,8 @@ with total `get`/`swap`/`substr` overloads, `preserve` entries, claim-minting
 passes, and constant slots), everything-is-an-expression control
 flow, algebraic effects with handler dependencies, non-resumption
 (`throw`/`try`), implicit parameters and obligation groups (each operator's
-function on a type declared once, in the type's own file [unique-shape], and a
-comparison operator the call it names), linear types with a
+function on a type declared once, in the type's own file [unique-shape], and the
+comparison and arithmetic operators, `**` among them, the calls they name), linear types with a
 designated `close`, mutable element handles (`ref(c)`, minted by `at`,
 aliasing by a shared named container), and pull iteration reduced to the `next` and `iter` a `for`
 names, resolved as the calls they are —
@@ -64,7 +64,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2146 tests, complete: the toolchain tests are
+cargo test                  # 2156 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -143,6 +143,125 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-28 — Arithmetic operators are the calls they name, and `**` is added (B3 piece 3e, O1, R10 D1, D3)
+
+**`a + b` is `plus(a, b)`, `a - b` `minus(a, b)`, `a * b` `times(a, b)`, `a /
+b` `divide(a, b)`, and the new `a ** b` is `pow(a, b)`** (OPERATOR_OVERLOAD.md
+O1's name table and the brief's `**`; PIPELINE.md §3 R10; [op-arith],
+[op-pow]), each resolved exactly as the written call is, the way B3.3c made the
+comparisons calls. `check_arith_call` runs the one lowering that stays before
+the call ([op-promote]) and then the enclosing fn's own implicit step and
+`resolve_named_call` with the operands pre-typed; `check_arith` now types `%`
+alone.
+
+- **What std declares** ([unique-shape]: beside each type, in
+  `std.core.basic`): intrinsic `plus`, `minus`, `times`, `divide` for `Int`,
+  `Long`, `Float`, `Double`, one width each (16); `pow(Int, Int) -> Int`,
+  `pow(Long, Int) -> Long`, `pow(Double, Int) -> Double`, `pow(Double,
+  Double) -> Double`. `Byte` has none ([byte-value], as before); `Str` has none,
+  since `"a" + "b"` was refused before (interpolation builds text), so no
+  `plus(Str, Str)` in `string.sv`. std's `time.sv` already declared
+  `plus`/`minus`/`times` on `Duration`, `Instant` and `Tick` in their file, so
+  `d1 + d2`, `at - d` and `d * 3L` now work there (a std test says so).
+- **R10 D1, no semantic fast path**: an enclosing `?plus` takes `+` at an
+  `Int` too, as it takes `plus(a, b)`; at a generic `T` it is the only way to
+  add, so `a + a` on a `T` without one is now refused naming `?plus` (it was
+  lenient, a documented leftover; no program the suite checks relied on it).
+  By name only, as the call asks (no binder slot: P13's `cmp` question does not
+  arise). **Found and fixed beside it** [backend-never-wrong]: `%`, unary `-`,
+  `&&`, `||` and `!` on an unconstrained `T` were lenient too (`op_lenient`),
+  so `fn f<T>(a: T) -> T { return a % a }` passed the checker and rustc
+  refused it (E0369; E0600 for `-a`); a `T` is now an operand error there.
+  Done after the differential, so the suite is its check: no program it
+  checks had one. **R10 D3**: an available effect member `times` takes `*`, and beside
+  a fn of its signature the operator is the call's ambiguity, said of the
+  operator (`OperatorSite`).
+- **The native spelling** [core-layers]: `Ctx::is_primitive_compare` became
+  `Ctx::is_primitive_operator`, std's intrinsic `eq`/`cmp`/`plus`/`minus`/
+  `times`/`divide` at a basic type. An operator resolved to one is the IR's
+  own `Op`, which the backends spelled before and still do; anything else is
+  lowered by `Lower::call_named`. `%` is always the `Op`. `pow` is never
+  primitive: no target has a power operator, so `**` is always the call, and
+  each backend lowers std's `pow` in its intrinsic table, keyed
+  `base^exponent` because two overloads share a `Double` base ([rs-pow]:
+  `wrapping_pow` with a negative-exponent panic, squaring written out for
+  `Double ** Int`, `f64::powf`; [kt-pow]: an immediately invoked lambda that
+  squares, `java.lang.Math.pow`). The arithmetic intrinsics also have table
+  entries (a call written out, or std's `plus` filling a `?plus`), the same
+  text as the `Op`.
+- **[op-promote] stays a pre-call lowering**, as for comparisons (P11, option
+  (a), extended): `i + l` is `plus(widen(i), l)` at std's `plus(Long, Long)`;
+  a mixed-class pair is refused before any call. **`**` widens nothing**: an
+  exponent is not a base, so `Long ** Int` is `pow(Long, Int)` and `Long **
+  Long` is refused naming what std declares.
+- **`%`, unary `-`, `++`/`--`** name no function in O1's table: kept the
+  host's operators on the numbers, a struct getting none; DECISION P16
+  (ROADMAP 0ao: name them `rem`/`neg`?). Compound assignment is the binary
+  operator it desugars to [op-compound], so `v += w` calls `plus`.
+- **`**`** is one token (`StarStar`), parsed at the unary level
+  (`Parser::parse_power`): tighter than `*` and a prefix operator on its left,
+  right-associative, its exponent possibly unary (`-2 ** 2` is `-4`, `2 ** 3
+  ** 2` is `512`); the brief says nothing, so DECISION P18 (ROADMAP 0aq).
+  Semantics, DECISION P17 (ROADMAP 0ap): integer powers wrap [op-wrap], a
+  negative integer exponent traps (the host's exception, as a zero divisor),
+  `Double ** Double` is the host's `pow` (last-ulp parity not guaranteed), no
+  `Float` power. The TextMate grammar knows `**`; [unique-shape]'s `pow` row
+  has its operator.
+- **Diagnostics name the operator**: "no `plus` for `+` on `V` and `Int`: `+`
+  is `plus(V, Int)`, and no `plus` in scope takes `(V, Int)` — declare a
+  `plus` taking `(V, Int)` in `V`'s own file [unique-shape]"; `Str + Str` keeps
+  its interpolation remedy and `Byte + Byte` its conversion pair, after the
+  call's sentence; a possibly-absent operand is refused once (it was refused
+  twice: [op-no-none] and "needs numeric operands").
+
+**The differential** (temporary `SALVO_XP_B33E`, removed: every checked
+program's sorted diagnostics and `salvo facts`, every IR build's dump, std's
+modules included, keyed by the program's sources with the operator intrinsics
+a fixture declares left out; base a worktree of 47405b4e; both sides full
+fresh nextest runs): 3,158 outputs per side, 3,123 paired by key and 35 more by
+content (the worktree's paths in file names; one by a path's length in source
+text). With the new call column on every arithmetic node stripped, 28 outputs
+differ, each reviewed: 9 rewordings at refused operators (`Str`, `Mut Str`,
+`Byte`, `Bool`, `Int - Str`, a comptime copy's); 2 with one diagnostic instead
+of two at an optional operand; std's new intrinsic declarations in the IR's
+`std.core.basic`; a std-shadow program's spans moved by `basic.sv`'s new lines;
+facts rows of comptime copies sharing a span that the dump no longer folds
+(they differ by the call column); and one fixture whose meaning changed: the
+check-cache test's `rename fn plus = add2(a: Int, b: Int)` now collides with
+std's `plus` ("already a function in scope"), so it renames to `sum2`. No
+accepted program changed behaviour. **Emitted code**: every example,
+`modules/aws` and both benches, compiled with both binaries on both backends
+(1,436 files): identical. `expected.txt` unchanged; goldens unchanged except
+the reviewed `facts_iteration` snapshot (the call column) and
+`snapshot_std_basic` (std's new declarations).
+
+**Programs rewritten**: std-less fixtures model what an operator calls — 35
+preludes in 33 of salvo-core's test files (and one test's inline prelude)
+gained `intrinsic fn plus`/`minus`/`times`/`divide` for the numeric scalars
+they declare, beside each type; `op_tests`' prelude also `pow`. Tests asserting
+the old wording follow the new (`op_tests`, `bytes_tests`, `comptime_tests`).
+
+**Tests**: 2,156 (+10): `op_tests` (a user type's four operators and their
+callees; a missing `plus` named at the operator; an enclosing `?plus` at an
+`Int` and a `T`, and `T` without one refused; a member `times` takes `*` and
+ties with a fn; `**` on `Int`, `Long`, `Double` by `Int` and `Double`, and
+`Long ** Long`/`Float` refused; the brief's `Person` `pow` in its body; `%`,
+unary `-` and `&&` on a `T` refused),
+`parser_tests` (precedence and associativity of `**`, twice), and one program
+on both backends (`arithmetic_as_the_calls_it_names`: a user type's `+ - *
+/`, `?plus` at an `Int` and a `T` filled by std's intrinsic and `V`'s, a member
+`times`, widening, `**` with precedence, `Person`, wrapping; a `KotlinCase`
+and `run_rust_files`, identical output). `std.time` gained a `salvo test`
+(`a duration's operators are its functions`).
+
+**Timings** (debug, the base binary alternated with this one, a loaded
+machine, load average 26–72 on 10 cores): `SALVO_TIMINGS=1 salvo analyze --src
+examples/cluster/salvo` check 218–222ms → 220–228ms (std's arithmetic now
+resolves its calls); `tools/lsp-timing.py`, three rounds of four edits, medians
+of the summed top-level phases: `examples/cluster` 62.0/64.2/58.8 →
+65.2/61.8/61.0ms, `modules/aws` (an edit in `s3.sv`) 52.5/58.6/57.6 →
+48.6/60.4/59.0ms — within the spread.
 
 ### 2026-10-28 — A `for` is the `next` and `iter` it names (B3 piece 3d, R10 D10, D3; census D8–D11)
 
@@ -31449,7 +31568,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2146 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2156 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -32741,6 +32860,29 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A name std starts declaring can collide with a program's rename or local**
+  (B3.3e, 2026-10-28): adding `plus` to `std.core.basic` made the check-cache
+  fixture's `rename fn plus = add2(…)` "already a function in scope", since
+  `std.core` is imported everywhere. Grep the suite for the new names
+  (`rename fn <name>`, fns and locals of the name) before adding std
+  operators; the differential found it, the tests did not (the fixture's
+  program has an intentional error).
+- **An intrinsic table keyed by name and first parameter cannot tell two
+  overloads with one base apart** (B3.3e): `pow(Double, Int)` and
+  `pow(Double, Double)` both arrive as `("pow", Some("Double"))`. The emitters
+  key `pow` as `base^exponent` before calling `intrinsics::fn_call`; a future
+  overload pair of that kind needs the same.
+- **An inline Kotlin lowering that needs locals is an immediately invoked
+  lambda over the operands** (B3.3e, [kt-pow]): a `run { val x = … }` block
+  evaluates a nested use of the same lowering *inside* the outer's scope, so
+  its locals shadow the outer's; as lambda arguments the operands are
+  evaluated outside the body, once and in order, and nothing shadows.
+- **A differential that adds a column changes how the facts dump folds rows**
+  (B3.3e): rows of comptime copies share a span and identical consecutive rows
+  print once; a new call column makes two of them differ, so stripping the
+  column afterwards shows an extra row that is not a behaviour change.
+  Normalize before folding, or expect it.
 
 - **A call with no node needs a key, a location and a wording** (B3.3d,
   2026-10-28, [for-iter]): `resolve_named_call` records under

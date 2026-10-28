@@ -214,8 +214,9 @@ emitter sees the difference and reads through the union's arm.
 **What did this name resolve to?**
 
 ```rust
-pub call_fn: HashMap<Key, DeclId>,     // call node → the fn declaration (a comparison
-                                       //   `a < b` too: it is the call `cmp(a, b)`)
+pub call_fn: HashMap<Key, DeclId>,     // call node → the fn declaration (an operator
+                                       //   too: `a < b` is the call `cmp(a, b)`, `a + b`
+                                       //   `plus(a, b)`, `a ** b` `pow(a, b)`)
 pub fn_refs: HashMap<Key, DeclId>,     // a fn used as a value
 pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,   // what fills ?cmp, ?hash…
 pub interp_to_str: HashMap<Key, DeclId>,              // the to_str behind "${x}"

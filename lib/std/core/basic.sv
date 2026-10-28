@@ -145,6 +145,46 @@ export intrinsic fn eq(a: Byte, b: Byte) [] -> Bool => a, b
 export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b
 export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b
 
+// ===== arithmetic: the operators `+ - * /` and `**` =====
+//
+// [op-arith] [unique-shape] What `a + b` (`plus(a, b)`), `a - b` (`minus`),
+// `a * b` (`times`) and `a / b` (`divide`) mean on a number, declared here,
+// beside the types, as the comparisons above are (OPERATOR_OVERLOAD.md O1).
+// The backends write their own operator for these [core-layers]: integer
+// arithmetic wraps [op-wrap], `Int / Int` divides toward zero, and division
+// by zero is the host's trap. Mixed widths widen before the call
+// [op-promote], so only the same-width overloads exist. `Byte` has none: it
+// is an octet, not a number [byte-value]. `%` names no function.
+export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b
+export intrinsic fn plus(a: Long, b: Long) [] -> Long => a, b
+export intrinsic fn plus(a: Float, b: Float) [] -> Float => a, b
+export intrinsic fn plus(a: Double, b: Double) [] -> Double => a, b
+export intrinsic fn minus(a: Int, b: Int) [] -> Int => a, b
+export intrinsic fn minus(a: Long, b: Long) [] -> Long => a, b
+export intrinsic fn minus(a: Float, b: Float) [] -> Float => a, b
+export intrinsic fn minus(a: Double, b: Double) [] -> Double => a, b
+export intrinsic fn times(a: Int, b: Int) [] -> Int => a, b
+export intrinsic fn times(a: Long, b: Long) [] -> Long => a, b
+export intrinsic fn times(a: Float, b: Float) [] -> Float => a, b
+export intrinsic fn times(a: Double, b: Double) [] -> Double => a, b
+export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b
+export intrinsic fn divide(a: Long, b: Long) [] -> Long => a, b
+export intrinsic fn divide(a: Float, b: Float) [] -> Float => a, b
+export intrinsic fn divide(a: Double, b: Double) [] -> Double => a, b
+
+// [op-pow] `a ** b` is `pow(a, b)`, at the written types (no widening: an
+// exponent is not a base). An integer power wraps like the other integer
+// arithmetic [op-wrap], and a **negative exponent traps** (the host's
+// arithmetic exception, as a division by zero does; PIPELINE.md §II.10 P17).
+// A `Double` to an `Int` power is repeated squaring, the same multiplications
+// in the same order on both backends, so the same bits (a negative exponent
+// is the reciprocal); a `Double` to a `Double` power is the host's `pow`.
+// `Float` has none.
+export intrinsic fn pow(base: Int, exponent: Int) [] -> Int => base, exponent
+export intrinsic fn pow(base: Long, exponent: Int) [] -> Long => base, exponent
+export intrinsic fn pow(base: Double, exponent: Int) [] -> Double => base, exponent
+export intrinsic fn pow(base: Double, exponent: Double) [] -> Double => base, exponent
+
 // [col-hashed-ordered] [implicit-recursive] A tuple compares and orders
 // **element by element, through the elements' own identities**: a
 // `(Person, Int)` compares by `Person`'s declared `eq`. Ordinary Salvo over the

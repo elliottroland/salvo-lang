@@ -3630,6 +3630,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn intrinsic_call(&mut self, e: &Expr, id: &salvo_core::ir::DeclId, af: &salvo_syntax::ast::FnDecl, type_args: &[Ty], args: &[Expr], indent: usize) -> String {
         let name = af.name.name.as_str();
         let recv = af.params.first().and_then(|p| salvo_backend::emit_util::type_base_name(&p.ty));
+        // [op-pow] Two `pow` overloads share a `Double` base: the key is
+        // `base^exponent`.
+        let pow_key = (af.name.name == "pow")
+            .then(|| format!("{}^{}", recv.unwrap_or("?"), af.params.get(1).and_then(|p| salvo_backend::emit_util::type_base_name(&p.ty)).unwrap_or("?")));
+        let recv = pow_key.as_deref().or(recv);
         let _ = type_args;
         if name == "copy" {
             // [rs-loop-temp] `copy` of a block-valued expression — an `?:`,

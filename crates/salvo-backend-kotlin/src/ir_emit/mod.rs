@@ -1903,6 +1903,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn intrinsic_call(&mut self, e: &Expr, f: &salvo_syntax::ast::FnDecl, type_args: &[Ty], args: &[Expr], indent: usize) -> String {
         let name = f.name.name.as_str();
         let recv = f.params.first().and_then(|p| salvo_backend::emit_util::type_base_name(&p.ty));
+        // [op-pow] Two `pow` overloads share a `Double` base: the key is
+        // `base^exponent`.
+        let pow_key = (f.name.name == "pow")
+            .then(|| format!("{}^{}", recv.unwrap_or("?"), f.params.get(1).and_then(|p| salvo_backend::emit_util::type_base_name(&p.ty)).unwrap_or("?")));
+        let recv = pow_key.as_deref().or(recv);
         if name == "copy" {
             let v = self.expr(&args[0], indent);
             // [proj-opt-slot] A union copies arm by arm.

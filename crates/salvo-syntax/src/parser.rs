@@ -6106,6 +6106,10 @@ impl<'s> Parser<'s> {
     /// | 14 | `+` `-` |
     /// | 16 | `*` `/` `%` |
     ///
+    /// Tighter than all of them, and than the prefix operators, is `**`
+    /// [op-pow], right-associative, which is parsed at the unary level
+    /// (`parse_power`) rather than here.
+    ///
     /// Only the flattening operators (`|>` and elvis) may begin a continuation
     /// line; the rest return `None` across a newline so the statement ends
     /// (the `same_line` gate). Even-numbered levels leave the odd `lbp + 1`
@@ -6511,8 +6515,25 @@ impl<'s> Parser<'s> {
                     span,
                 })
             }
-            _ => self.parse_postfix(),
+            _ => self.parse_power(),
         }
+    }
+
+    /// [op-pow] `a ** b`: tighter than every binary operator and than the
+    /// unary ones on its left, and right-associative, so `-a ** b` is
+    /// `-(a ** b)` and `a ** b ** c` is `a ** (b ** c)`; its right operand
+    /// may itself be unary (`2 ** -1`). Parsed at the unary level for that
+    /// reason, not in the binding-power table: a prefix operator's operand is
+    /// a power. Same-line only, as `*` is.
+    fn parse_power(&mut self) -> Option<Expr> {
+        let base = self.parse_postfix()?;
+        if !(self.at(&TokenKind::StarStar) && self.same_line()) {
+            return Some(base);
+        }
+        self.bump();
+        let exponent = self.sub_expr(|p| p.parse_unary())?;
+        let span = base.span().to(exponent.span());
+        Some(Expr::Binary { op: BinaryOp::Pow, lhs: Box::new(base), rhs: Box::new(exponent), span })
     }
 
     /// After a `.`, an integer token is a **tuple index**

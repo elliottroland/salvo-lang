@@ -2409,19 +2409,95 @@ Conventions:
     to the ordinary error). Zero matching arms, or ordering, stay refused.
     `!=` negates the reduced test; the IR builds the `is`-test-and-compare
     directly, so no backend rule is needed.
-* [op-arith] Arithmetic (`+ - * / %`, unary `-`) works on **numeric
-  operands only** — `Int`, `Long`, `Float`, `Double` (user decision
-  2026-09-14, closing the operand-typing DECISION). The result is the
-  (promoted) operand type, qualifiers stripped. Refusals name their
-  remedy: `Str + Str` points at `${}` interpolation, mixed classes at the
-  conversions [op-convert].
-  * `Byte` is deliberately **not** operator-numeric [byte-value]: it is an
-    octet, not a number, and its arithmetic goes through `to_int`/`to_byte`
-    — one call each way, which also states the wrapping instead of implying
-    it.
-  * `Int / Int` is integer division on both backends.
-  * An unconstrained generic operand stays lenient like `Unknown` — a
-    documented leftover matching the equality slice, not a rule.
+* [op-arith] **Arithmetic operators are the calls they name** (B3.3e,
+  2026-10-28; OPERATOR_OVERLOAD.md O1, PIPELINE.md §3 R10): `a + b` is
+  `plus(a, b)`, `a - b` `minus(a, b)`, `a * b` `times(a, b)` and `a / b`
+  `divide(a, b)`, resolved exactly as the written call is, as the comparisons
+  are [op-order]:
+  * **The enclosing fn's own implicit first** [implicit-resolve-body]: a
+    `?plus` whose parameters the operands fit takes `+`, at a number too (R10
+    D1), several ranked like overloads [implicit-same-name]. By **name**, as
+    the call sees it (no binder-alias slot, unlike `<`'s [cmp-binder]); a
+    fn-typed local or ordinary parameter named `plus` does not take `+`
+    (PIPELINE.md §II.10 P14, as for `==`).
+  * **Then the visible declarations and the available effects' members**
+    (R10 D3), ranked as the call ranks them; a tie is the call's ambiguity
+    (`m@E` its remedy for a member). Under [unique-shape] a concrete type has
+    one candidate, declared in its own file: **a type of your own gets `+`
+    by declaring `plus` there** (any right operand, any return type, D-3:
+    `times(v: V, k: Int) -> V`), and no import changes what `+` means.
+  * **std declares the numbers' operations** beside the types, in
+    `std.core.basic`: intrinsic `plus`, `minus`, `times`, `divide` for
+    `Int`, `Long`, `Float` and `Double`, each at one width (`(Int, Int) ->
+    Int`, …). `Byte` has none [byte-value]; `Str` has none, since `+` does
+    not concatenate (interpolation does).
+  * **The result is the call's return type.** At a number that is the
+    (promoted) operand type, as before.
+  * **What the backends spell natively is the selected declaration's
+    business** [core-layers]: an operator resolved to std's intrinsic at a
+    basic type *is* the primitive operation, so the IR writes its own
+    operator, which every backend spells as the host's — wrapping integer
+    arithmetic [op-wrap], `Int / Int` dividing toward zero, a zero divisor
+    the host's trap, all as before; resolved to anything else (a struct's
+    `plus`, an enclosing implicit, a member) it is the call
+    (`Ctx::is_primitive_operator`, which [op-order]'s comparisons share).
+    Written out (`plus(1, 2)`) or passed as a value (`?plus` filled with
+    std's), the intrinsic is each backend's same operator text.
+  * **[op-promote] stays a lowering before the call**: `i + l` is
+    `plus(widen(i), l)`, and mixing the integer and float classes is refused
+    before any call, naming the conversions [op-convert] (§II.10 P11, as at a
+    comparison).
+  * Refusals name the operator and the remedy: "no `plus` for `+` on `V` and
+    `Int`: `+` is `plus(V, Int)`, and no `plus` in scope takes `(V, Int)` —
+    declare a `plus` taking `(V, Int)` in `V`'s own file"; `Str + Str` adds
+    "`+` does not concatenate strings: build the text with interpolation",
+    `Byte + Byte` the conversion pair. A possibly-absent operand is refused
+    once [op-no-none] and its call not resolved.
+  * **At a generic `T`** the only candidate is an enclosing implicit
+    [implicit-forward] (`?plus: (a: T, b: T) -> T`), and the refusal names
+    it. Before B3.3e an unconstrained generic operand was lenient (a
+    documented leftover); no program the suite checks relied on it. **The
+    leftover is closed for every operator** [backend-never-wrong]: `%`, unary
+    `-`, `&&`, `||` and `!` on a `T` were accepted and refused by both target
+    compilers (rustc E0369/E0600), and are now the ordinary operand errors.
+  * **`%`, unary `-` and `++`/`--` name no function** (O1's table has none):
+    they stay the host's operators on the numeric scalars (`%` with the
+    same widening; `++`/`--` on an `Int` place [inc-dec]), and a struct gets
+    none of them. Their names, if any, are PIPELINE.md §II.10 P16 (open).
+    Compound assignment is the binary operator it desugars to
+    [op-compound], so `v += w` is `v = plus(v, w)`.
+  * The checker records the operator as the call (`call_fn`,
+    `implicit_args`, `local_calls`/`local_call_names` through an implicit,
+    `member_calls` for a member, at the operator's node); the IR lowers it
+    through the call path (`Lower::call_named`). Before B3.3e the operator
+    resolved nothing and the result was the promoted operand type
+    (`check_arith`, which now types `%` alone).
+* [op-pow] **`a ** b` is `pow(a, b)`** (B3.3e; the brief's `**`,
+  OPERATOR_OVERLOAD.md O1's name table), resolved as [op-arith]'s operators
+  are — the enclosing `?pow`, then the visible `pow`s and members, one per
+  concrete base type [unique-shape]. A type of your own gets `**` by
+  declaring `pow` in its file (`fn pow(p: Person, power: Int) -> Person`).
+  * **Precedence**: tighter than `*` and than a prefix operator on its left,
+    **right-associative**, its exponent possibly unary: `-a ** b` is `-(a **
+    b)`, `a ** b ** c` is `a ** (b ** c)`, `2 ** -1` is `2 ** (-1)`, `a * b
+    ** c` is `a * (b ** c)` (the brief says nothing; chosen as most languages
+    with the operator, Python's rule; §II.10 P18, for confirmation).
+    Same-line only, as `*`; one token `**`; no `**=`.
+  * **No widening**: an exponent is not the same kind of operand as a base,
+    so `a ** b` is the call at the written types, and a mixed pair is the
+    call's business, not [op-promote]'s.
+  * **std declares** (`std.core.basic`) `pow(Int, Int) -> Int`, `pow(Long,
+    Int) -> Long`, `pow(Double, Int) -> Double` and `pow(Double, Double) ->
+    Double`, and nothing else (no `Long ** Long`, no `Float`): an integer
+    power **wraps** like the other integer arithmetic [op-wrap] and a
+    **negative exponent traps** (the host's arithmetic exception, as a zero
+    divisor does); `Double ** Int` is repeated squaring, the same
+    multiplications in the same order on both backends, so the same bits (a
+    negative exponent is the reciprocal of the positive power);
+    `Double ** Double` is the host's `pow` (§II.10 P17, open, records these).
+  * No target has a power operator, so `**` is always the call: the IR has no
+    `Op` for it, and each backend lowers std's `pow` as an intrinsic
+    [rs-pow] [kt-pow].
 * [op-promote] Mixed widths widen implicitly **within** a class:
   `Int + Long` computes at `Long`, `Float`/`Double` at `Double`, for
   arithmetic, ordering **and equality** alike (equality joined 2026-09-18,
@@ -2443,12 +2519,15 @@ Conventions:
     meaning it had; whether that stays a lowering or becomes something the
     call expresses is PIPELINE.md §II.10 P11 (open, ROADMAP 0ai). A
     mixed-class pair is refused before any call.
+  * **At an arithmetic operator likewise** (B3.3e): `i + l` is
+    `plus(widen(i), l)`, at std's `plus(Long, Long)`. `**` widens nothing
+    [op-pow].
   * The IR widens the operand wherever it is lowered (`Lower::promoted`, in a
     call's argument list too, since an operator's operands are its call's
     arguments); only an operator's operands are ever promoted.
 * [op-wrap] **Integer arithmetic wraps** (user decision 2026-09-23, A-6;
-  built 2026-10-05, ROADMAP §0j step 2): `Int`/`Long` `+`, `-`, `*`, unary `-`
-  and `++`/`--` keep the low 32/64 bits on both backends — the JVM's
+  built 2026-10-05, ROADMAP §0j step 2): `Int`/`Long` `+`, `-`, `*`, unary `-`,
+  `++`/`--` and `**` [op-pow] keep the low 32/64 bits on both backends — the JVM's
   behaviour, which Rust renders through `wrapping_*` [rs-op-wrap]. Division
   and remainder are not covered (§10's division row). `checked_*` /
   `saturating_*` functions for the cases that care are recorded, not built.
@@ -2501,7 +2580,7 @@ Conventions:
     primitive comparison, so the IR writes its own operator, which every
     backend spells as the host's; resolved to anything else — an enclosing
     implicit on an `Int`, a member, a struct's `cmp`, `Str`'s intrinsic — it
-    is the call (`Ctx::is_primitive_compare`).
+    is the call (`Ctx::is_primitive_operator`, shared with [op-arith]).
   * **`Str` orders by code point** on both backends (`cmp(Str, Str)`, which
     the JVM's `<` does not deliver [kt-ordered]); a struct orders when it has
     a `cmp`, and a tuple, a container or a fn value when its home declares one
@@ -5235,9 +5314,8 @@ Conventions:
     Anything else is an ordinary fn, allowed anywhere: `fn iter(list:
     List<Str>, step: Int)` and an effect member `fn next(step: Int) -> Int`
     are not shapes. `hash`, `default` and `from_str` are not in the class yet
-    (adding one is a row of `SHAPES`). The arithmetic names are reserved ahead
-    of their operators: `+ - * /` are still numbers only [op-arith], and `**`
-    is not yet an operator (PIPELINE.md §II.12, piece 3c).
+    (adding one is a row of `SHAPES`). Since B3.3e every name in the class has
+    its operator: `+ - * /` [op-arith] and `**` [op-pow].
   * **"On `T`" (D-2)** is the first explicit parameter's base type,
     qualifiers stripped — `eq(a: NonEmpty List<T>, b: List<T>)` is on `List`,
     `pow(p: Person, power: Int)` on `Person` — resolved in the declaring
@@ -7699,10 +7777,12 @@ the same day. **Not part of `std.core`**: the surface is imported, and one
     Historical dates and month arithmetic belong to the later calendar layer
     (`DateTime` as a *view* of an `Instant` in a zone, with a `Period`-shaped
     span), which is additive over this.
-  * **The surface is named functions**, since operators are numeric-only
-    [op-arith]: `nanos`/`micros`/`millis`/`seconds`/`minutes`/`hours` build a
+  * **The surface is named functions**, and since B3.3e the arithmetic ones
+    are also the operators [op-arith], declared in `Duration`'s, `Instant`'s
+    and `Tick`'s own file: `nanos`/`micros`/`millis`/`seconds`/`minutes`/`hours` build a
     span, `to_nanos`/`to_micros`/`to_millis`/`to_seconds` read one back
-    (truncating), `plus`/`minus`/`times`/`abs` compute, `to_str` renders
+    (truncating), `plus`/`minus`/`times`/`abs` compute (`d1 + d2`, `at - d`,
+    `d * 3L`), `to_str` renders
     (integer and the largest unit that divides exactly, seconds at the top:
     `1500ms`, `120s`, `37ns`). Points: `epoch_nano`/`epoch_milli`/
     `epoch_second` in, `to_epoch_*` out, `plus`/`minus` with a span, and

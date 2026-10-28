@@ -2471,6 +2471,8 @@ pub enum BinaryOp {
     Mul,
     Div,
     Rem,
+    /// [op-pow] `a ** b`, which is `pow(a, b)`.
+    Pow,
     Eq,
     NotEq,
     Lt,

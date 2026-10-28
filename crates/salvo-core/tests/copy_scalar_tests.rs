@@ -21,6 +21,19 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
     "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
+    // [op-arith] [op-pow] What the arithmetic operators call.
+    "export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn plus(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn plus(a: Double, b: Double) [] -> Double => a, b\n",
+    "export intrinsic fn minus(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn minus(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn minus(a: Double, b: Double) [] -> Double => a, b\n",
+    "export intrinsic fn times(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn times(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn times(a: Double, b: Double) [] -> Double => a, b\n",
+    "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn divide(a: Long, b: Long) [] -> Long => a, b\n",
+    "export intrinsic fn divide(a: Double, b: Double) [] -> Double => a, b\n",
 );
 
 /// The checker's diagnostics over one file (and a scalar-only prelude):

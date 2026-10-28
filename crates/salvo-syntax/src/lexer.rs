@@ -528,6 +528,13 @@ impl<'s> Lexer<'s> {
                 self.bump();
                 TokenKind::MinusEq
             }
+            // [op-pow] `**` is one token, before `*=` and the bare `*`: no
+            // other construct writes two stars together (`/**` is a comment,
+            // consumed before this dispatch).
+            ('*', Some('*')) => {
+                self.bump();
+                TokenKind::StarStar
+            }
             ('*', Some('=')) => {
                 self.bump();
                 TokenKind::StarEq

@@ -2609,6 +2609,8 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   widen the narrower operand, then call at the wide type; (b) declare the
   mixed overloads in std; (c) let every call widen within a numeric class.
   Recommendation (a). ROADMAP 0ai.
+  Extended by B3.3e: the arithmetic operators widen the same way (`i + l` is
+  `plus(widen(i), l)`); `**` widens nothing.
 - **P12. DECISION (open, B3.3c, 2026-10-28): float ordering.** std has no
   `cmp(Double, Double)` (no total order), so `a < b` on floats names no call.
   Built: **(a)** the host's IEEE order when no `cmp` is in reach (an enclosing
@@ -2626,6 +2628,8 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   (a body with `cmp: (T, T) -> Int` comparing `Int`s with `<` would be
   refused). Recommendation (a). ROADMAP 0ak.
   Extended by B3.3d: a local `next`/`iter` does not take a `for` either.
+  Extended by B3.3e: a local `plus`… `pow` does not take `+`… `**`; and the
+  arithmetic operators ask their implicit by name only (no binder slot, P13).
 - **P15. DECISION (open, B3.3d, 2026-10-28): a type with both a `next` and
   an `iter`.** `for x in e` is `next(e)` when a `next` takes `e`, so such a
   type is driven and its `iter` never called by a `for`; the brief suggests
@@ -2633,6 +2637,27 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   `: Next`) is refused today. Built: **(a)** accept, `next` wins; (b) refuse
   at the type, a per-declaration check beside [unique-shape]; (c) accept and
   drop the obligation-pair refusal too. Recommendation (b). ROADMAP 0am.
+- **P16. DECISION (open, B3.3e, 2026-10-28): names for `%`, unary `-` and
+  `++`/`--`.** O1's table names `+ - * /` and `**` only. Built: **(a)** keep
+  them the host's operators on the numeric scalars (a struct gets none);
+  (b) name them (`rem`, `neg`; `++` as `plus(x, 1)`), two more rows of D-3's
+  table; (c) (b) for `%` and unary `-` only. Recommendation (c), the names
+  the user's. Compound assignment needs nothing (it desugars to the binary
+  operator). ROADMAP 0ao.
+- **P17. DECISION (open, B3.3e, 2026-10-28): what `**` means.** Built: std
+  declares `pow(Int, Int)`, `pow(Long, Int)`, `pow(Double, Int)`,
+  `pow(Double, Double)`; no widening; a **negative integer exponent traps**
+  (the host's exception, as a zero divisor); integer powers wrap [op-wrap];
+  `Double ** Int` is squaring in one order on both backends (same bits);
+  `Double ** Double` is the host's `pow` (last-ulp parity not guaranteed);
+  no `Float` or `Long ** Long`. Alternatives per question in ROADMAP 0ap
+  (truncated result for a negative exponent; no `Double ** Double` until a
+  shared implementation). Recommendation: as built.
+- **P18. DECISION (open, B3.3e, 2026-10-28): the precedence of `**`.** The
+  brief says nothing. Built: tighter than `*` and a prefix operator on its
+  left, right-associative, exponent possibly unary (`-2 ** 2` is `-4`,
+  `2 ** 3 ** 2` is `512`); no `**=`. Alternatives: unary minus tighter; refuse
+  `-a ** b` unparenthesized. Recommendation: as built. ROADMAP 0aq.
 
 ## II.11. Rounds
 
@@ -3131,6 +3156,43 @@ this log current so the work can resume after a context reset). Newest last.
   makes without a node (a key, a site, typed arguments with
   `pending_typed_only`), and `Lower::for_call` its IR side with lowered
   arguments; interpolation's `to_str` parts (piece 2) can take both.
+
+- **B3.3e: done** (committed "Resolve arithmetic operators as calls and add
+  the ** operator"). Built ([op-arith], [op-pow], [op-promote],
+  [unique-shape]; COMPLETED.md "Arithmetic operators are the calls they name,
+  and `**` is added"): `a + b`, `-`, `*`, `/` lower to `plus`, `minus`,
+  `times`, `divide`, and the new `a ** b` (lexed `StarStar`, parsed at the
+  unary level by `parse_power`) to `pow`, by `check_arith_call`: the enclosing
+  fn's own implicit by name (`pick_own_implicit_by`), then `resolve_named_call`
+  with the operands pre-typed under an `OperatorSite`; the result is the call's
+  type. std declares the intrinsics in `basic.sv` (16 arithmetic, 4 `pow`); no
+  `Str` `+` existed, so none is declared. **D1** an enclosing `?plus` takes `+`
+  at an `Int`; a `T` with none is refused (it was lenient). **D3** a member
+  `times` takes `*`. The native spelling is `Ctx::is_primitive_operator`
+  (renamed from `is_primitive_compare`, now with the four arithmetic names);
+  `pow` is never primitive, always the call, each backend's intrinsic keyed
+  `base^exponent`. [op-promote] is the pre-call lowering of P11 for `+ - * /`;
+  `**` widens nothing. `%`, unary `-`, `++`/`--` stay numeric-only (P16).
+  **Found and fixed:** `%`, unary `-` and the logical operators were lenient
+  on a `T` and both target compilers refused the code; now refused.
+  The differential (`SALVO_XP_B33E`, removed; 3,158 outputs per side, full
+  fresh runs, base a worktree of 47405b4e): no accepted program changed; 28
+  outputs differ once the new call column is stripped, all named (rewordings,
+  one diagnostic instead of two at an optional operand, std's new
+  declarations, a shadow's moved spans, a fixture's `rename fn plus` now
+  colliding with std's, renamed `sum2`). Emitted code: examples,
+  `modules/aws`, benches identical on both backends (1,436 files). Tests
+  2,156. Timings: `analyze` cluster check 218–222 → 220–228ms; lsp-timing
+  medians within the spread (COMPLETED.md).
+  **Open:** P16 (ROADMAP 0ao, names for `%`, unary `-`, `++`), P17 (0ap,
+  `**`'s semantics and std surface), P18 (0aq, `**`'s precedence); P11 and
+  P14 extended to arithmetic.
+  **What the next pieces need:** every operator in O1's table but
+  interpolation's `to_str` is now a call; `check_arith_call` and
+  `check_comparison_operands` share `operator_through_implicit` (it answers
+  the implicit's return type) and `operator_implicit_tie`; an intrinsic whose
+  overloads share a first-parameter base needs a wider key in the backends'
+  tables.
 
 ## II.13. The call census (B1, 2026-10-27)
 

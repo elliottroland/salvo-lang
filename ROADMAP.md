@@ -908,6 +908,13 @@ are refused before any call. Options (PIPELINE.md §II.10 P11):
 Recommendation: (a), until arithmetic operators (`plus` …, O1) raise the same
 question and the three can be decided together.
 
+**Extended by B3.3e** (2026-10-28): the arithmetic operators raise it now, and
+were built the same way: `i + l` is `plus(widen(i), l)`, at std's
+`plus(Long, Long)`, and `plus(i, l)` written out is refused; `**` widens
+nothing ([op-pow]). Option (b) would add the mixed `plus`/`minus`/`times`/
+`divide` overloads too (sixteen more intrinsics per class); one answer covers
+all of them.
+
 ### 0aj — DECISION: float ordering has no `cmp` to call (B3.3c, 2026-10-28)
 
 std declares `eq(Double, Double)` and `eq(Float, Float)` but no `cmp` for
@@ -953,7 +960,12 @@ P14):
    refused. Options: (a) keep (built: only implicits shadow an operator, as
    only they shadow by fit); (b) follow the call. Recommendation: (a).
    The same holds for the `next`/`iter` a `for` names since B3.3d (a local
-   `next` does not take the loop), decided with this one.
+   `next` does not take the loop), and for `plus`/`minus`/`times`/`divide`/
+   `pow` since B3.3e (a local `plus` does not take `+`), decided with this one.
+
+For (1), the arithmetic operators (B3.3e) ask **by name**, as the call does:
+there is no binder slot for `plus` and no 2026-09-22 decision about them, so
+they follow the call; if (c) is chosen for `cmp`, nothing changes for them.
 
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 
@@ -1002,6 +1014,75 @@ They agree on every program the suite checks (the differential); folding the
 loop's rules into the call's contract would make the header a written
 `let it = Mut e; loop { when next(it) … }` (PIPELINE.md §II.6), and belongs to
 the typed partial IR (Stage D).
+
+### 0ao — DECISION: names for `%`, unary `-` and `++`/`--` (B3.3e, 2026-10-28)
+
+O1's name table (OPERATOR_OVERLOAD.md) gives `+ - * /` and `**` their names
+(`plus`, `minus`, `times`, `divide`, `pow`) and says nothing of `%`, unary
+`-`, `++`/`--`. B3.3e kept those **the host's operators on the numeric
+scalars only**, as they were ([op-arith]): `%` with [op-promote]'s widening,
+unary `-` on a number, `++`/`--` on an `Int` place [inc-dec]; a struct gets
+none of them, and no name for them is a shape [unique-shape]. Compound
+assignment needs nothing: `v += w` is `v = v + w` [op-compound], which is
+`plus`. Options (PIPELINE.md §II.10 P16):
+
+- **(a) Keep them numeric-only** (built).
+- **(b) Name them**: `a % b` is `rem(a, b)` and `-a` is `neg(a)` (two more
+  rows of D-3's table: `rem` with 2 parameters, `neg` with 1; std's
+  intrinsics for the numbers, as for `plus`), and `++`/`--` either stay
+  `Int`-only or become `x = plus(x, 1)` / `x = minus(x, 1)`.
+- **(c)** (b) for `%` and unary `-` only.
+
+Recommendation: (c), since `%` and unary `-` are as much arithmetic as `+`,
+while a step of one on a struct has no obvious meaning. The names `rem` and
+`neg` are suggestions; choosing them is the user's call.
+
+### 0ap — DECISION: what `**` means, and what std declares for it (B3.3e, 2026-10-28)
+
+Built ([op-pow]; PIPELINE.md §II.10 P17): std declares `pow(Int, Int) ->
+Int`, `pow(Long, Int) -> Long`, `pow(Double, Int) -> Double` and
+`pow(Double, Double) -> Double`, and the operator widens nothing. The
+questions:
+
+1. **A negative integer exponent.** Built: **(a) a trap**, the host's
+   arithmetic exception (Rust `panic!`, Kotlin `ArithmeticException`, both
+   naming the exponent), as a zero divisor is; the texts differ, as division
+   by zero's do (§10). Alternatives: (b) the truncated real result (`0` for
+   `|b| > 1`, `1` for `b == 1`, `±1` for `b == -1`, a trap for `b == 0`),
+   never a trap but a surprise; (c) declare `pow` only over an exponent type
+   that cannot be negative, which std has none of today.
+2. **Overflow** wraps like the rest of integer arithmetic [op-wrap] (built:
+   Rust's `wrapping_pow` and the JVM's wrapping multiplication give the same
+   low bits). A `checked_pow` belongs with the other `checked_*` (§10).
+3. **Float powers.** `Double ** Int` is repeated squaring written out on both
+   backends, in one order, so the bits agree (built). `Double ** Double` is
+   the host's `pow` (Rust `f64::powf`, the JVM's `Math.pow`): both are within
+   about an ulp, but nothing guarantees they round alike for every input, so
+   it is the first operation in std whose last bit could differ between the
+   backends [backend-parity]. Alternatives: (b) declare no `Double ** Double`
+   until a shared implementation exists (a port of fdlibm's `pow` on Rust,
+   `StrictMath.pow` on the JVM); (c) keep it and document the caveat (built,
+   and documented in [op-pow]).
+4. **What is absent:** `Float` has no `pow` (an `f32` host `pow` and the
+   JVM's double `Math.pow` narrowed would round differently), and `Long **
+   Long`, `Int ** Long` and `Double ** Long` are refused naming what std
+   declares.
+
+Recommendation: (1a), (2) as built, (3c) and (4) as built; or (3b) if bit
+parity of float results is to stay a promise without exceptions.
+
+### 0aq — DECISION: the precedence of `**` (B3.3e, 2026-10-28)
+
+The brief and OPERATOR_OVERLOAD.md say nothing about it. Built ([op-pow];
+PIPELINE.md §II.10 P18) as most languages with the operator do (Python's
+rule): **tighter than `*` and than a prefix operator on its left,
+right-associative, its exponent possibly unary**. So `-2 ** 2` is `-4`,
+`2 ** 3 ** 2` is `512`, `2 ** -1` is `2 ** (-1)` and `a * b ** c` is
+`a * (b ** c)`; same-line only, as `*`; and there is no `**=`. Alternatives:
+(b) unary minus binds tighter (`-2 ** 2` is `4`, as in Excel), which surprises
+a reader who knows the mathematical convention; (c) refuse `-a ** b` without
+parentheses (precedence made explicit). Recommendation: as built. Also open:
+whether `**=` should exist (by [op-compound]'s rule it would be `x = x ** e`).
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 

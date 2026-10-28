@@ -133,14 +133,14 @@ count) and, for three of them, a return type:
 |---|---|---|---|
 | `eq` | 2 | `Bool` | `==`, `!=` |
 | `cmp` | 2 | `Int` | `<`, `>`, `<=`, `>=` |
-| `plus`, `minus`, `times`, `divide`, `pow` | 2 | anything | `+`, `-`, `*`, `/`, `**` (reserved) |
+| `plus`, `minus`, `times`, `divide`, `pow` | 2 | anything | `+`, `-`, `*`, `/`, `**` |
 | `to_str` | 1 | anything | interpolation |
 | `iter` | 1 | anything | `for` |
 | `next` | 1 | `Emitted T \| Finished` | `for` |
 
-The arithmetic names are reserved ahead of their operators: today `+`, `-`,
-`*` and `/` are defined on numbers only, and `**` is not yet an operator, but a
-`plus(a: Person, b: Person)` already has to live with `Person`.
+So a type of your own gets `+` by declaring `plus` in its own file, and `**`
+by declaring `pow` there; the arithmetic operators are calls exactly as the
+comparisons are (see [Data and types](Data-and-Types.md#arithmetic)).
 
 Anything else is an ordinary function, allowed anywhere: a stepping
 `iter(list: List<Str>, step: Int)` takes two parameters, and an effect member

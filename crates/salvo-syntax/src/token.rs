@@ -119,6 +119,7 @@ pub enum TokenKind {
     Plus,     // +
     Minus,    // -
     Star,     // *
+    StarStar, // ** — [op-pow] the power operator
     Slash,    // /
     Percent,  // %
     PlusPlus, // ++
@@ -258,6 +259,7 @@ impl TokenKind {
             TokenKind::Plus => "+",
             TokenKind::Minus => "-",
             TokenKind::Star => "*",
+            TokenKind::StarStar => "**",
             TokenKind::Slash => "/",
             TokenKind::Percent => "%",
             TokenKind::PlusPlus => "++",

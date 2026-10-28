@@ -477,8 +477,9 @@ pub fn tm_grammar() -> String {
           "match": "\\+=|-=|\\*=|/="
         }},
         {{
+          "comment": "[op-pow] `**` first, so it is one operator rather than two `*`",
           "name": "keyword.operator.arithmetic.salvo",
-          "match": "\\+\\+|--|\\+|-|\\*|/|%"
+          "match": "\\*\\*|\\+\\+|--|\\+|-|\\*|/|%"
         }},
         {{
           "name": "keyword.operator.assignment.salvo",

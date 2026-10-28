@@ -1352,12 +1352,12 @@ mod tests {
                          export fn boxed<T>(item: T) [] -> Box<T> => !item {\n    return Box { item: item, count: 1 }\n}\n\n\
                          export qualifier Below(limit: Int) of Int {\n    fn qualifies(n: Int, limit: Int) -> Bool {\n        return n < limit\n    }\n}\n\n\
                          export fn norm(p: Pt) [] -> Int => p {\n    return p.x * p.x + p.y * p.y\n}\n\n\
-                         rename fn plus = add2(a: Int, b: Int)\n\n\
+                         rename fn sum2 = add2(a: Int, b: Int)\n\n\
                          export fn add2(a: Int, b: Int) [] -> Int {\n    return a + b\n}\n",
                     ),
                     (
                         "geo.test.sv",
-                        "test \"the origin is at zero\" {\n    let p = origin()\n    let n = norm(p)\n    let s = plus(n, 1)\n}\n",
+                        "test \"the origin is at zero\" {\n    let p = origin()\n    let n = norm(p)\n    let s = sum2(n, 1)\n}\n",
                     ),
                     (
                         "count.sv",
