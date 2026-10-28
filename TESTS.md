@@ -730,6 +730,8 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   copy_scalar, compare, member, refine, widen, depend → 11 areas; 381 Rust
   tests → data + 40 Rust tests. The defects the exact annotations exposed are
   ROADMAP §0ar.
+- **Step 4 wave 2 (2026-10-28).** 23 files → 23 more areas (34 in all);
+  435 Rust tests → data + 51 Rust tests; ROADMAP §0ar extended.
 - **The migration procedure** (what each wave's sub-agents follow; the full
   prompt is kept as `tmp/migrate_prompt.md` while the waves run). Per test:
   a diagnostic or clean-program test becomes data in an area named for the

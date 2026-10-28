@@ -8,10 +8,192 @@
 //! drop instead of leaving the emitters to guess — the standing
 //! checker/emitter agreement invariant — and it has to record it at every
 //! site where a value flows into a plain-`Str` position.
+//!
+//! The diagnostics are test data, `tests/check/strings/` (TESTS.md T1); the
+//! drop tests here read the checker's table, over the real std. One
+//! diagnostic test stays on its old prelude, and says why.
 
 use std::path::Path;
 
-use salvo_core::{check_program, resolve, Coercion, FileDiagnostic, Program, SourceSet, Symbols};
+use salvo_core::{check_program, resolve, Coercion, Program, SourceSet, Symbols};
+
+/// `src` checked over the real std, asserting it reports no error, with
+/// only the rows of its own file kept (std's are seeded into every check).
+fn checked(src: &str) -> salvo_core::Checked {
+    let out = salvo_testkit::front::check_main(src);
+    let errors = out.errors();
+    assert!(errors.is_empty(), "unexpected errors: {errors:#?}");
+    let user = out.program.files.iter().position(|f| !f.is_std).expect("main.sv");
+    let mut c = out.checked;
+    c.coerce.retain(|k, _| k.file() >= user);
+    c
+}
+
+/// How many `Mut` drops the checker recorded in the user file, and what they
+/// were dropped *from*.
+fn drops(src: &str) -> Vec<String> {
+    let out = checked(src);
+    let mut found: Vec<String> = out
+        .coerce
+        .values()
+        .filter_map(|c| match c {
+            Coercion::DropMut { from, .. } => Some(from.to_string()),
+            _ => None,
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+/// The coercion a `DropMut` carries with it, if any — one expression has one
+/// coercion slot, and both changes have to happen.
+fn drop_continuations(src: &str) -> Vec<String> {
+    let out = checked(src);
+    out.coerce
+        .values()
+        .filter_map(|c| match c {
+            Coercion::DropMut { then, .. } => {
+                Some(then.as_ref().map(|t| format!("{t:?}")).unwrap_or_default())
+            }
+            _ => None,
+        })
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn body(stmts: &str) -> String {
+    format!("fn takes(text: Str) -> Int => text {{\n    return size(text)\n}}\n\nfn probe() -> None {{\n{stmts}\n}}\n")
+}
+
+// ===== every drop site =====
+
+/// A call argument — including one that reaches an intrinsic lowering, where
+/// a missed conversion would hand `StringBuilder` to a `String` method.
+#[test]
+fn a_call_argument_drops_mut() {
+    assert_eq!(
+        drops(&body("    let b = Mut Str()\n    let n = takes(b)")),
+        vec!["Mut Str"]
+    );
+    assert_eq!(
+        drops(&body("    let b = Mut Str()\n    let n = size(b)")),
+        vec!["Mut Str"]
+    );
+}
+
+/// A `let` annotation, and a `return` — the two places a value leaves its
+/// expression for a declared type.
+#[test]
+fn annotations_and_returns_drop_mut() {
+    assert_eq!(
+        drops(&body("    let plain: Str = Mut Str()")),
+        vec!["Mut Str"]
+    );
+    let src = "fn made() -> Str {\n    return Mut Str()\n}\n";
+    assert_eq!(drops(src), vec!["Mut Str"]);
+}
+
+/// A struct field.
+#[test]
+fn a_struct_field_drops_mut() {
+    let src = "struct Label {\n    text: Str\n}\n\nfn probe() -> None {\n    \
+               let l = Label {text: Mut Str()}\n}\n";
+    assert_eq!(drops(src), vec!["Mut Str"]);
+}
+
+/// A union arm: the value is wrapped as a *plain* `Str`, so the drop has to
+/// happen first — and the wrap has to happen too, which is why a `DropMut`
+/// carries a continuation.
+#[test]
+fn a_union_arm_drops_mut_and_keeps_the_wrap() {
+    let src = "fn probe() -> None {\n    let u: Str | Int = Mut Str()\n}\n";
+    assert_eq!(drops(src), vec!["Mut Str"]);
+    let carried = drop_continuations(src);
+    assert_eq!(carried.len(), 1, "{carried:?}");
+    assert!(
+        carried[0].contains("WrapUnion"),
+        "the union wrap must survive the drop: {}",
+        carried[0]
+    );
+}
+
+/// Interpolation reads a value's *text*.
+#[test]
+fn interpolation_drops_mut() {
+    assert_eq!(
+        drops(&body("    let b = Mut Str()\n    let s = \"${b}\"")),
+        vec!["Mut Str"]
+    );
+}
+
+/// Operators: equality especially, since a builder compares by identity
+/// where a string compares by content — a live divergence between the two
+/// targets if the drop were skipped.
+#[test]
+fn operators_drop_mut() {
+    let src = body(
+        "    let x = Mut Str()\n    let y = Mut Str()\n    let same = x == y",
+    );
+    assert_eq!(drops(&src), vec!["Mut Str", "Mut Str"]);
+}
+
+// ===== where nothing is dropped =====
+
+/// A `Mut Str` parameter keeps it: the position asked for a builder.
+#[test]
+fn a_mut_position_keeps_mut() {
+    let src = body("    let b = Mut Str()\n    append(b, \"x\")");
+    assert!(drops(&src).is_empty(), "{:?}", drops(&src));
+}
+
+/// An *optional* `Mut Str` keeps it too — a `Mut` arm anywhere in the
+/// expected type means the value may stay a builder.
+#[test]
+fn an_optional_mut_position_keeps_mut() {
+    let src = "fn probe() -> None {\n    let maybe: Mut Str? = Mut Str()\n}\n";
+    assert!(drops(src).is_empty(), "{:?}", drops(src));
+}
+
+/// A generic parameter keeps it: `T` binds to the argument's own type, so
+/// nothing was widened. (`copy(b)` is the case that matters — a copy of a
+/// builder is a builder.)
+#[test]
+fn a_generic_position_keeps_mut() {
+    let src = format!(
+        "fn keep<T>(value: T) [] -> None => value {{}}\n\n{}",
+        body("    let b = Mut Str()\n    keep(b)")
+    );
+    assert!(drops(&src).is_empty(), "{:?}", drops(&src));
+}
+
+/// A plain `Str` never records a drop — the coercion exists for the one
+/// qualifier that is not erased.
+#[test]
+fn a_plain_str_records_nothing() {
+    assert!(drops(&body("    let n = takes(\"plain\")")).is_empty());
+}
+
+// ===== the type =====
+
+/// [type-canbe-mut] `Str canbe Mut`, so `Mut Str` is a type — where `Mut
+/// Int` still is not.
+//
+// Kept on the old prelude: over the real std, `let n: Mut Int = 1` reports
+// `struct-mut:not-canbe-mut` and then `var-let-infer:annotation-mismatch`
+// ("expected `Mut Int`, found `Int`"), a second diagnostic for one mistake
+// [type-unknown-lenient], which a data file would pin. The `Mut Str` half is
+// `strings/strings.sv`'s `opts_into_mut`.
+#[test]
+fn str_opts_into_mut() {
+    assert!(prelude_messages(&body("    let b: Mut Str = mut_str()")).is_empty());
+    let msgs = prelude_messages(&body("    let n: Mut Int = 1"));
+    assert!(
+        msgs.iter().any(|m| m.contains("`Mut` does not apply to `Int`")),
+        "{msgs:?}"
+    );
+}
+
+// ===== the old prelude, for `str_opts_into_mut` =====
 
 /// [platform-intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`). Module `std.core.prelude`:
@@ -31,7 +213,7 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
-fn checked(src: &str) -> (Program, salvo_core::Checked) {
+fn prelude_checked(src: &str) -> (Program, salvo_core::Checked) {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -69,269 +251,7 @@ fn checked(src: &str) -> (Program, salvo_core::Checked) {
     (program, out)
 }
 
-fn errors(src: &str) -> Vec<FileDiagnostic> {
-    // Errors only: an unused-variable *warning* [var-unused] is a different
-    // severity, and these tests are about legality.
-    let mut diags = checked(src).1.errors;
-    diags.retain(|d| d.is_error());
-    diags
-}
-
-fn messages(src: &str) -> Vec<String> {
-    errors(src).iter().map(|d| d.message.clone()).collect()
-}
-
-/// How many `Mut` drops the checker recorded in the user file, and what they
-/// were dropped *from*.
-fn drops(src: &str) -> Vec<String> {
-    let (_, out) = checked(src);
-    assert!(out.errors.iter().all(|d| !d.is_error()), "unexpected errors: {:?}", out.errors);
-    let mut found: Vec<String> = out
-        .coerce
-        .values()
-        .filter_map(|c| match c {
-            Coercion::DropMut { from, .. } => Some(from.to_string()),
-            _ => None,
-        })
-        .collect();
-    found.sort();
-    found
-}
-
-/// The coercion a `DropMut` carries with it, if any — one expression has one
-/// coercion slot, and both changes have to happen.
-fn drop_continuations(src: &str) -> Vec<String> {
-    let (_, out) = checked(src);
-    assert!(out.errors.iter().all(|d| !d.is_error()), "unexpected errors: {:?}", out.errors);
-    out.coerce
-        .values()
-        .filter_map(|c| match c {
-            Coercion::DropMut { then, .. } => {
-                Some(then.as_ref().map(|t| format!("{t:?}")).unwrap_or_default())
-            }
-            _ => None,
-        })
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
-fn body(stmts: &str) -> String {
-    format!("fn takes(text: Str) -> Int => text {{\n    return size(text)\n}}\n\nfn probe() -> None {{\n{stmts}\n}}\n")
-}
-
-// ===== the type =====
-
-/// [type-canbe-mut] `Str canbe Mut`, so `Mut Str` is a type — where `Mut
-/// Int` still is not.
-#[test]
-fn str_opts_into_mut() {
-    assert!(messages(&body("    let b: Mut Str = mut_str()")).is_empty());
-    let msgs = messages(&body("    let n: Mut Int = 1"));
-    assert!(
-        msgs.iter().any(|m| m.contains("`Mut` does not apply to `Int`")),
-        "{msgs:?}"
-    );
-}
-
-/// A `Str` literal is not a `Mut Str`: mutability is asked for, which is
-/// what makes `mut_str` mirror `Mut List`.
-#[test]
-fn a_literal_is_not_a_builder() {
-    let msgs = messages(&body("    let b: Mut Str = \"plain\""));
-    assert_eq!(msgs.len(), 1, "{msgs:?}");
-    assert!(msgs[0].contains("Mut Str"), "{}", msgs[0]);
-}
-
-// ===== every drop site =====
-
-/// A call argument — including one that reaches an intrinsic lowering, where
-/// a missed conversion would hand `StringBuilder` to a `String` method.
-#[test]
-fn a_call_argument_drops_mut() {
-    assert_eq!(
-        drops(&body("    let b = mut_str()\n    let n = takes(b)")),
-        vec!["Mut Str"]
-    );
-    assert_eq!(
-        drops(&body("    let b = mut_str()\n    let n = size(b)")),
-        vec!["Mut Str"]
-    );
-}
-
-/// A `let` annotation, and a `return` — the two places a value leaves its
-/// expression for a declared type.
-#[test]
-fn annotations_and_returns_drop_mut() {
-    assert_eq!(
-        drops(&body("    let plain: Str = mut_str()")),
-        vec!["Mut Str"]
-    );
-    let src = "fn made() -> Str {\n    return mut_str()\n}\n";
-    assert_eq!(drops(src), vec!["Mut Str"]);
-}
-
-/// A struct field.
-#[test]
-fn a_struct_field_drops_mut() {
-    let src = "struct Label {\n    text: Str\n}\n\nfn probe() -> None {\n    \
-               let l = Label {text: mut_str()}\n}\n";
-    assert_eq!(drops(src), vec!["Mut Str"]);
-}
-
-/// A union arm: the value is wrapped as a *plain* `Str`, so the drop has to
-/// happen first — and the wrap has to happen too, which is why a `DropMut`
-/// carries a continuation.
-#[test]
-fn a_union_arm_drops_mut_and_keeps_the_wrap() {
-    let src = "fn probe() -> None {\n    let u: Str | Int = mut_str()\n}\n";
-    assert_eq!(drops(src), vec!["Mut Str"]);
-    let carried = drop_continuations(src);
-    assert_eq!(carried.len(), 1, "{carried:?}");
-    assert!(
-        carried[0].contains("WrapUnion"),
-        "the union wrap must survive the drop: {}",
-        carried[0]
-    );
-}
-
-/// Interpolation reads a value's *text*.
-#[test]
-fn interpolation_drops_mut() {
-    assert_eq!(
-        drops(&body("    let b = mut_str()\n    let s = \"${b}\"")),
-        vec!["Mut Str"]
-    );
-}
-
-/// Operators: equality especially, since a builder compares by identity
-/// where a string compares by content — a live divergence between the two
-/// targets if the drop were skipped.
-#[test]
-fn operators_drop_mut() {
-    let src = body(
-        "    let x = mut_str()\n    let y = mut_str()\n    let same = x == y",
-    );
-    assert_eq!(drops(&src), vec!["Mut Str", "Mut Str"]);
-    // [op-arith] `+` on strings is refused outright (user decision
-    // 2026-09-14): interpolation is the concatenation story, and the error
-    // says so.
-    let src = body("    let x = mut_str()\n    let joined = x + x");
-    let msgs = messages(&src);
-    assert!(
-        msgs.iter()
-            .any(|m| m.contains("does not concatenate strings") && m.contains("${")),
-        "{msgs:?}"
-    );
-}
-
-// ===== where nothing is dropped =====
-
-/// A `Mut Str` parameter keeps it: the position asked for a builder.
-#[test]
-fn a_mut_position_keeps_mut() {
-    let src = body("    let b = mut_str()\n    append(b, \"x\")");
-    assert!(drops(&src).is_empty(), "{:?}", drops(&src));
-}
-
-/// An *optional* `Mut Str` keeps it too — a `Mut` arm anywhere in the
-/// expected type means the value may stay a builder.
-#[test]
-fn an_optional_mut_position_keeps_mut() {
-    let src = "fn probe() -> None {\n    let maybe: Mut Str? = mut_str()\n}\n";
-    assert!(drops(src).is_empty(), "{:?}", drops(src));
-}
-
-/// A generic parameter keeps it: `T` binds to the argument's own type, so
-/// nothing was widened. (`copy(b)` is the case that matters — a copy of a
-/// builder is a builder.)
-#[test]
-fn a_generic_position_keeps_mut() {
-    let src = format!(
-        "fn keep<T>(value: T) [] -> None => value {{}}\n\n{}",
-        body("    let b = mut_str()\n    keep(b)")
-    );
-    assert!(drops(&src).is_empty(), "{:?}", drops(&src));
-}
-
-/// A plain `Str` never records a drop — the coercion exists for the one
-/// qualifier that is not erased.
-#[test]
-fn a_plain_str_records_nothing() {
-    assert!(drops(&body("    let n = takes(\"plain\")")).is_empty());
-}
-
-// ===== interpolation renderability [interp-to-str] [interp-struct] =====
-
-/// [interp-to-str] [backend-never-wrong] A value with no text form used to
-/// pass the checker and become rustc's "doesn't implement Display". It is a
-/// Salvo error now, naming the `to_str` that would fix it.
-#[test]
-fn interpolating_a_type_with_no_text_form_is_an_error() {
-    let src = "struct Inner { n: Int }\n\
-               struct Opaque { inner: Inner }\n\
-               fn probe(o: Opaque) -> None => o {\n    let _s = \"${o}\"\n}\n";
-    let msgs = messages(src);
-    assert!(
-        msgs.iter().any(|m| m.contains("has no text form")),
-        "got {msgs:?}"
-    );
-}
-
-/// [interp-union] A union is interpolated by the `to_str` of the arm it
-/// holds, so every arm needs a text form: the scalars and `Str` have one, a
-/// struct needs a `to_str` of its own, and the error names the arm.
-#[test]
-fn a_union_needs_a_text_form_for_every_arm() {
-    let src = "struct Opaque { n: Int }\n\
-               fn probe(u: Int | Opaque) -> None => u {\n    let _s = \"${u}\"\n}\n";
-    let errs = errors(src);
-    assert!(
-        errs.iter().any(|d| d.id == Some("interp-union:arm-no-text") && d.message.contains("its arm `Opaque` has no text form")),
-        "got {errs:?}"
-    );
-    let ok = "struct Opaque { n: Int }\n\
-              fn to_str(o: Opaque) [] -> Str => o { return \"op\" }\n\
-              fn probe(u: Int | Opaque | Str) -> None => u {\n    let _s = \"${u}\"\n}\n";
-    let msgs = messages(ok);
-    assert!(msgs.is_empty(), "expected a clean check, got {msgs:?}");
-}
-
-/// [interp-to-str] A `to_str` in scope is resolved *at the interpolation
-/// site* (user decision 2026-09-11), so declaring one is all it takes.
-#[test]
-fn a_to_str_in_scope_makes_a_type_interpolable() {
-    let src = "struct Inner { n: Int }\n\
-               struct Opaque { inner: Inner }\n\
-               fn to_str(o: Opaque) [] -> Str => o { return \"op\" }\n\
-               fn probe(o: Opaque) -> None => o {\n    let _s = \"${o}\"\n}\n";
-    let msgs = messages(src);
-    assert!(msgs.is_empty(), "expected a clean check, got {msgs:?}");
-}
-
-/// [interp-to-str] [obligation-by] A struct interpolates by **opting in**
-/// (user decision 2026-09-28, replacing the default-on derivation): with no
-/// `to_str`, the diagnostic names the clause that stamps the field-wise one.
-#[test]
-fn a_struct_of_native_fields_interpolates_by_default() {
-    let src = "struct Person { name: Str, age: Int }\n\
-               fn probe(p: Person) -> None => p {\n    let _s = \"${p}\"\n}\n";
-    let msgs = messages(src);
-    assert!(
-        msgs.iter().any(|m| m.contains("has no text form") && m.contains(": ToStr<self> by auto")),
-        "expected the opt-in to be named, got {msgs:?}"
-    );
-}
-
-/// [interp-to-str] A struct holding another struct has no text form either
-/// without a declaration; the diagnostic asks for one.
-#[test]
-fn a_struct_with_a_non_native_field_needs_its_own_to_str() {
-    let src = "struct Inner { a: Int }\n\
-               struct Outer { inner: Inner }\n\
-               fn probe(o: Outer) -> None => o {\n    let _s = \"${o}\"\n}\n";
-    let msgs = messages(src);
-    assert!(
-        msgs.iter().any(|m| m.contains("has no text form")),
-        "got {msgs:?}"
-    );
+/// The errors of `src` over the old prelude, for the one test kept on it.
+fn prelude_messages(src: &str) -> Vec<String> {
+    prelude_checked(src).1.errors.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect()
 }

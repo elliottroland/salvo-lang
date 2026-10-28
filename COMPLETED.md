@@ -144,6 +144,23 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Twenty-three more checker test files are data (TESTS.md T1, step 4 wave 2)
+
+**Linear types, comptime, `iter fn`, `when`, subjects, guards, implicits,
+overloads, type arguments, carried identities, `with`, collections, `seq`,
+strings, bytes, literals, elvis, `is` bindings and defaults** moved to 23
+more areas, by the same procedure (TESTS.md §7). 435 old tests became data
+plus 51 Rust tests: comptime's 19 read back which copies a condition kept
+(a `refuse!` text per copy) and now run over the real std with every other
+error refused; str's 10 read the `Mut`-drop table; the rest read tables, need
+their own std module, or keep a diagnostic that looks wrong (ROADMAP §0ar
+grows by twelve of those, one misstated message, and five texts to fix).
+Twelve test files are gone. Rewrites were again mostly renames off std's
+names and std's own types in place of preludes' stand-ins; one found
+behaviour: a type refused as a key is reported once per program
+(`reported_ineligible_keys`), so the data gives each inferred case its own
+file.
+
 ### 2026-10-28 — Eleven more checker test files are data (TESTS.md T1, step 4 wave 1)
 
 **actor, monitor, mixed, deduce, once, copy_scalar, compare, member, refine,

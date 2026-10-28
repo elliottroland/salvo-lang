@@ -1007,6 +1007,45 @@ repros are over the real std.
     `fn-syntax:return-mismatch`; a value fitting no union arm reports
     `type-union:no-arm` and the return mismatch; a sourceless `proj` return
     reports `proj-infer:return-no-source` and the IR's `view-moved`.
+- **More of the same, from wave 2** (each kept test named):
+  - `export linear intrinsic type Handle<T> = Int` reports `type-alias:linear-alias`
+    and `linear-opaque:no-discharger` for the refused alias
+    (`linear_group_tests::an_alias_cannot_be_declared_linear`, parse-only);
+  - two `iter fn`s sharing a state name report `mod-collision:duplicate` and
+    `fn-overload-return:duplicate-fn` for the generated `next`
+    (`iter_fn_tests::a_state_name_collides_with_a_type`);
+  - `when o { is Ok {…} else {…} }` reports `when-union-subject:else` and
+    `when-exhaustive:missing-arms` for the arm the `else` meant to cover;
+  - `use Echo<Str>(1)` reports `effect-handler-generics:arg-mismatch` beside
+    `:conflict` (`implicit_tests::written_type_arguments_must_agree_…`);
+  - `list_size@core.list(xs)` on a renamed fn warns `fn-overload-at:not-needed`
+    beside `fn-rename:at-on-renamed` (`overload_tests::a_renamed_name_takes_…`);
+  - in a parameter type, `Heap<Person>(nowhere)`, `Heap<Person>(cmp@Nothing)`
+    and `Ranked<Person, Int>(by_age)` are each reported twice; a local as an
+    identity adds the annotation mismatch and warns the local unused; `fn
+    bad<T, ?cmp: …>` reports two slot errors; `to_set(List())` reports
+    `call-type-args:cannot-infer` twice (six `carry_tests`);
+  - `let n: Mut Int = 1` reports `struct-mut:not-canbe-mut` and the annotation
+    mismatch (`str_tests::str_opts_into_mut`);
+  - an inferred struct key with no `hash` (`Set(Q { x: 1 })`) reports
+    `implicit-resolve:no-fit` twice (for `hash`, for `eq`), where a written
+    `Set<Q>` reports one `col-key-eligible:key`
+    (`collection_tests::a_linear_element_is_refused_…`).
+- **A message that misstates the mistake**: `fn two(n: Int) -> Ok Int | Err
+  Int { return n }` says no arm accepts an `Int`, when two do: the mistake is
+  the ambiguity (`carry_tests::provenance_arm_is_inferred_from_a_bare_value`).
+- **Message texts to fix** (the ids are right; annotated as they are):
+  `qual-canbe-optin:unknown` still lists the deleted `hashed`/`ordered`;
+  `linear-obligation:no-discharger` for a conditionally linear struct lacks
+  an "and"; `implicit-resolve:no-fit` names one arbitrary candidate of many;
+  a dropped `Reply<Int>`'s hint names `on_idle`/`watch` (dischargers listed
+  by type name, not instantiation); type-named constructors show by their
+  key (`Mut_Set`, `Mut_List<…>`); three comptime texts carry ~26-space runs
+  from a literal broken without `\`.
+- **Behaviour worth a look**: an unhashable key in a constructor call is
+  reported once per program (`reported_ineligible_keys`), so a second fn's
+  `Set(2.5)` goes unreported while it is refused; `=> !a` on an `Int` warns
+  "changes nothing" yet decides whether the fn fits a keeping `?add`.
 - **Smaller**: an `_`-prefixed lift binding (`is ^Ok _value`) is refused with
   three errors, so an unused lift binding cannot be silenced as a `let`
   can; an effect member with a gained qualifier
