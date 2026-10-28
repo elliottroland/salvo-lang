@@ -144,6 +144,46 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — What a backend writes is checked as data (TESTS.md C4, C5)
+
+**The emitted-text and refusal tests of both codegen files are emit data**
+([test-emit-data]): `crates/salvo-backend-<b>/tests/emit/<area>/*.sv`, run
+by each backend's `emit_data.rs` through `salvo_testkit::data::emit_dir`.
+The format is the checker data's with two more annotations, placed by the
+construct they are about: `//~ emits: text` (the program's own emitted code
+holds it; `//~|` continues it a line at a time, `emits(path)` names an
+emitted file, `emits 2` counts, `!emits` forbids, an empty `emits(path):`
+asks only that the file exist) and `//~ refused[id]` (emission fails with
+exactly these ids). Only the program is checked, not the annotation's line:
+backend errors carry no span, and an emitted construct is not one source
+line.
+
+- **Rust**: 154 tests → 20; 137 programs in 68 files over 21 areas.
+  **Kotlin**: 118 → 23; 79 programs in 31 files over 21 areas. 849
+  annotations in all. The codegen files went from 19,552 and 18,226 lines
+  this morning to 1,247 and 1,641; what stays is the golden snapshots, the
+  examples-are-current tests, tests that push host companions by hand or
+  read `platform_skeletons` or the warnings channel, and assertions a data
+  file cannot make (ordering, two emissions compared, a check scoped to one
+  fn).
+- **Negative tests whose errors came from the checker** went to the checker
+  data instead (`check/{when,qualifiers,effects,types,control}` and four
+  files in existing areas), where `//~ error[id]` names the line; three of
+  their programs turned out to carry mistakes of their own that the old
+  `.any(contains)` had hidden, now annotated as reported.
+- **Three old tests asserted nothing**: two looked in `std/core/throw.*`,
+  which is never emitted (`std.throw` is `std/throw.*`), through
+  `unwrap_or_default`; one read `std/core/seq.rs` inside an `if let Some`
+  for a program that never reaches it. All three are real checks now
+  (the seq one moved to `iteration/seq_surface.sv`, whose program does
+  reach it). A `!contains("NonEmpty_qualifies")` that the real name
+  `NonEmpty__List_qualifies` slipped past is a real check too.
+- 100 `const` programs left unreferenced by the run-data move were deleted
+  (the compiler does not report a `pub` item); the IR corpus now also
+  builds every emit-data program, and its floor for the codegen files fell
+  to 5 (13 programs each remain).
+- Suite: 821 tests, 110s warm under nextest (a relink; CLI stamps missed).
+
 ### 2026-10-28 — The CLI's behaviour tests are run data too (TESTS.md C3, step 5 part 2)
 
 **run_tests.rs went from 71 tests to 34, and platform_tests.rs kept its 23

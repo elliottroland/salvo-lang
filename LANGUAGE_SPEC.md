@@ -11308,6 +11308,14 @@ replaced the working document TESTING.md).
   links std's library; both are stamped per program and backend. Every
   example under `examples/` runs the same way to its `expected.txt`. The
   format is `tests/run/README.md`.
+* [test-emit-data] **What a backend writes is checked as data too** (TESTS.md
+  C4, C5): `.sv` programs under `crates/salvo-backend-<b>/tests/emit/<area>/`,
+  emitted by that backend, whose `//~ emits: text` annotations (continued by
+  `//~|` lines; `emits(path)` for one emitted file, `emits 2` to count,
+  `!emits` to forbid) must be in the program's own emitted code, and whose
+  `//~ refused[id]` annotations must be exactly the ids emission fails with.
+  An annotation sits by the construct it is about; only its program, not its
+  line, is checked. The format is `salvo_testkit::data`.
 * [test-decl] `test "an empty heap pops nothing" { … }` declares a **test**: a
   top-level declaration with a string-literal name and a block body. No
   parameters, no effect list, no return type, and `export test` is refused — a

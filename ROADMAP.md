@@ -1102,6 +1102,14 @@ repros are over the real std.
     environment variable, or a CR on stdin; the tests needing them stay in
     `run_tests.rs` (`run_forwards_command_line_arguments_…`,
     `process_exit_and_env_…`, `console_reads_a_crlf_line_…`).
+- **From the emit data (TESTS.md C4/C5)**:
+  - a refused catch-all `fn to_str<T>` also reports
+    `fn-overload-at:no-fn-in-module` at `to_str = to_str@main`, which is
+    false — `main` declares `to_str` (`check/unique_shape/catch_all_to_str.sv`);
+  - `crates/salvo-backend-rust/tests/emit/operators/cmp_deref.sv`: the
+    program's comment says arithmetic must not grow a deref, but the emitted
+    (and asserted) code is `i32::wrapping_add((*crate::std_core_list::get::<i32>(&xs, i)), 1i32)`;
+    either the comment is stale or the emission is.
 
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 

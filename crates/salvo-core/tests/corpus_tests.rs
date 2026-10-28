@@ -1,6 +1,7 @@
 //! [ir-build] The builder over every inline program of the two backends'
-//! codegen tests, and every program of the compile-and-run data
-//! ([test-run-data], `salvo-cli/tests/run/`) — several hundred programs
+//! codegen tests, every program of the compile-and-run data
+//! ([test-run-data], `salvo-cli/tests/run/`) and of the backends' emit data
+//! ([test-emit-data], `salvo-backend-*/tests/emit/`) — several hundred programs
 //! covering the language: every one that checks must build with no error
 //! and no `Unsupported` node.
 //!
@@ -148,7 +149,9 @@ fn check_corpus(file: &str) {
     let text = std::fs::read_to_string(&path).unwrap();
     let programs: Vec<(String, Vec<(String, String)>)> =
         inline_programs(&text).into_iter().map(|(name, body)| (name, vec![("main.sv".to_string(), body)])).collect();
-    check_programs(file, programs, 50);
+    // Most programs now live in the run and emit data; the codegen files
+    // keep the few whose tests read emitted text a data file cannot.
+    check_programs(file, programs, 5);
 }
 
 /// [test-run-data] Every program of the compile-and-run data
@@ -168,6 +171,27 @@ fn run_data_programs() -> Vec<(String, Vec<(String, String)>)> {
                 let name = format!("{}#{}", file.display(), case.name);
                 let sources = case.sources().into_iter().map(|(n, c)| (n.to_string(), c.to_string())).collect();
                 out.push((name, sources));
+            }
+        }
+    }
+    out
+}
+
+/// [test-emit-data] Every program of a backend's emit data
+/// (`<backend crate>/tests/emit/<area>/*.sv`) that is not refused.
+fn emit_data_programs(backend: &str) -> Vec<(String, Vec<(String, String)>)> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../salvo-backend-{backend}/tests/emit"));
+    let mut out = Vec::new();
+    let mut areas: Vec<_> = std::fs::read_dir(&root).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    areas.sort();
+    for area in areas {
+        let mut files: Vec<_> = std::fs::read_dir(&area).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "sv")).collect();
+        files.sort();
+        for file in files {
+            let text = std::fs::read_to_string(&file).unwrap();
+            let cases = salvo_testkit::data::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+            for case in cases.into_iter().filter(|c| c.refused.is_empty()) {
+                out.push((format!("{}#{}", file.display(), case.name), case.files));
             }
         }
     }
@@ -232,6 +256,13 @@ fn check_programs(file: &str, programs: Vec<(String, Vec<(String, String)>)>, at
 #[test]
 fn every_kotlin_codegen_program_builds() {
     check_corpus("../salvo-backend-kotlin/tests/codegen_tests.rs");
+}
+
+#[test]
+fn every_emit_data_program_builds() {
+    let mut programs = emit_data_programs("rust");
+    programs.extend(emit_data_programs("kotlin"));
+    check_programs("salvo-backend-*/tests/emit", programs, 0);
 }
 
 #[test]

@@ -772,3 +772,10 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   an argument with a space, environment variables, CR on stdin. Step 5 is
   done; C1 (content-keyed CLI stamps) is left for C7, with the trimmed CLI
   tests.
+- **C4 with C5 (2026-10-28): emit data.** `//~ emits: …` / `//~ refused[id]`
+  in `crates/salvo-backend-<b>/tests/emit/<area>/`, one runner
+  (`salvo_testkit::data::emit_dir`) for both backends. Rust 154 → 20 tests,
+  Kotlin 118 → 23; checker errors the negative tests expected went to the
+  checker data. Snapshots were not added: where the old tests asserted one
+  construct's spelling, so do the annotations; the five goldens per backend
+  stay the whole-module contract. Next: C6 (LSP and analyze in-process).

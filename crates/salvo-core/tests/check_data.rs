@@ -92,3 +92,7 @@ area!(assertions);
 area!(unique_shape);
 area!(throws);
 area!(stamp_signature);
+area!(qualifiers);
+area!(effects);
+area!(types);
+area!(control);
