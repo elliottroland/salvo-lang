@@ -191,8 +191,11 @@ impl StdCache {
     }
 
     /// [lsp-std-front] Whether `program`'s std files hold the very modules
-    /// the cache was checked over (a language server's std front).
-    fn shares_modules(&self, program: &Program) -> bool {
+    /// the cache was checked over (a language server's std front). Without
+    /// it, std's address-keyed rows (`written_types`) are keyed by other
+    /// nodes than the program's, so what reads std's rows — emission — must
+    /// not use the cache (`std_front::check_over`).
+    pub fn shares_modules(&self, program: &Program) -> bool {
         self.modules.len() <= program.modules.len()
             && self.modules.iter().zip(&program.modules).all(|(a, b)| std::sync::Arc::ptr_eq(a, b))
     }

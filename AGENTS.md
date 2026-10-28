@@ -167,10 +167,12 @@ with the terminal's Developer Tools exemption, ~12s without it. See the
 Gatekeeper gotcha in COMPLETED.md; never take a perf number from the first
 run after a relink.)
 
-- **Always run `cargo build` and `cargo test` before presenting changes**, and
-  a **warm** `cargo nextest run --no-fail-fast` before a commit (user decision
-  2026-10-05; ~1m20 when little changed, measured 2026-10-14, up to ~5m after
-  an emitter or std change). The stamps already rerun every toolchain test
+- **Before presenting changes, run `cargo build` and the suite once**: a
+  **warm** `cargo nextest run --no-fail-fast` when a commit follows (user
+  decision 2026-10-05), otherwise `cargo test`. Not both: a `cargo test`
+  after a green nextest repeats it (user decision 2026-10-28, TESTS.md TD6).
+  The nextest takes ~1m20 when little changed, measured 2026-10-14, up to
+  ~5m after an emitter or std change. The stamps already rerun every toolchain test
   whose generated code, expected output or toolchain changed, every CLI test
   after a compiler rebuild, and every corpus program after a `salvo-core`
   rebuild or a std edit (`corpus_tests.rs`, keyed by its own test binary).
@@ -204,6 +206,13 @@ run after a relink.)
 - **`SALVO_SKIP_E2E=1` is for the inner loop, never for the final check.**
   It skips the toolchain tests — and those tests still report as *passing*,
   so a skipped run looks identical in the summary. The wall time is the tell.
+- **A test over the real std builds its program with `salvo_testkit::front`**
+  (2026-10-28, TESTS.md T3): std is parsed, expanded and checked once per
+  test process, and `front::program` / `check` / `project` / `dump_ir` /
+  `check_with` (and the backends' `emit_program_over`) build and check only
+  the test's own files over it. Building std again by hand (`add_dir` of
+  `lib/`) still works but costs ~0.25s a program, and a program that does not
+  hold the front's modules is checked whole.
 - **Temporary files stay inside the repository**: put scratch files,
   debug scripts, and throwaway output in the repo-local `tmp/` directory
   (gitignored) — never in `/tmp` or elsewhere outside the repo. Tests

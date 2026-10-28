@@ -33,13 +33,23 @@ pub fn emit_program_ir(
     entry: Option<&ModulePath>,
     abi: bool,
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
-    run(program, entry, abi, false)
+    run(program, entry, abi, false, None)
+}
+
+/// [std-cache] [`emit_program_ir`], with std's checked rows taken from `std`
+/// when it applies (`salvo_backend::driver::check_for_emission_over`).
+pub fn emit_program_ir_over(
+    program: &Program,
+    entry: Option<&ModulePath>,
+    std: Option<&salvo_core::StdCache>,
+) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
+    run(program, entry, false, false, std)
 }
 
 /// [platform-tree] The host implementation skeletons of the project's own
 /// modules (a dependency's host files are the dependency's to ship).
 pub fn platform_skeletons_ir(program: &Program, entry: Option<&ModulePath>) -> Result<Vec<EmittedFile>, Vec<String>> {
-    run(program, entry, true, true).map(|(files, _)| files)
+    run(program, entry, true, true, None).map(|(files, _)| files)
 }
 
 fn run(
@@ -47,8 +57,9 @@ fn run(
     entry: Option<&ModulePath>,
     abi: bool,
     skeletons: bool,
+    std: Option<&salvo_core::StdCache>,
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
-    let (_erased_program, erased, mut checked, warnings) = salvo_backend::driver::check_for_emission(program)?;
+    let (_erased_program, erased, mut checked, warnings) = salvo_backend::driver::check_for_emission_over(program, std)?;
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);
     let reach = salvo_backend::driver::reach(program, &resolution, &symbols, &checked, abi);
     let wanted: HashSet<&ModulePath> = reach.emitted.iter().copied().collect();

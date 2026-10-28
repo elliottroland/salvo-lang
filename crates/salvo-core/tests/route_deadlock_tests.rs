@@ -7,9 +7,8 @@
 //! occupancy edge, since the route locks — next to its edge into `X`, and
 //! its forward to `X` is no edge: it would re-spell the caller's.
 
-use std::path::Path;
 
-use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
+use salvo_core::{resolve, Symbols};
 
 /// The two protocols every case shares: `Ping`, the routed group's, and
 /// `Pong`, served by an actor that depends on the route.
@@ -50,28 +49,11 @@ handler Ponging() [any Ping] of Pong {{
 /// Checks `src` with std loaded, returning the rendered diagnostics (errors
 /// and warnings) and the deadlock graph's edges.
 fn check(src: &str) -> (Vec<String>, Vec<String>) {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let io_errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(io_errors.is_empty(), "failed to read std: {io_errors:?}");
-    let module = SourceSet::classify(Path::new("main.sv")).unwrap();
-    sources.add("main.sv", module, src.to_string(), false);
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
-        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-        assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
-        modules.push(module);
-    }
-    let _expansion = salvo_core::expand(&sources.files, &mut modules);
-    let program = Program {
-        files: sources.files,
-        modules: Program::share(modules),
-        companions: sources.companions,
-    };
+    // [std-cache] Over the process's std front (TESTS.md T3).
+    let program = salvo_testkit::front::program("kt", &[("main.sv", src)]).program;
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
-    let checked = check_program(&program, &resolution, &symbols);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
     let diags = resolution
         .errors
         .iter()

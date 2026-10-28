@@ -144,6 +144,61 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Tests check over one std per process (TESTS.md T3, C2, T6)
+
+**std's front half moved from the language server into salvo-core, and the
+tests build and check their programs over it.** The user paused PIPELINE.md
+Part II to rethink testing (TESTS.md, rounds 1 and 2: rule-label ids
+`feature-rule:diagnostic-name`, annotations above the line, one messages file,
+ids shown only under `-v`, shared data files, real std as the default fixture,
+`salvo test` where possible, the run-data format, one crate per Rust batch).
+This is the sequence's first code step.
+
+- **`salvo_core::std_front`** ([lsp-std-front], [std-cache]): `StdFront`
+  (std parsed, expanded and checked once, its modules kept), `parse_file`,
+  `StdFront::{build, applies, expand_after, program, check}`,
+  `cache_applies`, `check_over`. The CLI keeps only where std comes from
+  (`load_embedded_std`, `build_std_front`).
+- **Emission over a front**: `driver::check_for_emission_over`, each
+  backend's `emit_program_over`, `ir::dump_program_over`. The CLI's compile
+  path still checks std whole.
+- **`salvo_testkit::front`** (testkit now depends on salvo-core; salvo-core's
+  integration tests reach it through a dev-dependency cycle Cargo allows):
+  one front per process and extension, read from `lib/`; `program`,
+  `clean_program`, `project`, `check`, `check_with`, `dump_ir`. On it: both
+  codegen files (their three copies of a parse-only std front are gone),
+  corpus_tests, and the real-std helpers of diag, carry, flow, golden,
+  ir_linear, ir_op, borrow_as, linear_flow, route_deadlock and
+  stamp_signature. unique_shape (resolve only) and the tests with their own
+  std (an added std module, a shadow) still build std by hand.
+- **The differential** (`SALVO_XP_FRONT`, removed): every program the two
+  codegen files emit — 774, examples included — emitted over the front and
+  with a full check, compared file by file. Identical once the gate below was
+  in; the checked-in examples (`every_examples_checked_in_*_is_current`) and
+  the IR and facts goldens keep proving it.
+- **Found by it**: a program whose std was parsed again (the examples'
+  loader) passed `cache_applies` — its leading files *are* std — but its
+  nodes are not the cache's, so std's seeded `written_types` rows named none
+  of them and std emitted other pass modes (`drain`'s `each: (x: T)` as
+  `FnMut(&T)`). `check_over` now also requires `StdCache::shares_modules`;
+  the language server never emits, so it kept the weaker gate. The comment in
+  `ir::analyze` that said std's tables are "not populated" under the cache
+  was wrong and is corrected: they are seeded whole.
+- **T6** (user, round 1 TD6): AGENTS.md now asks for one final run, the warm
+  nextest before a commit (else `cargo test`), not both; PIPELINE.md's method
+  runs its differential over the data corpus, not two fresh suites.
+- **What it bought.** Under `cargo test` (one process per binary): Rust
+  codegen 18s → 6.3s, Kotlin codegen 16s → 5.5s, corpus 15s → 2.8s (fresh),
+  ir_linear 4s → 1.6s, flow 4s → 1s. Under nextest, which runs each test in
+  its own process and so builds the front once *per test* (~0.3s), much less:
+  1,928 → 1,701 summed seconds and 208 → 186s wall, mostly from the Kotlin
+  shards (194 → 119s) and corpus (57 → 9s). That is the case for TESTS.md T1:
+  the per-process front pays off under nextest only when one test function
+  checks many programs.
+- **C1 re-sequenced**: content-keyed CLI stamps need every CLI test to
+  generate before its stamp check, a rewrite of bodies C3 and C7 move or
+  delete, so C1 lands with them (TESTS.md T5).
+
 ### 2026-10-28 — Arithmetic operators are the calls they name, and `**` is added (B3 piece 3e, O1, R10 D1, D3)
 
 **`a + b` is `plus(a, b)`, `a - b` `minus(a, b)`, `a * b` `times(a, b)`, `a /
@@ -31583,7 +31638,8 @@ way since 2026-10-14: per program, keyed by its text, a digest of std's files
 and the test binary's fingerprint (the compiler is linked into it), with the
 outcome ("built" or "refused") in the key. A run with nothing changed checks
 nothing (~0.1s); a `salvo-core` rebuild or a std edit re-checks all of them on
-a pool of threads (~15s; ~22s inside a fresh suite); `SALVO_E2E_FRESH=1`
+a pool of threads (~3s since 2026-10-28, over the shared std front
+[std-cache]; it was ~15s); `SALVO_E2E_FRESH=1`
 forces them; `SALVO_SKIP_E2E` does not skip them.
 
 - `salvo-core`: 817 - 9 stamped-signature tests
@@ -32860,6 +32916,20 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A program whose leading files are std is not thereby a program over
+  the std cache** (TESTS.md C2, 2026-10-28): `cache_applies` compares flags,
+  but the cache's `written_types` rows are keyed by std's node *addresses*,
+  so a std parsed again (another loader, a test's own `add_dir`) reads none of
+  them, and emission — which reads std's rows — silently changes std's pass
+  modes. Anything that emits or builds std's IR from a `check_project`
+  result must hold the front's very modules (`StdCache::shares_modules`;
+  `std_front::check_over` checks both).
+- **Under nextest a per-process cache is a per-test cache** (TESTS.md T3):
+  every test is its own process, so a `OnceLock` std front costs its ~0.3s
+  build in every test of a binary. It pays off under `cargo test` at once,
+  and under nextest only where one test checks many programs (the Kotlin
+  shards, corpus) — the reason TESTS.md T1 groups cases into data files.
 
 - **A name std starts declaring can collide with a program's rename or local**
   (B3.3e, 2026-10-28): adding `plus` to `std.core.basic` made the check-cache

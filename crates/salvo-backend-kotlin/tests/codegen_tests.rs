@@ -127,7 +127,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
         modules: Program::share(modules),
         companions: sources.companions,
     };
-    let files = salvo_backend_kotlin::emit_program(&program)
+    let files = emit(&program)
         .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
     let main = files
         .iter()
@@ -160,86 +160,36 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
     );
 }
 
-/// std, read and parsed once per test binary: hundreds of tests build a
-/// program over it, and reading the tree (~90ms: a manifest, a directory
-/// walk, ~230 files) and parsing it cost more than many of the tests. A
-/// parse is a pure function of the text, and the parsed modules are shared
-/// as every driver shares them (`Arc`s an expansion copies before it
-/// rewrites one).
-struct StdFront {
-    files: Vec<salvo_core::source::SourceFile>,
-    companions: Vec<salvo_core::source::CompanionFile>,
-    modules: Vec<std::sync::Arc<salvo_syntax::ast::Module>>,
-}
-
-fn std_front() -> &'static StdFront {
-    static STD: std::sync::OnceLock<StdFront> = std::sync::OnceLock::new();
-    STD.get_or_init(|| {
-        let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-        let mut sources = SourceSet::default();
-        let errors = sources.add_dir(&std_dir, "kt", true, false);
-        assert!(errors.is_empty(), "failed to read std: {errors:?}");
-        let mut modules = Vec::new();
-        for file in &sources.files {
-            modules.push(parse_or_panic(file));
-        }
-        StdFront {
-            files: sources.files,
-            companions: sources.companions,
-            modules: Program::share(modules),
-        }
-    })
-}
-
-fn parse_or_panic(file: &salvo_core::source::SourceFile) -> salvo_syntax::ast::Module {
-    let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(
-        errors.is_empty(),
-        "parse errors in {}: {errors:?}",
-        file.name
-    );
-    module
-}
-
+/// [std-cache] A program of std and `extra`, over the process's std front
+/// (`salvo_testkit::front`, TESTS.md C2): std was read, parsed, expanded and
+/// checked once, and the program holds its very modules, so only `extra` is
+/// parsed, expanded ([route-stub], what `salvo compile` runs before
+/// checking) and — through [`emit`] — checked.
 fn build_program(extra: &[(&str, &str)]) -> Program {
-    let std = std_front();
-    let mut sources = SourceSet {
-        files: std.files.clone(),
-        companions: std.companions.clone(),
-        ..Default::default()
-    };
-    let mut modules = std.modules.clone();
-    for (name, content) in extra {
-        let module = SourceSet::classify(Path::new(name)).unwrap();
-        sources.add(*name, module, content.to_string(), false);
-        let file = sources.files.last().unwrap();
-        modules.push(std::sync::Arc::new(parse_or_panic(file)));
-    }
-    // The drivers' pre-resolution expansions [route-stub] — what `salvo
-    // compile` runs before checking.
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    let errors: Vec<_> = expansion.diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(errors.is_empty(), "expansion errors: {errors:?}");
-    Program {
-        files: sources.files,
-        modules,
-        companions: sources.companions,
-    }
+    let built = salvo_testkit::front::program("kt", extra);
+    let errors: Vec<_> = built.diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "parse or expansion errors: {errors:?}");
+    built.program
+}
+
+/// [std-cache] `emit_program` over the std front [`build_program`] built on.
+fn emit(program: &Program) -> Result<Vec<salvo_backend_kotlin::EmittedFile>, Vec<String>> {
+    let front = salvo_testkit::front::std_front("kt");
+    salvo_backend_kotlin::emit_program_over(program, front)
 }
 
 /// Emits one source (plus std) — the Rust backend's `generate` by another
 /// name, since this crate's `generate_demo` is fixed to `DEMO`.
 fn generate_files(extra: &[(&str, &str)]) -> Vec<salvo_backend_kotlin::EmittedFile> {
     let program = build_program(extra);
-    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
 }
 
 fn generate_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
     let program = build_program(&[("main.sv", DEMO)]);
-    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
 }
@@ -262,7 +212,7 @@ fn missing_effect_handler_is_an_error() {
         "bad.sv",
         "fn main() [use] -> None {\n    println(\"no console handler used\")\n}\n",
     )]);
-    let result = salvo_backend_kotlin::emit_program(&program);
+    let result = emit(&program);
     let errors = result.err().expect("expected codegen errors");
     assert!(
         errors
@@ -325,7 +275,7 @@ fn main() [use] -> None {
 
 fn generate_unions_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
     let program = build_program(&[("main.sv", UNIONS_DEMO)]);
-    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
 }
@@ -421,7 +371,7 @@ export fn f(x: Ok Int | Err Str) -> Int {
 }
 "#;
     let program = build_program(&[("bad.sv", src)]);
-    let errors = salvo_backend_kotlin::emit_program(&program)
+    let errors = emit(&program)
         .err()
         .expect("expected type errors");
     assert!(
@@ -435,7 +385,7 @@ export fn f(x: Ok Int | Err Str) -> Int {
 fn when_requires_union_subject() {
     let src = "export fn f(x: Int) -> None {\n    when x {\n        is Int {\n            x\n        }\n    }\n}\n";
     let program = build_program(&[("bad.sv", src)]);
-    let errors = salvo_backend_kotlin::emit_program(&program)
+    let errors = emit(&program)
         .err()
         .expect("expected type errors");
     assert!(
@@ -460,7 +410,7 @@ export fn f() -> Ok Int | Err Str {
 }
 "#;
     let program = build_program(&[("bad.sv", src)]);
-    let errors = salvo_backend_kotlin::emit_program(&program)
+    let errors = emit(&program)
         .err()
         .expect("expected type errors");
     assert!(
@@ -551,7 +501,7 @@ fn main() [use] {
 
 fn generate_qualifiers_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
     let program = build_program(&[("main.sv", QUALIFIERS_DEMO)]);
-    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
 }
@@ -614,7 +564,7 @@ fn kotlinc_compiles_and_runs_qualifiers() -> KotlinCase {
 /// Runs the checker on a source and returns the errors (panics if none).
 fn expect_errors(src: &str) -> Vec<String> {
     let program = build_program(&[("bad.sv", src)]);
-    salvo_backend_kotlin::emit_program(&program)
+    emit(&program)
         .err()
         .expect("expected type errors")
 }
@@ -687,7 +637,7 @@ const PASS_OUTPUT: &str = "n 3\nn 2\nn 1\nada is 36\ngrace is 45\ndone\n";
 #[test]
 fn a_pass_lowers_to_a_guarded_while_loop() {
     let program = build_program(&[("main.sv", PASS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let src = &files
@@ -713,7 +663,7 @@ fn a_pass_lowers_to_a_guarded_while_loop() {
 #[test]
 fn a_fieldless_struct_is_a_plain_class() {
     let program = build_program(&[("main.sv", PASS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let src = &files
@@ -799,7 +749,7 @@ const FALLIBLE_PASS_OUTPUT: &str =
 
 fn a_fallible_pass_yields_a_result() -> KotlinCase {
     let program = build_program(&[("main.sv", FALLIBLE_PASS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "fallible-pass", FALLIBLE_PASS_OUTPUT)
@@ -813,7 +763,7 @@ fn a_fallible_pass_yields_a_result() -> KotlinCase {
 #[test]
 fn a_flattened_qualifier_wraps_the_inner_union_first() {
     let program = build_program(&[("main.sv", FALLIBLE_PASS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -944,7 +894,7 @@ const NARROW_MUT_OUTPUT: &str = "got 1\ngot 2\nend\ngot 7\ngot 8\ngot 3\nn 1\nn 
 
 fn kotlinc_compiles_and_runs_mutation_through_narrowed_places() -> KotlinCase {
     let program = build_program(&[("main.sv", NARROW_MUT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "narrow-mut", NARROW_MUT_OUTPUT)
@@ -1384,7 +1334,7 @@ const REWRAP_OUTPUT: &str =
 
 fn kotlinc_compiles_and_runs_a_sub_union_rewrap() -> KotlinCase {
     let program = build_program(&[("main.sv", REWRAP_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "rewrap", REWRAP_OUTPUT)
@@ -1427,7 +1377,7 @@ const UNION_SPAN_OUTPUT: &str = "str hi\nint 7\nbool true\nstr tf\n";
 
 fn kotlinc_compiles_and_runs_a_union_spanning_generic() -> KotlinCase {
     let program = build_program(&[("main.sv", UNION_SPAN_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "union-span", UNION_SPAN_OUTPUT)
@@ -1463,7 +1413,7 @@ const NONE_RETURN_OUTPUT: &str = "zero: none\none: value\n";
 
 fn kotlinc_compiles_and_runs_a_none_typed_return_into_optional() -> KotlinCase {
     let program = build_program(&[("main.sv", NONE_RETURN_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "none-return", NONE_RETURN_OUTPUT)
@@ -1489,7 +1439,7 @@ const LOOP_NEVER_OUTPUT: &str = "7\n";
 
 fn kotlinc_compiles_and_runs_an_infinite_loop_as_never() -> KotlinCase {
     let program = build_program(&[("main.sv", LOOP_NEVER_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "loop-never", LOOP_NEVER_OUTPUT)
@@ -1497,7 +1447,7 @@ fn kotlinc_compiles_and_runs_an_infinite_loop_as_never() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_positional_pick() -> KotlinCase {
     let program = build_program(&[("main.sv", PICK_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "pick", PICK_OUTPUT)
@@ -1505,7 +1455,7 @@ fn kotlinc_compiles_and_runs_a_positional_pick() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_the_elvis_operator() -> KotlinCase {
     let program = build_program(&[("main.sv", ELVIS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "elvis", ELVIS_OUTPUT)
@@ -1513,7 +1463,7 @@ fn kotlinc_compiles_and_runs_the_elvis_operator() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_the_pipe_operator() -> KotlinCase {
     let program = build_program(&[("main.sv", PIPE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "pipe", PIPE_OUTPUT)
@@ -1521,7 +1471,7 @@ fn kotlinc_compiles_and_runs_the_pipe_operator() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_the_safe_pipe_operator() -> KotlinCase {
     let program = build_program(&[("main.sv", SAFE_PIPE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "safe_pipe", SAFE_PIPE_OUTPUT)
@@ -1529,7 +1479,7 @@ fn kotlinc_compiles_and_runs_the_safe_pipe_operator() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_lift_binding() -> KotlinCase {
     let program = build_program(&[("main.sv", LIFT_BINDING_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "lift-binding", LIFT_BINDING_OUTPUT)
@@ -1693,7 +1643,7 @@ const REPOINT_OUTPUT: &str = "pick 2\nyielded 2\neither 2 0\nearly 2\nearly kept
 
 fn kotlinc_compiles_and_runs_re_pointed_views() -> KotlinCase {
     let program = build_program(&[("main.sv", REPOINT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "re-pointed-views", REPOINT_OUTPUT)
@@ -1810,7 +1760,7 @@ const FORWARDED_FN_OUTPUT: &str = "param lambda 1\nparam named 2\ntwo levels 2\n
 
 fn kotlinc_compiles_and_runs_forwarded_fn_values() -> KotlinCase {
     let program = build_program(&[("main.sv", FORWARDED_FN_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "forwarded-fn-values", FORWARDED_FN_OUTPUT)
@@ -1889,7 +1839,7 @@ const BORROWED_ELEMENT_OUTPUT: &str = "list for ab\nlist for def\nget ab\niter f
 
 fn kotlinc_compiles_and_runs_borrowed_element_reads() -> KotlinCase {
     let program = build_program(&[("main.sv", BORROWED_ELEMENT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "borrowed-element-reads", BORROWED_ELEMENT_OUTPUT)
@@ -1965,7 +1915,7 @@ const KEPT_BORROW_OUTPUT: &str = "any true false\nall true false\ncount 1\nfind_
 
 fn kotlinc_compiles_and_runs_kept_fns_over_views() -> KotlinCase {
     let program = build_program(&[("main.sv", KEPT_BORROW_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "kept-fns-over-views", KEPT_BORROW_OUTPUT)
@@ -1973,7 +1923,7 @@ fn kotlinc_compiles_and_runs_kept_fns_over_views() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_escapes_in_expression_position() -> KotlinCase {
     let program = build_program(&[("main.sv", ESCAPE_EXPR_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "escape-expr", ESCAPE_EXPR_OUTPUT)
@@ -1981,7 +1931,7 @@ fn kotlinc_compiles_and_runs_escapes_in_expression_position() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_mutation_through_a_narrowed_mut_arm() -> KotlinCase {
     let program = build_program(&[("main.sv", NARROW_MUT_ARM_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "narrow-mut-arm", NARROW_MUT_ARM_OUTPUT)
@@ -1989,7 +1939,7 @@ fn kotlinc_compiles_and_runs_mutation_through_a_narrowed_mut_arm() -> KotlinCase
 
 fn kotlinc_compiles_and_runs_a_group_over_plain_arms() -> KotlinCase {
     let program = build_program(&[("main.sv", PLAIN_GROUP_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "plain-group", PLAIN_GROUP_OUTPUT)
@@ -1997,7 +1947,7 @@ fn kotlinc_compiles_and_runs_a_group_over_plain_arms() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_hand_written_pass() -> KotlinCase {
     let program = build_program(&[("main.sv", PASS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "hand-written-pass", PASS_OUTPUT)
@@ -2267,7 +2217,7 @@ fn a_raw_pass_is_driven_in_place_with_no_finally() {
     // (user decision 2026-09-12): no finally splice — the program's own
     // `close(lines)` is the discharge, an ordinary call.
     let program = build_program(&[("main.sv", RAW_CLOSE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let src = &files
@@ -2288,7 +2238,7 @@ fn a_raw_pass_is_driven_in_place_with_no_finally() {
 
 fn kotlinc_compiles_and_runs_a_released_raw_pass() -> KotlinCase {
     let program = build_program(&[("main.sv", RAW_CLOSE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "raw-close", RAW_CLOSE_OUTPUT)
@@ -2351,7 +2301,7 @@ const NEXT_SPREAD_OUTPUT: &str = "d 2\nd 4\nd 6\n";
 #[test]
 fn a_union_returning_implicit_renders_the_wrapper_type() {
     let program = build_program(&[("main.sv", YIELD_SPREAD_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let src = &files
@@ -2371,7 +2321,7 @@ fn a_union_returning_implicit_renders_the_wrapper_type() {
 
 fn kotlinc_compiles_and_runs_a_combinator_over_a_next_spread() -> KotlinCase {
     let program = build_program(&[("main.sv", YIELD_SPREAD_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "yield-spread", NEXT_SPREAD_OUTPUT)
@@ -2379,7 +2329,7 @@ fn kotlinc_compiles_and_runs_a_combinator_over_a_next_spread() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_composed_pass_with_a_stored_callback() -> KotlinCase {
     let program = build_program(&[("main.sv", FN_FIELD_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "fn-field-pass", FN_FIELD_OUTPUT)
@@ -2425,7 +2375,7 @@ fn constructor_must_live_with_its_qualifier() {
             "import quals.Fancy\n\nfn make() -> +Fancy Int {\n    return 1\n}\n",
         ),
     ]);
-    let errors = salvo_backend_kotlin::emit_program(&program)
+    let errors = emit(&program)
         .err()
         .expect("expected type errors");
     assert!(
@@ -2467,7 +2417,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -2563,7 +2513,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -2648,7 +2598,7 @@ fn main() [use] {
 
 fn generate_effects_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
     let program = build_program(&[("main.sv", EFFECTS_DEMO)]);
-    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
 }
@@ -2738,7 +2688,7 @@ fn a_use_may_shadow_an_earlier_registration() {
         "main.sv",
         "fn main() [use] -> None {\n    use StdConsole\n    use StdConsole\n}\n",
     )]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -2845,7 +2795,7 @@ fn main() [use] -> None {
 #[test]
 fn a_generic_dependent_handler_holds_a_typed_dependency_field() {
     let program = build_program(&[("main.sv", GENERIC_DEPENDENT_HANDLER_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = &files.iter().find(|f| f.rel_path.ends_with("main.kt")).unwrap().content;
@@ -2862,7 +2812,7 @@ fn a_generic_dependent_handler_holds_a_typed_dependency_field() {
 
 fn kotlinc_compiles_and_runs_a_generic_dependent_handler() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_DEPENDENT_HANDLER_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic-dependent-handler", "kept twice\n")
@@ -3061,7 +3011,7 @@ export fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "list-claims", "built 10\n\
@@ -3130,7 +3080,7 @@ export fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "bounds", "swapped true [c, b, a]\n\
@@ -3285,7 +3235,7 @@ export fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "heap", "root 1\n\
@@ -3341,7 +3291,7 @@ export fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "mixed-spread", "List [1, 2, 3]\n\
@@ -3400,7 +3350,7 @@ export fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "user-variadics", "plain 3\n\
@@ -3483,7 +3433,7 @@ fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -3549,7 +3499,7 @@ fn main() [use] {
 }
 "#;
     let program = build_program(&[("people.sv", people), ("main.sv", main)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -3625,7 +3575,7 @@ fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -3691,7 +3641,7 @@ fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -3760,7 +3710,7 @@ fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -3864,7 +3814,7 @@ fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "carried-ordering", "by age: Bob of 3\nby name: Ada of 3\n")
@@ -3917,7 +3867,7 @@ fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -3968,7 +3918,7 @@ fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "keyed-hash", "added true false\nsizes 2 1\n")
@@ -3992,7 +3942,7 @@ fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -4035,7 +3985,7 @@ fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -4077,7 +4027,7 @@ fn main() [use] {
 
 fn kotlinc_compiles_and_runs_elem_mut_handles() -> KotlinCase {
     let program = build_program(&[("main.sv", ELEM_MUT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "elem_mut", "2 13\n")
@@ -4157,7 +4107,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_a_declared_identity() -> KotlinCase {
     let program = build_program(&[("main.sv", HASHED_CAPABILITY_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "hashed_capability", "1 1 2\n")
@@ -4201,7 +4151,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_a_mixed_identity() -> KotlinCase {
     let program = build_program(&[("main.sv", MIXED_IDENTITY_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "mixed_identity", "2 1 2\n")
@@ -4237,7 +4187,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_a_generic_written_identity() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_MIXED_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic_written_identity", "1\n")
@@ -4280,7 +4230,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_a_held_identity() -> KotlinCase {
     let program = build_program(&[("main.sv", MIXED_SOURCE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "held_identity", "2\n")
@@ -4376,7 +4326,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_a_generic_keyed_container() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_KEYED_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic_keyed", "1 2 2 2\nann\ncyd\n2 {3, 4} {2, 9}\n")
@@ -4411,7 +4361,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_salvos_float_text() -> KotlinCase {
     let program = build_program(&[("main.sv", FLOAT_TEXT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "float_text", "2.0 8.25 -2.0 0.0 0.001 1.0E-4\n1234567.0 1.2345678E7 1.0E20 1.0E-14\nNaN Infinity -Infinity\nPoint { x: 2.0, ratio: 3.0 }\n[2.0, 0.5] [2.0, 0.5] [4.0]\n{a: 2.0}\n")
@@ -4546,7 +4496,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_a_loop_over_a_temporary() -> KotlinCase {
     let program = build_program(&[("main.sv", LOOP_TEMP_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "loop_temp", "a 1\na 2\nb 4\nb 5\nc 9\n")
@@ -4554,7 +4504,7 @@ fn kotlinc_compiles_and_runs_a_loop_over_a_temporary() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_user_struct_named_like_stds() -> KotlinCase {
     let program = build_program(&[("main.sv", SAME_NAME_PASS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "same_name_pass", "1\n2\n3\n")
@@ -4562,7 +4512,7 @@ fn kotlinc_compiles_and_runs_a_user_struct_named_like_stds() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_to_str_from_another_module() -> KotlinCase {
     let program = build_program(INTERP_TO_STR_MODULES);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "interp_to_str_module", "(1, 2)\n")
@@ -4570,7 +4520,7 @@ fn kotlinc_compiles_and_runs_a_to_str_from_another_module() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_qualified_argument_through_an_implicit() -> KotlinCase {
     let program = build_program(&[("main.sv", QUALIFIED_IMPLICIT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "qualified_implicit", "6\n6\n")
@@ -4578,7 +4528,7 @@ fn kotlinc_compiles_and_runs_a_qualified_argument_through_an_implicit() -> Kotli
 
 fn kotlinc_compiles_and_runs_bare_literal_arguments() -> KotlinCase {
     let program = build_program(&[("main.sv", BARE_LITERAL_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "bare_literal", "A 2\nB 2\nC 2\n")
@@ -4865,7 +4815,7 @@ fn main() [use] {
 
 fn kotlinc_compiles_and_runs_a_borrowed_scalar_comparison() -> KotlinCase {
     let program = build_program(&[("main.sv", CMP_DEREF_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "cmp_deref", "eq\nlt\n21\n")
@@ -4873,7 +4823,7 @@ fn kotlinc_compiles_and_runs_a_borrowed_scalar_comparison() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_contents_mutation_handle() -> KotlinCase {
     let program = build_program(&[("main.sv", CONTENTS_MUTATION_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "contents_mutation", "2 2\n")
@@ -4881,7 +4831,7 @@ fn kotlinc_compiles_and_runs_a_contents_mutation_handle() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_field_granular_mutation() -> KotlinCase {
     let program = build_program(&[("main.sv", FIELD_GRANULAR_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "field_granular", "1 15\n")
@@ -4889,7 +4839,7 @@ fn kotlinc_compiles_and_runs_a_field_granular_mutation() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_ref_anchored_call() -> KotlinCase {
     let program = build_program(&[("main.sv", REF_ANCHOR_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "ref_anchored_pair", "8 3 18\n")
@@ -4897,7 +4847,7 @@ fn kotlinc_compiles_and_runs_a_ref_anchored_call() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_search_loop_lender() -> KotlinCase {
     let program = build_program(&[("main.sv", SEARCH_LOOP_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "search_loop", "50 13\n")
@@ -4905,7 +4855,7 @@ fn kotlinc_compiles_and_runs_a_search_loop_lender() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_lending_effect_member() -> KotlinCase {
     let program = build_program(&[("main.sv", LENDING_MEMBER_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "lending_member", "15 7\n")
@@ -4913,7 +4863,7 @@ fn kotlinc_compiles_and_runs_a_lending_effect_member() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_the_locate_bundle() -> KotlinCase {
     let program = build_program(&[("main.sv", LOCATE_BUNDLE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "locate_bundle", "5 17\n")
@@ -4921,7 +4871,7 @@ fn kotlinc_compiles_and_runs_the_locate_bundle() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_lending_fn_value() -> KotlinCase {
     let program = build_program(&[("main.sv", LENDING_FN_VALUE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "lending_fn_value", "5 17\n")
@@ -4929,7 +4879,7 @@ fn kotlinc_compiles_and_runs_a_lending_fn_value() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_the_update_family() -> KotlinCase {
     let program = build_program(&[("main.sv", UPDATE_FAMILY_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "update_family", "111 220\n")
@@ -4937,7 +4887,7 @@ fn kotlinc_compiles_and_runs_the_update_family() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_ref_anchored_field_call() -> KotlinCase {
     let program = build_program(&[("main.sv", REF_ANCHORED_FIELD_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "ref_anchored_field", "3 10\n")
@@ -4945,7 +4895,7 @@ fn kotlinc_compiles_and_runs_a_ref_anchored_field_call() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_a_read_before_a_mutation() -> KotlinCase {
     let program = build_program(&[("main.sv", READ_BEFORE_MUT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "read_before_mut", "1. 1 2\n2. t/3\n3. 4 4\n")
@@ -4953,7 +4903,7 @@ fn kotlinc_compiles_and_runs_a_read_before_a_mutation() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_distinct_pair_calls() -> KotlinCase {
     let program = build_program(&[("main.sv", DISTINCT_PAIR_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "distinct_pair", "11 3 17 8\n")
@@ -5149,7 +5099,7 @@ export fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_handle_reads() -> KotlinCase {
     let program = build_program(&[("main.sv", HANDLE_READ_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "handle_reads", "something\ntwo\nsomething changed\n")
@@ -5235,7 +5185,7 @@ export fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_handles_into_generic_containers() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_CONTAINER_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic_containers", "1009 6 2000\n14 103\n")
@@ -5243,7 +5193,7 @@ fn kotlinc_compiles_and_runs_handles_into_generic_containers() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_notsame_handles() -> KotlinCase {
     let program = build_program(&[("main.sv", NOTSAME_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let reff = files.iter().find(|f| f.rel_path.ends_with("std/core/ref.kt")).unwrap();
@@ -5283,7 +5233,7 @@ fn main() [use] {
 
 fn kotlinc_compiles_and_runs_placeholder_loops() -> KotlinCase {
     let program = build_program(&[("main.sv", PLACEHOLDER_LOOP_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "placeholder-loops", "10\n")
@@ -5320,7 +5270,7 @@ pub const LOOP_BREAK_ORDER_OUTPUT: &str = "5 0\nnoisy 1\nnoisy 2\nf 2 10\nf 1 12
 
 fn kotlinc_compiles_and_runs_a_breaking_value_loop_and_ordered_arguments() -> KotlinCase {
     let program = build_program(&[("main.sv", LOOP_BREAK_ORDER_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "loop-break-order", LOOP_BREAK_ORDER_OUTPUT)
@@ -5353,7 +5303,7 @@ const NARROW_OR_NOT_OUTPUT: &str = "int or str\nbound\nint\nint or str\nbound\nn
 
 fn kotlinc_compiles_and_runs_a_disjunction_and_a_negation_narrow_nothing_after_them() -> KotlinCase {
     let program = build_program(&[("main.sv", NARROW_OR_NOT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "or-fix", NARROW_OR_NOT_OUTPUT)
@@ -5384,7 +5334,7 @@ const LIFT_FIELD_OUTPUT: &str = "not ok\nerr bad\n";
 
 fn kotlinc_compiles_and_runs_a_lifted_claim_on_a_field_narrows_what_follows() -> KotlinCase {
     let program = build_program(&[("main.sv", LIFT_FIELD_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "lift-fix", LIFT_FIELD_OUTPUT)
@@ -5407,7 +5357,7 @@ const CTOR_LAMBDA_OUTPUT: &str = "2\n";
 
 fn kotlinc_compiles_and_runs_an_unannotated_lambda_takes_its_handler_constructor_parameters_type() -> KotlinCase {
     let program = build_program(&[("main.sv", CTOR_LAMBDA_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "lam-fix", CTOR_LAMBDA_OUTPUT)
@@ -5442,7 +5392,7 @@ const UNION_TEXT_OUTPUT: &str = "3\nhi\ne=5\ne=s\ne=P(2)\nl=[1, 2]\n";
 
 fn kotlinc_compiles_and_runs_a_union_interpolates_by_the_text_of_its_arm() -> KotlinCase {
     let program = build_program(&[("main.sv", UNION_TEXT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "union-fix", UNION_TEXT_OUTPUT)
@@ -5482,7 +5432,7 @@ const LEND_HANDLE_OUTPUT: &str = "7 7\n";
 
 fn kotlinc_compiles_and_runs_a_handle_from_a_lending_member_survives_a_read_of_its_container() -> KotlinCase {
     let program = build_program(&[("main.sv", LEND_HANDLE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "lend-fix", LEND_HANDLE_OUTPUT)
@@ -5541,7 +5491,7 @@ const LENDING_MEMBER_PATH_OUTPUT: &str = "renamed 1003 102\n";
 
 fn kotlinc_compiles_and_runs_a_lending_member_through_a_struct_field() -> KotlinCase {
     let program = build_program(&[("main.sv", LENDING_MEMBER_PATH_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "lend-path", LENDING_MEMBER_PATH_OUTPUT)
@@ -5624,7 +5574,7 @@ pub const OPT_SLOT_OUTPUT: &str = "abc ABC abc present\n- ? - absent\nown OWN ow
 
 fn kotlinc_compiles_and_runs_borrowed_optionals_in_owned_optional_slots() -> KotlinCase {
     let program = build_program(&[("main.sv", OPT_SLOT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "opt-slot", OPT_SLOT_OUTPUT)
@@ -5672,7 +5622,7 @@ pub const DEQUE_MAP_AT_OUTPUT: &str = "2 12\ntrue 3 12\n16\n";
 
 fn kotlinc_compiles_and_runs_deque_handles_and_the_total_map_at() -> KotlinCase {
     let program = build_program(&[("main.sv", DEQUE_MAP_AT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "deque-map-at", DEQUE_MAP_AT_OUTPUT)
@@ -5732,7 +5682,7 @@ pub const REF_ONE_RENDERING_OUTPUT: &str = "11 4\na b a\na 111\n";
 
 fn kotlinc_compiles_and_runs_one_rendering_for_a_ref_result() -> KotlinCase {
     let program = build_program(&[("main.sv", REF_ONE_RENDERING_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "ref-one-rendering", REF_ONE_RENDERING_OUTPUT)
@@ -5855,7 +5805,7 @@ pub const MUT_OPT_SLOT_OUTPUT: &str = "4 -1\n6 13 101 hey!!\n";
 
 fn kotlinc_compiles_and_runs_unions_of_borrows() -> KotlinCase {
     let program = build_program(&[("main.sv", UNION_BORROW_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "union-borrow", UNION_BORROW_OUTPUT)
@@ -5863,7 +5813,7 @@ fn kotlinc_compiles_and_runs_unions_of_borrows() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_mut_optional_slots() -> KotlinCase {
     let program = build_program(&[("main.sv", MUT_OPT_SLOT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "mut-opt-slot", MUT_OPT_SLOT_OUTPUT)
@@ -5929,7 +5879,7 @@ pub const ELEM_CONTAINER_OUTPUT: &str = "x** 3 1 y 2\n";
 
 fn kotlinc_compiles_and_runs_handles_into_element_containers() -> KotlinCase {
     let program = build_program(&[("main.sv", ELEM_CONTAINER_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "elem-container", ELEM_CONTAINER_OUTPUT)
@@ -5980,7 +5930,7 @@ fn main() [use] {
 
 fn kotlinc_compiles_and_runs_safe_navigation() -> KotlinCase {
     let program = build_program(&[("main.sv", SAFE_NAV_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program)
+    let files = emit(&program)
         .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
     kotlin_case(files, "safe-nav", "42\n-1\n-1\nnanos=42\nabsent\n")
 }
@@ -6010,7 +5960,7 @@ fn main() [use] {
 
 fn kotlinc_compiles_and_runs_a_copy_of_a_pick_over_a_temporary() -> KotlinCase {
     let program = build_program(&[("main.sv", COPY_OF_A_PICK_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program)
+    let files = emit(&program)
         .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
     kotlin_case(files, "copy-of-a-pick", "b\n")
 }
@@ -6040,7 +5990,7 @@ fn main() [use] {
 
 fn kotlinc_compiles_and_runs_when_binding() -> KotlinCase {
     let program = build_program(&[("main.sv", WHEN_BIND_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program)
+    let files = emit(&program)
         .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
     kotlin_case(files, "when-bind", "7\n-1\n99\n")
 }
@@ -6074,7 +6024,7 @@ fn main() [use] {
 
 fn kotlinc_compiles_and_runs_arm_equality() -> KotlinCase {
     let program = build_program(&[("main.sv", ARM_EQ_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program)
+    let files = emit(&program)
         .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
     kotlin_case(files, "arm-eq", "none\n42\ntrue\ntrue\n")
 }
@@ -6083,7 +6033,7 @@ fn kotlinc_compiles_and_runs_arm_equality() -> KotlinCase {
 #[test]
 fn safe_navigation_field_chain_is_native_kotlin() {
     let program = build_program(&[("main.sv", SAFE_NAV_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program)
+    let files = emit(&program)
         .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
     let main = files
         .iter()
@@ -6137,7 +6087,7 @@ const IMPLICIT_CALL_RULE_OUTPUT: &str = "[1, 2]\n[1, 2]\n[?]\n[?, ?]\n[[[#1, #2]
 
 fn kotlinc_compiles_and_runs_implicits_chosen_as_calls_are() -> KotlinCase {
     let program = build_program(&[("main.sv", IMPLICIT_CALL_RULE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "implicit-call-rule", IMPLICIT_CALL_RULE_OUTPUT)
@@ -6206,7 +6156,7 @@ const IMPLICIT_SELECTION_OUTPUT: &str = "<1, 2>\n<1, 2>\n<3, 4>\nfmt <5, 6>\nint
 
 fn kotlinc_compiles_and_runs_implicits_selected_as_calls_select() -> KotlinCase {
     let program = build_program(&[("main.sv", IMPLICIT_SELECTION_DEMO), ("lib.sv", IMPLICIT_SELECTION_LIB)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "implicit-selection", IMPLICIT_SELECTION_OUTPUT)
@@ -6332,7 +6282,7 @@ const COMPARISON_CALLS_OUTPUT: &str = "true false\nfalse true\ntrue\ntrue\ntrue 
 
 fn kotlinc_compiles_and_runs_comparisons_as_the_calls_they_name() -> KotlinCase {
     let program = build_program(&[("main.sv", COMPARISON_CALLS_DEMO), ("bag.sv", COMPARISON_CALLS_BAG)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "comparison-calls", COMPARISON_CALLS_OUTPUT)
@@ -6496,7 +6446,7 @@ const FOR_CALLS_OUTPUT: &str = "[100, 200]\n[7, 8, 9] true\n[10, 20]\n[1, 2]\n[3
 
 fn kotlinc_compiles_and_runs_a_for_as_the_calls_it_names() -> KotlinCase {
     let program = build_program(&[("main.sv", FOR_CALLS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "for-calls", FOR_CALLS_OUTPUT)
@@ -6605,7 +6555,7 @@ const ARITH_CALLS_OUTPUT: &str = "(4, 6) (2, 2) (3, 6) (2, 3)\n12 3 6 (5, 8)\n24
 
 fn kotlinc_compiles_and_runs_arithmetic_as_the_calls_it_names() -> KotlinCase {
     let program = build_program(&[("main.sv", ARITH_CALLS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "arith-calls", ARITH_CALLS_OUTPUT)
@@ -6633,7 +6583,7 @@ const BY_NAME_RANKED_OUTPUT: &str = "int\nint\nany\n";
 
 fn kotlinc_compiles_and_runs_a_fn_value_by_name_ranked_as_a_call() -> KotlinCase {
     let program = build_program(&[("main.sv", BY_NAME_RANKED_DEMO), ("lib.sv", BY_NAME_RANKED_LIB)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "by-name-ranked", BY_NAME_RANKED_OUTPUT)
@@ -6662,7 +6612,7 @@ fn main() [use] {
 
 fn kotlinc_compiles_and_runs_a_written_fn_value_across_erased_qualifiers() -> KotlinCase {
     let program = build_program(&[("main.sv", ERASED_VARIANCE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "erased-variance", "[[?, ?], [?]]\n[?, ?]\nhi!\n")
@@ -7410,7 +7360,7 @@ fn main() [use] -> None {
 
 fn generate_loops_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
     let program = build_program(&[("main.sv", LOOPS)]);
-    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
 }
@@ -7523,7 +7473,7 @@ export fn never_called() -> Int {
 #[test]
 fn only_used_modules_are_transpiled() {
     let program = build_multi_module();
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let paths: Vec<String> = files
@@ -7550,7 +7500,7 @@ fn only_used_modules_are_transpiled() {
 #[test]
 fn modules_get_packages_and_generated_imports() {
     let program = build_multi_module();
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap();
+    let files = emit(&program).unwrap();
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
@@ -7583,7 +7533,7 @@ fn main() [use] -> None {
 "#;
     let geometry = "export fn area(w: Int, h: Int) -> Int {\n    return w * h\n}\n";
     let program = build_program(&[("main.sv", main), ("geometry.sv", geometry)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -7635,7 +7585,7 @@ fn aliased_import_of_mangled_overload_keeps_suffix() {
         ("main.sv", MANGLED_ALIAS_MAIN),
         ("lib.sv", MANGLED_ALIAS_LIB),
     ]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -7661,7 +7611,7 @@ fn kotlinc_compiles_and_runs_mangled_alias() -> KotlinCase {
         ("main.sv", MANGLED_ALIAS_MAIN),
         ("lib.sv", MANGLED_ALIAS_LIB),
     ]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "mangled-alias", "hi\nhey!\n")
@@ -7681,7 +7631,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -7717,7 +7667,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -7735,7 +7685,7 @@ export fn main() [use] -> None {
 /// together for this to compile and run.
 fn kotlinc_compiles_and_runs_multi_module() -> KotlinCase {
     let program = build_multi_module();
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap();
+    let files = emit(&program).unwrap();
     kotlin_case(files, "multimod", "area: 12\n")
 }
 
@@ -7752,7 +7702,7 @@ fn companion_collision_with_generated_file_is_an_error() {
         content: "package salvo.main\n".to_string(),
         platform: false,
     });
-    let errors = salvo_backend_kotlin::emit_program(&program)
+    let errors = emit(&program)
         .err()
         .expect("expected collision error");
     assert!(
@@ -7774,7 +7724,7 @@ fn numeric_literal_suffixes_emit_kotlin_suffixes() {
          let big: Long = 5L\n    let ratio: Float = 2.5f\n    let d: Double = 1.5\n    \
          println(\"${big} ${ratio} ${d}\")\n}\n",
     )]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -7810,7 +7760,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -7871,7 +7821,7 @@ fn main() [use] -> None {
 #[test]
 fn copy_lowers_type_directedly() {
     let program = build_program(&[("main.sv", COPY_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -7916,7 +7866,7 @@ fn copy_of_nested_mutable_type_is_an_error() {
          let m = Mut Map((\"a\", Mut List(1)))\n    let n = copy(m)\n    \
          println(\"${size(n)}\")\n}\n",
     )]);
-    let result = salvo_backend_kotlin::emit_program(&program);
+    let result = emit(&program);
     let errors = result.err().expect("expected codegen errors");
     assert!(
         errors.iter().any(|e| e.contains("cannot `copy` a value of type `Mut Map<")),
@@ -8000,7 +7950,7 @@ pub const CANBE_MUT_FIELD_EXPECTED: &str = "2 3 0 1 12\n0 1 3\n1 2\n16\n";
 #[test]
 fn canbe_mut_field_reads_cast_and_structs_copy_deeply() {
     let program = build_program(&[("main.sv", CANBE_MUT_FIELD_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files.iter().find(|f| f.rel_path.to_string_lossy() == "main.kt").unwrap();
@@ -8013,7 +7963,7 @@ fn canbe_mut_field_reads_cast_and_structs_copy_deeply() {
 
 fn kotlinc_compiles_and_runs_canbe_mut_field() -> KotlinCase {
     let program = build_program(&[("main.sv", CANBE_MUT_FIELD_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "canbe_mut_field", CANBE_MUT_FIELD_EXPECTED)
@@ -8098,7 +8048,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_borrowed_optional_elements() -> KotlinCase {
     let program = build_program(&[("main.sv", BORROWED_OPTIONAL_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "borrowed_optional", "1\nnone\n3\n4 5 -\n")
@@ -8106,7 +8056,7 @@ fn kotlinc_compiles_and_runs_borrowed_optional_elements() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_struct_slot() -> KotlinCase {
     let program = build_program(&[("main.sv", STRUCT_SLOT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "struct_slot", "[1, 2, 3] [3, 2, 1] 1 3\n")
@@ -8148,7 +8098,7 @@ fn run_h() [use] -> None {
 
 fn kotlinc_compiles_and_runs_generic_stamp() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_STAMP_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic_stamp", "-1 false true\ntrue false true Wrapper { value: a, inner: Inner { k: 1 }, n: 1 }\n-1\n")
@@ -8200,7 +8150,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_opaque_struct() -> KotlinCase {
     let program = build_program(&[("bag.sv", OPAQUE_BAG), ("main.sv", OPAQUE_MAIN)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "opaque_struct", "7 8 false Shelf { b: Bag { items: [3, 4, 1], total: 8 } }\n")
@@ -8261,7 +8211,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_mixed_members() -> KotlinCase {
     let program = build_program(&[("main.sv", MIXED_MEMBERS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "mixed_members", "true Bag { items: [1, 2], n: 0 }\n(1, 2) 1\n")
@@ -8276,7 +8226,7 @@ fn canbe_mut_str_field_is_a_kotlin_error() {
         "struct Doc canbe Mut { text: Str canbe Mut }\n\nfn main() [use] -> None {\n    \
          use StdConsole()\n    let d = Doc { text: \"a\" }\n    println(d.text)\n}\n",
     )]);
-    let errors = salvo_backend_kotlin::emit_program(&program).err().expect("expected codegen errors");
+    let errors = emit(&program).err().expect("expected codegen errors");
     assert!(
         errors.iter().any(|e| e.contains("cannot store `canbe Mut` field `text`")),
         "unexpected errors: {errors:?}"
@@ -8286,7 +8236,7 @@ fn canbe_mut_str_field_is_a_kotlin_error() {
 #[test]
 fn copy_of_mutable_elements_is_element_wise() {
     let program = build_program(&[("main.sv", COPY_ELEMENTS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files.iter().find(|f| f.rel_path.to_string_lossy() == "main.kt").unwrap();
@@ -8295,7 +8245,7 @@ fn copy_of_mutable_elements_is_element_wise() {
 
 fn kotlinc_compiles_and_runs_copy_elements() -> KotlinCase {
     let program = build_program(&[("main.sv", COPY_ELEMENTS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "copy_elements", "5 1\n2 1\n")
@@ -8303,7 +8253,7 @@ fn kotlinc_compiles_and_runs_copy_elements() -> KotlinCase {
 
 fn kotlinc_compiles_and_runs_copy() -> KotlinCase {
     let program = build_program(&[("main.sv", COPY_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "hi\n3 4\na b\n1 9\n3\n";
@@ -8340,7 +8290,7 @@ fn main() [use] {
 
 fn kotlinc_compiles_and_runs_literal_identity() -> KotlinCase {
     let program = build_program(&[("main.sv", LITERAL_IDENTITY_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "literal_identity", "1 1 1 1\n")
@@ -8366,7 +8316,7 @@ fn main() [use] {
 
 fn kotlinc_compiles_and_runs_int_wrap_and_bits() -> KotlinCase {
     let program = build_program(&[("main.sv", INT_WRAP_BITS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "int_wrap_bits", "-2147483648 -2147483648 -2147483648 -9223372036854775808 -2\n8 14 6 -1\n2 -4 15 15\n532\n")
@@ -8416,7 +8366,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_move_modes() -> KotlinCase {
     let program = build_program(&[("main.sv", S2_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "Grace\n3\n";
@@ -8463,7 +8413,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_borrows() -> KotlinCase {
     let program = build_program(&[("main.sv", S3_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "1\n5\n";
@@ -8510,7 +8460,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_linear() -> KotlinCase {
     let program = build_program(&[("main.sv", LINEAR_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "open data.txt\nfd=8\nclose fd=8\nopen scratch\ndone\n";
@@ -8550,7 +8500,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_linear_generics() -> KotlinCase {
     let program = build_program(&[("main.sv", LINEAR_GENERICS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "open 9\nheld fd=9\ndone\n";
@@ -8585,7 +8535,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_once_fns() -> KotlinCase {
     let program = build_program(&[("main.sv", ONCE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "consumed 3 items\nplain 7\ndone\n";
@@ -8634,7 +8584,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_derived_returns() -> KotlinCase {
     let program = build_program(&[("main.sv", DERIVED_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "adult: Grace\nhead: Kid\ndone\n";
@@ -8682,7 +8632,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_fn_contracts() -> KotlinCase {
     let program = build_program(&[("main.sv", CONTRACTS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "twice=4\nstill=2\nnamed=4\neaten=2\ndone\n";
@@ -8711,7 +8661,7 @@ fn main() [use] -> None {
 #[test]
 fn binary_rendering_preserves_grouping() {
     let program = build_program(&[("main.sv", PRECEDENCE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -8736,7 +8686,7 @@ fn binary_rendering_preserves_grouping() {
 
 fn kotlinc_compiles_and_runs_precedence() -> KotlinCase {
     let program = build_program(&[("main.sv", PRECEDENCE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "precedence", "14 9 -13 true\n")
@@ -8774,7 +8724,7 @@ fn main() [use] -> None {
 #[test]
 fn field_subject_is_lowers_to_union_test() {
     let program = build_program(&[("main.sv", FIELD_IS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -8790,7 +8740,7 @@ fn field_subject_is_lowers_to_union_test() {
 
 fn kotlinc_compiles_and_runs_field_is() -> KotlinCase {
     let program = build_program(&[("main.sv", FIELD_IS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "field-is", "ok 1\nplain 1\nerr bad\n")
@@ -8882,7 +8832,7 @@ fn main() [use] -> None {
 #[test]
 fn narrowed_field_reads_unwrap() {
     let program = build_program(&[("main.sv", PLACE_NARROW_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -8910,7 +8860,7 @@ fn narrowed_field_reads_unwrap() {
 
 fn kotlinc_compiles_and_runs_place_narrowing() -> KotlinCase {
     let program = build_program(&[("main.sv", PLACE_NARROW_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "place-narrow", "Ann Lee\nBo\ncity Oslo\nok 3\n")
@@ -8947,7 +8897,7 @@ fn main() [use] -> None {
 #[test]
 fn narrowed_val_field_relies_on_the_smart_cast() {
     let program = build_program(&[("main.sv", PLACE_OPERAND_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -8966,7 +8916,7 @@ fn narrowed_val_field_relies_on_the_smart_cast() {
 
 fn kotlinc_compiles_and_runs_place_operand() -> KotlinCase {
     let program = build_program(&[("main.sv", PLACE_OPERAND_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "place-operand", "temp: 22\nnone: no value\n")
@@ -8998,7 +8948,7 @@ fn main() [use] -> None {
 #[test]
 fn tuple_elements_emit_pair_components() {
     let program = build_program(&[("main.sv", TUPLE_INDEX_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -9024,7 +8974,7 @@ fn tuple_elements_emit_pair_components() {
 
 fn kotlinc_compiles_and_runs_tuple_index() -> KotlinCase {
     let program = build_program(&[("main.sv", TUPLE_INDEX_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "tuple-index", "1 two true\nin 9\nsome here 6\n")
@@ -9050,7 +9000,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -9077,7 +9027,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "list-element-types", "2 1\n")
@@ -9134,7 +9084,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -9189,7 +9139,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -9245,7 +9195,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "collection-literals", "list: [1, 2, 3]\n\
@@ -9317,7 +9267,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "equality-ordering", "eq: true ne: true lt: true ge: true\n\
@@ -9352,7 +9302,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -9417,7 +9367,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -9475,7 +9425,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "sorted-collections", "set: {apple, fig, pear}\n\
@@ -9514,7 +9464,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "codepoint-order", "smallest is the BMP char: true\n")
@@ -9552,7 +9502,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "by-and-convert", "array_by 0 2 4\n\
@@ -9653,7 +9603,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_interception() -> KotlinCase {
     let program = build_program(&[("main.sv", INTERCEPTION_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -9729,7 +9679,7 @@ fn main() [use] -> None {
 /// monitor. Byte-identical stdout on Rust.
 fn kotlinc_compiles_and_runs_a_shareable_interceptor_chain() -> KotlinCase {
     let program = build_program(&[("main.sv", SHAREABLE_CHAIN_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -9821,7 +9771,7 @@ const SPAWN_INHERIT_OUTPUT: &str =
 /// private instance. Byte-identical stdout on Rust.
 fn kotlinc_compiles_and_runs_spawn_inheritance() -> KotlinCase {
     let program = build_program(&[("main.sv", SPAWN_INHERIT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "spawn-inherit", SPAWN_INHERIT_OUTPUT)
@@ -9883,7 +9833,7 @@ const REPLYTO_FLAT_OUTPUT: &str = "ledger total 5\n";
 
 fn kotlinc_compiles_and_runs_flattened_replyto() -> KotlinCase {
     let program = build_program(&[("main.sv", REPLYTO_FLAT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "replyto-flat", REPLYTO_FLAT_OUTPUT)
@@ -9914,7 +9864,7 @@ fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", SRC)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic-handle-dep", "relayed\nok\n")
@@ -9950,7 +9900,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_handler_dependencies() -> KotlinCase {
     let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "handler-deps", "LOG: from work\nLOG: from main\n")
@@ -10050,7 +10000,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_handler_deps_in_anger() -> KotlinCase {
     let program = build_program(&[("main.sv", HANDLER_DEPS_FUSION_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -10131,7 +10081,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_handler_deps_chain() -> KotlinCase {
     let program = build_program(&[("main.sv", HANDLER_DEPS_CHAIN_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -10220,7 +10170,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_handler_deps_mixed() -> KotlinCase {
     let program = build_program(&[("main.sv", HANDLER_DEPS_MIXED_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -10269,7 +10219,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_loop_destructuring() -> KotlinCase {
     let program = build_program(&[("main.sv", LOOP_DESTRUCTURE)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "loop-destructure", "a=1\nb=2\nx 7\ny 8\n3\n7\nsum 3\n")
@@ -10283,7 +10233,7 @@ fn kotlinc_compiles_and_runs_loop_destructuring() -> KotlinCase {
 #[test]
 fn loop_destructuring_binds_the_parts_of_a_temporary_kotlin() {
     let program = build_program(&[("main.sv", LOOP_DESTRUCTURE)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -10339,7 +10289,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_tuples_past_three() -> KotlinCase {
     let program = build_program(&[("main.sv", BIG_TUPLE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "big-tuple", "1 two true 4 five\n1 two true 4 five\n")
@@ -10353,7 +10303,7 @@ fn kotlinc_compiles_and_runs_tuples_past_three() -> KotlinCase {
 #[test]
 fn tuples_past_three_emit_a_generated_class() {
     let program = build_program(&[("main.sv", BIG_TUPLE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -10439,7 +10389,7 @@ fn main() [use] -> None {
 #[test]
 fn union_coercion_in_array_tuple_lambda() {
     let program = build_program(&[("main.sv", NESTED_COERCION_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -10465,7 +10415,7 @@ fn union_coercion_in_array_tuple_lambda() {
 
 fn kotlinc_compiles_and_runs_nested_coercion() -> KotlinCase {
     let program = build_program(&[("main.sv", NESTED_COERCION_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "nested-coercion", "ok 1\nerr a\nok 2\nok 3\nerr b\n")
@@ -10499,7 +10449,7 @@ fn main() [use] -> None {
 #[test]
 fn effect_member_generics_render_on_the_interface() {
     let program = build_program(&[("main.sv", MEMBER_GENERICS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -10515,7 +10465,7 @@ fn effect_member_generics_render_on_the_interface() {
 
 fn kotlinc_compiles_and_runs_member_generics() -> KotlinCase {
     let program = build_program(&[("main.sv", MEMBER_GENERICS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "member-generics", "7 l\n")
@@ -10592,7 +10542,7 @@ fn main() [use] -> None {
 #[test]
 fn aliased_effect_types_resolve_to_the_same_handler() {
     let program = build_program(&[("main.sv", ALIASED_EFFECT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -10616,7 +10566,7 @@ fn aliased_effect_types_resolve_to_the_same_handler() {
 
 fn kotlinc_compiles_and_runs_aliased_effects() -> KotlinCase {
     let program = build_program(&[("main.sv", ALIASED_EFFECT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "aliased-effects", "7 8\n")
@@ -10659,7 +10609,7 @@ fn main() [use] -> None {
 #[test]
 fn array_std_functions_lower() {
     let program = build_program(&[("main.sv", ARRAY_STD_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -10683,7 +10633,7 @@ fn array_std_functions_lower() {
 
 fn kotlinc_compiles_and_runs_array_std() -> KotlinCase {
     let program = build_program(&[("main.sv", ARRAY_STD_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -10743,7 +10693,7 @@ fn main() [use] -> None {
 // overload name [fn-emit-name].
 fn dot_names_emit_nested_classes() -> KotlinCase {
     let program = build_program(&[("main.sv", DOT_NAMES)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -10854,7 +10804,7 @@ fn main() [use] -> None {
 
 fn dot_names_in_unions_and_narrowing() -> KotlinCase {
     let program = build_program(&[("main.sv", DOT_NAME_UNIONS)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(
@@ -10908,7 +10858,7 @@ fn main() [use] -> None {
 
 fn namespaces_nest_flatten_and_resolve() -> KotlinCase {
     let program = build_program(&[("main.sv", NAMESPACES)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "namespaces", "S x\nN y\ntag:z\ndeep\n")
@@ -10960,7 +10910,7 @@ fn main() [use] -> None {
 // difference shows up only in which overload the checker picked.
 fn provenance_survives_mutation_where_state_does_not() -> KotlinCase {
     let program = build_program(&[("main.sv", QUAL_SUBJECTS)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "qual_subjects", "trusted 3\nplain 3\nchecked 2\n")
@@ -11093,7 +11043,7 @@ const THROW_OUTPUT: &str = "open 1\nclose fd=1\nparse hello\nok 6\n\
 #[test]
 fn throw_lowers_to_a_signal_and_try_to_a_catch() {
     let program = build_program(&[("main.sv", THROW_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -11157,7 +11107,7 @@ fn throw_lowers_to_a_signal_and_try_to_a_catch() {
 
 fn kotlin_compiles_and_runs_throw() -> KotlinCase {
     let program = build_program(&[("main.sv", THROW_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "throw", THROW_OUTPUT)
@@ -11222,7 +11172,7 @@ const FN_EFFECTS_STDOUT: &str = "LOG: in lambda x\ndone x\nLOG: shouting one\non
 #[test]
 fn fn_type_effects_thread_into_lambdas() {
     let program = build_program(&[("main.sv", FN_EFFECTS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -11259,7 +11209,7 @@ fn fn_type_effects_thread_into_lambdas() {
 
 fn kotlinc_compiles_and_runs_fn_type_effects() -> KotlinCase {
     let program = build_program(&[("main.sv", FN_EFFECTS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "fn-effects", FN_EFFECTS_STDOUT)
@@ -11342,7 +11292,7 @@ const WIDEN_STDOUT: &str = "value 7\nerror zero\nthrown negative\nmessage number
 #[test]
 fn widening_materializes_the_peel_kotlin() {
     let program = build_program(&[("main.sv", WIDEN_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -11359,7 +11309,7 @@ fn widening_materializes_the_peel_kotlin() {
 
 fn kotlinc_compiles_and_runs_widening() -> KotlinCase {
     let program = build_program(&[("main.sv", WIDEN_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "widen", WIDEN_STDOUT)
@@ -11447,7 +11397,7 @@ const WHEN_COND_STDOUT: &str = "negative\nzero\npositive\nsign -1 0 1\nstr hi\ni
 #[test]
 fn a_subjectless_when_emits_a_subjectless_kotlin_when() {
     let program = build_program(&[("main.sv", WHEN_COND_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -11481,7 +11431,7 @@ fn a_subjectless_when_emits_a_subjectless_kotlin_when() {
 
 fn kotlinc_compiles_and_runs_when_cond() -> KotlinCase {
     let program = build_program(&[("main.sv", WHEN_COND_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "when-cond", WHEN_COND_STDOUT)
@@ -11518,7 +11468,7 @@ fn main() [use] -> None {
 #[test]
 fn a_variable_mutated_only_inside_a_try_body_is_declared_var() {
     let program = build_program(&[("main.sv", TRY_MUTATION_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -11534,7 +11484,7 @@ fn a_variable_mutated_only_inside_a_try_body_is_declared_var() {
 
 fn kotlinc_compiles_and_runs_try_mutation() -> KotlinCase {
     let program = build_program(&[("main.sv", TRY_MUTATION_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "try-mutation", "counter 1\n")
@@ -11599,7 +11549,7 @@ fn generate_platform_handler_demo_with(
         content: host.to_string(),
         platform: true,
     });
-    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
 }
@@ -11670,7 +11620,7 @@ fn platform_generate_renders_a_host_handler_skeleton() {
 #[test]
 fn a_missing_host_file_for_a_platform_handler_names_the_command() {
     let program = platform_handler_program();
-    let errors = salvo_backend_kotlin::emit_program(&program)
+    let errors = emit(&program)
         .err()
         .expect("a `use` of a platform handler without a host must not emit");
     assert!(
@@ -11765,7 +11715,7 @@ fn generate_threadsafe_platform_handler_demo_with(
         content: host.to_string(),
         platform: true,
     });
-    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
 }
@@ -12815,7 +12765,7 @@ fn main() [use] {
 #[test]
 fn every_emitted_overload_gets_its_own_kotlin_name() {
     let program = build_program(&[("main.sv", OVERLOAD_DELEGATION)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = &files
@@ -12839,7 +12789,7 @@ fn every_emitted_overload_gets_its_own_kotlin_name() {
 /// right output.
 fn kotlinc_compiles_and_runs_overload_delegation() -> KotlinCase {
     let program = build_program(&[("main.sv", OVERLOAD_DELEGATION)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "overload-delegation", "v=2\nv=4\nv=6\n")
@@ -12882,7 +12832,7 @@ const SEQ_SURFACE_OUTPUT: &str = "eager 4\ngeneric 4\nkept 2\nsink 4\nchained 6\
 
 fn kotlinc_compiles_and_runs_the_combinator_surface() -> KotlinCase {
     let program = build_program(&[("main.sv", SEQ_SURFACE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let seq = &files
@@ -12905,7 +12855,7 @@ fn kotlinc_compiles_and_runs_the_combinator_surface() -> KotlinCase {
 /// the property that mattered is what a plain `for` with a `break` states.
 fn kotlinc_compiles_and_runs_a_break_out_of_an_unbounded_producer() -> KotlinCase {
     let program = build_program(&[("main.sv", UNBOUNDED_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "unbounded-break", UNBOUNDED_OUTPUT)
@@ -13014,7 +12964,7 @@ const IMPLICIT_OUTPUT: &str = "total=6\nproduct=24\nnested=6\npair=42\nlambda=6\
 #[test]
 fn implicit_parameters_lower_to_trailing_fn_parameters() {
     let program = build_program(&[("main.sv", IMPLICIT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = &files
@@ -13039,7 +12989,7 @@ fn implicit_parameters_lower_to_trailing_fn_parameters() {
 /// Under kotlinc, with the stdout the Rust backend asserts byte for byte.
 fn kotlinc_compiles_and_runs_implicit_parameters() -> KotlinCase {
     let program = build_program(&[("main.sv", IMPLICIT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "implicits", IMPLICIT_OUTPUT)
@@ -13081,7 +13031,7 @@ const MEMBER_IMPLICIT_OUTPUT: &str = "<n=7>\n<N=7!>\n";
 #[test]
 fn an_effect_member_carries_its_implicits_into_the_interface() {
     let program = build_program(&[("main.sv", MEMBER_IMPLICIT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = &files
@@ -13101,7 +13051,7 @@ fn an_effect_member_carries_its_implicits_into_the_interface() {
 
 fn kotlinc_compiles_and_runs_effect_member_implicits() -> KotlinCase {
     let program = build_program(&[("main.sv", MEMBER_IMPLICIT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "member-implicits", MEMBER_IMPLICIT_OUTPUT)
@@ -13153,7 +13103,7 @@ const HANDLER_GENERICS_OUTPUT: &str = "plain\np!\n";
 #[test]
 fn a_generic_handler_is_constructed_at_its_type() {
     let program = build_program(&[("main.sv", HANDLER_GENERICS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = &files
@@ -13172,7 +13122,7 @@ fn a_generic_handler_is_constructed_at_its_type() {
 
 fn kotlinc_compiles_and_runs_a_generic_handler() -> KotlinCase {
     let program = build_program(&[("main.sv", HANDLER_GENERICS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "handler-generics", HANDLER_GENERICS_OUTPUT)
@@ -13220,7 +13170,7 @@ const REFN_EXPECTED: &str = "after add: 1\nafter refill: 2\n";
 /// emitted Kotlin carries no trace of the refinement.
 fn kotlinc_compiles_and_runs_a_refined_program() -> KotlinCase {
     let program = build_program(&[("main.sv", REFN_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program)
+    let files = emit(&program)
         .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
     let main = files
         .iter()
@@ -13304,7 +13254,7 @@ fn main() [use] {
 
 fn kotlinc_runs_the_most_specific_overload() -> KotlinCase {
     let program = build_program(&[("main.sv", OVERLOAD_SPECIFICITY)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "overload-specificity", "concrete\ngeneric\n")
@@ -13397,7 +13347,7 @@ const STRING_DEMO_OUTPUT: &str = "HELLO WORLD\nsize: 11\nHello world / Hello wor
 #[test]
 fn mut_str_lowers_to_a_string_builder() {
     let program = build_program(&[("main.sv", STRING_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = &files
@@ -13440,7 +13390,7 @@ fn mut_str_lowers_to_a_string_builder() {
 
 fn kotlinc_compiles_and_runs_strings() -> KotlinCase {
     let program = build_program(&[("main.sv", STRING_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "strings", STRING_DEMO_OUTPUT)
@@ -13462,7 +13412,7 @@ export fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = &files
@@ -13515,7 +13465,7 @@ const MUT_STR_PLACES_OUTPUT: &str = "grown 5\nIn-struct!\n";
 
 fn kotlinc_compiles_and_runs_mut_str_places() -> KotlinCase {
     let program = build_program(&[("main.sv", MUT_STR_PLACES)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "mut-str-places", MUT_STR_PLACES_OUTPUT)
@@ -13612,7 +13562,7 @@ const SEQ_DEMO_OUTPUT: &str = "list: 4 10 2\nnamed: 4\narray: 60 3\nchars: 2\n\
 #[test]
 fn sequence_functions_lower_to_collection_operations() {
     let program = build_program(&[("main.sv", SEQ_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = &files
@@ -13644,7 +13594,7 @@ fn sequence_functions_lower_to_collection_operations() {
 
 fn kotlinc_compiles_and_runs_sequences() -> KotlinCase {
     let program = build_program(&[("main.sv", SEQ_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "sequences", SEQ_DEMO_OUTPUT)
@@ -13715,7 +13665,7 @@ const OVERLOAD_OVERRIDE_OUTPUT: &str = "mine\ncore: 3\ndot: 3\neven small\na loc
 #[test]
 fn scope_selectors_and_renames_are_erased() {
     let program = build_program(&[("main.sv", OVERLOAD_OVERRIDE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = &files
@@ -13753,7 +13703,7 @@ fn scope_selectors_and_renames_are_erased() {
 
 fn kotlinc_compiles_and_runs_overload_overrides() -> KotlinCase {
     let program = build_program(&[("main.sv", OVERLOAD_OVERRIDE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "overload-overrides", OVERLOAD_OVERRIDE_OUTPUT)
@@ -13881,7 +13831,7 @@ const FN_VALUE_CALL_OUTPUT: &str = "computed: 2\ncomputed, with an effect\nmembe
 
 fn kotlinc_compiles_and_runs_declared_callees_past_same_named_locals() -> KotlinCase {
     let program = build_program(&[("main.sv", DECLARED_CALLEE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "declared-callees", DECLARED_CALLEE_OUTPUT)
@@ -13889,7 +13839,7 @@ fn kotlinc_compiles_and_runs_declared_callees_past_same_named_locals() -> Kotlin
 
 fn kotlinc_compiles_and_runs_calls_through_fn_values() -> KotlinCase {
     let program = build_program(&[("main.sv", FN_VALUE_CALL_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "fn-value-calls", FN_VALUE_CALL_OUTPUT)
@@ -13904,7 +13854,7 @@ fn kotlinc_compiles_and_runs_calls_through_fn_values() -> KotlinCase {
 #[test]
 fn a_kept_pass_is_driven_in_place() {
     let program = build_program(&[("main.sv", GENERIC_DRIVE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let src = &files
@@ -13925,7 +13875,7 @@ fn a_kept_pass_is_driven_in_place() {
 
 fn kotlinc_compiles_and_runs_a_generic_drive() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_DRIVE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic-drive", GENERIC_DRIVE_OUTPUT)
@@ -13990,7 +13940,7 @@ fn main() [use] {
 #[test]
 fn a_payload_cast_gets_the_suppression() {
     let program = build_program(&[("main.sv", SUPPRESS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = &files
@@ -14026,7 +13976,7 @@ fn an_owned_generic_pass_is_discharged_by_the_callback() {
     // 2026-09-12): no finally splice — `end(it)` is the program's own
     // terminal, an ordinary call through the fn-typed parameter.
     let program = build_program(&[("main.sv", GENERIC_CLOSE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let src = &files
@@ -14046,7 +13996,7 @@ fn an_owned_generic_pass_is_discharged_by_the_callback() {
 
 fn kotlinc_compiles_and_runs_a_generic_close() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_CLOSE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic-close", GENERIC_CLOSE_OUTPUT)
@@ -14179,7 +14129,7 @@ const ITER_FN_OUTPUT: &str = "n 3\nn 2\nn 1\nagain 3\nagain 2\nagain 1\nfirst 3\
 
 fn kotlinc_compiles_and_runs_the_iter_fn_form() -> KotlinCase {
     let program = build_program(&[("main.sv", ITER_FN_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "iter-fn", ITER_FN_OUTPUT)
@@ -14191,7 +14141,7 @@ fn kotlinc_compiles_and_runs_the_iter_fn_form() -> KotlinCase {
 #[test]
 fn an_iter_fn_emits_a_plain_class_and_next() {
     let program = build_program(&[("main.sv", ITER_FN_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let src = &files
@@ -14295,7 +14245,7 @@ const CONTAINER_IMPLICIT_OUTPUT: &str = "generated pass: 6\nwritten iter: 9\na l
 
 fn kotlinc_compiles_and_runs_a_container_combinator() -> KotlinCase {
     let program = build_program(&[("main.sv", CONTAINER_IMPLICIT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "container-implicit", CONTAINER_IMPLICIT_OUTPUT)
@@ -14354,7 +14304,7 @@ const FIELD_DISJOINT_OUTPUT: &str = "A ann 2\nC 1 2\nD dee 2\nE eve 2\n";
 
 fn kotlinc_compiles_and_runs_field_disjoint_access() -> KotlinCase {
     let program = build_program(&[("main.sv", FIELD_DISJOINT_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "field-disjoint", FIELD_DISJOINT_OUTPUT)
@@ -14403,7 +14353,7 @@ const PARTIAL_MOVE_OUTPUT: &str = "1 ann\n2 bob 2\n3 eve 2\n";
 
 fn kotlinc_compiles_and_runs_a_partial_move() -> KotlinCase {
     let program = build_program(&[("main.sv", PARTIAL_MOVE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "partial-move", PARTIAL_MOVE_OUTPUT)
@@ -14445,7 +14395,7 @@ const INC_DEC_OUTPUT: &str =
 
 fn kotlinc_compiles_and_runs_inc_dec() -> KotlinCase {
     let program = build_program(&[("main.sv", INC_DEC_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "inc-dec", INC_DEC_OUTPUT)
@@ -14489,7 +14439,7 @@ const GENERIC_ITER_FN_OUTPUT: &str = "a\nb\n6\n";
 
 fn kotlinc_compiles_and_runs_a_generic_subject_iter_fn() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_ITER_FN_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic-iter-fn", GENERIC_ITER_FN_OUTPUT)
@@ -14523,7 +14473,7 @@ pub const GENERIC_OPT_CODEC_OUTPUT: &str = "010000000300\n3\n000100000004\n4 -\n
 
 fn kotlinc_compiles_and_runs_a_generic_optional_codec() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_OPT_CODEC_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic-opt-codec", GENERIC_OPT_CODEC_OUTPUT)
@@ -14551,7 +14501,7 @@ fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic-auto-key", "2 2 true false 1\n")
@@ -14597,7 +14547,7 @@ fn main() [use] {
 
 fn kotlinc_compiles_and_runs_two_modules_same_named_identities() -> KotlinCase {
     let program = build_program(&TWO_IDENTITIES_FILES);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "two-identities", "false true 1\n")
@@ -14644,7 +14594,7 @@ const DEDUCTION_CLAUSE_OUTPUT: &str = "2 3\n3 at 0\n";
 
 fn kotlinc_compiles_and_runs_the_deduction_clause_projections() -> KotlinCase {
     let program = build_program(&[("main.sv", DEDUCTION_CLAUSE_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "deduction-clause", DEDUCTION_CLAUSE_OUTPUT)
@@ -14683,7 +14633,7 @@ const PROJ_ARM_PARAM_OUTPUT: &str = "ann\nbo\ndone\nann\nann\n";
 
 fn kotlinc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter() -> KotlinCase {
     let program = build_program(&[("main.sv", PROJ_ARM_PARAM_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "proj-arm-param", PROJ_ARM_PARAM_OUTPUT)
@@ -14716,7 +14666,7 @@ const PICK_LIST_OUTPUT: &str = "b\nd\n2\n6\n";
 
 fn kotlinc_compiles_and_runs_a_capture_rooted_projection() -> KotlinCase {
     let program = build_program(&[("main.sv", PICK_LIST_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "pick-list", PICK_LIST_OUTPUT)
@@ -14770,7 +14720,7 @@ const FALLIBLE_OPEN_OUTPUT: &str = "opened\nclosed a.txt\nerror: empty path\n";
 
 fn kotlinc_compiles_and_runs_a_linear_union_arm() -> KotlinCase {
     let program = build_program(&[("main.sv", FALLIBLE_OPEN_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "linear-union-arm", FALLIBLE_OPEN_OUTPUT)
@@ -14839,7 +14789,7 @@ const WRAPPER_PASS_OUTPUT: &str = "n 5\nn 4\nclosed lines\ndone\n";
 
 fn kotlinc_compiles_and_runs_a_linear_wrapper_pass() -> KotlinCase {
     let program = build_program(&[("main.sv", WRAPPER_PASS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "wrapper-pass", WRAPPER_PASS_OUTPUT)
@@ -14904,7 +14854,7 @@ const DROP_CALLBACK_OUTPUT: &str = "linear 6\nplain 6\n";
 
 fn kotlinc_compiles_and_runs_drop_as_a_consuming_callback() -> KotlinCase {
     let program = build_program(&[("main.sv", DROP_CALLBACK_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "drop-callback", DROP_CALLBACK_OUTPUT)
@@ -17624,10 +17574,9 @@ fn example_names() -> Vec<String> {
 
 /// Emits one example's Kotlin, exactly as `salvo compile` would.
 fn emit_example(example: &str) -> Vec<salvo_backend_kotlin::EmittedFile> {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
+    // [std-cache] std is the process's front (`salvo_testkit::front`); the
+    // dependencies and the example's tree come after it.
     let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
     // [manifest-deps] The example's manifest names its dependencies, loaded
     // between std and the example's own tree as `salvo compile` does.
     let project = salvo_core::Project::load(&examples_dir().join(example).join("salvo.toml"))
@@ -17639,23 +17588,12 @@ fn emit_example(example: &str) -> Vec<salvo_backend_kotlin::EmittedFile> {
     let src = examples_dir().join(example).join("salvo");
     let errors = sources.add_dir(&src, "kt", false, false);
     assert!(errors.is_empty(), "failed to read {example}: {errors:?}");
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-        assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
-        modules.push(module);
-    }
     // The drivers' pre-resolution expansions [route-stub].
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    let errors: Vec<_> = expansion.diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(errors.is_empty(), "expansion errors: {errors:?}");
-    let program = Program {
-        files: sources.files,
-        modules: Program::share(modules),
-        companions: sources.companions,
-    };
-    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+    let built = salvo_testkit::front::std_front("kt").program(sources.files, sources.companions);
+    let errors: Vec<_> = built.diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "parse or expansion errors: {errors:?}");
+    let program = built.program;
+    emit(&program).unwrap_or_else(|errors| {
         panic!("`examples/{example}` no longer compiles:\n{}", errors.join("\n"))
     })
 }

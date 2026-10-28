@@ -507,39 +507,12 @@ fn std_errors(src: &str) -> Vec<String> {
 
 /// [`std_errors`] over several program files.
 fn std_errors_in(files: &[(&str, &str)]) -> Vec<String> {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let io_errors = sources.add_dir(&std_dir, "rs", true, false);
-    assert!(io_errors.is_empty(), "failed to read std: {io_errors:?}");
-    for (name, src) in files {
-        sources.add(
-            *name,
-            SourceSet::classify(Path::new(name)).unwrap(),
-            src.to_string(),
-            false,
-        );
-    }
-    let mut modules = Vec::with_capacity(sources.files.len());
-    for file in &sources.files {
-        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
-        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-        assert!(
-            errors.is_empty(),
-            "parse errors in {}: {errors:?}",
-            file.name
-        );
-        modules.push(ast);
-    }
-    // [comptime-instantiate] The `by` sites stamp before resolution.
-    let _expansion = salvo_core::expand(&sources.files, &mut modules);
-    let program = Program {
-        files: sources.files,
-        modules: Program::share(modules),
-        companions: Vec::new(),
-    };
+    // [std-cache] Over the process's std front (TESTS.md T3); the
+    // expansion's own diagnostics are not these tests' subject.
+    let program = salvo_testkit::front::program("rs", files).program;
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
-    let checked = check_program(&program, &resolution, &symbols);
+    let checked = salvo_testkit::front::check_with("rs", &program, &resolution, &symbols);
     let mut all: Vec<_> = resolution.errors.iter().chain(checked.errors.iter()).filter(|d| d.is_error()).cloned().collect();
     // [fate-poison] As the gates do, the IR analyses run on every
     // declaration the checker's errors leave clean [ir-analyze]: a poisoned

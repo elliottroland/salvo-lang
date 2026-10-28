@@ -484,9 +484,9 @@ depending on the program first — `__loc` locator variants are emitted only
 when a caller demands one (forcing them for all of std fails: an `iter fn`'s
 lending `next` and `get_present` have no locator lowering), and a file imports
 every trait of a module it draws on `as _`, which varies with what is
-emitted. Also open, the user's call: CLI test stamps
+emitted. Also open: CLI test stamps
 keyed by generated content rather than by the `salvo` binary, so a cached run
-is a sound pre-commit check. `-XX:TieredStopAtLevel=1` for kotlinc was tried
+is a sound pre-commit check (TESTS.md C1, now planned to land with C3/C7). `-XX:TieredStopAtLevel=1` for kotlinc was tried
 and rejected (358s against 371s; slower on the large batches).
 
 **The warm run** (measured 2026-10-14, after the corpus tests were stamped):
@@ -502,10 +502,11 @@ artifact), `salvo-cli`'s unit tests 6s (`std_front_expansion_is_project_independ
 ~8–10s), `analyze_tests` 5s, `ir_linear_tests` 4s
 (`ir_linear_check_has_no_false_positives` ~5–6s), `flow_tests` 4s,
 `golden_tests` 3s, `carry_tests` 3s, `lsp_tests` 3s. The levers, none cheap:
-(a) a std check shared across a test binary's programs (the language
-server's `StdFront`/`CheckCache` already do this, and
-`check_cache_matches_an_uncached_analysis_across_edits` checks they agree),
-which would cut most of every in-process test; (b) a shard-level stamp for
+(a) a std check shared across a test binary's programs — **done 2026-10-28**
+(TESTS.md T3/C2, `salvo_testkit::front`; the Rust codegen tests went from 18s
+to 6.3s under `cargo test`, Kotlin 16s to 5.5s), though under nextest each
+test still builds the front in its own process, which TESTS.md T1's grouping
+addresses; (b) a shard-level stamp for
 the Kotlin compile-and-run shards, keyed by the test binary, `lib/`, every
 example's tree *and its resolved dependencies* (`aws = "0.1.0"`), and the
 kotlinc version, which would make their warm cost ~0 but needs that input

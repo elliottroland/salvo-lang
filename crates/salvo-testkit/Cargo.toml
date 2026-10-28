@@ -12,3 +12,7 @@ description = "Shared scaffolding for Salvo's toolchain-dependent tests: toolcha
 doctest = false
 
 [dependencies]
+# [std-cache] The shared std front (`front`): every test checks over one
+# checked std per process (TESTS.md T3). salvo-core's own integration tests
+# reach it as a dev-dependency, a cycle Cargo allows; its unit tests cannot.
+salvo-core = { workspace = true }

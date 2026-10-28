@@ -7,77 +7,27 @@ use std::process::Command;
 
 use salvo_core::{Program, SourceSet};
 
-/// std, read and parsed once per test binary: hundreds of tests build a
-/// program over it, and reading the tree (~90ms: a manifest, a directory
-/// walk, ~230 files) and parsing it cost more than many of the tests. A
-/// parse is a pure function of the text, and the parsed modules are shared
-/// as every driver shares them (`Arc`s an expansion copies before it
-/// rewrites one).
-struct StdFront {
-    files: Vec<salvo_core::source::SourceFile>,
-    companions: Vec<salvo_core::source::CompanionFile>,
-    modules: Vec<std::sync::Arc<salvo_syntax::ast::Module>>,
-}
-
-fn std_front() -> &'static StdFront {
-    static STD: std::sync::OnceLock<StdFront> = std::sync::OnceLock::new();
-    STD.get_or_init(|| {
-        let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-        let mut sources = SourceSet::default();
-        let errors = sources.add_dir(&std_dir, "rs", true, false);
-        assert!(errors.is_empty(), "failed to read std: {errors:?}");
-        let mut modules = Vec::new();
-        for file in &sources.files {
-            modules.push(parse_or_panic(file));
-        }
-        StdFront {
-            files: sources.files,
-            companions: sources.companions,
-            modules: Program::share(modules),
-        }
-    })
-}
-
-fn parse_or_panic(file: &salvo_core::source::SourceFile) -> salvo_syntax::ast::Module {
-    let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(
-        errors.is_empty(),
-        "parse errors in {}: {errors:?}",
-        file.name
-    );
-    module
-}
-
+/// [std-cache] A program of std and `extra`, over the process's std front
+/// (`salvo_testkit::front`, TESTS.md C2): std was read, parsed, expanded and
+/// checked once, and the program holds its very modules, so only `extra` is
+/// parsed, expanded ([route-stub], what `salvo compile` runs before
+/// checking) and — through [`emit`] — checked.
 fn build_program(extra: &[(&str, &str)]) -> Program {
-    let std = std_front();
-    let mut sources = SourceSet {
-        files: std.files.clone(),
-        companions: std.companions.clone(),
-        ..Default::default()
-    };
-    let mut modules = std.modules.clone();
-    for (name, content) in extra {
-        let module = SourceSet::classify(Path::new(name)).unwrap();
-        sources.add(*name, module, content.to_string(), false);
-        let file = sources.files.last().unwrap();
-        modules.push(std::sync::Arc::new(parse_or_panic(file)));
-    }
-    // The drivers' pre-resolution expansions [route-stub] — what `salvo
-    // compile` runs before checking.
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    let errors: Vec<_> = expansion.diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(errors.is_empty(), "expansion errors: {errors:?}");
-    Program {
-        files: sources.files,
-        modules,
-        companions: sources.companions,
-    }
+    let built = salvo_testkit::front::program("rs", extra);
+    let errors: Vec<_> = built.diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "parse or expansion errors: {errors:?}");
+    built.program
+}
+
+/// [std-cache] `emit_program` over the std front [`build_program`] built on.
+fn emit(program: &Program) -> Result<Vec<salvo_backend_rust::EmittedFile>, Vec<String>> {
+    let front = salvo_testkit::front::std_front("rs");
+    salvo_backend_rust::emit_program_over(program, front)
 }
 
 fn generate(extra: &[(&str, &str)]) -> Vec<salvo_backend_rust::EmittedFile> {
     let program = build_program(extra);
-    salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+    emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
 }
@@ -85,7 +35,7 @@ fn generate(extra: &[(&str, &str)]) -> Vec<salvo_backend_rust::EmittedFile> {
 /// Runs the checker+emitter on a source and returns the errors.
 fn expect_errors(src: &str) -> Vec<String> {
     let program = build_program(&[("bad.sv", src)]);
-    salvo_backend_rust::emit_program(&program)
+    emit(&program)
         .err()
         .expect("expected errors")
 }
@@ -826,7 +776,7 @@ export fn never_called() -> Int {
 #[test]
 fn crate_layout_mounts_only_used_modules() {
     let program = build_multi_module();
-    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let paths: Vec<String> = files
@@ -862,7 +812,7 @@ fn rustc_compiles_and_runs_multi_module() {
         return;
     }
     let program = build_multi_module();
-    let files = salvo_backend_rust::emit_program(&program).unwrap();
+    let files = emit(&program).unwrap();
     run_rust_files(&files, "multimod", "area: 12\n");
 }
 
@@ -906,7 +856,7 @@ fn numeric_literal_suffixes_emit_rust_types() {
          let big: Long = 5L\n    let ratio: Float = 2.5f\n    let d: Double = 1.5\n    \
          println(\"${big} ${ratio} ${d}\")\n}\n",
     )]);
-    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -952,7 +902,7 @@ export fn main() [use] -> None {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -2306,7 +2256,7 @@ fn rustc_compiles_and_runs_handler_dependencies() {
         return;
     }
     let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
-    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     // The same stdout the Kotlin backend produces for this program.
@@ -3722,7 +3672,7 @@ fn main() [use] -> None {
 #[test]
 fn dot_names_flatten() {
     let program = build_program(&[("main.sv", DOT_NAMES)]);
-    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let main = files
@@ -3821,7 +3771,7 @@ fn main() [use] -> None {
 #[test]
 fn dot_names_in_unions_and_narrowing() {
     let program = build_program(&[("main.sv", DOT_NAME_UNIONS)]);
-    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     run_rust_files(
@@ -3876,7 +3826,7 @@ fn main() [use] -> None {
 #[test]
 fn namespaces_nest_flatten_and_resolve() {
     let program = build_program(&[("main.sv", NAMESPACES)]);
-    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     run_rust_files(&files, "namespaces", "S x\nN y\ntag:z\ndeep\n");
@@ -3933,7 +3883,7 @@ fn main() [use] -> None {
 #[test]
 fn provenance_survives_mutation_where_state_does_not() {
     let program = build_program(&[("main.sv", QUAL_SUBJECTS)]);
-    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+    let files = emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     run_rust_files(&files, "qual_subjects", "trusted 3\nplain 3\nchecked 2\n");
@@ -4578,7 +4528,7 @@ fn generate_platform_handler_demo_with(host: &str) -> Vec<salvo_backend_rust::Em
         content: host.to_string(),
         platform: true,
     });
-    salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+    emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
 }
@@ -4651,7 +4601,7 @@ fn platform_generate_renders_a_host_handler_skeleton() {
 #[test]
 fn a_missing_host_file_for_a_platform_handler_names_the_command() {
     let program = platform_handler_program();
-    let errors = salvo_backend_rust::emit_program(&program)
+    let errors = emit(&program)
         .err()
         .expect("a `use` of a platform handler without a host must not emit");
     assert!(
@@ -4750,7 +4700,7 @@ fn generate_threadsafe_platform_handler_demo_with(
         content: host.to_string(),
         platform: true,
     });
-    salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+    emit(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
 }
@@ -13993,10 +13943,9 @@ fn example_names() -> Vec<String> {
 
 /// Emits one example's Rust, exactly as `salvo compile` would.
 fn emit_example(example: &str) -> Vec<salvo_backend_rust::EmittedFile> {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
+    // [std-cache] std is the process's front (`salvo_testkit::front`); the
+    // dependencies and the example's tree come after it.
     let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "rs", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
     // [manifest-deps] The example's manifest names its dependencies, loaded
     // between std and the example's own tree as `salvo compile` does.
     let project = salvo_core::Project::load(&examples_dir().join(example).join("salvo.toml"))
@@ -14008,23 +13957,12 @@ fn emit_example(example: &str) -> Vec<salvo_backend_rust::EmittedFile> {
     let src = examples_dir().join(example).join("salvo");
     let errors = sources.add_dir(&src, "rs", false, false);
     assert!(errors.is_empty(), "failed to read {example}: {errors:?}");
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-        assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
-        modules.push(module);
-    }
     // The drivers' pre-resolution expansions [route-stub].
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    let errors: Vec<_> = expansion.diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(errors.is_empty(), "expansion errors: {errors:?}");
-    let program = Program {
-        files: sources.files,
-        modules: Program::share(modules),
-        companions: sources.companions,
-    };
-    salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+    let built = salvo_testkit::front::std_front("rs").program(sources.files, sources.companions);
+    let errors: Vec<_> = built.diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "parse or expansion errors: {errors:?}");
+    let program = built.program;
+    emit(&program).unwrap_or_else(|errors| {
         panic!("`examples/{example}` no longer compiles:\n{}", errors.join("\n"))
     })
 }
@@ -17016,7 +16954,7 @@ fn main() [use] {
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
-    let errors = salvo_backend_rust::emit_program(&program)
+    let errors = emit(&program)
         .err()
         .expect("a mutable read before a mutation must be a codegen error");
     assert!(

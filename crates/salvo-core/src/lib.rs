@@ -35,6 +35,7 @@ pub mod reach;
 pub mod refine;
 pub mod resolve;
 pub mod source;
+pub mod std_front;
 pub mod timing;
 pub mod typekey;
 pub mod types;
@@ -48,6 +49,7 @@ pub use check::{
     UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };
 pub use check_cache::CheckCache;
+pub use std_front::{FrontProgram, StdFront};
 pub use deduce::ParamDeduction;
 pub use comptime::{CompHover, CompWhenArms};
 pub use expand::{expand, Expansion, TestCase};

@@ -8,39 +8,22 @@
 //!
 //! Over the real standard library (`lib/`), so the stamps are `std.core.auto`'s.
 
-use std::path::Path;
-
-use salvo_core::{Program, SourceSet};
+use salvo_core::Program;
 
 fn program(files: &[(&str, &str)]) -> (Program, Vec<String>) {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
-    for (name, src) in files {
-        let module = SourceSet::classify(Path::new(name)).unwrap();
-        sources.add(*name, module, src.to_string(), false);
-    }
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        let errs: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-        assert!(errs.is_empty(), "parse errors in {}: {errs:?}", file.name);
-        modules.push(module);
-    }
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    let errors = expansion
+    // [std-cache] Over the process's std front (TESTS.md T3).
+    let built = salvo_testkit::front::program("kt", files);
+    let errors = built
         .diagnostics
         .iter()
         .filter(|d| d.is_error())
         .map(|d| {
-            let file = &sources.files[d.file];
+            let file = &built.program.files[d.file];
             let line = file.content[..(d.span.start as usize).min(file.content.len())].matches('\n').count() + 1;
             if file.name == "main.sv" { format!("{line}: {}", d.message) } else { format!("{}:{line}: {}", file.name, d.message) }
         })
         .collect();
-    let program = Program { files: sources.files, modules: Program::share(modules), companions: sources.companions };
-    (program, errors)
+    (built.program, errors)
 }
 
 /// Every error the expansion, resolver and checker report, as `line: message`
@@ -49,7 +32,7 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let (program, mut errors) = program(files);
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
-    let checked = salvo_core::check_program(&program, &resolution, &symbols);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
     // [ir-analyze] Ownership errors are the IR's, as a build lists them.
     let flow = salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked);
     for d in resolution.errors.iter().chain(checked.errors.iter()).chain(flow.iter()).filter(|d| d.is_error()) {
@@ -68,7 +51,7 @@ fn errors(src: &str) -> Vec<String> {
 fn ir(files: &[(&str, &str)]) -> String {
     let (program, errors) = program(files);
     assert!(errors.is_empty(), "{errors:?}");
-    let (text, errors) = salvo_core::ir::dump_program(&program, false, None).unwrap_or_else(|e| panic!("{e:?}"));
+    let (text, errors) = salvo_testkit::front::dump_ir("kt", &program, false, None).unwrap_or_else(|e| panic!("{e:?}"));
     assert!(errors.is_empty(), "{errors:?}");
     text
 }

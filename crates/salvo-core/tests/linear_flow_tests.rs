@@ -12,9 +12,8 @@
 //! and uses after a move the IR reported already included.
 
 use std::collections::BTreeMap;
-use std::path::Path;
 
-use salvo_core::{Program, SourceSet};
+use salvo_core::Program;
 
 /// Shared by every case (each case is its own module).
 const HELPERS: &str = "linear struct Token { id: Int }\n\nfn spend(t: Token) [] -> None => !t {\n    discard(t)\n}\n\nfn mint(id: Int) [] -> Token {\n    return Token { id: id }\n}\n\nfn peek(t: Token) [] -> Int {\n    return t.id\n}\n\nlinear struct Pair { a: Token, b: Token }\n\nfn close(p: Pair) [] -> None => !p {\n    spend(p.a)\n    spend(p.b)\n}\n\nfn mkpair() [] -> Pair {\n    return Pair { a: mint(1), b: mint(2) }\n}\n\nfn maybe(c: Bool) [] -> Token? {\n    if c {\n        return mint(1)\n    }\n    return None\n}\n\nfn res(c: Bool) [] -> Ok Token | Err Str {\n    if c {\n        return mint(1)\n    }\n    return \"no\"\n}\n\n";
@@ -192,24 +191,10 @@ const EXPECTED: &[(&str, &[(u32, u32, &str)])] = &[
 ];
 
 fn program() -> Program {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
-    for (name, body) in CASES {
-        let file = format!("{name}.sv");
-        let module = SourceSet::classify(Path::new(&file)).unwrap();
-        sources.add(&file, module, format!("{HELPERS}{body}"), false);
-    }
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        assert!(!diagnostics.iter().any(|d| d.is_error()), "parse errors in {}", file.name);
-        modules.push(module);
-    }
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    Program { files: sources.files, modules: Program::share(modules), companions: sources.companions }
+    // [std-cache] Over the process's std front (TESTS.md T3).
+    let files: Vec<(String, String)> = CASES.iter().map(|(name, body)| (format!("{name}.sv"), format!("{HELPERS}{body}"))).collect();
+    let files: Vec<(&str, &str)> = files.iter().map(|(n, b)| (n.as_str(), b.as_str())).collect();
+    salvo_testkit::front::clean_program("kt", &files)
 }
 
 fn kind(message: &str) -> &'static str {
@@ -233,7 +218,7 @@ fn the_ir_reports_the_linear_flow_rules() {
     let program = program();
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
-    let checked = salvo_core::check_program(&program, &resolution, &symbols);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
     // The checker reports none of them (nor anything else on the corpus).
     let errors: Vec<String> = checked
         .errors

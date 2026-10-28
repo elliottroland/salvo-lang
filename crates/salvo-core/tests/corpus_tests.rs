@@ -2,8 +2,7 @@
 //! codegen tests (several hundred programs covering the language): every one
 //! that checks must build with no error and no `Unsupported` node.
 //!
-//! Each program is a whole check of std plus the program (~0.25s), and the
-//! corpus holds ~400 of them. Two things keep that off the default run:
+//! The corpus holds ~400 programs. Three things keep them cheap:
 //!
 //! - **Stamps** (`salvo-testkit`). A program's outcome is a pure function of
 //!   its text, std's files and the compiler — and the compiler is this test
@@ -13,89 +12,63 @@
 //!   re-checks every program; a new or edited codegen test re-checks only
 //!   that program. `SALVO_E2E_FRESH=1` ignores the stamps. These are not
 //!   toolchain tests, so `SALVO_SKIP_E2E` does not skip them.
-//! - **A pool of threads** over the programs that missed, and std read and
-//!   parsed once: a parse is a pure function of the text, and the parsed
-//!   modules are shared the way every driver shares them (`Arc`s an
-//!   expansion copies before it rewrites one).
+//! - **A pool of threads** over the programs that missed.
+//! - [std-cache] **std checked once**: every program is built over the
+//!   process's std front (`salvo_testkit::front`, TESTS.md C2), so only the
+//!   program itself is parsed, expanded and checked.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
-use salvo_core::source::{CompanionFile, SourceFile};
-use salvo_core::{Program, SourceSet};
-use salvo_syntax::ast::Module;
+use salvo_core::Program;
 
-/// std, read and parsed once per test binary.
+/// What the stamps know of std: whether it parsed, and a digest of every
+/// file its front was built from.
 struct Std {
-    files: Vec<SourceFile>,
-    companions: Vec<CompanionFile>,
-    modules: Vec<Arc<Module>>,
-    /// Whether some std file failed to parse (every program is then
-    /// skipped, as the per-program parse used to skip it).
+    /// Whether some std file failed to parse or expand (every program is
+    /// then skipped, as the per-program parse used to skip it).
     parse_error: bool,
     /// A digest of every file std's `SourceSet` holds, for the stamp keys.
     print: String,
 }
 
+fn front() -> &'static salvo_core::StdFront {
+    salvo_testkit::front::std_front("kt")
+}
+
 fn std_front() -> &'static Std {
     static STD: OnceLock<Std> = OnceLock::new();
     STD.get_or_init(|| {
-        let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-        let mut sources = SourceSet::default();
-        let errors = sources.add_dir(&std_dir, "kt", true, false);
-        assert!(errors.is_empty(), "failed to read std: {errors:?}");
-        let mut parse_error = false;
-        let mut modules = Vec::new();
-        for file in &sources.files {
-            let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-            parse_error |= diagnostics.iter().any(|d| d.is_error());
-            modules.push(module);
-        }
+        let front = front();
+        let parse_error = front.parse_diagnostics().iter().any(|d| d.is_error())
+            || front.program(Vec::new(), Vec::new()).diagnostics.iter().any(|d| d.is_error());
         let mut parts: Vec<Vec<u8>> = Vec::new();
-        for f in &sources.files {
+        for f in front.files() {
             parts.push(f.name.as_bytes().to_vec());
             parts.push(f.module.0.join(".").into_bytes());
             parts.push(f.content.as_bytes().to_vec());
             parts.push(vec![f.is_std as u8, f.is_shadow as u8, f.is_test as u8]);
         }
-        for c in &sources.companions {
+        for c in front.companions() {
             parts.push(c.rel_path.to_string_lossy().as_bytes().to_vec());
             parts.push(c.module.0.join(".").into_bytes());
             parts.push(c.content.as_bytes().to_vec());
         }
         let refs: Vec<&[u8]> = parts.iter().map(|p| p.as_slice()).collect();
         let print = salvo_testkit::fingerprint(&refs);
-        Std {
-            files: sources.files,
-            companions: sources.companions,
-            modules: Program::share(modules),
-            parse_error,
-            print,
-        }
+        Std { parse_error, print }
     })
 }
 
 fn build_program(extra: &[(&str, &str)]) -> Option<Program> {
-    let std = std_front();
-    if std.parse_error {
+    if std_front().parse_error {
         return None;
     }
-    let mut sources = SourceSet { files: std.files.clone(), companions: std.companions.clone(), ..Default::default() };
-    let mut modules = std.modules.clone();
-    for (name, content) in extra {
-        let module = SourceSet::classify(Path::new(name)).unwrap();
-        sources.add(*name, module, content.to_string(), false);
-        let (parsed, diagnostics) = salvo_syntax::parse_module_deferred(content);
-        if diagnostics.iter().any(|d| d.is_error()) {
-            return None;
-        }
-        modules.push(Arc::new(parsed));
-    }
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    if expansion.diagnostics.iter().any(|d| d.is_error()) {
+    let built = salvo_testkit::front::program("kt", extra);
+    if built.diagnostics.iter().any(|d| d.is_error()) {
         return None;
     }
-    Some(Program { files: sources.files, modules, companions: sources.companions })
+    Some(built.program)
 }
 
 /// Every `const NAME: &str = r#"…"#;` in a test file.
@@ -128,7 +101,7 @@ fn build_one(name: &str, body: &str) -> Outcome {
     let Some(program) = build_program(&[("main.sv", body)]) else { return Outcome::Refused };
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
-    let checked = salvo_core::check_program(&program, &resolution, &symbols);
+    let checked = front().check(&program, &resolution, &symbols);
     if checked.errors.iter().any(|d| d.is_error()) {
         return Outcome::Refused;
     }

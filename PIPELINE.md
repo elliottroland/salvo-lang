@@ -3,7 +3,8 @@
 **Status:** Part I (§1–§8) built; Part II (per-phase lowering, §II.1–§II.12)
 decided 2026-10-27 and being built. Rounds: R1–R8 (2026-10-20, Part I), R9 and R10
 (2026-10-27, Part II). Part I's plan is §7 and its log §8; Part II's plan is
-§II.9 and its log §II.12. §5 ends with what stays program-wide.
+§II.9 and its log §II.12 (its last bullet, "Where it stands", is the place
+to resume). §5 ends with what stays program-wide.
 
 **Goal.** Organize the compiler into named phases and sub-phases, each defined by
 its inputs and outputs, so that:
@@ -2360,7 +2361,9 @@ Five stages, in order. Each numbered piece is one piece of work (one
 commit, AGENTS.md) with its spec, docs and records, and leaves the suite
 green. The method that worked for every Part I piece applies
 throughout: build the new side, run a temporary differential against the
-old over every program the suite checks, then delete the old. Where a piece
+old, then delete the old. The differential runs over the test-data corpus
+(TESTS.md T1 and C3), a dump per file, old against new — not over two fresh
+full suites (user decision 2026-10-28, TESTS.md TD6). Where a piece
 needs a decision of yours, it names it (§II.10).
 
 **Gates that apply to every piece:** IR goldens and both codegen corpora
@@ -3193,6 +3196,29 @@ this log current so the work can resume after a context reset). Newest last.
   the implicit's return type) and `operator_implicit_tie`; an intrinsic whose
   overloads share a first-parameter base needs a wider key in the backends'
   tables.
+
+- **Where it stands (2026-10-28) — resume here.** Stage A complete; B1,
+  B2 done; B3 pieces 1, 3a–3e done (HEAD 18073516). **B3.4 (dot calls) was
+  started and cancelled before any edit**; the tree is clean, so it starts
+  from its brief: `x.f(a)` lowers to `f(x, a)` through the plain call's whole
+  path (D12: an enclosing implicit takes it; D13: a fn-typed local takes it,
+  R10; members compete), `x.f@m(a)` as `f@m(x, a)`, `?.` alike; the `eff[E]`
+  receiver (D14) and the namespace and qualifier forms stay as they are.
+  **Remaining B3 order:** 4 (dot calls), 5 (effect- and qualifier-member
+  calls: D15, D16's shared lead pool, D17, D25), 6 (fn values, local calls:
+  a bare member name as a value) — none blocked; 2 (interpolation) waits on
+  **the format fn's shape** (§II.10 P4: how `"a ${x} b"` lowers — not yet
+  asked) and D4's general union `to_str` (deferred, R10); 7 (sends, mints:
+  D14, D18, D24) waits on **D14's knock-on decisions** (not yet listed or
+  asked). **Open decisions, each built as its recommended option:** P9–P18
+  (§II.10; ROADMAP 0af, 0ah–0aq). **Paused by the user (2026-10-28)** to
+  rethink how testing is done before continuing (tracked in TESTS.md): this run spent ~48% of its
+  logged time on tests (since A1: 6.3 of 13.1 h), mostly the per-piece
+  differential (two fresh full suites plus dump comparison), a warm nextest
+  before each commit (3.5–7 min after any core or std change, every stamp
+  missing) and a final `cargo test` repeating it; every test program
+  re-checks all of std. Whatever is decided changes the per-piece method in
+  the briefs above.
 
 ## II.13. The call census (B1, 2026-10-27)
 

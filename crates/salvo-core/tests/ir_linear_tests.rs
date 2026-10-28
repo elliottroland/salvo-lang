@@ -7,26 +7,11 @@
 
 use std::path::Path;
 
-use salvo_core::{Program, SourceSet};
+use salvo_core::Program;
 
 fn example_program(dir: &Path) -> Program {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
-    let project = salvo_core::Project::load(&dir.join(salvo_core::MANIFEST_FILE)).expect("manifest");
-    let src = project.src();
-    let errors = sources.add_dir(&src, "kt", false, false);
-    assert!(errors.is_empty(), "failed to read {}: {errors:?}", src.display());
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        assert!(!diagnostics.iter().any(|d| d.is_error()), "parse errors in {}", file.name);
-        modules.push(module);
-    }
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    Program { files: sources.files, modules: Program::share(modules), companions: sources.companions }
+    // [std-cache] Over the process's std front (TESTS.md T3).
+    salvo_testkit::front::expect_clean(salvo_testkit::front::project("kt", dir))
 }
 
 /// The IR check reports nothing on code the AST checker accepts.
@@ -46,7 +31,7 @@ fn ir_linear_check_has_no_false_positives() {
         let program = example_program(&dir);
         let symbols = salvo_core::Symbols::collect(&program);
         let resolution = salvo_core::resolve(&program);
-        let checked = salvo_core::check_program(&program, &resolution, &symbols);
+        let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
         if checked.errors.iter().any(|d| d.is_error()) {
             continue;
         }
@@ -70,24 +55,10 @@ export linear struct Problem { code: Int }\n\
 export fn close(p: Problem) -> None => !p { discard(p) }\n\
 export fn attempt() -> Ok Int | Err Problem { return Err Problem { code: 1 } }\n\
 export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
-    let module = SourceSet::classify(Path::new("main.sv")).unwrap();
-    sources.add("main.sv", module, src.to_string(), false);
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        assert!(!diagnostics.iter().any(|d| d.is_error()), "parse errors in {}", file.name);
-        modules.push(module);
-    }
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    let program = Program { files: sources.files, modules: Program::share(modules), companions: sources.companions };
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", src)]);
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
-    let checked = salvo_core::check_program(&program, &resolution, &symbols);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
     // The AST checker accepts this program — it misses the dropped `Problem`.
     assert!(!checked.errors.iter().any(|d| d.is_error()), "AST checker unexpectedly rejected the repro");
     let (mut ir, _errs) = salvo_core::ir::build_program(&program, &symbols, &resolution, &checked, None);
@@ -228,24 +199,10 @@ fn leaks_of(src: &str) -> Vec<String> {
 /// The checker's error messages on `src` (with std), and the IR check's leak
 /// messages.
 fn errors_and_leaks_of(src: &str) -> (Vec<String>, Vec<String>) {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
-    let module = SourceSet::classify(Path::new("main.sv")).unwrap();
-    sources.add("main.sv", module, src.to_string(), false);
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        assert!(!diagnostics.iter().any(|d| d.is_error()), "parse errors in {}", file.name);
-        modules.push(module);
-    }
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    let program = Program { files: sources.files, modules: Program::share(modules), companions: sources.companions };
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", src)]);
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
-    let checked = salvo_core::check_program(&program, &resolution, &symbols);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
     let errors = checked.errors.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
     let (mut ir, _errs) = salvo_core::ir::build_program(&program, &symbols, &resolution, &checked, None);
     salvo_core::ir::obligations::annotate(&mut ir, &symbols);

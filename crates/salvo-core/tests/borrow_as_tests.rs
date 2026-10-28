@@ -2,9 +2,7 @@
 //! `BorrowAs` in the IR, arm by arm — the one-arm case (`proj X` -> `X`)
 //! included — so what an arm does is visible, even where a backend ignores it.
 
-use std::path::Path;
 
-use salvo_core::{Program, SourceSet};
 
 const SRC: &str = r#"
 struct A canbe Mut { n: Int }
@@ -36,22 +34,9 @@ fn main() [use] -> None {
 "#;
 
 fn dump(src: &str) -> String {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
-    let module = SourceSet::classify(Path::new("main.sv")).unwrap();
-    sources.add("main.sv", module, src.to_string(), false);
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        assert!(!diagnostics.iter().any(|d| d.is_error()), "parse errors in {}", file.name);
-        modules.push(module);
-    }
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    let program = Program { files: sources.files, modules: Program::share(modules), companions: sources.companions };
-    let (text, errors) = salvo_core::ir::dump_program(&program, false, None).expect("checks");
+    // [std-cache] Over the process's std front (TESTS.md T3).
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", src)]);
+    let (text, errors) = salvo_testkit::front::dump_ir("kt", &program, false, None).expect("checks");
     assert!(errors.is_empty(), "{errors:?}");
     text
 }

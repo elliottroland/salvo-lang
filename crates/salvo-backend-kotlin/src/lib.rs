@@ -6,7 +6,7 @@ pub mod stdlib;
 pub mod ir_emit;
 
 pub use emit::{
-    emit_abi, emit_program, emit_program_reporting, host_package, platform_skeletons,
+    emit_abi, emit_program, emit_program_over, emit_program_reporting, host_package, platform_skeletons,
     EmittedFile,
 };
 

@@ -32,7 +32,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
-use salvo_core::{Program, SourceSet};
+use salvo_core::Program;
 
 /// Shared by every case (each case is its own module).
 const HELPERS: &str = "struct Box {
@@ -383,24 +383,10 @@ const CASES: &[(&str, &str)] = &[
 ];
 
 fn program(cases: &[(&str, &str)]) -> Program {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
-    for (name, body) in cases {
-        let file = format!("{name}.sv");
-        let module = SourceSet::classify(Path::new(&file)).unwrap();
-        sources.add(&file, module, format!("{HELPERS}{body}"), false);
-    }
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        assert!(!diagnostics.iter().any(|d| d.is_error()), "parse errors in {}", file.name);
-        modules.push(module);
-    }
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    Program { files: sources.files, modules: Program::share(modules), companions: sources.companions }
+    // [std-cache] Over the process's std front (TESTS.md T3).
+    let files: Vec<(String, String)> = cases.iter().map(|(name, body)| (format!("{name}.sv"), format!("{HELPERS}{body}"))).collect();
+    let files: Vec<(&str, &str)> = files.iter().map(|(n, b)| (n.as_str(), b.as_str())).collect();
+    salvo_testkit::front::clean_program("kt", &files)
 }
 
 /// A position within a case's own source, 1-based.
@@ -420,7 +406,7 @@ fn the_gate_reports_what_the_flow_pass_finds() {
     // (a) The checker as the gates run it: no error in the corpus at all (a
     // consumed read is never the checker's), then the IR of the corpus
     // modules and the flow pass over it.
-    let normal = salvo_core::check_program(&program, &resolution, &symbols);
+    let normal = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
     let errors: Vec<String> = normal
         .errors
         .iter()
@@ -686,7 +672,7 @@ fn the_flow_pass_reports_these_reads() {
     let program = program(CASES);
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
-    let checked = salvo_core::check_program(&program, &resolution, &symbols);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
     let wanted: std::collections::HashSet<&salvo_core::ModulePath> =
         program.units().filter(|u| !u.file.is_std).map(|u| &u.file.module).collect();
     let (ir, _) = salvo_core::ir::build_program(&program, &symbols, &resolution, &checked, Some(&wanted));
@@ -723,7 +709,7 @@ fn the_flow_pass_decides_the_modes_and_the_ir_follows() {
     let program = program(&[("pipeline", src)]);
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
-    let mut checked = salvo_core::check_program(&program, &resolution, &symbols);
+    let mut checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
     assert!(!checked.errors.iter().any(|d| d.is_error()));
     let file = program.files.iter().position(|f| f.name == "pipeline.sv").unwrap();
     let wanted: std::collections::HashSet<&salvo_core::ModulePath> = std::iter::once(&program.files[file].module).collect();
@@ -749,23 +735,8 @@ fn the_flow_pass_decides_the_modes_and_the_ir_follows() {
 
 
 fn example_program(dir: &Path) -> Program {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
-    let project = salvo_core::Project::load(&dir.join(salvo_core::MANIFEST_FILE)).expect("manifest");
-    let src = project.src();
-    let errors = sources.add_dir(&src, "kt", false, false);
-    assert!(errors.is_empty(), "failed to read {}: {errors:?}", src.display());
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        assert!(!diagnostics.iter().any(|d| d.is_error()), "parse errors in {}", file.name);
-        modules.push(module);
-    }
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    Program { files: sources.files, modules: Program::share(modules), companions: sources.companions }
+    // [std-cache] Over the process's std front (TESTS.md T3).
+    salvo_testkit::front::expect_clean(salvo_testkit::front::project("kt", dir))
 }
 
 /// No false positives: over the IR of every example and of std (built from
@@ -791,7 +762,7 @@ fn the_flow_pass_accepts_every_example_and_std() {
         let program = example_program(dir);
         let symbols = salvo_core::Symbols::collect(&program);
         let resolution = salvo_core::resolve(&program);
-        let checked = salvo_core::check_program(&program, &resolution, &symbols);
+        let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
         // std once (with the first example), then each example's own modules.
         let wanted: std::collections::HashSet<&salvo_core::ModulePath> =
             program.units().filter(|u| i == 0 || !u.file.is_std).map(|u| &u.file.module).collect();

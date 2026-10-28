@@ -26,6 +26,14 @@ pub fn emit_program_reporting(program: &Program) -> Result<(Vec<EmittedFile>, Ve
     crate::ir_emit::emit_program_ir(program, false)
 }
 
+/// [std-cache] [`emit_program`] over a std front: the program's leading
+/// files are `front`'s std (`StdFront::program`), whose checked rows are
+/// reused rather than recomputed. Identical output (the repository's tests
+/// emit through it, TESTS.md C2).
+pub fn emit_program_over(program: &Program, front: &salvo_core::StdFront) -> Result<Vec<EmittedFile>, Vec<String>> {
+    crate::ir_emit::emit_program_ir_over(program, false, Some(front.cache())).map(|(files, _warnings)| files)
+}
+
 /// [platform-abi] [kt-abi] The declaration files of a platform root's host
 /// project: every declaration the platform surface reaches, emitted exactly
 /// as the build emits it, with the runtime under `salvo/`.

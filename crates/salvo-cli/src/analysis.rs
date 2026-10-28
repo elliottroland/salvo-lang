@@ -10,7 +10,6 @@ use include_dir::{include_dir, Dir};
 
 use salvo_core::{Checked, DefSite, FileDiagnostic, Program, SourceSet, Symbols};
 use salvo_syntax::ast::Module;
-use salvo_syntax::diag::Diagnostic;
 
 /// [lsp-parse-cache] A per-server cache of parsed modules, keyed by the
 /// **content** of the file that produced them: parsing is per-file and
@@ -38,15 +37,9 @@ pub struct ParseCache {
 }
 
 /// One file parsed and expanded on its own.
-type Parsed = (Arc<Module>, Vec<Diagnostic>, Vec<salvo_core::expand::FileTest>);
+type Parsed = salvo_core::std_front::Parsed;
 
-/// A file parsed and through its per-file expansions.
-fn parse_file(file: &salvo_core::source::SourceFile) -> Parsed {
-    let (mut module, mut diags) = salvo_syntax::parse_module_deferred(&file.content);
-    let (tests, more) = salvo_core::expand::expand_file(file, &mut module);
-    diags.extend(more);
-    (Arc::new(module), diags, tests)
-}
+use salvo_core::std_front::parse_file;
 
 /// What a cached parse is keyed by: the text, and the two facts about the
 /// file its per-file expansions read.
@@ -210,82 +203,16 @@ pub fn analyze_sources(
     analyze_project(src, project, native_ext, overlay, None, None, None)
 }
 
-/// [lsp-std-front] [std-cache] The embedded std's front half, built once by
-/// the language server and shared by every analysis it then makes: std parsed
-/// and expanded as its own program, its modules kept (every analysis's
-/// `Program` holds these very `Arc`s, so std is neither parsed, cloned nor
-/// expanded again), what the comptime expansion needs to expand a project
-/// over them, std's own expansion output, and the `StdCache` — checked over a
-/// program sharing the same modules, so its address-keyed rows
-/// (`Checked::written_types`, `type_ref_keys`) are keyed by the addresses an
-/// analysis sees, and stay valid while the front lives.
-pub struct StdFront {
-    /// std's files, as `load_embedded_std` loads them: what an analysis's
-    /// leading files must be for the front to stand in for them.
-    files: Vec<salvo_core::SourceFile>,
-    /// std's modules after every expansion.
-    modules: Vec<Arc<Module>>,
-    /// std's parse and per-file expansion diagnostics (file indices `0..N`).
-    parse_diagnostics: Vec<FileDiagnostic>,
-    /// std's comptime expansion output (diagnostics, hovers, `[when]` arms).
-    expansion: salvo_core::Expansion,
-    comptime: salvo_core::comptime::StdComptime,
-    cache: salvo_core::StdCache,
-}
+/// [lsp-std-front] [std-cache] The embedded std's front half
+/// (`salvo_core::StdFront`), built once by the language server and shared by
+/// every analysis it then makes.
+pub use salvo_core::StdFront;
 
-/// [lsp-std-front] Builds the [`StdFront`] for `native_ext`'s std.
+/// [lsp-std-front] Builds the [`StdFront`] for `native_ext`'s embedded std.
 pub fn build_std_front(native_ext: &str) -> StdFront {
     let mut sources = SourceSet::default();
     load_embedded_std(&mut sources, native_ext);
-    let std_files = sources.files.len();
-    let mut modules = Vec::with_capacity(std_files);
-    let mut parse_diagnostics: Vec<FileDiagnostic> = Vec::new();
-    for file in &sources.files {
-        let (module, diags, _tests) = parse_file(file);
-        parse_diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic {
-            file: modules.len(),
-            severity: d.severity,
-            message: d.message,
-            span: d.span,
-            suggested_imports: Vec::new(),
-            decl: None,
-        }));
-        modules.push(module);
-    }
-    let (comptime_out, comptime) = salvo_core::comptime::expand_comptime_prefix(&sources.files, &mut modules);
-    let expansion = salvo_core::expand::program_expansion(Vec::new(), comptime_out);
-    let program = Program {
-        files: sources.files.clone(),
-        modules: modules.clone(),
-        companions: sources.companions,
-    };
-    let symbols = Symbols::collect(&program);
-    let resolution = salvo_core::resolve(&program);
-    let checked = salvo_core::check_program(&program, &resolution, &symbols);
-    let cache = salvo_core::StdCache::new(&program, &resolution, &symbols, checked);
-    StdFront {
-        files: sources.files,
-        modules,
-        parse_diagnostics,
-        expansion,
-        comptime,
-        cache,
-    }
-}
-
-/// [lsp-std-front] Whether `front` may stand in for the leading files of
-/// `files`: they are exactly the embedded std it was built from (names,
-/// modules and contents), unshadowed, and nothing after them is std except
-/// a shadowing file — so not a `std = true` project, whose files are all
-/// std. Nothing a project declares changes std's expansion: std sees only
-/// std [obligation-by], and no project module is under `std` [std-root].
-fn std_front_applies(files: &[salvo_core::SourceFile], front: &StdFront) -> bool {
-    let n = front.files.len();
-    n <= files.len()
-        && files[..n].iter().zip(&front.files).all(|(f, g)| {
-            f.is_std && !f.is_shadow && f.name == g.name && f.module == g.module && f.is_test == g.is_test && f.content == g.content
-        })
-        && files[n..].iter().all(|f| !f.is_std || f.is_shadow)
+    StdFront::build(sources)
 }
 
 /// [lsp-std-source] A full `Analysis` of the embedded standard library, as its
@@ -486,7 +413,7 @@ fn analyze_project_with(
     let mut diagnostics: Vec<FileDiagnostic> = Vec::new();
     let mut ir_reliant: std::collections::HashSet<(usize, salvo_syntax::Span)> = std::collections::HashSet::new();
     let mut live: std::collections::HashSet<u64> = std::collections::HashSet::new();
-    let front = std_front.filter(|front| front_half && std_front_applies(&sources.files, front));
+    let front = std_front.filter(|front| front_half && front.applies(&sources.files));
     let t = salvo_core::timing::phase("parse");
     let mut parse = |idx: usize, cache: &mut Option<&mut ParseCache>, diagnostics: &mut Vec<FileDiagnostic>| {
         let file = &sources.files[idx];
@@ -507,12 +434,12 @@ fn analyze_project_with(
         }));
         (module, tests)
     };
-    let first = front.map_or(0, |f| f.files.len());
+    let first = front.map_or(0, |f| f.files().len());
     let mut project_diagnostics: Vec<FileDiagnostic> = Vec::new();
     let mut modules: Vec<Arc<Module>> = Vec::with_capacity(sources.files.len());
     let mut per_file_tests = Vec::with_capacity(sources.files.len());
     if let Some(front) = front {
-        modules.extend(front.modules.iter().cloned());
+        modules.extend(front.modules().iter().cloned());
         per_file_tests.extend((0..first).map(|_| Vec::new()));
     }
     for idx in first..sources.files.len() {
@@ -528,20 +455,10 @@ fn analyze_project_with(
     let t = salvo_core::timing::phase("expand");
     let expansion = match front {
         Some(front) => {
-            let mut std_diagnostics = front.parse_diagnostics.clone();
+            let mut std_diagnostics = front.parse_diagnostics().to_vec();
             std_diagnostics.append(&mut diagnostics);
             diagnostics = std_diagnostics;
-            let rest = salvo_core::expand::expand_program_after(&sources.files, &mut modules, per_file_tests, &front.comptime);
-            let mut expansion = salvo_core::Expansion {
-                tests: rest.tests,
-                diagnostics: front.expansion.diagnostics.clone(),
-                comptime_hovers: front.expansion.comptime_hovers.clone(),
-                comptime_when_arms: front.expansion.comptime_when_arms.clone(),
-            };
-            expansion.diagnostics.extend(rest.diagnostics);
-            expansion.comptime_hovers.extend(rest.comptime_hovers);
-            expansion.comptime_when_arms.extend(rest.comptime_when_arms);
-            expansion
+            front.expand_after(&sources.files, &mut modules, per_file_tests)
         }
         None => salvo_core::expand::expand_program(&sources.files, &mut modules, per_file_tests),
     };
@@ -588,7 +505,7 @@ fn analyze_project_with(
         drop(t);
         // `check_program` folds resolution errors into its own.
         let t = salvo_core::timing::phase("check");
-        let mut checked = match (std_front.map(|f| &f.cache), check_cache) {
+        let mut checked = match (std_front.map(|f| f.cache()), check_cache) {
             (Some(cache), Some(check_cache)) if std_cache_applies(&program, cache) => {
                 salvo_core::check_project_cached(&program, &resolution, &symbols, cache, check_cache)
             }
@@ -642,15 +559,7 @@ fn analyze_project_with(
     })
 }
 
-/// [std-cache] Whether `cache` may stand in for checking `program`'s std: its
-/// leading `cache.std_files` files are std and unshadowed, and nothing after
-/// them is std except a shadowing file. A std shadow or a `std = true` project
-/// (whose files are all `is_std`) fails this and gets a full check (A4).
-fn std_cache_applies(program: &Program, cache: &salvo_core::StdCache) -> bool {
-    cache.std_files <= program.files.len()
-        && program.files[..cache.std_files].iter().all(|f| f.is_std && !f.is_shadow)
-        && program.files[cache.std_files..].iter().all(|f| !f.is_std || f.is_shadow)
-}
+use salvo_core::std_front::cache_applies as std_cache_applies;
 
 /// [lsp-completion] The per-file index of type-like names, generated ones
 /// (`__…`) left out.
@@ -1070,7 +979,7 @@ mod tests {
         let cached = analyze_project(&root, None, "", &HashMap::new(), None, Some(&std_front), None)
             .expect("cached");
         assert!(
-            std_cache_applies(&cached.program, &std_front.cache),
+            std_cache_applies(&cached.program, std_front.cache()),
             "the gate fell back to a full check, so this test compared a full \
              check with itself"
         );
@@ -1195,18 +1104,18 @@ mod tests {
     #[test]
     fn std_front_expansion_is_project_independent() {
         let front = build_std_front("");
-        let n = front.files.len();
-        let alone: Vec<String> = front.modules.iter().map(|m| format!("{m:?}")).collect();
+        let n = front.files().len();
+        let alone: Vec<String> = front.modules().iter().map(|m| format!("{m:?}")).collect();
         for (dir, clean) in front_programs("project_independent") {
             let full = front_analysis(&dir, None, false);
-            assert!(std_front_applies(&full.program.files, &front), "{}: std did not load as the front's", dir.display());
+            assert!(front.applies(&full.program.files), "{}: std did not load as the front's", dir.display());
             let same: Vec<bool> = (0..n).map(|i| format!("{:?}", full.program.modules[i]) == alone[i]).collect();
             for (i, same) in same.iter().enumerate() {
                 assert!(
                     same,
                     "{}: std's `{}` expanded differently inside the program",
                     dir.display(),
-                    front.files[i].name
+                    front.files()[i].name
                 );
             }
             if !clean {
@@ -1286,17 +1195,17 @@ mod tests {
     #[test]
     fn std_front_matches_an_analysis_without_it() {
         let front = build_std_front("");
-        let n = front.files.len();
+        let n = front.files().len();
         for (dir, _) in front_programs("matches_without") {
             let without = front_analysis(&dir, Some(&front), false);
             let with = front_analysis(&dir, Some(&front), true);
-            assert!(std_cache_applies(&with.program, &front.cache), "{}: the std cache did not apply", dir.display());
+            assert!(std_cache_applies(&with.program, front.cache()), "{}: the std cache did not apply", dir.display());
             // The front stands in for every program, a refused one included
             // (there is no gate since [std-root]): std's modules are the
             // front's own `Arc`s.
-            let shared = Arc::ptr_eq(&with.program.modules[0], &front.modules[0]);
+            let shared = Arc::ptr_eq(&with.program.modules[0], &front.modules()[0]);
             assert!(shared, "{}: the front did not stand in", dir.display());
-            assert!(!Arc::ptr_eq(&without.program.modules[0], &front.modules[0]));
+            assert!(!Arc::ptr_eq(&without.program.modules[0], &front.modules()[0]));
             for ((what, a), (_, b)) in view(&with, n).into_iter().zip(view(&without, n)) {
                 assert!(a == b, "{}: {what} differ through the front:\n{a:#?}\nwithout it:\n{b:#?}", dir.display());
             }
@@ -1426,7 +1335,7 @@ mod tests {
     #[test]
     fn check_cache_matches_an_uncached_analysis_across_edits() {
         let front = build_std_front("");
-        let n = front.files.len();
+        let n = front.files().len();
         for dir in check_cache_programs() {
             let (src, project) = match salvo_core::Project::find(&dir.join("x.sv")).expect("manifest") {
                 Some(project) => (project.src(), Some(project)),

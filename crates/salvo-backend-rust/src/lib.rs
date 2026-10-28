@@ -5,7 +5,7 @@ mod intrinsics;
 mod ir_emit;
 
 pub use emit::{
-    emit_abi, emit_program, emit_program_reporting, emit_program_with_entry,
+    emit_abi, emit_program, emit_program_over, emit_program_reporting, emit_program_with_entry,
     platform_skeletons, EmittedFile,
 };
 

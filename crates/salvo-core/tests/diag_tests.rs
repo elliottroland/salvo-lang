@@ -260,29 +260,12 @@ fn incompatible_generic_bindings_still_reject() {
 /// Runs the checker on a source *with std loaded* (the new rules only
 /// fire on known types) and returns the rendered errors.
 fn check_errors(src: &str) -> Vec<String> {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let io_errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(io_errors.is_empty(), "failed to read std: {io_errors:?}");
-    let module = SourceSet::classify(Path::new("main.sv")).unwrap();
-    sources.add("main.sv", module, src.to_string(), false);
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
-        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-        assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
-        modules.push(module);
-    }
-    // [comptime-instantiate] The `by` sites stamp before resolution.
-    let _expansion = salvo_core::expand(&sources.files, &mut modules);
-    let program = Program {
-        files: sources.files,
-        modules: Program::share(modules),
-        companions: sources.companions,
-    };
+    // [std-cache] Over the process's std front (TESTS.md T3); the
+    // expansion's own diagnostics are not these tests' subject.
+    let program = salvo_testkit::front::program("kt", &[("main.sv", src)]).program;
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
-    let checked = check_program(&program, &resolution, &symbols);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
     // Errors only: an unused-variable *warning* [unused-var] is a different
     // severity, and these tests are about which programs are rejected.
     checked

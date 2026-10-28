@@ -23,10 +23,16 @@ mod boundary;
 pub mod skeletons;
 
 pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
+    emit_program_ir_over(program, abi, None)
+}
+
+/// [std-cache] [`emit_program_ir`], with std's checked rows taken from `std`
+/// when it applies (`salvo_backend::driver::check_for_emission_over`).
+pub fn emit_program_ir_over(program: &Program, abi: bool, std: Option<&salvo_core::StdCache>) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
     // The IR is built from the *checked* program itself (the checker's
     // `written_types` are keyed by AST node); effect-generic erasure
     // [effect-generic-decl] is applied where a type is rendered.
-    let (_erased_program, erased, mut checked, warnings) = salvo_backend::driver::check_for_emission(program)?;
+    let (_erased_program, erased, mut checked, warnings) = salvo_backend::driver::check_for_emission_over(program, std)?;
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);
     let reach = salvo_backend::driver::reach(program, &resolution, &symbols, &checked, abi);
     let wanted: HashSet<&ModulePath> = reach.emitted.iter().copied().collect();

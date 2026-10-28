@@ -3,26 +3,11 @@
 
 use std::path::Path;
 
-use salvo_core::{Program, SourceSet};
+use salvo_core::Program;
 
 fn example_program(dir: &Path) -> Program {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
-    let project = salvo_core::Project::load(&dir.join(salvo_core::MANIFEST_FILE)).expect("manifest");
-    let src = project.src();
-    let errors = sources.add_dir(&src, "kt", false, false);
-    assert!(errors.is_empty(), "failed to read {}: {errors:?}", src.display());
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        assert!(!diagnostics.iter().any(|d| d.is_error()), "parse errors in {}", file.name);
-        modules.push(module);
-    }
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    Program { files: sources.files, modules: Program::share(modules), companions: sources.companions }
+    // [std-cache] Over the process's std front (TESTS.md T3).
+    salvo_testkit::front::expect_clean(salvo_testkit::front::project("kt", dir))
 }
 
 #[test]
@@ -39,7 +24,7 @@ fn example_ir_is_stable() {
     for dir in dirs {
         let name = dir.file_name().unwrap().to_string_lossy().to_string();
         let program = example_program(&dir);
-        let (text, errors) = salvo_core::ir::dump_program(&program, false, None).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let (text, errors) = salvo_testkit::front::dump_ir("kt", &program, false, None).unwrap_or_else(|e| panic!("{name}: {e:?}"));
         assert!(errors.is_empty(), "{name}: {errors:?}");
         insta::assert_snapshot!(format!("ir_{name}"), text);
     }
@@ -54,7 +39,7 @@ fn example_facts_are_stable() {
     let program = example_program(&dir);
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
-    let checked = salvo_core::check_program(&program, &resolution, &symbols);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
     assert!(!checked.errors.iter().any(|d| d.is_error()));
     let text = salvo_core::facts::dump(&program, &symbols, &checked, &|f| !program.files[f].is_std);
     assert!(text.contains("-> std.core.list::size"), "{text}");
@@ -68,29 +53,15 @@ fn example_facts_are_stable() {
 /// the dump must contain both the fn's IR and the inline marker.
 #[test]
 fn dump_inlines_a_linear_leak_and_still_produces_the_ir() {
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
-    let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kt", true, false);
-    assert!(errors.is_empty(), "failed to read std: {errors:?}");
     let src = "\
 export linear struct Problem { code: Int }\n\
 export fn close(p: Problem) -> None => !p { discard(p) }\n\
 export fn attempt() -> Ok Int | Err Problem { return Err Problem { code: 1 } }\n\
 export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
-    let module = SourceSet::classify(Path::new("main.sv")).unwrap();
-    sources.add("main.sv", module, src.to_string(), false);
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (m, d) = salvo_syntax::parse_module_deferred(&file.content);
-        assert!(!d.iter().any(|x| x.is_error()), "parse errors in {}", file.name);
-        modules.push(m);
-    }
-    let expansion = salvo_core::expand(&sources.files, &mut modules);
-    assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
-    let program = Program { files: sources.files, modules: Program::share(modules), companions: sources.companions };
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", src)]);
     // Dumps rather than erroring (the leak is an IR-reliant check, not a type
     // error): returns `Ok` with the IR text.
-    let (text, _errors) = salvo_core::ir::dump_program(&program, false, None).expect("dump should succeed despite the leak");
+    let (text, _errors) = salvo_testkit::front::dump_ir("kt", &program, false, None).expect("dump should succeed despite the leak");
     assert!(text.contains("fn main::drops_it"), "the IR body is dumped:\n{text}");
     assert!(text.contains("!!! main:"), "the leak is inlined with a location:\n{text}");
     assert!(text.contains("still owns a linear value"), "the leak message is inlined:\n{text}");

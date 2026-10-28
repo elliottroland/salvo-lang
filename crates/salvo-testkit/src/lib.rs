@@ -38,6 +38,12 @@
 //! shared directory would throw away the stamps an earlier binary had just
 //! written. To reset the cache outright, delete the directory
 //! (`target/tmp/salvo-e2e-cache`).
+//!
+//! [`front`] is the other half: the one way the repository's tests build and
+//! check a program over the real std, checked once per process (TESTS.md
+//! T3).
+
+pub mod front;
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};

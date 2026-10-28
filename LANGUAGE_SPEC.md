@@ -12933,7 +12933,8 @@ replaced the working document TESTING.md).
   ~85ms, debug, `examples/cluster`).
 * [lsp-std-front] **std's front half is shared across analyses** (2026-10-20,
   PIPELINE.md step 8): the server parses, expands and checks the embedded std
-  once (`analysis::StdFront`, with the `StdCache` check), and every analysis
+  once (`salvo_core::StdFront`, `std_front.rs` since 2026-10-28, with the
+  `StdCache` check), and every analysis
   whose leading files are exactly that std, unshadowed, with nothing after it
   std but a shadow, takes std's expanded modules from it: the same
   `Arc<Module>`s (`Program::modules` is shared), so std is neither parsed,
@@ -12948,7 +12949,7 @@ replaced the working document TESTING.md).
   not see falls back to std's declarations alone, and what std sees
   implicitly is `std.core.*`, which no project can declare [std-root] — so
   nothing a project writes changes std's expansion, and the front stands in
-  for every program its files match (`std_front_applies`).
+  for every program its files match (`StdFront::applies`).
   (Until 2026-10-14 the gate recorded every name std's stamping asked about
   and every `by` path it matched, and refused a project declaring one or
   having a module path one matched — a project module `auto` was refused,
@@ -12958,6 +12959,18 @@ replaced the working document TESTING.md).
   cache and computes the project's, merging the by-span keys as gathering
   them together would. An analysis through the front reports what one
   without it reports (`std_front_matches_an_analysis_without_it`).
+  * **The repository's tests check and emit over it too** (2026-10-28,
+    TESTS.md T3/C2): `salvo_testkit::front` builds one front per test process
+    and backend extension from `lib/`, and every program a test builds holds
+    its modules. Emission reads std's rows as well as the project's
+    (`driver::check_for_emission_over`, `emit_program_over`,
+    `ir::dump_program_over`), so the cache stands in only when the program
+    holds the front's very modules (`StdCache::shares_modules`, checked by
+    `std_front::check_over`), not merely files that match: a std parsed again
+    has other nodes, its seeded `written_types` rows name none of them, and
+    std's emitted pass modes came out wrong (found by the differential: a
+    callback `each: (x: T)` emitted `FnMut(&T)`). The CLI's own compile path
+    still checks std whole.
 * [lsp-check-cache] **A file an edit left alone is not checked again**
   (2026-10-20, PIPELINE.md step 8): the server keeps one `CheckCache`, every
   project file's checker rows as its last walks left them, and checks through

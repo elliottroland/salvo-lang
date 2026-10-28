@@ -568,6 +568,9 @@ dependencies = [
 [[package]]
 name = "salvo-testkit"
 version = "0.1.0"
+dependencies = [
+ "salvo-core",
+]
 
 [[package]]
 name = "serde"

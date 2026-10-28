@@ -48,11 +48,12 @@ pub fn analyze_full(
     for d in parse.iter().filter(|d| d.is_error()) {
         gate.break_file(d.file);
     }
-    // Analyze only the user's own modules. std (and a dependency) is checked
-    // elsewhere — and under the std-cache path its bodies are not re-walked, so
-    // the checker tables the IR reads (`linear_moves`, …) are not populated for
-    // it; building and checking its IR would report spurious leaks. The user
-    // modules are always fully checked, so their tables are complete.
+    // Analyze only the user's own modules: std (and a dependency) is checked
+    // elsewhere. (Under the std-cache path std's rows are the std-only
+    // check's, seeded whole, so its IR would build — emission builds it,
+    // and the TESTS.md C2 differential found it identical to a full check's —
+    // but its analyses are not the project's to report.) The user modules
+    // are always fully checked, so their tables are complete.
     let wanted: std::collections::HashSet<&crate::ModulePath> = program
         .units()
         .filter(|u| !u.file.is_std)
