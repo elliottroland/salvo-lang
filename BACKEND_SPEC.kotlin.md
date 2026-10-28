@@ -569,6 +569,14 @@ Conventions:
     caller passes and forwards what the fn needs.
   * Inside a lambda body an effect resolves to the lambda's own parameter
     (innermost-first lookup), not to the enclosing fn's.
+  * [effect-member-overload] **An effect's member as a value** (an implicit
+    it fills, or `m@E` written at a fn-typed position, R10 D3) is the one
+    closure that *does* capture a handler: the value carries its handler, so
+    its type has no effect parameter, and the IR hands the emitter an
+    ordinary `Lambda` calling the member through the captured instance —
+    `render(p, fun(__m0: Point): String { return fmt.toStr(__m0) })`, the
+    instance being the effect parameter or a `use`'s `__handle_N`. Nothing
+    Kotlin-specific was needed.
 * [throw] [kt-throw-signal] The JVM's unwinding *is* the propagation, so
   throwing needs no return-shape change and no colouring: `throw(m)` throws
   a generated `salvo.ThrowSignal`, an intermediate frame does nothing at

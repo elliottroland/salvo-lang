@@ -2580,6 +2580,14 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
 - **P8. A5's placement.** **Decided (user, 2026-10-27): only in C3.**
   Comptime's signature/body split is built once, on the resolved form. A5
   is dropped from Stage A.
+- **P9. DECISION (open, B3.1, 2026-10-28): does an effect member fill a
+  binder position?** R10 D3 puts members at every implicit position; a
+  binder's fill is an identity a type carries [cmp-binder], and only a
+  named, top-level, capture-free fn is one [cmp-carry], while a member's
+  value is a closure over its handler. (a) **fns only at a binder** — built,
+  the safe reading: no program newly refused, one exception to the one
+  rule; (b) rank members there too and refuse a member that wins, as a
+  lambda written there is refused. Recommendation (a). ROADMAP 0af.
 
 ## II.11. Rounds
 
@@ -2880,6 +2888,49 @@ this log current so the work can resume after a context reset). Newest last.
   `check_cache::StepRows` if it is kept in order); `salvo facts`, now per
   declaration, is the per-declaration dump a B3 differential can compare.
 
+- **B3.1: done** (committed "Select every implicit argument as a call
+  selects"). Built ([implicit-infer], [cmp-carry], [effect-member-overload],
+  [implicit-same-name]; COMPLETED.md "Every implicit argument is selected as
+  a call selects"): **D22** inference selects (`select_fn_value` at the
+  implicit's pattern, the callee's open variables read off each candidate,
+  `Checker::infer_open`) and reads the variables off the winner
+  (`infer_read_back`); a pattern parameter still unknown teaches only
+  through a single fitting candidate (`strict_select`), and the
+  [implicit-fit] probe inside it does not infer again. **D23**
+  `written_declaration` has no rung fallback: an ambiguity is an error
+  naming `by_len@m`, once per written type (`reported_identities`). **D3,
+  the implicit half**: the available effects' members are candidates
+  (`ValueCand::Member`, one per member and instance, ranked with the fns),
+  filled as `ImplicitArg::Member`, which the IR builder lowers to a closure
+  over the instance (`Lower::member_value`: `Lambda` → `MemberCall` through
+  the captured instance local); no fn values of members existed, and neither
+  backend needed a change. `m@E` is a value at a fn-typed position
+  (`Checked::member_values`, new in `partition.rs`), the ambiguity's remedy.
+  Not at a binder (P9, open). **D21** own implicits of one name ranked like
+  overloads (`pick_own_implicit`) at a call through them, a forwarded fill,
+  a forwarded binder, an interpolation's own `to_str` and a comparison's own
+  `cmp`/`eq`. No table went (the implicit tables are the core call's); the
+  matcher, the rung fallback and four first-fit lookups did. The
+  differential (`SALVO_XP_B31`, removed; 3,135 outputs per side: rendered
+  diagnostics and `salvo facts` per declaration of every checked program,
+  every IR build's dump with std's modules; base a worktree of 957a2061,
+  both cold): no behaviour changed in any program the suite checks; 4
+  diagnostics reworded (two [implicit-same-name] ties, two `m@E` refusals).
+  Emitted code unchanged. Timings flat (lsp-timing medians cluster ~30–32ms,
+  aws ~34–35ms both; `analyze` cluster check ~190ms both). Tests 2,122.
+  **Deviations:** (1) the members also rank across two available effects at
+  an implicit, where a bare call still refuses (D15, piece 5); (2) a bare
+  member name as a value (`apply(to_str, p)`) waits for piece 6, and members
+  at interpolation and operators for pieces 2–3 (their `resolve_as_call`
+  path calls `resolve_implicit_fn_at`, fns only); (3) D21's ranking also
+  covers the interpolation's and the comparison's own-implicit steps, which
+  pieces 2–3 replace.
+  **What B3.2 needs from it:** `select_fn_value` takes `ValueCand`s, so a
+  part's `to_str` can rank members with fns by passing
+  `implicit_candidates(name, true)`; the IR's `member_value` is the
+  closure for a member-valued position; `pick_own_implicit` is the
+  own-implicit step every form should share.
+
 ## II.13. The call census (B1, 2026-10-27)
 
 Kept here, not in `tmp/`, because B2 and B3 work from it. The probe programs
@@ -3065,6 +3116,8 @@ did not decide whether a member can fill an implicit (passed as a value,
 which captures the handler) or an operator position. P3 implies yes for
 interpolation and operators, since they lower to calls. For implicits it is
 new: a member as a fn value carries its effect.
+
+Fixed, the implicit half (commit "Select every implicit argument as a call selects"): an available member fills an implicit position, passed as a closure over the handler, and `m@E` is the value that names it; `render(p)` in the probe prints `<1, 2>` on both backends. Interpolation and operators wait for pieces 2–3.
 
 #### D4. A union interpolates arm by arm; the call has no overload
 
@@ -3377,6 +3430,8 @@ when more than one fits ([cmp-binder]). **Decision: maybe.** Implicits shadow as
 locals do, and two locals of one name cannot coexist, so ranking among
 shadowing implicits is a rule P3 does not settle by itself.
 
+Fixed (commit "Select every implicit argument as a call selects"): ranked like overloads; the probe prints `implicit: int` on both backends, and a tie is still refused.
+
 #### D22. Inference from an implicit uses its own unranked matcher
 
 `extend_subst_from_implicits` learns the callee's type arguments from an
@@ -3391,6 +3446,8 @@ candidate with implicits or a variadic tail.
 **Under P3** inference runs selection (`select_fn_value` at `(Int) -> B`
 with `B` open, the most specific winner) and reads `B` off the winner, so
 the call would newly be accepted. **Decision:** none.
+
+Fixed (commit "Select every implicit argument as a call selects"): inference selects and reads `B` off the winner; the probe prints `inferred:  int` on both backends.
 
 #### D23. A written identity falls back to the most specific rung
 
@@ -3407,6 +3464,8 @@ that module.
 
 **Under P3** the written type would be ambiguous and newly refused, with
 `(by_len@main)` as the remedy. **Decision:** none.
+
+Fixed (commit "Select every implicit argument as a call selects"): the written `SortedSet<Str>(by_len)` is ambiguous, an error naming `by_len@lib` and `by_len@main`; `SortedSet<Str>(by_len@main)` settles it.
 
 #### D24. Send-member and own-handler targets are picked by arity or by first name
 

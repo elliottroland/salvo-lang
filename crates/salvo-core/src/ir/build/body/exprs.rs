@@ -134,6 +134,10 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::Ident(id) => self.ident(id),
             AExpr::Field { .. } | AExpr::TupleIndex { .. } | AExpr::Index { .. } => self.read(e),
             AExpr::Scoped { name, .. } | AExpr::EffectScoped { name, .. } => {
+                // [effect-member-overload] An effect's member as a value (R10 D3).
+                if let Some(ImplicitArg::Member { effect, index, instance, nested, want, .. }) = self.ctx.checked.member_values.get(&self.key(name.span)).cloned() {
+                    return self.member_value(&effect, index, &instance, &nested, &want, span);
+                }
                 // A fn named through a selector, as a value.
                 match self.ctx.checked.fn_refs.get(&self.key(name.span)).copied() {
                     Some(k) => self.fn_value(k, name.span, span),
@@ -1008,9 +1012,53 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let id = *next_fn;
                     out.push(Expr { ty: Ty::Unknown, span: at, kind: ExprKind::FnValue(FnRef::Decl(id)) });
                 }
+                ImplicitArg::Member { effect, index, instance, nested, want, .. } => {
+                    out.push(self.member_value(effect, *index, instance, nested, want, at));
+                }
             }
         }
         out
+    }
+
+    /// [effect-member-overload] [fn-value] An effect's member as a value (R10
+    /// D3): a closure over the instance in scope that calls the member through
+    /// it — so it carries its handler, and its type is the position's, with no
+    /// effects of its own. Its own implicits follow the arguments, as at a
+    /// member call [implicit-recursive].
+    pub(crate) fn member_value(&mut self, effect: &str, index: usize, instance: &Ty, nested: &[ImplicitArg], want: &Ty, at: Span) -> Expr {
+        let want = erase(want);
+        let Some(interface) = self.ctx.decl_of_effect(effect) else {
+            self.error(at, format!("effect `{effect}` has no declaration"));
+            return unsupported(want, at, "member value");
+        };
+        let (params, ret, contract) = match want.strip_quals() {
+            Ty::Fn { params, ret, contract, .. } => (params.clone(), (**ret).clone(), contract.clone()),
+            _ => (Vec::new(), Ty::Unknown, None),
+        };
+        let instance = self.effect_instance(instance, at);
+        let captures: Vec<Capture> = match &instance.kind {
+            ExprKind::Read { place, .. } => vec![Capture { local: place.root.clone(), consumed: false, mutable: false }],
+            _ => Vec::new(),
+        };
+        let ps: Vec<Param> = params
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let mode = match contract.as_ref().and_then(|c| c.get(i)) {
+                    Some(c) if !c.kept => PassMode::Moved,
+                    Some(c) if c.mutable => PassMode::LentMut,
+                    _ => PassMode::Lent,
+                };
+                Param { local: Local(format!("__m{i}")), ty: t.clone(), mode, variadic: false, check: None, span: at }
+            })
+            .collect();
+        let mut args: Vec<Expr> = ps
+            .iter()
+            .map(|p| Expr { ty: p.ty.clone(), span: at, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: matches!(p.mode, PassMode::Moved), moved: false } })
+            .collect();
+        args.extend(self.implicit_list(nested, &[], at));
+        let call = Expr { ty: ret.clone(), span: at, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index }, type_args: Vec::new(), args } };
+        Expr { ty: want, span: at, kind: ExprKind::Lambda { params: ps, ret, body: Block { stmts: Vec::new(), value: Some(Box::new(call)), span: at }, captures } }
     }
 
     /// The instance in scope for an effect type [effect-available].

@@ -1303,6 +1303,12 @@ pub struct Checked {
     /// the host skeleton — since an implicit is part of the member's
     /// signature like any other parameter.
     pub implicit_members: HashMap<Key, Vec<ImplicitParam>>,
+    /// [effect-member-overload] [effect-at] An effect's member written as a
+    /// value, `m@E` at a fn-typed position (R10 D3: the remedy an ambiguous
+    /// implicit names), keyed by the member name's span: always an
+    /// [`ImplicitArg::Member`], which the IR lowers to a closure over the
+    /// instance, as for a member that fills an implicit.
+    pub member_values: HashMap<Key, ImplicitArg>,
     /// Type errors, structured for CLI/LSP consumption [diag-structured].
     pub errors: Vec<FileDiagnostic>,
 }
@@ -1485,6 +1491,14 @@ pub enum ImplicitArg {
     /// arms, using `next_fn` — the `yield fn`'s key — for the machine's name
     /// and its effect order, exactly as a `for` over the origin does.
     OriginNext { name: String, next_fn: DeclId },
+    /// [effect-member-overload] [implicit-resolve] An available effect's
+    /// member, passed as a value (R10 D3): a closure over the instance it
+    /// dispatches through, so it carries its handler and asks the position
+    /// for no effect. `effect` is the effect's symbol key and `index` the
+    /// member's among its `fns`, as [`MemberCall`] names them; `instance` the
+    /// effect instance in scope; `nested` the member's own implicits
+    /// [implicit-recursive]; `want` the fn type the position wanted.
+    Member { name: String, effect: String, index: usize, instance: Ty, nested: Vec<ImplicitArg>, want: Ty },
 }
 
 /// [lsp-completion] One local binding declared in a file, for completion: its
@@ -2879,6 +2893,10 @@ struct FileIface<'p> {
     handlers: HashMap<usize, HandlerSig>,
     renames: Vec<RenameBinding<'p>>,
     reported_ineligible_keys: HashSet<String>,
+    /// [cmp-carry] Written identities already refused as ambiguous: a
+    /// written type is lowered at every use, and one mistake is one
+    /// diagnostic.
+    reported_identities: HashSet<(usize, Span)>,
     warned_spare_lends: HashSet<(usize, Span)>,
     lends_memo: HashMap<usize, Vec<usize>>,
 }
@@ -2912,6 +2930,9 @@ struct Checker<'p, 'r> {
     /// file, so one mistake produces one diagnostic even when both a written
     /// annotation and the call it types arrive at the same type.
     reported_ineligible_keys: HashSet<String>,
+    /// [cmp-carry] Written identities already refused as ambiguous: a written
+    /// type is lowered at every use, and one mistake is one diagnostic.
+    reported_identities: HashSet<(usize, Span)>,
     /// Generic type parameters currently in scope.
     generics: HashSet<String>,
     /// Return type of the function being checked.
@@ -3207,7 +3228,7 @@ struct Checker<'p, 'r> {
     resolve_depth: usize,
     /// [implicit-recursive] The (fn, wanted type) pairs being resolved, for
     /// the cycle refusal.
-    resolve_chain: Vec<(DeclId, String)>,
+    resolve_chain: Vec<(usize, String)>,
     /// [implicit-recursive] Why a position inside a nested fill failed, for
     /// the `try_nested` that opened it.
     nested_miss: Option<Unfilled>,
@@ -3215,6 +3236,16 @@ struct Checker<'p, 'r> {
     /// (an operator, an interpolation), which fills the found fn's own
     /// implicits, rather than for a fn value, which cannot yet.
     resolve_as_call: bool,
+    /// [implicit-infer] Selection asked by inference: an ambiguity among
+    /// positions with unknown parts is an ambiguity (it teaches nothing),
+    /// not [type-unknown-lenient]'s first pick.
+    strict_select: bool,
+    /// [implicit-infer] How deep inference's selections nest (a candidate's
+    /// [implicit-fit] probe infers its own implicits): capped.
+    infer_depth: u8,
+    /// [implicit-infer] While inference selects: the implicit's pattern and
+    /// the callee's variables it still mentions, read off each candidate.
+    infer_open: Option<(Ty, HashSet<String>)>,
     /// [fn-rename] Renames in force, outermost first: a module-level one for
     /// the whole file, then one per `rename fn` statement, dropped when its
     /// block ends. Each takes an overload *out* of its own name and gives it
@@ -3404,6 +3435,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut iface = std::mem::take(&mut self.iface);
         iface.renames = std::mem::take(&mut self.renames);
         iface.reported_ineligible_keys = std::mem::take(&mut self.reported_ineligible_keys);
+        iface.reported_identities = std::mem::take(&mut self.reported_identities);
         iface.warned_spare_lends = std::mem::take(&mut self.warned_spare_lends);
         iface.lends_memo = std::mem::take(&mut self.lends_memo);
         iface
@@ -3413,6 +3445,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn put_iface(&mut self, mut iface: FileIface<'p>) {
         self.renames = std::mem::take(&mut iface.renames);
         self.reported_ineligible_keys = std::mem::take(&mut iface.reported_ineligible_keys);
+        self.reported_identities = std::mem::take(&mut iface.reported_identities);
         self.warned_spare_lends = std::mem::take(&mut iface.warned_spare_lends);
         self.lends_memo = std::mem::take(&mut iface.lends_memo);
         self.iface = iface;
@@ -3442,6 +3475,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             pass: Pass::Interface,
             iface: FileIface::default(),
             reported_ineligible_keys: HashSet::new(),
+            reported_identities: HashSet::new(),
             scope,
             resolution,
             symbols,
@@ -3519,6 +3553,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             resolve_chain: Vec::new(),
             nested_miss: None,
             resolve_as_call: false,
+            strict_select: false,
+            infer_depth: 0,
+            infer_open: None,
             renames: Vec::new(),
             warned_spare_lends: HashSet::new(),
             try_stack: Vec::new(),
@@ -6648,11 +6685,73 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// a call's are (user decision 2026-10-14), and only the winner's are
     /// filled [implicit-recursive]. Misses ranked as [`Self::fn_value_at`]'s.
     fn fn_value_fit(&mut self, key: DeclId, decl: &'p FnDecl, want: &Ty) -> Result<FnFit, (u8, String)> {
+        if !matches!(want.strip_quals(), Ty::Fn { .. }) {
+            return Err((2, format!("the position for `{}` is not a function type", decl.name.name)));
+        }
+        let full = self.fn_value_ty(key, decl);
+        let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
+        self.value_fit(decl, full, generics, want)
+    }
+
+    /// [fn-value] [effect-member-overload] [`Self::fn_value_fit`] for an
+    /// available effect's member (R10 D3): its signature with the instance's
+    /// type arguments in place of the effect's generics, fitted by the same
+    /// rule. The value it makes carries the instance, so the position's
+    /// effects are not asked of it.
+    fn member_value_fit(&mut self, m: &MemberCand<'p>, want: &Ty) -> Result<FnFit, (u8, String)> {
+        if !matches!(want.strip_quals(), Ty::Fn { .. }) {
+            return Err((2, format!("the position for `{}` is not a function type", m.decl.name.name)));
+        }
+        let (full, _) = self.member_value_ty(m);
+        let generics: HashSet<String> = m.decl.generics.iter().map(|g| g.name.clone()).collect();
+        self.value_fit(m.decl, full, generics, want)
+    }
+
+    /// [effect-member-overload] A member's type as a value at its instance —
+    /// every parameter, its written contract — and its implicit parameters,
+    /// both with the effect's generics bound by the instance's arguments.
+    fn member_value_ty(&mut self, m: &MemberCand<'p>) -> (Ty, Vec<ImplicitParam>) {
+        let saved = self.enter_generics(&m.effect.generics);
+        self.enter_generics(&m.decl.generics);
+        let full = self.member_fn_ty(m.decl);
+        let before = self.out.errors.len();
+        let implicits = self.collect_implicits(m.decl);
+        self.out.errors.truncate(before);
+        self.generics = saved;
+        let (bind, names) = Self::instance_binding(m);
+        let implicits: Vec<ImplicitParam> = implicits
+            .into_iter()
+            .map(|mut i| {
+                i.ty = substitute_known(&i.ty, &bind, &names);
+                i
+            })
+            .collect();
+        let mut full = substitute_known(&full, &bind, &names);
+        // [implicit-group] A spread group's members, past the written list,
+        // as `fn_value_ty` appends them for a fn.
+        let written = m.decl.params.iter().filter(|p| p.implicit).count();
+        if let Ty::Fn { params, .. } = &mut full {
+            params.extend(implicits.iter().skip(written).map(|i| i.ty.clone()));
+        }
+        (full, implicits)
+    }
+
+    /// The effect's generics bound by a member candidate's instance.
+    fn instance_binding(m: &MemberCand<'p>) -> (HashMap<String, Ty>, HashSet<String>) {
+        let names: HashSet<String> = m.effect.generics.iter().map(|g| g.name.clone()).collect();
+        let bind: HashMap<String, Ty> = match &m.instance {
+            Ty::Named { args, .. } => m.effect.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect(),
+            _ => HashMap::new(),
+        };
+        (bind, names)
+    }
+
+    /// The fit itself, of a declaration whose value type is `full`.
+    fn value_fit(&mut self, decl: &'p FnDecl, full: Ty, generics: HashSet<String>, want: &Ty) -> Result<FnFit, (u8, String)> {
         let name = decl.name.name.clone();
         let Ty::Fn { params: want_params, ret: want_ret, .. } = want.strip_quals().clone() else {
             return Err((2, format!("the position for `{name}` is not a function type")));
         };
-        let full = self.fn_value_ty(key, decl);
         let Ty::Fn { params: all, ret, contract, effects } = full.clone() else {
             return Err((2, format!("`{name}` is not a function")));
         };
@@ -6668,7 +6767,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             effects: effects.clone(),
         };
         let shapes: Vec<(Ty, bool)> = if has_imps { vec![(explicit, true), (full, false)] } else { vec![(full, false)] };
-        let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
         let mut best: Option<(u8, String)> = None;
         let miss = |rank: u8, reason: String, best: &mut Option<(u8, String)>| {
             if best.as_ref().is_none_or(|(r, _)| rank < *r) {
@@ -6695,6 +6793,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             let candidate = if generics.is_empty() { shape.clone() } else { substitute_vars(&shape, &binding, &generics) };
+            // [implicit-infer] Fitted for inference, the callee's open
+            // variables are what the candidate makes of them: read off it,
+            // then the fit is checked at the position they make (R10 D22).
+            let open_want = match &self.infer_open {
+                Some((pattern, vars)) => match infer_read_back(pattern, &candidate, &HashMap::new()) {
+                    Some(learned) => Some(substitute_vars(pattern, &learned, vars)),
+                    None => {
+                        miss(1, format!("the `{name}` in scope is `{candidate}`, and the position needs `{want}`"), &mut best);
+                        continue;
+                    }
+                },
+                None => None,
+            };
+            let want = open_want.as_ref().unwrap_or(want);
             if !fn_value_fits(&candidate, want) {
                 let reason = self
                     .fn_fit_reason(want, &candidate, &name)
@@ -6922,7 +7034,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     match &arg {
                         ImplicitArg::Given { .. } => "written here",
                         ImplicitArg::Forwarded { .. } => "forwarded from this function",
-                        ImplicitArg::Resolved { .. } | ImplicitArg::OriginNext { .. } => {
+                        ImplicitArg::Resolved { .. } | ImplicitArg::OriginNext { .. } | ImplicitArg::Member { .. } => {
                             "resolved by name"
                         }
                     },
@@ -7084,15 +7196,31 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [implicit-infer]: `T` from `next`'s answer.
         let mut subst = subst.clone();
         self.extend_subst_from_implicits(Some(key), &callee_generics, &mut subst, named);
-        let subst = &subst;
-        for imp in &implicits {
+        self.unfillable_named(&implicits, &callee_generics, &subst, named)
+    }
+
+    /// [implicit-fit] [`Self::unfillable_implicit`] over a known list, its
+    /// type variables bound as far as `subst` says: an effect member's (R10
+    /// D3), whose implicits are not keyed by a `DeclId`.
+    fn unfillable_in(&mut self, implicits: &[ImplicitParam], callee_generics: &HashSet<String>, subst: &HashMap<String, Ty>) -> Option<String> {
+        self.unfillable_named(implicits, callee_generics, subst, &[])
+    }
+
+    fn unfillable_named(
+        &mut self,
+        implicits: &[ImplicitParam],
+        callee_generics: &HashSet<String>,
+        subst: &HashMap<String, Ty>,
+        named: &[ast::NamedArg],
+    ) -> Option<String> {
+        for imp in implicits {
             if imp.binder || named.iter().any(|a| a.name.name == imp.name) {
                 continue;
             }
-            let want = substitute_vars(&imp.ty, subst, &callee_generics);
+            let want = substitute_vars(&imp.ty, subst, callee_generics);
             // The same substitution the fill below uses, so the probe answers
             // what the fill would.
-            if ty_mentions_vars(&want, &callee_generics) {
+            if ty_mentions_vars(&want, callee_generics) {
                 continue;
             }
             if self.own_implicits.iter().any(|p| p.name == imp.name) {
@@ -7128,7 +7256,147 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return true;
             }
         }
+        // [effect-member-overload] An available effect's member fills an
+        // implicit position too (R10 D3), so it answers this probe as well.
+        for m in self.available_members(name) {
+            let (full, _) = self.member_value_ty(&m);
+            let Ty::Fn { params, .. } = full else { continue };
+            let fixed: Vec<&Ty> = m.decl.params.iter().zip(&params).filter(|(p, _)| !p.implicit).map(|(_, t)| t).collect();
+            if fixed.len() != want_params.len() {
+                continue;
+            }
+            let mut binding: HashMap<String, Ty> = HashMap::new();
+            if fixed.iter().zip(&want_params).all(|(h, w)| unify(h, w, &mut binding)) {
+                return true;
+            }
+        }
         false
+    }
+
+    /// [implicit-same-name] Among the enclosing fn's own implicits named
+    /// `name` that `fits` accepts, the most specific, ranked like overloads
+    /// by their parameter types [fn-overload-rank] (R10 D21): `Ok(None)` when
+    /// none fits, `Err` with the tied ones' types when no single one is most
+    /// specific.
+    fn pick_own_implicit(&self, name: &str, fits: &dyn Fn(&ImplicitParam) -> bool) -> Result<Option<ImplicitParam>, Vec<Ty>> {
+        let fitting: Vec<&ImplicitParam> = self.own_implicits.iter().filter(|p| p.name == name && fits(p)).collect();
+        match fitting.len() {
+            0 => return Ok(None),
+            1 => return Ok(Some(fitting[0].clone())),
+            _ => {}
+        }
+        let ranks: Vec<crate::types::RankedCandidate> = fitting
+            .iter()
+            .map(|p| crate::types::RankedCandidate {
+                patterns: match p.ty.strip_quals() {
+                    Ty::Fn { params, .. } => params.clone(),
+                    _ => Vec::new(),
+                },
+                variadic: false,
+            })
+            .collect();
+        match crate::types::most_specific(&ranks) {
+            Some(i) => Ok(Some(fitting[i].clone())),
+            None => Err(fitting.iter().map(|p| p.ty.clone()).collect()),
+        }
+    }
+
+    /// [implicit-same-name] Two of the enclosing fn's implicits of `name`
+    /// fit and neither is more specific (R10 D21): the ordinary ambiguity.
+    fn own_implicit_tie(&mut self, name: &str, tied: &[Ty], span: Span) {
+        let shown: Vec<String> = tied.iter().map(|t| format!("`{t}`")).collect();
+        self.error(
+            span,
+            format!(
+                "`{name}` here could go through more than one implicit of that name ({}): \
+                 the arguments fit each and none is more specific [implicit-same-name] \
+                 [fn-overload-ambiguous]",
+                shown.join(" and ")
+            ),
+        );
+    }
+
+    /// [effect-member-overload] [effect-available] The members named `name`
+    /// of every effect with an instance available here, one candidate per
+    /// member and instance (R10 D3: an effect's members are functions in the
+    /// declaring fn's scope, so they fill implicit positions as fns do). A
+    /// `send` member is not a value [free-send-fn], and the throw effect has
+    /// no handler to carry.
+    fn available_members(&self, name: &str) -> Vec<MemberCand<'p>> {
+        let mut out: Vec<MemberCand<'p>> = Vec::new();
+        for instance in self.visible_effects() {
+            let Ty::Named { name: key, .. } = &instance else { continue };
+            let Some(effect) = self.symbols.effects.get(key.as_str()).copied() else { continue };
+            if effect.name.name == THROW_EFFECT {
+                continue;
+            }
+            for (index, f) in effect.fns.iter().enumerate() {
+                if f.name.name != name || f.is_send {
+                    continue;
+                }
+                if out.iter().any(|m| std::ptr::eq(m.decl, f) && m.instance == instance) {
+                    continue;
+                }
+                out.push(MemberCand { effect, decl: f, index, instance: instance.clone() });
+            }
+        }
+        out
+    }
+
+    /// [implicit-resolve] The candidates for an implicit position named
+    /// `name`: the visible fns of the name [fn-rename], and — unless the
+    /// position is a binder, whose fill is an identity a type carries and so
+    /// a top-level fn [cmp-carry] — the available effects' members of it
+    /// (R10 D3).
+    fn implicit_candidates(&self, name: &str, members: bool) -> Vec<ValueCand<'p>> {
+        let mut out: Vec<ValueCand<'p>> = self.overloads_of(name).into_iter().map(ValueCand::Fn).collect();
+        if members {
+            out.extend(self.available_members(name).into_iter().map(ValueCand::Member));
+        }
+        out
+    }
+
+    /// [implicit-resolve] An implicit position filled by name at the call
+    /// site — the call's rule over the visible fns and the available
+    /// effects' members as one set (R10 D3) — and, for the winner only, its
+    /// own implicits [implicit-recursive].
+    fn resolve_implicit_value(&mut self, name: &str, want: &Ty, members: bool) -> Result<Filled<'p>, ImplicitMiss> {
+        if !members || self.available_members(name).is_empty() {
+            return self.resolve_implicit_fn_at(name, None, want).map(|(k, id)| Filled::Fn(k, id));
+        }
+        if !matches!(want.strip_quals(), Ty::Fn { .. }) {
+            return Err(ImplicitMiss::Unknown);
+        }
+        let entries = self.implicit_candidates(name, true);
+        let (cand, fit) = self.select_fn_value(name, entries, want)?;
+        match cand {
+            ValueCand::Fn(entry) => {
+                let identity = self.identity_of(entry.key, entry.decl);
+                let mut nested = Vec::new();
+                if fit.fills && !self.resolve_as_call {
+                    match self.try_nested(entry.key, entry.decl, &fit.binding, &fit.generics, want) {
+                        Ok(n) => nested = n,
+                        Err(reason) => return Err(ImplicitMiss::Unfilled(reason)),
+                    }
+                }
+                self.last_nested = nested;
+                Ok(Filled::Fn(entry.key, identity))
+            }
+            ValueCand::Member(m) => {
+                let mut nested = Vec::new();
+                if fit.fills {
+                    let (_, implicits) = self.member_value_ty(&m);
+                    let (mut binding, mut generics) = Self::instance_binding(&m);
+                    binding.extend(fit.binding.clone());
+                    generics.extend(fit.generics.iter().cloned());
+                    match self.try_nested_list(m.decl, &implicits, &binding, &generics, want) {
+                        Ok(n) => nested = n,
+                        Err(reason) => return Err(ImplicitMiss::Unfilled(reason)),
+                    }
+                }
+                Ok(Filled::Member(m, nested))
+            }
+        }
     }
 
     fn fill_one_implicit(
@@ -7152,13 +7420,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                     match &id {
                         // The caller's own binder, forwarded [implicit-forward].
                         FnId::Binder(b) => {
-                            // [implicit-same-name] The one of the name whose type fits.
-                            let own = self
-                                .own_implicits
-                                .iter()
-                                .filter(|p| p.name == *b)
-                                .find(|p| is_subtype(&p.ty, &want) || p.ty.is_unknown() || want.is_unknown())
-                                .or_else(|| self.own_implicits.iter().find(|p| p.name == *b));
+                            // [implicit-same-name] The most specific of the
+                            // name whose type fits (R10 D21), else the one there is.
+                            let fits = |p: &ImplicitParam| is_subtype(&p.ty, &want) || p.ty.is_unknown() || want.is_unknown();
+                            let own = match self.pick_own_implicit(b, &fits) {
+                                Ok(Some(own)) => Some(own),
+                                Ok(None) => self.own_implicits.iter().find(|p| p.name == *b).cloned(),
+                                Err(tied) => {
+                                    self.own_implicit_tie(b, &tied, span);
+                                    return None;
+                                }
+                            };
                             if let Some(own) = own {
                                 return Some((ImplicitArg::Forwarded { name: own.local.clone() }, None));
                             }
@@ -7230,16 +7502,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ));
             }
             // 2. Forwarded from the enclosing fn's own implicits.
-            // [implicit-same-name] Among several of the name, the one whose
-            // type fits; forwarded by its local name.
-            let own = self
-                .own_implicits
-                .iter()
-                .filter(|p| p.name == imp.name)
-                .find(|p| is_subtype(&p.ty, &want) || p.ty.is_unknown() || want.is_unknown())
-                .or_else(|| self.own_implicits.iter().find(|p| p.name == imp.name));
-            if let Some(own) = own {
-                if is_subtype(&own.ty, &want) || own.ty.is_unknown() || want.is_unknown() {
+            // [implicit-same-name] Among several of the name that fit, the
+            // most specific, ranked like overloads (R10 D21); forwarded by
+            // its local name.
+            let fits = |p: &ImplicitParam| is_subtype(&p.ty, &want) || p.ty.is_unknown() || want.is_unknown();
+            match self.pick_own_implicit(&imp.name, &fits) {
+                Ok(Some(own)) => {
                     return Some((
                         ImplicitArg::Forwarded {
                             name: own.local.clone(),
@@ -7250,9 +7518,36 @@ impl<'p, 'r> Checker<'p, 'r> {
                         Some(FnId::Binder(imp.name.clone())),
                     ));
                 }
+                Ok(None) => {}
+                Err(tied) => {
+                    self.own_implicit_tie(&imp.name, &tied, span);
+                    return None;
+                }
             }
-            // 3. Resolved by name and type among the visible fns.
-            match self.resolve_implicit_fn_at(&imp.name, None, &want) {
+            // 3. Resolved by name and type among the visible fns and — unless
+            // the position is a binder, whose fill is an identity only a
+            // top-level fn has [cmp-carry] — the available effects' members
+            // (R10 D3).
+            let found = match self.resolve_implicit_value(&imp.name, &want, !imp.binder) {
+                Ok(Filled::Member(m, nested)) => {
+                    // [fn-effects] The value calls through the instance: a use of it.
+                    self.note_effect_use(&m.instance);
+                    return Some((
+                        ImplicitArg::Member {
+                            name: imp.name.clone(),
+                            effect: self.symbols.key_or(m.effect, &m.effect.name.name).to_string(),
+                            index: m.index,
+                            instance: m.instance.clone(),
+                            nested,
+                            want: want.clone(),
+                        },
+                        None,
+                    ));
+                }
+                Ok(Filled::Fn(k, id)) => Ok((k, id)),
+                Err(e) => Err(e),
+            };
+            match found {
                 Ok((found, identity)) => {
                     // [actor-group] [noremote] The position wanted a
                     // `() -> Protocol<E>` and std's `protocol<E>` intrinsic
@@ -7393,9 +7688,24 @@ impl<'p, 'r> Checker<'p, 'r> {
         want: &Ty,
     ) -> Result<Vec<ImplicitArg>, Unfilled> {
         let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
+        self.try_nested_list(decl, &implicits, binding, generics, want)
+    }
+
+    /// [implicit-recursive] [`Self::try_nested`] over a known list: a fn's,
+    /// or an effect member's (R10 D3), whose implicits are not keyed by a
+    /// `DeclId`.
+    fn try_nested_list(
+        &mut self,
+        decl: &'p FnDecl,
+        implicits: &[ImplicitParam],
+        binding: &HashMap<String, Ty>,
+        generics: &HashSet<String>,
+        want: &Ty,
+    ) -> Result<Vec<ImplicitArg>, Unfilled> {
         if implicits.is_empty() {
             return Ok(Vec::new());
         }
+        let key = decl as *const FnDecl as usize;
         let shown = format!("{want}");
         if self.resolve_depth >= 8 {
             return Err(Unfilled { links: Vec::new(), why: UnfilledWhy::Depth(decl.name.name.clone()) });
@@ -7408,7 +7718,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let before = self.out.errors.len();
         let saved_miss = self.nested_miss.take();
         let mut subst = binding.clone();
-        let filled = self.fill_implicit_list(&implicits, &decl.name.name, &mut subst, generics, &[], Span::new(0, 0));
+        let filled = self.fill_implicit_list(implicits, &decl.name.name, &mut subst, generics, &[], Span::new(0, 0));
         self.resolve_chain.pop();
         self.resolve_depth -= 1;
         let miss = std::mem::replace(&mut self.nested_miss, saved_miss);
@@ -7563,7 +7873,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         if entries.is_empty() {
             return Err(ImplicitMiss::Unknown);
         }
-        let (entry, fit) = self.select_fn_value(name, entries, want)?;
+        let (cand, fit) = self.select_fn_value(name, entries.into_iter().map(ValueCand::Fn).collect(), want)?;
+        let ValueCand::Fn(entry) = cand else { return Err(ImplicitMiss::Unknown) };
         // [cmp-carry] The identity of the declaration itself, which is what a
         // result type publishes: `@`-scoped when it is, and the bare name
         // otherwise — a bare name means "the `cmp` of that name visible where
@@ -7601,9 +7912,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn select_fn_value(
         &mut self,
         name: &str,
-        entries: Vec<crate::resolve::FnEntry<'p>>,
+        entries: Vec<ValueCand<'p>>,
         want: &Ty,
-    ) -> Result<(crate::resolve::FnEntry<'p>, FnFit), ImplicitMiss> {
+    ) -> Result<(ValueCand<'p>, FnFit), ImplicitMiss> {
         // The best explanation of a candidate that did not fit, for the
         // diagnostic when nothing does. Ranked, because the *interesting*
         // near-miss is the one a printed type cannot show: a candidate whose
@@ -7618,33 +7929,51 @@ impl<'p, 'r> Checker<'p, 'r> {
         // 1. Every visible overload that fits the position by its type
         // [fn-value]. One declaration is one candidate [fn-overload-scope]: a
         // fn reachable both as an implicitly available name and as a member of
-        // this file's own module is one function, not an ambiguity.
-        let mut hits: Vec<(crate::resolve::FnEntry<'p>, FnFit)> = Vec::new();
-        for entry in entries {
-            if hits.iter().any(|(e, _)| e.key == entry.key) {
+        // this file's own module is one function, not an ambiguity. An
+        // available effect's member competes beside them (R10 D3).
+        let mut hits: Vec<(ValueCand<'p>, FnFit)> = Vec::new();
+        for cand in entries {
+            if hits.iter().any(|(c, _)| c.same(&cand)) {
                 continue;
             }
-            match self.fn_value_fit(entry.key, entry.decl, want) {
-                Ok(fit) => hits.push((entry, fit)),
+            let fit = match &cand {
+                ValueCand::Fn(e) => self.fn_value_fit(e.key, e.decl, want),
+                ValueCand::Member(m) => self.member_value_fit(m, want),
+            };
+            match fit {
+                Ok(fit) => hits.push((cand, fit)),
                 Err((rank, reason)) => note(rank, reason, &mut near),
             }
         }
         // [comptime-hygiene] A stamped body's fallback, as at a call: the
         // template's own fns compete only when nothing the stamping site sees
         // fits.
-        if hits.iter().any(|(e, _)| e.rung != crate::resolve::Rung::Template) {
-            hits.retain(|(e, _)| e.rung != crate::resolve::Rung::Template);
+        if hits.iter().any(|(c, _)| !c.is_template()) {
+            hits.retain(|(c, _)| !c.is_template());
         }
         // 2. [implicit-fit] Among several, a candidate whose own implicit
         // nothing here could fill — by shape, as at a call — does not fit.
         if hits.len() > 1 {
             let mut unfillable: Option<String> = None;
             let mut kept = Vec::with_capacity(hits.len());
-            for (entry, fit) in hits.drain(..) {
+            for (cand, fit) in hits.drain(..) {
                 let missing = if fit.passes_own {
                     None
                 } else {
-                    self.unfillable_implicit(entry.key, &entry.decl.generics, &fit.binding, &[])
+                    match &cand {
+                        // [implicit-infer] Inference's probe asks the shape of
+                        // what is known, without inferring again: one level.
+                        ValueCand::Fn(e) if self.strict_select => {
+                            let implicits = self.out.implicit_params.get(&e.key).cloned().unwrap_or_default();
+                            self.unfillable_in(&implicits, &fit.generics, &fit.binding)
+                        }
+                        ValueCand::Fn(e) => self.unfillable_implicit(e.key, &e.decl.generics, &fit.binding, &[]),
+                        ValueCand::Member(m) => {
+                            let (_, implicits) = self.member_value_ty(m);
+                            let generics: HashSet<String> = m.decl.generics.iter().map(|g| g.name.clone()).collect();
+                            self.unfillable_in(&implicits, &generics, &fit.binding)
+                        }
+                    }
                 };
                 match missing {
                     Some(m) => {
@@ -7652,11 +7981,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                             format!(
                                 "the `{name}` from `{}` that fits by type needs `{m}`, which nothing in \
                                  scope fills [implicit-fit]",
-                                entry.module
+                                cand.origin()
                             )
                         });
                     }
-                    None => kept.push((entry, fit)),
+                    None => kept.push((cand, fit)),
                 }
             }
             if kept.is_empty() {
@@ -7670,17 +7999,30 @@ impl<'p, 'r> Checker<'p, 'r> {
                 None => ImplicitMiss::Unknown,
             });
         }
+        // [implicit-infer] Inference's probe with a parameter still unknown:
+        // specificity cannot decide for an argument not yet known, so only a
+        // single fitting candidate teaches ("ambiguity is accepted as the
+        // price").
+        if self.strict_select && hits.len() > 1 {
+            if let Ty::Fn { params, .. } = want.strip_quals() {
+                if params.iter().any(ty_mentions_unknown) {
+                    let all: Vec<usize> = (0..hits.len()).collect();
+                    return Err(ImplicitMiss::Ambiguous(self.shown_candidates(name, &hits, &all)));
+                }
+            }
+        }
         // 3. The most specific signature [fn-overload-rank]. Candidates whose
         // declared parameter types are identical are one alternative
         // [fn-overload-return]; each already fits the position's result, so
         // two in one alternative are the return type failing to decide.
         let mut classes: Vec<(Vec<String>, Vec<usize>)> = Vec::new();
-        for (i, (entry, fit)) in hits.iter().enumerate() {
-            let generics: Vec<&str> = entry.decl.generics.iter().map(|g| g.name.as_str()).collect();
+        for (i, (cand, fit)) in hits.iter().enumerate() {
+            let decl = cand.decl();
+            let generics: Vec<&str> = decl.generics.iter().map(|g| g.name.as_str()).collect();
             let params: Vec<ast::Param> = if fit.passes_own {
-                entry.decl.params.clone()
+                decl.params.clone()
             } else {
-                entry.decl.params.iter().filter(|p| !p.implicit).cloned().collect()
+                decl.params.iter().filter(|p| !p.implicit).cloned().collect()
             };
             let sig = crate::refine::param_type_signature(&params, &generics);
             match classes.iter_mut().find(|(s, _)| *s == sig) {
@@ -7700,7 +8042,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Some(ci) => return Err(ImplicitMiss::Ambiguous(self.shown_candidates(name, &hits, &classes[ci].1))),
             None => {
                 // [type-unknown-lenient] One mistake, one diagnostic.
-                if ty_mentions_unknown(want) {
+                if ty_mentions_unknown(want) && !self.strict_select {
                     0
                 } else {
                     let all: Vec<usize> = (0..hits.len()).collect();
@@ -7712,19 +8054,21 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [fn-overload-ambiguous] The candidates an implicit position could not
-    /// choose among, as a diagnostic shows them: `` `name(Params)` from `module` ``.
+    /// choose among, as a diagnostic shows them: `` `name(Params)` from `module` ``
+    /// (from the effect, for a member).
     fn shown_candidates(
         &self,
         name: &str,
-        hits: &[(crate::resolve::FnEntry<'p>, FnFit)],
+        hits: &[(ValueCand<'p>, FnFit)],
         which: &[usize],
     ) -> Vec<(String, String)> {
         let mut shown: Vec<(String, String)> = which
             .iter()
             .map(|&i| {
-                let (entry, fit) = &hits[i];
+                let (cand, fit) = &hits[i];
                 let ps: Vec<String> = fit.patterns.iter().map(|p| p.to_string()).collect();
-                (format!("`{name}({})` from `{}`", ps.join(", "), entry.module), entry.module.to_string())
+                let origin = cand.origin();
+                (format!("`{name}({})` from `{origin}`", ps.join(", ")), origin)
             })
             .collect();
         shown.sort();
@@ -8028,8 +8372,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 shown.join(", ")
             ));
         };
-        match self.select_fn_value(name, pool.to_vec(), want) {
-            Ok((entry, _)) => Ok(entry),
+        match self.select_fn_value(name, pool.iter().copied().map(ValueCand::Fn).collect(), want) {
+            Ok((ValueCand::Fn(entry), _)) => Ok(entry),
+            Ok((ValueCand::Member(_), _)) => Err(format!("`{name}` is not a function here")),
             Err(ImplicitMiss::Ambiguous(cands)) => Err(format!(
                 "`{name}` passed by name is ambiguous at `{want}`: {}",
                 Self::implicit_ambiguity(name, &cands, Some(&format!("`{name}@{{m}}`")))
@@ -9201,14 +9546,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !ty_mentions_vars(&pattern, callee_generics) {
                 continue; // nothing left to learn from this one
             }
-            let Ty::Fn {
-                params: want_params,
-                ret: want_ret,
-                ..
-            } = pattern.strip_quals().clone()
-            else {
+            if !matches!(pattern.strip_quals(), Ty::Fn { .. }) {
                 continue;
-            };
+            }
             // [implicit-infer] An implicit written at the call site teaches
             // through what was written (`iter = mint_b` binds `It` from
             // `mint_b`, not from the `iter` in scope, ROADMAP §2d item 9c); a
@@ -9220,115 +9560,38 @@ impl<'p, 'r> Checker<'p, 'r> {
                 },
                 None => imp.name.clone(),
             };
-            // [fn-rename] A renamed overload no longer answers to this name,
-            // so it cannot fill an implicit parameter of it either.
-            let entries: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(&lookup);
-            if entries.is_empty() {
-                continue;
-            }
-            let mut found: Option<Ty> = None;
-            let mut hits = 0usize;
-            for entry in entries {
-                let decl = entry.decl;
-                if decl.params.iter().any(|p| p.implicit || p.variadic) {
-                    continue;
-                }
-                if decl.params.len() != want_params.len() {
-                    continue;
-                }
-                let saved = self.enter_generics(&decl.generics);
-                let have_params: Vec<Ty> =
-                    decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
-                let have_ret = decl
-                    .return_type
-                    .as_ref()
-                    .map(|t| self.lower_type(t))
-                    .unwrap_or_else(Ty::none);
-                self.generics = saved;
-                // Bind the candidate's own generics from the parts the call
-                // already knows. A part that is still one of *our* variables
-                // teaches nothing and must not match everything.
-                let mut binding: HashMap<String, Ty> = HashMap::new();
-                let matched = have_params.iter().zip(&want_params).all(|(have, want)| {
-                    if ty_mentions_vars(want, callee_generics) {
-                        return true;
-                    }
-                    // Exact first, so a `Mut` parameter keeps demanding a
-                    // `Mut` argument…
-                    let mut exact = binding.clone();
-                    if unify(have, want, &mut exact) {
-                        binding = exact;
-                        return true;
-                    }
-                    // …then again with the *argument's* claims dropped
-                    // [qual-erasure]: a value carrying more than the
-                    // parameter mentions still fits it, and matching
-                    // strictly here meant a qualified argument taught the
-                    // call nothing. `total(List(1, 2, 3))` — whose
-                    // argument is `NonEmpty List<Int>` [col-of-nonempty] —
-                    // left `It` unbound, so the `?next` beside it resolved
-                    // by *rung* and a sibling pass's `next` won, emitting a
-                    // call the target compiler rejected (fixed 2026-09-25;
-                    // `total([1, 2, 3])` always worked, which is what
-                    // pointed at the qualifier).
-                    let mut relaxed = binding.clone();
-                    if unify(have, want.strip_quals(), &mut relaxed) {
-                        binding = relaxed;
-                        return true;
-                    }
-                    false
-                });
-                if !matched {
-                    continue;
-                }
-                let generics: HashSet<String> =
-                    decl.generics.iter().map(|g| g.name.clone()).collect();
-                hits += 1;
-                found = Some(Ty::Fn {
-                    params: have_params
-                        .iter()
-                        .map(|p| substitute_vars(p, &binding, &generics))
-                        .collect(),
-                    ret: Box::new(substitute_vars(&have_ret, &binding, &generics)),
-                    contract: None,
-                    effects: Vec::new(),
-                });
-            }
-            if hits != 1 {
-                continue;
-            }
-            let Some(Ty::Fn {
-                params: have_params,
-                ret: have_ret,
-                ..
-            }) = found
-            else {
-                continue;
+            // [implicit-infer] **Selection, then read the variables off the
+            // winner** (R10 D22): the call's rule at the position as far as it
+            // is known, the callee's unbound variables standing for anything,
+            // so the most specific candidate teaches — `f(x: Int) -> Str`
+            // beside `f<T>(x: T) -> Str` fills `?f: (x: Int) -> B` and binds
+            // `B = Str` — where the old matcher wanted exactly one candidate
+            // to fit and skipped any with implicits of its own. A written name
+            // is fns only, and a binder's fill an identity [cmp-carry]; an
+            // available effect's member teaches as it fills (R10 D3).
+            // Ambiguous or absent teaches nothing.
+            let written = lookup != imp.name;
+            let entries: Vec<ValueCand<'p>> = if written {
+                self.overloads_of(&lookup).into_iter().map(ValueCand::Fn).collect()
+            } else {
+                self.implicit_candidates(&lookup, !imp.binder)
             };
-            // Read our own variables back off the instantiated candidate.
-            // The parameters are relaxed the same way the match above is: the
-            // *argument's* claims are not the candidate's business, and
-            // insisting on them here threw away everything the return type
-            // had to teach — which is where `It` was being lost.
-            let mut extended = progressive.clone();
-            let ok = want_params
-                .iter()
-                .zip(&have_params)
-                .all(|(want, have)| {
-                    let mut exact = extended.clone();
-                    if unify(want, have, &mut exact) {
-                        extended = exact;
-                        return true;
-                    }
-                    let mut relaxed = extended.clone();
-                    if unify(want.strip_quals(), have, &mut relaxed) {
-                        extended = relaxed;
-                        return true;
-                    }
-                    false
-                })
-                && unify(&want_ret, &have_ret, &mut extended);
-            if ok {
+            if entries.is_empty() || self.infer_depth >= 4 {
+                continue;
+            }
+            let probe = substitute_vars(&imp.ty, progressive, callee_generics);
+            self.infer_depth += 1;
+            let strict = std::mem::replace(&mut self.strict_select, true);
+            let open = self.infer_open.replace((pattern.clone(), callee_generics.clone()));
+            let errors = self.out.errors.len();
+            let picked = self.select_fn_value(&lookup, entries, &probe);
+            self.out.errors.truncate(errors);
+            self.strict_select = strict;
+            self.infer_open = open;
+            self.infer_depth -= 1;
+            let Ok((_, fit)) = picked else { continue };
+            // Our own variables, read back off the instantiated winner.
+            if let Some(extended) = infer_read_back(&pattern, &fit.ty, progressive) {
                 *progressive = extended;
             }
         }
@@ -12505,14 +12768,18 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         // [implicit-resolve-body] An implicit `to_str` of the enclosing fn that
         // takes this value renders it — the same rule a call to the name
-        // follows.
-        let own = self.own_implicits.iter().find(|p| {
-            p.name == "to_str"
-                && matches!(p.ty.strip_quals(), Ty::Fn { params, .. }
-                    if params.len() == 1 && Self::arg_fits_fn_value(ty, &params[0]))
-        });
-        if let Some(own) = own {
-            return Some(ArmText::Own(own.local.clone()));
+        // follows, the most specific among several (R10 D21).
+        let fits = |p: &ImplicitParam| {
+            matches!(p.ty.strip_quals(), Ty::Fn { params, .. }
+                if params.len() == 1 && Self::arg_fits_fn_value(ty, &params[0]))
+        };
+        match self.pick_own_implicit("to_str", &fits) {
+            Ok(Some(own)) => return Some(ArmText::Own(own.local.clone())),
+            Ok(None) => {}
+            Err(tied) => {
+                self.own_implicit_tie("to_str", &tied, expr.span());
+                return Some(ArmText::Own("to_str".to_string()));
+            }
         }
         self.resolve_as_call = true;
         let resolved = self.resolve_implicit_fn_at("to_str", None, &want);
@@ -14135,6 +14402,28 @@ impl<'p, 'r> Checker<'p, 'r> {
             // ones that fit the operands compete.
             .filter(|p| is_subtype(&p.ty, &want) || p.ty.is_unknown())
             .collect();
+        // [implicit-same-name] Among several that fit, the most specific,
+        // ranked like overloads (R10 D21); only a tie is refused.
+        let ranked: Option<usize> = if candidates.len() > 1 {
+            let ranks: Vec<crate::types::RankedCandidate> = candidates
+                .iter()
+                .map(|p| crate::types::RankedCandidate {
+                    patterns: match p.ty.strip_quals() {
+                        Ty::Fn { params, .. } => params.clone(),
+                        _ => Vec::new(),
+                    },
+                    variadic: false,
+                })
+                .collect();
+            crate::types::most_specific(&ranks)
+        } else {
+            None
+        };
+        if let Some(i) = ranked {
+            let local = candidates[i].local.clone();
+            self.out.comparisons.insert(self.key(span), CompareVia::Implicit(local));
+            return;
+        }
         if candidates.len() > 1 {
             let shown: Vec<String> = candidates
                 .iter()
@@ -14144,8 +14433,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 span,
                 format!(
                     "`{sym}` on `{lb}` is `{member}({lb}, {rb})`, and this function has \
-                     {} of them in scope ({}): the operator cannot choose, so call the \
-                     one you mean [cmp-binder]",
+                     {} of them in scope ({}), and none is more specific: the operator \
+                     cannot choose, so call the one you mean [cmp-binder] [implicit-same-name]",
                     candidates.len(),
                     shown.join(", ")
                 ),
@@ -19661,7 +19950,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 return None;
             }
-            return Some(self.written_declaration(&name, Some(&at_name), want));
+            return self.written_declaration(&name, Some(&at_name), want, arg.span());
         }
         // A bare name: a top-level fn, and nothing else. (A local is the
         // checking fn's, so it only shadows in the file that is checking.)
@@ -19696,27 +19985,42 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             return None;
         }
-        Some(self.written_declaration(&name, None, want))
+        self.written_declaration(&name, None, want, arg.span())
     }
 
     /// [cmp-carry] The identity a written name (`my_hash`, `cmp@Person`,
-    /// `size@core.list`) carries: the declaration it means here. With the
-    /// slot's fn type known that is resolution's answer — the overload of the
-    /// right shape, as a resolved fill would pick it, so a written `(hash,
-    /// eq)` and a resolved one are one identity. Without it (or where
-    /// resolution cannot decide), the most specific visible declaration
-    /// [fn-overload-scope]; whether it fits is reported where the slot is
-    /// checked.
-    fn written_declaration(&mut self, name: &str, at: Option<&str>, want: Option<&Ty>) -> FnId {
+    /// `size@core.list`) carries: the declaration it means here, which is
+    /// resolution's answer at the slot's fn type — the overload of the right
+    /// shape, as a resolved fill would pick it, so a written `(hash, eq)` and
+    /// a resolved one are one identity. **No rung fallback** (R10 D23): where
+    /// resolution cannot decide between candidates that fit, the written type
+    /// is ambiguous — an error naming `name@module` — and no identity; until
+    /// 2026-10-28 the most specific rung's declaration was taken silently.
+    /// Where nothing fits, the one declaration of the name is named anyway
+    /// (several: the bare name), and the mismatch is reported where the slot
+    /// is checked.
+    fn written_declaration(&mut self, name: &str, at: Option<&str>, want: Option<&Ty>, span: Span) -> Option<FnId> {
         if let Some(want) = want {
             let before = self.out.errors.len();
             let found = self.resolve_implicit_fn_at(name, at, want);
             self.out.errors.truncate(before);
-            if let Ok((_, id)) = found {
-                return id;
+            match found {
+                Ok((_, id)) => return Some(id),
+                Err(ImplicitMiss::Ambiguous(cands)) => {
+                    let shown = match at {
+                        Some(sel) => format!("{name}@{sel}"),
+                        None => name.to_string(),
+                    };
+                    if self.reported_identities.insert((self.file_idx, span)) {
+                        let text = Self::implicit_ambiguity(name, &cands, Some(&format!("`{name}@{{m}}`")));
+                        self.error(span, format!("the identity `{shown}` is ambiguous at `{want}`: {text} [cmp-carry]"));
+                    }
+                    return None;
+                }
+                Err(_) => {}
             }
         }
-        let best = self
+        let mut found: Vec<crate::resolve::FnEntry<'p>> = self
             .overloads_of(name)
             .into_iter()
             .filter(|e| match at {
@@ -19726,11 +20030,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                         || ModulePath::text_matches_suffix(&e.module.to_string(), sel)
                 }
             })
-            .max_by_key(|e| e.rung);
-        match best {
-            Some(e) => self.identity_of(e.key, e.decl),
-            None => FnId::Named { name: name.to_string(), at: at.map(str::to_string), module: None, qualify: false },
-        }
+            .collect();
+        let mut seen: HashSet<DeclId> = HashSet::new();
+        found.retain(|e| seen.insert(e.key));
+        Some(match found.as_slice() {
+            [e] => self.identity_of(e.key, e.decl),
+            _ => FnId::Named { name: name.to_string(), at: at.map(str::to_string), module: None, qualify: false },
+        })
     }
 
     /// [cmp-carry] Whether some visible overload of `name` answers to the
@@ -24717,10 +25023,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Ty::Unknown
             }
-            // [effect-at] An effect-selected member is a *call* form: a
-            // member is not a value — nothing implements it until a
-            // handler is in scope, and neither backend can render one
-            // detached from its dispatch.
+            // [effect-at] An effect-selected member: a call form, and a value
+            // only at a fn-typed position with an instance in scope (R10 D3),
+            // where it is a closure over that instance — detached from its
+            // dispatch, nothing would implement it.
             Expr::EffectScoped {
                 base, name, effect, ..
             } => {
@@ -24742,11 +25048,78 @@ impl<'p, 'r> Checker<'p, 'r> {
                         expected,
                     );
                 }
+                // [effect-member-overload] [effect-at] …and at a fn-typed
+                // position, an effect's member **as a value** (R10 D3: members
+                // fill every position a fn does): the members of that name of
+                // the effect's instances in scope, selected by the call's rule
+                // at the position's type, passed as a closure over the
+                // instance. This is the remedy an ambiguous implicit names
+                // (`to_str = to_str@Fmt`).
+                if base.is_none() {
+                    if let Some(want) = expected.filter(|t| matches!(t.strip_quals(), Ty::Fn { .. })) {
+                        let cands: Vec<ValueCand<'p>> = self
+                            .available_members(&name.name)
+                            .into_iter()
+                            .filter(|m| m.effect.name.name == effect.name)
+                            .map(ValueCand::Member)
+                            .collect();
+                        if !cands.is_empty() {
+                            self.record_def_ref(name.span, &name.name);
+                            let want = want.clone();
+                            match self.select_fn_value(&name.name, cands, &want) {
+                                Ok((ValueCand::Member(m), fit)) => {
+                                    let mut nested = Vec::new();
+                                    if fit.fills {
+                                        let (_, implicits) = self.member_value_ty(&m);
+                                        let (mut binding, mut generics) = Self::instance_binding(&m);
+                                        binding.extend(fit.binding.clone());
+                                        generics.extend(fit.generics.iter().cloned());
+                                        match self.try_nested_list(m.decl, &implicits, &binding, &generics, &want) {
+                                            Ok(n) => nested = n,
+                                            Err(u) => {
+                                                let text = Self::unfilled_text(&name.name, &want, &u, false);
+                                                self.error(name.span, format!("`{}@{}` fits `{want}` here, but cannot be completed: {text}", name.name, effect.name));
+                                                return Ty::Unknown;
+                                            }
+                                        }
+                                    }
+                                    self.note_effect_use(&m.instance);
+                                    let arg = ImplicitArg::Member {
+                                        name: name.name.clone(),
+                                        effect: self.symbols.key_or(m.effect, &m.effect.name.name).to_string(),
+                                        index: m.index,
+                                        instance: m.instance.clone(),
+                                        nested,
+                                        want: want.clone(),
+                                    };
+                                    self.out.member_values.insert(self.key(name.span), arg);
+                                    return fit.ty;
+                                }
+                                Ok(_) => {}
+                                Err(ImplicitMiss::Ambiguous(c)) => {
+                                    let text = Self::implicit_ambiguity(&name.name, &c, None);
+                                    self.error(name.span, format!("`{}@{}` is ambiguous at `{want}`: {text}", name.name, effect.name));
+                                    return Ty::Unknown;
+                                }
+                                Err(ImplicitMiss::NearMiss(reason)) => {
+                                    self.error(name.span, format!("`{}@{}` does not fit `{want}`: {reason}", name.name, effect.name));
+                                    return Ty::Unknown;
+                                }
+                                Err(_) => {
+                                    self.error(name.span, format!("`{}@{}` does not fit `{want}`", name.name, effect.name));
+                                    return Ty::Unknown;
+                                }
+                            }
+                        }
+                    }
+                }
                 self.error(
                     name.span,
                     format!(
-                        "`{}@{}` selects an effect's member, which is not a \
-                         value: call it (`{}@{}(…)`)",
+                        "`{}@{}` selects an effect's member, which is a value only \
+                         where a function type is expected and a handler for it is in \
+                         scope: call it (`{}@{}(…)`), or pass it where a function is \
+                         wanted",
                         name.name, effect.name, name.name, effect.name
                     ),
                 );
@@ -30500,41 +30873,29 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
 
         if let Expr::Ident(id) = callee {
-            // [implicit-same-name] Two implicits of this name: the one whose
-            // parameters the arguments fit is the local the call goes
-            // through, recorded for the emitters.
-            let same: Vec<(String, Ty)> = self
-                .own_implicits
-                .iter()
-                .filter(|p| p.name == id.name)
-                .map(|p| (p.local.clone(), p.ty.clone()))
-                .collect();
+            // [implicit-same-name] Two implicits of this name: the one the
+            // call goes through is the local recorded for the emitters.
+            let same = self.own_implicits.iter().filter(|p| p.name == id.name).count();
             let mut pre_tys: Option<Vec<Ty>> = None;
-            let lname: String = if same.len() > 1 {
+            let lname: String = if same > 1 {
                 let tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
-                let fitting: Vec<&(String, Ty)> = same
-                    .iter()
-                    .filter(|(_, t)| match t.strip_quals() {
-                        Ty::Fn { params, .. } => {
-                            params.len() == tys.len() && tys.iter().zip(params).all(|(a, p)| Self::arg_fits_fn_value(a, p))
-                        }
-                        _ => false,
-                    })
-                    .collect();
-                if fitting.len() > 1 {
-                    let shown: Vec<String> = fitting.iter().map(|(_, t)| format!("`{t}`")).collect();
-                    self.error(
-                        span,
-                        format!(
-                            "`{}` here could go through more than one implicit of that name ({}): \
-                             the arguments fit each, so nothing chooses between them [implicit-same-name]",
-                            id.name,
-                            shown.join(" and ")
-                        ),
-                    );
-                }
-                let pick = fitting.first().copied();
-                let chosen = pick.map(|(l, _)| l.clone()).unwrap_or_else(|| id.name.clone());
+                // [implicit-same-name] The one whose parameters the arguments
+                // fit; among several, the most specific, ranked like overloads
+                // (R10 D21), and a tie is the ordinary ambiguity.
+                let fits = |p: &ImplicitParam| match p.ty.strip_quals() {
+                    Ty::Fn { params, .. } => {
+                        params.len() == tys.len() && tys.iter().zip(params).all(|(a, p)| Self::arg_fits_fn_value(a, p))
+                    }
+                    _ => false,
+                };
+                let pick = match self.pick_own_implicit(&id.name, &fits) {
+                    Ok(p) => p,
+                    Err(tied) => {
+                        self.own_implicit_tie(&id.name, &tied, span);
+                        None
+                    }
+                };
+                let chosen = pick.map(|p| p.local).unwrap_or_else(|| id.name.clone());
                 self.out.local_call_names.insert(self.key(span), chosen.clone());
                 pre_tys = Some(tys);
                 chosen
@@ -34393,4 +34754,97 @@ struct FnFit {
     /// [fn-overload-rank].
     patterns: Vec<Ty>,
     variadic: bool,
+}
+
+/// [effect-member-overload] [effect-available] An available effect's member
+/// as a candidate for a fn-typed position (R10 D3: effect members fill every
+/// position a fn does): the member, and the instance in scope it dispatches
+/// through — passed as a value, it carries that instance.
+#[derive(Clone)]
+struct MemberCand<'p> {
+    effect: &'p EffectDecl,
+    decl: &'p FnDecl,
+    /// The member's index among the effect's `fns` [effect-member-overload].
+    index: usize,
+    instance: Ty,
+}
+
+/// [fn-value-select] A candidate for a fn-typed position: a declared fn, or
+/// an available effect's member (R10 D3), ranked as one set.
+#[derive(Clone)]
+enum ValueCand<'p> {
+    Fn(crate::resolve::FnEntry<'p>),
+    Member(MemberCand<'p>),
+}
+
+impl<'p> ValueCand<'p> {
+    fn decl(&self) -> &'p FnDecl {
+        match self {
+            ValueCand::Fn(e) => e.decl,
+            ValueCand::Member(m) => m.decl,
+        }
+    }
+
+    /// Where it comes from, as a diagnostic and the `name@…` remedy name it:
+    /// a fn's module, a member's effect.
+    fn origin(&self) -> String {
+        match self {
+            ValueCand::Fn(e) => e.module.to_string(),
+            ValueCand::Member(m) => m.effect.name.name.clone(),
+        }
+    }
+
+    /// One declaration (through one instance) is one candidate
+    /// [fn-overload-scope].
+    fn same(&self, other: &ValueCand<'p>) -> bool {
+        match (self, other) {
+            (ValueCand::Fn(a), ValueCand::Fn(b)) => a.key == b.key,
+            (ValueCand::Member(a), ValueCand::Member(b)) => std::ptr::eq(a.decl, b.decl) && a.instance == b.instance,
+            _ => false,
+        }
+    }
+
+    fn is_template(&self) -> bool {
+        matches!(self, ValueCand::Fn(e) if e.rung == crate::resolve::Rung::Template)
+    }
+}
+
+/// [implicit-resolve] What an implicit position resolved to: a declared fn
+/// (its key and the identity a type can carry), or an available effect's
+/// member with its own implicits filled (R10 D3).
+enum Filled<'p> {
+    Fn(DeclId, FnId),
+    Member(MemberCand<'p>, Vec<ImplicitArg>),
+}
+
+/// [implicit-infer] The callee's variables in `pattern` (an implicit's fn type
+/// as far as the call knows it) read back off `have`, the instantiated
+/// candidate, extending `base`; `None` where the two do not unify. The
+/// parameters are relaxed as the fit is: the *argument's* claims are not the
+/// candidate's business, and insisting on them threw away everything the
+/// return type had to teach — which is where `It` was being lost.
+fn infer_read_back(pattern: &Ty, have: &Ty, base: &HashMap<String, Ty>) -> Option<HashMap<String, Ty>> {
+    let (Ty::Fn { params: want_params, ret: want_ret, .. }, Ty::Fn { params: have_params, ret: have_ret, .. }) =
+        (pattern.strip_quals(), have.strip_quals())
+    else {
+        return None;
+    };
+    if want_params.len() != have_params.len() {
+        return None;
+    }
+    let mut extended = base.clone();
+    let ok = want_params.iter().zip(have_params).all(|(want, have)| {
+        let mut exact = extended.clone();
+        if unify(want, have, &mut exact) {
+            extended = exact;
+            return true;
+        }
+        let mut relaxed = extended.clone();
+        if unify(want.strip_quals(), have, &mut relaxed) {
+            extended = relaxed;
+            return true;
+        }
+        false
+    }) && unify(want_ret, have_ret, &mut extended);
+    ok.then_some(extended)
 }

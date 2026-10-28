@@ -163,6 +163,27 @@ function — there is nothing to register.
 - **An implicitly resolved function is effect-free.** A fn type without an
   effect list means "performs nothing", and an effectful function does not
   fit there — so resolution can never quietly add an effect to a caller.
+- **An effect's members are candidates too.** The members of every effect
+  with a handler in scope are functions of the fn that declares the effect,
+  so they compete with the visible functions of the name and are ranked with
+  them. A member chosen for an implicit is passed as a function that carries
+  its handler, so it fits a pure position:
+
+  ```
+  effect Fmt { fn to_str(p: Point) -> Str => p }
+
+  fn render(p: Point, ?to_str: (p: Point) -> Str) -> Str => p { return to_str(p) }
+
+  fn show(p: Point) [Fmt, Console] -> None => p {
+      println(render(p))      // `to_str` is Fmt's member, through the handler in scope
+  }
+  ```
+
+  A member and a function of one signature are ambiguous, and the error names
+  both remedies: `to_str = to_str@Fmt` (the member, written as a value) or
+  `to_str = to_str@main`. Without a handler in scope a member is no
+  candidate. A slot a type carries (below) takes only a top-level function,
+  since a member's handler is not something a type can name.
 - **Effect members have them too.** A member is an ordinary signature, so
   `fn show(v: T, ?fmt: (T) -> Str) -> Str` works: the call site resolves
   `fmt`, and every handler implementing `show` receives it. Handler
@@ -182,11 +203,19 @@ function — there is nothing to register.
 
   Each is filled on its own at the call. Inside the body, `to_str(k)` goes
   through the one its argument fits — and so does `${k}` — so the two never
-  need names of their own. Arguments that fit both are an error, and so is a
-  bare override `to_str = f` at the call, which cannot say which one it means.
+  need names of their own. Where the arguments fit both, the two are ranked
+  like overloads and the more specific one takes the call: in `fn both(n:
+  Int, ?tag: (x: Int) -> Str, ?tag: (x: Int | Str) -> Str)`, `tag(n)` goes
+  through the `Int` one. Two that no rule separates are an error, and so is
+  a bare override `to_str = f` at the call, which cannot say which one it
+  means.
 - **What the implicit resolves to can determine the call's type arguments.**
   Resolution runs *between* the arguments, not after them, so a variable that
-  appears only in the implicit's type is still inferred. A `?Yield<It, T>`
+  appears only in the implicit's type is still inferred. It is read off the
+  function resolution chooses, by the same rule: with `f(x: Int) -> Str` and
+  `f<T>(x: T) -> Str` both visible, `conv<B>(x: Int, ?f: (x: Int) -> B)`
+  called as `conv(1)` infers `B = Str` from the more specific `f`. Where no
+  single function wins, nothing is inferred, and the ambiguity is the error. A `?Yield<It, T>`
   spread goes one step further: `T` is read off `It`'s own declaration (see
   [Iterators](Iterators.md)), so the element type of a combinator is never written.
 
@@ -228,7 +257,11 @@ qualifier Heap<T>(?Ordered<T>) of List<T> with NonEmpty
 A use site fills the slot with a **function identity** — a bare name
 (`Heap<Person>(min_by_age)`), a canonical (`Heap<Person>(cmp@Person)`) — or
 with the signature's own binder (`Heap<T>(?cmp)`), which is how a generic
-function says "whatever this value carries".
+function says "whatever this value carries". A bare name means what an
+implicit of that name would resolve to at the slot's type; if two functions
+fit and neither is more specific (this module's `by_len` and an imported
+one), the type is ambiguous and the error says to write `by_len@main` or
+`by_len@lib`.
 
 Three consequences, and they are the point:
 

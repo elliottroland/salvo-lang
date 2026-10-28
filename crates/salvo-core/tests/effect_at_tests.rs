@@ -117,7 +117,8 @@ fn the_selector_disambiguates() {
 }
 
 /// [effect-at] The named effect must exist, be in scope as an effect, and
-/// declare the member; a selected member is not a value.
+/// declare the member; a selected member is a value only at a fn-typed
+/// position (R10 D3), and `let v = close@Fs` has none.
 #[test]
 fn selector_errors() {
     let errs = errors(&format!(
@@ -134,7 +135,7 @@ fn selector_errors() {
         "got {errs:?}"
     );
     assert!(
-        errs.iter().any(|m| m.contains("not a value")),
+        errs.iter().any(|m| m.contains("a value only where a function type is expected")),
         "got {errs:?}"
     );
 }

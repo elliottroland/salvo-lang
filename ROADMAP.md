@@ -824,6 +824,33 @@ typed form (Stage D), whose per-declaration storage makes the second half
 moot. On that file the IR (built and analyzed whole every edit, 28ms) costs
 more than the walk would save.
 
+### 0af — DECISION: does an effect member fill a binder position? (B3.1, 2026-10-28)
+
+R10 D3 has effect members fill every position a fn does, implicits included
+(a member as a value carries its handler; built in B3 piece 1). A **binder**
+position — `?cmp` where the signature's types carry it, `Mut SortedSet(…)`'s
+`cmp` — is filled by an identity a type then carries [cmp-binder], and a type
+carries only a named, top-level, capture-free fn [cmp-carry]; a member's value
+is a closure over a handler. Options:
+
+- **(a) Fns only at a binder** (built, the safe reading): a member is no
+  candidate there, so it never wins and never ties; no program is newly
+  refused. The one rule then has an exception at binders.
+- **(b) Rank members there too**, and refuse a member that wins ("this value
+  has no identity a type can carry", as for a lambda written at a binder):
+  one candidate set everywhere, at the cost of new errors where an
+  available member ties or beats a fn at a binder (`Set(…)` inside a fn
+  whose effect declares an `eq` or `hash` member).
+
+Recommendation: (a), since a binder's fill is a different kind of thing
+(an identity, not a value). Also recorded in PIPELINE.md §II.10.
+
+Left by B3.1 for later pieces (PIPELINE.md §II.13 "Order for B3"): a bare
+member name as a value (`apply(to_str, p)`, piece 6); members at
+interpolation parts and operators (pieces 2–3); and at implicit positions
+two available effects' same-named members are already ranked as one set,
+while a bare *call* still refuses them (D15, piece 5).
+
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
 **What it is.** When a message makes an actor runnable, the scheduler unparks

@@ -3704,11 +3704,14 @@ Conventions:
   1. a `name = value` argument written at the call site
      [implicit-override];
   2. an implicit parameter of the **enclosing** fn with the same name and a
-     matching type [implicit-forward];
+     matching type [implicit-forward] — among several of the name that fit,
+     the most specific [implicit-same-name];
   3. the visible fn of that name **a call would choose** with the
      parameter's type — after the call's type arguments are substituted in —
      in place of an argument list (user decision 2026-10-14): every visible
-     overload competes [fn-overload-scope]; each is fitted by the type
+     overload competes [fn-overload-scope], and so does every member of that
+     name of an effect with an instance in scope (R10 D3, below); each is
+     fitted by the type
      (below) *without* filling its own implicits; [implicit-fit] drops one
      whose implicit nothing could fill, by shape; the most specific
      signature wins [fn-overload-rank], and among identical parameter types
@@ -3717,6 +3720,27 @@ Conventions:
      [fn-overload-ambiguous]. *Then* the winner's own implicits are filled,
      by this same rule [implicit-recursive];
   4. otherwise an error naming both remedies (declare one, or pass one).
+  * **An available effect's member is a candidate** (R10 D3, the user's
+    census decision 2026-10-27: an effect introduces functions into the
+    declaring fn's scope, so its members fill every position a fn does;
+    built 2026-10-28 for implicits) [effect-member-overload]
+    [effect-available]. One candidate per member and instance in scope
+    (`visible_effects`), ranked with the fns as one set; a `send` member is
+    not a value [free-send-fn]. The member is passed as **a closure over the
+    instance** (`ImplicitArg::Member`; the IR builder's `member_value`: a
+    `Lambda` whose body is the `MemberCall` through the captured instance),
+    so it carries its handler: its type is the position's, effects and all,
+    and a pure `?to_str: (p: Point) -> Str` takes it. The fill counts as a
+    use of the instance [fn-effects]. A member and a fn of one signature tie,
+    and the remedies name both: `to_str = to_str@Fmt` (the member as a value,
+    [effect-at]) or `to_str = to_str@main`. Its own implicits are filled as
+    a fn's are [implicit-recursive]. Not at a **binder** [cmp-binder]: what
+    fills a binder is an identity a type carries, and only a named top-level
+    fn has one [cmp-carry] (a **DECISION** recorded, PIPELINE.md §II.10: the
+    safe reading, refusing no program; the alternative is to rank members
+    there too and refuse a member that wins). Interpolation parts and
+    operators reach members in B3 pieces 2–3, and a bare member name as a
+    value (`apply(to_str, p)`) in piece 6.
   * **So Salvo needs no qualified-name syntax for defaults.** Koka spells
     them `Str/cmp` because it does not overload on argument types; here the
     `cmp` whose parameters accept `Str` already *is* the default for `Str`,
@@ -3808,8 +3832,13 @@ Conventions:
   into one [implicit-group].
   * **Inside the body**, a call of the name goes through the one whose
     parameters the arguments fit, and so do interpolation, a comparison
-    operator and a forwarded fill; arguments that fit more than one are an
-    error naming both. The checker binds the second and later as
+    operator and a forwarded fill; where the arguments fit several, they are
+    **ranked like overloads** (R10 D21, 2026-10-28): the most specific
+    parameter types win [fn-overload-rank] — `tag(n)` with `?tag: (x: Int) ->
+    Str` and `?tag: (x: Int | Str) -> Str` goes through the first — and only
+    a tie is an error naming both [fn-overload-ambiguous] (`pick_own_implicit`).
+    Before, any two that fit were refused ("could go through more than one
+    implicit of that name"). The checker binds the second and later as
     `to_str__1`, … (`ImplicitParam::local`) and records the one a call took
     (`local_call_names`), which is the name the backends declare and call.
   * **At a call site** each is filled on its own — a binder from the
@@ -3939,10 +3968,23 @@ Conventions:
     reads `T` off `It`'s own `: Yield<self, T>` clause, reaching through the
     struct an `iter fn` generates [iter-fn]. That is what types a *bare*
     lambda over such a subject, where no declared `next` exists to resolve.
+  * **By selection** (R10 D22, 2026-10-28): the implicit is resolved by
+    [implicit-resolve]'s rule — fns and available members, the [implicit-fit]
+    drop, the most specific signature — at its pattern with the callee's
+    unbound variables standing for anything, each candidate fitted at the
+    position its own instantiation makes of them; the variables are read off
+    the **winner**. So `f(x: Int) -> Str` beside `f<T>(x: T) -> Str` teaches
+    `?f: (x: Int) -> B` that `B = Str`, where the old matcher wanted exactly
+    one candidate to fit and skipped every candidate with implicits or a
+    variadic tail, so `conv(1)` could not infer `B`. Two refinements keep it
+    from guessing: where a **parameter** of the pattern is still unknown,
+    specificity cannot decide for an argument not yet known, so only a single
+    fitting candidate teaches; and the [implicit-fit] probe inside it checks
+    shapes without inferring again (one level, depth-capped).
   * Two-sided unification: the *candidate's* generics bind from the known
     part of the pattern, and then the *caller's* variables bind from the
-    instantiated candidate. A part that is still one of the caller's
-    variables teaches nothing and must not match everything.
+    instantiated candidate (`infer_read_back`). A part that is still one of
+    the caller's variables teaches nothing and must not match everything.
     * **The argument's own claims are not the candidate's business** (fixed
       2026-09-25): both directions try an exact unification first — so a `Mut`
       parameter keeps demanding a `Mut` argument — and then again with the
@@ -5791,6 +5833,16 @@ Conventions:
   * A use site fills the slot with an **identity**: a bare name
     (`Heap(min_by_age)`), an `@`-scoped canonical (`Heap(cmp@Person)`
     [fn-attached]) or the signature's **binder** (`Heap(?cmp)`, below).
+    * A written name means the declaration [implicit-resolve] chooses at the
+      slot's fn type, **with no rung fallback** (R10 D23, 2026-10-28): two
+      that fit with neither more specific — this module's `by_len` beside an
+      imported one — make the type ambiguous, an error naming `by_len@main`
+      and `by_len@lib` (once per written type, though it is lowered at every
+      use). Until then `written_declaration` discarded the ambiguity and took
+      the most specific *rung*'s declaration, so the written type silently
+      meant `by_len@main` while the call `by_len(a, b)` was refused. Where no
+      candidate fits, the name's one declaration is named (several: the bare
+      name), and the mismatch is reported where the slot is checked.
   * **Static identity is the load-bearing restriction** (decision 12): a fn
     bound into a type must be **named, top-level and capture-free**. Module
     fns, `@`-scoped canonicals and intrinsics qualify (the last through
@@ -11923,8 +11975,14 @@ replaced the working document TESTING.md).
   declare the member, and must still have a handler available (the
   selector picks the effect, not a handler out of thin air). The call's
   type arguments keep their [effect-disambiguation] meaning — they pin a
-  generic effect's *instance*: `next_random@Random<Int>()`. A selected
-  member is a call form, not a value.
+  generic effect's *instance*: `next_random@Random<Int>()`.
+  * **As a value** (R10 D3, 2026-10-28): at a fn-typed position, with an
+    instance of the effect in scope, `m@E` is the member as a closure over
+    that instance, selected among the effect's members of the name by
+    [fn-value-select]'s rule at the position's type (`Checked::member_values`,
+    lowered as an implicit filled by a member is) — the remedy an ambiguous
+    implicit names (`to_str = to_str@Fmt`). Anywhere else it is a call form
+    only, and `let v = close@Fs` is refused.
   * The selector is a checker mechanism: it narrows what
     `Checked::effect_calls` records, and emission is the ordinary member
     call.

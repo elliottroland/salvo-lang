@@ -1279,6 +1279,15 @@ the blanket rule:
   * Inside a lambda body an effect resolves to the lambda's *own* parameter
     (`__leff0`): a parameter shadows the enclosing fn's handle rather than
     capturing it.
+  * [effect-member-overload] **An effect's member as a value** (an implicit
+    it fills, or `m@E` written at a fn-typed position, R10 D3) is the one
+    closure that captures a handle: the value carries its handler, so its
+    type has no handle parameter, and the IR hands the emitter an ordinary
+    `Lambda` calling the member through the captured instance —
+    `crate::render(p, &mut |mut __m0| -> String { fmt.to_str(__m0) })`, with
+    `fmt: &crate::Fmt` (or a `use`'s `__handle_N`) borrowed by the closure.
+    A handle is a shared `&E`, so the borrow coexists with the callee's own
+    use of the same effect. Nothing Rust-specific was needed.
   * A **named fn** passed by value gets an adapter closure taking the
     *expected* handles and forwarding the ones it declares
     (`|__e0: &crate::Logger, __a0: &String| crate::shout(__e0, __a0)`) — a

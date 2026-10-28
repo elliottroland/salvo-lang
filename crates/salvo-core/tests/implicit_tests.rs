@@ -593,3 +593,150 @@ fn the_wrong_number_of_type_arguments_is_rejected() {
     );
 }
 
+
+// ===== B3 piece 1: implicits selected as a call selects (R10) =====
+
+/// [implicit-infer] Inference from an implicit runs selection and reads the
+/// variable off the winner (R10 D22): of `f(x: Int) -> Str` and `f<T>(x: T)
+/// -> Str`, both fitting `?f: (x: Int) -> B`, the concrete one is more specific
+/// and teaches `B = Str`. Before, the matcher wanted exactly one candidate to
+/// fit, so an un-annotated `conv(1)` could not infer `B`.
+#[test]
+fn inference_from_an_implicit_reads_the_most_specific_candidate() {
+    let errs = errors(
+        "fn f(x: Int) [] -> Str => x { return \"int\" }\n\
+         fn f<T>(x: T) [] -> Str => x { return \"any\" }\n\
+         fn conv<B>(x: Int, ?f: (x: Int) -> B) [] -> B => x { return f(x) }\n\
+         fn takes(s: Str) [] -> Str => !s { return s }\n\
+         fn probe() [] -> Str {\n\
+         let s = conv(1)\n\
+         return takes(s)\n\
+         }\n",
+    );
+    assert!(errs.is_empty(), "expected `B = Str` to be inferred, got: {errs:?}");
+}
+
+/// [implicit-infer] Two candidates neither of which is more specific teach
+/// nothing: the ambiguity is the fill's to report, as one diagnostic.
+#[test]
+fn inference_from_an_ambiguous_implicit_teaches_nothing() {
+    let errs = errors(
+        "fn f(x: Int | Bool) [] -> Str => x { return \"a\" }\n\
+         fn f(x: Int | Str) [] -> Int => x { return 1 }\n\
+         fn conv<B>(x: Int, ?f: (x: Int) -> B) [] -> B => x { return f(x) }\n\
+         fn probe() [] -> Str {\n\
+         let s = conv(1)\n\
+         return \"\"\n\
+         }\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("cannot infer type argument `B` of `conv`")),
+        "expected `B` to stay unknown, got: {errs:?}"
+    );
+}
+
+/// [implicit-same-name] Two implicits of one name are ranked like overloads
+/// (R10 D21): `tag(n)` with `n: Int` fits both `?tag: (x: Int) -> Str` and
+/// `?tag: (x: Int | Str) -> Str`, and the `Int` one is more specific. Before,
+/// "could go through more than one implicit of that name".
+#[test]
+fn two_implicits_of_one_name_are_ranked_like_overloads() {
+    let errs = errors(
+        "fn both(n: Int, ?tag: (x: Int) -> Str, ?tag: (x: Int | Str) -> Str) [] -> Str => n {\n\
+         return tag(n)\n\
+         }\n",
+    );
+    assert!(errs.is_empty(), "expected the `Int` implicit to win, got: {errs:?}");
+}
+
+/// [implicit-same-name] [fn-overload-ambiguous] …and a tie is still the
+/// ordinary ambiguity.
+#[test]
+fn two_implicits_of_one_name_neither_more_specific_are_ambiguous() {
+    let errs = errors(
+        "fn both(n: Int, ?tag: (x: Int, y: Int | Str) -> Str, ?tag: (x: Int | Str, y: Int) -> Str) [] -> Str => n {\n\
+         return tag(n, n)\n\
+         }\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("could go through more than one implicit of that name")
+            && e.contains("none is more specific")),
+        "expected the ambiguity, got: {errs:?}"
+    );
+}
+
+const FMT_EFFECT: &str = "struct Point { x: Int }\n\
+     effect Fmt {\n\
+     fn to_str(p: Point) -> Str => p\n\
+     }\n\
+     handler Plain of Fmt {\n\
+     fn to_str(p: Point) -> Str { return \"p\" }\n\
+     }\n\
+     fn render(p: Point, ?to_str: (p: Point) -> Str) [] -> Str => p { return to_str(p) }\n";
+
+/// [effect-member-overload] [effect-available] An available effect's member
+/// fills an implicit position (R10 D3: an effect's members fill every
+/// position a fn does), passed as a value that carries its handler — so the
+/// pure `render` takes it. Before, "no `to_str` fits".
+#[test]
+fn an_available_effect_member_fills_an_implicit() {
+    let errs = errors(&format!(
+        "{FMT_EFFECT}\
+         fn show(p: Point) [Fmt] -> Str => p {{ return render(p) }}\n\
+         fn probe() [use] -> Str {{\n\
+         use Plain()\n\
+         return render(Point {{ x: 1 }})\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "expected the member to fill `?to_str`, got: {errs:?}");
+}
+
+/// [effect-available] With no instance in scope the member is no candidate.
+#[test]
+fn an_unavailable_effect_member_fills_nothing() {
+    let errs = errors(&format!("{FMT_EFFECT}fn probe() [] -> Str {{ return render(Point {{ x: 1 }}) }}\n"));
+    assert!(errs.iter().any(|e| e.contains("no `to_str` for this call")), "got: {errs:?}");
+}
+
+/// [effect-member-overload] [fn-overload-ambiguous] A member and a fn of one
+/// signature tie, and the remedies name both — the member as a value,
+/// `to_str@Fmt`, included — which then settle it.
+#[test]
+fn a_member_and_a_fn_of_one_signature_are_ambiguous_at_an_implicit() {
+    let fn_too = "fn to_str(p: Point) [] -> Str => p { return \"fn\" }\n";
+    let errs = errors(&format!(
+        "{FMT_EFFECT}{fn_too}fn show(p: Point) [Fmt] -> Str => p {{ return render(p) }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("`to_str` is ambiguous for `render`")
+            && e.contains("`to_str(Point)` from `Fmt`")
+            && e.contains("`to_str = to_str@Fmt` or `to_str = to_str@main`")),
+        "expected the ambiguity naming both remedies, got: {errs:?}"
+    );
+    let errs = errors(&format!(
+        "{FMT_EFFECT}{fn_too}fn show(p: Point) [Fmt] -> Str => p {{\n\
+         let a = render(p, to_str = to_str@Fmt)\n\
+         return render(p, to_str = to_str@main)\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "expected both remedies to work, got: {errs:?}");
+}
+
+/// [effect-member-overload] [implicit-infer] A member teaches as it fills:
+/// `?f: (x: Int) -> B` filled by an available member `f(x: Int) -> Str`
+/// infers `B = Str`.
+#[test]
+fn inference_reads_an_available_member() {
+    let errs = errors(
+        "effect Conv {\n\
+         fn f(x: Int) -> Str => x\n\
+         }\n\
+         fn conv<B>(x: Int, ?f: (x: Int) -> B) [] -> B => x { return f(x) }\n\
+         fn takes(s: Str) [] -> Str => !s { return s }\n\
+         fn probe() [Conv] -> Str {\n\
+         let s = conv(1)\n\
+         return takes(s)\n\
+         }\n",
+    );
+    assert!(errs.is_empty(), "expected `B = Str` from the member, got: {errs:?}");
+}

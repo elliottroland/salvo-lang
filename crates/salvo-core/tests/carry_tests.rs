@@ -1258,3 +1258,29 @@ fn an_identity_resolves_in_its_declaring_module() {
         assert!(errs.is_empty(), "with `{imports}`: {errs:?}");
     }
 }
+
+/// [cmp-carry] [fn-overload-ambiguous] A written identity has no rung
+/// fallback (R10 D23): `SortedSet<Str>(by_len)` beside an imported `by_len` of
+/// the same signature is ambiguous, an error naming `by_len@main` and
+/// `by_len@lib` — once, though the type is lowered at every use. Before, the
+/// most specific rung's (this module's) was taken silently, while the call
+/// `by_len(a, b)` was refused.
+#[test]
+fn a_written_identity_two_modules_fit_is_ambiguous() {
+    let lib = "export fn by_len(a: Str, b: Str) [] -> Int => a, b { return size(b) - size(a) }\n";
+    let main = "import lib.by_len\n\n\
+                fn by_len(a: Str, b: Str) [] -> Int => a, b { return size(a) - size(b) }\n\n\
+                fn run() [] -> Int {\n    \
+                let m: Mut SortedSet<Str>(by_len) = Mut SortedSet(\"a\", cmp = by_len@main)\n    \
+                return size(m)\n}\n";
+    let errs = std_errors_in(&[("lib.sv", lib), ("main.sv", main)]);
+    let ambiguous: Vec<&String> = errs.iter().filter(|e| e.contains("the identity `by_len` is ambiguous")).collect();
+    assert!(
+        ambiguous.len() == 1 && ambiguous[0].contains("`by_len@lib` or `by_len@main`"),
+        "expected one ambiguity naming both modules: {errs:?}"
+    );
+    // `by_len@main` settles it.
+    let settled = main.replace("SortedSet<Str>(by_len)", "SortedSet<Str>(by_len@main)");
+    let errs = std_errors_in(&[("lib.sv", lib), ("main.sv", &settled)]);
+    assert!(errs.is_empty(), "{errs:?}");
+}

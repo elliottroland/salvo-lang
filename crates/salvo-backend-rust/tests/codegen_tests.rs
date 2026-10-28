@@ -17704,6 +17704,73 @@ fn rustc_compiles_and_runs_implicits_chosen_as_calls_are() {
     run_rust_files(&files, "implicit-call-rule", IMPLICIT_CALL_RULE_OUTPUT);
 }
 
+/// [effect-member-overload] [effect-available] [implicit-resolve] [implicit-infer]
+/// [implicit-same-name] [cmp-carry] Implicits selected as a call selects (R10,
+/// B3 piece 1): an available effect's member fills `?to_str`, passed as a
+/// closure over the handler, and `to_str@Fmt` is that value written out (D3);
+/// `conv(1)` infers `B = Str` off the most specific `f` (D22); of two
+/// implicits named `tag` the more specific takes `tag(n)` (D21); a written
+/// identity names its module, `by_len@main`, where the bare name is
+/// ambiguous (D23). `tagged` takes the closure beside the same handle as its
+/// own effect, which on Rust is two shared borrows of one `&Fmt`.
+const IMPLICIT_SELECTION_LIB: &str = "export fn by_len(a: Str, b: Str) [] -> Int => a, b { return size(b) - size(a) }\n";
+
+const IMPLICIT_SELECTION_DEMO: &str = r#"
+import lib.by_len
+
+struct Point { x: Int, y: Int }
+
+effect Fmt {
+    fn to_str(p: Point) -> Str => p
+    fn tag() -> Str
+}
+
+handler Brackets of Fmt {
+    fn to_str(p: Point) -> Str { return "<${p.x}, ${p.y}>" }
+    fn tag() -> Str { return "fmt" }
+}
+
+fn render(p: Point, ?to_str: (p: Point) -> Str) [] -> Str => p { return to_str(p) }
+
+fn tagged(p: Point, ?to_str: (p: Point) -> Str) [Fmt] -> Str => p { return "${tag()} ${to_str(p)}" }
+
+fn show(p: Point) [Fmt, Console] -> None => p {
+    println(render(p))
+    println(render(p, to_str = to_str@Fmt))
+}
+
+fn f(x: Int) [] -> Str => x { return "int" }
+fn f<T>(x: T) [] -> Str => x { return "any" }
+fn conv<B>(x: Int, ?f: (x: Int) -> B) [] -> B => x { return f(x) }
+
+fn tag(x: Int) [] -> Str => x { return "int" }
+fn tag(x: Int | Str) [] -> Str => x { return "any" }
+fn both(n: Int, ?tag: (x: Int) -> Str, ?tag: (x: Int | Str) -> Str) [] -> Str => n { return tag(n) }
+
+fn by_len(a: Str, b: Str) [] -> Int => a, b { return size(a) - size(b) }
+
+fn main() [use] {
+    use StdConsole()
+    use Brackets()
+    show(Point { x: 1, y: 2 })
+    println(render(Point { x: 3, y: 4 }))
+    println(tagged(Point { x: 5, y: 6 }))
+    let s = conv(1)
+    println(s)
+    println(both(1))
+    let m: Mut SortedSet<Str>(by_len@main) = Mut SortedSet("ccc", "a", "bb", cmp = by_len@main)
+    println("${m}")
+}
+"#;
+
+const IMPLICIT_SELECTION_OUTPUT: &str = "<1, 2>\n<1, 2>\n<3, 4>\nfmt <5, 6>\nint\nint\n{a, bb, ccc}\n";
+
+#[test]
+fn rustc_compiles_and_runs_implicits_selected_as_calls_select() {
+    let files = generate(&[("main.sv", IMPLICIT_SELECTION_DEMO), ("lib.sv", IMPLICIT_SELECTION_LIB)]);
+    run_rust_files(&files, "implicit-selection", IMPLICIT_SELECTION_OUTPUT);
+}
+
 /// [fn-value-select] [fn-overload-scope] A function passed by name is chosen
 /// as a call chooses (user decision 2026-10-14, ROADMAP 0w): an imported
 /// `tag(Int)` is more specific than this module's `tag<T>`, by name as at

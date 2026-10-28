@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2112 tests, complete: the toolchain tests are
+cargo test                  # 2122 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,98 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-28 — Every implicit argument is selected as a call selects (B3 piece 1)
+
+**The user's census decisions applied to the implicit positions** (R10,
+2026-10-27: *follow the one-rule principle in all cases where we can*;
+PIPELINE.md §II.9 Stage B piece B3.1, §II.13 D3, D21, D22, D23). An implicit
+argument was already filled by the call rule (b6436d24); four places still
+had rules of their own, and each now follows the call:
+
+- **D22, inference** [implicit-infer]: `learn_from_implicits_once` runs
+  selection (`select_fn_value`, the call rule at the implicit's pattern with
+  the callee's unbound variables standing for anything) and reads the
+  variables off the winner (`infer_read_back`), instead of its own "exactly
+  one candidate fits, none with implicits or a variadic tail" matcher. With
+  `f(x: Int) -> Str` and `f<T>(x: T) -> Str`, `conv<B>(x: Int, ?f: (x: Int)
+  -> B)` called as `conv(1)` now infers `B = Str`. Each candidate is fitted
+  at the position its own instantiation makes of the open variables
+  (`Checker::infer_open`): fitted at the erased pattern, `next`'s `proj
+  Emitted Str` did not fit `Emitted ?`, and nothing was learned anywhere —
+  the first run of the suite caught it (`map(iter(ws), s -> size(s))` lost
+  `T`). Two refinements keep the old guarantee that inference never guesses
+  (`strict_select`): where a *parameter* of the pattern is still unknown,
+  only a single fitting candidate teaches; and the [implicit-fit] probe
+  inside it checks shapes without inferring again.
+- **D23, a written identity** [cmp-carry]: `written_declaration` has no rung
+  fallback. `SortedSet<Str>(by_len)` beside an imported `by_len` of the same
+  signature is ambiguous, an error naming `by_len@main` and `by_len@lib`,
+  reported once per written type (`reported_identities`, carried with the
+  file's interface records). It used to discard resolution's ambiguity and
+  take the most specific rung's declaration, so the type meant `by_len@main`
+  while the call `by_len(a, b)` was refused. With nothing fitting, the one
+  declaration of the name is named (several: the bare name), as the slot
+  check expects; the no-`want` path was dead (both callers pass the slot's
+  type) and went with the fallback.
+- **D3's implicit half, effect members** [effect-member-overload]
+  [effect-available]: an available effect's member is a candidate for an
+  implicit position, one per member and instance in scope, ranked with the
+  fns as one set (`ValueCand`, `MemberCand`; `select_fn_value` takes both,
+  `member_value_fit` fits a member at its instance's type arguments). The
+  winner is `ImplicitArg::Member`, and the IR builder lowers it to **a
+  closure over the instance** (`Lower::member_value`: a `Lambda` whose body
+  is the `MemberCall` through the captured instance local), so it carries
+  its handler and a pure `?to_str: (p: Point) -> Str` takes it. No fn
+  values of members existed to reuse ([effect-at] said "a selected member
+  is a call form, not a value"), and neither backend needed anything: Kotlin
+  emits `fun(__m0: Point): String { return fmt.toStr(__m0) }`, Rust `&mut
+  |mut __m0| -> String { fmt.to_str(__m0) }` borrowing the shared `&Fmt`.
+  The ambiguity's remedy is `to_str = to_str@Fmt`, so **`m@E` is a value**
+  at a fn-typed position with an instance in scope (`Checked::member_values`,
+  a new table in `partition.rs`'s router and `insert_rows`), lowered the same
+  way. Inference reads a member as it fills (D22). Not at a binder
+  [cmp-binder]: its fill is an identity a type carries, which a member's
+  handler is not — a **DECISION** recorded (PIPELINE.md §II.10, ROADMAP), the
+  safe reading taken.
+- **D21, two implicits of one name** [implicit-same-name]: ranked like
+  overloads (`pick_own_implicit`, by their parameter types), at a call
+  through them, a forwarded fill, a binder forwarded, an interpolation's own
+  `to_str` and a comparison's own `cmp`/`eq`; a tie stays the ambiguity.
+  `both(n: Int, ?tag: (x: Int) -> Str, ?tag: (x: Int | Str) -> Str)`'s
+  `tag(n)` takes the `Int` one, where any two that fit were refused.
+
+No table went: the implicit positions' own tables (`implicit_args`,
+`implicit_params`, `implicit_members`, `local_call_names`) are what the core
+call reads, and what died is code — the unranked matcher, the rung
+fallback, four first-fit lookups of own implicits.
+
+**The differential** (temporary, `SALVO_XP_B31`: every checked program's
+rendered diagnostics and `salvo facts` per declaration, and every IR build's
+dump, std's modules included; base a worktree of 957a2061; both runs cold
+under `cargo nextest`): 3,135 outputs per side, by program. Every behaviour
+the same; 4 programs' diagnostics reworded (two [implicit-same-name] ties,
+now "none is more specific"; two `m@E` outside a fn-typed position, now
+saying where it is a value), and one program differed only by the
+worktree's path length in a column. No program the suite checks used the
+four changed rules, so their tests are new. **Emitted code**: unchanged
+(goldens, both codegen corpora and the examples).
+
+**Tests**: 2,122 (+10): `implicit_tests` (inference from the most specific
+candidate, and nothing from a tie; two implicits ranked, and a tie refused;
+a member fills an implicit, not without a handler, ties a same-signature fn
+with both remedies working, and teaches inference), `carry_tests` (a written
+identity two modules fit, and `@main` settling it), and one program on both
+backends (`implicits_selected_as_calls_select`: a member through the handler
+in scope, `to_str@Fmt`, a closure beside the callee's own `[Fmt]`, `conv(1)`,
+`both(1)`, `SortedSet<Str>(by_len@main)`; a `KotlinCase` and
+`run_rust_files`). `selector_errors` follows the reworded `m@E` refusal.
+
+**Timings** (debug, base binary alternated with this one):
+`tools/lsp-timing.py`, three rounds of four edits, medians:
+`examples/cluster` 31.1/29.9/30.9 → 31.4/30.4/32.0ms, `modules/aws`
+34.4/34.6/35.5 → 33.8/34.0/34.5ms. `SALVO_TIMINGS=1 salvo analyze --src
+examples/cluster/salvo`: check 190–193ms before, 188–196 after.
 
 ### 2026-10-28 — The checker's facts are stored by declaration (A4)
 
@@ -30939,7 +31031,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2112 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2122 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -32232,6 +32324,19 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **Inference fits each candidate at the position it makes** (B3.1,
+  2026-10-28, [implicit-infer]): selecting for inference at the pattern with
+  the open variables erased to `?` refuses a candidate whose result puts a
+  qualifier around the variable's place (`next`'s `proj Emitted T` against
+  `Emitted ?`), and then nothing is learned — silently, since inference
+  never reports. Read the variables off each candidate first, and check it
+  at the pattern they make (`Checker::infer_open`). And inference must not
+  let specificity decide a parameter it does not know yet, or it guesses.
+- **An effect member as a value captures its instance** (B3.1, [effect-member-overload]):
+  a lambda's effects are its own parameters and a member call inside one
+  looks there, so a closure carrying a handler cannot be written as a
+  Salvo lambda; it exists only as the IR the builder makes
+  (`Lower::member_value`), with the instance local in its captures.
 - **A differential's baseline must be as cold as its after-run** (A4,
   2026-10-28): the CLI tests' stamps are keyed by the `salvo` binary, so a
   warm suite on the unchanged compiler skips the subprocesses an after-run
