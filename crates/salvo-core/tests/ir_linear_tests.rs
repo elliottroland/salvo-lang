@@ -65,7 +65,7 @@ export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
     salvo_core::ir::obligations::annotate(&mut ir, &symbols);
     let diags = salvo_core::ir::check::check(&ir);
     assert!(
-        diags.iter().any(|d| d.message.contains("still owns a linear value")),
+        diags.iter().any(|d| d.message.contains("still owns a linear value") && d.id.starts_with("ir-linear-check:")),
         "IR check did not catch the dropped linear arm; got: {:?}",
         diags.iter().map(|d| &d.message).collect::<Vec<_>>()
     );

@@ -100,7 +100,7 @@ pub fn dump_program_over(
             // [flow-use-after-move] A use of a moved value, inline the same way.
             for mut d in flow::check_one(decl) {
                 d.moved_at = landing(&m.file_name, d.moved_at);
-                let message = d.render(content.unwrap_or(""));
+                let message = d.render(content.unwrap_or("")).text;
                 let loc = match content {
                     Some(c) => {
                         let (line, col) = salvo_syntax::span::span_line_col(c, landing(&m.file_name, d.span));

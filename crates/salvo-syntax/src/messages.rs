@@ -4855,6 +4855,210 @@ messages! {
     when_union_subject_not_a_union = "when-union-subject:not-a-union" (subj_ty: &dyn std::fmt::Display) => format!(
         "`when` requires a union-typed subject (found `{subj_ty}`)"
     );
+    // ===== ir =====
+
+    // [actor-self-send]
+    /// The IR builder met a self-send selector used as a value.
+    actor_self_send_lower_value = "actor-self-send:lower-value" (name: &dyn std::fmt::Display) => format!(
+        "`{name}@self` as a value"
+    );
+
+    // [call-resolve]
+    /// The IR builder met a call through a local it has no binding for.
+    call_resolve_lower_unknown_local = "call-resolve:lower-unknown-local" (name: &dyn std::fmt::Display) => format!(
+        "call through unknown local `{name}`"
+    );
+
+    // [comptime-inline]
+    /// The IR builder met a comptime inline-for in a struct literal.
+    comptime_inline_lower_unexpanded = "comptime-inline:lower-unexpanded" () =>
+        "comptime inline-for survived expansion";
+
+    // [effect-available]
+    /// The IR builder found no instance in scope for an effect.
+    effect_available_lower_no_instance = "effect-available:lower-no-instance" (want: &dyn std::fmt::Display) => format!(
+        "no instance of `{want}` in scope"
+    );
+
+    // [effect-dispatch]
+    /// The IR builder met a member call to an effect with no declaration.
+    effect_dispatch_lower_no_declaration = "effect-dispatch:lower-no-declaration" (effect: &dyn std::fmt::Display) => format!(
+        "effect `{effect}` has no declaration"
+    );
+
+    // [effect-member-overload]
+    /// The IR builder met an effect member as a value, of an effect with no declaration.
+    effect_member_overload_lower_no_declaration = "effect-member-overload:lower-no-declaration" (effect: &dyn std::fmt::Display) => format!(
+        "effect `{effect}` has no declaration"
+    );
+
+    // [effect-use]
+    /// The IR builder met a `use` whose value is not a handler construction.
+    effect_use_lower_not_construction = "effect-use:lower-not-construction" () =>
+        "`use` of something that is not a handler construction";
+
+    // [fate-derived-readonly]
+    /// A move or mutation of a derived value whose binding stays borrow-mode.
+    fate_derived_readonly_shares_fate = "fate-derived-readonly:shares-fate" (action: &dyn std::fmt::Display, name: &dyn std::fmt::Display, root: &dyn std::fmt::Display) => format!(
+        "cannot {action} `{name}`: it was bound from `{root}` and shares \
+         its fate, so it can only be read; use `copy` to make an \
+         independent value (e.g. `copy({name})`, or bind it with \
+         `copy(...)`)"
+    );
+
+    // [fate-move-mode]
+    /// A use of a root a move-mode binding took; `at` names the binding (" at line 3"), or is empty.
+    fate_move_mode_bound_away = "fate-move-mode:bound-away" (x: &dyn std::fmt::Display, binding: &dyn std::fmt::Display, at: &dyn std::fmt::Display) => format!(
+        "`{x}` cannot be used here: `{binding}` was bound from it{at} and later moves the value, so the binding \
+         took ownership; bind with `copy(...)` (e.g. `let {binding} = copy(...)`) to keep `{x}` usable, or \
+         reassign it before use"
+    );
+
+    // [fate-partial-move]
+    /// A use of a place overlapping one moved out; `at` names the move (" at line 3"), or is empty.
+    fate_partial_move_overlapping_use = "fate-partial-move:overlapping-use" (place: &dyn std::fmt::Display, moved: &dyn std::fmt::Display, root: &dyn std::fmt::Display, at: &dyn std::fmt::Display) => format!(
+        "`{place}` cannot be used here: `{moved}` was moved out of `{root}`{at}, and this reads the same data; \
+         `copy` at the site that moved it to keep this readable"
+    );
+    /// A use as a whole of a value something was moved out of; `at` names the move (" at line 3"), or is empty.
+    fate_partial_move_whole_use = "fate-partial-move:whole-use" (root: &dyn std::fmt::Display, moved: &dyn std::fmt::Display, at: &dyn std::fmt::Display) => format!(
+        "`{root}` cannot be used as a whole here: `{moved}` was moved out of it{at}, so part of the value is gone; \
+         move the remaining parts individually, or `copy` at the site that moved `{moved}`"
+    );
+
+    // [fate-poison]
+    /// A use of a derived value whose root an event ended; `at` names the event (" at line 3"), or is empty.
+    fate_poison_shared_root = "fate-poison:shared-root" (x: &dyn std::fmt::Display, root: &dyn std::fmt::Display, event: &dyn std::fmt::Display, at: &dyn std::fmt::Display) => format!(
+        "`{x}` cannot be used here: it was bound from `{root}` and shares its fate, and `{root}` was {event}{at} \
+         after the binding; bind it with `copy(...)` to keep an independent value, or reassign it before use"
+    );
+
+    // [flow-use-after-move]
+    /// A use of a wholly moved value; `line` is the move's, when known.
+    flow_use_after_move_consumed = "flow-use-after-move:consumed" (local: &dyn std::fmt::Display, line: Option<&dyn std::fmt::Display>) => match line {
+        None => format!("`{local}` cannot be used here: it was consumed (moved) earlier; reassign it before use"),
+        Some(line) => format!(
+            "`{local}` cannot be used here: it was consumed (moved) at line {line}; reassign it before use, or `copy` it where it is moved"
+        ),
+    };
+    /// An assignment into a place strictly inside one moved out; `at` names the move (" at line 3"), or is empty.
+    flow_use_after_move_write_into_moved = "flow-use-after-move:write-into-moved" (place: &dyn std::fmt::Display, moved: &dyn std::fmt::Display, root: &dyn std::fmt::Display, at: &dyn std::fmt::Display) => format!(
+        "`{place}` cannot be assigned here: `{moved}` was moved out of `{root}`{at}, and this writes into it; \
+         assign `{moved}` as a whole to put it back, or `copy` at the site that moved it"
+    );
+
+    // [fn-effects]
+    /// The IR builder cannot adapt a fn value to a fn type lacking an effect the fn needs.
+    fn_effects_lower_adapter_effect = "fn-effects:lower-adapter-effect" (effect: &dyn std::fmt::Display) => format!(
+        "a fn needs effect `{effect}`, which the fn type it is passed as does not declare"
+    );
+
+    // [fn-value]
+    /// The IR builder met a scoped reference the checker resolved to nothing.
+    fn_value_lower_scoped_reference = "fn-value:lower-scoped-reference" () =>
+        "unresolved scoped reference";
+
+    // [implicit-forward]
+    /// The IR builder met a forwarded implicit that is not in scope.
+    implicit_forward_lower_not_in_scope = "implicit-forward:lower-not-in-scope" (name: &dyn std::fmt::Display) => format!(
+        "forwarded implicit `{name}` is not in scope"
+    );
+
+    // [interp-to-str]
+    /// The IR builder found no text form for an interpolated value.
+    interp_to_str_lower_no_to_str = "interp-to-str:lower-no-to-str" (ty: &dyn std::fmt::Display) => format!(
+        "no `to_str` for `{ty}` in an interpolation"
+    );
+
+    // [interp-union]
+    /// The IR builder found no text form for an arm of an interpolated union.
+    interp_union_lower_arm_no_to_str = "interp-union:lower-arm-no-to-str" (ty: &dyn std::fmt::Display) => format!(
+        "no `to_str` for `{ty}` in an interpolation"
+    );
+    /// The IR builder found an interpolated union's arms unlike the text forms the checker recorded.
+    interp_union_lower_arm_mismatch = "interp-union:lower-arm-mismatch" (ty: &dyn std::fmt::Display) => format!(
+        "the arms of `{ty}` do not match the text forms the checker found"
+    );
+
+    // [ir-build]
+    /// The IR builder met an identifier the checker resolved to nothing.
+    ir_build_unresolved_identifier = "ir-build:unresolved-identifier" (name: &dyn std::fmt::Display) => format!(
+        "unresolved identifier `{name}`"
+    );
+
+    // [ir-linear-check]
+    /// A linear value still owed across a call that may throw; `arms` names its live linear arms (" (the `T` arm)"), or is empty.
+    ir_linear_check_leak_across_throw = "ir-linear-check:leak-across-throw" (subject: &dyn std::fmt::Display, arms: &dyn std::fmt::Display) => format!(
+        "{subject} still owns a linear value{arms} across a call that may throw: the code after it does not run on \
+         the throw path, so release it before the call, or move it onward so the obligation travels with it"
+    );
+    /// A linear value still owed when a path leaves; `arms` names its live linear arms (" (the `T` arm)"), or is empty.
+    ir_linear_check_leak_at_exit = "ir-linear-check:leak-at-exit" (subject: &dyn std::fmt::Display, arms: &dyn std::fmt::Display) => format!(
+        "{subject} still owns a linear value{arms} when the path leaves; move it onward (pass, return, or store it) \
+         or discharge it"
+    );
+
+    // [iter-for]
+    /// The IR builder met a `for` with no driving call recorded.
+    iter_for_lower_no_call = "iter-for:lower-no-call" () =>
+        "a `for` with no call recorded for its iterator";
+
+    // [linear-obligation]
+    /// An assignment over a local (or state field) that still owes a linear value.
+    linear_obligation_assign_drops = "linear-obligation:assign-drops" (x: &dyn std::fmt::Display) => format!(
+        "assigning to `{x}` drops the linear value it still owns; move it onward or `discard({x})` first"
+    );
+    /// A linear value consumed on some of the paths that join, and not others.
+    linear_obligation_some_paths = "linear-obligation:some-paths" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` owns a linear value that is consumed on some paths but not others; discharge or move it on every path"
+    );
+
+    // [linear-state]
+    /// An exit from a handler member that leaves a state field moved out of; `what` is the exit.
+    linear_state_hole = "linear-state:hole" (what: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
+        "cannot {what}: the state field `{name}` was moved out of and nothing was put back, so this \
+         activation would leave the handler with a hole — assign it a value first (`{name} = …`), since \
+         the obligations an actor holds must survive between activations"
+    );
+
+    // [op-arith]
+    /// The IR builder found no function for an arithmetic operator.
+    op_arith_lower_no_member = "op-arith:lower-no-member" (op: &dyn std::fmt::Debug, member: &dyn std::fmt::Display) => format!(
+        "arithmetic `{op:?}` resolves to no `{member}`"
+    );
+
+    // [op-assign]
+    /// The IR builder met an assignment whose target is not a place.
+    op_assign_lower_non_place = "op-assign:lower-non-place" () =>
+        "assignment to a non-place";
+
+    // [op-equality]
+    /// The IR builder found no function for a comparison operator.
+    op_equality_lower_no_member = "op-equality:lower-no-member" (op: &dyn std::fmt::Debug, member: &dyn std::fmt::Display) => format!(
+        "comparison `{op:?}` resolves to no `{member}`"
+    );
+
+    // [proj-readonly]
+    /// A move or mutation of a wholesale projection.
+    proj_readonly_projection_use = "proj-readonly:projection-use" (action: &str, name: &dyn std::fmt::Display, root: &dyn std::fmt::Display) => {
+        let why = if action == "mutate" {
+            " — a read-only projection never satisfies a `Mut` position \
+             (a mutable handle is minted with `at(...)` from a container of `Mut` \
+             elements, `List<Mut T>`)"
+        } else {
+            ""
+        };
+        format!(
+            "cannot {action} `{name}`: it is a projection (`proj`) of `{root}`, \
+             which can only be read{why}; use `copy({name})` for a value of your own"
+        )
+    };
+
+    // [qual-whynot]
+    /// The IR builder found no such fn on a predicate qualifier.
+    qual_whynot_lower_no_member = "qual-whynot:lower-no-member" (qualifier: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "qualifier `{qualifier}` has no `{member}`"
+    );
 }
 
 #[cfg(test)]

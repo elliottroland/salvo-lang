@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use salvo_syntax::messages::Message;
 use salvo_syntax::Span;
 
 use crate::check::Checked;
@@ -84,10 +85,11 @@ pub fn analyze_full(
             // [node-origin] A diagnostic at a node a stamp copied lands where its
             // origin says, as the checker's do, attributed to the stamped fn.
             let stamped = stamp_of(program, resolution, decl);
-            let report = |span: Span, message: String| match stamped {
+            // [diag-id] The message keeps its id through the prefix.
+            let report = |span: Span, message: Message| match stamped {
                 Some((id, stamp)) if span.is_expanded() => {
-                    let (span, message) = crate::origin::render(stamp, span, message);
-                    FileDiagnostic::error(file, span, message).in_decl(Some(id))
+                    let (span, text) = crate::origin::render(stamp, span, message.text);
+                    FileDiagnostic::error(file, span, Message { text, ..message }).in_decl(Some(id))
                 }
                 _ => FileDiagnostic::error(file, span, message),
             };
@@ -108,12 +110,12 @@ pub fn analyze_full(
                 // [linear-group] Name the dischargers in the remedy ("discharge
                 // it with `drain` / `close`"), computed from the leaked type in
                 // the file's resolution scope.
-                let mut message = d.message;
+                let mut message = Message { id: d.id, text: d.message };
                 if let (Some(ty), Some(scope)) = (&d.discharge_type, scope) {
                     let set = crate::linear::discharge_set(symbols, resolution, scope, &checked.deductions, ty);
-                    if !set.is_empty() && message.ends_with("discharge it") {
+                    if !set.is_empty() && message.text.ends_with("discharge it") {
                         let named: Vec<String> = set.iter().map(|f| format!("`{f}`")).collect();
-                        message.push_str(&format!(" with {}", named.join(" / ")));
+                        message.text.push_str(&format!(" with {}", named.join(" / ")));
                     }
                 }
                 out.push(report(d.span, message));

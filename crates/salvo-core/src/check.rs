@@ -1592,7 +1592,7 @@ pub struct DerivedUse {
     pub action: String,
     /// [fate-derived-readonly] The S1 error, should the binding stay
     /// borrow-mode.
-    pub message: String,
+    pub message: Message,
     /// The bindings (by stamp) the variable's own links were made by, as the
     /// walk holds them there: the use is the S1 error unless one of them may
     /// take ownership.
@@ -12536,30 +12536,15 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [fate-derived-readonly] [proj-readonly] The S1 error for moving or
     /// mutating the derived variable `name` with `links` in borrow-mode.
-    fn derived_message(action: &str, name: &str, links: &[FateLink]) -> String {
+    fn derived_message(action: &str, name: &str, links: &[FateLink]) -> Message {
         let root = &links[0].root_name;
         // [proj-readonly] A wholesale projection is the root's own data seen
         // through `proj`: read-only whatever its `Mut` says, and `copy` is
         // the way to a value of one's own.
         if links.iter().any(|l| l.borrowed && !l.held) {
-            let why = if action == "mutate" {
-                " — a read-only projection never satisfies a `Mut` position \
-                 (a mutable handle is minted with `at(...)` from a container of `Mut` \
-                 elements, `List<Mut T>`)"
-            } else {
-                ""
-            };
-            return format!(
-                "cannot {action} `{name}`: it is a projection (`proj`) of `{root}`, \
-                 which can only be read{why}; use `copy({name})` for a value of your own"
-            );
+            return messages::proj_readonly_projection_use(action, &name, root);
         }
-        format!(
-            "cannot {action} `{name}`: it was bound from `{root}` and shares \
-             its fate, so it can only be read; use `copy` to make an \
-             independent value (e.g. `copy({name})`, or bind it with \
-             `copy(...)`)"
-        )
+        messages::fate_derived_readonly_shares_fate(&action, &name, root)
     }
 
     /// [deduce-syntax] Records that the enclosing fn invalidates one of

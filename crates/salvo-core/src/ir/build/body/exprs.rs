@@ -5,6 +5,7 @@ use crate::check::{ImplicitArg, UnionTest};
 use crate::param_mode::PassMode;
 use crate::types::Ty;
 use salvo_syntax::ast::{self, BinaryOp, Expr as AExpr, LambdaBody, Pattern, StrExprPart, UnaryOp};
+use salvo_syntax::messages;
 use salvo_syntax::Span;
 
 use super::Lower;
@@ -142,7 +143,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 match self.ctx.checked.fn_refs.get(&self.key(name.span)).copied() {
                     Some(k) => self.fn_value(k, name.span, span),
                     None => {
-                        self.error(span, "unresolved scoped reference");
+                        self.error(span, messages::fn_value_lower_scoped_reference());
                         unsupported(self.ty_of(span), span, "scoped reference")
                     }
                 }
@@ -345,7 +346,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             AExpr::Spread { operand, .. } => self.expr(operand),
             AExpr::SelfScoped { name, .. } => {
-                self.error(span, format!("`{}@self` as a value", name.name));
+                self.error(span, messages::actor_self_send_lower_value(&name.name));
                 unsupported(self.ty_of(span), span, "self-scoped value")
             }
             AExpr::SelfAddr { .. } => Expr { ty: self.ty_of(span), span, kind: ExprKind::SelfAddr },
@@ -426,7 +427,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             match taken.iter().position(|x| x == t) {
                 Some(i) => args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: Local(format!("__fx{i}")), steps: Vec::new() }, consume: false, moved: false } }),
                 None => {
-                    self.error(span, format!("a fn needs effect `{t}`, which the fn type it is passed as does not declare"));
+                    self.error(span, messages::fn_effects_lower_adapter_effect(t));
                     return unsupported(ty, span, "fn value adapter");
                 }
             }
@@ -456,7 +457,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         if let Some(local) = self.implicit_locals.get(&id.name).cloned() {
             return Expr { ty: self.ty_of(span), span, kind: ExprKind::FnValue(FnRef::Local(local)) };
         }
-        self.error(span, format!("unresolved identifier `{}`", id.name));
+        self.error(span, messages::ir_build_unresolved_identifier(&id.name));
         unsupported(self.ty_of(span), span, format!("ident {}", id.name))
     }
 
@@ -617,7 +618,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         match self.text_of(value, span) {
             Some(text) => text,
             None => {
-                self.error(span, format!("no `to_str` for `{ty}` in an interpolation"));
+                self.error(span, messages::interp_to_str_lower_no_to_str(&ty));
                 unsupported(Ty::named("Str"), span, "interpolation")
             }
         }
@@ -665,7 +666,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let str_ty = Ty::named("Str");
         let runtime: Vec<Ty> = value.ty.strip_quals().value_arms().into_iter().cloned().collect();
         if runtime.len() != arms.len() {
-            self.error(span, format!("the arms of `{}` do not match the text forms the checker found", value.ty));
+            self.error(span, messages::interp_union_lower_arm_mismatch(&value.ty));
             return unsupported(str_ty, span, "interpolation of a union");
         }
         let mut fns = Vec::new();
@@ -686,7 +687,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 ArmText::Native => match self.intrinsic_fn("to_str", &[arm_ty.clone()]) {
                     Some(id) => Expr { ty: fn_ty, span, kind: ExprKind::FnValue(FnRef::Decl(id)) },
                     None => {
-                        self.error(span, format!("no `to_str` for `{arm_ty}` in an interpolation"));
+                        self.error(span, messages::interp_union_lower_arm_no_to_str(&arm_ty));
                         unsupported(fn_ty, span, "interpolation")
                     }
                 },
@@ -709,7 +710,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // [effect-dispatch]
         if let Some(mc) = info.member_call.cloned() {
             let Some(interface) = self.ctx.decl_of_effect(&mc.effect) else {
-                self.error(span, format!("effect `{}` has no declaration", mc.effect));
+                self.error(span, messages::effect_dispatch_lower_no_declaration(&mc.effect));
                 return unsupported(ty, span, "member call");
             };
             let instance_ty = info.effect_call.cloned().unwrap_or_else(|| Ty::named(mc.effect.clone()));
@@ -732,7 +733,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Local(local), type_args: Vec::new(), args: a, moved: false } };
         }
         let Some(k) = info.call_fn.copied() else {
-            self.error(span, "a `for` with no call recorded for its iterator".to_string());
+            self.error(span, messages::iter_for_lower_no_call());
             return unsupported(ty, span, "for");
         };
         // Effects as values: the instances a callee declaring effects takes.
@@ -876,7 +877,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 match self.call_named(member, vec![lhs, rhs], &[], span, ty.clone()) {
                     Some(call) => call,
                     None => {
-                        self.error(span, format!("arithmetic `{op:?}` resolves to no `{member}`"));
+                        self.error(span, messages::op_arith_lower_no_member(&op, &member));
                         unsupported(ty, span, "arithmetic")
                     }
                 }
@@ -930,7 +931,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
                 let (member, call_ty) = if equality { ("eq", Ty::named("Bool")) } else { ("cmp", Ty::named("Int")) };
                 let Some(call) = self.call_named(member, vec![lhs, rhs], &[], span, call_ty) else {
-                    self.error(span, format!("comparison `{op:?}` resolves to no `{member}`"));
+                    self.error(span, messages::op_equality_lower_no_member(&op, &member));
                     return unsupported(ty, span, "comparison");
                 };
                 match op {
@@ -1025,7 +1026,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 ImplicitArg::Forwarded { name } => match self.lookup(name).map(|b| b.local.clone()).or_else(|| self.implicit_locals.get(name).cloned()) {
                     Some(l) => out.push(Expr { ty: self.lookup(&l.0).map(|b| b.ty.clone()).unwrap_or(Ty::Unknown), span: at, kind: ExprKind::FnValue(FnRef::Local(l)) }),
                     None => {
-                        self.error(at, format!("forwarded implicit `{name}` is not in scope"));
+                        self.error(at, messages::implicit_forward_lower_not_in_scope(name));
                         out.push(unsupported(Ty::Unknown, at, "forwarded implicit"));
                     }
                 },
@@ -1068,7 +1069,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     pub(crate) fn member_value(&mut self, effect: &str, index: usize, instance: &Ty, nested: &[ImplicitArg], want: &Ty, at: Span) -> Expr {
         let want = erase(want);
         let Some(interface) = self.ctx.decl_of_effect(effect) else {
-            self.error(at, format!("effect `{effect}` has no declaration"));
+            self.error(at, messages::effect_member_overload_lower_no_declaration(&effect));
             return unsupported(want, at, "member value");
         };
         let (params, ret, contract) = match want.strip_quals() {
@@ -1114,7 +1115,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         match found {
             Some((t, l)) => Expr { ty: t, span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: false, moved: false } },
             None => {
-                self.error(span, format!("no instance of `{want}` in scope"));
+                self.error(span, messages::effect_available_lower_no_instance(&want));
                 unsupported(want, span, "effect instance")
             }
         }
@@ -1220,7 +1221,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // [effect-dispatch]
         if let Some(mc) = info.member_call.cloned() {
             let Some(interface) = self.ctx.decl_of_effect(&mc.effect) else {
-                self.error(span, format!("effect `{}` has no declaration", mc.effect));
+                self.error(span, messages::effect_dispatch_lower_no_declaration(&mc.effect));
                 return Some(unsupported(ty, span, "member call"));
             };
             let instance_ty = info.effect_call.cloned().unwrap_or_else(|| Ty::named(mc.effect.clone()));
@@ -1245,7 +1246,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 .or_else(|| self.implicit_locals.get(&local_name).cloned())
                 .or_else(|| self.lookup(name).map(|b| b.local.clone()));
             let Some(local) = local else {
-                self.error(span, format!("call through unknown local `{name}`"));
+                self.error(span, messages::call_resolve_lower_unknown_local(&name));
                 return Some(unsupported(ty, span, "local call"));
             };
             // [fn-effects] the effects the fn value performs are its leading
@@ -1566,7 +1567,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     spread_ast.push(e);
                 }
                 ast::StructLitFieldKind::InlineFor { .. } => {
-                    self.error(f.span, "comptime inline-for survived expansion");
+                    self.error(f.span, messages::comptime_inline_lower_unexpanded());
                 }
             }
         }
@@ -1835,7 +1836,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     fn qual_fn_call(&mut self, check: &crate::check::PredicateCheck, subject: Expr, span: Span, member: &str, ret: Ty) -> Expr {
         let bool_ty = ret;
         let Some(target) = self.qual_fn_ref(&check.name, &subject.ty, member) else {
-            self.error(span, format!("qualifier `{}` has no `{member}`", check.name));
+            self.error(span, messages::qual_whynot_lower_no_member(&check.name, &member));
             return unsupported(bool_ty, span, member.to_string());
         };
         // [is-qualifies-effects] the effects a `qualifies` performs lead.
@@ -3176,7 +3177,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             Expr { ty: Ty::Named { name: crate::ir::build::actors::route_key(&effect, &module), args: Vec::new() }, span, kind: ExprKind::Construct { fields } }
         });
         let Some(construct) = route.or_else(|| self.construct_handler(handler, &deps, &items, with_items, span)) else {
-            self.error(span, "`use` of something that is not a handler construction");
+            self.error(span, messages::effect_use_lower_not_construction());
             return (vec![Stmt::Expr(unsupported(Ty::Unknown, span, "use"))], Vec::new());
         };
         let handler_ty = construct.ty.clone();

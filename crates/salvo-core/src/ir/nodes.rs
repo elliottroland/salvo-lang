@@ -394,7 +394,8 @@ pub struct DerivedUseAt {
     /// The local, as the IR names it.
     pub local: String,
     pub action: String,
-    pub message: String,
+    /// [diag-id] The S1 error, with its id.
+    pub message: salvo_syntax::messages::Message,
     /// Where the checker placed the use: where the S1 error points.
     pub at: Span,
     /// The bindings the local's own links were made by (the checker's, at

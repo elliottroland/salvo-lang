@@ -29,6 +29,8 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
+use salvo_syntax::messages::{self, Message};
+
 use super::nodes::*;
 
 /// A diagnostic from the IR-level check: a span and a message, matching the
@@ -36,12 +38,21 @@ use super::nodes::*;
 pub struct IrDiagnostic {
     pub span: Span,
     pub message: String,
+    /// [diag-id] The message's id.
+    pub id: &'static str,
     /// The leaked linear type's name, if known — so the gate (`ir::analyze`)
     /// can name its dischargers in the remedy ("discharge it with `drain`").
     pub discharge_type: Option<String>,
     /// A path-exit leak, as opposed to a flow rule (consumed on some paths
     /// only, an assignment that drops a value).
     pub leak: bool,
+}
+
+impl IrDiagnostic {
+    /// A flow-rule diagnostic (not a leak) at `span` saying `message`.
+    fn flow_rule(span: Span, message: Message) -> Self {
+        IrDiagnostic { span, message: message.text, id: message.id, discharge_type: None, leak: false }
+    }
 }
 
 /// Check every fn body in `program`, returning one diagnostic per leaked
@@ -254,14 +265,7 @@ fn walk_block(block: &Block, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnos
                         let key = place_key(place);
                         if owed.remove(&key).is_some() && !key.starts_with("__") {
                             let x = written_name(&key);
-                            out.push(IrDiagnostic {
-                                span: *at,
-                                message: format!(
-                                    "assigning to `{x}` drops the linear value it still owns; move it onward or `discard({x})` first"
-                                ),
-                                discharge_type: None,
-                                leak: false,
-                            });
+                            out.push(IrDiagnostic::flow_rule(*at, messages::linear_obligation_assign_drops(&x)));
                         }
                     }
                 }
@@ -436,7 +440,7 @@ fn walk_expr(e: &Expr, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnostic>) 
             if !ctx.in_try {
                 if let ExprKind::Call { target: FnRef::Decl(id), .. } = &e.kind {
                     if ctx.throws.get(id).copied().unwrap_or(false) {
-                        report_all_msg(owed, out, e.span, "across a call that may throw: the code after it does not run on the throw path, so release it before the call, or move it onward so the obligation travels with it");
+                        report_all_msg(owed, out, e.span, messages::ir_linear_check_leak_across_throw);
                     }
                 }
             }
@@ -628,14 +632,7 @@ fn join_paths(base: &Owed, falls: Vec<Owed>, span: Span, ctx: &Ctx, out: &mut Ve
     names.sort();
     names.dedup();
     for name in names {
-        out.push(IrDiagnostic {
-            span,
-            message: format!(
-                "`{name}` owns a linear value that is consumed on some paths but not others; discharge or move it on every path"
-            ),
-            discharge_type: None,
-            leak: false,
-        });
+        out.push(IrDiagnostic::flow_rule(span, messages::linear_obligation_some_paths(&name)));
     }
     joined
 }
@@ -650,16 +647,16 @@ fn written_name(key: &str) -> &str {
 
 fn report_all(owed: &Owed, out: &mut Vec<IrDiagnostic>, _at: Span) {
     for (place, o) in owed {
-        report_one(place, o, out, "when the path leaves; move it onward (pass, return, or store it) or discharge it");
+        report_one(place, o, out, messages::ir_linear_check_leak_at_exit);
     }
 }
 
 /// Report every outstanding obligation at a conditional leave (a throwing
 /// call), with a context phrase. The obligation stays owed on the normal
 /// (non-throw) path, so the caller does not clear the set.
-fn report_all_msg(owed: &Owed, out: &mut Vec<IrDiagnostic>, _at: Span, tail: &str) {
+fn report_all_msg(owed: &Owed, out: &mut Vec<IrDiagnostic>, _at: Span, leak: LeakMessage) {
     for (place, o) in owed {
-        report_one(place, o, out, tail);
+        report_one(place, o, out, leak);
     }
 }
 
@@ -670,17 +667,21 @@ fn report_since(owed: &Owed, base: Option<&Owed>, out: &mut Vec<IrDiagnostic>, _
     for (place, o) in owed {
         let inherited = base.is_some_and(|b| b.contains_key(place));
         if !inherited {
-            report_one(place, o, out, "when the path leaves; move it onward (pass, return, or store it) or discharge it");
+            report_one(place, o, out, messages::ir_linear_check_leak_at_exit);
         }
     }
 }
 
-fn report_one(place: &str, o: &Outstanding, out: &mut Vec<IrDiagnostic>, tail: &str) {
+/// [diag-id] A leak's message, given the subject and its live linear arms
+/// (`messages::ir_linear_check_leak_at_exit`, `…_across_throw`).
+type LeakMessage = fn(&dyn std::fmt::Display, &dyn std::fmt::Display) -> Message;
+
+fn report_one(place: &str, o: &Outstanding, out: &mut Vec<IrDiagnostic>, leak: LeakMessage) {
     // A synthetic local (a desugaring temporary like `__pick~1`) has no
     // user-facing name; describe it as the value rather than exposing the
     // internal name.
     let subject = if place.starts_with("__") { "this value".to_string() } else { format!("`{place}`") };
-    let value = match &o.arms {
+    let arms = match &o.arms {
         Some(arms) if !arms.is_empty() => {
             // Name each live linear arm by its type (`the `Checked<FsError>`
             // arm`) rather than a bare index, falling back to the index only
@@ -692,11 +693,12 @@ fn report_one(place: &str, o: &Outstanding, out: &mut Vec<IrDiagnostic>, tail: &
                     None => format!("arm {i}"),
                 })
                 .collect();
-            format!("{subject} still owns a linear value ({})", a.join(", "))
+            format!(" ({})", a.join(", "))
         }
-        _ => format!("{subject} still owns a linear value"),
+        _ => String::new(),
     };
-    out.push(IrDiagnostic { span: o.span, message: format!("{value} {tail}"), discharge_type: o.ty_name.clone(), leak: true });
+    let message = leak(&subject, &arms);
+    out.push(IrDiagnostic { span: o.span, message: message.text, id: message.id, discharge_type: o.ty_name.clone(), leak: true });
 }
 
 /// If `cond` is a negated arm-test `!(subject is arm k)`, the subject's place

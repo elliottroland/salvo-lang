@@ -434,16 +434,22 @@ fn the_gate_reports_what_the_flow_pass_finds() {
                 // [fate-poison] The two-site messages: the root and its
                 // event, or the binding that took ownership.
                 match &d.poison {
-                    Some(salvo_core::ir::flow::PoisonUse::Shared { root, event }) => assert!(
-                        d.message.contains(&format!("it was bound from `{root}` and shares its fate, and `{root}` was {event} after the binding")),
-                        "{}",
-                        d.message
-                    ),
-                    Some(salvo_core::ir::flow::PoisonUse::BoundAway { binding }) => assert!(
-                        d.message.contains(&format!("`{binding}` was bound from it and later moves the value, so the binding took ownership")),
-                        "{}",
-                        d.message
-                    ),
+                    Some(salvo_core::ir::flow::PoisonUse::Shared { root, event }) => {
+                        assert!(
+                            d.message.contains(&format!("it was bound from `{root}` and shares its fate, and `{root}` was {event} after the binding")),
+                            "{}",
+                            d.message
+                        );
+                        assert_eq!(d.id, "fate-poison:shared-root");
+                    }
+                    Some(salvo_core::ir::flow::PoisonUse::BoundAway { binding }) => {
+                        assert!(
+                            d.message.contains(&format!("`{binding}` was bound from it and later moves the value, so the binding took ownership")),
+                            "{}",
+                            d.message
+                        );
+                        assert_eq!(d.id, "fate-move-mode:bound-away");
+                    }
                     None => {}
                 }
                 flow.entry(file).or_default().insert(d.span.start);
@@ -468,6 +474,14 @@ fn the_gate_reports_what_the_flow_pass_finds() {
                 || d.message.contains("` was bound from it at line ") && d.message.contains("so the binding took ownership")
                 || d.message.contains("and shares its fate, so it can only be read"),
             "the gate names the move: {}",
+            d.message
+        );
+        // [diag-id] The gate keeps the flow pass's id.
+        let flow_labels = ["flow-use-after-move", "fate-partial-move", "fate-poison", "fate-move-mode", "fate-derived-readonly", "proj-readonly"];
+        assert!(
+            d.id.and_then(|id| id.split_once(':')).is_some_and(|(label, _)| flow_labels.contains(&label)),
+            "{:?}: {}",
+            d.id,
             d.message
         );
         gate.entry(d.file).or_default().insert(d.span.start);

@@ -144,6 +144,22 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — The IR passes' diagnostics have ids (TESTS.md T2, step 3b part 4)
+
+**32 more messages, under `// ===== ir =====`**: the flow pass's uses after
+a move, partial moves, poisoned reads, state holes and the read-only (S1)
+error; the linear check's leaks (at a path's exit, across a throw) and its
+flow rules; and the IR builder's `Lower::error` refusals, named
+`<label>:lower-…` so they never collide with the checker's ids for the same
+rule. `FlowDiagnostic` and `IrDiagnostic` carry an `id` beside their text;
+`FlowDiagnostic::render` returns a `Message`; the checker's `derived_message`
+does too, so the read-only id reaches the flow pass; `ir::analyze` keeps the
+id through the origin prefix and the "discharge it with `drain`" remedy. The
+builder's errors stay strings (`Diagnostics::errors`, returned by the
+backends as codegen errors) until part 5. No IR text cited a rule, so no text
+changed; `flow_tests` and `ir_linear_tests` now also assert ids, which checks
+that they survive into `FileDiagnostic`.
+
 ### 2026-10-28 — The checker's diagnostics have ids (TESTS.md T2, step 3b part 3)
 
 **All 543 of check.rs's messages moved into `salvo_syntax::messages`**

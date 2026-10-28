@@ -125,6 +125,8 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use salvo_syntax::messages::{self, Message};
+
 use super::nodes::*;
 use crate::check::{FlowLink, FlowMutation};
 
@@ -133,6 +135,8 @@ use crate::check::{FlowLink, FlowMutation};
 pub struct FlowDiagnostic {
     pub span: Span,
     pub message: String,
+    /// [diag-id] The message's id: `render` keeps it.
+    pub id: &'static str,
     /// The local as written (`x`, not the builder's `x~2`).
     pub local: String,
     /// The move this read comes after.
@@ -184,22 +188,25 @@ pub struct PartUse {
 impl FlowDiagnostic {
     /// The message a gate shows, naming where the move was: `content` is
     /// the source of the file the diagnostic is in (a move is always in the
-    /// same declaration as its use).
-    pub fn render(&self, content: &str) -> String {
+    /// same declaration as its use). [diag-id] Its id is the diagnostic's.
+    pub fn render(&self, content: &str) -> Message {
         if self.hole.is_some() || self.readonly {
-            return self.message.clone();
+            return Message { id: self.id, text: self.message.clone() };
         }
         let (line, _) = salvo_syntax::span::span_line_col(content, self.moved_at);
         if let Some(p) = &self.poison {
             return poison_message(&self.local, p, &format!(" at line {line}"));
         }
         match &self.part {
-            None => format!(
-                "`{}` cannot be used here: it was consumed (moved) at line {line}; reassign it before use, or `copy` it where it is moved",
-                self.local
-            ),
+            None => messages::flow_use_after_move_consumed(&self.local, Some(&line)),
             Some(p) => part_message(&self.local, p, &format!(" at line {line}")),
         }
+    }
+
+    /// A diagnostic at `span` saying `message`, about `local`, after the
+    /// move at `moved_at`; nothing else set.
+    fn new(span: Span, message: Message, local: String, moved_at: Span) -> Self {
+        FlowDiagnostic { span, message: message.text, id: message.id, local, moved_at, part: None, poison: None, hole: None, readonly: false }
     }
 }
 
@@ -207,42 +214,23 @@ impl FlowDiagnostic {
 /// value (move the rest individually, or `copy` at the move) and a place
 /// overlapping the moved one. `at` names the move (" at line 3"), or is
 /// empty.
-fn part_message(root: &str, p: &PartUse, at: &str) -> String {
-    let moved = &p.moved;
+fn part_message(root: &str, p: &PartUse, at: &str) -> Message {
     if p.write {
-        format!(
-            "`{}` cannot be assigned here: `{moved}` was moved out of `{root}`{at}, and this writes into it; \
-             assign `{moved}` as a whole to put it back, or `copy` at the site that moved it",
-            p.place
-        )
+        messages::flow_use_after_move_write_into_moved(&p.place, &p.moved, &root, &at)
     } else if p.whole {
-        format!(
-            "`{root}` cannot be used as a whole here: `{moved}` was moved out of it{at}, so part of the value is gone; \
-             move the remaining parts individually, or `copy` at the site that moved `{moved}`"
-        )
+        messages::fate_partial_move_whole_use(&root, &p.moved, &at)
     } else {
-        format!(
-            "`{}` cannot be used here: `{moved}` was moved out of `{root}`{at}, and this reads the same data; \
-             `copy` at the site that moved it to keep this readable",
-            p.place
-        )
+        messages::fate_partial_move_overlapping_use(&p.place, &p.moved, &root, &at)
     }
 }
 
 /// [fate-poison] [fate-move-mode] The two shapes of a poisoned read: a
 /// derived value whose root an event ended, and a root a move-mode binding
 /// took. `at` names the event or the binding (" at line 3"), or is empty.
-fn poison_message(x: &str, p: &PoisonUse, at: &str) -> String {
+fn poison_message(x: &str, p: &PoisonUse, at: &str) -> Message {
     match p {
-        PoisonUse::BoundAway { binding } => format!(
-            "`{x}` cannot be used here: `{binding}` was bound from it{at} and later moves the value, so the binding \
-             took ownership; bind with `copy(...)` (e.g. `let {binding} = copy(...)`) to keep `{x}` usable, or \
-             reassign it before use"
-        ),
-        PoisonUse::Shared { root, event } => format!(
-            "`{x}` cannot be used here: it was bound from `{root}` and shares its fate, and `{root}` was {event}{at} \
-             after the binding; bind it with `copy(...)` to keep an independent value, or reassign it before use"
-        ),
+        PoisonUse::BoundAway { binding } => messages::fate_move_mode_bound_away(&x, binding, &at),
+        PoisonUse::Shared { root, event } => messages::fate_poison_shared_root(&x, root, event, &at),
     }
 }
 
@@ -588,9 +576,9 @@ impl<'f> Walker<'f> {
         };
         let message = match &poison {
             Some(p) => poison_message(&written, p, ""),
-            None => format!("`{written}` cannot be used here: it was consumed (moved) earlier; reassign it before use"),
+            None => messages::flow_use_after_move_consumed(&written, None),
         };
-        self.out.push(FlowDiagnostic { span, message, local: written, moved_at: gone.span, part: None, poison, hole: None, readonly: false });
+        self.out.push(FlowDiagnostic { poison, ..FlowDiagnostic::new(span, message, written, gone.span) });
         true
     }
 
@@ -636,7 +624,8 @@ impl<'f> Walker<'f> {
             return;
         }
         let part = PartUse { place: show_place(&written, &path), moved: show_place(&written, &gone), whole: path.is_empty(), write: false };
-        self.out.push(FlowDiagnostic { span, message: part_message(&written, &part, ""), local: written, moved_at, part: Some(part), poison: None, hole: None, readonly: false });
+        let message = part_message(&written, &part, "");
+        self.out.push(FlowDiagnostic { part: Some(part), ..FlowDiagnostic::new(span, message, written, moved_at) });
     }
 
     /// [flow-use-after-move] An assignment into `steps` of `local` (a
@@ -661,7 +650,8 @@ impl<'f> Walker<'f> {
             return;
         }
         let part = PartUse { place: show_place(&written, &path), moved: show_place(&written, &gone), whole: false, write: true };
-        self.out.push(FlowDiagnostic { span, message: part_message(&written, &part, ""), local: written, moved_at, part: Some(part), poison: None, hole: None, readonly: false });
+        let message = part_message(&written, &part, "");
+        self.out.push(FlowDiagnostic { part: Some(part), ..FlowDiagnostic::new(span, message, written, moved_at) });
     }
 
     /// [fate-partial-move] A consuming read of a projection moves that
@@ -818,7 +808,7 @@ impl<'f> Walker<'f> {
             self.refused.insert(span);
             if self.reported.insert(u.at) {
                 let local = written_name(&u.local).to_string();
-                self.out.push(FlowDiagnostic { span: u.at, message: u.message.clone(), local, moved_at: u.at, part: None, poison: None, hole: None, readonly: true });
+                self.out.push(FlowDiagnostic { readonly: true, ..FlowDiagnostic::new(u.at, u.message.clone(), local, u.at) });
             }
         }
         refused
@@ -1094,12 +1084,8 @@ impl<'f> Walker<'f> {
             if !self.holes.insert((span, name.clone())) {
                 continue;
             }
-            let message = format!(
-                "cannot {what}: the state field `{name}` was moved out of and nothing was put back, so this \
-                 activation would leave the handler with a hole — assign it a value first (`{name} = …`), since \
-                 the obligations an actor holds must survive between activations"
-            );
-            self.out.push(FlowDiagnostic { span, message, local: name.clone(), moved_at: span, part: None, poison: None, hole: Some(what), readonly: false });
+            let message = messages::linear_state_hole(&what, name);
+            self.out.push(FlowDiagnostic { hole: Some(what), ..FlowDiagnostic::new(span, message, name.clone(), span) });
         }
     }
 
@@ -1114,10 +1100,8 @@ impl<'f> Walker<'f> {
         if !self.holes.insert((span, local.to_string())) {
             return;
         }
-        let message = format!(
-            "assigning to `{local}` drops the linear value it still owns; move it onward or `discard({local})` first"
-        );
-        self.out.push(FlowDiagnostic { span, message, local: local.to_string(), moved_at: span, part: None, poison: None, hole: Some("assign"), readonly: false });
+        let message = messages::linear_obligation_assign_drops(&local);
+        self.out.push(FlowDiagnostic { hole: Some("assign"), ..FlowDiagnostic::new(span, message, local.to_string(), span) });
     }
 
     /// Whether `because` is a test of `local` itself, made where the

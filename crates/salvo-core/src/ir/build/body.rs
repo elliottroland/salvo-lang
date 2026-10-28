@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use crate::types::Ty;
 use crate::DeclId;
 use salvo_syntax::ast::{self, Expr as AExpr, Pattern, Stmt as AStmt};
+use salvo_syntax::messages::{self, Message};
 use salvo_syntax::Span;
 
 use super::{erase, unsupported, Ctx};
@@ -110,8 +111,10 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.errors
     }
 
-    pub(crate) fn error(&mut self, span: Span, msg: impl Into<String>) {
-        self.errors.push(format!("{}: {}", span.start, msg.into()));
+    /// [ir-build] What the builder could not lower. [diag-id] Its text only:
+    /// the builder's errors are strings, as the backends report them.
+    pub(crate) fn error(&mut self, span: Span, msg: Message) {
+        self.errors.push(format!("{}: {}", span.start, msg.text));
     }
 
     pub(crate) fn id(&mut self) -> NodeId {
@@ -384,7 +387,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     Some(place) => vec![Stmt::Assign { place, value: v }],
                     None => {
                         let span = target.span();
-                        self.error(span, "assignment to a non-place");
+                        self.error(span, messages::op_assign_lower_non_place());
                         vec![Stmt::Expr(unsupported(Ty::Unknown, span, "assign to non-place"))]
                     }
                 }
