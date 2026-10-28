@@ -1,5 +1,5 @@
 // Comparison, equality and hashing — the three capabilities, declared the
-// way iteration is declared: as **params groups** [implicit-group], not as
+// way iteration is declared: as **fns groups** [implicit-group], not as
 // traits (user decisions 2026-09-21, the ordering round).
 //
 // [cmp-groups] A capability is "a function of this shape is in scope", and
@@ -27,14 +27,14 @@
 // The ordering capability: one function, answering the sign of `a` against
 // `b`. A structure that *holds* an ordering (a `SortedSet`, a heap) binds one
 // at construction rather than resolving one per operation.
-export params Ordered<T> {
+export fns Ordered<T> {
     fn cmp(a: T, b: T) -> Int
 }
 
 // The equality capability: one function, deciding whether two values are the
 // same. A struct with a fn-typed field — which nothing can compare
 // structurally — becomes comparable by declaring an `eq` that ignores it.
-export params Eq<T> {
+export fns Eq<T> {
     fn eq(a: T, b: T) -> Bool
 }
 
@@ -58,7 +58,7 @@ export params Eq<T> {
 // (user decision 2026-09-26).
 //
 // `Ordered` needs no such clause: one member cannot disagree with itself.
-export params Hashed<T> => eq with hash {
+export fns Hashed<T> => eq with hash {
     fn hash(value: T) -> Long
     fn eq(a: T, b: T) -> Bool
 }

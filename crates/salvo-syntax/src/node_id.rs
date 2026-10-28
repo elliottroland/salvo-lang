@@ -99,10 +99,10 @@ pub fn number(module: &mut Module) {
                 }
                 q.fns = fns;
             }
-            Item::Params(g) => {
+            Item::Fns(g) => {
                 let mut fns = std::mem::take(&mut g.fns);
                 run(&mut n, 0, &mut |n| {
-                    let ParamsDecl { docs: _, exported: _, name, generics, fns: _, deductions, span } = g;
+                    let FnsDecl { docs: _, exported: _, name, generics, fns: _, deductions, span } = g;
                     n.visit_span(span);
                     n.visit_ident(name);
                     for g in generics {
@@ -543,7 +543,7 @@ fn namespace(n: &mut Numberer, ns: &mut NamespaceDecl) {
                     fn_decl(n, f);
                 }
             }
-            Item::Params(g) => {
+            Item::Fns(g) => {
                 for f in &mut g.fns {
                     fn_decl(n, f);
                 }

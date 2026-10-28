@@ -412,7 +412,7 @@ pub enum PassMember {
     /// [implicit-group] [iter-generic-drive] An **implicit parameter** of the
     /// enclosing fn. The subject's type is one of its type parameters, so there
     /// is no declaration to resolve against: the member came in through a
-    /// `?Yield<It, T>` (or `?Linear<It>`) spread and is called by that name.
+    /// `?Next<It, T>` (or `?Linear<It>`) spread and is called by that name.
     Implicit(String),
 }
 
@@ -1412,7 +1412,7 @@ pub struct ImplicitParam {
     /// Where it was written: the parameter, or the `?Group<T>` spread.
     pub span: Span,
     /// [proj-anywhere] Which union arms of the member's *written* return
-    /// type carry `proj` — a borrow the lowered `Ty` no longer shows. `Yield`'s
+    /// type carry `proj` — a borrow the lowered `Ty` no longer shows. `Next`'s
     /// `next` has `[0]`: `Emitted (proj(it) T) | Finished`. A backend
     /// that distinguishes borrows from values (Rust) renders those arms as
     /// references. Empty for a non-union return or a plain implicit.
@@ -1433,7 +1433,7 @@ pub struct ImplicitParam {
     /// [implicit-with] The index of the **fill-together component** this
     /// parameter belongs to, `None` when nothing binds it. A `with` entry —
     /// on the fn (`=> eq with hash`) or on a group it spreads
-    /// (`params Hashed<T> => eq with hash`) — puts its members in one
+    /// (`fns Hashed<T> => eq with hash`) — puts its members in one
     /// component, and a call must fill every member of a component from the
     /// *same source* (user decision 2026-09-26). Symmetric and transitive, so
     /// the components are the connected classes of the declared pairs.
@@ -4839,16 +4839,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [implicit-group] A group's members are signatures for
                 // *parameters*, validated as declaration sites like an
                 // effect's. No body.
-                Item::Params(g) if iface => {
+                Item::Fns(g) if iface => {
                     let saved = self.enter_generics(&g.generics);
                     for f in &g.fns {
-                        self.reject_implicits(f, "a `params` group member");
+                        self.reject_implicits(f, "a `fns` group member");
                         if f.body.is_some() {
                             self.error(
                                 f.name.span,
                                 format!(
                                     "`{}.{}` is a signature, not an \
-                                     implementation: a `params` group \
+                                     implementation: a `fns` group \
                                      declares what a caller must supply, and \
                                      the default comes from a matching top- \
                                      level fn",
@@ -5007,7 +5007,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [group-obligation] `struct X<G> : Group<Args> …` — every obligation
-    /// names a visible `params` group with the right arity, and every
+    /// names a visible `fns` group with the right arity, and every
     /// member of that group must be satisfied by a visible fn overload with
     /// `Self` bound to this declaration [group-self]. Checked *here*, at
     /// the struct, so a misspelled or missing member surfaces where the
@@ -5141,12 +5141,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             // (`: Linear<self>`) points at the group's declaration, so hover
             // and go-to-definition reach it like any other reference.
             self.record_def_ref(ob.name.span, &ob.name.name);
-            let Some(group) = scope.param_groups.get(ob.name.name.as_str()).copied() else {
+            let Some(group) = scope.fn_groups.get(ob.name.name.as_str()).copied() else {
                 // A name that exists as something else is a position
                 // mistake, not a missing declaration: say which.
                 let hint = if self.type_name_exists(&ob.name.name) {
                     format!(
-                        " (`{}` is a type; an obligation names a `params` group)",
+                        " (`{}` is a type; an obligation names a `fns` group)",
                         ob.name.name
                     )
                 } else if self.qual_name_exists(&ob.name.name) {
@@ -5161,7 +5161,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let name = ob.name.name.clone();
                 self.error_unresolved(
                     ob.span,
-                    format!("unknown `params` group `{name}`{hint}"),
+                    format!("unknown `fns` group `{name}`{hint}"),
                     &name,
                 );
                 continue;
@@ -5244,16 +5244,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .zip(args)
                 .collect();
             let bound: HashSet<String> = group.generics.iter().map(|p| p.name.clone()).collect();
-            // [iter-group] `: Iter<self, It, T>` beside `: Yield<self, T>` gives
+            // [iter-group] `: Iter<self, It, T>` beside `: Next<self, T>` gives
             // `for x in s` two answers — drive `s`, or mint from it — so the
             // pair is refused; a type is a source or an iterator struct.
             if group.name.name == "Iter"
-                && obligations.iter().any(|p| p.group.name.name == "Yield")
+                && obligations.iter().any(|p| p.group.name.name == "Next")
             {
                 self.error(
                     ob.span,
                     format!(
-                        "`{}` declares both `: {}` and `: Yield`: a type is either a \
+                        "`{}` declares both `: {}` and `: Next`: a type is either a \
                          source (`{}` mints an iterator from it) or an iterator struct \
                          (`next` advances it), not both — `for x in {}` would have two \
                          answers",
@@ -5269,9 +5269,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let expected = substitute_vars(&member_ty, &subst, &bound);
                 // [yield-proj] Which borrowness this member's filler must
                 // deliver: a `proj` on an argument the member's return
-                // mentions (`Yield<self, proj T>`'s `next`). Checked only on a
+                // mentions (`Next<self, proj T>`'s `next`). Checked only on a
                 // member over `self` — `Iter`'s `next` is over the iterator
-                // struct, whose own `: Yield` obligation answers it.
+                // struct, whose own `: Next` obligation answers it.
                 let self_generic = group
                     .generics
                     .iter()
@@ -5301,7 +5301,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let mut rev = HashMap::new();
                         // [yield-proj] A member not over `self` (`Iter`'s
                         // `next`) reads its element's borrowness off the
-                        // iterator struct's own `: Yield`, so a walking
+                        // iterator struct's own `: Next`, so a walking
                         // iterator's `Emitted (proj(p) T)` fills `Emitted T`.
                         let (expected_m, candidate) = if over_self {
                             (expected.clone(), candidate)
@@ -5315,7 +5315,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // promises borrowed elements, which the member's
                             // written return must deliver — and vice versa:
                             // a `next` emitting `proj` under a plain
-                            // `Yield<self, T>` would hand a borrow to callers
+                            // `Next<self, T>` would hand a borrow to callers
                             // expecting to own it.
                             let member_proj = e
                                 .decl
@@ -6198,7 +6198,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 g.span,
                 format!(
-                    "{what} cannot spread a `params` group: only a fn \
+                    "{what} cannot spread a `fns` group: only a fn \
                      declaration has a call site that resolves one"
                 ),
             );
@@ -6273,11 +6273,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             });
         }
         for g in &f.implicit_groups {
-            let Some(group) = self.scope.param_groups.get(g.name.name.as_str()).copied() else {
+            let Some(group) = self.scope.fn_groups.get(g.name.name.as_str()).copied() else {
                 self.error(
                     g.span,
                     format!(
-                        "no `params` group named `{}` is in scope: `?{}` spreads a \
+                        "no `fns` group named `{}` is in scope: `?{}` spreads a \
                          group's members as implicit parameters",
                         g.name.name, g.name.name
                     ),
@@ -6317,7 +6317,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let ty = self.member_fn_ty(member);
                 self.generics = saved;
                 let ty = substitute_vars(&ty, &subst, &group_generics);
-                // [yield-proj] `?Yield<It, proj T>`: a `proj` on a spread
+                // [yield-proj] `?Next<It, proj T>`: a `proj` on a spread
                 // argument marks the arms of the member's return that mention
                 // that generic as borrows — the caller requires a pass that
                 // *walks* data. The member's own return may mark arms too.
@@ -6477,7 +6477,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Two sources, unioned — a function may *add* pairs and never remove them:
     ///
     ///  * the fn's own clause (`=> eq with hash`), and
-    ///  * the clause of every `params` group it **spreads**, because spreading a
+    ///  * the clause of every `fns` group it **spreads**, because spreading a
     ///    group opts into its deductions along with its members. Declaring the
     ///    same functions *individually* is therefore how a signature takes them
     ///    unbound, which is what makes "never remove" cost nothing.
@@ -6507,7 +6507,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             collect(own, &mut edges);
         }
         for g in &f.implicit_groups {
-            if let Some(group) = self.scope.param_groups.get(g.name.name.as_str()).copied() {
+            if let Some(group) = self.scope.fn_groups.get(g.name.name.as_str()).copied() {
                 collect(&group.deductions, &mut edges);
             }
         }
@@ -6827,7 +6827,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         Err(best.unwrap_or_else(|| (2, format!("`{name}` does not fit `{want}`"))))
     }
 
-    /// The fn type of a `params` group member (or any bodiless signature),
+    /// The fn type of a `fns` group member (or any bodiless signature),
     /// as a value of that type would have.
     fn member_fn_ty(&mut self, member: &'p FnDecl) -> Ty {
         let params: Vec<Ty> = member
@@ -6845,7 +6845,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // it every parameter read as kept-and-immutable, so a member
         // declared `fn next(it: Mut It) -> [it: Mut] …` could not be filled
         // by any implementation — the supplied fn mutates, the position
-        // (silently) did not permit it. That is `params Yield`'s shape, so
+        // (silently) did not permit it. That is `fns Next`'s shape, so
         // the whole composition rendering depended on this.
         let facts: Option<Vec<crate::deduce::ParamDeduction>> = member
             .deductions
@@ -9484,12 +9484,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// its callee's **implicit parameters** determine (user design 2026-09-06,
     /// built with S-Seq).
     ///
-    /// `params Yield<It, T> { fn next(it: Mut It) -> [it: Mut] Emitted T |
+    /// `fns Next<It, T> { fn next(it: Mut It) -> [it: Mut] Emitted T |
     /// Finished }` is how Salvo says "anything iterable": `map<It, T, U>(it:
-    /// Mut It, f: (T) -> U, ?Yield<It, T>)` binds `It` from its first
+    /// Mut It, f: (T) -> U, ?Next<It, T>)` binds `It` from its first
     /// argument, and `T` is determined by *which `next` fills the implicit* —
-    /// resolving it at `(Mut ListYield<Int>) -> Emitted T | Finished` finds
-    /// std's `next(Mut ListYield<T'>)` and reads `T = Int` back off it.
+    /// resolving it at `(Mut ListNext<Int>) -> Emitted T | Finished` finds
+    /// std's `next(Mut ListNext<T'>)` and reads `T = Int` back off it.
     /// Without this step the lambda would be
     /// typed against an unbound `T`, and `U` would be undeterminable
     /// [call-type-args] — the generic half of a sequence function would only
@@ -9514,7 +9514,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         // [implicit-infer] Repeated until it stops learning, because one
         // implicit can determine another's type: `?iter: (c: C) -> Mut It`
-        // teaches `It`, which is what makes the `?Yield<It, T>` beside it
+        // teaches `It`, which is what makes the `?Next<It, T>` beside it
         // resolvable at all (user decision 2026-09-10). Declaration order is
         // therefore not a constraint on the author, and the cap is the number of
         // implicits — each round has to bind at least one variable to continue.
@@ -10459,7 +10459,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `ir::check`) [ir-analyze].
         self.locals.pop();
         // [fn-must-return] A fn with a non-`None` return type must return
-        // on every path. Yield-based iterator fns are exempt: their body
+        // on every path. Next-based iterator fns are exempt: their body
         // produces elements, not a return value.
         if !self.ret_ty.is_none_ty()
             && !matches!(self.ret_ty, Ty::Unknown)
@@ -19093,7 +19093,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // whoever fills the slot, so the signature cannot see whether it holds
         // a borrow, and one Rust signature has to serve every filling. A
         // *concrete* return says for itself (`-> Mut List<T>` holds nothing;
-        // `-> Mut ListYield<T>` is a named borrowing type the emitter already
+        // `-> Mut ListNext<T>` is a named borrowing type the emitter already
         // ties), so nothing is inferred there and no existing signature
         // changes meaning.
         let infer_lends = matches!(ret.as_ref(), ast::Type::Named { qualifiers, base, .. }
@@ -19516,7 +19516,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [cmp-carry] Validates a declaration's **slot list**: every written slot's
-    /// type resolves, a group spread names a visible `params` group, two slots of
+    /// type resolves, a group spread names a visible `fns` group, two slots of
     /// one name at one type are merged (so only a clash at two *types* is
     /// reported), and a `= default` names a fn that exists.
     ///
@@ -19540,7 +19540,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.record_def_ref(spread.name.span, &spread.name.name);
                     let Some(group) = self
                         .scope
-                        .param_groups
+                        .fn_groups
                         .get(spread.name.name.as_str())
                         .copied()
                     else {
@@ -19548,7 +19548,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.error_unresolved(
                             spread.span,
                             format!(
-                                "no `params` group named `{name}` is in scope: `?{name}` \
+                                "no `fns` group named `{name}` is in scope: `?{name}` \
                                  spreads a group's members as function slots"
                             ),
                             &name,
@@ -19688,7 +19688,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ast::SlotDecl::Group(spread) => {
                     let Some(group) = self
                         .scope
-                        .param_groups
+                        .fn_groups
                         .get(spread.name.name.as_str())
                         .copied()
                     else {
@@ -20261,11 +20261,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         if name == "Any" && base.args.is_empty() {
             return Ty::Any;
         }
-        // [group-not-a-value] A `params` group is not a type; the refusal is
+        // [group-not-a-value] A `fns` group is not a type; the refusal is
         // `reject_group_as_data`'s (validation), and the *lowering* is
         // `Unknown` so the one mistake does not cascade into type-mismatch
         // errors at every use of the annotated value [type-unknown-lenient].
-        if !self.type_name_exists(name) && self.scope.param_groups.contains_key(name) {
+        if !self.type_name_exists(name) && self.scope.fn_groups.contains_key(name) {
             return Ty::Unknown;
         }
         // [eff-handle] [effect-alias] An alias among an `eff[…]` handle's
@@ -20590,16 +20590,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         if known {
             return;
         }
-        // A `params` group in type position is a *position* mistake with its
+        // A `fns` group in type position is a *position* mistake with its
         // own diagnostic [group-not-a-value] (`reject_group_as_data`); an
         // "unknown type" here would be a second report of the same error.
-        if !expect_qual && self.scope.param_groups.contains_key(name) {
+        if !expect_qual && self.scope.fn_groups.contains_key(name) {
             return;
         }
-        // A `params` group in type position is a *position* mistake with its
+        // A `fns` group in type position is a *position* mistake with its
         // own diagnostic [group-not-a-value] (`reject_group_as_data`); an
         // "unknown type" here would be a second report of the same error.
-        if !expect_qual && self.scope.param_groups.contains_key(name) {
+        if !expect_qual && self.scope.fn_groups.contains_key(name) {
             return;
         }
         let what = if expect_qual { "qualifier" } else { "type" };
@@ -20839,7 +20839,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         );
     }
 
-    /// [group-not-a-value] A `params` group names an *obligation*, not a
+    /// [group-not-a-value] A `fns` group names an *obligation*, not a
     /// type of values: no value may ever have a group as its type. This is
     /// the single restriction that keeps the mechanism a where-clause
     /// rather than a trait — there is no `dyn`, no erasure, no interface
@@ -20874,7 +20874,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let name = r.name.name.as_str();
         if self.generics.contains(name)
             || self.type_name_exists(name)
-            || !self.scope.param_groups.contains_key(name)
+            || !self.scope.fn_groups.contains_key(name)
         {
             return;
         }
@@ -20882,7 +20882,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.error(
             r.span,
             format!(
-                "`{name}` is a `params` group, not a type: no value may have a \
+                "`{name}` is a `fns` group, not a type: no value may have a \
                  group as its type — a named type satisfies it with `: {name}<...>` \
                  on its declaration, or a signature spreads its members with \
                  `?{name}<...>`"
@@ -22121,7 +22121,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     visit(&h.docs, &h.name, Owner::Other);
                     fns(&h.fns, &mut visit);
                 }
-                Item::Params(p) => {
+                Item::Fns(p) => {
                     visit(&p.docs, &p.name, Owner::Other);
                     fns(&p.fns, &mut visit);
                 }
@@ -22167,7 +22167,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Effect(e) => e.fns.iter().for_each(&mut visit),
                 Item::Handler(h) => h.fns.iter().for_each(&mut visit),
                 Item::Qualifier(q) => q.fns.iter().for_each(&mut visit),
-                Item::Params(p) => p.fns.iter().for_each(&mut visit),
+                Item::Fns(p) => p.fns.iter().for_each(&mut visit),
                 _ => {}
             }
         }
@@ -25001,9 +25001,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         "a qualifier, not a value: write it on a type \
                          (`Name value`) or test it with `is`",
                     )
-                } else if self.scope.param_groups.contains_key(id.name.as_str()) {
+                } else if self.scope.fn_groups.contains_key(id.name.as_str()) {
                     Some(
-                        "a `params` group, not a value: spread it into a \
+                        "a `fns` group, not a value: spread it into a \
                          signature (`?Name<…>`)",
                     )
                 } else if self.scope.opaque_types.contains_key(id.name.as_str())
@@ -26156,7 +26156,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 // [qual-depend] A pass's element may carry a dependent claim
                 // whose slot names the pass's own borrowed field
-                // (`: Yield<self, Idx(self.items) Int>`). The claim is
+                // (`: Next<self, Idx(self.items) Int>`). The claim is
                 // really about the pass's *source* — the list it borrows —
                 // so the binding's claim binds the source's roots: what
                 // `rev_indices(xs)` emits is an `Idx` of `xs`. Sound
@@ -26197,7 +26197,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let drives_pass = !drives_origin
                     && !drives_in_place
                     && (iter_ty.quals().iter().any(|q| q.name == "once")
-                        || self.yield_obligation(iter_ty.strip_quals()).is_some()
+                        || self.next_obligation(iter_ty.strip_quals()).is_some()
                         // [iter-generic-drive] A generic pass is a pass: the
                         // implicit `next` in the driver is the declaration.
                         || recorded
@@ -26577,11 +26577,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [iter-protocol] [group-obligation] Whether this type's declaration
-    /// states the designated `: Yield<T>` obligation — the one fact that
+    /// states the designated `: Next<T>` obligation — the one fact that
     /// makes a value a **pass** (roadmap R2, user decisions 2026-09-08).
     /// `for` reads the declaration; it does not scan overloads for a `next`
     /// and guess.
-    fn yield_obligation(&self, stripped: &Ty) -> Option<(&'p StructDecl, &'p TypeRef)> {
+    fn next_obligation(&self, stripped: &Ty) -> Option<(&'p StructDecl, &'p TypeRef)> {
         let Ty::Named { name, .. } = stripped else {
             return None;
         };
@@ -26590,13 +26590,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             .obligations
             .iter()
             .map(|o| &o.group)
-            .find(|g| g.name.name == "Yield")?;
+            .find(|g| g.name.name == "Next")?;
         Some((decl, ob))
     }
 
-    /// [implicit-group] [iter-protocol] A `?Yield<It, T>` spread teaches `T`
+    /// [implicit-group] [iter-protocol] A `?Next<It, T>` spread teaches `T`
     /// from the *declaration* of whatever `It` turned out to be: a pass says
-    /// what it yields at its `: Yield<self, T>` clause, so a combinator's
+    /// what it yields at its `: Next<self, T>` clause, so a combinator's
     /// element type never has to be written and a bare lambda can be typed
     /// against it. Reaches through an origin mint [iter-fn].
     ///
@@ -26604,13 +26604,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// a binding an argument made (`(s: Str) -> …`) is widened to the pass's
     /// `proj Str` when it fits under it — a kept lambda parameter reads the
     /// projection just fine, and the `next` that fills the spread returns it.
-    fn learn_yield_elems(
+    fn learn_next_elems(
         &mut self,
         decl: &'p FnDecl,
         callee_generics: &HashSet<String>,
         subst: &mut HashMap<String, Ty>,
     ) {
-        for (state_var, elem_var) in self.yield_spread_pairs(decl) {
+        for (state_var, elem_var) in self.next_spread_pairs(decl) {
             if !callee_generics.contains(&elem_var) {
                 continue;
             }
@@ -26636,12 +26636,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// The `(state, element)` type-variable pairs a signature spreads as
-    /// `?Yield<It, T>` — what a combinator's element type can be *inferred*
+    /// `?Next<It, T>` — what a combinator's element type can be *inferred*
     /// from [implicit-group].
-    fn yield_spread_pairs(&self, decl: &'p FnDecl) -> Vec<(String, String)> {
+    fn next_spread_pairs(&self, decl: &'p FnDecl) -> Vec<(String, String)> {
         let mut out = Vec::new();
         for g in &decl.implicit_groups {
-            if g.name.name != "Yield" || g.args.len() < 2 {
+            if g.name.name != "Next" || g.args.len() < 2 {
                 continue;
             }
             let (
@@ -26657,7 +26657,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// The element type of a pass **or** of the origin behind a minted machine
-    /// [iter-fn]: read from the `: Yield<self, T>` clause, which is
+    /// [iter-fn]: read from the `: Next<self, T>` clause, which is
     /// where a pass declares what it yields [group-obligation].
     fn pass_or_origin_elem_ty(&mut self, state: &Ty) -> Option<Ty> {
         let bare = state.strip_quals().clone();
@@ -26765,7 +26765,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [iter-protocol] The element type of a **pass**: a value whose type
-    /// declares `: Yield<T>` [group-obligation]. Records the overload the
+    /// declares `: Next<T>` [group-obligation]. Records the overload the
     /// emitters have to drive (there is no call node in the AST for them to
     /// resolve, since the driving loop is synthesized).
     ///
@@ -26793,7 +26793,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
         mint: Option<DeclId>,
     ) -> Option<Ty> {
-        let (decl, ob) = self.yield_obligation(stripped)?;
+        let (decl, ob) = self.next_obligation(stripped)?;
         if let Some((key, elem, emitted_arm, arms, pt)) = self.find_next_driver(stripped) {
             // [iter-protocol] The state is taken as `Mut`: advancing a pass
             // mutates its position, and the backends pass a mutable place.
@@ -26856,7 +26856,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             })
             .collect();
         let saved = self.enter_generics(&decl.generics);
-        let elem = yield_elem_arg(ob)
+        let elem = next_elem_arg(ob)
             .map(|a| self.lower_type_subst(a, &subst, 0))
             .unwrap_or(Ty::Unknown);
         self.generics = saved;
@@ -26897,7 +26897,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let callee_generics: HashSet<String> =
                 decl.generics.iter().map(|g| g.name.clone()).collect();
             let ret = substitute_vars(&ret, &subst, &callee_generics);
-            if self.yield_obligation(ret.strip_quals()).is_some() {
+            if self.next_obligation(ret.strip_quals()).is_some() {
                 return Some((entry.key, ret.strip_quals().clone()));
             }
         }
@@ -26908,7 +26908,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// alone [group-obligation] — no `next` resolved and no driver recorded,
     /// which is what the native container loop needs [iter-for-native].
     fn pass_declared_elem_ty(&mut self, pass: &Ty) -> Option<Ty> {
-        let (decl, ob) = self.yield_obligation(pass)?;
+        let (decl, ob) = self.next_obligation(pass)?;
         let subst: HashMap<String, Ty> = decl
             .generics
             .iter()
@@ -26919,7 +26919,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             })
             .collect();
         let saved = self.enter_generics(&decl.generics);
-        let elem = yield_elem_arg(ob).map(|a| self.lower_type_subst(a, &subst, 0));
+        let elem = next_elem_arg(ob).map(|a| self.lower_type_subst(a, &subst, 0));
         self.generics = saved;
         elem
     }
@@ -26943,11 +26943,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [iter-generic-drive] The element type of a **generic** pass: the
     /// subject's type is one of the enclosing fn's type parameters, and a
     /// protocol-shaped `next` for it is in scope as an *implicit parameter* —
-    /// the `?Yield<It, T>` spread a combinator declares [implicit-group] (user
+    /// the `?Next<It, T>` spread a combinator declares [implicit-group] (user
     /// decision 2026-09-09).
     ///
     /// The spread is the declaration `for` reads here: there is no struct to
-    /// carry a `: Yield<self, T>` clause, but the position that says "this call
+    /// carry a `: Next<self, T>` clause, but the position that says "this call
     /// supplies a `next` for `It`" says exactly as much, and the element type
     /// falls out of its result. The loop therefore drives by **calling the
     /// implicit parameter** rather than a resolved overload.
@@ -27228,7 +27228,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // mint, made once before the loop.
                 // [iter-generic-drive] A **generic** pass: its `next` is an
                 // implicit parameter of this body, which is as much of a
-                // declaration as a `: Yield<self, T>` clause is.
+                // declaration as a `: Next<self, T>` clause is.
                 if let Some(elem) = self.generic_pass_elem_ty(&other, iterable, span) {
                     return elem;
                 }
@@ -27258,7 +27258,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let hint = match self.find_next_driver(&other) {
                         Some((_, elem, _, _, _)) => format!(
                             " (`{other}` has a matching `next` — declare \
-                             `: Yield<self, {elem}>` on it to make it an iterator struct)"
+                             `: Next<self, {elem}>` on it to make it an iterator struct)"
                         ),
                         None => String::new(),
                     };
@@ -27266,7 +27266,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         span,
                         format!(
                             "`{other}` is not iterable: `for` takes an array, an \
-                             iterator struct (a type declaring `: Yield<self, T>`), a \
+                             iterator struct (a type declaring `: Next<self, T>`), a \
                              source (a type declaring `: Iter<self, It, T>`, or a value some \
                              `iter` function accepts), or a step call (`next(p)`){hint}"
                         ),
@@ -30361,9 +30361,9 @@ fn is_step_call_arg(e: &Expr) -> bool {
     }
 }
 
-/// [iter-protocol] The element type argument of a `: Yield<self, T>` clause:
+/// [iter-protocol] The element type argument of a `: Next<self, T>` clause:
 /// the second one, since the state comes first [group-obligation].
-fn yield_elem_arg(ob: &TypeRef) -> Option<&ast::Type> {
+fn next_elem_arg(ob: &TypeRef) -> Option<&ast::Type> {
     ob.args.get(1)
 }
 
@@ -30414,7 +30414,7 @@ fn tys_match_renamed(
         // rename, so two identities match only by being the same fn.
         (Ty::FnName(x), Ty::FnName(y)) => x == y,
         // [qual-depend] A place template matches by its *field*, not its
-        // receiver's spelling: the Yield clause writes `Idx(self.items)`
+        // receiver's spelling: the Next clause writes `Idx(self.items)`
         // and the `next` writes `Idx(p.items)` — one slot, two vantage
         // points on the same pass.
         (Ty::ValueRef { path: xp, .. }, Ty::ValueRef { path: yp, .. }) => {
@@ -32175,7 +32175,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
         // [implicit-fit] A candidate whose implicit parameters nothing here
         // can fill does not fit (user decision 2026-10-04): a generic
-        // `count(it: Mut It, ?Yield<It, T>)` fits any `Mut` argument by type,
+        // `count(it: Mut It, ?Next<It, T>)` fits any `Mut` argument by type,
         // and must not outrank — or block — an overload that really fits.
         // Only among several candidates: a lone one keeps its own, more
         // specific diagnostic about the implicit.
@@ -32480,7 +32480,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.extend_subst_from_implicits(best_key, &callee_generics, &mut subst, named);
         // [proj-type] The pass the spread is filled from decides whether the
         // element is borrowed — before the `next` is looked for at that type.
-        self.learn_yield_elems(decl, &callee_generics, &mut subst);
+        self.learn_next_elems(decl, &callee_generics, &mut subst);
         // [implicit-resolve] Fill the callee's implicit parameters, now that
         // its type arguments are known.
         // [fn-param-default] A named argument may fill an ordinary defaulted
@@ -33052,7 +33052,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mut lent = self.infer_lends(decl);
             // [proj-type] Instantiation can make a result hold borrows the
             // declaration could not see: `keep_all<It, T>(…) -> Mut List<T>`
-            // with `T = proj Str` (a `?Yield` filled from a borrowing pass)
+            // with `T = proj Str` (a `?Next` filled from a borrowing pass)
             // returns a view. With nothing inferable from the body about
             // *which* argument, the result is linked to every kept one —
             // conservative, exact for the one-source case, and nothing for a
@@ -33291,13 +33291,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // [implicit-group] [iter-protocol] A `?Yield<It, T>` spread teaches `T`
+        // [implicit-group] [iter-protocol] A `?Next<It, T>` spread teaches `T`
         // from the *declaration* of whatever `It` turned out to be: a pass says
-        // what it yields at its `: Yield<self, T>` clause, so a combinator's
+        // what it yields at its `: Next<self, T>` clause, so a combinator's
         // element type never has to be written and a bare lambda can be typed
         // against it. Reaches through an origin mint, whose machine type stands
         // for the origin [iter-fn].
-        self.learn_yield_elems(decl, &callee_generics, &mut subst);
+        self.learn_next_elems(decl, &callee_generics, &mut subst);
         // An `Unknown` argument means an earlier diagnostic already fired
         // (or a type the checker could not determine): stay lenient rather
         // than reporting the same mistake twice [type-unknown-lenient].

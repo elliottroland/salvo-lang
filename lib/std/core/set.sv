@@ -18,7 +18,7 @@
 //
 // Own module rather than part of `std.core.list` so a program that never uses a
 // set emits no code for it [mod-used-only].
-export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut : Iter<self, SetYield<T>, T>
+export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut : Iter<self, SetNext<T>, T>
 
 // Constructor. The elements are stored in the new set, so they are moved: a
 // variadic tail is owned, and needs no entry in the clause [deduce-syntax].
@@ -141,17 +141,17 @@ export intrinsic fn snapshot_at<T>(items: List<T>, index: Int) [] -> T? => items
 // iterator over it is live keeps yielding what it held at the mint — on both
 // backends alike, rather than being a race on one and a refusal on the
 // other.
-export fn iter<T>(set: Set<T>) [] -> Mut SetYield<T> => set {
-    return Mut SetYield<T> { items: to_list(set), at: 0 }
+export fn iter<T>(set: Set<T>) [] -> Mut SetNext<T> => set {
+    return Mut SetNext<T> { items: to_list(set), at: 0 }
 }
 
 // [iter-protocol] The pass a set is walked by: a snapshot of its elements
 // plus a position in it. The snapshot is **owned** by the iterator — the
-// structural difference from `ListYield`, whose `items` is a projection of
+// structural difference from `ListNext`, whose `items` is a projection of
 // someone else's list — and so are the elements it emits: an iterator that
 // *computes* its elements owns them, where one that *walks* data borrows
 // them [iter-protocol].
-export struct SetYield<T> : Yield<self, T> canbe Mut {
+export struct SetNext<T> : Next<self, T> canbe Mut {
     // The elements, in insertion order, owned by this iterator.
     items: List<T>,
     // The index of the next element to emit.
@@ -160,7 +160,7 @@ export struct SetYield<T> : Yield<self, T> canbe Mut {
 
 // Advances the iterator, reporting the element at its position or the end of the
 // set.
-export fn next<T>(p: Mut SetYield<T>) [] -> Emitted T | Finished => p: Mut {
+export fn next<T>(p: Mut SetNext<T>) [] -> Emitted T | Finished => p: Mut {
     let elem = snapshot_at(p.items, p.at)
     if elem is None {
         return finished()

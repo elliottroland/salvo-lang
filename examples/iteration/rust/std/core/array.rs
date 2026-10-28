@@ -3,17 +3,17 @@ use crate::std_core_iterator::emitted;
 use crate::std_core_iterator::finished;
 
 
-pub fn iter<T: Clone>(array: &Vec<T>) -> crate::std_core_array::ArrayYield<'_, T> {
-    return crate::std_core_array::ArrayYield { items: array, at: 0i32 };
+pub fn iter<T: Clone>(array: &Vec<T>) -> crate::std_core_array::ArrayNext<'_, T> {
+    return crate::std_core_array::ArrayNext { items: array, at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ArrayYield<'s, T> {
+pub struct ArrayNext<'s, T> {
     pub items: &'s Vec<T>,
     pub at: i32,
 }
 
-pub fn next<'a, T: Clone>(p: &mut crate::std_core_array::ArrayYield<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
+pub fn next<'a, T: Clone>(p: &mut crate::std_core_array::ArrayNext<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
     let mut elem: Option<&T> = p.items.get((p.at) as i64 as usize);
     if elem.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());

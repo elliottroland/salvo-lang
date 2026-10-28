@@ -4,7 +4,7 @@
 //!
 //! There is no `Iterable` trait, and since R5 there is no `Iterable` group
 //! either: a combinator's subject **is** the pass, and its `next` arrives
-//! through a `?Yield<It, T>` spread [iter-protocol] that each call fills with
+//! through a `?Next<It, T>` spread [iter-protocol] that each call fills with
 //! whichever `next` fits. A container is iterated by writing its `iter`
 //! (`map(iter(xs), f)`), which is what keeps the inference ordinary. Two facts
 //! carry the design:
@@ -42,17 +42,17 @@ export qualifier Emitted<T> of T\n\
 export struct Finished {}\n\
 export fn emitted<T>(value: T) [] -> +Emitted T => !value { return value }\n\
 export fn finished() [] -> Finished { return Finished {} }\n\
-export params Yield<It, T> {\n\
+export fns Next<It, T> {\n\
     fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n\
 }\n\
-export struct ListYield<T> : Yield<self, T> canbe Mut {\n\
+export struct ListNext<T> : Next<self, T> canbe Mut {\n\
     items: List<T>,\n\
     at: Int\n\
 }\n\
-export fn iter<T>(list: List<T>) [] -> Mut ListYield<T> => !list {\n\
-    return Mut ListYield<T> { items: list, at: 0 }\n\
+export fn iter<T>(list: List<T>) [] -> Mut ListNext<T> => !list {\n\
+    return Mut ListNext<T> { items: list, at: 0 }\n\
 }\n\
-export fn next<T>(p: Mut ListYield<T>) [] -> Emitted T | Finished => p: Mut {\n\
+export fn next<T>(p: Mut ListNext<T>) [] -> Emitted T | Finished => p: Mut {\n\
     let elem = get(p.items, p.at)\n\
     if elem is None {\n\
         return finished()\n\
@@ -60,14 +60,14 @@ export fn next<T>(p: Mut ListYield<T>) [] -> Emitted T | Finished => p: Mut {\n\
     p.at = p.at + 1\n\
     return emitted(elem)\n\
 }\n\
-export struct StrYield : Yield<self, Char> canbe Mut {\n\
+export struct StrNext : Next<self, Char> canbe Mut {\n\
     text: Str,\n\
     at: Int\n\
 }\n\
-export fn iter(str: Str) [] -> Mut StrYield => !str {\n\
-    return Mut StrYield { text: str, at: 0 }\n\
+export fn iter(str: Str) [] -> Mut StrNext => !str {\n\
+    return Mut StrNext { text: str, at: 0 }\n\
 }\n\
-export fn next(p: Mut StrYield) [] -> Emitted Char | Finished => p: Mut {\n\
+export fn next(p: Mut StrNext) [] -> Emitted Char | Finished => p: Mut {\n\
     let chr = char_at(p.text, p.at)\n\
     if chr is None {\n\
         return finished()\n\
@@ -75,7 +75,7 @@ export fn next(p: Mut StrYield) [] -> Emitted Char | Finished => p: Mut {\n\
     p.at = p.at + 1\n\
     return emitted(chr)\n\
 }\n\
-export fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {\n\
+export fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Next<It, T>) [] -> Mut List<U> => it: Mut, f {\n\
     let out = Mut List<U>()\n\
     let going = true\n\
     while going {\n\
@@ -91,7 +91,7 @@ export fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U
     }\n\
     return out\n\
 }\n\
-export fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> A => it: Mut, f, !init {\n\
+export fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Next<It, T>) [] -> A => it: Mut, f, !init {\n\
     let acc = init\n\
     let going = true\n\
     while going {\n\
@@ -228,7 +228,7 @@ fn chains_compose_through_iter() {
 fn a_user_type_becomes_iterable_by_declaring_iter() {
     let src = format!(
         "struct Bag {{\n    items: List<Int>\n}}\n\n\
-         fn iter(bag: Bag) -> Mut ListYield<Int> => bag {{\n    return iter(bag.items)\n}}\n\n{}",
+         fn iter(bag: Bag) -> Mut ListNext<Int> => bag {{\n    return iter(bag.items)\n}}\n\n{}",
         probe(
             "    let b = Bag {items: List(1, 2)}\n    \
              let total: Int = reduce(iter(b), 0, (a, x) -> a + x)"
@@ -291,13 +291,13 @@ fn the_lead_narrows_before_the_lambda_is_typed() {
 // ===== [iter-generic-drive] a generic pass is driven by `for` =====
 
 /// The rule that lets std's own combinators read like ordinary Salvo (user
-/// decision 2026-09-09): when a body has a `?Yield<It, T>` spread, the position
+/// decision 2026-09-09): when a body has a `?Next<It, T>` spread, the position
 /// *is* the declaration `for` needs — it says "this call supplies a `next` for
 /// `It`" — so the loop drives by calling that implicit parameter, and the
 /// element type comes off its result.
 #[test]
 fn a_generic_pass_is_driven_by_for() {
-    let src = "fn total<It>(it: Mut It, ?Yield<It, Int>) [] -> Int => it: Mut {\n\
+    let src = "fn total<It>(it: Mut It, ?Next<It, Int>) [] -> Int => it: Mut {\n\
                \x20   let sum = 0\n\
                \x20   for n in it {\n\
                \x20       sum = sum + n\n\
@@ -312,7 +312,7 @@ fn a_generic_pass_is_driven_by_for() {
 /// which is what lets a combinator move each element into its output.
 #[test]
 fn a_driven_element_is_owned_not_derived() {
-    let src = "fn keep<It, T>(it: Mut It, ?Yield<It, T>) [] -> Mut List<T> => it: Mut {\n\
+    let src = "fn keep<It, T>(it: Mut It, ?Next<It, T>) [] -> Mut List<T> => it: Mut {\n\
                \x20   let out = Mut List<T>()\n\
                \x20   for x in it {\n\
                \x20       add(out, x)\n\
@@ -360,21 +360,21 @@ fn a_non_mut_position_cannot_be_driven() {
 }
 
 /// [implicit-resolve] [fn-overload-scope] A program declaring its own pass
-/// under a name std also uses — its own `ListYield` plus a `next` for it —
+/// under a name std also uses — its own `ListNext` plus a `next` for it —
 /// used to make every drive of that name ambiguous: implicit resolution
 /// pooled core's `next` and the module's own without the scope ladder every
 /// named call walks. The most specific rung wins now, so the module's own
 /// `next` fills the spread and the program checks.
 #[test]
 fn an_own_pass_named_like_stds_resolves_to_the_own_next() {
-    let src = "struct ListYield<T> : Yield<self, T> canbe Mut {\n\
+    let src = "struct ListNext<T> : Next<self, T> canbe Mut {\n\
                \x20   items: List<T>,\n\
                \x20   at: Int\n\
                }\n\
-               fn mine<T>(items: List<T>) [] -> Mut ListYield<T> => !items {\n\
-               \x20   return Mut ListYield<T> { items: items, at: 0 }\n\
+               fn mine<T>(items: List<T>) [] -> Mut ListNext<T> => !items {\n\
+               \x20   return Mut ListNext<T> { items: items, at: 0 }\n\
                }\n\
-               fn next<T>(p: Mut ListYield<T>) [] -> Emitted T | Finished => p: Mut {\n\
+               fn next<T>(p: Mut ListNext<T>) [] -> Emitted T | Finished => p: Mut {\n\
                \x20   let elem = get(p.items, p.at)\n\
                \x20   if elem is None {\n\
                \x20       return finished()\n\

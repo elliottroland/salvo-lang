@@ -159,7 +159,7 @@ fn every_declaration_kind_takes_the_modifier() {
                export effect Host {\n    fn tick() [] -> Int\n}\n\n\
                export platform handler HostTick of Host\n\n\
                export handler Loud of Logger {\n    fn log(m: Str) -> None {}\n}\n\n\
-               export params ToText<T> {\n    fn text(v: T) -> Str => v\n}\n\n\
+               export fns ToText<T> {\n    fn text(v: T) -> Str => v\n}\n\n\
                export fn plain() [] -> Int {\n    return 1\n}\n\n\
                export fn close(t: Ticket) [] -> None => !t {}\n";
     let user = "import lib.Shape\nimport lib.Ticket\nimport lib.Alias\n\

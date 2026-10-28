@@ -8,7 +8,7 @@
 //! qualified-name syntax for the defaults (Koka's `Str/cmp`): the `cmp`
 //! whose parameters accept `Str` *is* the default for `Str`.
 //!
-//! `?Field<T>` spreads a `params` group. It has no binder (user decision
+//! `?Field<T>` spreads a `fns` group. It has no binder (user decision
 //! 2026-09-05): the members become implicit parameters in their own right,
 //! so resolution, forwarding and override all key on a member's own name
 //! and type, and a callee can reach the same parameter through a different
@@ -65,7 +65,7 @@ fn errors(src: &str) -> Vec<String> {
 }
 
 const PRELUDE: &str = r#"
-params Field<T> {
+fns Field<T> {
     fn add(a: T, b: T) -> T
     fn zero() -> T
 }
@@ -287,7 +287,7 @@ fn an_unknown_group_is_rejected() {
     ));
     assert!(
         errs.iter()
-            .any(|e| e.contains("no `params` group named `Ring`")),
+            .any(|e| e.contains("no `fns` group named `Ring`")),
         "expected the unknown-group error, got: {errs:?}"
     );
 }
@@ -385,13 +385,13 @@ fn a_handler_constructor_resolves_implicits_at_use() {
     assert!(errs.is_empty(), "expected `?fmt` to resolve at `use`, got: {errs:?}");
 }
 
-/// A `params` group member is a signature for a parameter; the default comes
+/// A `fns` group member is a signature for a parameter; the default comes
 /// from a matching top-level fn, so a body here means nothing.
 #[test]
 fn a_group_member_with_a_body_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         params Ring<T> {{\n\
+         fns Ring<T> {{\n\
          fn mul(a: T, b: T) -> T {{ return a }}\n\
          }}\n"
     ));
@@ -411,7 +411,7 @@ fn a_group_member_with_a_body_is_rejected() {
 #[test]
 fn a_contract_mismatch_is_explained_rather_than_printed() {
     let errs = errors(
-        "params Field<T> {\n\
+        "fns Field<T> {\n\
          fn add(a: T, b: T) -> T\n\
          fn zero() -> T\n\
          }\n\

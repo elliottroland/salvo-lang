@@ -648,9 +648,9 @@ impl<'s> Parser<'s> {
                 d.exported = true;
                 Some(Item::Handler(d))
             }
-            Item::Params(mut d) => {
+            Item::Fns(mut d) => {
                 d.exported = true;
-                Some(Item::Params(d))
+                Some(Item::Fns(d))
             }
             Item::Fn(mut d) => {
                 d.exported = true;
@@ -1207,7 +1207,7 @@ impl<'s> Parser<'s> {
             }
             // [fn-rename] A module-scoped name for one overload.
             TokenKind::KwRename => self.parse_rename().map(Item::Rename),
-            TokenKind::KwParams => self.parse_params_group().map(Item::Params),
+            TokenKind::KwFns => self.parse_fns_group().map(Item::Fns),
             TokenKind::KwFn => {
                 let f = self.parse_fn(false)?;
                 // [decl-body] [platform-fn] A top-level `fn` without a body:
@@ -1720,7 +1720,7 @@ impl<'s> Parser<'s> {
                 v.span,
             );
         }
-        // `: Yield<self, Str>` — obligation groups this type satisfies
+        // `: Next<self, Str>` — obligation groups this type satisfies
         // [group-obligation]. Before `canbe`, because `:` states what the
         // type must *provide* while `canbe` states what it may be qualified
         // as.
@@ -1808,7 +1808,7 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// `: Yield<self, Str>, Ordered<self> by auto` — the obligation clause a
+    /// `: Next<self, Str>, Ordered<self> by auto` — the obligation clause a
     /// struct or type declaration carries [group-obligation], each entry
     /// optionally saying where its members are stamped from [obligation-by].
     /// Answers an empty list when there is no `:`.
@@ -2538,16 +2538,16 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// `params Field<T> { fn add(a: T, b: T) -> T ... }` [implicit-group]: a
+    /// `fns Field<T> { fn add(a: T, b: T) -> T ... }` [implicit-group]: a
     /// named bundle of implicit parameters. Shaped like an effect
     /// declaration, because it is the same thing — a set of function
     /// signatures — but supplied by *resolution* rather than by a handler.
-    fn parse_params_group(&mut self) -> Option<ParamsDecl> {
+    fn parse_fns_group(&mut self) -> Option<FnsDecl> {
         let docs = self.docs_here();
-        let start = self.expect(&TokenKind::KwParams)?.span;
-        let name = self.ident_type("params group")?;
+        let start = self.expect(&TokenKind::KwFns)?.span;
+        let name = self.ident_type("fns group")?;
         let generics = self.parse_generics();
-        // [implicit-with] The group's own clause, before the body: `params
+        // [implicit-with] The group's own clause, before the body: `fns
         // Hashed<T> => eq with hash { … }`. Spreading a group opts into its
         // deductions along with its members (user decision 2026-09-26), so the
         // clause is written where the members are.
@@ -2560,7 +2560,7 @@ impl<'s> Parser<'s> {
                 };
                 if !matches!(entry.kind, DeductionKind::With { .. }) {
                     self.error(
-                        "a params group's clause states only which of its members are \
+                        "a fns group's clause states only which of its members are \
                          filled together (`=> eq with hash`): it has no body and no \
                          parameters of its own",
                         entry.span,
@@ -2584,7 +2584,7 @@ impl<'s> Parser<'s> {
             fns.push(self.parse_fn(false)?);
         }
         let end = self.expect(&TokenKind::RBrace)?.span;
-        Some(ParamsDecl {
+        Some(FnsDecl {
             // [mod-export] Set by `parse_item`, which reads the modifier.
             exported: false,
             docs,
@@ -3176,7 +3176,7 @@ impl<'s> Parser<'s> {
     /// [implicit-param] [implicit-group]. Two spellings share the `?`:
     ///
     /// - `?cmp: (T, T) -> Int` — one implicit parameter, named and typed.
-    /// - `?Field<T>` — a *spread* of a `params` group, with no binder: its
+    /// - `?Field<T>` — a *spread* of a `fns` group, with no binder: its
     ///   members become implicit parameters in their own right.
     ///
     /// [name-casing] decides which, from the first token after `?`: values
@@ -3505,7 +3505,7 @@ impl<'s> Parser<'s> {
                     | TokenKind::KwPlatform
                     | TokenKind::KwProvenance
                     | TokenKind::KwLinear
-                    | TokenKind::KwParams
+                    | TokenKind::KwFns
             ) || matches!(next, TokenKind::Ident(w) if w == "iter" || w == "send" || w == ACTOR_MODIFIER || w == THREADSAFE_MODIFIER || w == NOREMOTE_MODIFIER),
             "iter" | "send" => matches!(next, TokenKind::KwFn),
             ACTOR_MODIFIER => matches!(next, TokenKind::KwEffect),

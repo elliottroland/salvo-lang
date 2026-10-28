@@ -1,5 +1,5 @@
 //! [implicit-with] Implicits that are **filled together**: `=> eq with hash` on
-//! a function or on a `params` group, and the one-source rule a call site obeys.
+//! a function or on a `fns` group, and the one-source rule a call site obeys.
 //!
 //! The user's design (2026-09-26), from a defect: filling one slot of
 //! `?Hashed<T>` and leaving the other to resolution builds a pair nobody
@@ -18,11 +18,11 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Long\n",
     "export intrinsic type Bool\n",
-    "export params Hashed<T> => eq with hash {\n",
+    "export fns Hashed<T> => eq with hash {\n",
     "    fn hash(value: T) -> Long\n",
     "    fn eq(a: T, b: T) -> Bool\n",
     "}\n",
-    "export params Ordered<T> {\n    fn cmp(a: T, b: T) -> Int\n}\n",
+    "export fns Ordered<T> {\n    fn cmp(a: T, b: T) -> Int\n}\n",
     "export intrinsic fn hash(value: Int) [] -> Long => value\n",
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",

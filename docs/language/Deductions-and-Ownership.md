@@ -153,13 +153,13 @@ Three rules follow from "it is a borrow":
 **A view: an owned value that holds borrows.** A struct may declare fields as `proj`, written without a source — the struct says *that* it projects, each literal says *what*:
 
 ```
-struct ListYield<T> : Yield<self, proj T> canbe Mut {
+struct ListNext<T> : Next<self, proj T> canbe Mut {
     items: proj List<T>,   // borrows the list it walks
     at: Int                // its own position
 }
 
-fn iter<T>(list: List<T>) -> Mut ListYield<T> {
-    return Mut ListYield<T> { items: list, at: 0 }
+fn iter<T>(list: List<T>) -> Mut ListNext<T> {
+    return Mut ListNext<T> { items: list, at: 0 }
 }
 ```
 
@@ -211,7 +211,7 @@ For the handles this precision exists to protect — mutable elements, the
 A container can hold borrows too: `List<proj T>` is a list of projected elements, and it is what `filter` returns:
 
 ```
-fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) -> Mut List<proj T> holds proj(it) => it: Mut, keep
+fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Next<It, T>) -> Mut List<proj T> holds proj(it) => it: Mut, keep
 ```
 
 The result holds borrows of whatever the iterator walks — nothing is copied — and it lives no longer than the source. For a list of your own, `filter_to(dest, it, keep)` copies each kept element into `dest`, and it says so twice: in its `_to` name, and in the `?copy` implicit it takes so that the copy is the element type's own.
@@ -220,11 +220,11 @@ The result holds borrows of whatever the iterator walks — nothing is copied �
 
 **A capturing lambda is a view.** A lambda's body can hand out projections rooted in a *capture* — `indices.map(i -> (all.get(i) ?: unreachable!()))` returns elements of `all`, and no function type can say so (`proj(…)` names parameters; captures have no name). So the closure itself carries the fact: it holds a borrow of every non-Copy variable it reads from the enclosing scope, exactly as a struct holds its `proj` fields. Binding the lambda links it to those variables, a call result built from the lambda is linked through it, and moving or mutating a captured variable poisons the closure — the same discipline every view lives under. A lambda that captures nothing holds nothing (`map(p, w -> w)` binds freely), a Copy scalar capture is the value itself, and a capture the body *consumes* is owned by the closure rather than borrowed — that is the lambda that becomes `once`.
 
-**Iterators borrow.** An iterator struct that walks data declares `: Yield<self, proj T>` and its `next` returns `Emitted (proj(p) T) | Finished` — the element is a borrow of the iterator, which borrows the source — while a generator (a countdown, a random stream) declares `: Yield<self, T>` and emits owned values. The two must agree: an obligation at `proj T` with an owning `next`, or the reverse, is an error. Reading combinators accept both. An `iter fn`'s generated struct borrows its parameters the same way (`list: proj List<T>`), so nothing is copied at the mint; an `iter fn` that wants a snapshot writes `copy(...)` in a `state` initializer.
+**Iterators borrow.** An iterator struct that walks data declares `: Next<self, proj T>` and its `next` returns `Emitted (proj(p) T) | Finished` — the element is a borrow of the iterator, which borrows the source — while a generator (a countdown, a random stream) declares `: Next<self, T>` and emits owned values. The two must agree: an obligation at `proj T` with an owning `next`, or the reverse, is an error. Reading combinators accept both. An `iter fn`'s generated struct borrows its parameters the same way (`list: proj List<T>`), so nothing is copied at the mint; an `iter fn` that wants a snapshot writes `copy(...)` in a `state` initializer.
 
 **Re-pointing.** A mutable view may be made to project something else: a function that does so says which field and from what, `=> v: Mut, v.items: proj(other)`, and the caller's variable at `v` becomes linked to `other` from the call on.
 
-**What Rust makes of it.** A projected value is `&T` (or `Option<&T>`, `Union2<&T, Finished>`); a view struct carries a lifetime (`ListYield<'s, T>`), a lent parameter ties it (`iter<'a, T>(list: &'a Vec<T>) -> ListYield<'a, T>` when elision cannot); `List<proj T>` is `Vec<&T>`. Kotlin, where everything is a reference already, changes nothing — the rules are what keep the two backends printing the same thing.
+**What Rust makes of it.** A projected value is `&T` (or `Option<&T>`, `Union2<&T, Finished>`); a view struct carries a lifetime (`ListNext<'s, T>`), a lent parameter ties it (`iter<'a, T>(list: &'a Vec<T>) -> ListNext<'a, T>` when elision cannot); `List<proj T>` is `Vec<&T>`. Kotlin, where everything is a reference already, changes nothing — the rules are what keep the two backends printing the same thing.
 
 ## Shared fate and `copy`
 

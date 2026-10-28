@@ -113,7 +113,7 @@ returns the type and takes something else:
 ```
 import decode
 
-params FromStrs<T> {
+fns FromStrs<T> {
     fn from_strs(args: List<Str>) -> T
 }
 
@@ -690,7 +690,7 @@ with it.
 T>(…)`, `eq` and `hash` — comparing an `id` field only, say — is reached by
 `import ids` and `by ids`, for every entity in a program. A comptime fn is like an `intrinsic fn` in
 what it writes down (its effect list, deductions and return type), and one that
-a `params` member is fulfilled by must be effect-free, since an implicit
+a `fns` member is fulfilled by must be effect-free, since an implicit
 parameter may resolve to it.
 
 ## What is not there yet

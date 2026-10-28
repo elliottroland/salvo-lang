@@ -275,7 +275,7 @@ all cases where we can.*
 - **D7: [op-arm-eq] stays a lowering before the call, for now.** Recorded
   for later (not now): a general way for more complicated cases, perhaps
   generating helper functions over the unions.
-- **D10: no `: Yield` / `: Iter` gate.** With `next()` and `iter()`
+- **D10: no `: Next` / `: Iter` gate.** With `next()` and `iter()`
   operators (O1), `for x in c` is `next(c)` when a `next` fits, otherwise
   `next(iter(c))`, resolved as those calls are; the declarations are not
   needed.
@@ -350,7 +350,7 @@ fn range(start: Int, end: Int) -> Mut Range {
 }
 fn range(end: Int) -> Mut Range { return range(0, end) }
 
-params Iter<C, It, T> => iter with next {
+fns Iter<C, It, T> => iter with next {
     fn iter(collection: C) -> Mut It
     fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut
 }
@@ -360,7 +360,7 @@ iter fn iter(bag: Bag) -> Emitted Int | Finished {
     …
 }
 fn total<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c { … }
-fn first<It>(it: Mut It, ?Yield<It, Int>) -> Int => it: Mut { … }   // was `it: iter Int`
+fn first<It>(it: Mut It, ?Next<It, Int>) -> Int => it: Mut { … }   // was `it: iter Int`
 
 handler Counting() of Counter {
     state {                       // named `Counting`
@@ -420,7 +420,7 @@ re-walked once per file). Consumers: the caller's fate links (`lending_calls`,
 `temp_views`) and the Rust lifetimes (`FnDecl.borrows`).
 
 **Uses.** 5 std container minters (`iter` over list, array, bytes, deque, str;
-each `return Mut XYield { items: p, at: 0 }`), `window` in
+each `return Mut XNext { items: p, at: 0 }`), `window` in
 `examples/borrowing`, the 16 `iter fn` minters (the desugaring writes no
 `holds`), and the 3 pattern fns of 4.1 (the only cross-body walks).
 
@@ -553,7 +553,7 @@ index; **(C)** needs a design change; **(D)** inherently whole-program.
 | sweep | today | plan | rating |
 |---|---|---|---|
 | `hoist_struct_fns`, `expand_tests` | per file, in `expand` | move into 01-parse | A |
-| `hoist_iter_types` | needs every `params` group (one bit: does a member mention `iter T`), by plain name | removed with `iter T` (R3) | — |
+| `hoist_iter_types` | needs every `fns` group (one bit: does a member mention `iter T`), by plain name | removed with `iter T` (R3) | — |
 | `iter fn` expansion | needs the subject struct's fields from any file (plain name, first match), for per-field snapshots | expand per file; if a named state holds every parameter (4.1), the snapshot and its lookup go | B |
 | comptime | flat `World` of every struct, type, compfn, group, qualifier; writes stamps into the site's module | the `by` clause declares the member signatures (group members with `self` substituted) at 02-resolve-01; bodies stamped per site in 02-resolve-04 from resolved declarations | C |
 | route stubs | unscoped effect table, exported-name index, synthetic imports | `use route_any(g)` checked as "a handler of the resolved `X`"; the stub derived per effect in 03-generate (where `actors::generate` already derives stubs) | C → B |
@@ -754,7 +754,7 @@ log current so the work can resume after a context reset). Newest last.
   effect"); messages printing keys (`P§main`, `Counter§main`); the deadlock
   graph's handler and effect names (cycles no longer found); the throw
   tests' test-local `effect Throw` against `THROW_EFFECT`; the
-  `a_next_without_a_yield…`/`driving_a_hand_written_pass_twice` pass lookups;
+  `a_next_without_a_next…`/`driving_a_hand_written_pass_twice` pass lookups;
   a handler-dependency message; `protocol_hashes` read by plain name in a
   test. Each is a site assuming key == written name for an unclashing user
   type. Deferred because what the keys are for is step 8's cache: until
@@ -1552,7 +1552,7 @@ log current so the work can resume after a context reset). Newest last.
     | handler: platform rules, implicit constructor parameter types, faces (duplicates, kinds, bodyless, `Throw`), constructor parameter types, conformance, dependencies (`handler_deps`), `spawn`, mixed, mailbox presence, names, state field types (`canbe Mut`, `proj`, linear), `init` clashes, member signatures (no effects, send member, private send member) | interface (`HandlerSig`) |
     | handler: constructor defaults, the mailbox slot's expression, state initializers, member bodies | body: expressions checked in a frame of locals the body walk numbers |
     | effect alias; effect (prerequisites, route keys, member signatures and implicits, kind) | interface |
-    | qualifier, struct and `type` headers; `params` groups | interface (a struct field's default stays in the body walk; a qualifier's fns split as fns) |
+    | qualifier, struct and `type` headers; `fns` groups | interface (a struct field's default stays in the body walk; a qualifier's fns split as fns) |
     | platform boundary plans (after the body walk until now) | interface |
     | the minter of an `iter fn` whose state infers a field type | interface, body and all (below) |
 
@@ -2084,7 +2084,7 @@ log current so the work can resume after a context reset). Newest last.
   `T = proj Str`, answers `&&String`; the call now copies the outer reference
   out [rs-proj-flat] (`.copied()` on `get`/`last`, `*` on `first`, arm by arm
   on a `next`), with the instantiation read off the arguments' types where
-  the IR states no type arguments (a `for` loop's `next`, a `?Yield`
+  the IR states no type arguments (a `for` loop's `next`, a `?Next`
   adapter). Rust backend only; no core fact, no emitted-code change in the
   examples.
 - **§7 DECISION (b), a kept fn parameter reads a borrow: done** (committed
@@ -2931,6 +2931,26 @@ this log current so the work can resume after a context reset). Newest last.
   closure for a member-valued position; `pick_own_implicit` is the
   own-implicit step every form should share.
 
+- **B3.3a: done** (committed "Spell implicit groups fns, and rename Yield to
+  Next"). The first step of piece 3, the two renames OPERATOR_OVERLOAD.md O1
+  kept from the brief (COMPLETED.md "Implicit groups are spelled `fns`, and
+  `Yield` is `Next`"): the keyword `params` → `fns` (`KwFns`, `FnsDecl`,
+  `Item::Fns`, `fn_groups`, `NameKind::FnGroup`, the LSP's hover and the
+  TextMate grammar), std's `Yield<It, T>` → `Next<It, T>` (the desugaring's
+  stamped obligation, the checker's lookups by name: `next_obligation`,
+  `next_spread_pairs`, `learn_next_elems`), and the iterator structs named
+  after the group (`ListYield` → `ListNext`, `ArrayNext`, `StrNext`,
+  `BytesNext`, `DequeNext`, `SetNext`, `MapKeyNext`). Kept: the concept name
+  "group" (`DeclKind::Group`, `[implicit-group]`), the labels `[yield-proj]`
+  and `[yield-fn-origin]`, the `yield` statement. Emitted code changed only
+  in the structs' names and names derived from them; `expected.txt`
+  unchanged. Tests 2,122. The census below is renamed with the rest (its
+  `: Yield` reads `: Next`); its line numbers stay those of `c33b86d3`.
+  **What B3.3b needs:** the `for` driver looks the obligation up as `Next`
+  (`Checker::next_obligation`, by name, `"Next"`), and the `Iter`/`Next`
+  pair is `iter with next`, so `for x in c` lowering to `next(iter(c))`
+  (O1) has both names in the group already.
+
 ## II.13. The call census (B1, 2026-10-27)
 
 Kept here, not in `tmp/`, because B2 and B3 work from it. The probe programs
@@ -3042,7 +3062,7 @@ diagnostics): `some_fn_accepts` 7040 (the [implicit-fit] shape probe, by
 design); `has_member_for` 14245 (whether a type is hashable or orderable:
 the raw scope table and the first parameter's base name, not a selection);
 `infer_waitfor_ty` 17237 (scans declared `Reply<T>` positions, deliberately
-not overload resolution); and the `: Yield`/`: Iter` obligation check
+not overload resolution); and the `: Next`/`: Iter` obligation check
 `check_obligation_list` 4971, which reads the raw `scope.fns` table, so a
 renamed-away `next` still satisfies it (part of D9). Effect-instance
 choice at a member call ([effect-disambiguation], `check_effect_call`)
@@ -3190,7 +3210,7 @@ first-match rule (not probed separately). **Decision:** none.
 
 #### D9. `for` ignores `rename fn`
 
-Both the driver scan and the `: Yield` obligation check read `scope.fns`
+Both the driver scan and the `: Next` obligation check read `scope.fns`
 directly, not `overloads_of`.
 
 - `for-renamed-next`: after `rename fn advance = next(c: Mut Ctr)`, Rust
@@ -3198,22 +3218,22 @@ directly, not `overloads_of`.
 - `for-renamed-next-call`: the same program with `next(d)` is refused with
   "no matching overload for `next(Mut Ctr)`", while its `for` is accepted.
 
-**Under P3** such a `for` would newly be refused, and so would the `: Yield`
+**Under P3** such a `for` would newly be refused, and so would the `: Next`
 obligation, since it is no longer satisfied by a `next`. [fn-rename] already
 says a renamed overload leaves the old name "in calls, in fn values and in
 implicit resolution". **Decision:** none.
 
-#### D10. `for` needs a `: Yield` declaration that `next(c)` does not
+#### D10. `for` needs a `: Next` declaration that `next(c)` does not
 
-- `for-no-yield`: `Ctr` declares no `: Yield`. `next(d)` is accepted;
-  `for x in c` is refused with "`Ctr` is not iterable … declare `: Yield<self,
+- `for-no-yield`: `Ctr` declares no `: Next`. `next(d)` is accepted;
+  `for x in c` is refused with "`Ctr` is not iterable … declare `: Next<self,
   Int>`".
 
 **Under a plain P3 lowering** (`for x in c` → `next(c)` when a `next` fits,
 otherwise `next(iter(c))`) the declaration would stop being needed, and
 such programs would newly be accepted. **Decision: yes.** O1 lowers `for`
 to `next`/`iter`, but whether the obligation stays as the gate on which of
-the two forms is meant ("a type declares `: Iter` or `: Yield`, never
+the two forms is meant ("a type declares `: Iter` or `: Next`, never
 both") is yours. Keeping the gate is an exception to P3 that reads a
 declaration, not a resolution.
 
@@ -3546,7 +3566,7 @@ positional ones, no dependent claims and no literal adoption.
 - **D6:** keep the same-type rule for `==` and `<`, and if so, add it to
   O1 D-3's shape?
 - **D7:** confirm [op-arm-eq] stays as a lowering before the call.
-- **D10:** does the `: Yield`/`: Iter` declaration stay as the `for` gate?
+- **D10:** does the `: Next`/`: Iter` declaration stay as the `for` gate?
 - **D13:** does a dot call see fn-typed locals?
 - **D14:** does an addr receiver's dot call rank fns beside its send
   members?

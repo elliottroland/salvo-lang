@@ -672,16 +672,16 @@ fun<T> reverse(list: salvo.platform.std.core.list.MutList<T>) {
     }
 }
 
-fun<T> iter(list: List<T>): ListYield<T> {
-    return ListYield<T>(items = list, at = 0)
+fun<T> iter(list: List<T>): ListNext<T> {
+    return ListNext<T>(items = list, at = 0)
 }
 
-data class ListYield<T>(
+data class ListNext<T>(
     var items: List<T>,
     var at: Int,
 )
 
-fun<T> next__ListYield(p: ListYield<T>): Union2<T, salvo.std.core.iterator.Finished> {
+fun<T> next__ListNext(p: ListNext<T>): Union2<T, salvo.std.core.iterator.Finished> {
     val elem: T? = salvo.std.core.list.getPlatform(p.items, p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
@@ -919,24 +919,24 @@ fun<K, V> eq(a: salvo.platform.std.core.map.Map<K, V>, b: salvo.platform.std.cor
 
 fun<K, V> keysPlatform(map: salvo.platform.std.core.map.Map<K, V>): List<K> = salvo.platform.std.core.map.keys(map)
 
-fun<K, V> iter(map: salvo.platform.std.core.map.Map<K, V>): MapKeyYield<K> {
-    return MapKeyYield<K>(items = salvo.std.core.map.keysPlatform(map), at = 0)
+fun<K, V> iter(map: salvo.platform.std.core.map.Map<K, V>): MapKeyNext<K> {
+    return MapKeyNext<K>(items = salvo.std.core.map.keysPlatform(map), at = 0)
 }
 
-data class MapKeyYield<K>(
+data class MapKeyNext<K>(
     var items: List<K>,
     var at: Int,
 )
 
-class __Codec_MapKeyYield<K>(private val __c_K: salvo.WireCodec<K>) : salvo.WireCodec<MapKeyYield<K>> {
-    override fun enc(v: MapKeyYield<K>, out: salvo.WireOut) {
+class __Codec_MapKeyNext<K>(private val __c_K: salvo.WireCodec<K>) : salvo.WireCodec<MapKeyNext<K>> {
+    override fun enc(v: MapKeyNext<K>, out: salvo.WireOut) {
         salvo.ListCodec(__c_K).enc(v.items, out)
         salvo.IntCodec.enc(v.at, out)
     }
-    override fun dec(inp: salvo.WireIn): MapKeyYield<K> = MapKeyYield(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): MapKeyNext<K> = MapKeyNext(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<K> next__MapKeyYield(p: MapKeyYield<K>): Union2<K, salvo.std.core.iterator.Finished> {
+fun<K> next__MapKeyNext(p: MapKeyNext<K>): Union2<K, salvo.std.core.iterator.Finished> {
     val key: K? = p.items.getOrNull(p.at)
     if ((key == null)) {
         return Union2.U2<K, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
@@ -1189,24 +1189,24 @@ fun<T> eq(a: salvo.platform.std.core.set.Set<T>, b: salvo.platform.std.core.set.
 
 fun<T> toListPlatform(set: salvo.platform.std.core.set.Set<T>): List<T> = salvo.platform.std.core.set.toList(set)
 
-fun<T> iter(set: salvo.platform.std.core.set.Set<T>): SetYield<T> {
-    return SetYield<T>(items = salvo.std.core.set.toListPlatform(set), at = 0)
+fun<T> iter(set: salvo.platform.std.core.set.Set<T>): SetNext<T> {
+    return SetNext<T>(items = salvo.std.core.set.toListPlatform(set), at = 0)
 }
 
-data class SetYield<T>(
+data class SetNext<T>(
     var items: List<T>,
     var at: Int,
 )
 
-class __Codec_SetYield<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCodec<SetYield<T>> {
-    override fun enc(v: SetYield<T>, out: salvo.WireOut) {
+class __Codec_SetNext<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCodec<SetNext<T>> {
+    override fun enc(v: SetNext<T>, out: salvo.WireOut) {
         salvo.ListCodec(__c_T).enc(v.items, out)
         salvo.IntCodec.enc(v.at, out)
     }
-    override fun dec(inp: salvo.WireIn): SetYield<T> = SetYield(salvo.ListCodec(__c_T).dec(inp), salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): SetNext<T> = SetNext(salvo.ListCodec(__c_T).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<T> next(p: SetYield<T>): Union2<T, salvo.std.core.iterator.Finished> {
+fun<T> next(p: SetNext<T>): Union2<T, salvo.std.core.iterator.Finished> {
     val elem: T? = p.items.getOrNull(p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
@@ -1270,8 +1270,8 @@ fun<T> toStr__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>, toStr:
     return out.toString()
 }
 
-fun<T> iter__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>): salvo.std.core.set.SetYield<T> {
-    return salvo.std.core.set.SetYield<T>(items = salvo.std.core.sorted.toListPlatform(set), at = 0)
+fun<T> iter__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>): salvo.std.core.set.SetNext<T> {
+    return salvo.std.core.set.SetNext<T>(items = salvo.std.core.sorted.toListPlatform(set), at = 0)
 }
 
 fun<K, V> SortedMap_platform(entries: Array<kotlin.Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.std.core.sorted.SortedMap<K, V> = salvo.platform.std.core.sorted.SortedMap(entries, cmp)
@@ -1359,8 +1359,8 @@ fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.std.core.sorted.SortedMap<K,
     return true
 }
 
-fun<K, V> iter__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>): salvo.std.core.map.MapKeyYield<K> {
-    return salvo.std.core.map.MapKeyYield<K>(items = salvo.std.core.sorted.keysPlatform(map), at = 0)
+fun<K, V> iter__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>): salvo.std.core.map.MapKeyNext<K> {
+    return salvo.std.core.map.MapKeyNext<K>(items = salvo.std.core.sorted.keysPlatform(map), at = 0)
 }
 
 fun<T> NonEmpty_qualifies(set: salvo.platform.std.core.sorted.SortedSet<T>): Boolean {
@@ -1441,16 +1441,16 @@ fun byteSizePlatform(str: String): Long = salvo.platform.std.core.string.byteSiz
 
 fun charAtPlatform(str: String, index: Int): Char? = salvo.platform.std.core.string.charAt(str, index)
 
-fun iter(str: String): StrYield {
-    return StrYield(text = str, at = 0)
+fun iter(str: String): StrNext {
+    return StrNext(text = str, at = 0)
 }
 
-data class StrYield(
+data class StrNext(
     var text: String,
     var at: Int,
 )
 
-fun next(p: StrYield): Union2<Char, salvo.std.core.iterator.Finished> {
+fun next(p: StrNext): Union2<Char, salvo.std.core.iterator.Finished> {
     val chr: Char? = salvo.std.core.string.charAtPlatform(p.text, p.at)
     if ((chr == null)) {
         return Union2.U2<Char, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
@@ -2030,7 +2030,7 @@ class SalvoBytes {
     /**
      * Native `for` support: `for b in data` is Kotlin's own loop
      * [kt-iter-native], as it is for a list or a string, so iterating a buffer
-     * allocates no pass. The `BytesYield` pass in `std.core.bytes` is still what
+     * allocates no pass. The `BytesNext` pass in `std.core.bytes` is still what
      * the combinators (`map`, `filter`, `reduce`) drive.
      */
     operator fun iterator(): Iterator<UByte> = object : Iterator<UByte> {

@@ -55,7 +55,7 @@ Conventions:
   [platform-value-type]: `lib/platform/std/core/bytes.{rs,kt}` implements it,
   Rust as `Vec<u8>`, Kotlin as the shipped `salvo.SalvoBytes`; `bytes_of` and
   `mut_bytes` are Salvo over `empty_bytes`, and a `for` over a buffer goes
-  through its `BytesYield` pass — the native loop each backend had is gone.)
+  through its `BytesNext` pass — the native loop each backend had is gone.)
   **`Bytes` is std's byte buffer** (`std.core.bytes`, user decision
   2026-09-15), and the payload type of every byte-shaped API — *not*
   `List<Byte>`, which boxed every octet on the JVM and carried a list's
@@ -78,7 +78,7 @@ Conventions:
     [col-hashed-ordered], because a key that can be mutated under its map is
     a bug no diagnostic would catch later.
   * `for b in data` iterates the bytes natively on both backends
-    [iter-for-native] [platform-iterable]; `BytesYield` is the iterator the combinators drive
+    [iter-for-native] [platform-iterable]; `BytesNext` is the iterator the combinators drive
     [iter-protocol].
 * [lit-numeric] Numeric literals: `1` is `Int`; `1L` is `Long`; `1.2` is
   `Double`; `1.2f` is `Float`. Underscore separators are allowed anywhere
@@ -234,7 +234,7 @@ Conventions:
     The format is the *language's*, because the targets' own collection
     formatting disagrees (Rust `Debug` quotes strings, Kotlin's
     `joinToString` does not).
-  * **`params ToStr<T>`** exists as a *convenience* only (user decision
+  * **`fns ToStr<T>`** exists as a *convenience* only (user decision
     2026-09-11): declaring `: ToStr<self>` does not enable interpolation —
     a `to_str` in scope does that — it validates at the declaration that
     one exists, which is where the mistake is easier to see.
@@ -256,7 +256,7 @@ Conventions:
   not spell a value, and one `from_str` overloaded by return type
   [fn-overload-return] for `Str?`, `Int?`, `Long?`, `Double?` and `Bool?`,
   so `let port: Int? = from_str(text)` picks the reader by where the result
-  goes. `params FromStr<T> { fn from_str(s: Str) -> T? }` is the implicit
+  goes. `fns FromStr<T> { fn from_str(s: Str) -> T? }` is the implicit
   group, the dual of `ToStr<T>`.
   * **One grammar on every backend.** The hosts' parsers disagree (the JVM's parser accepts `NaN`, hex and
     an `f`/`d` suffix; Rust's `parse::<f64>` accepts `inf` and `nan` but no
@@ -853,7 +853,7 @@ Conventions:
   `to_list(set)` answers `-> +Distinct List<T>`. Mint-only, like `Sorted`.
   `to_list` over a `SortedSet` lives in `std.core.sorted` and so cannot mint it.
 * [col-reversed] `reversed(list)` walks a list back to front — an **iterator**
-  [iter-protocol], not a copy: `: Yield<self, proj T>`, so `for x in
+  [iter-protocol], not a copy: `: Next<self, proj T>`, so `for x in
   reversed(xs)` borrows each element [yield-proj] and `xs` stays usable.
   Kotlin's own `reversed()` answers a fresh list; a Salvo caller wanting the
   reversed *list* writes `to_list(reversed(xs))`. Step 0 of the
@@ -950,14 +950,14 @@ Conventions:
   sibling `update2` was retired with `NotEq`, 2026-10-10: the caller writes
   `if b is NotSame(a) { f(a, b) }` [ref-notsame].) Note the parameters carry no container `Mut`: element
   mutability is the element type's [ref-handle].
-* [col-locate] `std.core.list` declares `params Ref<C, L, T> { fn at(c: C,
+* [col-locate] `std.core.list` declares `fns Ref<C, L, T> { fn at(c: C,
   l: L) -> ref(c) Mut T? }` (user decision 2026-09-24, ④a slice 3′; renamed
   from `Locate` with the `ref(c)` rework, 2026-10-08): what a
-  **position-based** algorithm needs, as a params group [implicit-group] —
+  **position-based** algorithm needs, as a fns group [implicit-group] —
   one function turning a container and a position into the element's
   mutable handle, so the algorithm stays generic over *what a position is*
   (an index for a list, a key for a map, a cursor of your own) while the
-  caller, which knows the shape, fills it. The `Yield` pattern for places
+  caller, which knows the shape, fills it. The `Next` pattern for places
   rather than elements, and the idiom that pierces generic opacity for
   mutable lends. std ships the canonical `at` for a list (by index, with a
   total overload at an `Idx` [col-idx]) and for a map (by key): `at` is **the** mint of a mutable handle [ref-handle].
@@ -1029,7 +1029,7 @@ Conventions:
   `remove_first`, `remove_last` and `remove_at` (O(n)) moving elements in and
   out [linear-container]; `get`, `first`, `last` answering borrows;
   `size`, `drain`, `to_str`, `to_list`/`to_deque` [col-convert], `iter` over
-  a `DequeYield` pass and `reversed`. Out-of-range is `None` [col-bounds].
+  a `DequeNext` pass and `reversed`. Out-of-range is `None` [col-bounds].
   * **Not included, by decision**: a literal (`[…]` stays a `List`),
     `NonEmpty`/`Sorted` claims, `eq`/`hash`/`cmp` (not a key), and — for now
     — a wire form: declared `noremote` [noremote], since neither runtime has
@@ -1811,9 +1811,9 @@ Conventions:
     optional sibling** — with it attached, resolution re-picks the total
     overload and recurses; std's bodies re-derive a plain value
     (`index + 0`), the [col-of-nonempty] lesson in dependent form.
-  * **An iterator mints claims per element** (step 5): its Yield clause's
+  * **An iterator mints claims per element** (step 5): its Next clause's
     element may carry a dependent claim whose slot names the iterator's own
-    borrowed field (`: Yield<self, Idx(self.items) Int>`), its `next`
+    borrowed field (`: Next<self, Idx(self.items) Int>`), its `next`
     returns the established form (`-> Emitted (+Idx(p.items) Int) |
     Finished` — the clause and the `next` name one slot from two vantage
     points, matched by the field), and a `for` binds the claim to the
@@ -2943,7 +2943,7 @@ Conventions:
   separately [when-exhaustive]).
   * Conservative by design: loops never count as returning (they may run
     zero times).
-  * Yield-based iterator fns are exempt — their body produces elements,
+  * Next-based iterator fns are exempt — their body produces elements,
     not a return value.
 * [fn-overload] Functions overload by parameter types (including
   qualifiers: `full_name(Person)` vs `full_name(Surname Person)`). One rule
@@ -3060,7 +3060,7 @@ Conventions:
   fit** (user decision 2026-10-04): among several candidates, one with an
   implicit parameter that no named argument, forwarded implicit or visible fn
   of that name accepting the wanted parameters can fill is dropped before
-  ranking. So std's generic `count<It, T>(it: Mut It, ?Yield<It, T>)` neither
+  ranking. So std's generic `count<It, T>(it: Mut It, ?Next<It, T>)` neither
   outranks nor blocks a program's own `count(NonEmpty List<T>)`; when every
   candidate drops out, the error is "no matching overload", naming the
   implicit. Checked by the parameters' shape only, since the answer type may
@@ -3285,7 +3285,7 @@ Conventions:
   "unresolved reference" [backend-never-wrong]). Scopes are not hoisted:
   reading a variable above its declaration is the same error.
   * A name that *is* declared but is not a value says what it is instead —
-    a struct type, an effect, a qualifier, a `params` group, a type — the
+    a struct type, an effect, a qualifier, a `fns` group, a type — the
     same courtesy [effect-not-a-type] already extends.
   * The unresolved case carries import suggestions [diag-import-suggest].
 * [unused-var] A local that is never **read** is a *warning* (user request
@@ -3328,12 +3328,12 @@ Conventions:
   element access as declared functions (std's `get(list, index)`), and
   tuples use constant positions ([expr-tuple-index]).
 * [iter-resolve] A `for` subject must be an array, a **step call**
-  [iter-step-call], an **iterator struct** — a type declaring `: Yield<self, T>`
+  [iter-step-call], an **iterator struct** — a type declaring `: Next<self, T>`
   [iter-protocol] [group-obligation] — or a **source**: a value some declared
   `iter` overload accepts (the implicit `iter(subject)` call), a type declaring
   `: Iter<self, It, T>` [iter-group], or a generic under a `?Iter<C, It, T>` spread;
   anything else is an error. When the subject has a protocol-shaped `next` but
-  no declaration, the error names the `: Yield<self, T>` remedy.
+  no declaration, the error names the `: Next<self, T>` remedy.
   * Resolution order: a step call, arrays natively, then the declared iterator
     struct [iter-protocol], then `iter` [iter-mint]. The struct comes before
     `iter` because a type with both is *already* a position in a sequence, so
@@ -3350,7 +3350,7 @@ Conventions:
     that differs, or a subject that is not a plain struct, stays `unify`'s
     business.
 * [iter-generic-drive] A `for` over a **type parameter** drives it when the
-  enclosing fn has a protocol-shaped `?Yield<It, T>` spread for it
+  enclosing fn has a protocol-shaped `?Next<It, T>` spread for it
   [implicit-group] (user decision 2026-09-09): the position *is* the declaration
   — it says "this call supplies a `next` for `It`" — so the loop calls that
   implicit parameter and takes the element type from its result. This is what
@@ -3397,7 +3397,7 @@ Conventions:
     pass and std's `drop` for a plain one [linear-discard]. (This
     replaces the deleted `?Linear<It>` spread.)
 * [iter-mint] `iter` converts a **container** into a fresh iterator
-  (`fn iter<T>(list: List<T>) [] -> Mut ListYield<T> => list`), and that is
+  (`fn iter<T>(list: List<T>) [] -> Mut ListNext<T> => list`), and that is
   the whole of container iteration: std declares an iterator struct plus a
   `next` per intrinsic container, so the language has no container protocol of
   its own (user decision 2026-09-08, roadmap R5). A type of one's own declares
@@ -3438,16 +3438,17 @@ Conventions:
     `None | None` would have one. `Finished` is a fieldless struct — it has
     nothing to qualify, and `None` would say "absent" where the claim is
     "the sequence ended".
-  * `params Yield<It, T> { fn next(it: Mut It) -> Emitted T | => it: Mut
+  * `fns Next<It, T> { fn next(it: Mut It) -> Emitted T | => it: Mut
     Finished }` [group-obligation] [group-self]: a type of your own becomes
-    drivable by declaring `: Yield<self, T>` and supplying the `next` — checked at
+    drivable by declaring `: Next<self, T>` (the group was `Yield` until
+    2026-10-27, OPERATOR_OVERLOAD.md O1) and supplying the `next` — checked at
     the struct, where a misspelled member is caught, rather than surfacing
     as "not iterable" at some loop (roadmap R2, user decisions 2026-09-08;
-    this replaced `params Iterator<St, T>` and the `once` requirement). The
+    this replaced `fns Iterator<St, T>` and the `once` requirement). The
     state is `Mut` because advancing an iterator mutates its position.
   * Only the exact `Emitted T | Finished` shape is a driver; a `next` of
     any other shape is an ordinary function.
-  * **`for` reads the declaration** — the `: Yield<self, T>` clause is the one
+  * **`for` reads the declaration** — the `: Next<self, T>` clause is the one
     fact that makes a value an iterator, and the element type is the clause's
     argument. The overload scan only resolves *which* `next` (and the arm
     identity); when the obligation is declared but unsatisfied, the error
@@ -3494,14 +3495,14 @@ Conventions:
   `filter` stay eager and answer lists. Nothing runs until the iterator is
   driven, so an endless source costs nothing and a `break` stops it. Each is
   a struct (`Mapping<It, T, U>`, `Taking<It, T>`, …) holding the source
-  iterator and the source's `next`, kept as a fn field from the `?Yield<It,
+  iterator and the source's `next`, kept as a fn field from the `?Next<It,
   T>` implicit, plus its own state; its `next` pulls one element at a time.
   `to_list(it)` drives one to its end as a list (a view of a borrowing
   source's elements, as `filter`'s is); a container's own `to_list` is more
   specific and wins [fn-overload-rank]. There is no `count(it)`: see ROADMAP
   0c item 17. Rust: [rs-lazy-adaptor].
 * [seq-iterator] std's sequence functions (`map`, `filter`, `reduce`) take their
-  subject as an **iterator** and reach its `next` through a `?Yield<It, T>`
+  subject as an **iterator** and reach its `next` through a `?Next<It, T>`
   spread [implicit-group] — the group std declares for iteration — so any
   iterator is a subject: the one an `iter` hands back for a `List<T>`, an array
   or a `Str`, the one an `iter fn` mints, or an iterator struct of one's own. A
@@ -3509,7 +3510,7 @@ Conventions:
   what keeps the inference ordinary: `It` is bound by an argument, so nothing
   depends on feeding one implicit's resolution into another (user decision
   2026-09-09, replacing `?Iterable`). There is no iterator *type*; the source
-  side of the protocol is `params Iter<C, It, T>` [iter-group], which a program's
+  side of the protocol is `fns Iter<C, It, T>` [iter-group], which a program's
   own container-shaped combinator spreads.
   * **std relies on the iterator and never on an `iter`** (user decision
     2026-09-10), and the reason is stronger than the inference one: a source is
@@ -3845,12 +3846,16 @@ Conventions:
     argument's type, the rest by name and type. The bare override `to_str = f`
     cannot say which it fills and is refused; the typed spelling (`to_str:
     (V) -> Str = f`) is decided and not built.
-* [implicit-group] `params Field<T> { fn add(a: T, b: T) -> T ... }` declares
+* [implicit-group] `fns Field<T> { fn add(a: T, b: T) -> T ... }` declares
   a named bundle, spread into a signature as `?Field<T>`. It is a
   *declaration-side* shorthand only: the members become implicit parameters
   in their own right, and the group has **no binder** (user decision
   2026-09-05 — the binder referenced nothing, prevented no collision, and
-  made the caller name it to override one member).
+  made the caller name it to override one member). The keyword is `fns`
+  (user decision 2026-10-27, OPERATOR_OVERLOAD.md O1): it was `params`, from
+  when a group was only a bundle of implicit parameters; a group is now a
+  set of function signatures that also serves as an obligation on a type
+  [group-obligation]. The concept keeps its name, a **group**.
   * **A group is a convenience, not a contract** (user decision 2026-09-26): a
     caller may fill any subset of its members, and a **mixed fill** — one
     member written, the rest left to resolution — is honoured rather than
@@ -3889,8 +3894,8 @@ Conventions:
     with a `hash` and no `eq` is the ordinary missing-implicit error naming `eq`.
     Asking for less is a narrower group, or the members written individually —
     which is what keeps `?cmp: (T, T) -> Int` a spelling worth having.
-* [group-obligation] A `params` group may be stated as an **obligation** on
-  a struct declaration: `linear struct Lines : Yield<self, Str> canbe Mut { … }`
+* [group-obligation] A `fns` group may be stated as an **obligation** on
+  a struct declaration: `linear struct Lines : Next<self, Str> canbe Mut { … }`
   — a `:` clause between the generics and `canbe`, comma-separated, each
   entry a group name with type arguments (user decisions 2026-09-08,
   roadmap R1), optionally with `by X` naming where the members are stamped from
@@ -3901,7 +3906,7 @@ Conventions:
   Where `?Group<T>` asks the *call site* to supply the members, `: Group<T>`
   promises they exist for this type, and the promise is checked **at the
   declaration**:
-  * the name must be a visible `params` group (a type or qualifier there is
+  * the name must be a visible `fns` group (a type or qualifier there is
     a position mistake with its own hint), with the group's arity;
   * the same group twice is an error;
   * every member must be satisfied by a **visible fn overload**: parameter
@@ -3917,7 +3922,7 @@ Conventions:
   * The obligation adds no scope and no dispatch: the satisfying fn is an
     ordinary overload, and calls to it resolve as ever [fn-overload]. The
     clause moves the *check* to the declaration; nothing is designated in
-    the mechanism itself (`Yield<T>`/`Linear` designation is roadmap
+    the mechanism itself (`Next<T>`/`Linear` designation is roadmap
     R2/R4).
   * **`by` is rejected on an `intrinsic type`** [obligation-by]: `by X`
     stamps a generated body over a struct's fields or a union's arms, and
@@ -3942,10 +3947,10 @@ Conventions:
   * `self` anywhere else — including in a `?Group<self, …>` spread, whose
     arguments are validated like any other written type — is an unknown type.
   * A designated group therefore puts the **state first and the element
-    second** (`params Yield<It, T>`), because the state is the parameter
+    second** (`fns Next<It, T>`), because the state is the parameter
     `self` fills.
 * [group-not-a-value] **No value may have a group as its type** (user
-  decision 2026-09-08). `items: Yield<Countdown, Int>` is an error in every type
+  decision 2026-09-08). `items: Next<Countdown, Int>` is an error in every type
   position — parameter, return, field, `let` annotation, type argument,
   union arm, array element. There is no `dyn`, no erasure, no interface
   value: a group constrains a *named* type and is resolved statically. This
@@ -3961,11 +3966,11 @@ Conventions:
   arguments** (user design 2026-09-06, built with the sequence functions).
   Resolution feeds back into the substitution *between* the arguments, so a
   variable that appears only in an implicit's type is still inferred:
-  `map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>)` binds `It` from its
-  subject, then resolves `next` at `(Mut ListYield<Int>) -> Emitted T | Finished`
+  `map<It, T, U>(it: Mut It, f: (T) -> U, ?Next<It, T>)` binds `It` from its
+  subject, then resolves `next` at `(Mut ListNext<Int>) -> Emitted T | Finished`
   and reads `T = Int` off the `next` that fits.
-  * A designated group teaches even more directly: a `?Yield<It, T>` spread
-    reads `T` off `It`'s own `: Yield<self, T>` clause, reaching through the
+  * A designated group teaches even more directly: a `?Next<It, T>` spread
+    reads `T` off `It`'s own `: Next<self, T>` clause, reaching through the
     struct an `iter fn` generates [iter-fn]. That is what types a *bare*
     lambda over such a subject, where no declared `next` exists to resolve.
   * **By selection** (R10 D22, 2026-10-28): the implicit is resolved by
@@ -3997,7 +4002,7 @@ Conventions:
   * **Repeated until it stops learning, and once more after every argument is
     typed** (user decision 2026-09-10). That is what makes a *container*-shaped
     combinator work — `total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c),
-    ?Yield<It, Int>) -> Int => c`, where nothing but
+    ?Next<It, Int>) -> Int => c`, where nothing but
     the chosen `iter` says what `It` is (and the fn type's own return says
     the pass it answers holds a borrow of `c` [proj-infer]):
     `C` is only known after the arguments, so the sweeps between them cannot
@@ -4021,13 +4026,13 @@ Conventions:
   entry relates two implicit parameters — `=> eq with hash` — and says they are
   one decision: a call fills every member of the relation **from one source**, or
   leaves them all alone (user decision 2026-09-26). It is written on a function,
-  or on a `params` group, which is where a group states what its members mean
+  or on a `fns` group, which is where a group states what its members mean
   together:
 
   ```
   fn f<T>(?func: (T) -> Bool, ?other: (T, T) -> Int) => func with other
 
-  params Hashed<T> => eq with hash {
+  fns Hashed<T> => eq with hash {
       fn hash(value: T) -> Long
       fn eq(a: T, b: T) -> Bool
   }
@@ -4210,7 +4215,7 @@ Conventions:
   ```
 
   * **It is a desugaring, done in the syntax crate** (`desugar::expand_iter_fns`),
-    into `struct Name : Yield<self, T> canbe Mut { <parameters>, <state fields>
+    into `struct Name : Next<self, T> canbe Mut { <parameters>, <state fields>
     }` (generic over the fn's generics), a minter under the `iter fn`'s own
     name and parameters returning `Mut Name` whose body is the struct literal
     (it lends every kept non-Copy parameter [proj-infer]), and the author's body
@@ -4270,7 +4275,7 @@ Conventions:
     pre-pass that resolved them were removed with the named state. What it
     spelled is written out: a return names the struct (`-> Mut Range`), a
     parameter is a generic with its spread (`fn first<It>(it: Mut It,
-    ?Yield<It, Int>)`), and `Iter`'s iterator is a group parameter
+    ?Next<It, Int>)`), and `Iter`'s iterator is a group parameter
     [iter-group].
 * [bare-names] **One namespace of bare names per declaration** (user decision
   2026-10-20, R4): a handler's constructor parameters and state fields, and an
@@ -4294,23 +4299,23 @@ Conventions:
   else reads it yet. A state initializer may read the **constructor
   parameters** (`state { n: Int = c + 1 }`), lowered with them in scope
   (`ir::build::decls::fields`).
-* [iter-group] **`params Iter<C, It, T>` is what a source is** (user decisions
+* [iter-group] **`fns Iter<C, It, T>` is what a source is** (user decisions
   2026-09-26, `It` written 2026-10-20): `fn iter(collection: C) -> Mut It` and
   `fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut`, tied
   `iter with next` [implicit-with] — a caller may override the minter, never
   the step alone, since the step belongs to whatever the minter answers.
-  `Yield` and `Iter` are one protocol stated from two sides: the second member
-  of `Iter` is `Yield`'s `next` over `It`.
+  `Next` and `Iter` are one protocol stated from two sides: the second member
+  of `Iter` is `Next`'s `next` over `It`.
   * **The obligation writes the iterator struct**: `struct Bag : Iter<self,
     BagIter, Int>`, satisfied by an `iter fn iter(bag: Bag)` whose `state
     BagIter { … }` is that struct (the compiler writes both members) or by a fn
     `iter` over `self` returning `Mut BagIter` beside a `next` over it — the
     ordinary member match. `Iter`'s `next` is over the iterator, not `self`, so
     its element is matched modulo `proj` (a walking iterator's `Emitted (proj(p)
-    T)` fills `Emitted T`) and its borrowness is the iterator's own `: Yield`'s
+    T)` fills `Emitted T`) and its borrowness is the iterator's own `: Next`'s
     to state [yield-proj]. `It` is not inferred from the `iter` that fulfils it
     (user decision 2026-10-20, R3). A struct declaring both `: Iter` and `:
-    Yield` is refused: `for x in s` would have two answers (drive `s`, or mint
+    Next` is refused: `for x in s` would have two answers (drive `s`, or mint
     from it).
   * **The spread writes it too**: `fn total<C, It>(c: C, ?Iter<C, It, Int>)`
     brings in `iter: (C) -> Mut It` and `next: (Mut It) -> Emitted T |
@@ -4320,7 +4325,7 @@ Conventions:
     Inside the body, `for x in c` over the generic source mints with the `iter`
     implicit and drives with the `next` beside it (`PassDriver.mint =
     Some(PassMember::Implicit("iter"))`, `generic_pass_elem_ty`); `iter(c)` is a
-    `Mut It` a `?Yield` combinator accepts with the paired `next` forwarded
+    `Mut It` a `?Next` combinator accepts with the paired `next` forwarded
     [implicit-forward]. At a call, `It` is learned from the `iter` that fills
     the pair [implicit-infer] — the one *written* there when the call overrides
     it (`total(bag, iter = mint_b, next = next_b)`; until 2026-10-20 it was
@@ -4996,7 +5001,7 @@ Conventions:
 
 ### Comparison, equality and hashing (std, `std.core.compare`)
 
-* [cmp-groups] The three capabilities are **params groups**, not traits (user
+* [cmp-groups] The three capabilities are **fns groups**, not traits (user
   decisions 2026-09-21, the ordering round): `std.core.compare` declares
   `Ordered<T> { fn cmp(a: T, b: T) -> Int }`,
   `Eq<T> { fn eq(a: T, b: T) -> Bool }` and
@@ -5825,7 +5830,7 @@ Conventions:
     parameter it is resolved as [implicit-param]. **There is no default to
     write**: the slot's *name* is what an unwritten one resolves by, which is how
     an implicit parameter already works [implicit-resolve] (user decision
-    2026-09-22 — an earlier `= cmp` form restated the mechanism and is gone). A **`params` group spreads into a slot list** exactly as it
+    2026-09-22 — an earlier `= cmp` form restated the mechanism and is gone). A **`fns` group spreads into a slot list** exactly as it
     does into a parameter list (user decision 2026-09-22):
     `qualifier Heap<T>(?Ordered<T>) of List<T>` declares one slot per member, at
     the position the spread is written, and two entries asking for the same
@@ -7801,7 +7806,7 @@ can have one capability without the other.
     `Subcommand` that is also `Positional` or `Short`, a field type that is
     not a union, a non-struct arm.
 * [args-derive] **`struct S : FromArgs<self> by args` derives a parser**
-  (the CLI design record §10.1, Q7, Q13): `params FromArgs<T> { fn arg_spec() ->
+  (the CLI design record §10.1, Q7, Q13): `fns FromArgs<T> { fn arg_spec() ->
   Spec<T>; fn from_found(found: Found) -> Ok T | Errs NonEmpty
   List<ArgError> }`, both return-only and picked by type
   [fn-overload-return]. `parse_args<T>(args)` is spec, scan, then the help
@@ -8882,7 +8887,7 @@ between endpoints and delivers what arrives into the scheduler.
      [proj-infer] and conditional responses; a handler's faces, conformance,
      dependencies (`handler_deps`), mailbox presence, state field types and
      member signatures; an effect's prerequisites (`effect_prereqs`), route
-     keys, kind and members; structs, `type`s, qualifiers, `params` groups,
+     keys, kind and members; structs, `type`s, qualifiers, `fns` groups,
      aliases, renames, doc tags, name clashes; the platform boundary plans;
   3. *bodies*: every body, reading what 1 and 2 recorded (a fn's `FnSig`, a
      handler's `HandlerSig`, the module's renames), re-deriving and
@@ -9796,15 +9801,15 @@ between endpoints and delivers what arrives into the scheduler.
   * Rust: a capture-rooted projection in a lambda tail stays the borrow
     (`|i| all.get((*i) as usize).unwrap()` returning `&String` into a
     `Vec<&String>`) — no clone [copy-opt-in].
-* [yield-proj] An iterator that walks data declares `: Yield<self, proj T>` and
+* [yield-proj] An iterator that walks data declares `: Next<self, proj T>` and
   its `next` returns `Emitted (proj(p) T) | Finished` — the element is
   a projection of the iterator, which projects the source; a generator declares
-  `: Yield<self, T>` and emits owned values (user decision 2026-09-11: one
-  `Yield` group, the element type argument carrying `proj`). The
+  `: Next<self, T>` and emits owned values (user decision 2026-09-11: one
+  `Next` group, the element type argument carrying `proj`). The
   obligation and the member must agree — `proj` on one and not the other
-  is an error naming the fix. Reading combinators (`?Yield<It, T>`) accept
-  both. std's `ListYield`/`ArrayYield`/`StrYield` borrow (`items: proj
-  List<T>`; `StrYield` emits owned `Char`); an `iter fn`'s generated struct
+  is an error naming the fix. Reading combinators (`?Next<It, T>`) accept
+  both. std's `ListNext`/`ArrayNext`/`StrNext` borrow (`items: proj
+  List<T>`; `StrNext` emits owned `Char`); an `iter fn`'s generated struct
   borrows its parameters (`list: proj List<T>`, `proj` snapshot fields, Copy
   scalars owned) and names the parameter as the elements' source
   (`Emitted (proj(list) T)`), which the desugar redirects to the struct
@@ -9930,7 +9935,7 @@ between endpoints and delivers what arrives into the scheduler.
 * [linear-group] A type declares linearity with the **`linear struct`
   modifier**: `linear struct Lines { … }` (user decision 2026-09-12,
   replacing the designated `: Linear<self>` group entry of 2026-09-08,
-  which replaced `canbe linear`, L6a 2026-09-02 — the `params Linear`
+  which replaced `canbe linear`, L6a 2026-09-02 — the `fns Linear`
   group is deleted). The obligation's **discharge set** is every fn
   **and every effect member** declared in the *type's own file* whose
   contract consumes a parameter of the type — `close` for a file,
@@ -10635,7 +10640,7 @@ between endpoints and delivers what arrives into the scheduler.
   (user decision 2026-10-05). A fn whose name is unique in its module keeps
   it; overloads within one module are named `<name>__<suffix>` from their
   parameter types, at the first level that sets each apart from the others of
-  its name there: (1) each explicit parameter's base type (`next__StrYield`,
+  its name there: (1) each explicit parameter's base type (`next__StrNext`,
   `map__List_Fn`); (2) with qualifiers (`swap__MutList_IdxInt_IdxInt`);
   (3) with type arguments (`get__ListT_Int`); (4) with both; (5) plus the
   implicit parameters' names; (6) plus the return type, for overloads whose
@@ -10875,7 +10880,7 @@ between endpoints and delivers what arrives into the scheduler.
 * [decl-id] **Every declaration has one stable id** (PIPELINE.md §II.9
   A1; user decision P1, 2026-10-27): its **module path**, its **kind** (fn,
   struct, `type`, effect, effect member, handler, handler member, qualifier,
-  qualifier fn, `params` group, group member, effect alias, and the IR's
+  qualifier fn, `fns` group, group member, effect alias, and the IR's
   generated declarations and module statics), its **name path** (the
   container's name first: `Counter.get`), and for a fn-like declaration its
   **signature** as overload identity: the written parameter types, type
@@ -10984,7 +10989,7 @@ between endpoints and delivers what arrives into the scheduler.
     edge follows *that*. Both backends' import computation reads the same
     table, so what a file depends on cannot be answered two ways.
   * **By name, for everything else**: a type, struct, effect, handler,
-    qualifier or `params` group a file mentions is looked up in its resolved
+    qualifier or `fns` group a file mentions is looked up in its resolved
     scope (`ModuleScope::name_origins`) and each declaring module becomes
     reachable. These are not overload sets, so the conservatism is cheap. A
     name that is *both* a function and a type somewhere in scope keeps its
@@ -12021,7 +12026,7 @@ replaced the working document TESTING.md).
     2026-10-27). Otherwise every item
     containing the error breaks: inside a fn's body, or a handler member's
     (or `init`'s), the body; anywhere else in a declaration, its interface (a
-    fn's signature; a struct, type, effect, qualifier or `params`
+    fn's signature; a struct, type, effect, qualifier or `fns`
     declaration; a handler outside its member bodies). An error in an
     import, in no declaration (a module-level `use`), or past the file's end,
     and any parse or expansion error of the file, breaks the whole file.
@@ -12195,7 +12200,7 @@ replaced the working document TESTING.md).
 * [lsp-name-positions] Every *name position* resolves to its declaration for
   hover and go-to-definition, including the two that did not until
   2026-09-11: the group name in a struct's **obligation clause**
-  (`: Yield<self, T>`), and the type or qualifier name in an **`is` check**
+  (`: Next<self, T>`), and the type or qualifier name in an **`is` check**
   (`i is Positive`). Before, hovering the latter fell through to the
   enclosing expression and reported only its `Bool`.
 * [doc-qualifies-body] Hover on a **predicate qualifier** shows the

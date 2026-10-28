@@ -84,17 +84,17 @@ pub fn to_hex_platform(data: &crate::std_core_bytes::Bytes) -> String {
     crate::platform_std_core_bytes::to_hex(data)
 }
 
-pub fn iter(data: &crate::std_core_bytes::Bytes) -> crate::std_core_bytes::BytesYield<'_> {
-    return crate::std_core_bytes::BytesYield { data: data, at: 0i32 };
+pub fn iter(data: &crate::std_core_bytes::Bytes) -> crate::std_core_bytes::BytesNext<'_> {
+    return crate::std_core_bytes::BytesNext { data: data, at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct BytesYield<'s> {
+pub struct BytesNext<'s> {
     pub data: &'s crate::std_core_bytes::Bytes,
     pub at: i32,
 }
 
-pub fn next(p: &mut crate::std_core_bytes::BytesYield<'_>) -> crate::unions::Union2<u8, crate::std_core_iterator::Finished> {
+pub fn next(p: &mut crate::std_core_bytes::BytesNext<'_>) -> crate::unions::Union2<u8, crate::std_core_iterator::Finished> {
     let mut b: Option<u8> = crate::std_core_bytes::get_platform(p.data, p.at);
     if b.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());

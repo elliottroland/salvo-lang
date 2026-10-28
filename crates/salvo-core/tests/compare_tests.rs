@@ -1,7 +1,7 @@
-//! [cmp-groups] Comparison, equality and hashing as **params groups**.
+//! [cmp-groups] Comparison, equality and hashing as **fns groups**.
 //!
 //! The ordering round's foundation (user decisions 2026-09-21): `Ordered`,
-//! `Eq` and `Hashed` are ordinary `params` groups in `std.core.compare`, so a
+//! `Eq` and `Hashed` are ordinary `fns` groups in `std.core.compare`, so a
 //! capability is "a fn of this shape is in scope" and nothing more. Which
 //! means these tests are mostly about the machinery the language already has
 //! — [implicit-resolve] picking the canonical overload for the type a call
@@ -26,9 +26,9 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type Bool\n",
     "export intrinsic type Double\n",
     "export intrinsic type Str canbe Mut\n",
-    "export params Ordered<T> {\n    fn cmp(a: T, b: T) -> Int\n}\n",
-    "export params Eq<T> {\n    fn eq(a: T, b: T) -> Bool\n}\n",
-    "export params Hashed<T> {\n    fn hash(value: T) -> Long\n    fn eq(a: T, b: T) -> Bool\n}\n",
+    "export fns Ordered<T> {\n    fn cmp(a: T, b: T) -> Int\n}\n",
+    "export fns Eq<T> {\n    fn eq(a: T, b: T) -> Bool\n}\n",
+    "export fns Hashed<T> {\n    fn hash(value: T) -> Long\n    fn eq(a: T, b: T) -> Bool\n}\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
     "export intrinsic fn cmp(a: Str, b: Str) [] -> Int => a, b\n",
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
@@ -298,7 +298,7 @@ fn younger(a: Person, b: Person) [] -> Person => !a, !b {
 }
 
 /// [group-obligation] The obligation form works on the three groups as it does
-/// on `Yield`: the promise is checked **at the struct**, so a missing `cmp` is
+/// on `Next`: the promise is checked **at the struct**, so a missing `cmp` is
 /// an error where the promise is written rather than at some distant call.
 /// (The `default` spelling that *generates* the implementation is the round's
 /// next step; this is the hand-written half.)
@@ -881,7 +881,7 @@ fn same(a: Point, b: Point) [] -> Bool => a, b {
 fn default_is_refused_on_a_group_with_no_generator() {
     let errs = errors(
         r#"
-params Step<It, T> {
+fns Step<It, T> {
     fn advance(it: Mut It) -> T
 }
 
@@ -980,7 +980,7 @@ fn probe(x: Int, y: Int) [] -> Bool => x, y {
 fn a_call_fitting_two_same_named_implicits_is_ambiguous() {
     let errs = errors(
         r#"
-params Weird<T> {
+fns Weird<T> {
     fn eq(a: T, b: T) -> Int
 }
 
@@ -1490,7 +1490,7 @@ struct P : Counted<self> by describe {
     x: Int
 }
 
-params Counted<T> {
+fns Counted<T> {
     fn describe(v: T) -> Int
 }
 "#,
@@ -1521,7 +1521,7 @@ struct P : Counted<self> by describe {
     x: Int
 }
 
-params Counted<T> {
+fns Counted<T> {
     fn describe(v: T) -> Int
 }
 "#,
@@ -1542,7 +1542,7 @@ comptime fn tag<T is Struct>(v: T) [] -> Int => v {
     return 1
 }
 
-params Tagged<T> {
+fns Tagged<T> {
     fn tag(v: T) -> Int
 }
 
@@ -1638,7 +1638,7 @@ comptime fn tag<T is Struct>(a: T, b: T) [] -> Int => a, b {
     return 1
 }
 
-params Tagged<T> {
+fns Tagged<T> {
     fn cmp(a: T, b: T) -> Int
 }
 
@@ -1799,7 +1799,7 @@ fn a_member_returning_self_is_stamped_at_the_clause() {
         (
             "decode.sv",
             r#"
-export params FromStrs<T> {
+export fns FromStrs<T> {
     fn from_strs(n: Int) -> T
 }
 
@@ -1846,7 +1846,7 @@ fn a_hand_written_member_returning_self_is_attached() {
         (
             "shapes.sv",
             r#"
-export params Default<T> {
+export fns Default<T> {
     fn default() -> T
 }
 
@@ -1876,7 +1876,7 @@ fn probe() [] -> Int {
 }
 
 /// [type-identity] [obligation-by] The group a clause names is the one its
-/// file sees: two modules each declare `params Shown<T>` with different
+/// file sees: two modules each declare `fns Shown<T>` with different
 /// members, and the clause stamps the imported one's. Before, the comptime
 /// expansion stamped the first group of the name collected anywhere (here
 /// `a`'s `cmp`); it now reads each file's names through the resolver's scope
@@ -1884,8 +1884,8 @@ fn probe() [] -> Int {
 #[test]
 fn a_clause_stamps_the_group_its_file_sees() {
     let errs = errors_in(&[
-        ("a.sv", "export params Shown<T> {\n    fn cmp(x: T, y: T) -> Int\n}\n"),
-        ("b.sv", "export params Shown<T> {\n    fn eq(x: T, y: T) -> Bool\n}\n"),
+        ("a.sv", "export fns Shown<T> {\n    fn cmp(x: T, y: T) -> Int\n}\n"),
+        ("b.sv", "export fns Shown<T> {\n    fn eq(x: T, y: T) -> Bool\n}\n"),
         (
             "main.sv",
             "import b.Shown\n\nstruct P : Shown<self> by auto {\n    a: Int\n}\n\n\

@@ -14,7 +14,7 @@
 //!   `next` — pulled in `std.core.range` and whatever it drags, because
 //!   `std.core.range` declares a `next` too.
 //! * **By name**, for everything else: a type, struct, effect, handler,
-//!   qualifier or `params` group a file mentions is looked up in that
+//!   qualifier or `fns` group a file mentions is looked up in that
 //!   file's resolved scope (`ModuleScope::name_origins`) and every module
 //!   declaring it becomes reachable. These names are not overload sets, so
 //!   the conservatism costs little — and a name that is *both* a function
@@ -296,7 +296,7 @@ pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> Has
 
 /// [mod-used-only] Whether a name is, in this scope, **only** a function —
 /// the case resolution can answer precisely. A name that also denotes a
-/// struct, effect, handler, qualifier, `params` group or type keeps its
+/// struct, effect, handler, qualifier, `fns` group or type keeps its
 /// name-based edge: those are not overload sets, so the conservatism is
 /// cheap, and mixing the two rules for one name would need per-module
 /// knowledge that `name_origins` does not carry.
@@ -306,7 +306,7 @@ fn is_only_a_fn_name(scope: &crate::resolve::ModuleScope<'_>, name: &str) -> boo
         && !scope.effects.contains_key(name)
         && !scope.handlers.contains_key(name)
         && !scope.qualifiers.contains_key(name)
-        && !scope.param_groups.contains_key(name)
+        && !scope.fn_groups.contains_key(name)
         && !scope.type_aliases.contains_key(name)
         && !scope.opaque_types.contains_key(name)
         // An effect *member* shares a name with no module-level fn worth
@@ -359,7 +359,7 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
             }
             // [implicit-group] A group's members are signatures, like an
             // effect's: their types are what the group depends on.
-            Item::Params(g) => {
+            Item::Fns(g) => {
                 for f in &g.fns {
                     fn_names(f, &mut used);
                 }

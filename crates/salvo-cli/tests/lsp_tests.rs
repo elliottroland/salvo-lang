@@ -1247,18 +1247,18 @@ fn main() [use] {
 }
 
 // [doc-comment] [doc-qualifies-body] Hover on the two declaration kinds that
-// had none: a `params` group (its members are the point of it), and a
+// had none: a `fns` group (its members are the point of it), and a
 // predicate qualifier, which shows its `qualifies` body when short (user
 // requests 2026-09-11).
 #[test]
-fn hover_covers_params_groups_and_short_qualifies_bodies() {
+fn hover_covers_fns_groups_and_short_qualifies_bodies() {
     let root = std::env::temp_dir().join("salvo_lsp_hover_decls");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     let mut lsp = start(&root);
     let uri = format!("file://{}", root.join("main.sv").display());
     // Lines (0-based):
-    // 0 params Show<T> {
+    // 0 fns Show<T> {
     // 1     fn show(v: T) -> Str
     // 2 }
     // 3
@@ -1267,7 +1267,7 @@ fn hover_covers_params_groups_and_short_qualifies_bodies() {
     // 6         return int > 0
     // 7     }
     // 8 }
-    let text = "params Show<T> {\n\
+    let text = "fns Show<T> {\n\
                 \x20   fn show(v: T) -> Str\n\
                 }\n\
                 \n\
@@ -1288,10 +1288,10 @@ fn hover_covers_params_groups_and_short_qualifies_bodies() {
     let _ = expect_diagnostics(&lsp.rx);
 
     // The group's name: its declaration, members included.
-    let value = hover(&mut lsp, 40, &uri, 0, 8);
+    let value = hover(&mut lsp, 40, &uri, 0, 5);
     assert!(
-        value.contains("params Show<T>") && value.contains("fn show"),
-        "params hover should show the group and its members: {value}"
+        value.contains("fns Show<T>") && value.contains("fn show"),
+        "fns hover should show the group and its members: {value}"
     );
 
     // The qualifier's name: its declaration plus the short predicate body.
@@ -1357,7 +1357,7 @@ fn hover_reaches_obligation_and_is_check_names() {
     let mut lsp = start(&root);
     let uri = format!("file://{}", root.join("main.sv").display());
     // Lines (0-based):
-    // 0 params Show<T> {
+    // 0 fns Show<T> {
     // 1     fn show(v: T) -> Str
     // 2 }
     // 3
@@ -1381,7 +1381,7 @@ fn hover_reaches_obligation_and_is_check_names() {
     // 21     }
     // 22     return 0
     // 23 }
-    let text = "params Show<T> {\n\
+    let text = "fns Show<T> {\n\
                 \x20   fn show(v: T) -> Str\n\
                 }\n\
                 \n\
@@ -1424,7 +1424,7 @@ fn hover_reaches_obligation_and_is_check_names() {
     // The group name in the obligation clause: `Show` on line 4.
     let value = hover(&mut lsp, 50, &uri, 4, 15);
     assert!(
-        value.contains("params Show<T>") && value.contains("fn show"),
+        value.contains("fns Show<T>") && value.contains("fn show"),
         "obligation-clause group hover should reach the group: {value}"
     );
 
@@ -1798,7 +1798,7 @@ fn borrowed<T>(xs: List<T>) -> Mut View<T> holds proj(xs) => xs {
     return Mut View<T> { items: xs, at: 0 }
 }
 
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) -> Int => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Next<It, Int>) -> Int => c {
     let sum = 0
     let p = iter(c)
     for n in p {
@@ -3465,7 +3465,7 @@ fn hover_next_hides_generated_iterator_overloads() {
     // user struct with its own `next` gives a second, real overload. Hovering
     // the user `next` must show only real overloads.
     let buf = concat!(
-        "struct Pair<T> : Yield<self, T> canbe Mut {\n    items: List<T>,\n    at: Int\n}\n\n",
+        "struct Pair<T> : Next<self, T> canbe Mut {\n    items: List<T>,\n    at: Int\n}\n\n",
         "fn next<T>(p: Mut Pair<T>) [] -> Emitted T | Finished => p: Mut {\n    return finished()\n}\n\n",
         "iter fn counts(n: Int) -> Emitted Int | Finished {\n    state Counts { at: Int = 0 }\n    if at >= n { return finished() }\n    at = at + 1\n    return emitted(at)\n}\n\n",
         "fn main() [] {\n}\n",

@@ -1,7 +1,7 @@
 //! [decl-id] The identity of a declaration.
 //!
 //! Every declaration — a fn, struct, `type`, effect and each of its members,
-//! handler and each of its members, qualifier and each of its fns, `params`
+//! handler and each of its members, qualifier and each of its fns, `fns`
 //! group and each of its members, effect alias, and the declarations the IR
 //! builder generates — is identified by a [`DeclId`]: its **module path**, its
 //! **kind**, its **name path** (`["Counter", "get"]` for a handler's member),
@@ -32,7 +32,7 @@ use salvo_syntax::Span;
 use crate::source::{ModulePath, SourceFile};
 
 /// What a declaration is. Part of its identity: one module may name a struct,
-/// a handler and a `params` group alike.
+/// a handler and a `fns` group alike.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DeclKind {
     Fn,
@@ -307,7 +307,7 @@ fn file_ids(path: &ModulePath, module: &Module) -> FileIds {
                 Some((DeclKind::Qualifier, vec![q.name.name.clone()], Some(q.of.to_string()))),
                 q.fns.iter().map(|m| (DeclKind::QualifierFn, vec![q.name.name.clone(), m.name.name.clone()], Some(fn_sig(m)))).collect(),
             ),
-            Item::Params(g) => (
+            Item::Fns(g) => (
                 Some((DeclKind::Group, vec![g.name.name.clone()], None)),
                 g.fns.iter().map(|m| (DeclKind::GroupMember, vec![g.name.name.clone(), m.name.name.clone()], Some(fn_sig(m)))).collect(),
             ),

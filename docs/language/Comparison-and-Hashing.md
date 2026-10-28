@@ -3,9 +3,9 @@
 Three capabilities are declared exactly this way, in `std.core.compare`:
 
 ```
-params Ordered<T> { fn cmp(a: T, b: T) -> Int }
-params Eq<T>      { fn eq(a: T, b: T) -> Bool }
-params Hashed<T>  { fn hash(value: T) -> Long
+fns Ordered<T> { fn cmp(a: T, b: T) -> Int }
+fns Eq<T>      { fn eq(a: T, b: T) -> Bool }
+fns Hashed<T>  { fn hash(value: T) -> Long
                     fn eq(a: T, b: T) -> Bool }
 ```
 
@@ -239,7 +239,7 @@ somebody else's hash would quietly do nothing rather than fail. `Hashed` says so
 in its own declaration:
 
 ```
-params Hashed<T> => eq with hash {
+fns Hashed<T> => eq with hash {
     fn hash(value: T) -> Long
     fn eq(a: T, b: T) -> Bool
 }

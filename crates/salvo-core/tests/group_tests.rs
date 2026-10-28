@@ -1,12 +1,12 @@
 //! [group-obligation] [group-self] [group-not-a-value] Obligation groups as
 //! a mechanism (roadmap R1, user decisions 2026-09-08): `: Group<Args>` on a
 //! struct declaration promises the group's members, checked at the *struct*;
-//! `Self` inside a `params` group stands for the declaring type; and no value
+//! `Self` inside a `fns` group stands for the declaring type; and no value
 //! may ever have a group as its type — the single restriction that keeps the
 //! mechanism a where-clause rather than a trait.
 //!
 //! Nothing is designated here: the groups under test are declared in the
-//! tests, which is the point — R1 is the mechanism, `Yield<T>`/`Linear` get
+//! tests, which is the point — R1 is the mechanism, `Next<T>`/`Linear` get
 //! designated in R2/R4.
 
 use std::path::Path;
@@ -74,7 +74,7 @@ fn errors(src: &str) -> Vec<String> {
 /// comes first; a declaring type writes itself as `self` at the obligation
 /// [group-self].
 const PROTO: &str = r#"
-params Step<It, T> {
+fns Step<It, T> {
     fn advance(it: Mut It) -> Emitted T | Finished => it: Mut
 }
 "#;
@@ -197,7 +197,7 @@ fn advance<A>(t: Mut Twin<A, A>) -> Emitted (A, A) | Finished => t: Mut {{
 #[test]
 fn parameter_names_are_not_part_of_matching() {
     let errs = errors(
-        "params Pair<S, T> {
+        "fns Pair<S, T> {
     fn combine(a: S, b: S) -> T
 }
 
@@ -228,9 +228,9 @@ struct B : Int {
 ",
     );
     assert_eq!(errs.len(), 2, "got {errs:?}");
-    assert!(errs[0].contains("unknown `params` group `Missing`"), "got {errs:?}");
+    assert!(errs[0].contains("unknown `fns` group `Missing`"), "got {errs:?}");
     assert!(
-        errs[1].contains("`Int` is a type; an obligation names a `params` group"),
+        errs[1].contains("`Int` is a type; an obligation names a `fns` group"),
         "got {errs:?}"
     );
 }
@@ -364,7 +364,7 @@ fn drive<It>(source: Mut It, ?Step<self, Int>) -> Int {{
 #[test]
 fn a_selfless_group_still_spreads() {
     let errs = errors(
-        "params Field<T> {
+        "fns Field<T> {
     fn add(a: T, b: T) -> T
 }
 
@@ -400,11 +400,11 @@ fn a_group_is_not_a_type() {
     ];
     for (src, place) in cases {
         let errs = errors(&format!(
-            "params Pair<T> {{\n    fn combine(a: T, b: T) -> T\n}}\n\n{src}\n"
+            "fns Pair<T> {{\n    fn combine(a: T, b: T) -> T\n}}\n\n{src}\n"
         ));
         assert_eq!(errs.len(), 1, "{place}: got {errs:?}");
         assert!(
-            errs[0].contains("`Pair` is a `params` group, not a type"),
+            errs[0].contains("`Pair` is a `fns` group, not a type"),
             "{place}: got {errs:?}"
         );
     }

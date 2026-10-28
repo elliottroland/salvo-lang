@@ -13,7 +13,7 @@
 // kind `MutList`. The constructors stay intrinsic, since their spread
 // lowering is a template over rendered arguments (`vec![…]`, `listOf<T>(…)`)
 // a Salvo body cannot express for a `canbe linear` element type.
-export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListYield<T>, T>
+export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListNext<T>, T>
 
 // Constructors, in two shapes [col-of-nonempty] (user decision 2026-09-23).
 // Writing a *first* element establishes `NonEmpty` **by construction**, so no
@@ -109,18 +109,18 @@ export fn swap<T>(list: Mut List<T>, i: Idx(list) Int, j: Idx(list) Int) [] -> N
 export platform fn replace<T canbe linear>(list: Mut List<T>, index: Idx(list) Int, value: T) [] -> T
 => list: Mut, index, !value
 
-// [col-locate] What a **position-based** algorithm needs, as a params group
+// [col-locate] What a **position-based** algorithm needs, as a fns group
 // [implicit-group]: one function turning a container and a position into the
 // element's mutable handle. The caller — which knows the concrete shape —
 // fills it, so the algorithm itself stays generic over *what a position is*:
 // an `Idx` for a list, a key for a map, a cursor for a structure of your own.
-// The `Yield` pattern, for places rather than elements.
+// The `Next` pattern, for places rather than elements.
 //
 // A locator is what the Rust backend renders this as [rs-loc]: position data
 // crossing the closure boundary, materialized at the use site — which is why
 // a generic algorithm may hand out mutable handles at all. [ref-handle] `at`
 // mints a `ref` handle into its container; `get` (read-only `proj`) reads.
-export params Ref<C, L, T> {
+export fns Ref<C, L, T> {
     fn at(c: C, l: L) -> ref(c) Mut T?
 }
 
@@ -497,8 +497,8 @@ export fn reverse<T canbe linear>(list: Mut List<T>) [] -> None => list: Mut {
 // and every combinator walks. The iterator **borrows** the list — it is a view
 // with a position [proj-field] — so iterating a list by hand keeps it
 // usable, and nothing is copied or consumed on the way [copy-opt-in].
-export fn iter<T>(list: List<T>) [] -> Mut ListYield<T> => list {
-    return Mut ListYield<T> { items: list, at: 0 }
+export fn iter<T>(list: List<T>) [] -> Mut ListNext<T> => list {
+    return Mut ListNext<T> { items: list, at: 0 }
 }
 
 // [iter-protocol] The pass a list is walked by: the list plus a position in
@@ -506,7 +506,7 @@ export fn iter<T>(list: List<T>) [] -> Mut ListYield<T> => list {
 // container protocol, which is what "an iterator is a user struct" means. The
 // backends keep their native loop as a fast path for a `for` over a list
 // [iter-for-native], so this shape is what *combinators* see.
-export struct ListYield<T> : Yield<self, proj T> canbe Mut {
+export struct ListNext<T> : Next<self, proj T> canbe Mut {
     // The list being walked — borrowed, not owned: an iterator is a position in
     // someone else's data. A `proj` field makes the struct a view of
     // whatever each literal stores there [proj-field]; `iter` above lends
@@ -519,7 +519,7 @@ export struct ListYield<T> : Yield<self, proj T> canbe Mut {
 // Advances the iterator, reporting the element at its position or the end of the
 // list. Out of range is the end: [get] answers `None` past the last index, so
 // the bound is read rather than remembered.
-export fn next<T>(p: Mut ListYield<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
+export fn next<T>(p: Mut ListNext<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
     let elem = get(p.items, p.at)
     if elem is None {
         return finished()

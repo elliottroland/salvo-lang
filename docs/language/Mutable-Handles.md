@@ -184,12 +184,12 @@ element rather than a reference — see
 [What the backends do](#what-the-backends-do).
 
 A generic function can lend too, if the caller supplies the accessor. That
-is what `params Ref` is for [col-locate] — the bundle pattern, applied to
+is what `fns Ref` is for [col-locate] — the bundle pattern, applied to
 positions:
 
 ```
 // std.core.list
-params Ref<C, L, T> {
+fns Ref<C, L, T> {
     fn at(c: C, l: L) -> ref(c) Mut T?
 }
 
@@ -540,7 +540,7 @@ a live `&mut` could not survive:
 * **A search that lends what it found** returns a path, so there is no
   borrow to keep alive past the loop, and the caller may go on reading the
   container it searched.
-* **A handle across a closure or trait boundary** (`params Ref`'s `at`, an
+* **A handle across a closure or trait boundary** (`fns Ref`'s `at`, an
   effect member that lends) travels as data, so the borrow is created on
   the far side of the boundary instead of crossing it.
 * **Handles that share a container** (`ref(c)` parameters) render as the

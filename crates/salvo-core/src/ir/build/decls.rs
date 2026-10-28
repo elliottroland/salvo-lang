@@ -147,7 +147,7 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                     out.decls.push(Decl::Fn(fn_decl(ctx, file_idx, qid, None, f, FnKind::Qualifies, Some(q), &statics, &mut errors)));
                 }
             }
-            Item::Import(_) | Item::Params(_) | Item::Refn(_) | Item::Rename(_) | Item::Test(_) => {}
+            Item::Import(_) | Item::Fns(_) | Item::Refn(_) | Item::Rename(_) | Item::Test(_) => {}
             // [namespace] Flattened away before the IR is built.
             Item::Namespace(_) => {}
             // [effect-alias] Expanded away before the IR is built.

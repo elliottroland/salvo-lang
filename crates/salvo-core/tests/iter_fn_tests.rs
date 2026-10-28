@@ -43,8 +43,8 @@ const STD_PRELUDE: &str =
      export struct Finished {}\n\
      export fn emitted<T>(value: T) [] -> +Emitted T => !value {\n    return value\n}\n\
      export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
-     export params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
-     export params Iter<C, It, T> => iter with next {\n    fn iter(collection: C) -> Mut It\n    fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut\n}\n\
+     export fns Next<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
+     export fns Iter<C, It, T> => iter with next {\n    fn iter(collection: C) -> Mut It\n    fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut\n}\n\
      export effect Console {\n    fn print(message: Str) -> None => !message\n}\n\
      export handler StdConsole of Console {\n    fn print(message: Str) -> None => !message {}\n}\n\
      export fn println(message: Str) [Console] -> None => !message {}\n";
@@ -467,12 +467,12 @@ fn a_state_field_may_share_a_name_with_a_subject_field() {
 /// [implicit-infer] The container-shaped combinator (user decision 2026-09-10):
 /// a generic fn takes the container and asks for its `iter` as an implicit, so
 /// the pass type `It` is decided by *which `iter` fills it* — and then the
-/// `?Yield<It, T>` beside it resolves against what that taught.
+/// `?Next<It, T>` beside it resolves against what that taught.
 ///
 /// Before the learning sweep ran after the arguments were typed, `next` was
 /// reported as ambiguous with `It` still `?`.
 const CONTAINER_COMBINATOR: &str = r#"
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) -> Int =>[iter] c => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Next<It, Int>) -> Int =>[iter] c => c {
     let sum = 0
     let p = iter(c)
     for n in p {
@@ -497,10 +497,10 @@ fn a_generic_fn_infers_the_pass_type_of_an_iter_fn_subject() {
 fn a_generic_fn_infers_the_pass_type_of_a_written_iter() {
     let errs = errors(&format!(
         "struct Bag {{ items: List<Int> }}\n\
-         struct BagYield : Yield<self, Int> canbe Mut {{ items: proj List<Int>, at: Int }}\n\
-         fn iter(bag: Bag) -> Mut BagYield => bag {{\n    \
-         return Mut BagYield {{ items: bag.items, at: 0 }}\n}}\n\
-         fn next(p: Mut BagYield) -> Emitted Int | Finished => p: Mut {{\n    \
+         struct BagNext : Next<self, Int> canbe Mut {{ items: proj List<Int>, at: Int }}\n\
+         fn iter(bag: Bag) -> Mut BagNext => bag {{\n    \
+         return Mut BagNext {{ items: bag.items, at: 0 }}\n}}\n\
+         fn next(p: Mut BagNext) -> Emitted Int | Finished => p: Mut {{\n    \
          let e = get(p.items, p.at)\n    if e is None {{\n        return finished()\n    }}\n    \
          p.at = p.at + 1\n    return emitted(e)\n}}\n\
          {CONTAINER_COMBINATOR}\n\
@@ -598,7 +598,7 @@ fn an_iter_obligation_is_satisfied_by_an_iter_fn() {
 fn an_iter_obligation_is_satisfied_by_a_minter_of_a_named_struct() {
     let errs = errors(
         "struct Bag : Iter<self, BagIter, Int> { items: List<Int> }\n\
-         struct BagIter : Yield<self, Int> canbe Mut { items: proj List<Int>, at: Int }\n\
+         struct BagIter : Next<self, Int> canbe Mut { items: proj List<Int>, at: Int }\n\
          fn iter(bag: Bag) -> Mut BagIter => bag {\n    \
          return Mut BagIter { items: bag.items, at: 0 }\n}\n\
          fn next(p: Mut BagIter) -> Emitted Int | Finished => p: Mut {\n    \
@@ -613,7 +613,7 @@ fn an_iter_obligation_is_satisfied_by_a_minter_of_a_named_struct() {
 fn an_unsatisfied_iter_obligation_is_reported_at_the_struct() {
     let errs = errors(
         "struct Bag : Iter<self, BagIter, Int> { items: List<Int> }\n\
-         struct BagIter : Yield<self, Int> canbe Mut { at: Int }\n\
+         struct BagIter : Next<self, Int> canbe Mut { at: Int }\n\
          fn next(p: Mut BagIter) -> Emitted Int | Finished => p: Mut {\n    return finished()\n}\n",
     );
     assert!(
@@ -625,9 +625,9 @@ fn an_unsatisfied_iter_obligation_is_reported_at_the_struct() {
 /// A type is a source or an iterator struct, never both: `for x in s` would
 /// have two answers.
 #[test]
-fn iter_and_yield_on_one_struct_is_refused() {
+fn iter_and_next_on_one_struct_is_refused() {
     let errs = errors(
-        "struct Both : Iter<self, BothIter, Int>, Yield<self, Int> canbe Mut { at: Int }\n\
+        "struct Both : Iter<self, BothIter, Int>, Next<self, Int> canbe Mut { at: Int }\n\
          iter fn iter(b: Both) -> Emitted Int | Finished {\n    state BothIter {}\n    return finished()\n}\n\
          fn next(b: Mut Both) -> Emitted Int | Finished => b: Mut {\n    return finished()\n}\n",
     );
@@ -652,12 +652,12 @@ fn a_spread_over_a_generic_source_drives_through_its_iterator() {
 }
 
 /// Inside the spreading fn, `iter(c)` yields the `It`, which a
-/// `?Yield` combinator accepts with the paired `next` forwarded.
+/// `?Next` combinator accepts with the paired `next` forwarded.
 #[test]
 fn a_spread_forwards_its_pair_to_a_yield_combinator() {
     let errs = errors(&format!(
         "{COUNTDOWN}\n\
-         fn count_it<It>(it: Mut It, ?Yield<It, Int>) -> Int => it: Mut {{\n    let n = 0\n    \
+         fn count_it<It>(it: Mut It, ?Next<It, Int>) -> Int => it: Mut {{\n    let n = 0\n    \
          for x in it {{\n        n = n + 1\n    }}\n    return n\n}}\n\
          fn count<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c {{\n    let p = iter(c)\n    return count_it(p)\n}}\n\
          fn go() -> Int {{\n    return count(Countdown {{ from: 3 }})\n}}\n"
@@ -672,7 +672,7 @@ fn a_spread_forwards_its_pair_to_a_yield_combinator() {
 #[test]
 fn a_for_over_a_step_call_drives_it() {
     let errs = errors(
-        "struct Down : Yield<self, Int> canbe Mut { at: Int }\n\
+        "struct Down : Next<self, Int> canbe Mut { at: Int }\n\
          fn next(d: Mut Down) -> Emitted Int | Finished => d: Mut {\n    \
          if d.at <= 0 {\n        return finished()\n    }\n    d.at = d.at - 1\n    return emitted(d.at + 1)\n}\n\
          fn skip2(d: Mut Down) -> Emitted Int | Finished => d: Mut {\n    \
@@ -689,7 +689,7 @@ fn a_for_over_a_step_call_drives_it() {
 #[test]
 fn a_step_call_argument_must_be_a_place() {
     let errs = errors(
-        "struct Down : Yield<self, Int> canbe Mut { at: Int }\n\
+        "struct Down : Next<self, Int> canbe Mut { at: Int }\n\
          fn next(d: Mut Down) -> Emitted Int | Finished => d: Mut {\n    return finished()\n}\n\
          fn mk() -> Mut Down {\n    return Mut Down { at: 3 }\n}\n\
          fn go() -> None {\n    for n in next(mk()) {}\n}\n",
@@ -704,7 +704,7 @@ fn a_step_call_argument_must_be_a_place() {
 #[test]
 fn a_step_result_value_is_not_iterable() {
     let errs = errors(
-        "struct Down : Yield<self, Int> canbe Mut { at: Int }\n\
+        "struct Down : Next<self, Int> canbe Mut { at: Int }\n\
          fn next(d: Mut Down) -> Emitted Int | Finished => d: Mut {\n    return finished()\n}\n\
          fn go() -> None {\n    let d = Mut Down { at: 3 }\n    let r = next(d)\n    for n in r {}\n}\n",
     );

@@ -1364,7 +1364,7 @@ impl Server<'_> {
             DeclAt::Struct(s) => Some(s.name.name.clone()),
             DeclAt::Qualifier(q) => Some(q.name.name.clone()),
             DeclAt::Effect(e) => Some(e.name.name.clone()),
-            DeclAt::Params(g) => Some(g.name.name.clone()),
+            DeclAt::Fns(g) => Some(g.name.name.clone()),
             DeclAt::Handler(h) => Some(h.name.name.clone()),
             DeclAt::Type(t) => Some(t.name.name.clone()),
         };
@@ -1448,7 +1448,7 @@ impl Server<'_> {
                 );
                 (effect_signature(e), docs::render(&e.docs, &scope), None)
             }
-            DeclAt::Params(g) => {
+            DeclAt::Fns(g) => {
                 // The group's own members are in scope for `[symbol]`
                 // references in its docs [doc-symbol-ref].
                 let scope = scope(
@@ -1457,7 +1457,7 @@ impl Server<'_> {
                         .map(|f| (f.name.name.clone(), f.name.span))
                         .collect(),
                 );
-                (params_signature(g), docs::render(&g.docs, &scope), None)
+                (fns_signature(g), docs::render(&g.docs, &scope), None)
             }
             DeclAt::Handler(h) => {
                 let scope = scope(
@@ -1631,7 +1631,7 @@ impl Server<'_> {
                     DeclAt::Struct(s) => struct_signature(s),
                     DeclAt::Qualifier(q) => qualifier_signature(q),
                     DeclAt::Effect(e) => format!("effect {}", e.name.name),
-                    DeclAt::Params(g) => format!("params {}", g.name.name),
+                    DeclAt::Fns(g) => format!("fns {}", g.name.name),
                     DeclAt::Handler(h) => handler_signature(h),
                     DeclAt::Type(t) => type_signature(t),
                 }
@@ -3030,8 +3030,8 @@ enum DeclAt<'a> {
     Effect(&'a salvo_syntax::ast::EffectDecl),
     Handler(&'a salvo_syntax::ast::HandlerDecl),
     Type(&'a salvo_syntax::ast::TypeDecl),
-    /// [doc-comment] A `params` group — the obligation/spread bundle.
-    Params(&'a salvo_syntax::ast::ParamsDecl),
+    /// [doc-comment] A `fns` group — the obligation/spread bundle.
+    Fns(&'a salvo_syntax::ast::FnsDecl),
     /// A struct field, handler state field, or qualifier field override.
     Field {
         owner: String,
@@ -3162,9 +3162,9 @@ fn decl_at<'a>(items: &'a [Item], hit: &dyn Fn(Span) -> bool) -> Option<DeclAt<'
                     return Some(DeclAt::Type(t));
                 }
             }
-            Item::Params(g) => {
+            Item::Fns(g) => {
                 if hit(g.name.span) {
-                    return Some(DeclAt::Params(g));
+                    return Some(DeclAt::Fns(g));
                 }
                 for f in &g.fns {
                     if hit(f.name.span) {
@@ -3191,7 +3191,7 @@ fn decl_name_span_at(items: &[Item], hit: &dyn Fn(Span) -> bool) -> Option<Span>
         DeclAt::Effect(e) => e.name.span,
         DeclAt::Handler(h) => h.name.span,
         DeclAt::Type(t) => t.name.span,
-        DeclAt::Params(g) => g.name.span,
+        DeclAt::Fns(g) => g.name.span,
         DeclAt::Field { decl, .. } => decl.name.span,
         DeclAt::Member { decl, .. } => decl.name.span,
     })
@@ -3533,10 +3533,10 @@ fn effect_signature(decl: &salvo_syntax::ast::EffectDecl) -> String {
     sig
 }
 
-/// [doc-comment] `params Yield<It, T> { fn next(it: Mut It) -> … }` — the
+/// [doc-comment] `fns Next<It, T> { fn next(it: Mut It) -> … }` — the
 /// members are the point of a group, so they are always shown.
-fn params_signature(decl: &salvo_syntax::ast::ParamsDecl) -> String {
-    let mut sig = format!("params {}{}", decl.name.name, generic_list(&decl.generics));
+fn fns_signature(decl: &salvo_syntax::ast::FnsDecl) -> String {
+    let mut sig = format!("fns {}{}", decl.name.name, generic_list(&decl.generics));
     if !decl.fns.is_empty() {
         sig.push_str(" {");
         for f in &decl.fns {

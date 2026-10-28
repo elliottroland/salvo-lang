@@ -2,7 +2,7 @@
 //
 // There is no iterator type and no iteration protocol built into the
 // compiler. An **iterator struct** is an ordinary struct that declares
-// `: Yield<self, T>` and has a `next`; `for` is sugar for calling that `next`
+// `: Next<self, T>` and has a `next`; `for` is sugar for calling that `next`
 // until it answers `Finished`. Everything below is that one rule, seen from
 // seven angles.
 
@@ -40,7 +40,7 @@ fn describe_container(xs: List<Int>) [Console] -> None => xs {
 // hands back for a `List`. Write it out like this when the iterator needs a
 // *name*: to store it in a field, to hand it to a function, to zip two of
 // them.
-struct Countdown : Yield<self, Int> canbe Mut {
+struct Countdown : Next<self, Int> canbe Mut {
     // The next value to emit; the iterator is finished when it reaches zero.
     at: Int
 }
@@ -170,11 +170,11 @@ iter fn naturals(from: Int) -> Emitted Int | Finished {
 
 // ===== 4. combinators of your own =====
 //
-// `?Yield<It, T>` is a spread of implicit parameters, not a bound and not a
+// `?Next<It, T>` is a spread of implicit parameters, not a bound and not a
 // trait: it asks for the `next` that fits the subject, and the call site fills
 // it. That spread is also the declaration `for` reads, so a generic iterator
 // is driven exactly like a named one.
-fn sum_of<It>(it: Mut It, ?Yield<It, Int>) -> Int => it: Mut {
+fn sum_of<It>(it: Mut It, ?Next<It, Int>) -> Int => it: Mut {
     let total = 0
     for n in it {
         total = total + n
@@ -193,9 +193,9 @@ fn total<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c {
     return total
 }
 
-// Any iterator struct emitting `Int`: a generic with its `?Yield` spread, so a
+// Any iterator struct emitting `Int`: a generic with its `?Next` spread, so a
 // hand-written struct and an `iter fn`'s both fit.
-fn first<It>(it: Mut It, ?Yield<It, Int>) -> Int => it: Mut {
+fn first<It>(it: Mut It, ?Next<It, Int>) -> Int => it: Mut {
     for n in it {
         return n
     }
@@ -236,7 +236,7 @@ fn main() [use] {
     println("2c. total of a bag ${total(bag)}, of a list ${total(xs)}")
 
     // 3. an effectful iterator: `for` supplies the handler per turn. It cannot
-    // fill a *pure* `?Yield` position, so a combinator over it would have to
+    // fill a *pure* `?Next` position, so a combinator over it would have to
     // declare `[Console]` too — the ordinary effect rule.
     for n in fibs(6) {
         println("3. fib ${n}")

@@ -120,11 +120,11 @@ qualifier Emitted<T> of T
 fn emitted<T>(value: T) [] -> +Emitted T => !value { return value }
 fn finished() [] -> Finished { return Finished {} }
 
-params Yield<It, T> {
+fns Next<It, T> {
     fn next(it: Mut It) -> Emitted T | Finished => it: Mut
 }
 
-struct Countdown : Yield<self, Int> canbe Mut {
+struct Countdown : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -140,7 +140,7 @@ fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {
 
 /// [iter-protocol] [once-fn] A type with a `next` is driven directly rather
 /// than through `iter` — but only if its declaration says it is a pass
-/// [group-obligation]: `for` reads the `: Yield<self, T>` clause rather than
+/// [group-obligation]: `for` reads the `: Next<self, T>` clause rather than
 /// scanning overloads for a `next` and guessing (roadmap R2, user decisions
 /// 2026-09-08).
 /// [iter-protocol] The whole point: a hand-written pass drives a `for` loop,
@@ -190,15 +190,15 @@ fn driving_a_hand_written_pass_twice_is_legal() {
 }
 
 /// [group-obligation] [iter-resolve] A matching `next` without the
-/// declaration is not a pass — the tie is the `: Yield<self, T>` clause, not the
+/// declaration is not a pass — the tie is the `: Next<self, T>` clause, not the
 /// method name — and the not-iterable error names the clause as the remedy.
 #[test]
-fn a_next_without_a_yield_declaration_is_not_a_pass() {
+fn a_next_without_a_next_obligation_is_not_a_pass() {
     let errs = errors(
         "qualifier Emitted<T> of T\n\
          fn emitted<T>(value: T) [] -> +Emitted T => !value { return value }\n\
          fn finished() [] -> Finished { return Finished {} }\n\
-         params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
+         fns Next<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
          struct Countdown canbe Mut {\n    at: Int\n}\n\
          fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {\n\
              return finished()\n\
@@ -209,7 +209,7 @@ fn a_next_without_a_yield_declaration_is_not_a_pass() {
     assert!(
         errs.iter().any(|e| e.contains("is not iterable")
             && e.contains("has a matching `next`")
-            && e.contains(": Yield<self, Int>")),
+            && e.contains(": Next<self, Int>")),
         "expected the not-iterable error naming the declaration remedy, got {errs:?}"
     );
 }

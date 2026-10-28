@@ -99,17 +99,17 @@ pub fn to_list_platform<T: Clone>(set: &crate::std_core_set::Set<T>) -> Vec<T> {
     crate::platform_std_core_set::to_list(set)
 }
 
-pub fn iter<T: Clone>(set: &crate::std_core_set::Set<T>) -> crate::std_core_set::SetYield<T> {
-    return crate::std_core_set::SetYield { items: crate::std_core_set::to_list_platform::<T>(set), at: 0i32 };
+pub fn iter<T: Clone>(set: &crate::std_core_set::Set<T>) -> crate::std_core_set::SetNext<T> {
+    return crate::std_core_set::SetNext { items: crate::std_core_set::to_list_platform::<T>(set), at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct SetYield<T> {
+pub struct SetNext<T> {
     pub items: Vec<T>,
     pub at: i32,
 }
 
-impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for SetYield<T> {
+impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for SetNext<T> {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.items, out);
         crate::wire::__Wire::__enc(&self.at, out);
@@ -122,7 +122,7 @@ impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for SetYield<
     }
 }
 
-pub fn next<T: Clone>(p: &mut crate::std_core_set::SetYield<T>) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> {
+pub fn next<T: Clone>(p: &mut crate::std_core_set::SetNext<T>) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> {
     let mut elem: Option<T> = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());

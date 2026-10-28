@@ -15,7 +15,7 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type Long\n",
     "export intrinsic type Bool\n",
     "export intrinsic type Str canbe Mut\n",
-    "export params Hashed<T> {\n    fn hash(value: T) -> Long\n    fn eq(a: T, b: T) -> Bool\n}\n",
+    "export fns Hashed<T> {\n    fn hash(value: T) -> Long\n    fn eq(a: T, b: T) -> Bool\n}\n",
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
     "export intrinsic fn hash(value: Int) [] -> Long => value\n",
 );

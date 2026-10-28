@@ -141,6 +141,60 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Implicit groups are spelled `fns`, and `Yield` is `Next` (B3 piece 3a)
+
+**Two renames the user kept from the operator brief** (OPERATOR_OVERLOAD.md
+O1, user decision 2026-10-27: "kept from the brief: … the `params` → `fns`
+and `Yield` → `Next` renames"), made first in B3 piece 3 so the operator and
+`for` lowering that follow speak the new names (PIPELINE.md §II.12, §II.13
+"Order for B3"). No semantics changed.
+
+- **`params` → `fns`** [implicit-group]: `export fns Hashed<T> => eq with
+  hash { … }`. The old keyword is a plain identifier now (no transitional
+  error, per the precedent). Renamed with it, as names of the surface form:
+  `TokenKind::KwFns`, `ast::FnsDecl`, `Item::Fns`, `parse_fns_group`, the
+  language server's `DeclAt::Fns` and `fns_signature` (hover prints `fns
+  Show<T>`), resolution's `NameKind::FnGroup` ("fns group" in collisions),
+  `fn_groups` (was `param_groups`, in `Symbols`, `ModuleScope` and
+  comptime), three test names, the TextMate grammar (regenerated), and the
+  AWS generator's reserved-word list (no AWS member is named `fns` or
+  `params`, so the generated clients are unchanged). Kept: the concept's
+  name, **group** (`DeclKind::Group`, `[group-*]` and `[implicit-group]`
+  labels, "a `fns` group" in prose), and every `params` that means
+  parameters (the IR's `FnDecl::params`, `implicit_params`, the
+  `[*-effect-params]` labels).
+- **`Yield<It, T>` → `Next<It, T>`** [iter-protocol]: the group, every
+  `?Next<It, T>` spread and `: Next<self, T>` obligation, the desugaring's
+  stamped obligation for an `iter fn`'s state struct, and the checker's
+  lookups by group name (`next_obligation`, `next_spread_pairs`,
+  `learn_next_elems`, `next_elem_arg`, the "declares both `: Iter` and
+  `: Next`" refusal). Its member stays `next`; `Iter<C, It, T>` stays.
+- **The iterator structs follow the group: `ListYield` → `ListNext`**, and
+  `ArrayNext`, `StrNext`, `BytesNext`, `DequeNext`, `SetNext`, `MapKeyNext`
+  (and the tests' `BagNext`). They were named after the group on purpose (the
+  2026-09-09 entry, "The pass structs are `*Yield`": "`Yield` names the
+  obligation the struct declares, so the type and the group now read as one
+  thing"; "half a rename is worse than none"), so keeping them would have
+  left a name for a group that no longer exists. That entry is left as
+  written, being the record of the earlier rename; deleted structs
+  (`ListEnumYield`, `MapYield`, `FilterYield`, the Rust runtime's
+  `SalvoYield`) keep their names where history mentions them.
+- **Labels kept** (stable ids): `[yield-proj]` and `[yield-fn-origin]`; the
+  `yield` statement of an `iter fn` is unchanged.
+- **Emitted code** changes only in names derived from the structs:
+  `ListNext`, `next__ListNext`, `__Codec_SetNext`, … in every example's
+  `rust/` and `kotlin/` trees, `lib/platform`'s ABI mirrors and the codegen
+  golden snapshots. Checked mechanically: each regenerated file equals its
+  HEAD text with the two substitutions applied. `expected.txt` unchanged on
+  both backends; the parser snapshots moved only by the names and their
+  spans.
+- **What fell out:** the LSP hover test pointed at column 8 of `params
+  Show<T>`, which in `fns Show<T>` is the `<`: a keyword rename moves every
+  position after it on the line, so position-based tests need their columns
+  moved with the text.
+
+Tests: 2,122 (renames only), all green; `salvo test --src lib` 150.
+
 ### 2026-10-28 — Every implicit argument is selected as a call selects (B3 piece 1)
 
 **The user's census decisions applied to the implicit positions** (R10,
@@ -903,21 +957,21 @@ and ran on Kotlin, and rustc refused it (E0308).
   the callee renders its result `&'a T`, and at `T = &String` it answers
   `&&String`. Where the call states its type arguments (`last::<&String>`)
   the mismatch is in the annotation; where the IR states none (a `for`
-  loop's `next`, built by the IR builder with `type_args: []`, and a `?Yield`
+  loop's `next`, built by the IR builder with `type_args: []`, and a `?Next`
   adapter's forwarding call) rustc inferred `T = String` from the
-  annotation and refused the argument (`&mut ListYield<'_, &String>`).
+  annotation and refused the argument (`&mut ListNext<'_, &String>`).
 - **Fix** (`deref_scalar` and `call_subst_of` in
   `crates/salvo-backend-rust/src/ir_emit/body.rs`, [rs-proj-flat]): where a
   declared `proj T` over a variable meets an instantiation that is itself a
   (non-`ref`) borrow, the outer reference is copied out, as a Copy element
   already was: `get_platform(&vs, 0i32).copied()`,
   `(*first::<&String>(&vs))`, `last::<&String>(&vs).copied()`, and a `next`
-  arm by arm (`match next__ListYield(&mut __pass_6) { Union2::U1(__v) =>
+  arm by arm (`match next__ListNext(&mut __pass_6) { Union2::U1(__v) =>
   Union2::U1(*__v), Union2::U2(__v) => Union2::U2(__v) }`), in a `for` loop
-  and inside every `?Yield` adapter closure. The instantiation is the call's
+  and inside every `?Next` adapter closure. The instantiation is the call's
   type arguments, or, when the IR states none, what the arguments' types
-  bind the callee's variables to (`Mut ListYield<T>` at `Mut
-  ListYield<proj Str>`: `T = proj Str`; a parameter's own qualifiers are
+  bind the callee's variables to (`Mut ListNext<T>` at `Mut
+  ListNext<proj Str>`: `T = proj Str`; a parameter's own qualifiers are
   not the variable's, so `proj T` at `proj Str` binds `T = Str`), as rustc
   infers it. The previous session's partial edit (the `flat` test in
   `deref_scalar`, effective only where type arguments were stated) was kept
@@ -929,7 +983,7 @@ and ran on Kotlin, and rustc refused it (E0308).
 - **Neighbours checked** (one program, both backends, 21 lines of output).
   Failed before and fixed: `get` and `last` of the view list, `for` over
   `iter(vs)`, `map`/`filter`/`count`/`reduce`/`to_list` over `iter(vs)` (the
-  `?Yield` adapter), `for` over `iter(to_list(…))`, a `Map<Str, proj Str>`'s
+  `?Next` adapter), `for` over `iter(to_list(…))`, a `Map<Str, proj Str>`'s
   `get`, `iter`/`get` of a `List<proj Str>` struct field, and the nested
   `List<proj List<Str>>` (`get`, `for` over `iter`). Already worked: `for v
   in vs` over the list itself, `find_first(vs, …)` (an index), and `first`
@@ -947,7 +1001,7 @@ Tests (1 new `#[test]`; the Kotlin case is a registry entry):
 `rustc_compiles_and_runs_borrowed_element_reads` and
 `kotlinc_compiles_and_runs_borrowed_element_reads`, the same program and
 output, the Rust one also asserting the flattened `get`, `last`, `first`, a
-`for` loop's `next` and a `?Yield` adapter, and the nested `get`.
+`for` loop's `next` and a `?Next` adapter, and the nested `get`.
 
 ### 2026-10-14 — A fn value forwarded to a retagged slot is adapted
 
@@ -956,8 +1010,8 @@ passed on to `filter(iter(ws), keep)` checked clean and ran on Kotlin, and
 rustc refused it (E0308, "expected `&mut dyn FnMut(&&String) -> bool`, found
 `&mut dyn FnMut(&String) -> bool`").
 
-- **Cause.** A `?Yield` combinator over a list iterator retags its element
-  generic to a borrow [rs-proj-arm] (`filter::<ListYield<'_, String>,
+- **Cause.** A `?Next` combinator over a list iterator retags its element
+  generic to a borrow [rs-proj-arm] (`filter::<ListNext<'_, String>,
   &String>`), so its fn-typed slot is one reference deeper than the value's
   own type. A lambda in that slot peels the reference (`let s = *s;`) and a
   named fn's adapter closure does the same (`fn_value`), but a fn *value*
@@ -1321,7 +1375,7 @@ dropped and another could win (the near miss).
   and it wins by being the most specific; a same-signature fn beside it is
   ambiguous, as at a call. The worry recorded in ROADMAP §5 — "two same-named
   types have no distinguishing selector" — did not arise: types are keyed, so
-  a program's own `ListYield`'s `next` fits only its own type.
+  a program's own `ListNext`'s `next` fits only its own type.
 - **The cost**: with one candidate filled per level the width is 1 by
   construction. The pre-0t route to a doubled std (`salvo analyze --src
   lib/std` on a copy of the tree at `7e460b54^` with this change applied)
@@ -2955,7 +3009,7 @@ file which module's struct, `type`, group and qualifier each name means
   as "not a `Union`". The clause now stamps the declaration in hand, and a
   `type` the file sees outranks a struct, as in the checker. Test:
   `a_clause_stamps_its_own_declaration_beside_a_same_named_struct`.
-- **The first `params` group of a name collected anywhere won.** Test:
+- **The first `fns` group of a name collected anywhere won.** Test:
   `a_clause_stamps_the_group_its_file_sees`.
 
 What it cost: a second resolve per analysis, read-only (the main one runs on
@@ -3106,7 +3160,7 @@ table and `expand_iter_fns_with` went with it. **`iter T` is removed from every
 position**: the marker type, `hoist_iter_types` and its hidden `__ItN`
 generics, the return and `let` patterns, the iter-return pre-pass and its
 fixpoint, `Checked.iter_returns`, the lends special case and the reachability
-skip. `params Iter<C, It, T>` writes the iterator, and so do obligations
+skip. `fns Iter<C, It, T>` writes the iterator, and so do obligations
 (`struct Bag : Iter<self, BagIter, Int>`) and spreads (`fn total<C, It>(c: C,
 ?Iter<C, It, Int>)`) [iter-group]; std's ten containers and twelve `iter fn`s
 were renamed (`ListReversed`, `Indices`, `MapEntries`, `IntBufferIter`, …).
@@ -3130,7 +3184,7 @@ What fell out of building it:
   now runs only on members whose parameters mention the generic bound to
   `self`, with the obligation's `proj` read per member (an argument the
   member's *return* mentions); and `Iter`'s `next` is matched modulo `proj`,
-  since a walking iterator emits `Emitted (proj(p) T)` and its own `: Yield`
+  since a walking iterator emits `Emitted (proj(p) T)` and its own `: Next`
   states that. Before, the marker made that member "satisfied by
   construction".
 - **The opaque-return lend** [proj-infer-fn-type] is now "the return is a group
@@ -3686,7 +3740,7 @@ sections, and a clash trapped).
 ### 2026-10-20 — `FromArgs<self> by args`: a struct derives its command line
 
 Phase 2.2 of the argument-parsing build (the CLI design record §10.1, Q7, Q13, Q17;
-no new decision). [args-derive]: `params FromArgs<T> { arg_spec() ->
+no new decision). [args-derive]: `fns FromArgs<T> { arg_spec() ->
 Spec<T>; from_found(found) -> Ok T | Errs NonEmpty List<ArgError> }`, both
 stamped by `args`'s comptime fns and picked by return type; `parse_args`
 (pure) and `args_or_exit` (help to stdout and 0, errors to stderr and 2).
@@ -4176,7 +4230,7 @@ Phase 0.6 of the argument-parsing build (the CLI design record X11, Q4; `Bool` a
 `true`/`false` only, by the user's call in round 2). [str-parse]:
 `std.core.string` gains `parse_long` and `parse_double` (platform), `parse_bool`
 (Salvo), one `from_str` overloaded by return type for `Str?`, `Int?`,
-`Long?`, `Double?` and `Bool?`, and `params FromStr<T>`.
+`Long?`, `Double?` and `Bool?`, and `fns FromStr<T>`.
 
 What it took:
 - **One grammar on both hosts.** The JVM's `toDouble` takes `NaN`,
@@ -5808,8 +5862,8 @@ verified against the code):
 
 - **The struct must stay a real pre-check type.** The `-> iter T` pattern
   machinery dereferences the actual `StructDecl` in `symbols.structs`:
-  `yield_obligation` (check.rs) does `symbols.structs.get(name)` to read the
-  `: Yield<self, T>` clause, and `pass_declared_elem_ty` / `fills_iter_pattern`
+  `next_obligation` (check.rs) does `symbols.structs.get(name)` to read the
+  `: Next<self, T>` clause, and `pass_declared_elem_ty` / `fills_iter_pattern`
   / `fn_return_ty` all rest on that. A synthetic `Ty::Named { "__Iter_…" }`
   with no backing declaration makes every `for` over the iterator and every
   caller substitution fail. So the struct cannot move to IR without teaching
@@ -10983,14 +11037,14 @@ run<T, S, E>(t: T, f: (T) [E] -> S) [E] -> S`, which the user has wanted for
 fn-typed parameters) and a revisit of fused effect emission, which the user
 finds more readable and wants back after this.
 
-**The iterator redesign — any-name `iter fn`, `params Iter<C, T>`, the `iter T`
+**The iterator redesign — any-name `iter fn`, `fns Iter<C, T>`, the `iter T`
 placeholder, and `for` over a step call (user decisions 2026-09-26/27, built
-2026-09-27).** The user was dissatisfied with how `iter fn` and `Yield`
+2026-09-27).** The user was dissatisfied with how `iter fn` and `Next`
 interacted — the sugar was spelled `iter fn next(c: Countdown)`, "the `next` of a
 `Countdown`", which is not an iterator — and worked through five rounds of design
 in `ITER_REDUX.md` (kept as the argument trail). Three shapes were considered and
 two rejected: `Iter` as a **constructive qualifier carrying its `next` as a fn
-slot** (`qualifier Iter<It, T>(?Yield<It, T>) of It`, the heap's shape) fell to
+slot** (`qualifier Iter<It, T>(?Next<It, T>) of It`, the heap's shape) fell to
 [qual-erasure] — every driving signature and field would have had to spell the
 claim, and a stored iterator's field would have had to name the step identity;
 `Iter` as a **declared always-on claim** on the struct fell to the user's earlier
@@ -11012,13 +11066,13 @@ and adds three things:
   group member to be consistent), so an `iter fn` whose state would be linear
   is [linear-composite]'s ordinary refusal and that iterator is written by
   hand.
-- **`params Iter<C, T> => iter with next { fn iter(collection: C) -> iter T; fn
+- **`fns Iter<C, T> => iter with next { fn iter(collection: C) -> iter T; fn
   next(iterator: iter T) -> … }`** [iter-group], the source side of the
-  protocol. `iter T` is the placeholder — "a `Mut` type declaring `: Yield<self,
+  protocol. `iter T` is the placeholder — "a `Mut` type declaring `: Next<self,
   T>`", the user's "declared" reading — one type across both members. An
   obligation `: Iter<self, T>` is satisfied by an `iter fn iter` or a fn `iter`
   answering a named iterator struct (`iter_minter_satisfies`); `: Iter` beside
-  `: Yield` is refused ("two answers to `for x in s`"). A spread `?Iter<C, T>`
+  `: Next` is refused ("two answers to `for x in s`"). A spread `?Iter<C, T>`
   gets a **hidden generic** appended by the desugaring (`hoist_iter_types`:
   `?Iter<C, T, __It0>` on a fn `<C, __It0>`), which the checker substitutes for
   the placeholder in every member — exactly the 2026-09-10 container-shaped
@@ -11027,7 +11081,7 @@ and adds three things:
   `next` beside it (`PassDriver.mint: Option<PassMember>`).
 - **`iter T` everywhere else** [iter-type], read by position and lowering to a
   marker `Ty` no backend sees: a **hidden generic** as a parameter (`it: iter
-  Int` → `<__It1>(it: Mut __It1, ?Yield<__It1, Int>)`, fresh per occurrence);
+  Int` → `<__It1>(it: Mut __It1, ?Next<__It1, Int>)`, fresh per occurrence);
   a **pattern** as a `let` annotation, a `state` field, or the return of a fn
   with a body (filled from the value — a pre-pass in `check_once` checks
   `-> iter T` bodies first into a scratch `Checked`, repeating until
@@ -11048,7 +11102,7 @@ end, step)` and two `-> iter Int` overloads delegating to it (the `Range` struct
 is gone, and with it the [mod-export] note about exporting it); `core/list.sv`'s
 `reversed`, `indices`, `rev_indices`, `enumerate`, `enumerate_rev` are five `iter
 fn`s (the `ListRevYield`/`IdxYield`/`ListEnumYield` structs are gone). The
-container iterators downstream code names (`ListYield`, `SetYield`, …) stay
+container iterators downstream code names (`ListNext`, `SetNext`, …) stay
 structs deliberately — an unnameable iterator cannot be stored or wrapped.
 
 **What it took beyond the design**: `member_fn_ty` lends every kept parameter of
@@ -11866,7 +11920,7 @@ option refused lived in NETWORK_POOLS.md until the sequence landed (deleted
 
 **A fn-typed slot with an opaque return infers its lend (2026-09-26, user
 decision — built).** The last defect of the 2026-09-25 round
-[proj-infer-fn-type]. `total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>)`
+[proj-infer-fn-type]. `total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Next<It, Int>)`
 — the most ordinary generic-iteration signature in the language — type-checked,
 ran on Kotlin, and failed at rustc with "lifetime may not live long enough" in
 code the author never wrote. The slot's closure type had an anonymous input
@@ -11881,7 +11935,7 @@ them.
   pass escapes the function says yes: the lend is **strictly more permissive**,
   every program that compiles without it compiles with it, and it additionally
   admits the lending candidate. std has both candidates —  `std.core.list`'s `iter`
-  lends (`ListYield.items: proj List<T>`), `std.core.set`'s snapshots — and a lent
+  lends (`ListNext.items: proj List<T>`), `std.core.set`'s snapshots — and a lent
   slot takes either.
 - **One shared lifetime is the correct design, not merely the simple one.** The
   opaque return's hidden lifetime has to *be* one of the parameters', and separate
@@ -12208,7 +12262,7 @@ parameter wanted `NE`.
   needed the same dedupe.
 - **Implicit resolution keeps the rung ladder**, deliberately: an implicit has no
   written call site to annotate, and two same-named types (a program's own
-  `ListYield` beside std's) have no distinguishing selector at all.
+  `ListNext` beside std's) have no distinguishing selector at all.
 - **A selector that changes nothing warns** [fn-overload-at] — noise in a
   disambiguation spelling reads as evidence that something is ambiguous. std had
   one (`remove_first@core.list`), now deleted.
@@ -12284,7 +12338,7 @@ and still has something to say about an insert that keeps it.
 
 **`with` in a deduction clause: implicits that are filled together
 (2026-09-26, user decision — built).** The shape is the user's: state the relation
-where the declaration knows about it, per function or on the `params` group, and
+where the declaration knows about it, per function or on the `fns` group, and
 spell it like `canbe` — `=> eq with hash`. A call then fills every member of the
 relation **from one source** or leaves them all alone, which closes the defect
 underneath it: half-filling `?Hashed<T>` built a pair nobody had checked, and
@@ -12487,7 +12541,7 @@ identity actually has.
 **A keyed container's identity is a capability its constructor asks for
 (2026-09-26, user decision — landed).** `Set<T>(...elems: T[], ?Hashed<T>)
 -> Set<T>(?hash, ?eq)`, and the same across the five families' fifteen
-constructors [col-keyed-slots]. The type declared the slots, `params Hashed<T>`
+constructors [col-keyed-slots]. The type declared the slots, `fns Hashed<T>`
 existed and both runtimes could already take a pair as values; nothing *filled*
 the slots, so both backends fell back to the host's identity — Kotlin keying by
 the JVM's structural equality with a declared `eq` silently unused, rustc
@@ -12645,7 +12699,7 @@ defect was over-emission: a *name* resolves to every module declaring it, so a
 program that merely iterated — using the name `next` — pulled in `std.core.range`
 and whatever it dragged, because `std.core.range` declares a `next` too. Now the
 graph has **two kinds of edge** [mod-used-only]: functions go by resolution,
-everything else (types, structs, effects, handlers, qualifiers, `params`
+everything else (types, structs, effects, handlers, qualifiers, `fns`
 groups) still goes by name, since those are not overload sets and the
 conservatism there is cheap. A name that is *both* a function and a type
 somewhere in scope keeps its name edge — only the pure-fn case is precise
@@ -12722,7 +12776,7 @@ green.
 
 **And the container-bound defect turned out to be the tip of a bigger one**
 (user analysis, same day). The user named the real cause: `Set<T>(?hash, ?eq)`
-declares value slots and `params Hashed<T>` exists, but **no constructor takes
+declares value slots and `fns Hashed<T>` exists, but **no constructor takes
 the implicits or fills the slots** — so nothing flows to the marker choice and
 the Rust emitter always picks `HostHash`/`HostEq`. Probing it produced a third
 symptom nobody had filed: a struct with a *hand-written* `hash`/`eq` prints `2`
@@ -12934,7 +12988,7 @@ four e2e parity pairs. 1480 tests green.
 costs to move one (`add(names, copy(ada.name))`), a **view** struct with a
 `proj` field, `filter`'s `Mut List<proj T>`, the `Mut List<T>` versus
 `List<Mut T>` contrast, a bound handle held across a read of its container, a
-search that lends (`wounded`), a generic lend through `params Locate`, a
+search that lends (`wounded`), a generic lend through `fns Locate`, a
 `NotEq`-proven pair plus `update`/`update2`, an alias group (`strike`, called
 both with distinct handles and with one element twice) and a field-granular
 clause whose handle survives (`spend` / `hoist`). Ten output lines, identical
@@ -13093,13 +13147,13 @@ gained the `wiki/` row. 1474 tests green.
 
 
 **Two pages for the capability machinery (2026-09-25, user request).**
-Implicit parameters were a section inside Functions, `params`-groups-on-a-type
+Implicit parameters were a section inside Functions, `fns`-groups-on-a-type
 a section inside Iteration, and orderings-carried-in-a-type a block inside
 Comparison-and-Hashing — three faces of one mechanism, in three places, none
 of them naming the others. They are now
 **`docs/language/Implicit-Parameters.md`**, in the order the concept builds:
-a function's own `?` parameters, `params` bundles, the obligation a **struct**
-can carry (`: Yield<self, proj T>`), a qualifier's **fn slot**, and then
+a function's own `?` parameters, `fns` bundles, the obligation a **struct**
+can carry (`: Next<self, proj T>`), a qualifier's **fn slot**, and then
 `std`'s heap as the worked example that uses all four — the claim
 (`Heap<T>(?Ordered<T>) of List<T>`), construction publishing what resolution
 chose (`-> +Heap<T>(?cmp) Mut List<T>`), and an operation *capturing* the
@@ -13140,7 +13194,7 @@ paragraph), and the audit caught an **unbalanced code fence** in Passes.md
 that had survived the split. Also added: an actor example to Concurrency
 (the page explained pools, tasks and waiting without ever showing a
 `spawn`), a literals example to the docs' very first section, and a
-cross-link from Iteration to the other `params` bundles.
+cross-link from Iteration to the other `fns` bundles.
 
 **The borrowed-Copy-scalar comparison defect, closed (2026-09-25).** Repro,
 kept intact:
@@ -13340,7 +13394,7 @@ filling such a position emits in locator mode, and the checker learned to
 record `derived_calls` for wholesale-lending fn-value calls (the missing
 link — a fn *type* keeps no source names, so the sources are its kept
 non-Copy arguments). **Slice 3′** (the user's `Locate` idea): std ships
-`params Locate<C, L, T>` + the canonical list `at` [col-locate], and
+`fns Locate<C, L, T>` + the canonical list `at` [col-locate], and
 implicit positions render as locators too — a generic algorithm hands out
 mutable handles because the caller supplies the accessor, which is the
 opacity workaround usable *by convention* rather than as future work.
@@ -13387,7 +13441,7 @@ anchor never inside), **no last-value caching** (a cached pointer is
 GB-5-B with a harder audit; LLVM + the counted-loop hoist + the proven
 `get_unchecked` splice cover the wins posture-free; map re-hashing's
 recorded answer is static slot-stability on SalvoMap), and the `Locate`
-std bundle (user decision — `params Locate<C, L, T>`, sequenced as ④a
+std bundle (user decision — `fns Locate<C, L, T>`, sequenced as ④a
 slice 3′). **Slice 1 itself**: ③'s `__mut` variants re-founded as
 `{name}__loc` **locator variants** [rs-loc] — position data out
 (`usize`/`Option<usize>`, optional exactly where the read emission was),
@@ -13618,7 +13672,7 @@ The TextMate grammar (the only highlighter — the LSP has no semantic
 tokens) gained three contextual shapes and lost a dead one: `preserve`
 (before a capitalized qualifier name), `defer` (before a parameter name —
 it had never been added), `self` between `<`/`,` and `,`/`>` (the
-[group-self] shorthand in `: Yield<self, T>` and `Ordered<self>`), and the
+[group-self] shorthand in `: Next<self, T>` and `Ordered<self>`), and the
 `[from:` pattern deleted (orphaned by the `proj(x)` respell). The
 contextual-coverage unit test's word list updated to match.
 
@@ -13658,13 +13712,13 @@ opened with. Three pieces:
   `(+Idx(list) Int)?` — narrowing the optional is the last check the
   result ever needs.
 - **Pass elements carry claims**: `indices(list)`/`rev_indices(list)` in
-  `std.core.list` declare `: Yield<self, Idx(self.items) Int>` with a `next`
+  `std.core.list` declare `: Next<self, Idx(self.items) Int>` with a `next`
   returning `Emitted (+Idx(p.items) Int) | Finished`. Two checker finds:
   `emitted_arm_ty` used to return the arm's *base*, silently dropping
   every qualifier beside `Emitted` — it now filters the protocol tag out
   and keeps the rest (flat lists make "Emitted applied to a claimed Int"
   and "two qualifiers on an Int" one shape, so this is a filter, not an
-  unwrap); and the Yield-obligation matcher needed a `ValueRef` arm
+  unwrap); and the Next-obligation matcher needed a `ValueRef` arm
   matching by the slot's *field* (`self.items` in the clause, `p.items`
   in the `next` — one slot, two vantage points).
 - **The `for` binds claims to the source**: `pass_source_roots` reads the
@@ -13677,7 +13731,7 @@ opened with. Three pieces:
 Deliberately not done, recorded: the claimed respell of `enumerate`'s
 `Enumerated.index` field (a dependent claim on a *struct field* names a
 value the struct does not contain — the design's RT-2-beyond-v1 case) and
-a claimed `keys` pass for maps (`MapKeyYield` walks a key *snapshot*, not
+a claimed `keys` pass for maps (`MapKeyNext` walks a key *snapshot*, not
 the map, so its element cannot honestly name the map). Tests: three new
 `std.core.list` annex tests (39 std tests, both backends), iter-fn mangling
 moved again (`next__14` → `next__15`). Suite green.
@@ -13844,9 +13898,9 @@ green on both backends.
 **Refinement types, step 0 — `reversed`, `enumerate`, `enumerate_rev`
 (built 2026-09-23).** The plain iteration vocabulary from the decided
 sequence (ROADMAP.md "Refinement types — the build sequence"): three passes
-in `std.core.list`, the `Range`/`ListYield` shape, with `std.core.list`'s first test
+in `std.core.list`, the `Range`/`ListNext` shape, with `std.core.list`'s first test
 annex (`lib/std/core/list.test.sv`, 7 tests, both backends). [col-reversed]
-walks backwards emitting borrows (`: Yield<self, proj T>`) — a pass, not
+walks backwards emitting borrows (`: Next<self, proj T>`) — a pass, not
 Kotlin's copying `reversed()`. [col-enumerate] pairs elements with their
 indices, either direction, one pass struct stepped `+1`/`-1`.
 
@@ -13920,9 +13974,9 @@ every call is taken. The decided shape:
   [deduce-gained]. Spelled `preserve`, not `keeps` — "kept" already means
   *not consumed*, and the entry's parameter is not the party holding the
   claim; imperative like `defer` on send fns, not third-person.
-- **Passes mint claims through their element types** (RT-12): a Yield
+- **Passes mint claims through their element types** (RT-12): a Next
   clause's element may carry a dependent claim whose slot names `self.field`
-  (`: Yield<self, Idx(self.list) Int>`), `next` returns the `+` form,
+  (`: Next<self, Idx(self.list) Int>`), `next` returns the `+` form,
   and the mint substitutes the caller's argument through the proj link.
   Pass-minted claims need no new invalidation machinery: mutating a
   container under a live pass is already refused [proj-infer].
@@ -15373,14 +15427,14 @@ plus a sweep, not three things at once.
 night).** The first installment of ORDERING.md's build plan, and it is
 deliberately additive: nothing about the operators changed yet, so this landed
 without touching a single existing program. `lib/std/core/compare.sv` declares
-`params Ordered<T>` (`cmp -> Int`), `params Eq<T>` (`eq -> Bool`) and
-`params Hashed<T>` (`hash -> Long`), plus the canonical implementations for the
+`fns Ordered<T>` (`cmp -> Int`), `fns Eq<T>` (`eq -> Bool`) and
+`fns Hashed<T>` (`hash -> Long`), plus the canonical implementations for the
 intrinsic types as `intrinsic fn` overloads: `cmp` for
 `Int`/`Long`/`Byte`/`Char`/`Bool`/`Str`, `eq` for those plus `Double`/`Float`
 (equality is meaningful where a total order is not), `hash` for the ones `cmp`
 covers. [cmp-groups] [cmp-hash-values].
 
-- **It needed no new mechanism.** A capability is a `params` group, so the
+- **It needed no new mechanism.** A capability is a `fns` group, so the
   existing machinery does all the work: [implicit-resolve] picks the canonical
   overload for the type a call instantiates, [implicit-forward] colours a
   generic fn that needs one, [group-obligation] checks `struct Point :
@@ -15498,7 +15552,7 @@ AGENTS.md's timing table and budgets refreshed to match.
 of the three capabilities. The round lives in **ORDERING.md** (deleted when
 built, the OPTIONALS.md pattern); the demo's other TODOs are planned in
 **HEAP_QUALIFIER.md**. Decided, in outline: `Ordered`/`Eq`/`Hashed` become
-**params groups** (the `Yield` precedent — no traits); canonical
+**fns groups** (the `Next` precedent — no traits); canonical
 implementations are top-level fns **`@`-scoped to their type**
 (`fn cmp@Person(…)`, in the type's file — settled the same evening after
 an in-body-member draft), imported with the type and the default
@@ -15535,7 +15589,7 @@ for hash and random is a recorded ROADMAP item); and the package was
 plan, gated on the concurrent test-time session. **Found in passing and
 fixed**: the [group-obligation] examples in
 LANGUAGE_SPEC.md, ast.rs and parser.rs were stale twice over — they omitted
-the `self` argument ([group-self], `Yield<self, Str>`) and still showed
+the `self` argument ([group-self], `Next<self, Str>`) and still showed
 `: Linear` as an obligation entry where the current language declares
 `linear struct` [linear-group] (user correction; lib/std/core/fs.sv:195 is the
 reference). The parser test `parser_tests.rs:277` still parses the old
@@ -19017,7 +19071,7 @@ it, as on the host — see the bytes entry above.)
 
 * **`for k in map` was broken on both backends** — and *silently* on one,
   which is the class [backend-never-wrong] exists to prevent. Salvo iterates a
-  map's **keys** (`iter(map)` answers a `MapKeyYield`); Rust emitted
+  map's **keys** (`iter(map)` answers a `MapKeyNext`); Rust emitted
   `for k in map.clone()`, which does not compile (`SalvoMap` is no
   `IntoIterator`), while Kotlin compiled and iterated **entries**, binding
   `a=1` where the program asked for `a`. Both now ask for the keys
@@ -20030,7 +20084,7 @@ resolve); `own_discharges` replaces the `close` designation and its
 silent exemption — a discharger terminates on every path, `discard`
 gated to dischargers as the terminal, forwarding legal; the
 no-discharger error at the declaration; leak diagnostics enumerate the
-set (`stop`/`join`); the `params Linear` group deleted from std;
+set (`stop`/`join`); the `fns Linear` group deleted from std;
 **no implicit discharge sites** — the loop close-splice deleted from the
 checker and both emitters (`PassDriver.close` gone), `drives_in_place`
 extended to every named place (driving an exhausted pass again is now
@@ -20075,7 +20129,7 @@ simpler discharge model replacing §1-1/§3-1/§3-2:
   multiplicity-polymorphism reserve; `canbe Mut` (a permission) stays
   uppercase.
 - **`linear struct FileHandle`** replaces `: Linear<self>`, and the
-  `params Linear<It>` group loses its designated meaning (deleted — no
+  `fns Linear<It>` group loses its designated meaning (deleted — no
   compiler-known group, no designated `close`). Hover shows linearity from
   the declaration and, for containers, from the instantiation.
 - **Discharge = same-file consumption + `discard`.** Any fn declared in
@@ -20180,7 +20234,7 @@ generic bindings show it (`map` over a container pass is a
 return holding `proj` with no inferable lend links the result to every
 kept argument, held. std: `copy<T>(value: proj T) -> T` (un-projects one
 level, keeps the rest — `copy` of a `proj Mut Str` is a `Mut Str`);
-`ArrayYield.items: proj (T[])`. **Rust emitter**: one rendering rule —
+`ArrayNext.items: proj (T[])`. **Rust emitter**: one rendering rule —
 `proj X` is `&X` at any depth, under the named lifetime when one is in
 scope (`'s` in borrowing structs and their `next`, `'a` on tied returns)
 — with one carve-out found by the e2e suite: `proj T` over a *bare
@@ -20303,7 +20357,7 @@ three questions were settled by the user: (1) **`proj Mut X` is legal but
 read-only** [proj-readonly] — `Mut X <: proj Mut X`, never the reverse, `copy`
 the way out — which is what refuses `take(s, 2)` on `s = get(ps, 0)!` while
 `take(p, 2)` on a constructed `p = iter(xs)` advances; a view is an **owned
-object holding borrows**, so `iter` returns a plain `Mut ListYield<T>`, no
+object holding borrows**, so `iter` returns a plain `Mut ListNext<T>`, no
 `proj` on the whole; (2) **which parameters a result holds borrows of is
 inferred** [proj-infer] (`lends.rs`: per field, through calls, locals, `!`,
 branches; conservative fallback to every kept parameter where there is no
@@ -20315,7 +20369,7 @@ the pass-only exemption that first landed (the option-(2) review item is
 closed by it). Two soundness rules came from rustc catching what the checker
 had not: **a view of a temporary** may be used within its statement but not
 bound, returned or stored [proj-anywhere] (`let p = slice(list(1, 2))` is
-E0716), and a `Yield<self, proj T>` obligation must agree with its `next`.
+E0716), and a `Next<self, proj T>` obligation must agree with its `next`.
 **`iter fn` passes borrow their subject** (user decision): `__subject: proj
 Subject`, `proj` snapshot fields, nothing copied at the mint, a snapshot
 written with `copy(...)` in a `state` initializer — which fixed the
@@ -20364,7 +20418,7 @@ arm fell through to `Ty::Unknown` when a name was neither a local, a handler,
 nor a callable; the emitters then spelled it verbatim, so rustc reported
 `E0425` and kotlinc "unresolved reference". Now an error, which also covers
 use-before-declaration (scopes are not hoisted). A name that *is* declared but
-is not a value says which it is — struct type, effect, qualifier, `params`
+is not a value says which it is — struct type, effect, qualifier, `fns`
 group, type — following the courtesy [effect-not-a-type] already extended. The
 whole suite passed unchanged, which is the evidence that nothing legitimate had
 been relying on the silence.
@@ -20375,7 +20429,7 @@ of those render natively; anything else resolves a `to_str` **at the
 interpolation site** (user decision — the group was explicitly *not* to be the
 mechanism), recorded in `Checked::interp_to_str` for the emitters. std gained
 `intrinsic fn to_str<T>(list: List<T>)` rendering `[1, 2, 3]`, and
-`params ToStr<T>` exists purely as declaration-site validation, per the same
+`fns ToStr<T>` exists purely as declaration-site validation, per the same
 decision. Two corrections to the original sketch fell out of building it:
 `Mut Str` needed **no** intrinsic (the existing [str-drop-mut] coercion already
 converts a builder — verified running), and a union of renderable arms had to
@@ -20414,7 +20468,7 @@ directly; Rust, having neither operator, emits compound assignment in statement
 position and a block in value position. All eight combinations were run on both
 backends and print identically.
 
-**Three hover gaps.** A `params` group had no hover at all (`DeclAt` had no
+**Three hover gaps.** A `fns` group had no hover at all (`DeclAt` had no
 variant for it). A predicate qualifier now shows the *condition* it holds under
 when its `qualifies` is a single `return <expression>` — the expression alone
 [doc-qualifies-body]. That is narrower than the five-line rule first built:
@@ -20579,13 +20633,13 @@ iterators"; no language-design calls, all under decisions already made.
   identity.** `resolve_implicit_fn` now prefers the most specific scope rung
   among fitting candidates before declaring ambiguity — the same
   [fn-overload-scope] rule every named call walks — so a program declaring its
-  own `ListYield` plus `next` resolves the `?Yield` spread to its own `next`
+  own `ListNext` plus `next` resolves the `?Next` spread to its own `next`
   instead of erroring. Consistent with the flat name-keyed scope (the user's
   struct declaration already wins the name in their file); true
   module-qualified nominal identity remains future resolver work.
 - **The stale `Iter<T>` comments are gone** — more than the roadmap's three:
   check.rs ([iter-protocol] table doc, the [implicit-infer] example now
-  spelled with `Yield`/`next`, both [fn-effects] claim docs), types.rs (the
+  spelled with `Next`/`next`, both [fn-effects] claim docs), types.rs (the
   `Qual.effect` doc, the `once`-widen example, and `once_position`, where the
   sweep found **live dead code**: a `name == "Iter"` arm that would have given
   a user struct named `Iter` the `once` position without opt-in — removed),
@@ -20753,8 +20807,8 @@ correctly on Kotlin, and on Rust printed the first element of the first row for
 ever. Reduced to three lines with no iterators in sight:
 
 ```
-let p: Mut ListYield<Int>? = iter(list(1, 2))
-if p is Mut ListYield<Int> { show(next(p)); show(next(p)) }   // Rust: 1, 1
+let p: Mut ListNext<Int>? = iter(list(1, 2))
+if p is Mut ListNext<Int> { show(next(p)); show(next(p)) }   // Rust: 1, 1
 ```
 
 **Root cause.** `narrow_unwrap` reads a narrowed value *out of* its declared
@@ -20774,7 +20828,7 @@ is a `&mut` into the storage; `emit_place_mut`/`place_storage_mut` render a
 *chain* mutably, so no link becomes a temporary. Both mutable sites now go
 through it — an argument in a `&mut` position, and the **base** of an
 assignment target, which had the same fault with a louder symptom (`r.at = 2` on
-a narrowed `Mut ListYield<Int>?` reached for a field of the `Option`: E0609).
+a narrowed `Mut ListNext<Int>?` reached for a field of the `Option`: E0609).
 The outermost node of an assignment target deliberately keeps the read rule,
 since assigning to a narrowed *variable* writes its storage.
 
@@ -20878,7 +20932,7 @@ hand-written `zip` — the pass is all there is in each case, so a std function
 declaring `?iter` would exclude them by construction. So the container-shaped
 combinator stays something a **program** may write, and `lib/std/` keeps taking
 passes; verified as already true (`grep`: every `?`-spread in `lib/std/` is
-`?Yield<It, T>`, and the `List` fast paths are overloads on a concrete intrinsic
+`?Next<It, T>`, and the `List` fast paths are overloads on a concrete intrinsic
 type that ask for no `iter`). Recorded under [seq-iterator] so the next combinator
 author, and S-IO, inherit it.
 
@@ -20947,7 +21001,7 @@ are the shape of every large deletion in this compiler:
 decision 2026-09-10).** The shape:
 
 ```
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] !c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Next<It, Int>) -> Int =>[iter] !c {
     let sum = 0
     let p = iter(c)
     for n in p { sum = sum + n }
@@ -21015,12 +21069,12 @@ the generated pass stays unnameable.
 **It is a desugaring in the syntax crate, and that is the whole reason it was
 cheap** [iter-fn]. `desugar::expand_pass_fns` runs inside `parse_module` and
 expands one `iter fn` into three ordinary declarations: a hidden
-`struct __Pass_<Subject> : Yield<self, T> canbe Mut` holding the subject and the
+`struct __Pass_<Subject> : Next<self, T> canbe Mut` holding the subject and the
 `state` fields, an `iter` whose body is the struct literal (so the initializers
 land where they can read the subject), and the author's body as an ordinary
 `next` with the fields written out. Nothing downstream knows the form exists —
 resolve, the checker, deductions, narrowing, the LSP and both emitters see the
-shape they already supported — so `for`, `iter(c)`, combinators, `?Yield` spreads
+shape they already supported — so `for`, `iter(c)`, combinators, `?Next` spreads
 and `map_lazy` all worked on the first run. Three rules fell out rather than
 being written:
 
@@ -21061,7 +21115,7 @@ work, and it lifts the same cut for hand-written passes. A *generic* `next` with
 effects is still refused (its effects live on a fn value the caller supplied).
 
 **What it cost, and what it did not.** Two new keywords (`pass`, `state`), which
-took std's `next(pass: Mut ListYield<T>)` parameters to `p`; a leading-underscore
+took std's `next(pass: Mut ListNext<T>)` parameters to `p`; a leading-underscore
 type reference is now a parse error, which is what keeps the generated pass
 unnameable; and no new machinery in the checker or either emitter beyond the mint
 call and the handler threading. Verified with one program on both backends to
@@ -21246,7 +21300,7 @@ exists.
 - **The generator-plan tests were modernized with it** (2026-09-09). Their 13
   inline sources still wrote `fn name(args) -> Once Iter<Int>`, a producer shape
   R5 deleted; they only had to *parse*, so nothing failed and the staleness
-  survived the flip. Each is now `struct X : Yield<self, Int>` plus
+  survived the flip. Each is now `struct X : Next<self, Int>` plus
   `yield fn next(x: X) -> Int` [yield-fn-origin], which made the plans change
   exactly as the model says they should — the origin is field 0, and what was a
   parameter is a field read off it (`i < u.limit`) — and made every positive
@@ -21271,7 +21325,7 @@ Each is one `main.sv` verified by `salvo run` on both backends and `diff`-ed:
 
 - `examples/iteration/` — native container loops, a hand-written pass driven in
   two stages, two `yield fn` generators (one effectful with a `defer`, one
-  unbounded), a generic combinator of one's own over `?Yield<It, Int>`, the
+  unbounded), a generic combinator of one's own over `?Next<It, Int>`, the
   eager sequence functions, and the lazy pair plus `map_to`.
 - `examples/defer-and-throw/` — `defer` LIFO at a block end and per loop
   iteration (`continue` and `break` included), a `: Linear<self>` handle
@@ -21318,13 +21372,13 @@ both backends (`experiments/next-reduction/`, six shapes, one byte-identical
 stdout), which settled unknown 2 (composition renders the group member as an
 *implicit*, not a bound — an effectful `next` cannot implement a fixed trait
 method) and reshaped unknown 1 into the **origin-struct model** (the user's:
-`struct Counter : Yield<Int>` + `yield fn next(c: Counter) -> Int`, the state
+`struct Counter : Next<Int>` + `yield fn next(c: Counter) -> Int`, the state
 machine hidden and unnameable); **R1**, obligation groups as a mechanism
 ([group-obligation] [group-self] [group-not-a-value]: `: Group<Args>` checked
 at the struct, the declaring type written `self` in the argument list, and *no
 value may have a group as its type* — the rule that keeps this a where-clause,
 not a trait);
-**R2**, `Yield<T>` designated in std and `for` reading the declaration —
+**R2**, `Next<T>` designated in std and `for` reading the declaration —
 the `once`-on-passes requirement is gone, a matching `next` without the
 clause gets a remedy hint, and driving still consumes (drive-in-place waits
 for R5); **R3**, the origin-struct sugar [yield-fn-origin] on both
@@ -21337,11 +21391,11 @@ longer discharging) plus the interim composite refusal ([linear-composite]:
 a struct field, array, tuple, union arm or type argument may not *hold* a
 linear value — refused at the store, which also turned two diagnostics per
 mistake into one); and **R5**, the flip itself — `iter` returns a pass
-[iter-mint], std's combinators take a pass through a `?Yield<It, T>` spread
+[iter-mint], std's combinators take a pass through a `?Next<It, T>` spread
 [seq-iterator], and the whole `Iter<T>` apparatus is deleted: the intrinsic type,
 `SalvoIter`/`Iterable` as its representation, `once` on producers, the
 effect-claim-on-a-type ([iter-effects] is now a *deleted* rule), the variance
-adapter, the per-effect-set traits, `params Iterable`, and the factory tail of
+adapter, the per-effect-set traits, `fns Iterable`, and the factory tail of
 both generators. Decisions taken along the way, all the user's: a `close`
 never
 implies `Linear` (roadmap L8 records the composition casualty), `canbe
@@ -21355,7 +21409,7 @@ and the known cuts listed there.
 
 **Two follow-ons landed the same day (user decisions 2026-09-09), and they close
 the flip's own leftovers.** First, **`for` drives a generic pass**
-[iter-generic-drive]: where a body has a `?Yield<It, T>` spread, that position
+[iter-generic-drive]: where a body has a `?Next<It, T>` spread, that position
 *is* the declaration the loop needs, so a combinator is written with `for` — and
 std's `map`/`filter`/`reduce`/`map_to`/`filter_to` now are, which is the
 dogfooding the flip left undone. When the fn **owns** a possibly-linear pass
@@ -21377,8 +21431,8 @@ is why `once` and effects both fit on it — and it left two protocols (`next` a
 `iter`) with `for` arbitrating, plus a combinator surface that could not see a
 hand-written pass at all. The replacement: **a pass is a user struct, tied to
 iteration by a `next`, and `for` is sugar for calling it until `Finished`.** The
-ties between functions and structs are declared with **compiler-known `params`
-obligation groups** (`: Yield<Str>`, `: Linear`), which also gives linearity a
+ties between functions and structs are declared with **compiler-known `fns`
+obligation groups** (`: Next<Str>`, `: Linear`), which also gives linearity a
 named discharge (`close`). See "Roadmap: iterators — **the reduction to
 `next`**" for the decisions, the six-phase plan, the unknowns to settle first,
 and what it deletes (most of I4, the boxing question, `once` on producers).
@@ -21659,7 +21713,7 @@ stdout, plus a second one for `set` through a parameter and a field.
 
 **S-Seq landed the same day too — `map`/`filter`/`reduce` over anything with
 an `iter`** — and it is the answer to "what did Salvo get instead of traits"
-applied to collections: `params Iterable<It, T>` is a bundle of implicit
+applied to collections: `fns Iterable<It, T>` is a bundle of implicit
 parameters, so a customer type becomes iterable by declaring one function.
 The design was decided in advance and needed **four mechanisms that did not
 exist** — implicit resolution feeding back into type inference
@@ -21832,7 +21886,7 @@ already overloads by parameter type, so **the default for a type is just a
 function**:
 
 ```
-params Field<T> {
+fns Field<T> {
     fn add(a: T, b: T) -> T
     fn zero() -> T
 }
@@ -24412,8 +24466,8 @@ Rust output is wrong rather than absent, which is what makes this the one
 [backend-never-wrong] violation the compiler has shipped:
 
 ```
-let p: Mut ListYield<Int>? = iter(list(1, 2))
-if p is Mut ListYield<Int> {
+let p: Mut ListNext<Int>? = iter(list(1, 2))
+if p is Mut ListNext<Int> {
     show(next(p))      // Rust: got 1     Kotlin: got 1
     show(next(p))      // Rust: got 1     Kotlin: got 2
     show(next(p))      // Rust: got 1     Kotlin: end
@@ -24525,7 +24579,7 @@ resets.
 `!f.is_yield` branch). So this checks clean and prints different things:
 
 ```
-struct B : Yield<self, Int> {
+struct B : Next<self, Int> {
     rows: Mut List<Int>
 }
 
@@ -25616,7 +25670,7 @@ Iter<T>       ≅  () -> once Iter<T>
 
 `Iter<T>` was a structural interface in a language with none — and, as the user
 put it, putting one in a struct field smuggled a *stateful method* onto data,
-against the separation of functions and data. `params Iterator<St, T>` was
+against the separation of functions and data. `fns Iterator<St, T>` was
 already the un-smuggled version of the same thing; keeping both was the mistake.
 
 **Two costs of the old design, found by probing rather than by report:**
@@ -25644,13 +25698,13 @@ already the un-smuggled version of the same thing; keeping both was the mistake.
    keep the one they have.
 4. **A `yield` fn is sugar** that generates the pass struct and its `next`.
    *Refined 2026-09-08 (user): the generated struct is **hidden**.* The author
-   declares an *origin* struct carrying `: Yield<T>` and writes
+   declares an *origin* struct carrying `: Next<T>` and writes
    `yield fn next(origin) -> T` — the return type is the element type, and the
    machine is not nameable. Whoever wants the state struct writes the raw
    `next`. See "Unknown 1: the origin-struct model".
 5. **The element type is declared, not encoded in a name**, so `for` resolves
    `next` nominally and the reader sees what a pass yields where it is declared.
-   Now folded into the `params`-obligation proposal below.
+   Now folded into the `fns`-obligation proposal below.
 6. **`Iter<T>` in a struct field stops being expressible**, and that is
    accepted: erasure is what the language does not have.
 7. **The `Defer`-effect question is deferred**, recorded below.
@@ -25695,24 +25749,24 @@ answers:
 ### Open: declaring the tie between functions and structs (user proposal 2026-09-08)
 
 Instead of a bespoke `yields T` clause, a general mechanism: a **declaration-site
-obligation** reusing `params`, with the declaring type written `self` in the
+obligation** reusing `fns`, with the declaring type written `self` in the
 argument list.
 
 ```
-struct Lines canbe Mut : Linear, Yield<Str>
+struct Lines canbe Mut : Linear, Next<Str>
 
-params Yield<T> {
+fns Next<T> {
     fn next(s: Mut Self) -> Emitted T | Finished => s: Mut
 }
 ```
 
-Unlike a qualifier, the obligation *always* applies: declaring `: Yield<Str>`
+Unlike a qualifier, the obligation *always* applies: declaring `: Next<Str>`
 without a matching `next` is an error at the **struct**, where today a
 misspelled `next` surfaces as "not iterable" at the loop. It also makes `for`
 resolution read a declaration instead of scanning overloads.
 
 **The rule that keeps this from being an interface** (accepted by the user
-2026-09-08): **no value may have a group as its type.** `items: Yield<Int>` is a
+2026-09-08): **no value may have a group as its type.** `items: Next<Int>` is a
 syntax error — there is no `dyn`, no erasure, no interface value; a group
 constrains a *named* type and is resolved statically. This is the single
 restriction that makes the mechanism a where-clause rather than a trait, so it
@@ -25723,27 +25777,27 @@ is a rule in its own right and not a consequence of one.
 implementation declares its own, the group declares none. **Answered
 2026-09-08, revised the same day**: the state-as-parameter shape is the *only*
 shape, and the declaring type is written `self` **at the obligation**
-(`: Yield<self, Int>` against `params Yield<It, T>`). A magic `Self` *inside*
+(`: Next<self, Int>` against `fns Next<It, T>`). A magic `Self` *inside*
 the group was built first and then withdrawn by the user, for a reason worth
 recording: it made the group unusable with a `?` spread, since nothing binds
 `Self` in a signature — and the spread is exactly the composition rendering
 unknown 2 settled on. One group now serves both, so a designated group puts the
 **state first, element second**. Also open:
-whether obligations may ever be conditional (`Wrapper<T> : Yield<T>` only when
+whether obligations may ever be conditional (`Wrapper<T> : Next<T>` only when
 `T` yields) — recommended: unconditional only, to start; and `canbe linear`
 stays the *type-parameter* opt-in beside `: Linear` as the *declaration*
 clause, which is what makes the change additive.
 
 ### Decided (user, 2026-09-08): `Linear` becomes a compiler-known obligation group
 
-Following `Yield<T>`'s precedent, **`Linear` is a designated `params` group with
+Following `Next<T>`'s precedent, **`Linear` is a designated `fns` group with
 a single member**, and declaring it is declaring how the obligation is
 discharged:
 
 ```
-struct Lines : Linear, Yield<Str> canbe Mut { handle: File }
+struct Lines : Linear, Next<Str> canbe Mut { handle: File }
 
-params Linear {
+fns Linear {
     fn close(s: Self) -> None      // consumes: `s` is not kept => !s
 }
 ```
@@ -25931,7 +25985,7 @@ bounds survive only on *stored callbacks*, not on passes — they came from the
 factory.
 
 **R1 — obligation groups, as a mechanism.** `: Group<Args>` on a struct
-declaration; `Self` inside a `params` group; declaration-site checking (declared
+declaration; `Self` inside a `fns` group; declaration-site checking (declared
 without a matching function is an error naming the missing signature); the
 no-value-of-group-type rule. Designate nothing yet — prove it with a group
 declared in a test. Nothing else in the language changes.
@@ -25984,8 +26038,8 @@ nothing yet.
   2 parser tests. One insta snapshot changed, by the new empty
   `obligations: []` field only.
 
-**R2 — designate `Yield<T>`, and make `for` read the declaration.** A pass type
-declares `: Yield<T>`; `for` resolves `next` from that declaration instead of
+**R2 — designate `Next<T>`, and make `for` read the declaration.** A pass type
+declares `: Next<T>`; `for` resolves `next` from that declaration instead of
 scanning overloads, and takes the element type from it. `Iter<T>` is untouched,
 so both old paths still work; `iter_elem_ty`'s scan-for-`next`-then-`iter`
 becomes read-the-declaration-then-`iter`. The driving *emission* already exists
@@ -25996,16 +26050,16 @@ with almost no emitter work.
 
 Done, green (full suite 767, both toolchains' e2e recompiling the rewritten
 sources to the same stdout). `lib/std/core/iterator.sv` now declares the
-designated group — `params Yield<T> { fn next(s: Mut Self) => s: Mut
-Emitted T | Finished }`, replacing `params Iterator<St, T>` — and a pass is
-**a type declaring `: Yield<T>`**, full stop.
+designated group — `fns Next<T> { fn next(s: Mut Self) => s: Mut
+Emitted T | Finished }`, replacing `fns Iterator<St, T>` — and a pass is
+**a type declaring `: Next<T>`**, full stop.
 
-- **`pass_elem_ty` is gated on the declaration** (`yield_obligation`): no
+- **`pass_elem_ty` is gated on the declaration** (`next_obligation`): no
   clause, not a pass — the overload scan survives only to resolve *which*
   `next` drives (`for_drivers` still hands the emitters the overload + arm
   identity) and was extracted as `find_next_driver` so the not-iterable
   error can use it for a remedy hint: a subject with a matching `next` and
-  no clause gets "declare `: Yield<Int>` on it to make it a pass".
+  no clause gets "declare `: Next<Int>` on it to make it a pass".
 - **The `once` requirement on hand-written passes is gone** (the I2b error
   and its remedy), replaced by the clause; the *consume* behavior stays —
   a declared-pass subject is `fate_move`d exactly as `once` subjects were,
@@ -26019,7 +26073,7 @@ Emitted T | Finished }`, replacing `params Iterator<St, T>` — and a pass is
 - **Builders return the plain type now** (`fn zip(…) -> Zip`), or `Mut` —
   both drive; `Once Zip` returns are gone from every test. The sweep was
   five failing tests: both backends' `PASS_DEMO`/`FALLIBLE_PASS_DEMO`
-  (structs gain the clause — including `Yield<Ok Str | Err Str>`, pinning
+  (structs gain the clause — including `Next<Ok Str | Err Str>`, pinning
   that a union element matches through the obligation checker — and
   builders drop `once`) and `once_tests`' hand-written-pass trio, plus a
   new `Mut`-built-pass test. `iter_effect_tests`' `canbe once` fixtures
@@ -26031,7 +26085,7 @@ Emitted T | Finished }`, replacing `params Iterator<St, T>` — and a pass is
 
 **R3 — retarget the `yield` sugar** (shape decided by the user 2026-09-08 —
 see "Unknown 1: the origin-struct model" below). A `yield fn next(c: Counter)
--> Int` is the second way to satisfy a `: Yield<Int>` clause: the fn's subject
+-> Int` is the second way to satisfy a `: Next<Int>` clause: the fn's subject
 is the *origin* struct, its return type is the **element** type, and the
 compiler generates a **hidden** state struct — the origin's captured fields
 plus the plan's fields, a `next` that is the plan's `__advance`, and a `close`
@@ -26044,14 +26098,14 @@ legal here, so this is where the corpus and most tests move.
 #### R3 as built (2026-09-08): the origin-struct sugar, both backends
 
 Done, green. `yield fn next(c: Counter) [Console] -> Int` is the second way to
-discharge a `: Yield<Int>` obligation [yield-fn-origin], and the state machine
+discharge a `: Next<Int>` obligation [yield-fn-origin], and the state machine
 is **hidden**: not nameable, not constructible, not callable.
 
 - **Syntax**: `FnDecl.is_yield`, a `yield fn` item form (`parse_fn_flavored`).
   Declared, not inferred — which is what lets the compiler tell this form from
   the `Iter<T>` one, and the reason the old form stays legal until R5.
 - **Checker**: `yield_fn_for` finds the sugar member; `check_obligations`
-  accepts it for `Yield` and refuses **both** forms on one type (the sugar
+  accepts it for `Next` and refuses **both** forms on one type (the sugar
   generates the struct a hand-written `next` would be);
   `check_yield_fn_decl` validates the six declaration rules (named `next`, one
   parameter, origin not `Mut`, origin carries the clause, return type is the
@@ -26193,7 +26247,7 @@ alone implies neither.
 #### R4 part 1 as built (2026-09-08): `Linear` designated
 
 Done and green. `Linear` is a designated obligation group in
-`lib/std/core/basic.sv` — `params Linear<It> { fn close(it: It) -> None }` — and => !it
+`lib/std/core/basic.sv` — `fns Linear<It> { fn close(it: It) -> None }` — and => !it
 a type declares `: Linear<self>`.
 
 - **The mandatory `close` came free** from [group-obligation]: declaring
@@ -26285,7 +26339,7 @@ predicate did not survive — it became unnecessary).
 Remove the type and everything that existed to
 support it: the `SalvoIter`/`Iterable` representations, `once` on producers, the
 effect claim with `producer_effects`/`pass_effect_sets`/the per-effect-set
-traits/the variance adapter, and `params Iterable`. Rewrite std: a pass struct
+traits/the variance adapter, and `fns Iterable`. Rewrite std: a pass struct
 plus `next` per intrinsic container, `iter` returning a fresh pass, `seq.sv`'s
 combinators over passes (`map_lazy` becomes a composed origin struct with its
 own `yield fn next`). The emitters keep their native `for` for a list, array
@@ -26320,7 +26374,7 @@ refused; the refusal is gone.
   `kotlinc_…`) — a hand-written `Doubling` pass storing a `Mut Countdown` source
   and a `(Int) -> Int` callback, driven by `for` — plus a Rust shape test for
   the field type, the `Debug` impl and the `Rc::new` store. The former codegen
-  refusal test is gone; the `params`-group-in-a-field guard stays.
+  refusal test is gone; the `fns`-group-in-a-field guard stays.
 - **What it unblocks**: R5's composed combinators (rendering (B) stores the
   source's `next` as a function value), and R0 finding 5's "the difference
   between std may compose passes and anyone may".
@@ -26332,13 +26386,13 @@ the same programs to the same stdout. `iter` hands back a pass, std's
 combinators take one, and the `Iter<T>` world is deleted. The plan below was
 followed in its six steps; what it did not predict is recorded here.
 
-**std as built.** `ListYield<T>`/`ArrayYield<T>`/`StrYield` are ordinary structs
-(`items`/`text` plus `at`) declaring `: Yield<self, T> canbe Mut`, each with a
+**std as built.** `ListNext<T>`/`ArrayNext<T>`/`StrNext` are ordinary structs
+(`items`/`text` plus `at`) declaring `: Next<self, T> canbe Mut`, each with a
 Salvo `next` — the `is None` guard shape [is-narrow-guard] is what made them
 writable in Salvo at all. `iter` returns `Mut <C>Pass<T>` with `=> !…`
 (constructing the pass *moves* the container in, probe finding 4), and
 `iterable.sv` is gone. `seq.sv`'s `map`/`filter`/`reduce`/`map_to`/`filter_to`
-drive `it: Mut It` through a `?Yield<It, T>` spread — with `while` + `next` +
+drive `it: Mut It` through a `?Next<It, T>` spread — with `while` + `next` +
 `when` as first built, and with an ordinary `for` since the same day
 [iter-generic-drive]; `map_lazy`/`filter_lazy` return **composed passes** (`MapYield`,
 `FilterYield`) holding the source, the callback and the source's `next`.
@@ -26384,11 +26438,11 @@ drive `it: Mut It` through a `?Yield<It, T>` spread — with `while` + `next` +
   infer the closure parameter through the `&mut dyn FnMut` coercion, so it is
   annotated with the machine type. The turbofish substitutes the machine type
   for the origin type, since that is what the value is.
-- **One new inference rule, and it earns its keep**: a `?Yield<It, T>` spread
-  teaches `T` from `It`'s own `: Yield<self, T>` clause, reaching through the
+- **One new inference rule, and it earns its keep**: a `?Next<It, T>` spread
+  teaches `T` from `It`'s own `: Next<self, T>` clause, reaching through the
   machine an origin mints. Without it a *bare* lambda over an origin subject
   could not be typed (there is no declared `next` to read `T` off) and the
-  turbofish above was missing. `yield_spread_pairs` + `pass_or_origin_elem_ty`.
+  turbofish above was missing. `next_spread_pairs` + `pass_or_origin_elem_ty`.
 - **[iter-mut-param] survived by changing its trigger** from "the callee is a
   producer" (there are no producer factories any more) to "the callee moves a
   fn-typed parameter" — which is exactly "keeps it past the call".
@@ -26420,18 +26474,18 @@ drive `it: Mut It` through a `?Yield<It, T>` spread — with `while` + `next` +
   edit — a `@Suppress("UNCHECKED_CAST")` on the emitted function is the fix,
   and it is the first thing to do in a polish pass.
 - **A user type named like one of std's passes collides**: implicit resolution
-  matches by name, so a program declaring its own `ListYield` plus `next` makes
+  matches by name, so a program declaring its own `ListNext` plus `next` makes
   the `next` ambiguous. Nominal types are not module-qualified in that match;
   worth fixing when someone hits it (the demos were renamed instead).
 
-#### The generic drive as built (2026-09-09): `for` over a `?Yield` spread
+#### The generic drive as built (2026-09-09): `for` over a `?Next` spread
 
 Two user decisions, one afternoon, and a defect found on the way.
 
 **What was decided.** A `for` may drive a subject whose type is a *type
-parameter* when the enclosing fn declares a protocol-shaped `?Yield<It, T>`
+parameter* when the enclosing fn declares a protocol-shaped `?Next<It, T>`
 spread for it: the position says "this call supplies a `next` for `It`", which is
-as much of a declaration as a struct's `: Yield<self, T>` clause. And when the fn
+as much of a declaration as a struct's `: Next<self, T>` clause. And when the fn
 **owns** a pass whose parameter says `canbe linear`, it must declare the release
 it will need (`?Linear<It>`, or a `?close` by hand), which the loop then calls on
 every exit.
@@ -26445,7 +26499,7 @@ drives `next` everywhere else) and must take its state as **`Mut It`** (the same
 diagnostic a declared `next` gets). Without a spread the subject reports the
 ordinary not-iterable error — a bare type parameter says nothing.
 
-**The parity defect the work turned up.** `fn take_two(p: Mut ListYield<Int>) ->
+**The parity defect the work turned up.** `fn take_two(p: Mut ListNext<Int>) ->
 [p: Mut] Int` driving `p` with `for`, called twice, printed `first 3 rest 3` on
 Rust and `first 3 rest 7` on Kotlin: Rust bound the subject into a local, which
 for a kept parameter is a *clone* of the `&mut`, so the caller's pass never
@@ -26468,7 +26522,7 @@ projection.
 **The payoff.** `lib/std/core/seq.sv` lost 44 lines and reads as ordinary Salvo:
 
 ```
-fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {
+fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Next<It, T>) [] -> Mut List<U> => it: Mut, f {
     let out = mutable_list<U>()
     for x in it {
         add(out, f(x))
@@ -26500,23 +26554,23 @@ record.
 
 ##### R5 part 2 probe (2026-09-08): what the flip needs, from a real program
 
-Two throwaway programs (a `ListYield<T>` container pass plus a generic
+Two throwaway programs (a `ListNext<T>` container pass plus a generic
 combinator; and a narrowing probe) were run through `analyze` before touching
 std, and they turn the sequencing question into five facts:
 
 1. **A combinator cannot take `xs: It` plus `?iter: (It) -> P` today** — which
    is what the surface decision below routes around, so this stays unbuilt. The
    implicit resolver fills each implicit against the *declared* signature, so
-   `P` is still unbound when it reaches `?Yield<P, Int>`: `no next fits ?next:
+   `P` is still unbound when it reaches `?Next<P, Int>`: `no next fits ?next:
    (Mut ?) -> Emitted Int | Finished`, while the `next` in scope is
-   `(Mut ListYield<Int>) -> …`. Filling `?iter` first and **feeding the chosen
+   `(Mut ListNext<Int>) -> …`. Filling `?iter` first and **feeding the chosen
    overload's return type back into the substitution** before resolving the
    next implicit is the missing step — a targeted change in `resolve_implicits`,
    and the enabling work R5 part 2 rests on. (Where a type parameter is bound by
    an ordinary *argument*, the spread already works — `group_tests`'
    `the_same_group_serves_an_obligation_and_a_spread` is that case.)
    * The alternative surface, if that inference is not wanted: a combinator
-     takes the **pass** (`fn total<P>(p: Mut P, ?Yield<P, Int>)`) and the call
+     takes the **pass** (`fn total<P>(p: Mut P, ?Next<P, Int>)`) and the call
      site writes `total(iter(xs))`. Cheap, works today — and a different
      language surface, so it is the user's call, not an implementation detail.
 2. **Driving through an implicit needs no `for` machinery.** An explicit
@@ -26525,9 +26579,9 @@ std, and they turn the sequencing question into five facts:
    `close`) remains optional: it needs `pass_elem_ty` to accept a `Ty::Var`
    whose `next` is a fn-typed *parameter*, and a `PassDriver` that can name one.
 3. **A generic struct literal needs its type arguments written**
-   (`Mut ListYield<T> { … }`) — R0 finding 5, met again immediately.
+   (`Mut ListNext<T> { … }`) — R0 finding 5, met again immediately.
 4. **A pass that stores its source consumes it**: `fn iter<T>(items: List<T>)
-   -> Mut ListYield<T> => items` is refused ("deduction promises `items` back to
+   -> Mut ListNext<T> => items` is refused ("deduction promises `items` back to
    the caller, but the body moves it"), so std's `iter` will be `=> !…`. Worth
    knowing before the rewrite: iterating a list *consumes* the list unless the
    pass borrows, which is drive-in-place (R5's own open question) territory.
@@ -26542,7 +26596,7 @@ std, and they turn the sequencing question into five facts:
 `?Iterable` goes away entirely and a combinator's subject **is** the pass:
 
 ```
-fn map<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: Mut, mapper
+fn map<It, T, U>(it: Mut It, mapper: (T) -> U, ?Next<It, T>) -> Mut List<U> => it: Mut, mapper
 ```
 
 A container is iterated by writing the `iter` call — `map(iter(xs), double)` —
@@ -26550,9 +26604,9 @@ and a custom pass type arrives the same way, from whatever call produces it. Two
 things this settles at once:
 
 - **No cross-implicit inference is needed** (probe finding 1): `It` is bound by
-  an ordinary argument, so the `?Yield<It, T>` spread resolves with today's
+  an ordinary argument, so the `?Next<It, T>` spread resolves with today's
   machinery. The gap found in the probe stays a gap, and nothing depends on it.
-- **`params Iterable` and every `iter`-returning-`Iter<T>` overload disappear**
+- **`fns Iterable` and every `iter`-returning-`Iter<T>` overload disappear**
   rather than being rewritten, which is a large part of R5's demolition list
   turning into deletion.
 - The cost, accepted: `map(xs, f)` over a `List` becomes `map(iter(xs), f)` —
@@ -26563,7 +26617,7 @@ things this settles at once:
   `Mut It` with `[it: Mut]`, since advancing it is a mutation.
 
 **Validated end to end on both backends before touching std** (2026-09-09): a
-`ListYield<T>` with a hand-written `next`, a `map2` over the `?Yield` spread
+`ListNext<T>` with a hand-written `next`, a `map2` over the `?Next` spread
 driving with `while` + `next` + `when`, `map2(iter2(xs), double)` printing
 `d 2 / d 4 / d 6` under rustc and kotlinc. Doing that first was worth it — the
 surface works, but **nothing had ever exercised a spread member that mutates
@@ -26587,7 +26641,7 @@ way:
   [backend-never-wrong] defect in its own right.
 - **Tests**: `group_tests`' `a_mutating_member_fills_a_mut_spread_position`
   (checker), plus one shared demo per backend
-  (`{rustc,kotlinc}_compiles_and_runs_a_combinator_over_a_yield_spread`) with a
+  (`{rustc,kotlinc}_compiles_and_runs_a_combinator_over_a_next_spread`) with a
   shape assertion each — the adapter's pass-through on Rust, the wrapper type
   on Kotlin.
 
@@ -26615,7 +26669,7 @@ is the ordinary way to write a `next`, so it will be hit constantly.
 ##### Driving an *origin* from a combinator — the prerequisite (analysed 2026-09-09)
 
 Raised by the user: a combinator has to accept a type that satisfies
-`: Yield<T>` through the **sugar**, because the author of
+`: Next<T>` through the **sugar**, because the author of
 `yield fn next(c: Counter) -> Int` has nothing `Mut` to hand over — the machine
 is hidden and unnameable [yield-fn-origin]. Confirmed unrepresentable today:
 `map2(counter(2), double)` fails at selection (`no matching overload for
@@ -26623,7 +26677,7 @@ map2(Counter, (Int) -> Int)`), since `Counter` is immutable and no
 `next(Mut Counter)` exists.
 
 The user's observation that **selection is unambiguous** holds — a type
-satisfies its `Yield` obligation by a raw `next` *or* by the sugar, never both
+satisfies its `Next` obligation by a raw `next` *or* by the sugar, never both
 [yield-fn-origin] — so the compiler can always tell which mechanism a type
 needs. What is missing is not the decision but the *representation*.
 
@@ -26637,7 +26691,7 @@ they all reduce to it:
   resolve to.
 - **Mint by a written call** (`map(iter(counter), f)`): the mint function has to
   have a return *type*. Same requirement, reached from the other side.
-- **A second group for origins** (`params Origin<O, T>` + a `for` over a
+- **A second group for origins** (`fns Origin<O, T>` + a `for` over a
   type-parameter subject in the combinator body): the body would have to mint
   the machine, whose type a generic body cannot know — on Kotlin generics are
   erased, so the minting has to arrive as a *value*, which means either the
@@ -26647,7 +26701,7 @@ they all reduce to it:
 - **Desugar the sugar into the raw form at the source level** — the user's own
   premise ("the yield form lowers to the raw form"). This *is* the prerequisite,
   stated positively: for each `yield fn next(o: O) -> T`, the compiler declares
-  a pass type `__Pass_O : Yield<self, T> canbe Mut`, a
+  a pass type `__Pass_O : Next<self, T> canbe Mut`, a
   `fn next(p: Mut __Pass_O) -> Emitted T | Finished`, and a mint => p: Mut
   `fn iter(o: O) -> Mut __Pass_O`. The emitters already generate the machine => !o
   and know how to advance and close it, so the two functions are lowerings, not
@@ -26667,18 +26721,18 @@ the prerequisite is the thing to build first:
 
 **Open for the user**: whether (A) is wanted as the surface (recommended: yes,
 with (B) always available — the sugar's point is that the machine is invisible,
-and an origin *is* declared `: Yield<T>`, so a pass position should take it),
+and an origin *is* declared `: Next<T>`, so a pass position should take it),
 and whether `iter` is the mint's name for both origins and containers.
 
 ##### DECIDED (user, 2026-09-09): the mint is implicit, at the call site
 
-The rule: **anything whose declaration says `: Yield<self, T>` can be passed as
+The rule: **anything whose declaration says `: Next<self, T>` can be passed as
 is.** If it is a pass, it is taken as it stands; if it is an origin, the argument
 is rewritten to a fresh instance of its pass. And the half that makes it
 tractable — *generic* signatures always write the **pass**:
 
 ```
-fn map<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: Mut, mapper
+fn map<It, T, U>(it: Mut It, mapper: (T) -> U, ?Next<It, T>) -> Mut List<U> => it: Mut, mapper
 ```
 
 "Generic functions don't need to be desugared, since that happens before they
@@ -26695,7 +26749,7 @@ the rewrite goes: the pattern `Mut It` substitutes to `Mut <machine>`, and a
 type has to be `Mut <machine>`, and the rewrite must happen **per candidate,
 before unification**, not as a coercion afterwards. That is also what keeps
 selection honest: a candidate whose parameter is the concrete origin type still
-matches the origin, and only a `?Yield`-bound generic slot mints.
+matches the origin, and only a `?Next`-bound generic slot mints.
 
 ##### As built (2026-09-09): the mint, both backends
 
@@ -26757,7 +26811,7 @@ backends — an origin minted at the argument, a raw pass taken as it stands.
 
 ##### DECIDED and built (user, 2026-09-09): option (a) — the driver releases
 
-`: Linear<self>` beside `: Yield<self, T>` declares "this pass owns something",
+`: Linear<self>` beside `: Next<self, T>` declares "this pass owns something",
 [group-obligation] then requires the `close`, and the **`for` sugar calls it** on
 every exit. Built on both backends, one program, one stdout: a drained loop
 prints `n 2 / n 1 / closed / after drain`, one that `break`s prints
@@ -26795,7 +26849,7 @@ Asked by the user: could linearity handle it? **Probed, and the answer is not on
 its own.** This is accepted today and prints `n 2 / n 1 / after` — no `closed`:
 
 ```
-struct Lines : Yield<self, Int>, Linear<self> canbe Mut { at: Int }
+struct Lines : Next<self, Int>, Linear<self> canbe Mut { at: Int }
 
 fn next(l: Mut Lines) -> Emitted Int | Finished => l: Mut { … }
 fn close(l: Lines) [Console] -> None { println("closed") }
@@ -26849,8 +26903,8 @@ The emitted machine already has everything needed — Rust
 
 1. **Checker, candidate loop** (`check_call`, where `patterns` unify against
    `arg_tys`): per candidate, for each fixed slot whose pattern is `Mut <var>`
-   with `<var>` a callee generic that the callee spreads as `?Yield<var, _>`,
-   and whose argument type is an origin (`yield_obligation` + `yield_fn_for`),
+   with `<var>` a callee generic that the callee spreads as `?Next<var, _>`,
+   and whose argument type is an origin (`next_obligation` + `yield_fn_for`),
    substitute the argument type with `Mut __Pass_<Origin>` and remember the
    slot. Unify and rank with the substituted types.
 2. **Checker, after selection**: record the winner's mints —
@@ -26872,7 +26926,7 @@ The emitted machine already has everything needed — Rust
    adapter is built, so an effectful origin threads them the same way a `for`
    over one does.
 6. **Tests**: the checker rule (origin accepted in a pass position, a raw pass
-   still taken as is, a non-`Yield` argument still refused) plus one shared demo
+   still taken as is, a non-`Next` argument still refused) plus one shared demo
    per backend — `map`-shaped combinator over an origin *and* over a raw pass in
    one program, one stdout.
 7. **Not covered, deliberately**: `close` on early abandonment (see the
@@ -26935,7 +26989,7 @@ mid-phase — R0 exists to answer the first two.
      ```
      main.sv: the rust backend cannot store a function in a struct field
      (`Holder.f`): pass it as a parameter instead — an implicit parameter
-     (`?f: ...`) or a `params` group is how a bundle of functions travels
+     (`?f: ...`) or a `fns` group is how a bundle of functions travels
      ```
      **Kotlin accepts the same program**, so this was a live backend divergence
      rather than a language rule — a program that built on one target and not
@@ -26954,7 +27008,7 @@ mid-phase — R0 exists to answer the first two.
    fn-typed parameters' effects" rule applied to implicits. **Known gap**:
    implicits are not in `f.params`, so `inherited_fn_effects` does not walk them
    today (the same gap I5 hit when a producer's implicits were not pass fields).
-   The alternative — an effect parameter on the group (`params Yield<T> [E]`) —
+   The alternative — an effect parameter on the group (`fns Next<T> [E]`) —
    is bounded row polymorphism and is being held in reserve.
 
 ### Unknown 1: the origin-struct model (user direction, 2026-09-08)
@@ -26969,11 +27023,11 @@ user's words: `yield` indicates that this is doing more work; the return type
 is the yield type.
 
 ```
-struct Counter : Yield<Int> {
+struct Counter : Next<Int> {
     start: Int
 }
 
-// The second way to satisfy `: Yield<Int>`. The subject is the origin; the
+// The second way to satisfy `: Next<Int>`. The subject is the origin; the
 // return type is the ELEMENT type — no `Emitted`, no `Finished`, no machine.
 yield fn next(c: Counter) [] -> Int {
     let num = copy(c.start)
@@ -26984,7 +27038,7 @@ yield fn next(c: Counter) [] -> Int {
 }
 ```
 
-So a `: Yield<T>` clause is dischargeable **two ways**, distinguished by the
+So a `: Next<T>` clause is dischargeable **two ways**, distinguished by the
 `yield` keyword on the fn:
 
 - **raw**: `fn next(c: Mut Counter) -> Emitted Int | Finished` — the => c: Mut
@@ -27142,11 +27196,11 @@ turns out to need it; nothing in this design forecloses it.
 1. **Pull stays the model.** Push revisitable as an addition, never as a
    replacement.
 2. **The protocol is Salvo-level, not intrinsic**: `fn next(st: Mut St)
-   -> Emitted T | Finished => st: Mut`, gathered in a `params Iterator<St, T>`
-   group beside the existing `params Iterable<It, T>`. `has_next`/`next`
+   -> Emitted T | Finished => st: Mut`, gathered in a `fns Iterator<St, T>`
+   group beside the existing `fns Iterable<It, T>`. `has_next`/`next`
    retire. Consequences: a user can write an iterator *by hand* (which is
    how `zip`/`merge` become ordinary structs — no materialising one side),
-   and the state type binds per call site through the `params` group, so
+   and the state type binds per call site through the `fns` group, so
    it never has to be named in a signature.
    * Tagged `Emitted T | Finished`, **not** `T?`: Salvo's unions are flat, so
      `Iter<Int?>` would collapse `Int??` and lose the end signal. It
@@ -27190,7 +27244,7 @@ turns out to need it; nothing in this design forecloses it.
      object per block.
 7. **Two tiers over one protocol**: `yield` functions (compiler-generated
    state machine) and hand-written struct + `next`. Both satisfy
-   `params Iterator<St, T>`, so `for`/`map`/`filter` accept either — which
+   `fns Iterator<St, T>`, so `for`/`map`/`filter` accept either — which
    lets tier 1 stay deliberately incomplete without blocking anyone.
    * ~~**Simple-generator fast path**~~ — **dropped 2026-09-07** (user,
     following the I3 prototype). One lowering, not two: the fast path would
@@ -27533,7 +27587,7 @@ Built and verified so far:
 - **`lib/std/core/iterator.sv`** declares the protocol in Salvo rather than in
   the compiler: `qualifier Emitted<T> of T` with its constructor, a fieldless
   `struct Finished {}`, and
-  `params Iterator<St, T> { fn next(st: Mut St) -> Emitted T | Finished }`. => st: Mut
+  `fns Iterator<St, T> { fn next(st: Mut St) -> Emitted T | Finished }`. => st: Mut
   Names are the user's (2026-09-07), renamed from `Next`/`Stopped` before
   any of it was written.
   * `Emitted` is a *qualifier* so the element keeps its own type and a
@@ -28100,14 +28154,14 @@ site plus a diagnostic, with the LSP surfacing the same message.
 - **I1** — ✅ Done 2026-09-07. Runtime modules extracted to real source files
   and the motivating program hand-verified on both backends; see "I1 as
   built" below.
-- **I2** — Salvo-level protocol (`Emitted T | Finished`, `params Iterator`),
+- **I2** — Salvo-level protocol (`Emitted T | Finished`, `fns Iterator`),
   `for` lowering to `while let`, simple-generator lowering. Effect-free
   producers only: pure simplification, `SalvoGen`/`SalvoYield`/`SalvoIter`
   deleted.
   - **I2a** ✅ Done 2026-09-07 — `once Iter<T>` is a real type and the
     factory/pass distinction is checked. See "I2a as built" below.
   - **I2b** ✅ Done 2026-09-07 — the protocol in std (`Emitted`/`Finished`,
-    `params Iterator<St, T>`, `next`), `for` resolving `next` before `iter`,
+    `fns Iterator<St, T>`, `next`), `for` resolving `next` before `iter`,
     the "has a `next` but is not `once`" error, and `canbe once`. Emission
     is not part of it: both backends reject a `for` over a pass for now.
     See "I2b as built" below.
@@ -28165,7 +28219,7 @@ site plus a diagnostic, with the LSP surfacing the same message.
     **first argument**, with an **`?add` implicit parameter** for appending to
     it [implicit-param]. So the destination need not be a `List` — anything
     with an `add` qualifies, which is the same "a bundle of implicit
-    parameters, not a trait" move `params Iterable` already makes.
+    parameters, not a trait" move `fns Iterable` already makes.
   - Open when it is built: whether `reduce` needs variants at all (it is
     already a fold to one value), and what `filter_to`/`map_to`'s deduction
     lists say about the destination — it is mutated, so `[dest: Mut]`, and
@@ -28973,7 +29027,7 @@ Built as decided (`lib/std/core/iterable.sv` + `lib/std/core/seq.sv`), rule
 [seq-iterable]:
 
 ```
-params Iterable<It, T> { fn iter(it: It) -> Iter<T> }
+fns Iterable<It, T> { fn iter(it: It) -> Iter<T> }
 
 fn map<It, T, U>(xs: It, f: (T) -> U, ?Iterable<It, T>) -> Mut List<U> => xs, f
 fn filter<It, T>(xs: It, keep: (T) -> Bool, ?Iterable<It, T>) -> Mut List<T> => xs, keep
@@ -31780,7 +31834,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   [when-exhaustive]; four [test-decl] tests — the declaration with its
   string name, an interpolated name refused, `export test` refused, and `test`
   still an ordinary identifier; one std snapshot for `std.core.compare` [cmp-groups] — three
-  `params` groups beside the `intrinsic fn` overloads that implement them for
+  `fns` groups beside the `intrinsic fn` overloads that implement them for
   the intrinsic types; four [mod-export] parser tests — the flag set only on
   the declaration it precedes, `export` staying an ordinary name for a variable
   or field, the deduction-terminator regression over all four contextual
@@ -31797,7 +31851,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   implicit-parameter parser tests were added
   [implicit-param] [implicit-group] [implicit-override]: `?cmp:` and
   `?Field<T>` parsing side by side — the group spread is *not* a parameter —
-  a `params` group of bodiless members, a `name = value` argument recognised
+  a `fns` group of bodiless members, a `name = value` argument recognised
   by the `=` that follows an identifier, and the two ordering rejections, an
   ordinary parameter after an implicit and a positional argument after a
   named one) (the std *define-file* snapshot tests were deleted
@@ -32060,7 +32114,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   `sequence_functions_lower_to_collection_operations` asserting
   `.map{}.toMutableList()`, `.filter{}.toMutableList()`, `.fold(init, op)`,
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
-  its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
+  its advance adapter, and that nothing *declares* `Next`; plus the kotlinc run
   of the seven-subject demo).
 - `salvo-backend-rust`: 237 - including the 2026-10-20 trio (a generic
   `T?` codec, a generic `by auto` key with a tuple set beside it, and two
@@ -32444,7 +32498,7 @@ snapshot diffs.
   closure, are built with `type_args: []`; an emitter decision that reads
   the instantiation from the type arguments alone silently does nothing
   there, and rustc then infers the variable from the result's annotation,
-  so the error points at the *argument* (`expected &mut ListYield<'_,
+  so the error points at the *argument* (`expected &mut ListNext<'_,
   String>`), not at the result that is really one reference too deep. Read
   the instantiation off the arguments' types (`call_subst_of`) when none is
   stated.
@@ -33545,7 +33599,7 @@ snapshot diffs.
   `&mut`. When a new fact has to reach a call's result, look for the existing
   substitution before adding a side table.
 
-- **A `params` group is cheap to add and a `Ty` variant is cheap to add; a
+- **A `fns` group is cheap to add and a `Ty` variant is cheap to add; a
   *convention* is not.** The ordering round's four landed steps needed no new
   type-system machinery at all — the capabilities ride
   [implicit-resolve]/[implicit-forward]/[group-obligation], and the `default`
@@ -33628,7 +33682,7 @@ snapshot diffs.
   sweeping the test suites' inline std stubs for `export` (2026-09-18), two
   attempts keyed on indentation — "a continuation line resumes at column 0 of
   the string, so an indented declaration is still top-level" — and both put
-  `export` in front of effect and `params` **members**, because the four spaces
+  `export` in front of effect and `fns` **members**, because the four spaces
   before a member are inside the literal too. There is no textual way to tell
   the two apart. What works is tracking Salvo **brace depth** through the
   literal and acting at depth 0 only. Any future bulk rewrite of those stubs

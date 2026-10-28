@@ -110,7 +110,7 @@
         {
           "comment": "[comptime-fields] `type:` is a field name (`Field.type` in std.core.comptime), not the keyword",
           "name": "keyword.declaration.salvo",
-          "match": "\\b(fn|let|struct|qualifier|effect|handler|params|type|intrinsic|platform|import|provenance|refn|rename|state)\\b(?!\\s*:)"
+          "match": "\\b(fn|let|struct|qualifier|effect|handler|fns|type|intrinsic|platform|import|provenance|refn|rename|state)\\b(?!\\s*:)"
         },
         {
           "name": "keyword.other.salvo",
@@ -119,7 +119,7 @@
         {
           "comment": "the export modifier — a keyword by position, not a reserved word",
           "name": "keyword.declaration.salvo",
-          "match": "\\bexport(?=\\s+(fn|struct|effect|effects|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send|comptime|noremote|threadsafe|iterable|namespace)\\b)"
+          "match": "\\bexport(?=\\s+(fn|struct|effect|effects|handler|qualifier|type|fns|intrinsic|linear|platform|provenance|actor|iter|send|comptime|noremote|threadsafe|iterable|namespace)\\b)"
         },
         {
           "comment": "the actor-effect modifier — a keyword by position, not a reserved word",

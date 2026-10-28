@@ -13,7 +13,7 @@
 // [platform-value-type] A value platform type (ROADMAP 0.7): the host
 // implements it in `lib/platform/std/core/string.{rs,kt}`, and names the mutable
 // kind `MutStr`.
-export iterable platform type Str canbe Mut : Iter<self, StrYield, Char>
+export iterable platform type Str canbe Mut : Iter<self, StrNext, Char>
 
 // Builds a mutable string from [parts] (concatenated in order). A string
 // *literal* is a `Str`, never a `Mut Str`: mutability is asked for here,
@@ -46,13 +46,13 @@ export platform fn char_at(str: Str, index: Int) [] -> Char? => str, index
 
 // [iter-mint] A fresh iterator over the characters of [str], in order — which is
 // what makes every sequence function work on strings.
-export fn iter(str: Str) [] -> Mut StrYield => str {
-    return Mut StrYield { text: str, at: 0 }
+export fn iter(str: Str) [] -> Mut StrNext => str {
+    return Mut StrNext { text: str, at: 0 }
 }
 
 // [iter-protocol] The pass a string is walked by: the string plus a position
 // in it. A `Str` is immutable, so the iterator holds it and moves the index.
-export struct StrYield : Yield<self, Char> canbe Mut {
+export struct StrNext : Next<self, Char> canbe Mut {
     // The string being walked.
     text: proj Str,
     // The index of the next character to emit.
@@ -61,7 +61,7 @@ export struct StrYield : Yield<self, Char> canbe Mut {
 
 // Advances the iterator, reporting the character at its position or the end of the
 // string.
-export fn next(p: Mut StrYield) [] -> Emitted Char | Finished => p: Mut {
+export fn next(p: Mut StrNext) [] -> Emitted Char | Finished => p: Mut {
     let chr = char_at(p.text, p.at)
     if chr is None {
         return finished()
@@ -214,7 +214,7 @@ export fn from_str(s: Str) [] -> Bool? => s {
 // [str-parse] Types that can be read from a string, as an implicit group:
 // `?FromStr<T>` declares `?from_str: (s: Str) -> T?`, the dual of
 // `?ToStr<T>`.
-export params FromStr<T> {
+export fns FromStr<T> {
     fn from_str(s: Str) -> T?
 }
 

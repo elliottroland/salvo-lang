@@ -3593,7 +3593,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     ts.extend(std::iter::repeat_n("_".to_string(), Self::generic_path_pairs(f).len()));
                     // A borrowed argument (to a Salvo fn: a host's answers
                     // owned) names no lifetime of its own here (`&Fighter`,
-                    // `ListYield<'_, Fighter>`), or none is said.
+                    // `ListNext<'_, Fighter>`), or none is said.
                     if ts.iter().all(|t| !t.replace("'_", "").contains('\'')) {
                         format!("::<{}>", ts.join(", "))
                     } else {
@@ -3766,8 +3766,8 @@ fn lit_code(l: &Lit) -> String {
 /// [rs-proj-flat] A call's instantiation: the callee's type parameters to
 /// the call's type arguments, or, for a call the IR states none for (a
 /// `for` loop's `next`, a forwarding closure's call), to what the
-/// arguments' types bind them to, as rustc infers them: `Mut ListYield<T>`
-/// at a `Mut ListYield<proj Str>` binds `T` to `proj Str`, and `proj T` at
+/// arguments' types bind them to, as rustc infers them: `Mut ListNext<T>`
+/// at a `Mut ListNext<proj Str>` binds `T` to `proj Str`, and `proj T` at
 /// a `proj Str` binds it to `Str` (the parameter's own qualifiers are not
 /// the variable's).
 fn call_subst_of(f: &salvo_core::ir::FnDecl, type_args: &[Ty], args: &[Expr]) -> HashMap<String, Ty> {

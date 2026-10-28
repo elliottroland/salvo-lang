@@ -89,7 +89,7 @@ fn wounded(squad: List<Mut Fighter>) -> (ref(squad) Mut Fighter)? {
     return None
 }
 
-// A *generic* lender. `params Ref<C, L, T>` is std's bundle for
+// A *generic* lender. `fns Ref<C, L, T>` is std's bundle for
 // position-based code — one function turning a container and a position into
 // the element's handle — so this function is generic over what a position even
 // is, while the caller, which knows the shape, fills `at` in.

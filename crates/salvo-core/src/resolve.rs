@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use salvo_syntax::ast::{
-    Obligation, ParamsDecl, EffectAliasDecl,
+    Obligation, FnsDecl, EffectAliasDecl,
     EffectDecl, FnDecl, HandlerDecl, ImportDecl, Item, QualifierDecl, RefnDecl, RenameDecl,
     StructDecl, TypeDecl,
 };
@@ -103,8 +103,8 @@ pub struct ModuleScope<'p> {
     /// consuming member joins a linear type's discharge set when its effect
     /// is declared in the type's own file.
     pub effect_files: HashMap<&'p str, usize>,
-    /// `params` groups visible here [implicit-group].
-    pub param_groups: HashMap<&'p str, &'p ParamsDecl>,
+    /// `fns` groups visible here [implicit-group].
+    pub fn_groups: HashMap<&'p str, &'p FnsDecl>,
     pub handlers: HashMap<&'p str, &'p HandlerDecl>,
     /// [qual-overload] Visible qualifiers, as **overload sets**: one name may
     /// be declared over several *subject types* (`NonEmpty of List<T>` and
@@ -179,7 +179,7 @@ impl<'p> ModuleScope<'p> {
             || self.effect_members.contains_key(name)
             || self.handlers.contains_key(name)
             || self.qualifiers.contains_key(name)
-            || self.param_groups.contains_key(name)
+            || self.fn_groups.contains_key(name)
             || self.type_aliases.contains_key(name)
             || self.opaque_types.contains_key(name)
             || self.effect_aliases.contains_key(name)
@@ -271,7 +271,7 @@ fn stamp_scope<'p>(site: &ModuleScope<'p>, template: &ModuleScope<'p>) -> Module
     fill(&mut out.struct_files, &template.struct_files);
     fill(&mut out.effects, &template.effects);
     fill(&mut out.effect_files, &template.effect_files);
-    fill(&mut out.param_groups, &template.param_groups);
+    fill(&mut out.fn_groups, &template.fn_groups);
     fill(&mut out.handlers, &template.handlers);
     fill(&mut out.qualifiers, &template.qualifiers);
     fill(&mut out.type_aliases, &template.type_aliases);
@@ -377,7 +377,7 @@ struct ModuleItems<'p> {
     fns: Vec<(DeclId, usize, &'p FnDecl)>,
     structs: Vec<(usize, &'p StructDecl)>,
     effects: Vec<(usize, &'p EffectDecl)>,
-    param_groups: Vec<(usize, &'p ParamsDecl)>,
+    fn_groups: Vec<(usize, &'p FnsDecl)>,
     handlers: Vec<(usize, &'p HandlerDecl)>,
     qualifiers: Vec<(usize, &'p QualifierDecl)>,
     /// Top-level refinements [qual-refn-scope]: module-scoped, so they are
@@ -417,7 +417,7 @@ impl<'p> ModuleItems<'p> {
                     || (e.exported && e.fns.iter().any(|f| f.name.name == name))
             })
             || self
-                .param_groups
+                .fn_groups
                 .iter()
                 .any(|(_, g)| hit(&g.name.name, g.exported))
             || self.handlers.iter().any(|(_, h)| hit(&h.name.name, h.exported))
@@ -451,7 +451,7 @@ impl<'p> ModuleItems<'p> {
             .or_else(|| self.structs.iter().find_map(|(_, s)| hit(s.name.name.as_str())))
             .or_else(|| self.effects.iter().find_map(|(_, e)| hit(e.name.name.as_str())))
             .or_else(|| {
-                self.param_groups
+                self.fn_groups
                     .iter()
                     .find_map(|(_, g)| hit(g.name.name.as_str()))
             })
@@ -496,8 +496,8 @@ impl<'p> ModuleItems<'p> {
         for (f, e) in &self.effects {
             out.push((NameKind::Effect, e.name.name.as_str(), None, *f, e.name.span));
         }
-        for (f, g) in &self.param_groups {
-            out.push((NameKind::ParamGroup, g.name.name.as_str(), None, *f, g.name.span));
+        for (f, g) in &self.fn_groups {
+            out.push((NameKind::FnGroup, g.name.name.as_str(), None, *f, g.name.span));
         }
         for (f, h) in &self.handlers {
             out.push((NameKind::Handler, h.name.name.as_str(), None, *f, h.name.span));
@@ -537,14 +537,14 @@ enum NameKind {
     Qualifier,
     TypeAlias,
     OpaqueType,
-    ParamGroup,
+    FnGroup,
 }
 
 impl NameKind {
     fn describe(self) -> &'static str {
         match self {
             NameKind::Struct => "struct",
-            NameKind::ParamGroup => "params group",
+            NameKind::FnGroup => "fns group",
             NameKind::Effect => "effect",
             NameKind::Handler => "handler",
             NameKind::Qualifier => "qualifier",
@@ -718,7 +718,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                 Item::Fn(f) => items.fns.push((decls.fn_at(file_idx, item_idx), file_idx, f)),
                 Item::Struct(s) => items.structs.push((file_idx, s)),
                 Item::Effect(e) => items.effects.push((file_idx, e)),
-                Item::Params(g) => items.param_groups.push((file_idx, g)),
+                Item::Fns(g) => items.fn_groups.push((file_idx, g)),
                 Item::Handler(h) => items.handlers.push((file_idx, h)),
                 Item::Qualifier(q) => items.qualifiers.push((file_idx, q)),
                 // [qual-refn-scope] A top-level refinement belongs to its
@@ -969,9 +969,9 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     // fulfilled (`check_obligations`, with the group's substituted member type)
     // and reports it where the obligation is written. Resolution only needs to
     // know which function the claim is about.
-    let groups_by_name: HashMap<&str, &ParamsDecl> = by_module
+    let groups_by_name: HashMap<&str, &FnsDecl> = by_module
         .values()
-        .flat_map(|items| items.param_groups.iter())
+        .flat_map(|items| items.fn_groups.iter())
         .map(|(_, g)| (g.name.name.as_str(), *g))
         .collect();
     let mut attached: HashMap<DeclId, String> = HashMap::new();
@@ -1727,14 +1727,14 @@ fn add_items<'p>(
     // effect. Its members are not brought into scope: they are resolved at
     // the call site by name and type [implicit-resolve], not called through
     // the group.
-    for (file, g) in &items.param_groups {
+    for (file, g) in &items.fn_groups {
         if want(&g.name.name) {
             if !visible(g.exported) {
                 continue;
             }
             let name = visible_as(&g.name.name);
-            if ctx.admit(NameKind::ParamGroup, name, module, level, import_span) {
-                scope.param_groups.insert(name, g);
+            if ctx.admit(NameKind::FnGroup, name, module, level, import_span) {
+                scope.fn_groups.insert(name, g);
                 origin(name, scope);
                 def_site(name, *file, g.name.span, scope);
             }
@@ -2516,7 +2516,7 @@ fn for_each_type_ref_from<M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
                         v::walk_fn(&mut c, f);
                     }
                 }
-                Item::Params(g) => {
+                Item::Fns(g) => {
                     for f in &g.fns {
                         v::walk_fn(&mut c, f);
                     }

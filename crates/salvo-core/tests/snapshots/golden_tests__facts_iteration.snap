@@ -387,7 +387,7 @@ main() -> None@main
   263:35  `"carol"`                      Str
   264:9   `lengths`                      Mut List<Int>
   264:19  `map(iter(words), w -> size…`  Mut List<Int>  -> std.core.seq::map(Mut It, (T) -> U)
-  264:23  `iter(words)`                  Mut ListYield<Str>  -> std.core.list::iter
+  264:23  `iter(words)`                  Mut ListNext<Str>  -> std.core.list::iter
   264:28  `words`                        NonEmpty List<Str>
   264:36  `w -> size(w)`                 (proj Str) -> Int
   264:36  `w`                            proj Str
@@ -396,7 +396,7 @@ main() -> None@main
   265:5   `println("5. lengths: ${red…`  None  -> std.core.console::println
   265:13  `"5. lengths: ${reduce(iter…`  Str
   265:28  `reduce(iter(lengths), 0, (…`  Int  -> std.core.seq::reduce(Mut It, A, (A, T) -> A)
-  265:35  `iter(lengths)`                Mut ListYield<Int>  -> std.core.list::iter
+  265:35  `iter(lengths)`                Mut ListNext<Int>  -> std.core.list::iter
   265:40  `lengths`                      Mut List<Int>  [coerced]
   265:50  `0`                            Int
   265:53  `(acc, n) -> acc + n`          (Int, Int) -> Int
@@ -409,7 +409,7 @@ main() -> None@main
   269:16  `"iteration"`                  Str
   270:9   `vowels`                       Mut List<Char>
   270:18  `filter(iter(word), c -> c …`  Mut List<Char>  -> std.core.seq::filter(Mut It, (T) -> Bool)
-  270:25  `iter(word)`                   Mut StrYield  -> std.core.string::iter
+  270:25  `iter(word)`                   Mut StrNext  -> std.core.string::iter
   270:30  `word`                         Str
   270:37  `c -> c == 'i' || c == 'o'`    (Char) -> Bool
   270:37  `c`                            Char

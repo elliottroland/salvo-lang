@@ -931,7 +931,7 @@ export comptime qualifier Named(name: Str) of Struct
 // [args-derive] What makes `T` parseable from a command line; stamped with
 // `: FromArgs<self> by args`. Both members name `T` only in their return
 // type, so the expected type picks a struct's [fn-overload-return].
-export params FromArgs<T> {
+export fns FromArgs<T> {
     // What `T`'s command line accepts.
     fn arg_spec() -> Spec<T>
     // `T` from what a scan of its command line found, or every error in it.

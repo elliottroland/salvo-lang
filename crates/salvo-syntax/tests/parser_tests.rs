@@ -88,7 +88,7 @@ fn snapshot_std_console() {
     insta::assert_debug_snapshot!(parse_clean(&std_core("console.sv")));
 }
 
-/// [implicit-group] [iter-protocol] The `params` group `for` and every
+/// [implicit-group] [iter-protocol] The `fns` group `for` and every
 /// combinator read: with `compare.sv` one of the two places std declares
 /// groups, and — with `seq.sv` — the two places a fn signature carries
 /// `?Group<...>`.
@@ -98,7 +98,7 @@ fn snapshot_std_iterator() {
 }
 
 /// [cmp-groups] The three capability groups and the canonical implementations
-/// for the intrinsic types: `params` declarations beside `intrinsic fn`
+/// for the intrinsic types: `fns` declarations beside `intrinsic fn`
 /// overloads of one name, which is the shape the whole ordering round is built
 /// on.
 #[test]
@@ -254,13 +254,13 @@ fn unterminated_string_is_an_error() {
 
 // --- `with`: implicits filled together [implicit-with] ---
 
-/// [implicit-with] `=> eq with hash` on a function and on a `params` group, and
+/// [implicit-with] `=> eq with hash` on a function and on a `fns` group, and
 /// a **chain** (`a with b with c`), which is one entry naming the rest
 /// (user decision 2026-09-26).
 #[test]
 fn with_entries_relate_implicit_parameters() {
     use salvo_syntax::ast::{DeductionKind, DeductionTarget, Item};
-    let source = "params Hashed<T> => eq with hash {\n    \
+    let source = "fns Hashed<T> => eq with hash {\n    \
                   fn hash(value: T) -> Long\n    \
                   fn eq(a: T, b: T) -> Bool\n\
                   }\n\n\
@@ -268,7 +268,7 @@ fn with_entries_relate_implicit_parameters() {
                   => a with b with c {\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    let Item::Params(group) = &module.items[0] else { panic!("params") };
+    let Item::Fns(group) = &module.items[0] else { panic!("params") };
     assert_eq!(group.deductions.len(), 1, "one entry");
     let DeductionTarget::Param { name, .. } = &group.deductions[0].target else {
         panic!("param target")
@@ -297,8 +297,8 @@ fn with_entries_relate_implicit_parameters() {
 /// A group has no body and no parameters of its own, so its clause states only
 /// which members are filled together.
 #[test]
-fn a_params_groups_clause_takes_only_with_entries() {
-    let source = "params Hashed<T> => !hash {\n    fn hash(value: T) -> Long\n}\n";
+fn a_fns_groups_clause_takes_only_with_entries() {
+    let source = "fns Hashed<T> => !hash {\n    fn hash(value: T) -> Long\n}\n";
     let (_, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         diagnostics
@@ -336,12 +336,12 @@ fn canbe_opts_declarations_into_auto_qualifiers() {
 }
 
 // [group-obligation] `: Group<Args>` on a struct — obligations before the
-// `canbe` clause, comma-separated, with type arguments; `Self` in a `params`
+// `canbe` clause, comma-separated, with type arguments; `Self` in a `fns`
 // group member parses as an ordinary type name [group-self].
 #[test]
 fn a_struct_declares_obligations_before_canbe() {
-    let source = "struct Lines : Linear, Yield<Str> canbe Mut {\n    name: Str\n}\n\n\
-                  params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
+    let source = "struct Lines : Linear, Next<Str> canbe Mut {\n    name: Str\n}\n\n\
+                  fns Next<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -356,7 +356,7 @@ fn a_struct_declares_obligations_before_canbe() {
         .iter()
         .map(|o| o.group.name.name.as_str())
         .collect();
-    assert_eq!(names, vec!["Linear", "Yield"]);
+    assert_eq!(names, vec!["Linear", "Next"]);
     assert!(s.obligations[0].group.args.is_empty());
     assert_eq!(s.obligations[1].group.args.len(), 1);
     // [obligation-by] Neither entry wrote `by`.
@@ -364,7 +364,7 @@ fn a_struct_declares_obligations_before_canbe() {
     let quals: Vec<&str> = s.auto_qualifiers.iter().map(|q| q.name.name.as_str()).collect();
     assert_eq!(quals, vec!["Mut"]);
     // The group member's `Self` is a plain named type to the parser.
-    let salvo_syntax::ast::Item::Params(g) = &module.items[1] else {
+    let salvo_syntax::ast::Item::Fns(g) = &module.items[1] else {
         panic!("expected a params item");
     };
     assert_eq!(g.fns.len(), 1);
@@ -374,7 +374,7 @@ fn a_struct_declares_obligations_before_canbe() {
 // without `canbe`, and neither.
 #[test]
 fn obligations_parse_without_canbe() {
-    let source = "struct Counter : Yield<self, Int> {\n    start: Int\n}\n";
+    let source = "struct Counter : Next<self, Int> {\n    start: Int\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -1338,18 +1338,18 @@ fn implicit_parameters_and_group_spreads_parse() {
     assert_eq!(f.implicit_groups[0].name.name, "Field");
 }
 
-/// A `params` group is a named bundle of member signatures, shaped like an
+/// A `fns` group is a named bundle of member signatures, shaped like an
 /// effect declaration because it is the same thing.
 #[test]
-fn a_params_group_parses() {
-    let source = "params Field<T> {\n    fn add(a: T, b: T) -> T\n    fn zero() -> T\n}\n";
+fn a_fns_group_parses() {
+    let source = "fns Field<T> {\n    fn add(a: T, b: T) -> T\n    fn zero() -> T\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
         "unexpected errors: {:?}",
         diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
-    let salvo_syntax::ast::Item::Params(g) = &module.items[0] else {
+    let salvo_syntax::ast::Item::Fns(g) = &module.items[0] else {
         panic!("expected a params item");
     };
     assert_eq!(g.name.name, "Field");

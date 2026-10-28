@@ -425,17 +425,17 @@ pub fn reverse<T>(list: &mut Vec<T>) {
     }
 }
 
-pub fn iter<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListYield<'_, T> {
-    return crate::std_core_list::ListYield { items: list, at: 0i32 };
+pub fn iter<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListNext<'_, T> {
+    return crate::std_core_list::ListNext { items: list, at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListYield<'s, T> {
+pub struct ListNext<'s, T> {
     pub items: &'s Vec<T>,
     pub at: i32,
 }
 
-pub fn next__ListYield<'a, T: Clone>(p: &mut crate::std_core_list::ListYield<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
+pub fn next__ListNext<'a, T: Clone>(p: &mut crate::std_core_list::ListNext<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
     let mut elem: Option<&T> = crate::std_core_list::get_platform::<T>(p.items, p.at);
     if elem.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());

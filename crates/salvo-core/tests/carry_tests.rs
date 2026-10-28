@@ -21,8 +21,8 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type Bool\n",
     "export intrinsic type Str canbe Mut\n",
     "export intrinsic type List<T> canbe Mut\n",
-    "export params Ordered<T> {\n    fn cmp(a: T, b: T) -> Int\n}\n",
-    "export params Eq<T> {\n    fn eq(a: T, b: T) -> Bool\n}\n",
+    "export fns Ordered<T> {\n    fn cmp(a: T, b: T) -> Int\n}\n",
+    "export fns Eq<T> {\n    fn eq(a: T, b: T) -> Bool\n}\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
     "export intrinsic fn cmp(a: Str, b: Str) [] -> Int => a, b\n",
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
@@ -330,7 +330,7 @@ fn run() [] -> Int {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// [cmp-carry] A `params` group spread into a **slot list** declares one slot
+/// [cmp-carry] A `fns` group spread into a **slot list** declares one slot
 /// per member (user decision 2026-09-22), so `Ranked<T>(?Ordered<T>)` is the
 /// `Heap` declaration written the short way — and a use site fills it by naming
 /// the member's slot.

@@ -4911,7 +4911,7 @@ fn rustc_compiles_and_runs_a_generic_higher_order_fn() {
 /// explicitly — which is what `map(iter(copy(xs)), …)` is for here.
 ///
 /// Same source and stdout as the Kotlin backend's twin. What it exercises that
-/// nothing did before: the *generic* `?Yield` body — `map`/`filter` over a
+/// nothing did before: the *generic* `?Next` body — `map`/`filter` over a
 /// list take their `List` fast path, so the polymorphic one had never run —
 /// and an implicit with a `Mut` parameter (`?add`).
 pub const SEQ_SURFACE_DEMO: &str = r#"
@@ -4970,7 +4970,7 @@ fn rustc_compiles_and_runs_the_combinator_surface() {
     // [rs-implicit-turbofish] The instantiation is spelled out, or the adapter
     // closures have nothing to infer their parameter types from.
     assert!(
-        main.contains("crate::std_core_seq::map_to::<Vec<i32>, crate::std_core_list::ListYield<'_, i32>, i32, i32>("),
+        main.contains("crate::std_core_seq::map_to::<Vec<i32>, crate::std_core_list::ListNext<'_, i32>, i32, i32>("),
         "expected the type arguments spelled out in:\n{main}"
     );
     run_rust_files(&files, "seq-surface", SEQ_SURFACE_OUTPUT);
@@ -5030,7 +5030,7 @@ pub const UNBOUNDED_OUTPUT: &str = "v 0\nv 6\nv 12\n";
 
 // ===== [implicit-param] [implicit-group] implicit parameters =====
 
-/// Every path through the feature in one program: a `params` group spread
+/// Every path through the feature in one program: a `fns` group spread
 /// with no binder, its members resolved from the visible `Int` overloads, a
 /// call overriding *one* member by name, forwarding through a generic fn
 /// whose `T` is opaque, and an individually declared `?add` reached by the
@@ -5039,7 +5039,7 @@ pub const UNBOUNDED_OUTPUT: &str = "v 0\nv 6\nv 12\n";
 /// [implicit-group] [iter-protocol] The **composition rendering** R5's
 /// combinators are built on (user decision 2026-09-09): a generic combinator
 /// takes the *pass* as its subject and reaches its `next` through the
-/// `?Yield<It, T>` spread. Two things had never been exercised together
+/// `?Next<It, T>` spread. Two things had never been exercised together
 /// before — an implicit member that takes a `Mut` parameter and returns a
 /// **union** — and each was broken on one backend: the group member's
 /// deduction list was dropped when its fn type was built (so no mutating
@@ -5053,13 +5053,13 @@ pub const UNBOUNDED_OUTPUT: &str = "v 0\nv 6\nv 12\n";
 /// nothing. Without this the `defer` in the origin's body never ran.
 
 /// [linear-group] [iter-protocol] A **raw pass that owns something**: it
-/// declares `: Linear<self>` beside `: Yield<self, T>`, so [group-obligation]
+/// declares `: Linear<self>` beside `: Next<self, T>`, so [group-obligation]
 /// requires the `close` — and *driving* is what releases it (user decision
 /// 2026-09-09). The loop calls `close` on every exit: exhaustion, `break` and
 /// `return` alike. Before this the linear obligation counted as discharged by
 /// the move into the loop — bookkeeping — while the resource leaked.
 pub const RAW_CLOSE_DEMO: &str = r#"
-linear struct Ticks : Yield<self, Int> canbe Mut {
+linear struct Ticks : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -5149,7 +5149,7 @@ fn rustc_compiles_and_runs_a_released_raw_pass() {
 ///
 /// Shared with the other backend, byte for byte.
 pub const GENERIC_DRIVE_DEMO: &str = r#"
-struct Slice<T> : Yield<self, proj T> canbe Mut {
+struct Slice<T> : Next<self, proj T> canbe Mut {
     items: proj List<T>,
     at: Int
 }
@@ -5169,7 +5169,7 @@ fn next<T>(p: Mut Slice<T>) -> Emitted (proj(p) T) | Finished => p: Mut {
 
 // The pass is *kept*, so the loop advances it where it lives and the caller may
 // drive it further.
-fn take<It>(it: Mut It, count: Int, ?Yield<It, Int>) [] -> Int => it: Mut {
+fn take<It>(it: Mut It, count: Int, ?Next<It, Int>) [] -> Int => it: Mut {
     let sum = 0
     let seen = 0
     for n in it {
@@ -5237,7 +5237,7 @@ pub const GENERIC_DRIVE_OUTPUT: &str = "first 3\nrest 7\nv 8\nv 9\nv 7\n";
 /// call is asserted in the emitted code and the program is run to prove it
 /// builds.
 pub const GENERIC_CLOSE_DEMO: &str = r#"
-linear struct Handle : Yield<self, Int> canbe Mut {
+linear struct Handle : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -5259,7 +5259,7 @@ fn close(h: Handle) -> None => !h { discard(h) }
 // Owns the pass and takes its discharge as a consuming callback (user
 // decision 2026-09-12: no implicit discharge sites — the loop drives in
 // place, and `end(it)` is the explicit terminal on the one path out).
-fn drain<It canbe linear>(it: Mut It, stop: Int, end: (x: It) -> None, ?Yield<It, Int>) [] -> Int => !it =>[end] !x {
+fn drain<It canbe linear>(it: Mut It, stop: Int, end: (x: It) -> None, ?Next<It, Int>) [] -> Int => !it =>[end] !x {
     let sum = 0
     for n in it {
         sum = sum + n
@@ -5281,7 +5281,7 @@ fn main() [use] {
 pub const GENERIC_CLOSE_OUTPUT: &str = "all 10\ncut 7\n";
 
 pub const YIELD_SPREAD_DEMO: &str = r#"
-struct Slice<T> : Yield<self, proj T> canbe Mut {
+struct Slice<T> : Next<self, proj T> canbe Mut {
     items: proj List<T>,
     at: Int
 }
@@ -5299,7 +5299,7 @@ fn next<T>(p: Mut Slice<T>) -> Emitted (proj(p) T) | Finished => p: Mut {
     return emitted(e)
 }
 
-fn map2<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: Mut, mapper {
+fn map2<It, T, U>(it: Mut It, mapper: (T) -> U, ?Next<It, T>) -> Mut List<U> => it: Mut, mapper {
     let out = Mut List<U>()
     let going = true
     while going {
@@ -5330,7 +5330,7 @@ fn main() [use] {
 }
 "#;
 
-pub const YIELD_SPREAD_OUTPUT: &str = "d 2\nd 4\nd 6\n";
+pub const NEXT_SPREAD_OUTPUT: &str = "d 2\nd 4\nd 6\n";
 
 /// The adapter for a `Mut` implicit position passes the parameter straight
 /// through: it arrives as `&mut T` already.
@@ -5355,17 +5355,17 @@ fn a_mut_implicit_position_is_not_borrowed_twice() {
 }
 
 #[test]
-fn rustc_compiles_and_runs_a_combinator_over_a_yield_spread() {
+fn rustc_compiles_and_runs_a_combinator_over_a_next_spread() {
     if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
     let files = generate(&[("main.sv", YIELD_SPREAD_DEMO)]);
-    run_rust_files(&files, "yield_spread", YIELD_SPREAD_OUTPUT);
+    run_rust_files(&files, "next_spread", NEXT_SPREAD_OUTPUT);
 }
 
 pub const IMPLICIT_DEMO: &str = r#"
-params Field<T> {
+fns Field<T> {
     fn add(a: T, b: T) -> T
     fn zero() -> T
 }
@@ -5497,7 +5497,7 @@ fn implicit_parameters_lower_to_trailing_fn_arguments() {
     }
     assert!(
         !src.contains("struct Field"),
-        "a `params` group must leave no runtime representation:\n{src}"
+        "a `fns` group must leave no runtime representation:\n{src}"
     );
 }
 
@@ -5512,7 +5512,7 @@ fn rustc_compiles_and_runs_implicit_parameters() {
     run_rust_files(&files, "implicits", IMPLICIT_OUTPUT);
 }
 
-/// [cmp-groups] Comparison, equality and hashing as **params groups** — the
+/// [cmp-groups] Comparison, equality and hashing as **fns groups** — the
 /// ordering round's foundation (user decisions 2026-09-21). Every canonical
 /// implementation for an intrinsic type is exercised directly, then through a
 /// group spread at a Copy scalar *and* at a `Str`, which is the case that
@@ -5617,7 +5617,7 @@ fn the_comparison_groups_lower_to_host_operations() {
     // A group is never a value, so nothing of the three survives as a type.
     assert!(
         !src.contains("struct Ordered") && !src.contains("struct Hashed"),
-        "a `params` group must leave no runtime representation:\n{src}"
+        "a `fns` group must leave no runtime representation:\n{src}"
     );
 }
 
@@ -6320,7 +6320,7 @@ fn rustc_compiles_and_runs_a_carried_ordering() {
 /// program builds on both targets — which is what makes user-written
 /// combinators possible at all, not just std's generated ones.
 pub const FN_FIELD_DEMO: &str = r#"
-struct Countdown : Yield<self, Int> canbe Mut {
+struct Countdown : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -6333,7 +6333,7 @@ fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {
     return emitted(v)
 }
 
-struct Doubling : Yield<self, Int> canbe Mut {
+struct Doubling : Next<self, Int> canbe Mut {
     src: Mut Countdown,
     f: (Int) -> Int
 }
@@ -6416,7 +6416,7 @@ fn rustc_compiles_and_runs_a_composed_pass_with_a_stored_callback() {
 /// express because it reads two sources at once. A struct, a `next`, and
 /// nothing else — no state machine, no compiler support beyond driving it.
 pub const PASS_DEMO: &str = r#"
-struct Zip : Yield<self, (Str, Int)> canbe Mut {
+struct Zip : Next<self, (Str, Int)> canbe Mut {
     left: List<Str>,
     right: List<Int>,
     at: Int
@@ -6436,7 +6436,7 @@ fn zip(left: List<Str>, right: List<Int>) -> Zip => !left, !right {
     return Zip { left: left, right: right, at: 0 }
 }
 
-struct Countdown : Yield<self, Int> canbe Mut {
+struct Countdown : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -6506,7 +6506,7 @@ fn a_pass_lowers_to_a_driving_loop() {
 pub const FALLIBLE_PASS_DEMO: &str = r#"
 import std.throw
 
-struct Reader : Yield<self, Ok Str | Err Str> canbe Mut {
+struct Reader : Next<self, Ok Str | Err Str> canbe Mut {
     lines: List<Str>,
     at: Int
 }
@@ -6661,9 +6661,9 @@ fn show(step: Emitted Int | Finished) [Console] {
 }
 
 iter fn iter(f: Flat) -> Emitted Int | Finished {
-    state FlatIter { at: Int = 0, inner: Mut ListYield<Int>? = None }
+    state FlatIter { at: Int = 0, inner: Mut ListNext<Int>? = None }
     while true {
-        if inner is Mut ListYield<Int> {
+        if inner is Mut ListNext<Int> {
             let step = next(inner)
             when step {
                 is ^Emitted { return emitted(step) }
@@ -6683,21 +6683,21 @@ iter fn iter(f: Flat) -> Emitted Int | Finished {
 fn main() [use] {
     use StdConsole()
     let base = List(1, 2)
-    let p: Mut ListYield<Int>? = iter(base)
-    if p is Mut ListYield<Int> {
+    let p: Mut ListNext<Int>? = iter(base)
+    if p is Mut ListNext<Int> {
         show(next(p))
         show(next(p))
         show(next(p))
     }
     let qs = List(7, 8)
-    let q: Mut ListYield<Int> | Int = iter(qs)
-    if q is Mut ListYield<Int> {
+    let q: Mut ListNext<Int> | Int = iter(qs)
+    if q is Mut ListNext<Int> {
         show(next(q))
         show(next(q))
     }
     let rs = List(1, 2, 3)
-    let r: Mut ListYield<Int>? = iter(rs)
-    if r is Mut ListYield<Int> {
+    let r: Mut ListNext<Int>? = iter(rs)
+    if r is Mut ListNext<Int> {
         r.at = 2
         show(next(r))
     }
@@ -6738,7 +6738,7 @@ fn a_mutable_use_of_a_narrowed_place_borrows_the_storage() {
         // The optional, and the `state` slot inside the generated pass:
         // each narrowed into a `&mut` binding of the storage.
         "let mut p_3 = p.as_mut().unwrap();",
-        "next__ListYield::<i32>(&mut *p_3)",
+        "next__ListNext::<i32>(&mut *p_3)",
         "let mut __narrowed_1 = __p.inner.as_mut().unwrap();",
         // The union arm.
         "let mut q_4 = match &mut q { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };",
@@ -8039,7 +8039,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> Mut ListYield<Int> => bag {
+fn iter(bag: Bag) -> Mut ListNext<Int> => bag {
     return iter(bag.items)
 }
 
@@ -8263,7 +8263,7 @@ fn rustc_compiles_and_runs_overload_overrides() {
 /// `roots` names its locals `salvo`, `kotlin` and `java`, the package roots
 /// the qualified Kotlin names go through.
 const DECLARED_CALLEE_DEMO: &str = r#"
-struct Ctr : Yield<self, Int> canbe Mut {
+struct Ctr : Next<self, Int> canbe Mut {
     n: Int
 }
 
@@ -8616,7 +8616,7 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
 
 /// [implicit-infer] A generic function over **containers** rather than passes:
 /// it takes the container and asks for its `iter` as an implicit parameter, so
-/// the pass type is decided by *which `iter` fills it* and the `?Yield` spread
+/// the pass type is decided by *which `iter` fills it* and the `?Next` spread
 /// beside it resolves against what that taught (user decision 2026-09-10).
 ///
 /// One function, three container kinds, no type arguments written — including a
@@ -8642,11 +8642,11 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> Mut ListYield<Int> => bag {
+fn iter(bag: Bag) -> Mut ListNext<Int> => bag {
     return iter(bag.items)
 }
 
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) -> Int =>[iter] c => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Next<It, Int>) -> Int =>[iter] c => c {
     let sum = 0
     let p = iter(c)
     for n in p {
@@ -9318,7 +9318,7 @@ fn rustc_compiles_and_runs_forwarded_fn_values() {
 /// (`T = &String`), answers `&&String` where Salvo's type is `proj Str`
 /// (`proj proj Str` is `proj Str`); the outer reference is copied out — on
 /// `get`/`last` (`.copied()`), `first` (`*`), and a pass's `next`, in a
-/// `for` loop and in every `?Yield` adapter (`U1(*__v)`). The call's
+/// `for` loop and in every `?Next` adapter (`U1(*__v)`). The call's
 /// instantiation is read off its arguments where the IR states no type
 /// arguments (a `for` loop's `next`, a forwarding closure's call).
 /// `kotlinc_compiles_and_runs_borrowed_element_reads` runs the same program.
@@ -9397,9 +9397,9 @@ fn rustc_compiles_and_runs_borrowed_element_reads() {
         "crate::std_core_list::last::<&String>(&vs).copied()",
         "(*crate::std_core_list::first::<&String>(&vs))",
         // A `for` loop's `next`, whose instantiation the arguments state.
-        "= (match crate::std_core_list::next__ListYield(&mut __pass_6) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) });",
-        // A `?Yield` adapter.
-        "&mut |__a0: &mut crate::std_core_list::ListYield<'_, &String>| (match crate::std_core_list::next__ListYield(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v),",
+        "= (match crate::std_core_list::next__ListNext(&mut __pass_6) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) });",
+        // A `?Next` adapter.
+        "&mut |__a0: &mut crate::std_core_list::ListNext<'_, &String>| (match crate::std_core_list::next__ListNext(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v),",
         // Nested.
         "let mut __pick_25: Option<&Vec<String>> = crate::std_core_list::get_platform(&big, 0i32).copied();",
     ] {
@@ -9698,7 +9698,7 @@ fn rustc_compiles_and_runs_a_linear_union_arm() {
 /// same-file `close_take`, which closes the source. The uncomposable-pass
 /// cut is closed.
 const WRAPPER_PASS_DEMO: &str = r#"
-linear struct Ticks : Yield<self, Int> canbe Mut {
+linear struct Ticks : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -9720,7 +9720,7 @@ fn close(l: Ticks) [Console] -> None => !l {
     discard(l)
 }
 
-linear struct Take : Yield<self, Int> canbe Mut {
+linear struct Take : Next<self, Int> canbe Mut {
     source: Mut Ticks,
     left: Int
 }
@@ -9767,7 +9767,7 @@ fn rustc_compiles_and_runs_a_linear_wrapper_pass() {
 /// std's generic `drop` — instantiated *by name* from the position's fn
 /// type, which is the generic-fn-value instantiation closed with phase 3.
 const DROP_CALLBACK_DEMO: &str = r#"
-linear struct Handle : Yield<self, Int> canbe Mut {
+linear struct Handle : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -9786,7 +9786,7 @@ fn next(h: Mut Handle) -> Emitted Int | Finished => h: Mut {
 
 fn close(h: Handle) -> None => !h { discard(h) }
 
-struct Counter : Yield<self, Int> canbe Mut {
+struct Counter : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -9799,7 +9799,7 @@ fn next(c: Mut Counter) -> Emitted Int | Finished => c: Mut {
     return emitted(v)
 }
 
-fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) -> Int => !it =>[end] !x {
+fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Next<It, Int>) -> Int => !it =>[end] !x {
     let sum = 0
     for n in it {
         sum = sum + n
@@ -13611,7 +13611,7 @@ placed=40
 /// the opaque return's hidden lifetime has to *be* one of them, and separate
 /// lifetimes would leave rustc no way to know which.
 const INFERRED_LEND: &str = r#"
-struct Stepped : Yield<self, proj Str> canbe Mut {
+struct Stepped : Next<self, proj Str> canbe Mut {
     items: proj List<Str>,
     at: Int,
     step: Int
@@ -13631,7 +13631,7 @@ fn iter(list: List<Str>, step: Int) [] -> Mut Stepped => list, step {
 }
 
 // No `holds proj(...)` written on either slot.
-fn count<C, K, It, T>(c: C, k: K, ?iter: (c: C, k: K) -> Mut It, ?Yield<It, T>) -> Int
+fn count<C, K, It, T>(c: C, k: K, ?iter: (c: C, k: K) -> Mut It, ?Next<It, T>) -> Int
 => c, k {
     let n = 0
     for _ in iter(c, k) {
@@ -13640,7 +13640,7 @@ fn count<C, K, It, T>(c: C, k: K, ?iter: (c: C, k: K) -> Mut It, ?Yield<It, T>) 
     return n
 }
 
-fn total<C, It, T>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, T>) -> Int => c {
+fn total<C, It, T>(c: C, ?iter: (c: C) -> Mut It, ?Next<It, T>) -> Int => c {
     let n = 0
     for _ in iter(c) {
         n = n + 1
@@ -16639,7 +16639,7 @@ fn a_loops_temporary_subject_is_hoisted() {
         main.content
     );
     assert!(
-        main.content.contains("let mut __pass_3: crate::std_core_list::ListYield<'_, i32> = crate::std_core_list::iter::<i32>(&__tmp1);"),
+        main.content.contains("let mut __pass_3: crate::std_core_list::ListNext<'_, i32> = crate::std_core_list::iter::<i32>(&__tmp1);"),
         "…and the pass must borrow the local:\n{}",
         main.content
     );
@@ -16774,7 +16774,7 @@ fn rustc_compiles_and_runs_a_to_str_from_another_module() {
 /// a call the target compiler rejected. The unqualified literal always worked,
 /// which is what pointed at the qualifier.
 const QUALIFIED_IMPLICIT_DEMO: &str = r#"
-struct Sib : Yield<self, Int> canbe Mut {
+struct Sib : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -16786,7 +16786,7 @@ fn next(p: Mut Sib) -> Emitted Int | Finished => p: Mut {
     return emitted(p.at)
 }
 
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) -> Int => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Next<It, Int>) -> Int => c {
     let t = 0
     for x in iter(c) {
         t = t + x
@@ -16807,7 +16807,7 @@ fn a_qualified_argument_still_binds_an_implicits_type_variable() {
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     // Both calls fill `?next` from `std.core.list`, not from the sibling `Sib`.
     assert_eq!(
-        main.content.matches("next__ListYield(").count(),
+        main.content.matches("next__ListNext(").count(),
         2,
         "both calls must drive the list's `next`:\n{}",
         main.content
@@ -18497,7 +18497,7 @@ fn head_of<T>(xs: List<T>) -> ref(xs) T? => xs {
     return at(xs, 0)
 }
 
-params Pick<C, L, T> {
+fns Pick<C, L, T> {
     fn pick(c: C, l: L) -> ref(c) T?
 }
 

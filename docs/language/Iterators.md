@@ -8,7 +8,7 @@ either an element or the end:
 provenance qualifier Emitted<T> of T
 struct Finished {}
 
-params Yield<It, T> {
+fns Next<It, T> {
     fn next(it: Mut It) -> Emitted T | Finished => it: Mut
 }
 ```
@@ -40,13 +40,13 @@ loop reached, so a function can take two elements and leave the rest. Only a
 
 Declaring a `next` is what makes iteration writable — `zip`, `merge`, anything
 reading two sources at once. The method alone does not make a struct an
-iterator: the tie is stated as an obligation, `: Yield<self, T>`, and checked
+iterator: the tie is stated as an obligation, `: Next<self, T>`, and checked
 at the struct (declaring it without a matching `next` is an error naming the
 missing signature). `for` reads the declaration — it does not scan overloads
 for a `next` and guess:
 
 ```
-struct Zip<A, B> : Yield<self, (A, B)> canbe Mut {
+struct Zip<A, B> : Next<self, (A, B)> canbe Mut {
     left: List<A>,
     right: List<B>,
     at: Int
@@ -59,7 +59,7 @@ Leave the clause off `Zip` and the `for` reports it:
 
 ```
 `Zip<(A, B)>` is not iterable … (`Zip` has a matching `next` — declare
-`: Yield<self, (A, B)>` on it to make it an iterator struct)
+`: Next<self, (A, B)>` on it to make it an iterator struct)
 ```
 
 An iterator struct that owns something declares itself `linear struct` and
@@ -71,7 +71,7 @@ included). A **generic** function that owns an iterator which may be linear
 (`<It canbe linear>`) takes its discharge as an ordinary consuming callback:
 
 ```
-fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) -> Int => !it =>[end] !x {
+fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Next<It, Int>) -> Int => !it =>[end] !x {
     let sum = 0
     for n in it {
         sum = sum + n
@@ -171,7 +171,7 @@ A type becomes a **source** — something `for` mints an iterator from — by
 declaring the `Iter` group as an obligation:
 
 ```
-params Iter<C, It, T> => iter with next {
+fns Iter<C, It, T> => iter with next {
     fn iter(collection: C) -> Mut It
     fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut
 }
@@ -189,7 +189,7 @@ for n in bag { ... }            // mints with `iter(bag)`, drives with its `next
 ```
 
 `It` is the iterator struct the implementation mints: one type across both
-members, so the second member is `Yield`'s `next` over it — the two groups are
+members, so the second member is `Next`'s `next` over it — the two groups are
 one protocol stated from two sides. The obligation names it: `BagIter` here is
 the struct the `iter fn`'s `state` block declares, and a fn `iter` of your own
 returning a struct you wrote satisfies it the same way. `iter with next` says
@@ -209,15 +209,15 @@ fn total<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c {
 
 `total(bag)` learns `It` from the `iter` that fills the pair — `BagIter` — and
 `total(bag, iter = other, next = other_next)` from the one written there.
-Over an iterator rather than a source, the spread is `?Yield<It, T>` with the
-iterator as a parameter: `fn first<It>(it: Mut It, ?Yield<It, Int>)`.
+Over an iterator rather than a source, the spread is `?Next<It, T>` with the
+iterator as a parameter: `fn first<It>(it: Mut It, ?Next<It, Int>)`.
 
-A type declares `: Iter<self, It, T>` **or** `: Yield<self, T>`, never both: it is
+A type declares `: Iter<self, It, T>` **or** `: Next<self, T>`, never both: it is
 a source or an iterator struct, and `for x in s` would otherwise have two
 answers.
 
 std's containers are sources through their `iter` (`fn iter<T>(list: List<T>)
--> Mut ListYield<T>`, and the same for arrays, `Str`, `Set`, `Map`); each
+-> Mut ListNext<T>`, and the same for arrays, `Str`, `Set`, `Map`); each
 answers a named struct with an ordinary `next`, so nothing about container
 iteration is special-cased. The backends keep their native loop as a fast path
 for a `for` straight over a list, an array or a string.

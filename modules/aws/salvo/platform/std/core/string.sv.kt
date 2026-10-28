@@ -22,16 +22,16 @@ fun byteSizePlatform(str: String): Long = salvo.platform.std.core.string.byteSiz
 
 fun charAtPlatform(str: String, index: Int): Char? = salvo.platform.std.core.string.charAt(str, index)
 
-fun iter(str: String): StrYield {
-    return StrYield(text = str, at = 0)
+fun iter(str: String): StrNext {
+    return StrNext(text = str, at = 0)
 }
 
-data class StrYield(
+data class StrNext(
     var text: String,
     var at: Int,
 )
 
-fun next(p: StrYield): Union2<Char, salvo.std.core.iterator.Finished> {
+fun next(p: StrNext): Union2<Char, salvo.std.core.iterator.Finished> {
     val chr: Char? = salvo.std.core.string.charAtPlatform(p.text, p.at)
     if ((chr == null)) {
         return Union2.U2<Char, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())

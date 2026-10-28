@@ -305,7 +305,7 @@ fun main() {
             }
         }
     }
-    salvo.std.core.console.println(__handle_2, "2c. total of a bag ${salvo.main.total(bag, ::iter, ::next__BagIter)}, of a list ${salvo.main.total(xs, { __a0 -> salvo.std.core.list.iter(__a0) }, { __a0 -> salvo.std.core.list.next__ListYield(__a0) })}")
+    salvo.std.core.console.println(__handle_2, "2c. total of a bag ${salvo.main.total(bag, ::iter, ::next__BagIter)}, of a list ${salvo.main.total(xs, { __a0 -> salvo.std.core.list.iter(__a0) }, { __a0 -> salvo.std.core.list.next__ListNext(__a0) })}")
     val __pass_12: Fibs = salvo.main.fibs(6)
     while (true) {
         val __step_13: Union2<Int, salvo.std.core.iterator.Finished> = salvo.main.next__Fibs(__handle_2, __pass_12)
@@ -350,10 +350,10 @@ fun main() {
     val words: List<String> = listOf<String>("ann", "bo", "carol")
     val lengths: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.seq.map__It_Fn(salvo.std.core.list.iter(words), fun(w: String): Int {
         return salvo.std.core.string.sizePlatform(w)
-    }, { __a0 -> salvo.std.core.list.next__ListYield(__a0) })
+    }, { __a0 -> salvo.std.core.list.next__ListNext(__a0) })
     salvo.std.core.console.println(__handle_2, "5. lengths: ${salvo.std.core.seq.reduce__It_A_Fn(salvo.std.core.list.iter(lengths), 0, fun(acc: Int, n: Int): Int {
         return (acc + n)
-    }, { __a0 -> salvo.std.core.list.next__ListYield(__a0) })}")
+    }, { __a0 -> salvo.std.core.list.next__ListNext(__a0) })}")
     val word: String = "iteration"
     val vowels: salvo.platform.std.core.list.MutList<Char> = salvo.std.core.seq.filter(salvo.std.core.string.iter(word), fun(c: Char): Boolean {
         return ((c == 'i') || (c == 'o'))

@@ -24,7 +24,7 @@ const CONTROL_KEYWORDS: &[&str] = &[
     "try",
 ];
 const DECLARATION_KEYWORDS: &[&str] = &[
-    "fn", "let", "struct", "qualifier", "effect", "handler", "params", "type", "intrinsic",
+    "fn", "let", "struct", "qualifier", "effect", "handler", "fns", "type", "intrinsic",
     "platform", "import", "provenance", "refn", "rename", "state",
 ];
 const OTHER_KEYWORDS: &[&str] = &[
@@ -56,7 +56,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
     // first of all the modifiers, so the lookahead is every word that can
     // start a declaration (including the other contextual ones).
     (
-        "\\\\bexport(?=\\\\s+(fn|struct|effect|effects|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send|comptime|noremote|threadsafe|iterable|namespace)\\\\b)",
+        "\\\\bexport(?=\\\\s+(fn|struct|effect|effects|handler|qualifier|type|fns|intrinsic|linear|platform|provenance|actor|iter|send|comptime|noremote|threadsafe|iterable|namespace)\\\\b)",
         "keyword.declaration.salvo",
         "the export modifier",
     ),
@@ -225,7 +225,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.other.salvo",
         "the enclosing-handler selector",
     ),
-    // `: Yield<self, T>`, `: auto Ordered<self>`: the declaring type in an
+    // `: Next<self, T>`, `: auto Ordered<self>`: the declaring type in an
     // obligation's argument list [group-self] — special only between the
     // angle bracket or comma and the comma or closing bracket, so a
     // variable named `self` elsewhere stays plain (it cannot be declared
@@ -631,7 +631,7 @@ mod tests {
         // are in `DECLARATION_KEYWORDS` but are not among them ([mod-export]
         // refuses the middle three outright, and the other two are not items).
         for word in [
-            "fn", "struct", "effect", "effects", "handler", "qualifier", "type", "params", "intrinsic",
+            "fn", "struct", "effect", "effects", "handler", "qualifier", "type", "fns", "intrinsic",
             "linear", "platform", "provenance", "actor", "iter", "send", "comptime",
             "noremote", "threadsafe", "iterable",
         ] {

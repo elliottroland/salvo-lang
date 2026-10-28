@@ -27,7 +27,7 @@ const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\
      export struct Finished {}\n\
      export fn emitted<T canbe linear>(value: T) [] -> +Emitted T => !value {\n    return value\n}\n\
      export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
-     export params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
+     export fns Next<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -457,7 +457,7 @@ fn a_composite_of_plain_values_is_unaffected() {
 /// The protocol and a linear pass, for the drive tests below: a `Handle` that
 /// declares both obligations, plus the `close` that discharges its linearity.
 const HANDLE: &str = "\
-linear struct Handle : Yield<self, Int> canbe Mut {
+linear struct Handle : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -485,7 +485,7 @@ fn close(h: Handle) [] -> None => !h { discard(h) }
 fn owning_a_possibly_linear_pass_still_owes_after_the_loop() {
     let errs = errors(&format!(
         "{HANDLE}\n\
-         fn drain<It canbe linear>(it: Mut It, ?Yield<It, Int>) [] -> Int => !it {{\n\
+         fn drain<It canbe linear>(it: Mut It, ?Next<It, Int>) [] -> Int => !it {{\n\
          \x20   let sum = 0\n\
          \x20   for n in it {{\n\
          \x20       sum = sum + n\n\
@@ -509,7 +509,7 @@ fn owning_a_possibly_linear_pass_still_owes_after_the_loop() {
 fn a_consuming_callback_supplies_the_release() {
     let errs = errors(&format!(
         "{HANDLE}\n\
-         fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) [] -> Int => !it =>[end] !x {{\n\
+         fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Next<It, Int>) [] -> Int => !it =>[end] !x {{\n\
          \x20   let sum = 0\n\
          \x20   for n in it {{\n\
          \x20       sum = sum + n\n\
@@ -528,7 +528,7 @@ fn a_consuming_callback_supplies_the_release() {
 fn keeping_the_pass_leaves_the_release_to_the_caller() {
     let errs = errors(&format!(
         "{HANDLE}\n\
-         fn peek<It canbe linear>(it: Mut It, ?Yield<It, Int>) [] -> Int => it: Mut {{\n\
+         fn peek<It canbe linear>(it: Mut It, ?Next<It, Int>) [] -> Int => it: Mut {{\n\
          \x20   let sum = 0\n\
          \x20   for n in it {{\n\
          \x20       sum = sum + n\n\
@@ -546,7 +546,7 @@ fn keeping_the_pass_leaves_the_release_to_the_caller() {
 fn a_plain_generic_pass_needs_no_release() {
     let errs = errors(&format!(
         "{HANDLE}\n\
-         fn drain<It>(it: Mut It, ?Yield<It, Int>) [] -> Int => !it {{\n\
+         fn drain<It>(it: Mut It, ?Next<It, Int>) [] -> Int => !it {{\n\
          \x20   let sum = 0\n\
          \x20   for n in it {{\n\
          \x20       sum = sum + n\n\
@@ -839,11 +839,11 @@ fn a_generic_fn_value_instantiates_from_the_position() {
     let errs = errors(&format!(
         "{HANDLE}\n\
          fn drop<T>(value: T) -> None => !value {{}}\n\
-         struct Counter : Yield<self, Int> canbe Mut {{\n    at: Int\n}}\n\
+         struct Counter : Next<self, Int> canbe Mut {{\n    at: Int\n}}\n\
          fn next(c: Mut Counter) [] -> Emitted Int | Finished => c: Mut {{\n    \
          if c.at <= 0 {{\n        return finished()\n    }}\n    \
          let v = copy(c.at)\n    c.at = c.at - 1\n    return emitted(v)\n}}\n\
-         fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) [] -> Int => !it =>[end] !x {{\n    \
+         fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Next<It, Int>) [] -> Int => !it =>[end] !x {{\n    \
          let sum = 0\n    for n in it {{\n        sum = sum + n\n    }}\n    \
          end(it)\n    return sum\n}}\n\
          fn go() -> Int {{\n    \
@@ -857,7 +857,7 @@ fn a_generic_fn_value_still_refuses_a_linear_instantiation() {
     let errs = errors(&format!(
         "{HANDLE}\n\
          fn drop<T>(value: T) -> None => !value {{}}\n\
-         fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) [] -> Int => !it =>[end] !x {{\n    \
+         fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Next<It, Int>) [] -> Int => !it =>[end] !x {{\n    \
          let sum = 0\n    for n in it {{\n        sum = sum + n\n    }}\n    \
          end(it)\n    return sum\n}}\n\
          fn go() -> Int {{\n    \

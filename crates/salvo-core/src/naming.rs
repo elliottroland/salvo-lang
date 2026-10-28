@@ -9,7 +9,7 @@
 //! level that distinguishes the overload from every other one of its name in
 //! that module:
 //!
-//! 1. each explicit parameter's base type (`next__StrYield`,
+//! 1. each explicit parameter's base type (`next__StrNext`,
 //!    `to_str__Int`, `map__List_Fn`);
 //! 2. the base types with their qualifiers (`swap__MutList_IdxInt_IdxInt`);
 //! 3. the full types, type arguments included (`get__ListT_Int`);

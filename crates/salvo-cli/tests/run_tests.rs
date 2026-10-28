@@ -1094,7 +1094,7 @@ fn a_stamped_body_falls_back_to_its_templates_names_on_both_backends() {
     let Some(__stamp) = e2e_stamp("a_stamped_body_falls_back_to_its_templates_names_on_both_backends", &["rustc", "kotlinc"]) else {
         return;
     };
-    const DERIV: &str = "export params Labelled<T> {\n    fn label(value: T) -> Str\n}\n\nexport comptime fn label<T is Struct>(value: T) [] -> Str => value {\n    return shout(T.name)\n}\n\nfn shout(s: Str) [] -> Str => s {\n    return \"${s}!\"\n}\n";
+    const DERIV: &str = "export fns Labelled<T> {\n    fn label(value: T) -> Str\n}\n\nexport comptime fn label<T is Struct>(value: T) [] -> Str => value {\n    return shout(T.name)\n}\n\nfn shout(s: Str) [] -> Str => s {\n    return \"${s}!\"\n}\n";
     const MAIN: &str = "import deriv\n\nstruct Point : Labelled<self> by deriv {\n    x: Int\n}\n\nfn main() [use] -> None {\n    use StdConsole()\n    println(label(Point { x: 1 }))\n}\n";
     const OWN: &str = "\nfn shout(s: Str) [] -> Str => s {\n    return \"mine: ${s}\"\n}\n";
     for (case, main, want) in [("fallback", MAIN.to_string(), "Point!\n"), ("site", format!("{MAIN}{OWN}"), "mine: Point\n")] {
@@ -1151,7 +1151,7 @@ fn a_stamped_decoder_runs_on_both_backends() {
         return;
     };
     let dir = work_dir("stamped_decoder");
-    fs::write(dir.join("decode.sv"), "export params FromStrs<T> {\n    fn from_strs(args: List<Str>) -> T\n}\n\nexport comptime fn from_strs<T is Struct>(args: List<Str>) [] -> T => args {\n    return T { [for f in T.fields] { [f]: from_str(get(args, f.index) ?: unreachable!()) ?: unreachable!() } }\n}\n").unwrap();
+    fs::write(dir.join("decode.sv"), "export fns FromStrs<T> {\n    fn from_strs(args: List<Str>) -> T\n}\n\nexport comptime fn from_strs<T is Struct>(args: List<Str>) [] -> T => args {\n    return T { [for f in T.fields] { [f]: from_str(get(args, f.index) ?: unreachable!()) ?: unreachable!() } }\n}\n").unwrap();
     fs::write(dir.join("main.sv"), "import decode\n\nstruct Serve : FromStrs<self> by decode {\n    port: Int,\n    host: Str\n}\n\nstruct Stop : FromStrs<self> by decode {\n    force: Bool\n}\n\nfn main() [use] -> None {\n    use StdConsole()\n    let s: Serve = from_strs(List(\"80\", \"web\"))\n    let t: Stop = from_strs(List(\"true\"))\n    println(\"${s.port} ${s.host} ${t.force}\")\n}\n").unwrap();
     for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
         if !have(tool) {

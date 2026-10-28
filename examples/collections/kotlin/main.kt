@@ -120,7 +120,7 @@ fun main() {
     }
     val unique: List<Int> = salvo.std.core.set.toListPlatform(deduped)
     salvo.std.core.console.println(__handle_2, "6. distinct ${salvo.std.core.list.toStr(unique, { __a0 -> (__a0).toString() })} of ${salvo.main.countUnique(unique)}")
-    val __pass_8: salvo.std.core.set.SetYield<String> = salvo.std.core.set.iter(vowels)
+    val __pass_8: salvo.std.core.set.SetNext<String> = salvo.std.core.set.iter(vowels)
     while (true) {
         val __step_9: Union2<String, salvo.std.core.iterator.Finished> = salvo.std.core.set.next(__pass_8)
         when {
@@ -135,9 +135,9 @@ fun main() {
         }
     }
     salvo.std.core.console.println(__handle_2, "")
-    val __pass_11: salvo.std.core.map.MapKeyYield<String> = salvo.std.core.map.iter(ages)
+    val __pass_11: salvo.std.core.map.MapKeyNext<String> = salvo.std.core.map.iter(ages)
     while (true) {
-        val __step_12: Union2<String, salvo.std.core.iterator.Finished> = salvo.std.core.map.next__MapKeyYield(__pass_11)
+        val __step_12: Union2<String, salvo.std.core.iterator.Finished> = salvo.std.core.map.next__MapKeyNext(__pass_11)
         when {
             (__step_12 is Union2.U1<*, *>) -> {
                 val __emitted_13: String = ((__step_12 as Union2.U1<*, *>).value as String)

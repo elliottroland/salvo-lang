@@ -18,7 +18,7 @@
 //! becomes, before anything else in the compiler sees it:
 //!
 //! ```text
-//! struct Range : Yield<self, Int> canbe Mut {
+//! struct Range : Next<self, Int> canbe Mut {
 //!     start: Int, end: Int, step: Int,
 //!     i: Int
 //! }
@@ -418,7 +418,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
                 alias: None,
                 value_args: Vec::new(),
                 name: Ident {
-                    name: "Yield".to_string(),
+                    name: "Next".to_string(),
                     span: struct_span,
                 },
                 args: vec![
@@ -1605,10 +1605,10 @@ fn prefix_item_name(
             h.exported = h.exported || force_export;
             Some(Item::Handler(h))
         }
-        Item::Params(mut g) => {
+        Item::Fns(mut g) => {
             g.name.name = under(&g.name.name);
             g.exported = g.exported || force_export;
-            Some(Item::Params(g))
+            Some(Item::Fns(g))
         }
         Item::Fn(mut f) => {
             f.name.name = under(&f.name.name);

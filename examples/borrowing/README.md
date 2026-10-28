@@ -48,7 +48,7 @@ cargo run -- run --backend kotlin --src examples/borrowing/salvo
    holds it across a **read** of its own container, lends one out of a
    **search loop** (`wounded`, `-> (ref(squad) Mut Fighter)?`), and lends one
    from a *generic* function whose accessor the caller supplies (`rally_at`,
-   over `params Ref`).
+   over `fns Ref`).
 3. **Two handles, proven apart.** `duel` mutates both parameters and says
    nothing about them coinciding, so a caller owes a proof: `d is NotSame(a)` —
    `d` is a different element from `a`, a claim about the two handles
@@ -187,7 +187,7 @@ Rust refuses is *using* either result alongside the container, which is §2.
   type. Nothing else in the file does: the deduction analysis decided moves and
   borrows without needing to name a lifetime.
 - **`filter` builds a list of borrows.** Its instantiation is literal about it:
-  `filter::<ListYield<Fighter>, &Fighter>(&mut pass, …)` — the element type
+  `filter::<ListNext<Fighter>, &Fighter>(&mut pass, …)` — the element type
   *is* `&Fighter`, so no element was copied to build the result.
 - **The surviving field handle disappeared.** `let banners = camp.banners` has
   no binding in the Rust at all: its one use reads `camp.banners` where it

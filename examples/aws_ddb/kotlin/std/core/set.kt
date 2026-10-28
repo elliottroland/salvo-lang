@@ -48,24 +48,24 @@ fun<T> eq(a: salvo.platform.std.core.set.Set<T>, b: salvo.platform.std.core.set.
 
 fun<T> toListPlatform(set: salvo.platform.std.core.set.Set<T>): List<T> = salvo.platform.std.core.set.toList(set)
 
-fun<T> iter(set: salvo.platform.std.core.set.Set<T>): SetYield<T> {
-    return SetYield<T>(items = salvo.std.core.set.toListPlatform(set), at = 0)
+fun<T> iter(set: salvo.platform.std.core.set.Set<T>): SetNext<T> {
+    return SetNext<T>(items = salvo.std.core.set.toListPlatform(set), at = 0)
 }
 
-data class SetYield<T>(
+data class SetNext<T>(
     var items: List<T>,
     var at: Int,
 )
 
-class __Codec_SetYield<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCodec<SetYield<T>> {
-    override fun enc(v: SetYield<T>, out: salvo.WireOut) {
+class __Codec_SetNext<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCodec<SetNext<T>> {
+    override fun enc(v: SetNext<T>, out: salvo.WireOut) {
         salvo.ListCodec(__c_T).enc(v.items, out)
         salvo.IntCodec.enc(v.at, out)
     }
-    override fun dec(inp: salvo.WireIn): SetYield<T> = SetYield(salvo.ListCodec(__c_T).dec(inp), salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): SetNext<T> = SetNext(salvo.ListCodec(__c_T).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<T> next(p: SetYield<T>): Union2<T, salvo.std.core.iterator.Finished> {
+fun<T> next(p: SetNext<T>): Union2<T, salvo.std.core.iterator.Finished> {
     val elem: T? = p.items.getOrNull(p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())

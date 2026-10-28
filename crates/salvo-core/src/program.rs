@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use salvo_syntax::ast::{
-    ParamsDecl,
+    FnsDecl,
     EffectDecl, FnDecl, HandlerDecl, Item, Module, QualifierDecl, StructDecl, TypeDecl, TypeRef,
 };
 
@@ -92,9 +92,9 @@ pub struct Symbols<'p> {
     /// checker records which effect each call resolved to
     /// (`Checked::effect_calls`).
     pub effect_of_fn: HashMap<&'p str, Vec<&'p str>>,
-    /// `params` groups by name [implicit-group]: bundles of implicit
+    /// `fns` groups by name [implicit-group]: bundles of implicit
     /// parameters, spread into a signature as `?Name<T>`.
-    pub param_groups: HashMap<&'p str, &'p ParamsDecl>,
+    pub fn_groups: HashMap<&'p str, &'p FnsDecl>,
     /// [type-identity] The key of every type declaration (struct, effect,
     /// alias, intrinsic or platform type, handler), by the declaration's
     /// address: what `key_of` answers. See `typekey`.
@@ -296,8 +296,8 @@ impl<'p> Symbols<'p> {
                         symbols.handlers.insert(k, h);
                         symbols.handler_modules.insert(k, &unit.file.module);
                     }
-                    Item::Params(g) => {
-                        symbols.param_groups.insert(&g.name.name, g);
+                    Item::Fns(g) => {
+                        symbols.fn_groups.insert(&g.name.name, g);
                     }
                     Item::Qualifier(q) => {
                         symbols.qualifiers.entry(&q.name.name).or_default().push(q);

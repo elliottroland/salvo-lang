@@ -70,12 +70,12 @@ fn rank<T>(a: T, b: T, ties: Int, ?cmp: (T, T) -> Int) -> Int => a, b {
 }
 ```
 
-### Bundling them: `params`
+### Bundling them: `fns`
 
 A set of related functions is declared once and spread with `?`:
 
 ```
-params Field<T> {
+fns Field<T> {
     fn add(a: T, b: T) -> T
     fn zero() -> T
 }
@@ -94,7 +94,7 @@ total(List(2, 3, 4), add = times, zero = one) // 24 — override one or both
 
 The spread has **no name of its own**, deliberately: its members become
 implicit parameters in their own right, so they are called unqualified inside
-the body and overridden by their own names outside it. A `params` group is
+the body and overridden by their own names outside it. A `fns` group is
 never a value — it exists only to keep a signature short.
 
 Overriding "one or both" is the usual freedom: a group is a convenience for the
@@ -102,7 +102,7 @@ declaration, not a contract the caller must fill wholesale. Some members are onl
 meaningful together, though, and a clause says which:
 
 ```
-params Hashed<T> => eq with hash {
+fns Hashed<T> => eq with hash {
     fn hash(value: T) -> Long
     fn eq(a: T, b: T) -> Bool
 }
@@ -121,7 +121,7 @@ by spreading a group; declaring the members individually (`?hash: …, ?eq: …`
 how a signature takes them unrelated.
 
 `std.core` declares the ones everything else builds on: `Ordered<T>` (`cmp`),
-`Eq<T>` (`eq`), `Hashed<T>` (`hash` and `eq` together), `Yield<It, T>`
+`Eq<T>` (`eq`), `Hashed<T>` (`hash` and `eq` together), `Next<It, T>`
 (`next`), `Ref<C, L, T>` (`at`). A type joins any of them by declaring the
 function — there is nothing to register.
 
@@ -215,7 +215,7 @@ function — there is nothing to register.
   function resolution chooses, by the same rule: with `f(x: Int) -> Str` and
   `f<T>(x: T) -> Str` both visible, `conv<B>(x: Int, ?f: (x: Int) -> B)`
   called as `conv(1)` infers `B = Str` from the more specific `f`. Where no
-  single function wins, nothing is inferred, and the ambiguity is the error. A `?Yield<It, T>`
+  single function wins, nothing is inferred, and the ambiguity is the error. A `?Next<It, T>`
   spread goes one step further: `T` is read off `It`'s own declaration (see
   [Iterators](Iterators.md)), so the element type of a combinator is never written.
 
@@ -226,16 +226,16 @@ A struct can state that its type parameter must come with a bundle, using a
 *type's*, not each function's:
 
 ```
-// std.core.array — the iterator an array is walked by. `: Yield<self, proj T>` is the
+// std.core.array — the iterator an array is walked by. `: Next<self, proj T>` is the
 // obligation: this struct comes with a `next`, and `self` names the struct.
-export struct ArrayYield<T> : Yield<self, proj T> canbe Mut {
+export struct ArrayNext<T> : Next<self, proj T> canbe Mut {
     items: proj (T[]),
     at: Int
 }
 ```
 
 The obligation now travels with the *type*: a combinator taking an
-`ArrayYield` writes no `?Yield` of its own, and `for` over one needs nothing
+`ArrayNext` writes no `?Next` of its own, and `for` over one needs nothing
 either. Without the clause the same struct is just a struct — the `for` loop
 says so, and names the clause as the remedy.
 

@@ -31,14 +31,14 @@ export intrinsic fn first<T>(array: T[]) [] -> proj(array) T? => array
 
 // [iter-mint] A fresh iterator over the array — a view of it with a position:
 // the array is borrowed, not moved [proj-field] [proj-infer].
-export fn iter<T>(array: T[]) [] -> Mut ArrayYield<T> => array {
-    return Mut ArrayYield<T> { items: array, at: 0 }
+export fn iter<T>(array: T[]) [] -> Mut ArrayNext<T> => array {
+    return Mut ArrayNext<T> { items: array, at: 0 }
 }
 
-// [iter-protocol] The pass an array is walked by — `std.core.list`'s [ListYield]
+// [iter-protocol] The pass an array is walked by — `std.core.list`'s [ListNext]
 // with an array inside. The backends keep their native loop for a `for` over
 // an array [iter-for-native]; this shape is what combinators see.
-export struct ArrayYield<T> : Yield<self, proj T> canbe Mut {
+export struct ArrayNext<T> : Next<self, proj T> canbe Mut {
     // The array being walked — borrowed [proj-field].
     items: proj (T[]),
     // The index of the next element to emit.
@@ -47,7 +47,7 @@ export struct ArrayYield<T> : Yield<self, proj T> canbe Mut {
 
 // Advances the iterator, reporting the element at its position or the end of the
 // array.
-export fn next<T>(p: Mut ArrayYield<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
+export fn next<T>(p: Mut ArrayNext<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
     let elem = get(p.items, p.at)
     if elem is None {
         return finished()

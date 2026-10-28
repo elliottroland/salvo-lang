@@ -379,11 +379,11 @@ Conventions:
 * [rs-lazy-adaptor] [seq-lazy] **A struct over an iterator** (2026-10-03):
   a struct's type parameters carry `Clone` but not `'static`, since a lazy
   adaptor is instantiated at a pass that borrows its source
-  (`Taking<ListYield<'s, T>, &T>`); a fn field's callback is `'static` by its
+  (`Taking<ListNext<'s, T>, &T>`); a fn field's callback is `'static` by its
   own bound, which is all the struct needs. A fn that hands back such a struct
   takes its callbacks owned as `impl Fn(…) + Send + Sync + 'static` (the
   `Arc<dyn Fn + Send + Sync>` field's bounds), and that includes the fns an
-  implicit group spreads (`?Yield<It, T>`'s `next`):
+  implicit group spreads (`?Next<It, T>`'s `next`):
   `pub fn taking<It: Clone, T: Clone>(mut it: It, mut n: i32, next: impl Fn(&mut It) -> … + Send + Sync + 'static) -> crate::std_core_seq::Taking<It, T>`.
 * [rs-fn-field] A **function in a struct field** is
   `std::sync::Arc<dyn Fn(A) -> R + Send + Sync>`:
@@ -414,11 +414,11 @@ Conventions:
   * what this buys: a **hand-written composed pass** (a struct storing its
     source *and* its callback) builds on both targets, so composing iterators
     is available to anyone rather than only to generated std code.
-* [backend-never-wrong] A **`params` group in a struct field** is still a
+* [backend-never-wrong] A **`fns` group in a struct field** is still a
   codegen error: a bundle of functions has no single type to store. The
   checker refuses it first [group-not-a-value]; the backend keeps its own
   guard, and the diagnostic names what does work — an implicit parameter, or
-  a `params` group in a signature [implicit-group].
+  a `fns` group in a signature [implicit-group].
 * [rs-tuple-index] A tuple index ([expr-tuple-index]) is Rust's own
   positional field: `t.0` emits as `t.0`, nesting included (`t.1.0`).
   Reads clone like any other projection in a value position, and a narrowed
@@ -556,7 +556,7 @@ references; the Rust backend spells the modes mechanically:
 * [rs-repoint] [fate-link] **A re-pointed view gets a Rust variable per live
   range** (2026-10-14, ROADMAP 0v). Salvo lets a local holding a view (any
   type with a borrow in it: `List<proj Str>`, `proj Str`, a borrowing struct
-  such as `ListYield<'_, T>`) be assigned a view of another source, its links
+  such as `ListNext<'_, T>`) be assigned a view of another source, its links
   following the assignment; Rust gives a variable one type and so one
   lifetime, and every borrow ever stored in it is held while the variable is
   live — a first binding of a local that dies early and a later one of a
@@ -660,9 +660,9 @@ the blanket rule:
     `get_platform(&vs, 0i32).copied()`, `(*first::<&String>(&vs))`, and a
     `next` arm by arm (`Union2::U1(__v) => Union2::U1(*__v)`). The call's
     instantiation is its type arguments, or, where the IR states none (a
-    `for` loop's `next`, a forwarding closure's call, a `?Yield` adapter),
+    `for` loop's `next`, a forwarding closure's call, a `?Next` adapter),
     what its arguments' types bind the variables to, as rustc infers them
-    (`Mut ListYield<T>` at `Mut ListYield<proj Str>`: `T = proj Str`). A
+    (`Mut ListNext<T>` at `Mut ListNext<proj Str>`: `T = proj Str`). A
     `ref` instantiation is not flattened. Before, every such read of a view
     list's element was E0308 on Rust (Kotlin has no references to nest).
 
@@ -727,9 +727,9 @@ the blanket rule:
     of a handler's own field ([effect-state-store]'s read direction).
 * [rs-proj-struct] A struct with a `proj` field — or an owned field whose
   type has one, transitively — is a **borrowing struct**:
-  `pub struct ListYield<'s, T> { pub items: &'s Vec<T>, pub at: i32 }`, with
+  `pub struct ListNext<'s, T> { pub items: &'s Vec<T>, pub at: i32 }`, with
   `<'s>` on owned view-typed fields; every mention elides
-  (`crate::std_core_list::ListYield<'_, T>`); a struct literal borrows into its
+  (`crate::std_core_list::ListNext<'_, T>`); a struct literal borrows into its
   `proj` fields (`crate::BagIter { bag: &bag, at: 0i32 }`,
   or the reference itself when the source already is one:
   `crate::Window { roster: roster, at: 0i32 }`); it is returned *by value*
@@ -755,17 +755,17 @@ the blanket rule:
   source parameters, and the assignment renders as a borrow.
 * [rs-proj-arm] A union with a `proj` arm is an ordinary instantiation of
   the shared enum with a reference arm (`Union2<&'s T, Finished>`). At a
-  call filling `?Yield<It, T>` from a borrowing `next`, the element generic
+  call filling `?Next<It, T>` from a borrowing `next`, the element generic
   is **retagged** to `&T` in the turbofish
-  (`crate::std_core_seq::filter::<crate::std_core_list::ListYield<'_, crate::Fighter>, &crate::Fighter>(…)`)
+  (`crate::std_core_seq::filter::<crate::std_core_list::ListNext<'_, crate::Fighter>, &crate::Fighter>(…)`)
   — unless the substituted type already carries the projection
   (`T = proj Str` renders `&String` on its own [proj-type]). User callbacks
   at a retagged position arrive one reference deeper and peel it
   (`let f = *f;` at the top of a lambda); resolved implicit adapters clone a
   retagged position out where the callee owns it, and `copy` at a retagged
-  position is the identity. A concrete Copy element (`?Yield<It, Int>`) is
+  position is the identity. A concrete Copy element (`?Next<It, Int>`) is
   copied out by a match adapter instead:
-  `&mut |__a0: &mut crate::std_core_list::ListYield<'_, i32>| (match crate::std_core_list::next__ListYield(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) })`.
+  `&mut |__a0: &mut crate::std_core_list::ListNext<'_, i32>| (match crate::std_core_list::next__ListNext(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) })`.
   A value of a `proj`-arm union flowing into a position written as the
   owned union is adapted arm by arm the same way for Copy payloads, and is
   a codegen error otherwise (a hidden clone this backend refuses).
@@ -1062,7 +1062,7 @@ the blanket rule:
   use) and Kotlin's reference needs nothing. So the temporaries are bound to
   locals in front, which is rustc's own suggestion:
   `let mut __tmp1 = vec![1i32, 2i32];`
-  `let mut __pass_3: crate::std_core_list::ListYield<'_, i32> = crate::std_core_list::iter::<i32>(&__tmp1);`.
+  `let mut __pass_3: crate::std_core_list::ListNext<'_, i32> = crate::std_core_list::iter::<i32>(&__tmp1);`.
   * **Which temporaries**: every argument of the call that is **lent and not
     a place**, when the call's result holds a borrow. An owned (consumed)
     position needs nothing — a moved value is not borrowed from anywhere —
@@ -1373,7 +1373,7 @@ the blanket rule:
   inside the adapter [implicit-intrinsic], a forwarded one as a reborrow
   (`&mut *cmp`), an override as the written value (adapted the same way
   when it names a fn).
-  * A `params` group emits nothing [implicit-group]: it never was a value, so
+  * A `fns` group emits nothing [implicit-group]: it never was a value, so
     there is no struct and nothing boxed; its members are trailing
     parameters like any implicit.
   * A **kept-`Mut`** parameter of an implicit position is rendered `&mut T`,

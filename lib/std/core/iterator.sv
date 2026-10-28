@@ -1,6 +1,6 @@
 // [iter-protocol] The *pull* iteration protocol, written in Salvo rather than
 // built into the compiler: an **iterator struct** is a type declaring
-// `: Yield<self, T>`, and its `next` reports either an element or the end of
+// `: Next<self, T>`, and its `next` reports either an element or the end of
 // the sequence. A **source** is a type an `iter` mints an iterator from,
 // declared with `: Iter<self, It, T>`.
 //
@@ -38,7 +38,7 @@ export fn finished() [] -> Finished {
 }
 
 // [iter-protocol] [group-obligation] What an **iterator struct** is: a type
-// that declares `: Yield<self, T>`, tied to iteration by its `next`. The
+// that declares `: Next<self, T>`, tied to iteration by its `next`. The
 // obligation is checked at the declaring struct — a misspelled or missing
 // `next` is an error where the promise is written, not a puzzling "not
 // iterable" at some loop — and `for` reads the declaration rather than
@@ -47,25 +47,25 @@ export fn finished() [] -> Finished {
 // The state comes *first* and the element second, and the state is an
 // ordinary type parameter rather than a magic `Self`: that is what keeps this
 // an ordinary group, so the same declaration also spreads as
-// `?Yield<It, T>` implicit parameters — which is how a generic combinator
+// `?Next<It, T>` implicit parameters — which is how a generic combinator
 // reaches a source iterator's `next` [implicit-group]. At an obligation the
 // declaring type is written `self` [group-self].
 //
 // The state is taken as `Mut`: advancing an iterator is a mutation of its
 // position. An iterator that *walks* data emits borrows of it — it declares
-// `: Yield<self, proj T>` and its `next` returns `Emitted (proj(p) T)`
+// `: Next<self, proj T>` and its `next` returns `Emitted (proj(p) T)`
 // [yield-proj] — so reading through it copies nothing and whoever *stores* an
 // element says `copy` [copy-opt-in]; one that *computes* its elements
-// declares `: Yield<self, T>` and owns them. A reading combinator's
-// `?Yield<It, T>` accepts either. A group emits nothing on any backend
+// declares `: Next<self, T>` and owns them. A reading combinator's
+// `?Next<It, T>` accepts either. A group emits nothing on any backend
 // [implicit-group].
-export params Yield<It, T> {
+export fns Next<It, T> {
     fn next(it: Mut It) -> Emitted T | Finished => it: Mut
 }
 
 // [iter-group] What a **source** is: a type an `iter` mints an iterator from.
-// `It` is that iterator — a type declaring `: Yield<self, T>` — one type
-// across both members, so the second member is `Yield`'s `next` over it: the
+// `It` is that iterator — a type declaring `: Next<self, T>` — one type
+// across both members, so the second member is `Next`'s `next` over it: the
 // two groups are one protocol stated from two sides. The pair is filled
 // **together** (`iter with next`): a caller may override the minter, never
 // the step alone, since the step belongs to whatever the minter answers
@@ -75,14 +75,14 @@ export params Yield<It, T> {
 // (user decision 2026-10-20), and either an `iter fn iter(s: self) -> Emitted
 // T | Finished` whose `state It { … }` is that struct — the compiler writes
 // it and both members — or a fn `iter` of its own returning one. Declaring
-// both `: Iter` and `: Yield` on one type is refused: `for x in s` would have
+// both `: Iter` and `: Next` on one type is refused: `for x in s` would have
 // two answers.
 //
 // Spread as `?Iter<C, It, T>`, the group brings in `iter: (C) -> Mut It` and
 // `next: (Mut It) -> Emitted T | Finished`, so a combinator over a generic
 // *source* writes `for x in c` and the loop mints with the one and drives
 // with the other.
-export params Iter<C, It, T> => iter with next {
+export fns Iter<C, It, T> => iter with next {
     fn iter(collection: C) -> Mut It
     fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut
 }

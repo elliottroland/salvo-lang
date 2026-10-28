@@ -27,7 +27,7 @@
 // has to arrange deliberately (its `String.compareTo` is UTF-16 code-unit
 // order) [kt-ordered].
 
-export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter<self, SetYield<T>, T>
+export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter<self, SetNext<T>, T>
 
 // Constructor. The elements are stored, so they are moved; duplicates
 // collapse, and the result is in order however the arguments were written.
@@ -94,11 +94,11 @@ export fn to_str<T>(set: SortedSet<T>, ?to_str: (x: T) -> Str) [] -> Str => set 
 // [iter-mint] A fresh iterator over the elements, in order. A snapshot, like the
 // unordered collections' iterators and for the same reason (there is no index
 // to walk) — see `std.core.set`.
-export fn iter<T>(set: SortedSet<T>) [] -> Mut SetYield<T> => set {
-    return Mut SetYield<T> { items: to_list(set), at: 0 }
+export fn iter<T>(set: SortedSet<T>) [] -> Mut SetNext<T> => set {
+    return Mut SetNext<T> { items: to_list(set), at: 0 }
 }
 
-export iterable platform type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut : Iter<self, MapKeyYield<K>, K>
+export iterable platform type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut : Iter<self, MapKeyNext<K>, K>
 
 // Constructor, from entries written as pairs. A repeated key takes the value
 // of its last appearance [col-duplicate-keys]; position is irrelevant here,
@@ -197,8 +197,8 @@ export fn eq<K, V>(a: SortedMap<K, V>(?cmp), b: SortedMap<K, V>(?cmp), ?eq: (x: 
 
 // [iter-mint] A fresh iterator over the map's **keys**, in order — the same
 // reading `std.core.map` takes, where a value is reached with `get`.
-export fn iter<K, V>(map: SortedMap<K, V>) [] -> Mut MapKeyYield<K> => map {
-    return Mut MapKeyYield<K> { items: keys(map), at: 0 }
+export fn iter<K, V>(map: SortedMap<K, V>) [] -> Mut MapKeyNext<K> => map {
+    return Mut MapKeyNext<K> { items: keys(map), at: 0 }
 }
 
 // The plain, optional-answering forms, taken out of the shared name *inside

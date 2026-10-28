@@ -218,7 +218,7 @@ final class Generator {
     // =============================================================== names ===
 
     private static final Set<String> SALVO_KEYWORDS = Set.of(
-            "fn", "let", "struct", "qualifier", "effect", "handler", "params", "type", "intrinsic",
+            "fn", "let", "struct", "qualifier", "effect", "handler", "fns", "type", "intrinsic",
             "platform", "import", "as", "of", "with", "canbe", "provenance", "refn", "rename", "is",
             "if", "elif", "else", "when", "while", "for", "in", "return", "break", "continue", "state",
             "use", "try", "true", "false", "proj", "once", "linear", "holds", "export", "copy");

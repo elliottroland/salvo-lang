@@ -38,17 +38,17 @@ pub fn char_at_platform(str: &String, mut index: i32) -> Option<char> {
     crate::platform_std_core_string::char_at(str, index)
 }
 
-pub fn iter(str: &String) -> crate::std_core_string::StrYield<'_> {
-    return crate::std_core_string::StrYield { text: str, at: 0i32 };
+pub fn iter(str: &String) -> crate::std_core_string::StrNext<'_> {
+    return crate::std_core_string::StrNext { text: str, at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct StrYield<'s> {
+pub struct StrNext<'s> {
     pub text: &'s String,
     pub at: i32,
 }
 
-pub fn next(p: &mut crate::std_core_string::StrYield<'_>) -> crate::unions::Union2<char, crate::std_core_iterator::Finished> {
+pub fn next(p: &mut crate::std_core_string::StrNext<'_>) -> crate::unions::Union2<char, crate::std_core_iterator::Finished> {
     let mut chr: Option<char> = crate::std_core_string::char_at_platform(p.text, p.at);
     if chr.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());

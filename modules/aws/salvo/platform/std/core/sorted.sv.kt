@@ -50,8 +50,8 @@ fun<T> toStr__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>, toStr:
     return out.toString()
 }
 
-fun<T> iter__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>): salvo.std.core.set.SetYield<T> {
-    return salvo.std.core.set.SetYield<T>(items = salvo.std.core.sorted.toListPlatform(set), at = 0)
+fun<T> iter__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>): salvo.std.core.set.SetNext<T> {
+    return salvo.std.core.set.SetNext<T>(items = salvo.std.core.sorted.toListPlatform(set), at = 0)
 }
 
 fun<K, V> SortedMap_platform(entries: Array<kotlin.Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.std.core.sorted.SortedMap<K, V> = salvo.platform.std.core.sorted.SortedMap(entries, cmp)
@@ -139,8 +139,8 @@ fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.std.core.sorted.SortedMap<K,
     return true
 }
 
-fun<K, V> iter__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>): salvo.std.core.map.MapKeyYield<K> {
-    return salvo.std.core.map.MapKeyYield<K>(items = salvo.std.core.sorted.keysPlatform(map), at = 0)
+fun<K, V> iter__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>): salvo.std.core.map.MapKeyNext<K> {
+    return salvo.std.core.map.MapKeyNext<K>(items = salvo.std.core.sorted.keysPlatform(map), at = 0)
 }
 
 fun<T> NonEmpty_qualifies(set: salvo.platform.std.core.sorted.SortedSet<T>): Boolean {

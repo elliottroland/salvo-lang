@@ -758,7 +758,7 @@ pub(crate) fn walk_item<V: Visitor>(c: &mut V, it: &Item) {
                 func(c, f);
             }
         }
-        Item::Params(ast::ParamsDecl { docs: _, exported: _, name: _, generics: _, fns, deductions, span: _ }) => {
+        Item::Fns(ast::FnsDecl { docs: _, exported: _, name: _, generics: _, fns, deductions, span: _ }) => {
             for f in fns {
                 func(c, f);
             }

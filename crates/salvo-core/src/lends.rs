@@ -1,7 +1,7 @@
 //! [proj-infer] Which parameters a function's result *holds a borrow of*.
 //!
 //! A struct with `proj` fields is an owned object that projects other
-//! values: `Mut ListYield<T> { items: list, at: 0 }` is a pass of its own,
+//! values: `Mut ListNext<T> { items: list, at: 0 }` is a pass of its own,
 //! whose `items` borrows `list`. A function returning such a struct hands
 //! the caller a value tied to some of its arguments, and the caller has to
 //! know which — that is what refuses `move(xs)` while `let p = iter(xs)`

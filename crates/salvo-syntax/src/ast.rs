@@ -86,7 +86,7 @@ pub enum Item {
     Qualifier(QualifierDecl),
     Effect(EffectDecl),
     Handler(HandlerDecl),
-    Params(ParamsDecl),
+    Fns(FnsDecl),
     Fn(FnDecl),
     /// [effect-alias] `effects IO = [Console, Fs, Streams]` — a named effect
     /// group, expanded to its members before resolution.
@@ -235,7 +235,7 @@ pub struct RefnDeduction {
     pub span: Span,
 }
 
-/// `params Field<T> { fn add(a: T, b: T) -> T ... }` [implicit-group]: a
+/// `fns Field<T> { fn add(a: T, b: T) -> T ... }` [implicit-group]: a
 /// named bundle of implicit parameters, written once and spread into a
 /// signature as `?Field<T>`.
 ///
@@ -247,7 +247,7 @@ pub struct RefnDeduction {
 /// and a way to call a fn-typed field, which dot-notation [fn-dot] already
 /// spells otherwise.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ParamsDecl {
+pub struct FnsDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
@@ -260,7 +260,7 @@ pub struct ParamsDecl {
     pub generics: Vec<Ident>,
     /// Member signatures: bodiless, like an effect's [effect-decl].
     pub fns: Vec<FnDecl>,
-    /// [implicit-with] The group's own deduction clause — `params Hashed<T>
+    /// [implicit-with] The group's own deduction clause — `fns Hashed<T>
     /// => eq with hash { … }` — which travels with its members wherever the
     /// group is spread: spreading a group opts into its deductions along with
     /// its functions (user decision 2026-09-26). Only `with` entries are
@@ -400,7 +400,7 @@ pub struct TypeDecl {
 }
 
 /// `struct Person canbe Mut { name: Str, ... }`, optionally with an
-/// obligation clause: `linear struct Lines : Yield<self, Str> canbe Mut { ... }`
+/// obligation clause: `linear struct Lines : Next<self, Str> canbe Mut { ... }`
 /// [group-obligation].
 #[derive(Clone, Debug, PartialEq)]
 pub struct StructDecl {
@@ -427,7 +427,7 @@ pub struct StructDecl {
     /// has it: `struct Map<K, V>(?hash: (K) -> Long, ?eq: (K, K) -> Bool)`.
     /// The identity is carried by the struct's *type*; no value stores it.
     pub fn_slots: Vec<SlotDecl>,
-    /// Obligations [group-obligation]: `params` groups this type promises
+    /// Obligations [group-obligation]: `fns` groups this type promises
     /// to satisfy, written `: Group<Args>` after the generics and before
     /// `canbe`. Each member of each named group must have a matching
     /// visible fn, with `self` in the argument list standing for this type —
@@ -1237,7 +1237,7 @@ pub struct FnDecl {
     pub derived_return: Option<Ident>,
     pub params: Vec<Param>,
     /// `?Field<T>` spreads [implicit-group]: a *declaration-side* shorthand
-    /// for one implicit parameter per member of a `params` group. There is
+    /// for one implicit parameter per member of a `fns` group. There is
     /// no binder — the members become ordinary implicit parameters, so
     /// resolution, forwarding and call-site override all key on a member's
     /// own name and type. The checker publishes the expansion (written
@@ -1624,7 +1624,7 @@ pub fn is_identity_arg(arg: &Type) -> bool {
 }
 
 /// [cmp-carry] One entry of a declaration's **slot list**: a slot written out,
-/// or a `params` group spread into one slot per member (user decision
+/// or a `fns` group spread into one slot per member (user decision
 /// 2026-09-22).
 ///
 /// `qualifier Heap<T>(?Ordered<T>) of List<T>` is sugar for

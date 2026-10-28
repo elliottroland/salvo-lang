@@ -76,7 +76,7 @@ pub struct ComptimeOutput {
 }
 
 /// [comptime-instantiate] What the world looks declarations up in: every
-/// comptime fn, and every struct, `type`, `params` group and qualifier by
+/// comptime fn, and every struct, `type`, `fns` group and qualifier by
 /// name, as the files declared them **before** any was stamped (stamping
 /// removes the generic compfns). Names are flat here — the resolver's
 /// visibility rules run later on what this produces — and a collision between
@@ -87,7 +87,7 @@ struct Tables {
     compfns: Vec<CompFnDecl>,
     structs: HashMap<String, Vec<(ModulePath, StructDecl)>>,
     types: HashMap<String, Vec<(ModulePath, TypeDecl)>>,
-    groups: HashMap<String, Vec<(ModulePath, ParamsDecl)>>,
+    groups: HashMap<String, Vec<(ModulePath, FnsDecl)>>,
     /// [comptime-qualifier] Every qualifier, by name: a head tests for the
     /// comptime ones, and an arm's constructor reads an ordinary one's
     /// generics [comptime-arm].
@@ -209,7 +209,7 @@ fn run<M: crate::expand::ModuleSlot>(
                 Item::Type(t) => {
                     tables.types.entry(t.name.name.clone()).or_default().push((file.module.clone(), t.clone()));
                 }
-                Item::Params(g) => {
+                Item::Fns(g) => {
                     tables.groups.entry(g.name.name.clone()).or_default().push((file.module.clone(), g.clone()));
                 }
                 // [comptime-qualifier] Comptime qualifiers, which a head tests
@@ -1306,7 +1306,7 @@ fn scoped_names<M: crate::decl_id::ModuleRef>(files: &[SourceFile], modules: &[M
             let addr = match item {
                 Item::Struct(s) => s as *const StructDecl as usize,
                 Item::Type(t) => t as *const TypeDecl as usize,
-                Item::Params(g) => g as *const ParamsDecl as usize,
+                Item::Fns(g) => g as *const FnsDecl as usize,
                 Item::Qualifier(q) => q as *const QualifierDecl as usize,
                 _ => continue,
             };
@@ -1329,7 +1329,7 @@ fn scoped_names<M: crate::decl_id::ModuleRef>(files: &[SourceFile], modules: &[M
                 .chain(s.opaque_types.iter())
                 .filter_map(|(n, d)| Some((n.to_string(), of(*d as *const TypeDecl as usize)?)))
                 .collect(),
-            groups: s.param_groups.iter().filter_map(|(n, d)| Some((n.to_string(), of(*d as *const ParamsDecl as usize)?))).collect(),
+            groups: s.fn_groups.iter().filter_map(|(n, d)| Some((n.to_string(), of(*d as *const FnsDecl as usize)?))).collect(),
             quals: s
                 .qualifiers
                 .iter()
@@ -1508,8 +1508,8 @@ impl World {
         self.scoped_decl(name, &all, visible, other).map(|(_, d)| d)
     }
 
-    /// [type-identity] The `params` group a clause names, in its file.
-    fn group_named(&self, name: &str) -> Option<&ParamsDecl> {
+    /// [type-identity] The `fns` group a clause names, in its file.
+    fn group_named(&self, name: &str) -> Option<&FnsDecl> {
         let all = self.entries(name, |t| &t.groups);
         let visible = self.names_here().and_then(|h| h.groups.get(name));
         self.scoped_decl(name, &all, visible, false).map(|(_, d)| d)
@@ -2032,7 +2032,7 @@ impl<'w> Stamper<'w> {
     /// written declaration. The member's nodes are made by the stamp [origin]
     /// (`ExpansionKind::Made`), so a diagnostic about the signature lands at
     /// the `by` site.
-    fn member_decl(self, group: &ParamsDecl, member: &FnDecl) -> Result<FnDecl, Vec<Diagnostic>> {
+    fn member_decl(self, group: &FnsDecl, member: &FnDecl) -> Result<FnDecl, Vec<Diagnostic>> {
         let site = self.by.span;
         let generic = if self.target.generics.is_empty() {
             None

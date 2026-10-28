@@ -22,7 +22,7 @@ decision log and the specs, and a ROADMAP.md step carries the build.
 
 **Sources.** docs/language/ pages: Data-and-Types.md (structs, defaults, spread,
 destructuring, unions), Qualifiers.md (constructive and provenance qualifiers,
-erasure, refinements), Implicit-Parameters.md (`params`, obligations, slots),
+erasure, refinements), Implicit-Parameters.md (`fns`, obligations, slots),
 Comparison-and-Hashing.md (`auto fn`, the derivation mechanism), Modules.md,
 Linear-Types.md. LANGUAGE_SPEC.md rules relied on, each verified present:
 [struct-decl] [struct-defaults] [struct-spread] [struct-lit-infer]
@@ -512,7 +512,7 @@ struct PersonItem : auto Json<self> {        // declares `to_json` and `of_json`
 }
 ```
 
-with `params Json<T> { fn to_json(v: T) -> Json; fn of_json(j: Json) -> Ok T |
+with `fns Json<T> { fn to_json(v: T) -> Json; fn of_json(j: Json) -> Ok T |
 Err DecodeError }` in std `json`, and `auto` writing both from the fields, as
 [cmp-auto] does for `cmp`. The derived encoder writes every field under its
 declared name; the derived decoder reads every field by name, **fills a

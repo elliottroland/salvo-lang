@@ -14,7 +14,7 @@
 // [platform-value-type] A value platform type (ROADMAP 0.7): the host
 // implements it in `lib/platform/std/core/deque.{rs,kt}` and names the mutable
 // kind `MutDeque`.
-export iterable platform type Deque<T canbe linear> canbe Mut : Iter<self, DequeYield<T>, T>
+export iterable platform type Deque<T canbe linear> canbe Mut : Iter<self, DequeNext<T>, T>
 
 // The host's primitives, from which the constructors below are built.
 platform fn empty_deque<T canbe linear>() [] -> Mut Deque<T>
@@ -169,17 +169,17 @@ export fn to_deque<T>(list: List<T>, ?copy: (v: T) -> T) [] -> Deque<T> => list 
 
 // [iter-mint] A fresh iterator front to back. Borrows the deque, like a
 // list's [iter].
-export fn iter<T>(d: Deque<T>) [] -> Mut DequeYield<T> => d {
-    return Mut DequeYield<T> { items: d, at: 0 }
+export fn iter<T>(d: Deque<T>) [] -> Mut DequeNext<T> => d {
+    return Mut DequeNext<T> { items: d, at: 0 }
 }
 
 // [iter-protocol] The pass a deque is walked by: the deque and a position.
-export struct DequeYield<T> : Yield<self, proj T> canbe Mut {
+export struct DequeNext<T> : Next<self, proj T> canbe Mut {
     items: proj Deque<T>,
     at: Int
 }
 
-export fn next<T>(p: Mut DequeYield<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
+export fn next<T>(p: Mut DequeNext<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
     let elem = get(p.items, p.at)
     if elem is None {
         return finished()

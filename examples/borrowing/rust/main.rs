@@ -49,7 +49,7 @@ pub mod platform_std_core_sorted;
 pub mod platform_std_core_string;
 
 use crate::std_core_index::Idx__Int_qualifies;
-use crate::std_core_list::ListYield;
+use crate::std_core_list::ListNext;
 use crate::std_core_ref::NotSame_qualifies;
 use crate::std_core_list::add_platform;
 use crate::std_core_list::at_platform;
@@ -57,7 +57,7 @@ use crate::std_core_seq::filter;
 use crate::std_core_list::get;
 use crate::std_core_list::get_platform;
 use crate::std_core_list::iter;
-use crate::std_core_list::next__ListYield;
+use crate::std_core_list::next__ListNext;
 use crate::std_core_console::println;
 use crate::std_core_list::size_platform;
 use crate::std_core_list::to_str;
@@ -235,11 +235,11 @@ pub fn main() {
         };
         __proj_9.name.clone()
     }));
-    let mut pass: crate::std_core_list::ListYield<'_, crate::Fighter> = crate::std_core_list::iter::<crate::Fighter>(&roster);
-    let mut standing = crate::std_core_seq::filter::<crate::std_core_list::ListYield<'_, crate::Fighter>, &crate::Fighter>(&mut pass, &mut |mut f| -> bool {
+    let mut pass: crate::std_core_list::ListNext<'_, crate::Fighter> = crate::std_core_list::iter::<crate::Fighter>(&roster);
+    let mut standing = crate::std_core_seq::filter::<crate::std_core_list::ListNext<'_, crate::Fighter>, &crate::Fighter>(&mut pass, &mut |mut f| -> bool {
         let f = *f;
         return (f.hp > 10i32);
-    }, &mut |__a0: &mut crate::std_core_list::ListYield<'_, crate::Fighter>| crate::std_core_list::next__ListYield(&mut *__a0));
+    }, &mut |__a0: &mut crate::std_core_list::ListNext<'_, crate::Fighter>| crate::std_core_list::next__ListNext(&mut *__a0));
     crate::std_core_console::println(&__handle_2, &format!("1. {} of {} still standing", crate::std_core_list::size_platform(&standing), crate::std_core_list::size_platform::<crate::Fighter>(&roster)));
     let mut bench: Vec<crate::Fighter> = vec![crate::Fighter { name: String::from("Cy"), hp: 12i32, energy: 2i32 }];
     crate::std_core_list::add_platform::<crate::Fighter>(&mut bench, crate::Fighter { name: String::from("Dee"), hp: 6i32, energy: 7i32 });

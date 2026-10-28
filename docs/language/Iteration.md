@@ -1,16 +1,16 @@
 # Iteration
 
-## Iterating anything: `Yield`
+## Iterating anything: `Next`
 
-`params` groups are how Salvo says what a Rust programmer would say with a
+`fns` groups are how Salvo says what a Rust programmer would say with a
 trait bound. The standard library's own example is iteration:
 
 ```
-params Yield<It, T> {
+fns Next<It, T> {
     fn next(it: Mut It) -> Emitted T | Finished => it: Mut
 }
 
-fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: Mut, f {
+fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Next<It, T>) -> Mut List<U> => it: Mut, f {
     let out = Mut List<U>()
     for x in it {
         add(out, f(x))
@@ -21,11 +21,11 @@ fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: M
 
 A `for` over a **type parameter** works because of the spread: the position says
 "this call supplies a `next` for `It`", which is as much of a declaration as a
-`: Yield<self, T>` clause is, so the loop drives by calling that parameter and
+`: Next<self, T>` clause is, so the loop drives by calling that parameter and
 takes the element type from its result. Nothing about `for` is special-cased for
 std — this is how any combinator of your own reads.
 
-There is no `Yield` *type* and nothing implements it: `map` needs a `next` for
+There is no `Next` *type* and nothing implements it: `map` needs a `next` for
 whatever `it` is, and the call site supplies one. The subject is an
 **iterator** — a position in a sequence — so a container is iterated by writing
 its `iter`, and an `iter fn` is called:
@@ -41,11 +41,11 @@ iterator struct, and an `iter` — an `iter fn` whose `state` is that struct, or
 a fn handing one back ([Iterators](Iterators.md)):
 
 ```
-struct Bag : Iter<self, ListYield<Int>, Int> {
+struct Bag : Iter<self, ListNext<Int>, Int> {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> Mut ListYield<Int> => bag {
+fn iter(bag: Bag) -> Mut ListNext<Int> => bag {
     return iter(bag.items)
 }
 
@@ -53,7 +53,7 @@ let total = reduce(iter(bag), 0, (acc, n) -> acc + n)
 ```
 
 Inference runs *through* the group: `It` comes from the subject, and `T` — the
-element type — is read from `It`'s `: Yield<self, T>` clause. That is what lets
+element type — is read from `It`'s `: Next<self, T>` clause. That is what lets
 the lambda be written bare (`n -> n * 2`) with no annotation anywhere.
 
 The other spread, `?Iter<C, It, T>`, is for a combinator over a **source**
@@ -96,16 +96,16 @@ holds a view of `xs`, so `xs` stays usable and cannot be mutated while the
 iterator lives. A `for` straight over the container allocates nothing at all —
 that is data, and the backends walk it in place.
 
-`Yield` and `Iter` are the pattern, not the only instances: `std.core.compare`
+`Next` and `Iter` are the pattern, not the only instances: `std.core.compare`
 declares `Ordered`, `Eq` and `Hashed` the same way
 ([Comparison, equality and hashing](Comparison-and-Hashing.md)), and
 `std.core.list` declares `Ref` for algorithms generic over what a *position*
 is ([Mutable handles](Mutable-Handles.md)). A type joins any of them by
 declaring one function.
 
-## Obligations: `params` groups on a type
+## Obligations: `fns` groups on a type
 
-A `params` group can also be an obligation on a **struct**, so the
+A `fns` group can also be an obligation on a **struct**, so the
 requirement travels with the type rather than with each function that takes
-it (`export struct ArrayYield<T> : Yield<self, proj T>`, `struct Bag :
+it (`export struct ArrayNext<T> : Next<self, proj T>`, `struct Bag :
 Iter<self, Int>`). See [Implicit parameters](Implicit-Parameters.md).

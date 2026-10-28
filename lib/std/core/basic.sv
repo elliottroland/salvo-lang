@@ -86,7 +86,7 @@ export intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
 // interpolation — a `to_str` in scope does that, resolved at the
 // interpolation site — but it validates at the declaration that one exists,
 // which is where the mistake is easier to see (user decision 2026-09-11).
-export params ToStr<T> {
+export fns ToStr<T> {
     fn to_str(value: T) -> Str
 }
 

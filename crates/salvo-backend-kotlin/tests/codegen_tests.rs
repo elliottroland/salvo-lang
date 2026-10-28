@@ -624,7 +624,7 @@ fn expect_errors(src: &str) -> Vec<String> {
 /// `rustc_compiles_and_runs_a_hand_written_pass`. `zip` is the point — it
 /// reads two sources at once, which `yield` cannot express.
 const PASS_DEMO: &str = r#"
-struct Zip : Yield<self, (Str, Int)> canbe Mut {
+struct Zip : Next<self, (Str, Int)> canbe Mut {
     left: List<Str>,
     right: List<Int>,
     at: Int
@@ -646,7 +646,7 @@ fn zip(left: List<Str>, right: List<Int>) -> Zip => !left, !right {
     return Zip { left: left, right: right, at: 0 }
 }
 
-struct Countdown : Yield<self, Int> canbe Mut {
+struct Countdown : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -739,7 +739,7 @@ fn a_fieldless_struct_is_a_plain_class() {
 const FALLIBLE_PASS_DEMO: &str = r#"
 import std.throw
 
-struct Reader : Yield<self, Ok Str | Err Str> canbe Mut {
+struct Reader : Next<self, Ok Str | Err Str> canbe Mut {
     lines: List<Str>,
     at: Int
 }
@@ -890,9 +890,9 @@ fn show(step: Emitted Int | Finished) [Console] {
 }
 
 iter fn iter(f: Flat) -> Emitted Int | Finished {
-    state FlatIter { at: Int = 0, inner: Mut ListYield<Int>? = None }
+    state FlatIter { at: Int = 0, inner: Mut ListNext<Int>? = None }
     while true {
-        if inner is Mut ListYield<Int> {
+        if inner is Mut ListNext<Int> {
             let step = next(inner)
             when step {
                 is ^Emitted { return emitted(step) }
@@ -912,21 +912,21 @@ iter fn iter(f: Flat) -> Emitted Int | Finished {
 fn main() [use] {
     use StdConsole()
     let base = List(1, 2)
-    let p: Mut ListYield<Int>? = iter(base)
-    if p is Mut ListYield<Int> {
+    let p: Mut ListNext<Int>? = iter(base)
+    if p is Mut ListNext<Int> {
         show(next(p))
         show(next(p))
         show(next(p))
     }
     let qs = List(7, 8)
-    let q: Mut ListYield<Int> | Int = iter(qs)
-    if q is Mut ListYield<Int> {
+    let q: Mut ListNext<Int> | Int = iter(qs)
+    if q is Mut ListNext<Int> {
         show(next(q))
         show(next(q))
     }
     let rs = List(1, 2, 3)
-    let r: Mut ListYield<Int>? = iter(rs)
-    if r is Mut ListYield<Int> {
+    let r: Mut ListNext<Int>? = iter(rs)
+    if r is Mut ListNext<Int> {
         r.at = 2
         show(next(r))
     }
@@ -1819,7 +1819,7 @@ fn kotlinc_compiles_and_runs_forwarded_fn_values() -> KotlinCase {
 /// [rs-proj-flat] [backend-never-wrong] ROADMAP 0z: an element of a view
 /// list (`List<proj Str>`) read through a std fn whose result is a generic
 /// `proj T` — `get`, `last`, `first`, a pass's `next` (`for` over `iter`,
-/// every `?Yield` combinator), a map's `get`, through a struct field and
+/// every `?Next` combinator), a map's `get`, through a struct field and
 /// nested — runs on Rust as here; the output is the same on both backends
 /// (`rustc_compiles_and_runs_borrowed_element_reads`).
 const BORROWED_ELEMENT_DEMO: &str = r#"
@@ -2011,7 +2011,7 @@ fn kotlinc_compiles_and_runs_a_hand_written_pass() -> KotlinCase {
 /// parity claim, and the reason a user-written combinator is now possible on
 /// both targets rather than only in generated std code.
 const FN_FIELD_DEMO: &str = r#"
-struct Countdown : Yield<self, Int> canbe Mut {
+struct Countdown : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -2024,7 +2024,7 @@ fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {
     return emitted(v)
 }
 
-struct Doubling : Yield<self, Int> canbe Mut {
+struct Doubling : Next<self, Int> canbe Mut {
     src: Mut Countdown,
     f: (Int) -> Int
 }
@@ -2060,12 +2060,12 @@ const FN_FIELD_OUTPUT: &str = "n 6\nn 4\nn 2\ndone\n";
 
 /// [implicit-group] [iter-protocol] The composition rendering R5's
 /// combinators are built on: a generic combinator takes the *pass* as its
-/// subject and reaches its `next` through the `?Yield<It, T>` spread. The
+/// subject and reaches its `next` through the `?Next<It, T>` spread. The
 /// Kotlin half of the pair of bugs this exposed: an implicit member
 /// returning a **union** rendered its Salvo type text into the Kotlin source
 /// (`(It) -> Emitted T | Finished`), which is invalid Kotlin
 /// [backend-never-wrong]. Same source and stdout as the Rust backend's
-/// `rustc_compiles_and_runs_a_combinator_over_a_yield_spread`.
+/// `rustc_compiles_and_runs_a_combinator_over_a_next_spread`.
 
 /// [iter-fn] The **release** of a minted pass, Kotlin half: the same
 /// source and stdout as the Rust backend's
@@ -2082,7 +2082,7 @@ const FN_FIELD_OUTPUT: &str = "n 6\nn 4\nn 2\ndone\n";
 ///
 /// Shared with the Rust backend, byte for byte.
 const GENERIC_DRIVE_DEMO: &str = r#"
-struct Slice<T> : Yield<self, proj T> canbe Mut {
+struct Slice<T> : Next<self, proj T> canbe Mut {
     items: proj List<T>,
     at: Int
 }
@@ -2102,7 +2102,7 @@ fn next<T>(p: Mut Slice<T>) -> Emitted (proj(p) T) | Finished => p: Mut {
 
 // The pass is *kept*, so the loop advances it where it lives and the caller may
 // drive it further.
-fn take<It>(it: Mut It, count: Int, ?Yield<It, Int>) [] -> Int => it: Mut {
+fn take<It>(it: Mut It, count: Int, ?Next<It, Int>) [] -> Int => it: Mut {
     let sum = 0
     let seen = 0
     for n in it {
@@ -2170,7 +2170,7 @@ const GENERIC_DRIVE_OUTPUT: &str = "first 3\nrest 7\nv 8\nv 9\nv 7\n";
 /// call is asserted in the emitted code and the program is run to prove it
 /// builds.
 const GENERIC_CLOSE_DEMO: &str = r#"
-linear struct Handle : Yield<self, Int> canbe Mut {
+linear struct Handle : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -2192,7 +2192,7 @@ fn close(h: Handle) -> None => !h { discard(h) }
 // Owns the pass and takes its discharge as a consuming callback (user
 // decision 2026-09-12: no implicit discharge sites — the loop drives in
 // place, and `end(it)` is the explicit terminal on the one path out).
-fn drain<It canbe linear>(it: Mut It, stop: Int, end: (x: It) -> None, ?Yield<It, Int>) [] -> Int => !it =>[end] !x {
+fn drain<It canbe linear>(it: Mut It, stop: Int, end: (x: It) -> None, ?Next<It, Int>) [] -> Int => !it =>[end] !x {
     let sum = 0
     for n in it {
         sum = sum + n
@@ -2215,7 +2215,7 @@ const GENERIC_CLOSE_OUTPUT: &str = "all 10\ncut 7\n";
 
 /// backend's `rustc_compiles_and_runs_a_released_raw_pass`.
 const RAW_CLOSE_DEMO: &str = r#"
-linear struct Ticks : Yield<self, Int> canbe Mut {
+linear struct Ticks : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -2295,7 +2295,7 @@ fn kotlinc_compiles_and_runs_a_released_raw_pass() -> KotlinCase {
 }
 
 const YIELD_SPREAD_DEMO: &str = r#"
-struct Slice<T> : Yield<self, proj T> canbe Mut {
+struct Slice<T> : Next<self, proj T> canbe Mut {
     items: proj List<T>,
     at: Int
 }
@@ -2313,7 +2313,7 @@ fn next<T>(p: Mut Slice<T>) -> Emitted (proj(p) T) | Finished => p: Mut {
     return emitted(e)
 }
 
-fn map2<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: Mut, mapper {
+fn map2<It, T, U>(it: Mut It, mapper: (T) -> U, ?Next<It, T>) -> Mut List<U> => it: Mut, mapper {
     let out = Mut List<U>()
     let going = true
     while going {
@@ -2344,7 +2344,7 @@ fn main() [use] {
 }
 "#;
 
-const YIELD_SPREAD_OUTPUT: &str = "d 2\nd 4\nd 6\n";
+const NEXT_SPREAD_OUTPUT: &str = "d 2\nd 4\nd 6\n";
 
 /// The spread position renders as a Kotlin function type whose result is the
 /// union *wrapper*, not the Salvo text.
@@ -2369,12 +2369,12 @@ fn a_union_returning_implicit_renders_the_wrapper_type() {
     );
 }
 
-fn kotlinc_compiles_and_runs_a_combinator_over_a_yield_spread() -> KotlinCase {
+fn kotlinc_compiles_and_runs_a_combinator_over_a_next_spread() -> KotlinCase {
     let program = build_program(&[("main.sv", YIELD_SPREAD_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    kotlin_case(files, "yield-spread", YIELD_SPREAD_OUTPUT)
+    kotlin_case(files, "yield-spread", NEXT_SPREAD_OUTPUT)
 }
 
 fn kotlinc_compiles_and_runs_a_composed_pass_with_a_stored_callback() -> KotlinCase {
@@ -3413,7 +3413,7 @@ export fn main() [use] {
      refs xyz\n")
 }
 
-/// [cmp-groups] Comparison, equality and hashing as **params groups** — the
+/// [cmp-groups] Comparison, equality and hashing as **fns groups** — the
 /// ordering round's foundation (user decisions 2026-09-21).
 ///
 /// Source and expected stdout are **verbatim** the Rust backend's
@@ -4512,7 +4512,7 @@ fn main() [use] -> None {
 /// [implicit-infer] A qualified argument through an implicit fn position: the
 /// wrong `next` was called on both backends.
 const QUALIFIED_IMPLICIT_DEMO: &str = r#"
-struct Sib : Yield<self, Int> canbe Mut {
+struct Sib : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -4524,7 +4524,7 @@ fn next(p: Mut Sib) -> Emitted Int | Finished => p: Mut {
     return emitted(p.at)
 }
 
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) -> Int => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Next<It, Int>) -> Int => c {
     let t = 0
     for x in iter(c) {
         t = t + x
@@ -5696,7 +5696,7 @@ fn head_of<T>(xs: List<T>) -> ref(xs) T? => xs {
     return at(xs, 0)
 }
 
-params Pick<C, L, T> {
+fns Pick<C, L, T> {
     fn pick(c: C, l: L) -> ref(c) T?
 }
 
@@ -6380,7 +6380,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_group_over_plain_arms,
     kotlinc_compiles_and_runs_a_hand_written_pass,
     kotlinc_compiles_and_runs_a_released_raw_pass,
-    kotlinc_compiles_and_runs_a_combinator_over_a_yield_spread,
+    kotlinc_compiles_and_runs_a_combinator_over_a_next_spread,
     kotlinc_compiles_and_runs_a_composed_pass_with_a_stored_callback,
     kotlinc_compiles_and_runs_demo,
     kotlinc_compiles_and_runs_effects,
@@ -12382,7 +12382,7 @@ fn kotlinc_compiles_and_runs_an_actor_group_across_nodes() -> KotlinCase {
 /// wrong answer: before the mangling rule, a delegation whose argument lowered
 /// to the same Kotlin type re-resolved to the delegating overload itself.
 const OVERLOAD_DELEGATION: &str = r#"
-fn twice(p: Mut ListYield<Int>, f: (Int) -> Int) -> Mut List<Int> => p: Mut, f {
+fn twice(p: Mut ListNext<Int>, f: (Int) -> Int) -> Mut List<Int> => p: Mut, f {
     return map(p, f)
 }
 
@@ -12422,12 +12422,12 @@ fn every_emitted_overload_gets_its_own_kotlin_name() {
         .expect("main.kt emitted")
         .content;
     assert!(
-        main.contains("fun twice__ListYield_Fn(p: salvo.std.core.list.ListYield<Int>") && main.contains("fun twice__List_Fn(xs: List<Int>"),
+        main.contains("fun twice__ListNext_Fn(p: salvo.std.core.list.ListNext<Int>") && main.contains("fun twice__List_Fn(xs: List<Int>"),
         "expected the second overload to be renamed in:\n{main}"
     );
     // The delegation calls the *other* overload, by its own name.
     assert!(
-        main.contains("return salvo.main.twice__ListYield_Fn("),
+        main.contains("return salvo.main.twice__ListNext_Fn("),
         "expected the delegation to reach the pass overload in:\n{main}"
     );
 }
@@ -12558,7 +12558,7 @@ const UNBOUNDED_OUTPUT: &str = "v 0\nv 6\nv 12\n";
 /// overridden by name, forwarding through an opaque `T`, and an
 /// individually declared `?add`.
 const IMPLICIT_DEMO: &str = r#"
-params Field<T> {
+fns Field<T> {
     fn add(a: T, b: T) -> T
     fn zero() -> T
 }
@@ -12631,7 +12631,7 @@ fn implicit_parameters_lower_to_trailing_fn_parameters() {
     }
     assert!(
         !main.contains("class Field"),
-        "a `params` group must leave no runtime representation:\n{main}"
+        "a `fns` group must leave no runtime representation:\n{main}"
     );
 }
 
@@ -13132,7 +13132,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> Mut ListYield<Int> => bag {
+fn iter(bag: Bag) -> Mut ListNext<Int> => bag {
     return iter(bag.items)
 }
 
@@ -13203,7 +13203,7 @@ const SEQ_DEMO_OUTPUT: &str = "list: 4 10 2\nnamed: 4\narray: 60 3\nchars: 2\n\
                                iter: 10 2\nnames: 3 1\nbag: 11\n\
                                bag element 5\nbag element 6\n";
 
-/// [kt-seq] [seq-iterator] A `params` group emits nothing, and the `List` fast
+/// [kt-seq] [seq-iterator] A `fns` group emits nothing, and the `List` fast
 /// paths are std functions (`filter` a platform fn over Kotlin's own); the generic body is a
 /// plain generic function whose implicit parameter arrives as a trailing
 /// argument — an *adapter lambda* when the resolved `iter` is an intrinsic,
@@ -13232,12 +13232,12 @@ fn sequence_functions_lower_to_collection_operations() {
         main.contains("salvo.std.core.seq.map__It_Fn(salvo.std.core.array.iter(arr), fun(n: Int): Int {") && main.contains("{ __a0 -> salvo.std.core.array.next(__a0) })"),
         "expected the resolved `next` as the implicit in:\n{main}"
     );
-    // A `params` group is not a value: nothing *declares* `Yield`.
+    // A `fns` group is not a value: nothing *declares* `Next`.
     assert!(
-        !files.iter().any(|f| f.content.contains("class Yield")
-            || f.content.contains("interface Yield")
-            || f.content.contains("object Yield")),
-        "a `params` group must emit nothing"
+        !files.iter().any(|f| f.content.contains("class Next")
+            || f.content.contains("interface Next")
+            || f.content.contains("object Next")),
+        "a `fns` group must emit nothing"
     );
 }
 
@@ -13371,7 +13371,7 @@ fn kotlinc_compiles_and_runs_overload_overrides() -> KotlinCase {
 /// `roots` names its locals `salvo`, `kotlin` and `java`, the package roots
 /// the qualified Kotlin names go through.
 const DECLARED_CALLEE_DEMO: &str = r#"
-struct Ctr : Yield<self, Int> canbe Mut {
+struct Ctr : Next<self, Int> canbe Mut {
     n: Int
 }
 
@@ -13536,7 +13536,7 @@ fn kotlinc_compiles_and_runs_a_generic_drive() -> KotlinCase {
 /// concrete types stays unannotated (those casts are checked at run time
 /// and draw no warning).
 const SUPPRESS_DEMO: &str = r#"
-struct Slice<T> : Yield<self, proj T> canbe Mut {
+struct Slice<T> : Next<self, proj T> canbe Mut {
     items: proj List<T>,
     at: Int
 }
@@ -13556,7 +13556,7 @@ fn next<T>(p: Mut Slice<T>) -> Emitted (proj(p) T) | Finished => p: Mut {
 
 // The element type is the combinator's own `T`: the payload read casts to a
 // type variable, so the emitted fn needs the suppression.
-fn count_all<It, T>(it: Mut It, ?Yield<It, T>) [] -> Int => it: Mut {
+fn count_all<It, T>(it: Mut It, ?Next<It, T>) [] -> Int => it: Mut {
     let n = 0
     for x in it {
         n = n + 1
@@ -13566,7 +13566,7 @@ fn count_all<It, T>(it: Mut It, ?Yield<It, T>) [] -> Int => it: Mut {
 
 // The element type is concrete (`Int`): the payload read casts to `Int`,
 // which the JVM checks at run time — no warning, no annotation.
-fn sum_ints<It>(it: Mut It, ?Yield<It, Int>) [] -> Int => it: Mut {
+fn sum_ints<It>(it: Mut It, ?Next<It, Int>) [] -> Int => it: Mut {
     let sum = 0
     for n in it {
         sum = sum + n
@@ -13836,7 +13836,7 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
 
 /// [implicit-infer] A generic function over **containers** rather than passes:
 /// it takes the container and asks for its `iter` as an implicit parameter, so
-/// the pass type is decided by *which `iter` fills it* and the `?Yield` spread
+/// the pass type is decided by *which `iter` fills it* and the `?Next` spread
 /// beside it resolves against what that taught (user decision 2026-09-10).
 ///
 /// One function, three container kinds, no type arguments written — including a
@@ -13862,11 +13862,11 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> Mut ListYield<Int> => bag {
+fn iter(bag: Bag) -> Mut ListNext<Int> => bag {
     return iter(bag.items)
 }
 
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) -> Int =>[iter] c => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Next<It, Int>) -> Int =>[iter] c => c {
     let sum = 0
     let p = iter(c)
     for n in p {
@@ -14379,7 +14379,7 @@ fn kotlinc_compiles_and_runs_a_linear_union_arm() -> KotlinCase {
 /// The Kotlin half of acceptance shape 4: byte-identical stdout with the
 /// Rust backend for the lazy `take` over a linear source.
 const WRAPPER_PASS_DEMO: &str = r#"
-linear struct Ticks : Yield<self, Int> canbe Mut {
+linear struct Ticks : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -14401,7 +14401,7 @@ fn close(l: Ticks) [Console] -> None => !l {
     discard(l)
 }
 
-linear struct Take : Yield<self, Int> canbe Mut {
+linear struct Take : Next<self, Int> canbe Mut {
     source: Mut Ticks,
     left: Int
 }
@@ -14448,7 +14448,7 @@ fn kotlinc_compiles_and_runs_a_linear_wrapper_pass() -> KotlinCase {
 /// The Kotlin half: byte-identical stdout with the Rust backend for the
 /// consuming-callback pattern's two callers.
 const DROP_CALLBACK_DEMO: &str = r#"
-linear struct Handle : Yield<self, Int> canbe Mut {
+linear struct Handle : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -14467,7 +14467,7 @@ fn next(h: Mut Handle) -> Emitted Int | Finished => h: Mut {
 
 fn close(h: Handle) -> None => !h { discard(h) }
 
-struct Counter : Yield<self, Int> canbe Mut {
+struct Counter : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -14480,7 +14480,7 @@ fn next(c: Mut Counter) -> Emitted Int | Finished => c: Mut {
     return emitted(v)
 }
 
-fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) -> Int => !it =>[end] !x {
+fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Next<It, Int>) -> Int => !it =>[end] !x {
     let sum = 0
     for n in it {
         sum = sum + n

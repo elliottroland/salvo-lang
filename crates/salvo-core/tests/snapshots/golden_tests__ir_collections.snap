@@ -106,7 +106,7 @@ fn main::main() -> None {
   }
   bind#48 let unique: List<Int> = call std.core.set::to_list<Int>(read deduped)
   call std.core.console::println(read __handle~2, concat("6. distinct ", call std.core.list::to_str<Int>(read unique, fn std.core.basic::to_str(Int)), " of ", call std.core.basic::to_str(Int)(call main::count_unique(read unique))))
-  bind#50 let __pass~8: Mut SetYield<Str> = call std.core.set::iter<Str>(read vowels)
+  bind#50 let __pass~8: Mut SetNext<Str> = call std.core.set::iter<Str>(read vowels)
   loop#49 {
     bind#51 let __step~9: Str | Finished = call std.core.set::next(read __pass~8)
     switch#52 read __step~9 {
@@ -121,9 +121,9 @@ fn main::main() -> None {
     }
   }
   call std.core.console::println(read __handle~2, "")
-  bind#56 let __pass~11: Mut MapKeyYield<Str> = call std.core.map::iter<Str, Int>(read ages)
+  bind#56 let __pass~11: Mut MapKeyNext<Str> = call std.core.map::iter<Str, Int>(read ages)
   loop#55 {
-    bind#57 let __step~12: Str | Finished = call std.core.map::next(Mut MapKeyYield<K>)(read __pass~11)
+    bind#57 let __step~12: Str | Finished = call std.core.map::next(Mut MapKeyNext<K>)(read __pass~11)
     switch#58 read __step~12 {
       arm#0 (arm 0) {
         narrow#59[switch#58.arm#0] __emitted~13: Str = __step~12

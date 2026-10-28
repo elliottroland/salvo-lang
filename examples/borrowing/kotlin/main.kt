@@ -159,10 +159,10 @@ fun main() {
         }
         __proj_9.name
     }}")
-    val pass: salvo.std.core.list.ListYield<Fighter> = salvo.std.core.list.iter(roster)
+    val pass: salvo.std.core.list.ListNext<Fighter> = salvo.std.core.list.iter(roster)
     val standing: salvo.platform.std.core.list.MutList<Fighter> = salvo.std.core.seq.filter(pass, fun(f: Fighter): Boolean {
         return (f.hp > 10)
-    }, { __a0 -> salvo.std.core.list.next__ListYield(__a0) })
+    }, { __a0 -> salvo.std.core.list.next__ListNext(__a0) })
     salvo.std.core.console.println(__handle_2, "1. ${salvo.std.core.list.sizePlatform(standing)} of ${salvo.std.core.list.sizePlatform(roster)} still standing")
     val bench: salvo.platform.std.core.list.MutList<Fighter> = mutableListOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2))
     salvo.std.core.list.addPlatform(bench, Fighter(name = "Dee", hp = 6, energy = 7))

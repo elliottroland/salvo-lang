@@ -77,7 +77,7 @@ fn ir(files: &[(&str, &str)]) -> String {
 /// where the group's member says `value` and `sep` — with a default of its
 /// own, so that a call may name it [fn-param-default].
 const LABEL: &str = r#"
-export params Labelled<T> {
+export fns Labelled<T> {
     fn label(value: T, sep: Str = " ") -> Str
 }
 
@@ -182,11 +182,11 @@ fn probe(p: P, q: P) [] -> Bool => !p {
 /// A derive whose template declares what its group's member does not: an
 /// effect (`Console`), and a move of its parameter (`=> !v`).
 const LOUD: &str = r#"
-export params Loud<T> {
+export fns Loud<T> {
     fn loud(v: T) -> Int
 }
 
-export params Taken<T> {
+export fns Taken<T> {
     fn take(v: T) -> T
 }
 
@@ -373,7 +373,7 @@ struct P : Ordered<self> {
 #[test]
 fn a_group_member_parameter_that_hides_the_bodys_callee_is_named_at_the_clause() {
     let src = r#"
-export params Ranked<T> {
+export fns Ranked<T> {
     fn cmp(cmp: T, other: T) -> Int
 }
 

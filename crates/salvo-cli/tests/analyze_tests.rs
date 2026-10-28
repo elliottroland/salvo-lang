@@ -2515,7 +2515,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
          state CharsIter {\n        at: Int = 0\n    }\n    \
          if at >= c.n {\n        return finished()\n    }\n    \
          at = at + 1\n    return emitted(\"x\")\n}\n\n\
-         fn keep_all<It, T>(it: Mut It, ?Yield<It, T>) -> Mut List<T> => it: Mut {\n    \
+         fn keep_all<It, T>(it: Mut It, ?Next<It, T>) -> Mut List<T> => it: Mut {\n    \
          let out = Mut List<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
          fn main() [use] {\n    use StdConsole()\n    \
          let words = List(\"ann\", \"bo\")\n    \
@@ -2556,7 +2556,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
     fs::write(
         dir.join("main.sv"),
         "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
-         fn keep_all<It, T>(it: Mut It, ?Yield<It, T>) -> Mut List<T> => it: Mut {\n    \
+         fn keep_all<It, T>(it: Mut It, ?Next<It, T>) -> Mut List<T> => it: Mut {\n    \
          let out = Mut List<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
          fn main() [use] {\n    use StdConsole()\n    \
          let words = List(\"ann\", \"bo\")\n    \
@@ -2638,7 +2638,7 @@ fn a_written_proj_entry_narrows_the_instantiation_link() {
     fs::write(
         dir.join("main.sv"),
         "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
-         fn keep_all<It, T>(it: Mut It, labels: List<Str>, ?Yield<It, T>) \
+         fn keep_all<It, T>(it: Mut It, labels: List<Str>, ?Next<It, T>) \
          -> Mut List<T> holds proj(it) => it: Mut, labels {\n    \
          let out = Mut List<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
          fn main() [use] {\n    use StdConsole()\n    \
@@ -2730,7 +2730,7 @@ fn a_spare_lend_on_an_opaque_slot_warns_once() {
     let dir = src_dir("spare_lend");
     let total = |slot: &str| {
         format!(
-            "fn total<C, It, T>(c: C, ?iter: {slot}, ?Yield<It, T>) -> Int\n=> c {{\n    \
+            "fn total<C, It, T>(c: C, ?iter: {slot}, ?Next<It, T>) -> Int\n=> c {{\n    \
              let n = 0\n    for _ in iter(c) {{\n        n = n + 1\n    }}\n    return n\n}}\n\n\
              fn main() [use] -> None {{\n    use StdConsole()\n    \
              println(\"${{total(List(\"a\", \"b\"))}}\")\n}}\n"
@@ -2769,7 +2769,7 @@ fn a_spare_lend_on_an_opaque_slot_warns_once() {
     // A **concrete** return still needs the clause, so it stays silent.
     fs::write(
         dir.join("main.sv"),
-        "fn walk<T>(xs: List<T>, ?iter: (c: List<T>) -> Mut ListYield<T> holds proj(c)) -> Int\n\
+        "fn walk<T>(xs: List<T>, ?iter: (c: List<T>) -> Mut ListNext<T> holds proj(c)) -> Int\n\
          => xs {\n    let n = 0\n    for _ in iter(xs) {\n        n = n + 1\n    }\n    \
          return n\n}\n\n\
          fn main() [use] -> None {\n    use StdConsole()\n    \

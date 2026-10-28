@@ -78,7 +78,7 @@ Module {
                         by: None,
                         group: TypeRef {
                             name: Ident {
-                                name: "Yield",
+                                name: "Next",
                                 span: 41..241,
                             },
                             args: [

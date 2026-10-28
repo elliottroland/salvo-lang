@@ -22,7 +22,7 @@
 //
 // Own module so a program that never uses a map emits nothing for it
 // [mod-used-only].
-export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<self, MapKeyYield<K>, K>
+export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<self, MapKeyNext<K>, K>
 
 // Constructor, from entries written as pairs: `Map(("a", 1), ("b", 2))`.
 // The keys and values are stored in the new map, so they are moved: a
@@ -240,14 +240,14 @@ export platform fn keys<K, V>(map: Map<K, V>) [] -> List<K> => map
 // [copy-opt-in], where an entries iterator would copy every value in the map.
 // (An `entries`/`values` surface therefore waits on a way to copy a generic
 // value, or on iterators that borrow — recorded in ROADMAP.md.)
-export fn iter<K, V>(map: Map<K, V>) [] -> Mut MapKeyYield<K> => map {
-    return Mut MapKeyYield<K> { items: keys(map), at: 0 }
+export fn iter<K, V>(map: Map<K, V>) [] -> Mut MapKeyNext<K> => map {
+    return Mut MapKeyNext<K> { items: keys(map), at: 0 }
 }
 
 // [iter-protocol] The pass a map is walked by: a snapshot of its keys plus a
-// position in it, owned by the iterator — the same shape `SetYield` has, and for
+// position in it, owned by the iterator — the same shape `SetNext` has, and for
 // the same reason (a hash map has no index to walk).
-export struct MapKeyYield<K> : Yield<self, K> canbe Mut {
+export struct MapKeyNext<K> : Next<self, K> canbe Mut {
     // The keys, in insertion order, owned by this iterator.
     items: List<K>,
     // The index of the next key to emit.
@@ -255,7 +255,7 @@ export struct MapKeyYield<K> : Yield<self, K> canbe Mut {
 }
 
 // Advances the iterator, reporting the key at its position or the end of the map.
-export fn next<K>(p: Mut MapKeyYield<K>) [] -> Emitted K | Finished => p: Mut {
+export fn next<K>(p: Mut MapKeyNext<K>) [] -> Emitted K | Finished => p: Mut {
     let key = snapshot_at(p.items, p.at)
     if key is None {
         return finished()

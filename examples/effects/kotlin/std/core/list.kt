@@ -388,16 +388,16 @@ fun<T> reverse(list: salvo.platform.std.core.list.MutList<T>) {
     }
 }
 
-fun<T> iter(list: List<T>): ListYield<T> {
-    return ListYield<T>(items = list, at = 0)
+fun<T> iter(list: List<T>): ListNext<T> {
+    return ListNext<T>(items = list, at = 0)
 }
 
-data class ListYield<T>(
+data class ListNext<T>(
     var items: List<T>,
     var at: Int,
 )
 
-fun<T> next__ListYield(p: ListYield<T>): Union2<T, salvo.std.core.iterator.Finished> {
+fun<T> next__ListNext(p: ListNext<T>): Union2<T, salvo.std.core.iterator.Finished> {
     val elem: T? = salvo.std.core.list.getPlatform(p.items, p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())

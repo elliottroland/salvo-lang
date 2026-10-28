@@ -42,13 +42,13 @@ pub mod platform_std_core_string;
 
 use crate::std_core_iterator::Finished;
 use crate::std_core_map::Map;
-use crate::std_core_map::MapKeyYield;
+use crate::std_core_map::MapKeyNext;
 use crate::std_core_map::Map_platform;
 use crate::std_core_map::Mut_Map_platform;
 use crate::std_core_set::Mut_Set_platform;
 use crate::std_core_sorted::Mut_SortedSet_platform;
 use crate::std_core_set::Set;
-use crate::std_core_set::SetYield;
+use crate::std_core_set::SetNext;
 use crate::std_core_set::Set_platform;
 use crate::std_core_sorted::SortedSet;
 use crate::std_core_list::add_sorted;
@@ -60,7 +60,7 @@ use crate::std_core_sorted::min_platform;
 use crate::std_core_compare::mix_hash;
 use crate::std_core_list::mut_sort;
 use crate::std_core_set::next;
-use crate::std_core_map::next__MapKeyYield;
+use crate::std_core_map::next__MapKeyNext;
 use crate::std_core_console::println;
 use crate::std_core_map::put_platform;
 use crate::std_core_list::sort;
@@ -199,7 +199,7 @@ pub fn main() {
     };
     let mut unique: Vec<i32> = crate::std_core_set::to_list_platform::<i32>(&deduped);
     crate::std_core_console::println(&__handle_2, &format!("6. distinct {} of {}", crate::std_core_list::to_str::<i32>(&unique, &mut |__a0: &i32| format!("{}", *__a0)), crate::count_unique(&unique)));
-    let mut __pass_8: crate::std_core_set::SetYield<String> = crate::std_core_set::iter::<String>(&vowels);
+    let mut __pass_8: crate::std_core_set::SetNext<String> = crate::std_core_set::iter::<String>(&vowels);
     loop {
         let mut __step_9: crate::unions::Union2<String, crate::std_core_iterator::Finished> = crate::std_core_set::next(&mut __pass_8);
         if matches!(__step_9, crate::unions::Union2::U1(_)) {
@@ -211,9 +211,9 @@ pub fn main() {
         };
     }
     crate::std_core_console::println(&__handle_2, &String::from(""));
-    let mut __pass_11: crate::std_core_map::MapKeyYield<String> = crate::std_core_map::iter::<String, i32>(&ages);
+    let mut __pass_11: crate::std_core_map::MapKeyNext<String> = crate::std_core_map::iter::<String, i32>(&ages);
     loop {
-        let mut __step_12: crate::unions::Union2<String, crate::std_core_iterator::Finished> = crate::std_core_map::next__MapKeyYield(&mut __pass_11);
+        let mut __step_12: crate::unions::Union2<String, crate::std_core_iterator::Finished> = crate::std_core_map::next__MapKeyNext(&mut __pass_11);
         if matches!(__step_12, crate::unions::Union2::U1(_)) {
             let mut __emitted_13 = match __step_12 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut name: String = __emitted_13;

@@ -51,7 +51,7 @@ iter fn range(start: Int, end: Int) -> Emitted Int | Finished {
 }
 
 // The written-out form, for an iterator struct a program has to name.
-struct Countdown : Yield<self, Int> canbe Mut {
+struct Countdown : Next<self, Int> canbe Mut {
     at: Int
 }
 
@@ -110,7 +110,7 @@ fn use_it() [Console] -> None {
 }
 
 // [implicit-group] A named bundle of implicit parameters, spread with `?`.
-params Field<T> {
+fns Field<T> {
     fn add(a: T, b: T) -> T
     fn zero() -> T
 }

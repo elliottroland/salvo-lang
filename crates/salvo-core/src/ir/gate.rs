@@ -133,7 +133,7 @@ fn item_span(item: &Item) -> Option<Span> {
         Item::Qualifier(q) => q.span,
         Item::Effect(e) => e.span,
         Item::Handler(h) => h.span,
-        Item::Params(p) => p.span,
+        Item::Fns(p) => p.span,
         Item::Fn(f) => f.span,
         Item::EffectAlias(a) => a.span,
         Item::Namespace(n) => n.span,

@@ -1952,7 +1952,7 @@ stage is an `iter fn`. Over a **concrete** source it works today —
 
 ```
 iter fn evens(xs: List<Int>) -> Emitted Int | Finished {
-    state Evens { inner: Mut ListYield<Int> = iter(xs) }
+    state Evens { inner: Mut ListNext<Int> = iter(xs) }
     …
 }
 ```
@@ -1963,19 +1963,19 @@ stage, in either of its two forms, both refused today at the `iter fn`:
 
 - **over a generic source**: `iter fn evens<C, It>(c: C, ?Iter<C, It, Int>)`
   with `state Evens { inner: Mut It = iter(c) }`;
-- **over an iterator**: `iter fn doubled<It>(it: Mut It, ?Yield<It, Int>)`,
+- **over an iterator**: `iter fn doubled<It>(it: Mut It, ?Next<It, Int>)`,
   the position *consumed* into the struct (today every `iter fn` parameter is
   borrowed and read-only).
 
 Both need the same two things (ITER_REDUX.md, round 6): the generated `next`
-carries the **forwarded implicits** (`?Yield<It, Int>` on the hidden `next`,
+carries the **forwarded implicits** (`?Next<It, Int>` on the hidden `next`,
 forwarded by whoever drives it), and the [group-obligation] match **ignores
-trailing implicit parameters** when checking the hidden struct's `: Yield<self,
+trailing implicit parameters** when checking the hidden struct's `: Next<self,
 T>` — implicits are the callee's business, resolved at the call, not part of
 the member's shape. The alternative is storing the inner `next` as a fn-valued
 field, which nothing lowers since §0j step 7 removed the stored-implicit
 convention for keyed containers, so the implicit-on-`next` form is the one. A hand-written generic stage (`struct
-MapIter<It, T, U> : Yield<self, U>` with `next(p, ?Yield<It, T>)`) hits the same
+MapIter<It, T, U> : Next<self, U>` with `next(p, ?Next<It, T>)`) hits the same
 obligation gap today, so this is a prerequisite rather than a cost of the sugar.
 
 What falls out once it lands: pipelines as values (`let pipeline = c ->

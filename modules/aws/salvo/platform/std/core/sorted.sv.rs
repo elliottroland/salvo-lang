@@ -2,9 +2,9 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 51417dfa7690428a
-use crate::std_core_map::MapKeyYield;
+use crate::std_core_map::MapKeyNext;
 use crate::std_core_string::Mut_Str;
-use crate::std_core_set::SetYield;
+use crate::std_core_set::SetNext;
 use crate::std_core_string::append_platform;
 
 
@@ -86,8 +86,8 @@ pub fn to_str__SortedSet<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>, t
     return out;
 }
 
-pub fn iter__SortedSet<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> crate::std_core_set::SetYield<T> {
-    return crate::std_core_set::SetYield { items: crate::std_core_sorted::to_list_platform::<T>(set), at: 0i32 };
+pub fn iter__SortedSet<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> crate::std_core_set::SetNext<T> {
+    return crate::std_core_set::SetNext { items: crate::std_core_sorted::to_list_platform::<T>(set), at: 0i32 };
 }
 
 /// [platform-type] The host's `SortedMap`.
@@ -202,8 +202,8 @@ pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &crate::std_core_sorted::S
     return true;
 }
 
-pub fn iter__SortedMap<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> crate::std_core_map::MapKeyYield<K> {
-    return crate::std_core_map::MapKeyYield { items: crate::std_core_sorted::keys_platform::<K, V>(map), at: 0i32 };
+pub fn iter__SortedMap<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> crate::std_core_map::MapKeyNext<K> {
+    return crate::std_core_map::MapKeyNext { items: crate::std_core_sorted::keys_platform::<K, V>(map), at: 0i32 };
 }
 
 pub fn NonEmpty__SortedSet_qualifies<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> bool {

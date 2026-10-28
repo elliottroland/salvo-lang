@@ -2,7 +2,7 @@
 
 One program, seven ways of walking a sequence — because in Salvo they are all
 the same rule. An **iterator struct** is an ordinary struct that declares
-`: Yield<self, T>` and has a `next`; `for` is sugar for calling that `next`
+`: Next<self, T>` and has a `next`; `for` is sugar for calling that `next`
 until it answers `Finished`. There is no iterator type, no `Iterable` interface
 and no protocol built into the compiler.
 
@@ -42,7 +42,7 @@ cargo run -- run --backend kotlin --src examples/iteration/salvo
    the `for` that drives it supplies the handler once per turn. `naturals` is
    unbounded — nothing runs until a consumer pulls — so the `break` is what ends
    it.
-4. **Combinators of your own.** `sum_of<It>(it: Mut It, ?Yield<It, Int>)` takes
+4. **Combinators of your own.** `sum_of<It>(it: Mut It, ?Next<It, Int>)` takes
    an iterator; `total<C, It>(c: C, ?Iter<C, It, Int>)` takes a *source* — a
    `Bag`, a `List`, anything with an `iter` — and its iterator type; `first`
    takes any iterator of `Int` the same way `sum_of` does. Each spread is

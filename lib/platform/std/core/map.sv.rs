@@ -179,17 +179,17 @@ pub fn keys_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -
     crate::platform_std_core_map::keys(map)
 }
 
-pub fn iter<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapKeyYield<K> {
-    return crate::std_core_map::MapKeyYield { items: crate::std_core_map::keys_platform::<K, V>(map), at: 0i32 };
+pub fn iter<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapKeyNext<K> {
+    return crate::std_core_map::MapKeyNext { items: crate::std_core_map::keys_platform::<K, V>(map), at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct MapKeyYield<K> {
+pub struct MapKeyNext<K> {
     pub items: Vec<K>,
     pub at: i32,
 }
 
-impl<K: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for MapKeyYield<K> {
+impl<K: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for MapKeyNext<K> {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.items, out);
         crate::wire::__Wire::__enc(&self.at, out);
@@ -202,7 +202,7 @@ impl<K: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for MapKeyYie
     }
 }
 
-pub fn next__MapKeyYield<K: Clone>(p: &mut crate::std_core_map::MapKeyYield<K>) -> crate::unions::Union2<K, crate::std_core_iterator::Finished> {
+pub fn next__MapKeyNext<K: Clone>(p: &mut crate::std_core_map::MapKeyNext<K>) -> crate::unions::Union2<K, crate::std_core_iterator::Finished> {
     let mut key: Option<K> = p.items.get((p.at) as i64 as usize).cloned();
     if key.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());

@@ -142,16 +142,16 @@ fun<T> toDeque(list: List<T>, copy: (T) -> T): kotlin.collections.ArrayDeque<T> 
     return out
 }
 
-fun<T> iter(d: kotlin.collections.ArrayDeque<T>): DequeYield<T> {
-    return DequeYield<T>(items = d, at = 0)
+fun<T> iter(d: kotlin.collections.ArrayDeque<T>): DequeNext<T> {
+    return DequeNext<T>(items = d, at = 0)
 }
 
-data class DequeYield<T>(
+data class DequeNext<T>(
     var items: kotlin.collections.ArrayDeque<T>,
     var at: Int,
 )
 
-fun<T> next__DequeYield(p: DequeYield<T>): Union2<T, salvo.std.core.iterator.Finished> {
+fun<T> next__DequeNext(p: DequeNext<T>): Union2<T, salvo.std.core.iterator.Finished> {
     val elem: T? = salvo.std.core.deque.getPlatform(p.items, p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())

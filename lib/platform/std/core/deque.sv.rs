@@ -186,17 +186,17 @@ pub fn to_deque<T: Clone>(list: &Vec<T>, copy: &mut dyn FnMut(&T) -> T) -> std::
     return out;
 }
 
-pub fn iter<T: Clone>(d: &std::collections::VecDeque<T>) -> crate::std_core_deque::DequeYield<'_, T> {
-    return crate::std_core_deque::DequeYield { items: d, at: 0i32 };
+pub fn iter<T: Clone>(d: &std::collections::VecDeque<T>) -> crate::std_core_deque::DequeNext<'_, T> {
+    return crate::std_core_deque::DequeNext { items: d, at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct DequeYield<'s, T> {
+pub struct DequeNext<'s, T> {
     pub items: &'s std::collections::VecDeque<T>,
     pub at: i32,
 }
 
-pub fn next__DequeYield<'a, T: Clone>(p: &mut crate::std_core_deque::DequeYield<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
+pub fn next__DequeNext<'a, T: Clone>(p: &mut crate::std_core_deque::DequeNext<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
     let mut elem: Option<&T> = crate::std_core_deque::get_platform::<T>(p.items, p.at);
     if elem.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());

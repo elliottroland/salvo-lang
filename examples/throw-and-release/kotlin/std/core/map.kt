@@ -110,24 +110,24 @@ fun<K, V> eq(a: salvo.platform.std.core.map.Map<K, V>, b: salvo.platform.std.cor
 
 fun<K, V> keysPlatform(map: salvo.platform.std.core.map.Map<K, V>): List<K> = salvo.platform.std.core.map.keys(map)
 
-fun<K, V> iter(map: salvo.platform.std.core.map.Map<K, V>): MapKeyYield<K> {
-    return MapKeyYield<K>(items = salvo.std.core.map.keysPlatform(map), at = 0)
+fun<K, V> iter(map: salvo.platform.std.core.map.Map<K, V>): MapKeyNext<K> {
+    return MapKeyNext<K>(items = salvo.std.core.map.keysPlatform(map), at = 0)
 }
 
-data class MapKeyYield<K>(
+data class MapKeyNext<K>(
     var items: List<K>,
     var at: Int,
 )
 
-class __Codec_MapKeyYield<K>(private val __c_K: salvo.WireCodec<K>) : salvo.WireCodec<MapKeyYield<K>> {
-    override fun enc(v: MapKeyYield<K>, out: salvo.WireOut) {
+class __Codec_MapKeyNext<K>(private val __c_K: salvo.WireCodec<K>) : salvo.WireCodec<MapKeyNext<K>> {
+    override fun enc(v: MapKeyNext<K>, out: salvo.WireOut) {
         salvo.ListCodec(__c_K).enc(v.items, out)
         salvo.IntCodec.enc(v.at, out)
     }
-    override fun dec(inp: salvo.WireIn): MapKeyYield<K> = MapKeyYield(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): MapKeyNext<K> = MapKeyNext(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<K> next__MapKeyYield(p: MapKeyYield<K>): Union2<K, salvo.std.core.iterator.Finished> {
+fun<K> next__MapKeyNext(p: MapKeyNext<K>): Union2<K, salvo.std.core.iterator.Finished> {
     val key: K? = p.items.getOrNull(p.at)
     if ((key == null)) {
         return Union2.U2<K, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
