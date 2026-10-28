@@ -726,3 +726,18 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   `operators/` from op_tests.rs (22 Rust tests → 2 data files + 7 Rust tests
   of tables). Annotations are plain `//~` (user, 2026-10-28). Next: the other
   prelude-based files, area by area.
+- **Step 4 wave 1 (2026-10-28).** actor, monitor, mixed, deduce, once,
+  copy_scalar, compare, member, refine, widen, depend → 11 areas; 381 Rust
+  tests → data + 40 Rust tests. The defects the exact annotations exposed are
+  ROADMAP §0ar.
+- **The migration procedure** (what each wave's sub-agents follow; the full
+  prompt is kept as `tmp/migrate_prompt.md` while the waves run). Per test:
+  a diagnostic or clean-program test becomes data in an area named for the
+  feature, sharing programs unless a parse error, a program-wide analysis or
+  a clashing name forces `//---`; a table test stays in Rust over the real
+  std (rows filtered to the user's files); a test needing a different std
+  stays on its prelude, saying why. Rewrite each case to mean the same over
+  the real std. Write the program, run the area, and annotate only
+  diagnostics confirmed to be what the old test expected (or `_`-prefix the
+  local); a diagnostic that looks wrong keeps the old test in Rust as it was
+  and goes to ROADMAP §0ar. Each file leaves a where-did-every-test-go table.

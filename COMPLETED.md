@@ -144,6 +144,32 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Eleven more checker test files are data (TESTS.md T1, step 4 wave 1)
+
+**actor, monitor, mixed, deduce, once, copy_scalar, compare, member, refine,
+widen and depend tests moved to `tests/check/` areas**, by four sub-agents in
+parallel against one written procedure (TESTS.md §7, "The migration
+procedure"): a case
+becomes data unless it reads a checker table (kept in Rust, over the real
+std) or needs a different std (an `intrinsic type`, a `std = true` tree:
+kept on its prelude, saying why). Each migration left a table of where every
+old test went (`tmp/migration_<file>.md`); none was dropped without a
+reason, and the reasons were prelude-only behaviour real std does not share.
+
+- 381 old tests → 11 areas of data (41 files, 312 annotations with the
+  pilot's) plus 40 Rust tests: 17 that read checker tables (now over the
+  real std), 8 that need their own std, 15 kept as they were because the
+  data would have to annotate a diagnostic that looks wrong. Five files are
+  deleted outright (monitor, mixed, once, copy_scalar, depend).
+- **What exactness found**: one miscompile (a nested provenance `Ok` checks
+  clean and rustc refuses the Rust), a count error whose counts agree, and a
+  dozen places where one mistake reports two or more diagnostics. All are
+  ROADMAP §0ar, each naming the test kept until it is fixed.
+- Rewrites for the real std were mostly renames (std.core already has
+  `identity`, `peek`, `count`, `NonEmpty`, `Sorted`), std's own types in place
+  of the preludes' stand-ins (`Emitted`/`Next`, `Console`'s members), and
+  `_`-prefixed locals.
+
 ### 2026-10-28 — Checker tests are data files; operators first (TESTS.md T1, step 4 part 1)
 
 **`salvo_testkit::data` checks `.sv` files whose `//~ error[id]` /

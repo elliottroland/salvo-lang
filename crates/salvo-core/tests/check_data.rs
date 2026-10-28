@@ -41,3 +41,14 @@ fn every_area_has_a_test() {
 }
 
 area!(operators);
+area!(copy_scalar);
+area!(dependent);
+area!(compare);
+area!(members);
+area!(actors);
+area!(monitors);
+area!(mixed);
+area!(once);
+area!(widening);
+area!(deduce);
+area!(refinements);

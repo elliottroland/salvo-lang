@@ -968,6 +968,54 @@ For (1), the arithmetic operators (B3.3e) ask **by name**, as the call does:
 there is no binder slot for `plus` and no 2026-09-22 decision about them, so
 they follow the call; if (c) is chosen for `cmp`, nothing changes for them.
 
+### 0ar — Open defects the test-data migration found (2026-10-28, TESTS.md T1)
+
+Moving the checker tests onto the real std and exact annotations (every
+diagnostic named) surfaced reports the old tests never looked at. Each case
+below stays a Rust test, as it was, until fixed (the file and test named);
+repros are over the real std.
+
+- **Wrong code, not just noise** — `fn step() [] -> Ok (Ok Int | Err Str) |
+  Err Str { return ok(ok(1)) }` checks clean over std's provenance `Ok`, and
+  the Rust backend emits `Union2::U1(ok(ok(1i32)))` (rustc E0308)
+  [backend-never-wrong]; the old prelude's state `Ok` gave the
+  "deduplicates" diagnostic (`widen_tests::the_same_qualifier_twice_…`).
+- **A count error whose counts agree**: a `replyto` toward a member with no
+  parameters reports `actor-replyto:member-capture-count` "takes 0
+  parameter(s) … wants 0 capture(s), found 0" beside the right
+  `actor-replyto:not-send` (`actor_tests::replyto_needs_a_send_member_…`).
+- **One mistake, several diagnostics** [type-unknown-lenient]:
+  - `effect-any:fn-type` twice for one `any` on a fn type, three times with an
+    empty body (`actor_tests::any_is_refused_on_fn_types`);
+    `actor-spawn-effect:fn-type` three or four times for one `[spawn]` fn
+    type (`member_tests::a_fn_type_cannot_declare_the_spawn_capability`);
+  - `obligation-by:not-self` and `obligation-by:group-arg-not-self` for one
+    clause (`compare_tests::default_is_refused_…`, `a_default_obligation_takes_self`);
+  - a failed `by` clause (refused, ambiguous, several modules, names nothing)
+    also reports `group-obligation:no-member` (four `compare_tests`);
+  - an effect type in a data position also reports the return/annotation
+    mismatch (`member_tests::effect_types_are_rejected_in_data_positions`);
+  - an unknown qualifier in a `let` also reports the annotation mismatch
+    (`refine_tests::a_refinement_is_only_in_scope_with_its_qualifier`);
+  - past a parse error, the recovered AST cascades: `self.note(x)` adds
+    `effect-available:own-effect` and `effect-member-call:arg-count`; a
+    `[for]`/`refuse!` outside a comptime fn adds the internal
+    `comptime-inline:not-expanded`; `is ^Ok Int` adds `qual-lift:not-qualifiers`
+    (three parse-only tests kept);
+  - also noted, annotated as they are: a non-scalar `NonEmpty` view returned
+    owned reports `fate-derived-readonly:view-moved` and
+    `fn-syntax:return-mismatch`; a value fitting no union arm reports
+    `type-union:no-arm` and the return mismatch; a sourceless `proj` return
+    reports `proj-infer:return-no-source` and the IR's `view-moved`.
+- **Smaller**: an `_`-prefixed lift binding (`is ^Ok _value`) is refused with
+  three errors, so an unused lift binding cannot be silenced as a `let`
+  can; an effect member with a gained qualifier
+  (`fn poke2(s: Mut Store<Int>) [] -> None => s: Stocked Mut`) is not refused
+  as a bodiless gain, though `deduce.rs` says it should be (callers do not
+  gain it, so no wrong code); a local whose only read is calling it (`n()`)
+  warns unused; a servant forwarding a received reply through a dependency
+  call (`draw(out)`) needs no `defer`, through a held handle it does.
+
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 
 `let x: Long? = -1L` lowers to `present(-(present(1L)))` (IR): the optional
