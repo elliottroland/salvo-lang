@@ -102,11 +102,10 @@ fn err(value: Str) [] -> +Err Str => !value {
 }
 "#;
 
-// Kept in Rust, on this prelude: over the real std, whose `Ok` is a
-// provenance qualifier, `return ok(ok(1))` into `Ok (Ok Int | Err Str) | Err
-// Str` checks clean and the Rust backend emits ill-typed code
-// (`Union2::U1(ok(ok(1i32)))`, rustc E0308): a compiler bug, to be fixed
-// before this case can move.
+// Kept in Rust, on this prelude, whose `Ok` is a state qualifier. Over the
+// real std `Ok` is a provenance qualifier, and `return ok(ok(1))` into `Ok
+// (Ok Int | Err Str) | Err Str` is the arm inferred and wrapped twice: the
+// run data's `qualifiers/provenance_groups.sv`.
 /// [qual-group] The limit of the flat representation, and the reason the
 /// annotated-`let` leftover survives: the *same* qualifier twice deduplicates
 /// to one, so `ok(ok(x))` is indistinguishable from `ok(x)` and no rule can

@@ -345,8 +345,8 @@ messages! {
         "a result path (`.field`) can only state a projection: `.field: proj(p)`";
     /// A parameter field path entry of a shape it cannot take.
     deduce_field_param_path_shape = "deduce-field:param-path-shape" () =>
-        "a parameter's field path can state a projection                      (`v.field: \
-         proj(p)`), a field-granular mutation                      (`v.field: Mut`) or a \
+        "a parameter's field path can state a projection (`v.field: \
+         proj(p)`), a field-granular mutation (`v.field: Mut`) or a \
          replacement (`!v.field`)";
 
     // [deduce-syntax]
@@ -1153,7 +1153,7 @@ messages! {
         "both sides of a `.name` comparison must be binders";
     /// A `[when b.name]` whose range is known only where the template is stamped.
     comptime_name_when_over_derived_name = "comptime-name:when-over-derived-name" (b: &str, bound: &str, f: &str) => format!(
-        "a `[when {b}.name]` cannot be checked here: `{b}.name` ranges over the                              names `{bound}` has, which are known only where `{f}` is stamped, and a                              `[when]` with a subject must cover its range — test with `[if {b}.name is …]`"
+        "a `[when {b}.name]` cannot be checked here: `{b}.name` ranges over the names `{bound}` has, which are known only where `{f}` is stamped, and a `[when]` with a subject must cover its range — test with `[if {b}.name is …]`"
     );
     /// A `[when b.name]` whose binder no enclosing `[for …]` binds.
     comptime_name_not_a_binder = "comptime-name:not-a-binder" (name: &str) => format!(
@@ -1173,7 +1173,7 @@ messages! {
     // [comptime-pattern]
     /// A `[when T]` whose range is known only where the template is stamped.
     comptime_pattern_when_over_derived_type = "comptime-pattern:when-over-derived-type" (subject: &str, bound: &str, f: &str, root: &str) => format!(
-        "a `[when {subject}]` cannot be checked here: `{subject}` ranges over the                              types `{bound}` has, which are known only where `{f}` is stamped, and a                              `[when]` with a subject must cover its range — dispatch on `[when {root}.kind]`,                              or test with `[if {subject} is …]`"
+        "a `[when {subject}]` cannot be checked here: `{subject}` ranges over the types `{bound}` has, which are known only where `{f}` is stamped, and a `[when]` with a subject must cover its range — dispatch on `[when {root}.kind]`, or test with `[if {subject} is …]`"
     );
     /// A pattern binder no copy used (a warning).
     comptime_pattern_unused_binder = "comptime-pattern:unused-binder" (name: &str) => format!(
@@ -1189,7 +1189,7 @@ messages! {
     );
     /// A pattern binder that would hide a type, type parameter or binder.
     comptime_pattern_binder_hides_name = "comptime-pattern:binder-hides-name" (name: &str) => format!(
-        "pattern binder `{name}` would hide a type, type parameter or binder of                          that name: pick a fresh one"
+        "pattern binder `{name}` would hide a type, type parameter or binder of that name: pick a fresh one"
     );
     /// A `[when T]` with no arm for the type `T` is at this stamp.
     comptime_pattern_no_arm_matches = "comptime-pattern:no-arm-matches" (subject: &str, ty: &dyn std::fmt::Display) => format!(
@@ -2058,6 +2058,11 @@ messages! {
         "`{member}` is not a `send fn`, so `{form}` cannot deliver to it: an answer \
          arrives as a message"
     );
+    /// A `replyto` toward a send member with no parameter to receive the answer.
+    actor_replyto_no_answer_param = "actor-replyto:no-answer-param" (member: &dyn std::fmt::Display, form: &dyn std::fmt::Display) => format!(
+        "`{member}` takes no parameter, so `{form}` has nowhere to deliver the answer: its last \
+         parameter receives it"
+    );
     /// A mint into the own handler with the wrong number of captures.
     actor_replyto_member_capture_count = "actor-replyto:member-capture-count" (member: &dyn std::fmt::Display, params: &dyn std::fmt::Display, wanted: &dyn std::fmt::Display, form: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
         "`{member}` takes {params} parameter(s): the last is the answer the token carries \
@@ -2366,8 +2371,8 @@ messages! {
     /// A carried identity that does not fit the callee's implicit.
     cmp_carry_carried_mismatch = "cmp-carry:carried-mismatch" (callee: &dyn std::fmt::Display, implicit: &dyn std::fmt::Display, id: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
         "`{callee}` needs the `{implicit}` this value was \
-         built                                              with — `{id}` — and it does \
-         not fit `?{implicit}: {want}`                                              here"
+         built with — `{id}` — and it does \
+         not fit `?{implicit}: {want}` here"
     );
     /// A value with no identity where a carried one is claimed.
     cmp_carry_no_identity = "cmp-carry:no-identity" () =>
@@ -3536,7 +3541,7 @@ messages! {
     /// A value that may be `None` interpolated into a string.
     interp_no_none_optional_value = "interp-no-none:optional-value" (ty: &dyn std::fmt::Display) => format!(
         "cannot interpolate a value that may be `None` (its type is `{ty}`): narrow it \
-         first (`is` / `when`) or assert it with `!`"
+         first (`is` / `when`), or default it with `?:`"
     );
 
     // [interp-to-str]
@@ -3984,7 +3989,7 @@ messages! {
     /// An operand that may be `None`.
     op_no_none_optional_operand = "op-no-none:optional-operand" (symbol: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
         "operand of `{symbol}` may be `None` (its type is `{ty}`): narrow it first (`is` \
-         / `when`) or assert it with `!`"
+         / `when`), or default it with `?:`"
     );
 
     // [op-order]
@@ -4252,8 +4257,7 @@ messages! {
     // [qual-canbe-optin]
     /// A `canbe` of something that cannot be opted into.
     qual_canbe_optin_unknown = "qual-canbe-optin:unknown" (qualifier: &dyn std::fmt::Display) => format!(
-        "only `Mut`, `once`, `hashed` and `ordered` can be opted into with `canbe` (found \
-         `{qualifier}`)"
+        "only `Mut` and `once` can be opted into with `canbe` (found `{qualifier}`)"
     );
 
     // [qual-const]
@@ -4434,9 +4438,9 @@ messages! {
     /// A qualifier body with members that need a `qualifies`.
     qual_refn_scope_no_qualifies = "qual-refn-scope:no-qualifies" (qualifier: &dyn std::fmt::Display) => format!(
         "qualifier `{qualifier}` has a body but no `qualifies`: a body may hold \
-         a                      `qualifies` (which makes the claim testable), \
-         refinements, or                      both — this one holds members that need a \
-         `qualifies` beside                      them"
+         a `qualifies` (which makes the claim testable), \
+         refinements, or both — this one holds members that need a \
+         `qualifies` beside them"
     );
 
     // [qual-subject]

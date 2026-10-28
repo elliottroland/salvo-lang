@@ -4980,7 +4980,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     format!("linear struct `{}`", s.name.name)
                 } else {
                     format!(
-                        "`{}` is conditionally linear (`canbe linear` reaches a field)",
+                        "conditionally linear struct `{}` (`canbe linear` reaches a field)",
                         s.name.name
                     )
                 };
@@ -9395,7 +9395,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn fn_interface(&mut self, f: &'p FnDecl, extra_params: &'p [Param]) -> FnSig {
         self.require_explicit_decl(f);
         if f.body.is_none() {
-            let what = if f.platform { "a `platform fn`" } else { "an `intrinsic fn`" };
+            // A plain fn with no body is already an error (it is written
+            // `platform fn`, [platform-fn]); the clause still needs every
+            // parameter, and is about "a fn with no body".
+            let what = if f.platform {
+                "a `platform fn`"
+            } else if f.intrinsic {
+                "an `intrinsic fn`"
+            } else {
+                "a fn with no body"
+            };
             self.require_full_clause(f, what);
         }
         for p in &f.params {
@@ -16393,9 +16402,22 @@ impl<'p, 'r> Checker<'p, 'r> {
         // send member: an ordinary member would have to answer, and there is
         // nothing to answer to.
         if !target.is_send {
+            // One mistake, one diagnostic: the captures are moot until the
+            // target is a send member.
+            for c in captures {
+                self.check_expr(c, None);
+            }
             self.error(member.span, messages::actor_replyto_not_send(&member.name, &form));
+            return Ty::Unknown;
         }
         let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
+        if params.is_empty() {
+            for c in captures {
+                self.check_expr(c, None);
+            }
+            self.error(span, messages::actor_replyto_no_answer_param(&member.name, &form));
+            return Ty::Unknown;
+        }
         if params.len() != captures.len() + 1 {
             for c in captures {
                 self.check_expr(c, None);
@@ -20282,10 +20304,32 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// accepts the value (then the plain value should have matched and this
     /// does not fire). The qualifier is erased [qual-erasure], so wrapping the
     /// bare value into that arm *is* the mint — no ctor call need be emitted.
+    /// [qual-arm-infer] What a provenance-tagged arm holds: the arm with its
+    /// provenance qualifiers stripped (`Ok (A | B)` → `A | B`), or `None` for
+    /// an arm that is not one.
+    fn provenance_payload(&self, arm: &Ty) -> Option<Ty> {
+        let Ty::Qualified { quals, base } = arm else { return None };
+        if !quals.iter().any(|q| self.is_provenance_qual(&q.name)) {
+            return None;
+        }
+        let keep: Vec<Qual> = quals.iter().filter(|q| !self.is_provenance_qual(&q.name)).cloned().collect();
+        Some(if keep.is_empty() { (**base).clone() } else { (**base).clone().qualify(keep) })
+    }
+
     fn infer_provenance_arm(&self, value: &Ty, arms: &[&Ty]) -> Option<usize> {
+        match self.provenance_arms(value, arms)[..] {
+            [i] => Some(i),
+            _ => None,
+        }
+    }
+
+    /// [qual-arm-infer] Every provenance-tagged arm whose payload accepts
+    /// `value`: one is the arm inferred, several are an ambiguity the
+    /// explicit constructor resolves.
+    fn provenance_arms(&self, value: &Ty, arms: &[&Ty]) -> Vec<usize> {
         // If any arm accepts the value outright, this is not an inference case.
         if arms.iter().any(|arm| is_subtype(value, arm)) {
-            return None;
+            return Vec::new();
         }
         // [qual-arm-infer] A *literal* union with an open provenance arm
         // (`"A" | "B" | Other Str`) is the deliberate escape-hatch shape: a
@@ -20294,9 +20338,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // into the open arm. So inference does not fire when any arm is a
         // literal type.
         if arms.iter().any(|arm| crate::literal::mentions_lit(arm)) {
-            return None;
+            return Vec::new();
         }
-        let mut found: Option<usize> = None;
+        let mut found: Vec<usize> = Vec::new();
         for (i, arm) in arms.iter().enumerate() {
             // A provenance-tagged arm: a qualified type one of whose
             // qualifiers is a provenance qualifier with exactly one
@@ -20330,12 +20374,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !is_subtype(value, &inner) {
                 continue;
             }
-            if found.is_some() {
-                // More than one provenance arm qualifies — ambiguous, require
-                // the explicit constructor.
-                return None;
-            }
-            found = Some(i);
+            found.push(i);
         }
         found
     }
@@ -22577,7 +22616,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if !place_ok {
                             self.error(other.span(), messages::op_assign_not_a_place());
                         }
+                        // [flow-place-invalidate] A narrowed place is
+                        // assigned at its declared type, as a narrowed local
+                        // is: the assignment ends the narrowing, it does not
+                        // write through it.
+                        let declared = Place::of_expr(other).and_then(|p| self.place_narrow_entry(&p)).map(|e| e.declared.clone());
                         let ty = self.check_expr(other, None);
+                        let ty = declared.unwrap_or(ty);
                         // A target that is not a place has been reported:
                         // what it would mutate is nothing, so no permission
                         // or fate check applies (one mistake, one
@@ -27666,12 +27711,29 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // qualifier is erased, so wrapping the value into that arm
                     // *is* the mint — a plain `WrapUnion`, no ctor call.
                     if let Some(i) = self.infer_provenance_arm(&effective, &arms) {
+                        // [qual-group] An arm whose payload is itself a union
+                        // (`Ok (Ok Int | Err Str)`, reached by `ok(ok(1))`,
+                        // whose flat qualifier list is just `Ok Int`) holds
+                        // the value wrapped into that union first.
+                        let payload = self.provenance_payload(arms[i]);
+                        let inner = match &payload {
+                            Some(u) if u.is_wrapper_union() => {
+                                let fits: Vec<usize> =
+                                    u.value_arms().iter().enumerate().filter(|(_, a)| is_subtype(&effective, a)).map(|(j, _)| j).collect();
+                                let [j] = fits[..] else {
+                                    self.error(span, messages::type_union_no_arm(&expected, &logical, true));
+                                    return;
+                                };
+                                Some(Box::new(Coercion::WrapUnion { target: u.clone(), arm: j, inner: None }))
+                            }
+                            _ => None,
+                        };
                         self.out.coerce.insert(
                             self.key(span),
                             Coercion::WrapUnion {
                                 target: expected.clone(),
                                 arm: i,
-                                inner: None,
+                                inner,
                             },
                         );
                         return;
@@ -27699,6 +27761,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                         literal_refusal(expected, logical, self.lit_spans.get(&self.key(span)))
                     {
                         self.error(span, msg);
+                        return;
+                    }
+                    // [qual-arm-infer] Two provenance arms would take the
+                    // value (`return n` for `-> Ok Int | Err Int`): the
+                    // mistake is the ambiguity, not a missing arm.
+                    if self.provenance_arms(&effective, &arms).len() > 1 {
+                        self.error(span, messages::type_union_ambiguous_arm(&logical, &expected));
                         return;
                     }
                     self.error(span, messages::type_union_no_arm(&expected, &logical, deduplicated))

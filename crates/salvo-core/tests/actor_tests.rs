@@ -152,11 +152,10 @@ fn diagnostics_with_ids(src: &str) -> Vec<(bool, Option<&'static str>)> {
 
 // ===== Kept: the data would have to annotate a diagnostic that looks wrong =====
 
-/// The target must exist, and must be a `send fn`: an answer arrives as a
-/// message.
-// Kept: over the real std the `ready()` mint also reports "wants 0 capture(s), found 0".
+/// The target must exist (a send member and its parameters are the checker
+/// data's `actors/replyto_targets.sv`).
 #[test]
-fn replyto_needs_a_send_member_of_its_own_handler() {
+fn replyto_needs_a_member_of_its_own_handler() {
     let unknown = errors(
         "\
 handler Asking() [Counter] of Log {
@@ -169,29 +168,6 @@ handler Asking() [Counter] of Log {
 ",
     );
     assert!(unknown.contains(&"actor-replyto:unknown-member"), "expected the unknown-member error: {unknown:?}");
-
-    let not_send = errors(
-        "\
-actor effect Ask {
-    send fn go(out: Reply<Int>) => !out
-    fn ready() -> Bool
-}
-
-handler Asker() [Counter] of Ask {
-    mailbox { capacity: 1 }
-
-    send fn go(out: Reply<Int>) {
-        out.send(1)
-    }
-
-    fn ready() -> Bool {
-        total(replyto ready())
-        return true
-    }
-}
-",
-    );
-    assert!(not_send.contains(&"actor-replyto:not-send"), "expected the non-send target refusal: {not_send:?}");
 }
 
 /// And the *old* spelling is a plain parse error naming the new one — no

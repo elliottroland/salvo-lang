@@ -144,6 +144,35 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — First fixes from ROADMAP §0ar (what the test migration found)
+
+- **A miscompile**: `return ok(ok(1))` into `Ok (Ok Int | Err Str) | Err
+  Str` reached both backends wrapped once, and rustc and kotlinc refused it.
+  The value's flat qualifier list is `Ok Int`; arm inference
+  ([qual-arm-infer]) read it as the payload of the outer `Ok` arm, whose
+  payload is itself the union `Ok Int | Err Str` — so the value is now
+  wrapped into that union first (`provenance_payload`, an inner
+  `WrapUnion`), or refused when no single inner arm takes it. Run data
+  `qualifiers/provenance_groups.sv`.
+- **A narrowed place is assigned at its declared type** [flow-place-invalidate]:
+  under `if p.surname is Str`, `p.surname = None` was refused as `None`
+  into `Str`. Run data `types/narrowed_place_assignment.sv`.
+- **One mistake, one diagnostic** for `replyto` toward a member that is not
+  a `send fn` (it also reported "wants 0 capture(s), found 0"); a send
+  member with no parameter for the answer gets its own
+  `actor-replyto:no-answer-param`. Checker data `actors/replyto_targets.sv`.
+- **The ambiguity is named**: `return n` for `-> Ok Int | Err Int` reports
+  `type-union:ambiguous-arm` (two provenance arms take an `Int`), not "no
+  arm accepts".
+- **A misplaced modifier recovers as what it modifies**: `iterable platform
+  fn` and `threadsafe platform fn` parse as the `platform fn` after the
+  refusal, so they no longer also advise writing `platform fn`.
+- **Texts**: `qual-canbe-optin:unknown` lists only `Mut` and `once`; the
+  no-`None` texts suggest `?:`, not the retired postfix `!`; a bodiless plain
+  fn's clause error says "a fn with no body", not "an `intrinsic fn`"; the
+  conditionally-linear no-discharger text reads as a sentence; six message
+  continuations lost their runs of 20–30 spaces.
+
 ### 2026-10-28 — The rest of the tests assert ids, not message text (TESTS.md second wave)
 
 **parser_tests.rs** moved every parse-error assertion to the checker data:

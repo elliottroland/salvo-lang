@@ -975,15 +975,6 @@ diagnostic named) surfaced reports the old tests never looked at. Each case
 below stays a Rust test, as it was, until fixed (the file and test named);
 repros are over the real std.
 
-- **Wrong code, not just noise** — `fn step() [] -> Ok (Ok Int | Err Str) |
-  Err Str { return ok(ok(1)) }` checks clean over std's provenance `Ok`, and
-  the Rust backend emits `Union2::U1(ok(ok(1i32)))` (rustc E0308)
-  [backend-never-wrong]; the old prelude's state `Ok` gave the
-  "deduplicates" diagnostic (`widen_tests::the_same_qualifier_twice_…`).
-- **A count error whose counts agree**: a `replyto` toward a member with no
-  parameters reports `actor-replyto:member-capture-count` "takes 0
-  parameter(s) … wants 0 capture(s), found 0" beside the right
-  `actor-replyto:not-send` (`actor_tests::replyto_needs_a_send_member_…`).
 - **One mistake, several diagnostics** [type-unknown-lenient]:
   - `effect-any:fn-type` twice for one `any` on a fn type, three times with an
     empty body (`actor_tests::any_is_refused_on_fn_types`);
@@ -1032,10 +1023,6 @@ repros are over the real std.
     `Set<Q>` reports one `col-key-eligible:key`
     (`collection_tests::a_linear_element_is_refused_…`).
 - **And from wave 3**:
-  - a narrowed field keeps its narrowing as an assignment target: under
-    `if p.s is Str`, `p.s = None` on a `s: Str? = None` field reports
-    `var-no-widen:assign-mismatch` "cannot assign `None` to `Str`", where a
-    narrowed local checks clean (`place_tests::assignment_to_the_place_invalidates`);
   - an unknown type in a return or a `let` adds the mismatch it causes
     (`name_tests::unknown_names_are_reported_at_declaration_sites`); one
     unresolvable leading-dot arm is reported twice
@@ -1059,17 +1046,11 @@ repros are over the real std.
   - also noted, annotated as they are: a prerequisite cycle is reported once
     per effect on it; a poisoned handle is reported at each use on one line
     (`d.hp = d.hp + 1` gives two).
-- **A message that misstates the mistake**: `fn two(n: Int) -> Ok Int | Err
-  Int { return n }` says no arm accepts an `Int`, when two do: the mistake is
-  the ambiguity (`carry_tests::provenance_arm_is_inferred_from_a_bare_value`).
 - **Message texts to fix** (the ids are right; annotated as they are):
-  `qual-canbe-optin:unknown` still lists the deleted `hashed`/`ordered`;
-  `linear-obligation:no-discharger` for a conditionally linear struct lacks
-  an "and"; `implicit-resolve:no-fit` names one arbitrary candidate of many;
+  `implicit-resolve:no-fit` names one arbitrary candidate of many;
   a dropped `Reply<Int>`'s hint names `on_idle`/`watch` (dischargers listed
   by type name, not instantiation); type-named constructors show by their
-  key (`Mut_Set`, `Mut_List<…>`); three comptime texts carry ~26-space runs
-  from a literal broken without `\`.
+  key (`Mut_Set`, `Mut_List<…>`).
 - **Behaviour worth a look**: an unhashable key in a constructor call is
   reported once per program (`reported_ineligible_keys`), so a second fn's
   `Set(2.5)` goes unreported while it is refused; `=> !a` on an `Int` warns
@@ -1122,16 +1103,6 @@ repros are over the real std.
     `effect-available:callee-no-handler`: one mistake, two diagnostics
     (`route_binds_any_and_needs_a_selector`).
 - **From the second wave (parser and salvo-core tests to ids)**:
-  - **Stale advice**: `interp-no-none:optional-value` and
-    `op-no-none:optional-operand` still end "or assert it with `!`", the
-    postfix assertion retired 2026-10-20 (repro: `fn f(s: Str?) -> Str => s
-    { return "${s}" }`);
-  - **wrong advice after a misplaced modifier**: `iterable platform fn f()
-    [] -> Int` and `threadsafe platform fn chars(s: Str) [] -> Str => s`
-    also report `platform-fn:missing-body`, telling the user to write
-    `platform fn …`, which they did; `deduce-syntax:bodiless-clause` says
-    "an `intrinsic fn` has no body" about a plain fn after a clause that did
-    not parse (`=> a canbe d {}`);
   - **a missing diagnostic?** `handler Working() of Work` with no `Work`
     declared reports nothing, in a file whose parse error elsewhere still
     lets `fn-dot:unknown-fn` through (`check/syntax/expressions.sv#the_receiver_form_is_not_the_self_send`);

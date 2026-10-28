@@ -1024,6 +1024,12 @@ impl<'s> Parser<'s> {
                             messages::platform_threadsafe_not_before_handler_or_type(&found),
                             span,
                         );
+                        // A `platform fn` is recovered as one, so the one
+                        // mistake is one diagnostic (it was re-read as a
+                        // plain fn, and told to write `platform fn`).
+                        if self.at(&TokenKind::KwFn) {
+                            return self.parse_platform_rest(false);
+                        }
                         None
                     }
                 }
@@ -1040,6 +1046,11 @@ impl<'s> Parser<'s> {
                 if !self.at(&TokenKind::KwType) {
                     let found = self.kind().describe();
                     self.error(messages::platform_iterable_not_before_type(&found), span);
+                    // A `platform fn` or `handler` is recovered as one, as
+                    // above.
+                    if self.at(&TokenKind::KwFn) || self.at(&TokenKind::KwHandler) {
+                        return self.parse_platform_rest(false);
+                    }
                     return None;
                 }
                 let item = self.parse_platform_type(false, false)?;

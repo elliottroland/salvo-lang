@@ -39,7 +39,6 @@ threadsafe platform effect Telemetry {
 // [platform-iterable] `iterable` is a claim about a host type, so only
 // `platform type` may follow `iterable platform`.
 //~ error[platform-iterable:not-before-type]
-//~ error[platform-fn:missing-body]
 iterable platform fn f() [] -> Int
 
 //--- a_bare_bodiless_fn_is_refused
@@ -59,7 +58,6 @@ platform fn chars(s: Str) [] -> Str => !s {
 //--- threadsafe_platform_fn
 // [platform-threadsafe] `threadsafe` is for a handler or a type, not a fn.
 //~ error[platform-threadsafe:not-before-handler-or-type]
-//~ error[platform-fn:missing-body]
 threadsafe platform fn chars(s: Str) [] -> Str => s
 
 //--- a_bodiless_non_alias_type_is_an_error

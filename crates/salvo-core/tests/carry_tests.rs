@@ -291,9 +291,13 @@ fn provenance_arm_is_inferred_from_a_bare_value() {
     let ambig = errors(&format!(
         "{prelude}fn two(n: Int) -> Ok Int | Err Int {{\n    return n\n}}\n"
     ));
+    // The mistake is the ambiguity, and the error says so (it said no arm
+    // accepted the value until 2026-10-28).
+    // (On this prelude the return mismatch follows it: the cascade ROADMAP
+    // §0ar lists for `type-union:no-arm`.)
     assert!(
-        !ambig.is_empty(),
-        "a bare value matching two provenance arms is refused: {ambig:?}"
+        ambig.contains(&"type-union:ambiguous-arm") && !ambig.contains(&"type-union:no-arm"),
+        "a bare value matching two provenance arms is refused as ambiguous: {ambig:?}"
     );
 
     // [qual-arm-infer] Not for a literal union with an open provenance arm: a
