@@ -11289,6 +11289,14 @@ Built 2026-09-23 as the testing MVP (user decisions of that date; the option
 space and the rounds that settled it are in COMPLETED.md's decision log, which
 replaced the working document TESTING.md).
 
+* [test-data] **The compiler repository's checker tests are data files**
+  (user decisions 2026-10-28, TESTS.md T1, TD2, TD3): `.sv` programs under
+  `crates/salvo-core/tests/check/<area>/`, checked over the real std, whose
+  `//~ error[id]` / `//~ warning[id]` comments — each on a line of its own,
+  naming the next line that is not one — must be exactly the diagnostics
+  the program reports [diag-id]; `// FILE:` and `//---` split files and
+  programs. This is not a language feature: a user's tests are `test`
+  blocks [test-decl]. The format is `tests/check/README.md`.
 * [test-decl] `test "an empty heap pops nothing" { … }` declares a **test**: a
   top-level declaration with a string-literal name and a block body. No
   parameters, no effect list, no return type, and `export test` is refused — a

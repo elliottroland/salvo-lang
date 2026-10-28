@@ -213,6 +213,11 @@ run after a relink.)
   the test's own files over it. Building std again by hand (`add_dir` of
   `lib/`) still works but costs ~0.25s a program, and a program that does not
   hold the front's modules is checked whole.
+- **A checker test is test data** (2026-10-28, TESTS.md T1, [test-data]):
+  a `.sv` program under `crates/salvo-core/tests/check/<area>/` with
+  `//~ error[id]` annotations above the lines it reports on — the format is
+  that directory's README. Add cases to an area's files rather than a Rust
+  test; a Rust test is for what annotations cannot say (the checker's tables).
 - **Temporary files stay inside the repository**: put scratch files,
   debug scripts, and throwaway output in the repo-local `tmp/` directory
   (gitignored) — never in `/tmp` or elsewhere outside the repo. Tests

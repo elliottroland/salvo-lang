@@ -16,3 +16,4 @@ doctest = false
 # checked std per process (TESTS.md T3). salvo-core's own integration tests
 # reach it as a dev-dependency, a cycle Cargo allows; its unit tests cannot.
 salvo-core = { workspace = true }
+salvo-syntax = { workspace = true }

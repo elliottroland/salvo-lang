@@ -144,6 +144,30 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Checker tests are data files; operators first (TESTS.md T1, step 4 part 1)
+
+**`salvo_testkit::data` checks `.sv` files whose `//~ error[id]` /
+`//~ warning[id]` comments must be exactly the diagnostics their programs
+report** ([test-data]; the format is `crates/salvo-core/tests/check/README.md`).
+An annotation is a line of its own naming the next line that is not one
+(user decision: plain `//~`, since annotations only ever sit above; a later
+form would be a find-and-replace); `// FILE:` and `//---` split files and
+programs. Programs check over the real std, in parallel, one test per area
+(`check_data.rs`, an `area!` line each, and a test that every directory has
+one). A failure lists, per program, what was annotated and not reported and
+what was reported and not annotated, with the message.
+
+- **The pilot, `operators/`**: op_tests.rs's 22 tests are two data files
+  (three programs, 40-odd annotations) and seven Rust tests of what
+  annotations cannot say (promotions, callees, which `?plus` took `+`), now
+  over the real std too. Two prelude-only cases went: with the real std
+  `"x" < "y"` and `true < false` are legal.
+- **What the strictness found**: the old tests looked at errors only; every
+  unused local now warns unless prefixed `_`, so the data names them so. An
+  operator's missing function is the call's diagnostic
+  (`call-resolve:no-overload`, said of the operator), which is how R10 D5
+  built it; the ids say so where the text did not.
+
 ### 2026-10-28 — Every diagnostic has an id (TESTS.md T2, step 3b part 5)
 
 **The backends got their own messages files and the last texts moved, so the

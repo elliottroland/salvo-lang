@@ -721,3 +721,8 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   loader and CLI errors, and the text impl of `IntoMessage` deleted: every
   diagnostic has an id. T2 is done; next is T1 (check data files and their
   runner, which needs ids to annotate).
+- **Step 4 part 1 (2026-10-28).** The data runner (`salvo_testkit::data`,
+  `check_data.rs`, `tests/check/README.md`, [test-data]) and the pilot area
+  `operators/` from op_tests.rs (22 Rust tests → 2 data files + 7 Rust tests
+  of tables). Annotations are plain `//~` (user, 2026-10-28). Next: the other
+  prelude-based files, area by area.
