@@ -647,12 +647,14 @@ fn cmp(a: Person, b: Person) [] -> Int => a, b {
 "#,
         ),
     ];
-    let errs = errors_in(files);
+    let errs: Vec<(Option<&str>, String)> = checked_in(files, |_, _, diagnostics| {
+        diagnostics.iter().filter(|d| d.is_error()).map(|d| (d.id, d.message.clone())).collect()
+    });
     assert!(
-        errs.iter().any(|e| e.contains("`cmp(Person, Person)` has the shape of `cmp` on `Person`")
+        errs.iter().any(|(id, e)| *id == Some("op-unique-shape:outside-home")
+            && e.contains("`cmp(Person, Person)` has the shape of `cmp` on `Person`")
             && e.contains("`people.sv` (module `people`)")
-            && e.contains("give it another name and pass it explicitly")
-            && e.contains("[op-unique-shape]")),
+            && e.contains("give it another name and pass it explicitly")),
         "expected the refusal naming `Person`'s file, got: {errs:?}"
     );
 }

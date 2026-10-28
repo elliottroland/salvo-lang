@@ -27,6 +27,8 @@ use std::collections::HashMap;
 
 use salvo_syntax::ast::*;
 use salvo_syntax::visit_mut::{self, MutVisitor};
+use salvo_syntax::diag::IntoMessage;
+use salvo_syntax::messages;
 use salvo_syntax::{Diagnostic, Span};
 
 use crate::source::{ModulePath, SourceFile};
@@ -313,13 +315,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     .all(|a| matches!(a, Type::Named { base, .. } if base.name.name == "self"))
                 {
                     diags.push(Diagnostic::error(
-                        format!(
-                            "`by` stamps the members for the type it is written on, so the \
-                             group's argument is `self`: write `: {}<self> by {}` \
-                             [obligation-by]",
-                            ob.group.name.name,
-                            by.text()
-                        ),
+                        messages::obligation_by_group_arg_not_self(&ob.group.name.name, &by.text()),
                         ob.group.span,
                     ));
                     continue;
@@ -386,11 +382,7 @@ fn run<M: crate::expand::ModuleSlot>(
             if let Some(by) = f.by.clone() {
                 let Some(first) = f.params.first() else {
                     diags.push(Diagnostic::error(
-                        format!(
-                            "`fn {}` says `by`, but has no parameter to say which type it \
-                             is stamped at [fn-by]",
-                            f.name.name
-                        ),
+                        messages::fn_by_no_param(&f.name.name),
                         by.span,
                     ));
                     fallback_body(f);
@@ -398,11 +390,7 @@ fn run<M: crate::expand::ModuleSlot>(
                 };
                 let Some(target_name) = named_base(&first.ty) else {
                     diags.push(Diagnostic::error(
-                        format!(
-                            "`fn {}` is stamped at the type of its first parameter, which \
-                             has to name a struct or a declared union type [fn-by]",
-                            f.name.name
-                        ),
+                        messages::fn_by_first_param_not_target(&f.name.name),
                         first.ty.span(),
                     ));
                     fallback_body(f);
@@ -411,18 +399,9 @@ fn run<M: crate::expand::ModuleSlot>(
                 let Some(target) = world.target(&target_name) else {
                     diags.push(Diagnostic::error(
                         if world.opaque_here(&target_name) {
-                            format!(
-                                "`fn {}` is stamped at `{target_name}`, which is opaque outside its \
-                                 module: its fields are not this module's to walk, so stamp it \
-                                 where `{target_name}` is declared [struct-opaque] [fn-by]",
-                                f.name.name
-                            )
+                            messages::fn_by_opaque_target(&f.name.name, &target_name)
                         } else {
-                            format!(
-                                "`fn {}` is stamped at `{target_name}`, which is not a struct or a \
-                                 declared union type [fn-by]",
-                                f.name.name
-                            )
+                            messages::fn_by_target_not_struct_or_union(&f.name.name, &target_name)
                         },
                         first.ty.span(),
                     ));
@@ -1094,7 +1073,7 @@ fn unchecked_subject_whens(f: &FnDecl) -> Vec<Diagnostic> {
                     self.derived.insert(binder.name.clone());
                 }
                 CompStmt::WhenKind { arms, span, .. } => {
-                    self.errors.extend(kind_arms_incomplete(arms, *span));
+                    self.errors.extend(kind_arms_incomplete(arms).map(|m| Diagnostic::error(m, *span)));
                 }
                 CompStmt::WhenType { ty, arms, span, .. } if self.depends(ty) => {
                     for arm in arms {
@@ -1102,23 +1081,13 @@ fn unchecked_subject_whens(f: &FnDecl) -> Vec<Diagnostic> {
                     }
                     let subject = if ty.via_type { format!("{}.type", ty.root.name) } else { ty.root.name.clone() };
                     self.errors.push(Diagnostic::error(
-                        format!(
-                            "a `[when {subject}]` cannot be checked here: `{subject}` ranges over the                              types `{bound}` has, which are known only where `{f}` is stamped, and a                              `[when]` with a subject must cover its range — dispatch on `[when {root}.kind]`,                              or test with `[if {subject} is …]` [when-exhaustive] [comptime-pattern]",
-                            bound = self.bound,
-                            f = self.fn_name,
-                            root = ty.root.name,
-                        ),
+                        messages::comptime_pattern_when_over_derived_type(&subject, &self.bound, &self.fn_name, &ty.root.name),
                         *span,
                     ));
                 }
                 CompStmt::WhenName { binder, span, .. } if self.derived.contains(&binder.name) => {
                     self.errors.push(Diagnostic::error(
-                        format!(
-                            "a `[when {b}.name]` cannot be checked here: `{b}.name` ranges over the                              names `{bound}` has, which are known only where `{f}` is stamped, and a                              `[when]` with a subject must cover its range — test with `[if {b}.name is …]`                              [when-exhaustive] [comptime-name]",
-                            b = binder.name,
-                            bound = self.bound,
-                            f = self.fn_name,
-                        ),
+                        messages::comptime_name_when_over_derived_name(&binder.name, &self.bound, &self.fn_name),
                         *span,
                     ));
                 }
@@ -1165,7 +1134,7 @@ fn kind_arms_missing(arms: &[KindArm]) -> Vec<String> {
 /// [when-exhaustive] [comptime-kind] A `[when X.kind]` that leaves an arm of
 /// `Kind` out — known from the arms alone, so a template is told where it is
 /// declared rather than at every stamp.
-fn kind_arms_incomplete(arms: &[KindArm], span: Span) -> Option<Diagnostic> {
+fn kind_arms_incomplete(arms: &[KindArm]) -> Option<messages::Message> {
     let covered = |k: TypeKindWord| arms.iter().any(|a| kind_matches(a.kind, k));
     let missing: Vec<&str> = [
         TypeKindWord::Struct,
@@ -1182,14 +1151,8 @@ fn kind_arms_incomplete(arms: &[KindArm], span: Span) -> Option<Diagnostic> {
     if missing.is_empty() {
         return None;
     }
-    Some(Diagnostic::error(
-        format!(
-            "this `[when …]` over a kind does not consider every arm of `Kind`: missing {} — \
-             add the arms (`is Opaque` covers `Basic` and `Generic`) [comptime-inline] \
-             [when-exhaustive]",
-            missing.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", ")
-        ),
-        span,
+    Some(messages::when_exhaustive_kind_arms_missing(
+        &missing.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", "),
     ))
 }
 
@@ -1706,12 +1669,7 @@ impl World {
             let module = modules[0];
             let fn_module = &fn_candidates[0].module;
             diags.push(Diagnostic::error(
-                format!(
-                    "`by {0}` is ambiguous: `{0}` is a module (`{module}`) and a `comptime fn` \
-                     (in `{fn_module}`). Write `by @{0}` for the module, or \
-                     `by {0}@{fn_module}` for the function [obligation-by]",
-                    by.text()
-                ),
+                messages::obligation_by_ambiguous_by(&by.text(), module, fn_module),
                 by.span,
             ));
             return None;
@@ -1725,19 +1683,14 @@ impl World {
             if modules.len() > 1 {
                 let names: Vec<String> = modules.iter().map(|m| format!("`{m}`")).collect();
                 diags.push(Diagnostic::error(
-                    format!(
-                        "`by {}` names {} modules — {}; write more of the path [obligation-by]",
-                        by.text(),
-                        modules.len(),
-                        names.join(", ")
-                    ),
+                    messages::obligation_by_several_modules(&by.text(), modules.len(), &names.join(", ")),
                     by.span,
                 ));
                 return None;
             }
             let Some(module) = modules.first() else {
                 diags.push(Diagnostic::error(
-                    format!("`by @{}` names no module this file can see{} [obligation-by]", by.text(), self.unseen(&path)),
+                    messages::obligation_by_no_module(&by.text(), &self.unseen(&path)),
                     by.span,
                 ));
                 return None;
@@ -1749,11 +1702,7 @@ impl World {
                 .collect();
             if candidates.is_empty() {
                 diags.push(Diagnostic::error(
-                    format!(
-                        "`{module}` has no `comptime fn {member}`, so `by {}` cannot stamp \
-                         one [obligation-by]",
-                        by.text()
-                    ),
+                    messages::obligation_by_module_lacks_member(module, member, &by.text()),
                     by.span,
                 ));
                 return None;
@@ -1762,12 +1711,7 @@ impl World {
             return match candidates.len() {
                 0 => {
                     diags.push(Diagnostic::error(
-                        format!(
-                            "`{module}` has no `comptime fn {member}<T is {}>`: its `{member}` is \
-                             not written for a `{}` [comptime-bound]",
-                            kind.word(),
-                            kind.word()
-                        ),
+                        messages::comptime_bound_wrong_kind(module, member, kind.word()),
                         by.span,
                     ));
                     None
@@ -1775,11 +1719,7 @@ impl World {
                 1 => Some(candidates[0].clone()),
                 _ => {
                     diags.push(Diagnostic::error(
-                        format!(
-                            "`{module}` declares `comptime fn {member}<T is {}>` more than once \
-                             [comptime-bound]",
-                            kind.word()
-                        ),
+                        messages::comptime_bound_duplicate(module, member, kind.word()),
                         by.span,
                     ));
                     None
@@ -1791,14 +1731,7 @@ impl World {
             n if n > 1 => {
                 let places: Vec<String> = fn_candidates.iter().map(|c| format!("`{}`", c.module)).collect();
                 diags.push(Diagnostic::error(
-                    format!(
-                        "`by {}` names {n} comptime fns of that name for a `{}` (in {}); select \
-                         one with `by {}@<module>` [fn-by]",
-                        by.text(),
-                        kind.word(),
-                        places.join(", "),
-                        by.text()
-                    ),
+                    messages::fn_by_ambiguous_compfn(&by.text(), n, kind.word(), &places.join(", ")),
                     by.span,
                 ));
                 return None;
@@ -1806,12 +1739,7 @@ impl World {
             _ => {}
         }
         diags.push(Diagnostic::error(
-            format!(
-                "`by {}` names neither a module nor a `comptime fn` this file can see — \
-                 nothing to stamp `{member}` from{} [obligation-by] [fn-by]",
-                by.text(),
-                self.unseen(&path)
-            ),
+            messages::obligation_by_names_nothing(&by.text(), member, &self.unseen(&path)),
             by.span,
         ));
         None
@@ -1970,15 +1898,11 @@ impl<'w> Stamper<'w> {
             return None;
         }
         Some(Diagnostic::error(
-            format!(
-                "`{}` is generic, and stamping `{}` at a generic type is not supported yet: \
-                 the copy for a field of type `{}` would need an implicit for it — write \
-                 the fulfilment by hand, with `?{}<{}>` (ROADMAP §2c)",
-                self.target.name,
-                self.template.name.name,
-                self.target.generics[0],
-                group_for(&self.template.name.name),
-                self.target.generics[0]
+            messages::comptime_generic_generic_target(
+                &self.target.name,
+                &self.template.name.name,
+                &self.target.generics[0],
+                &group_for(&self.template.name.name),
             ),
             site,
         ))
@@ -2172,14 +2096,13 @@ impl<'w> Stamper<'w> {
         let mut errs = Vec::new();
         if inst.params.len() != f.params.len() {
             errs.push(Diagnostic::error(
-                format!(
-                    "{what} takes {} parameter(s), but `{}`'s `compfn {}` stamped at `{}` \
-                     takes {} [fn-by]",
+                messages::fn_by_param_count(
+                    &what,
                     f.params.len(),
-                    self.by.text(),
-                    self.template.name.name,
-                    self.target.name,
-                    inst.params.len()
+                    &self.by.text(),
+                    &self.template.name.name,
+                    &self.target.name,
+                    inst.params.len(),
                 ),
                 site,
             ));
@@ -2187,14 +2110,7 @@ impl<'w> Stamper<'w> {
             for (w, i) in f.params.iter().zip(&inst.params) {
                 if self.world.normalized(&w.ty) != self.world.normalized(&i.ty) {
                     errs.push(Diagnostic::error(
-                        format!(
-                            "{what}'s parameter `{}` is `{}`, but the stamped `{}` takes `{}` \
-                             there [fn-by]",
-                            w.name.name,
-                            w.ty,
-                            self.template.name.name,
-                            i.ty
-                        ),
+                        messages::fn_by_param_type(&what, &w.name.name, &w.ty, &self.template.name.name, &i.ty),
                         at(w.ty.span()),
                     ));
                 }
@@ -2204,11 +2120,11 @@ impl<'w> Stamper<'w> {
         let inst_ret = inst.return_type.as_ref().map(|t| self.world.normalized(t)).unwrap_or_else(|| "None".into());
         if written_ret != inst_ret {
             errs.push(Diagnostic::error(
-                format!(
-                    "{what} returns `{}`, but the stamped `{}` returns `{}` [fn-by]",
-                    f.return_type.as_ref().map(|t| t.to_string()).unwrap_or_else(|| "None".into()),
-                    self.template.name.name,
-                    inst.return_type.as_ref().map(|t| t.to_string()).unwrap_or_else(|| "None".into())
+                messages::fn_by_return_type(
+                    &what,
+                    &f.return_type.as_ref().map(|t| t.to_string()).unwrap_or_else(|| "None".into()),
+                    &self.template.name.name,
+                    &inst.return_type.as_ref().map(|t| t.to_string()).unwrap_or_else(|| "None".into()),
                 ),
                 site,
             ));
@@ -2249,21 +2165,17 @@ impl<'w> Stamper<'w> {
                 // declaration has to change. One error at the parameter, and
                 // nothing stamped.
                 if let Some((name, called)) = hidden_free_name(b, &renames) {
-                    let used = if called {
-                        format!("the function `{name}` that `{}`'s `{}` calls in its body", self.by.text(), self.template.name.name)
-                    } else {
-                        format!("the name `{name}` that `{}`'s `{}` uses in its body", self.by.text(), self.template.name.name)
+                    let member = match declared {
+                        Declared::Written => None,
+                        Declared::Member { group } => Some((group, f.name.name.as_str())),
                     };
-                    let message = match declared {
-                        Declared::Written => {
-                            format!("parameter `{name}` hides {used}: name the parameter differently [fn-by]")
-                        }
-                        Declared::Member { group } => format!(
-                            "`{group}<self>`'s `fn {}` names its parameter `{name}`, which hides {used}: \
-                             name the group member's parameter differently [fn-by]",
-                            f.name.name
-                        ),
-                    };
+                    let message = messages::fn_by_param_hides_name(
+                        &name,
+                        called,
+                        &self.by.text(),
+                        &self.template.name.name,
+                        member,
+                    );
                     let span = f.params.iter().find(|p| p.name.name == name).map(|p| at(p.name.span)).unwrap_or(site);
                     return Err(vec![Diagnostic::error(message, span)]);
                 }
@@ -2619,7 +2531,7 @@ impl<'w> Expander<'w> {
         for (span, name) in unused {
             let at = if self.in_place && span.is_written() { span } else { self.site };
             errors.push(Diagnostic::warning(
-                format!("pattern binder `{name}` is never used: write `*` in its place [comptime-pattern]"),
+                messages::comptime_pattern_unused_binder(&name),
                 at,
             ));
         }
@@ -2662,7 +2574,7 @@ impl<'w> Expander<'w> {
         }
     }
 
-    fn error(&mut self, span: Span, msg: impl Into<String>) {
+    fn error(&mut self, span: Span, msg: impl IntoMessage) {
         // A diagnostic here is about the template or the site: in an
         // expanded-in-place fn the construct is the author's own text, so it
         // lands there; in a stamp, the site is where the author can act.
@@ -2686,7 +2598,7 @@ impl<'w> Expander<'w> {
             return match self.binding(&ct.root.name) {
                 Some(b) => Some(b.ty.clone()),
                 None => {
-                    self.error(ct.span, format!("`{}` is not a binder of an enclosing `[for …]` or `[when …]` [comptime-fields]", ct.root.name));
+                    self.error(ct.span, messages::comptime_fields_not_a_binder(&ct.root.name));
                     None
                 }
             };
@@ -2712,11 +2624,7 @@ impl<'w> Expander<'w> {
         }
         self.error(
             ct.span,
-            format!(
-                "`{}` is not the bound type parameter, a binder's `.type`, or a declared \
-                 struct or union type [comptime-fields]",
-                ct.root.name
-            ),
+            messages::comptime_fields_unknown_type(&ct.root.name),
         );
         None
     }
@@ -2744,7 +2652,7 @@ impl<'w> Expander<'w> {
                 })
                 .collect();
             if lits.is_empty() {
-                self.error(seq.span, format!("`{}` has no literals: `.literals` walks a literal union's members (`\"json\" | \"text\"`) [comptime-literals]", self.world.normalized(&ty)));
+                self.error(seq.span, messages::comptime_literals_not_literal_union(&self.world.normalized(&ty)));
                 return None;
             }
             let n = lits.len();
@@ -2778,7 +2686,7 @@ impl<'w> Expander<'w> {
         }
         if seq.arms {
             if kind != TypeKindWord::Union {
-                self.error(seq.span, format!("`{}` is a `{}`, and only a `Union` has `.arms` [comptime-fields]", self.world.normalized(&ty), kind.word()));
+                self.error(seq.span, messages::comptime_fields_arms_of_non_union(&self.world.normalized(&ty), kind.word()));
                 return None;
             }
             let arms = self.arms_of_type(&ty);
@@ -2808,7 +2716,7 @@ impl<'w> Expander<'w> {
             );
         }
         if kind != TypeKindWord::Struct {
-            self.error(seq.span, format!("`{}` is a `{}`, and only a `Struct` has `.fields` [comptime-fields]", self.world.normalized(&ty), kind.word()));
+            self.error(seq.span, messages::comptime_fields_fields_of_non_struct(&self.world.normalized(&ty), kind.word()));
             return None;
         }
         let Some(name) = named_base(&ty) else { return None };
@@ -2827,20 +2735,12 @@ impl<'w> Expander<'w> {
             if given.is_empty() {
                 self.error(
                     seq.span,
-                    format!(
-                        "`{name}` is generic, so its {what} are walked at an instance: write \
-                         `{name}<{wanted}>.{what}` with the type arguments meant (a type \
-                         parameter of this fn, or a concrete type) [comptime-generic-fn]"
-                    ),
+                    messages::comptime_generic_fn_uninstantiated(&name, what, &wanted),
                 );
             } else {
                 self.error(
                     seq.span,
-                    format!(
-                        "`{name}` takes {} type argument(s), found {} [comptime-generic-fn]",
-                        params.len(),
-                        given.len()
-                    ),
+                    messages::comptime_generic_fn_type_arg_count(&name, params.len(), given.len()),
                 );
             }
             return None;
@@ -2905,8 +2805,7 @@ impl<'w> Expander<'w> {
         let mut ok = true;
         for lit in lits {
             if !b.siblings.iter().any(|s| s == lit) {
-                let what = if b.is_arm { "arm" } else { "field" };
-                self.error(span, format!("`{}` has no {what} `{lit}` [comptime-name]", b.sibling_owner));
+                self.error(span, messages::comptime_name_unknown_name(&b.sibling_owner, b.is_arm, lit));
                 ok = false;
             }
         }
@@ -2934,14 +2833,10 @@ impl<'w> Expander<'w> {
                     if TypeKindWord::parse(name).is_some() {
                         self.error(
                             span,
-                            format!(
-                                "`{name}` is a kind, not a type: a kind is tested on `.kind` \
-                                 (`field.kind is {name}`), and `is` after a type compares \
-                                 types [comptime-kind]"
-                            ),
+                            messages::comptime_kind_kind_as_type(&name),
                         );
                     } else {
-                        self.error(span, format!("unknown type `{name}` in a compile-time type test [comptime-inline]"));
+                        self.error(span, messages::comptime_inline_unknown_type(&name));
                     }
                     ok = false;
                 }
@@ -2969,7 +2864,7 @@ impl<'w> Expander<'w> {
     /// constant) or a constant (compared).
     fn match_annotation(&mut self, annotations: &[TypeRef], qual: &TypeRef, binders: &[Ident], subject: &str, span: Span, can_bind: bool) -> Option<bool> {
         let Some(decl) = self.world.comptime_qual(&qual.name.name) else {
-            self.error(span, format!("`{}` is not a comptime qualifier [comptime-qualifier]", qual.name.name));
+            self.error(span, messages::comptime_qualifier_not_comptime(&qual.name.name));
             return None;
         };
         let of = match &decl.of {
@@ -2978,19 +2873,19 @@ impl<'w> Expander<'w> {
         };
         let slots = decl.value_slots.len();
         if of != subject {
-            self.error(span, format!("`{}` describes a `{of}`, not a `{subject}` [comptime-qualifier]", qual.name.name));
+            self.error(span, messages::comptime_qualifier_wrong_subject(&qual.name.name, &of, subject));
             return None;
         }
         if let Some(b) = binders.iter().find(|b| !b.name.starts_with(|c: char| c.is_lowercase())) {
-            self.error(span, format!("`{}` would bind a type, and a comptime qualifier holds constants: name a constant binder in lowercase [comptime-qualifier]", b.name));
+            self.error(span, messages::comptime_qualifier_type_binder(&b.name));
             return None;
         }
         if !binders.is_empty() && !can_bind {
-            self.error(span, "a pattern's binders bind nothing under `||` or `!` — what the test proves holds only where it did: write `*` there [comptime-pattern] [flow-or-not]");
+            self.error(span, messages::comptime_pattern_binder_under_or_not());
             return None;
         }
         if !qual.value_args.is_empty() && qual.value_args.len() != slots {
-            self.error(span, format!("`{}` takes {slots} constant(s), found {} [comptime-qualifier]", qual.name.name, qual.value_args.len()));
+            self.error(span, messages::comptime_qualifier_constant_count(&qual.name.name, slots, qual.value_args.len()));
             return None;
         }
         let Some(found) = annotations.iter().find(|a| a.name.name == qual.name.name) else {
@@ -3017,7 +2912,7 @@ impl<'w> Expander<'w> {
             if qualifiers.is_empty() {
                 if let Some(b) = binders.iter().find(|b| b.name == base.name.name) {
                     if self.value_binds.iter().any(|(v, _)| v.name == b.name) {
-                        self.error(span, format!("pattern binder `{}` is declared twice in one condition [comptime-pattern]", b.name));
+                        self.error(span, messages::comptime_pattern_duplicate_binder(&b.name));
                         return None;
                     }
                     return Some(Some(b.clone()));
@@ -3027,7 +2922,7 @@ impl<'w> Expander<'w> {
                 }
             }
         }
-        self.error(span, format!("a qualifier's argument in a pattern is a constant binder declared before it (`<c> Short(c)`) or a constant, not `{pattern}` [comptime-qualifier]"));
+        self.error(span, messages::comptime_qualifier_pattern_argument(&pattern));
         None
     }
 
@@ -3095,9 +2990,7 @@ impl<'w> Expander<'w> {
             if hides {
                 self.error(
                     span,
-                    format!(
-                        "pattern binder `{name}` would hide a type, type parameter or binder of                          that name: pick a fresh one [comptime-pattern]"
-                    ),
+                    messages::comptime_pattern_binder_hides_name(&name),
                 );
                 ok = false;
             }
@@ -3267,7 +3160,7 @@ impl<'w> Expander<'w> {
                 if let Type::Named { qualifiers, base } = target {
                     if qualifiers.is_empty() && self.world.comptime_qual(&base.name.name).is_some() {
                         if ty.via_type {
-                            self.error(*span, format!("`{}` describes a declaration, not a type: test the binder itself (`{} is {}`) [comptime-qualifier]", base.name.name, ty.root.name, base.name.name));
+                            self.error(*span, messages::comptime_qualifier_on_type(&base.name.name, &ty.root.name));
                             return None;
                         }
                         let annotations = match &self.bound {
@@ -3275,7 +3168,7 @@ impl<'w> Expander<'w> {
                             _ => self.world.struct_named(&ty.root.name).map(|s| s.annotations.clone()),
                         };
                         let Some(annotations) = annotations else {
-                            self.error(*span, format!("`{}` is not a struct, so it carries no comptime qualifiers [comptime-qualifier]", ty.root.name));
+                            self.error(*span, messages::comptime_qualifier_not_a_struct(&ty.root.name));
                             return None;
                         };
                         return self.match_annotation(&annotations, base, binders, "Struct", *span, can_bind);
@@ -3289,7 +3182,7 @@ impl<'w> Expander<'w> {
                     Type::Named { qualifiers, base } if !qualifiers.is_empty() => {
                         let values = binders.iter().any(|b| b.name.starts_with(|c: char| c.is_lowercase()));
                         if values && !can_bind {
-                            self.error(*span, "a pattern's binders bind nothing under `||` or `!` — what the test proves holds only where it did: write `*` there [comptime-pattern] [flow-or-not]");
+                            self.error(*span, messages::comptime_pattern_binder_under_or_not());
                             return None;
                         }
                         let ok = self.match_type_quals(qualifiers, &t, binders, *span)?;
@@ -3309,9 +3202,7 @@ impl<'w> Expander<'w> {
                 if !binders.is_empty() && !can_bind {
                     self.error(
                         *span,
-                        "a pattern's binders bind nothing under `||` or `!` — what the test \
-                         proves holds only where it did: write `*` there [comptime-pattern] \
-                         [flow-or-not]",
+                        messages::comptime_pattern_binder_under_or_not(),
                     );
                     return None;
                 }
@@ -3322,7 +3213,7 @@ impl<'w> Expander<'w> {
                     for (name, ty) in got {
                         let Some(id) = binders.iter().find(|b| b.name == name) else { continue };
                         if binds.iter().any(|(b, _)| b.name == name) {
-                            self.error(*span, format!("pattern binder `{name}` is declared twice in one condition [comptime-pattern]"));
+                            self.error(*span, messages::comptime_pattern_duplicate_binder(&name));
                             return None;
                         }
                         binds.push((id.clone(), ty));
@@ -3341,7 +3232,7 @@ impl<'w> Expander<'w> {
             }
             CompCond::NameIs { binder, lits, span } => {
                 let Some(b) = self.binding(&binder.name).cloned() else {
-                    self.error(*span, format!("`{}` is not a binder [comptime-inline]", binder.name));
+                    self.error(*span, messages::comptime_inline_not_a_binder(&binder.name));
                     return None;
                 };
                 // [comptime-name] `binder.name` is a literal of the union of
@@ -3354,18 +3245,18 @@ impl<'w> Expander<'w> {
             }
             CompCond::Flag { binder, last, span } => {
                 let Some(b) = self.binding(&binder.name) else {
-                    self.error(*span, format!("`{}` is not a binder [comptime-inline]", binder.name));
+                    self.error(*span, messages::comptime_inline_not_a_binder(&binder.name));
                     return None;
                 };
                 Some(if *last { b.last } else { b.first })
             }
             CompCond::Annotated { subject, binders, qual, span } => {
                 let Some(b) = self.binding(&subject.name).cloned() else {
-                    self.error(*span, format!("`{}` is not a binder [comptime-inline]", subject.name));
+                    self.error(*span, messages::comptime_inline_not_a_binder(&subject.name));
                     return None;
                 };
                 if b.is_arm {
-                    self.error(*span, format!("`{}` is an arm, and an arm carries no comptime qualifiers yet [comptime-qualifier]", subject.name));
+                    self.error(*span, messages::comptime_qualifier_on_arm(&subject.name));
                     return None;
                 }
                 self.match_annotation(&b.annotations, qual, binders, "Field", *span, can_bind)
@@ -3382,30 +3273,30 @@ impl<'w> Expander<'w> {
                 if self.world.declares_type(&binder.name) {
                     return Some(self.world.docs_of(&World::simple_named(&binder.name, binder.span)).is_none());
                 }
-                self.error(*span, format!("`{}` is neither a binder nor a type [comptime-docs]", binder.name));
+                self.error(*span, messages::comptime_docs_not_binder_or_type(&binder.name));
                 None
             }
             CompCond::Unset { binder, docs: false, span } => {
                 let Some(b) = self.binding(&binder.name) else {
-                    self.error(*span, format!("`{}` is not a binder [comptime-inline]", binder.name));
+                    self.error(*span, messages::comptime_inline_not_a_binder(&binder.name));
                     return None;
                 };
                 if b.is_arm {
-                    self.error(*span, format!("`{}` is an arm, and only a field has a default [comptime-default]", binder.name));
+                    self.error(*span, messages::comptime_default_arm_default(&binder.name));
                     return None;
                 }
                 Some(b.default_of.is_none())
             }
             CompCond::NameEq { a, b, span } => {
                 let (Some(x), Some(y)) = (self.binding(&a.name).map(|b| b.name.clone()), self.binding(&b.name).map(|b| b.name.clone())) else {
-                    self.error(*span, "both sides of a `.name` comparison must be binders [comptime-name]");
+                    self.error(*span, messages::comptime_name_non_binder_compare());
                     return None;
                 };
                 Some(x == y)
             }
             CompCond::IndexCmp { a, b, op, span } => {
                 let (Some(x), Some(y)) = (self.binding(&a.name).map(|b| b.index), self.binding(&b.name).map(|b| b.index)) else {
-                    self.error(*span, "both sides of an `.index` comparison must be binders [comptime-inline]");
+                    self.error(*span, messages::comptime_inline_non_binder_index_compare());
                     return None;
                 };
                 Some(match op {
@@ -3543,11 +3434,7 @@ impl<'w> Expander<'w> {
                 let subject = if ty.via_type { format!("{}.type", ty.root.name) } else { ty.root.name.clone() };
                 self.error(
                     span,
-                    format!(
-                        "no arm of this `[when {subject}]` matches `{t}`, which `{subject}` is \
-                         here: add an arm for it (`is *` matches every type the arms above it \
-                         did not) [comptime-pattern] [when-exhaustive]"
-                    ),
+                    messages::comptime_pattern_no_arm_matches(&subject, &t),
                 );
             }
             CompStmt::WhenKind { ty, arms, span } => {
@@ -3556,10 +3443,10 @@ impl<'w> Expander<'w> {
                 // Exhaustive over the kinds (comptime round 3), with no `else`
                 // [when-exhaustive]: a kind added to the language is an error in
                 // every compfn that did not consider it.
-                if let Some(d) = kind_arms_incomplete(&arms, span) {
+                if let Some(m) = kind_arms_incomplete(&arms) {
                     // At the written construct, as every expansion error is
                     // (a copy's nodes are the template's [node-origin]).
-                    self.error(span, d.message);
+                    self.error(span, m);
                     return;
                 }
                 let chosen = arms
@@ -3567,14 +3454,14 @@ impl<'w> Expander<'w> {
                     .find(|a| kind_matches(a.kind, actual))
                     .map(|a| a.body);
                 let Some(chosen) = chosen else {
-                    self.error(span, format!("`{}` is a `{}`, which this `[when …]` does not handle [comptime-inline]", self.world.normalized(&t), actual.word()));
+                    self.error(span, messages::comptime_inline_unhandled_kind(&self.world.normalized(&t), actual.word()));
                     return;
                 };
                 self.expand_scoped(chosen, out);
             }
             CompStmt::WhenName { binder, arms, span } => {
                 let Some(b) = self.binding(&binder.name).cloned() else {
-                    self.error(span, format!("`{}` is not a binder of an enclosing `[for …]` [comptime-name]", binder.name));
+                    self.error(span, messages::comptime_name_not_a_binder(&binder.name));
                     return;
                 };
                 // [comptime-name] Every literal names a member of the union,
@@ -3585,7 +3472,7 @@ impl<'w> Expander<'w> {
                 for arm in &arms {
                     for (lit, lspan) in &arm.lits {
                         if covered.contains(lit) {
-                            self.error(*lspan, format!("`{lit}` is already covered by an earlier arm of this `[when {}.name]` [comptime-name] [when-exhaustive]", binder.name));
+                            self.error(*lspan, messages::comptime_name_covered_twice(&lit, &binder.name));
                             ok = false;
                         }
                         ok &= self.check_names(&b, std::slice::from_ref(lit), *lspan);
@@ -3607,16 +3494,9 @@ impl<'w> Expander<'w> {
                         .map(|s| format!("`{s}`"))
                         .collect();
                     if !missing.is_empty() {
-                        let what = if b.is_arm { "arm" } else { "field" };
                         self.error(
                             span,
-                            format!(
-                                "this `[when {}.name]` does not cover every {what} of `{}`: \
-                                 missing {} — add them [comptime-name] [when-exhaustive]",
-                                binder.name,
-                                b.sibling_owner,
-                                missing.join(", ")
-                            ),
+                            messages::comptime_name_missing_names(&binder.name, b.is_arm, &b.sibling_owner, &missing.join(", ")),
                         );
                         return;
                     }
@@ -3645,11 +3525,11 @@ impl<'w> Expander<'w> {
                     _ => None,
                 };
                 let Some(subject_ty) = subject_ty else {
-                    self.error(span, "a `[when value]` dispatches on a field read (`v.[field]`) or a parameter of the bound type [comptime-inline]");
+                    self.error(span, messages::comptime_inline_when_value_subject());
                     return;
                 };
                 if self.world.classify(&subject_ty, &self.generics(), 0) != TypeKindWord::Union {
-                    self.error(span, format!("`{}` is not a `Union`, so there are no arms to dispatch on [comptime-inline]", self.world.normalized(&subject_ty)));
+                    self.error(span, messages::comptime_inline_when_value_not_union(&self.world.normalized(&subject_ty)));
                     return;
                 }
                 visit_mut::walk_expr(self, &mut value);
@@ -3660,7 +3540,7 @@ impl<'w> Expander<'w> {
                 let mut branches = Vec::new();
                 for (i, arm) in arms.iter().enumerate() {
                     let Some(mut check) = arm_check(arm) else {
-                        self.error(span, format!("arm `{arm}` of `{}` cannot be dispatched on: only a named arm can be tested with `is` [comptime-inline]", self.world.normalized(&subject_ty)));
+                        self.error(span, messages::comptime_inline_unnamed_arm(&arm, &self.world.normalized(&subject_ty)));
                         return;
                     };
                     let b = Binding {
@@ -3709,7 +3589,7 @@ impl<'w> Expander<'w> {
                 let text = match literal_text(&message) {
                     Some(t) => t,
                     None => {
-                        self.error(span, "a `refuse` message is literal text, with `${T.name}`-style names substituted [comptime-refuse]");
+                        self.error(span, messages::comptime_refuse_non_literal_message());
                         return;
                     }
                 };
@@ -3721,7 +3601,7 @@ impl<'w> Expander<'w> {
                     .unwrap_or_default();
                 let where_ = self.report_span(span);
                 self.errors.push(Diagnostic::error(
-                    if at.is_empty() { text } else { format!("`{at}` refused: {text} [comptime-refuse]") },
+                    messages::comptime_refuse_refused(&at, &text),
                     where_,
                 ));
             }
@@ -3792,7 +3672,7 @@ impl MutVisitor for Expander<'_> {
                 Some(bd) => Some(bd.ty.clone()),
                 None => {
                     let span = base.span;
-                    self.error(span, format!("`{b}` is not a binder of an enclosing `[for …]` or `[when …]` [comptime-fields]"));
+                    self.error(span, messages::comptime_fields_not_a_binder(&b));
                     None
                 }
             }
@@ -3849,7 +3729,7 @@ impl MutVisitor for Expander<'_> {
                     let span = id.span;
                     match self.binding(&b).map(|bd| bd.ty.clone()) {
                         Some(Type::Named { base, .. }) if base.name.name == "None" => {
-                            self.error(span, "a `None` arm is built with `None`, not called [comptime-arm]");
+                            self.error(span, messages::comptime_arm_none_called());
                         }
                         Some(Type::Named { qualifiers, base }) => {
                             if qualifiers.is_empty() {
@@ -3869,10 +3749,10 @@ impl MutVisitor for Expander<'_> {
                             }
                         }
                         Some(other) => {
-                            self.error(span, format!("`{other}` has no constructor to call: an arm built this way is a named type, qualified or not; a `None` arm is `None` [comptime-arm]"));
+                            self.error(span, messages::comptime_arm_no_constructor(&other));
                         }
                         None => {
-                            self.error(span, format!("`{b}` is not a binder of an enclosing `[for …]` or `[when …]` [comptime-fields]"));
+                            self.error(span, messages::comptime_fields_not_a_binder(&b));
                         }
                     }
                 }
@@ -3892,9 +3772,9 @@ impl MutVisitor for Expander<'_> {
                                 r
                             }).chain(rest).collect();
                         }
-                        None => self.error(span, format!("`{b}.type` is `{}` here, which an `is` cannot test: an `is` tests a named type, qualified or not [comptime-is-splice]", ty)),
+                        None => self.error(span, messages::comptime_is_splice_untestable_type(&b, &ty)),
                     },
-                    None => self.error(span, format!("`{b}` is not a binder of an enclosing `[for …]` or `[when …]` [comptime-fields]")),
+                    None => self.error(span, messages::comptime_fields_not_a_binder(&b)),
                 }
             }
         }
@@ -3909,11 +3789,11 @@ impl MutVisitor for Expander<'_> {
                         }
                         Some(_) => {
                             let span = *span;
-                            self.error(span, format!("`.[{b}]` reads a field, and `{b}` is an arm binder [comptime-access]"));
+                            self.error(span, messages::comptime_access_arm_binder(&b));
                         }
                         None => {
                             let span = *span;
-                            self.error(span, format!("`{b}` is not a binder of an enclosing `[for …]` [comptime-access]"));
+                            self.error(span, messages::comptime_access_not_a_binder(&b));
                         }
                     }
                     return;
@@ -3937,7 +3817,7 @@ impl MutVisitor for Expander<'_> {
                             Some(salvo_syntax::ast::TypeLit::Int(v)) => *expr = Expr::Int { value: *v, long: false, span },
                             Some(salvo_syntax::ast::TypeLit::Long(v)) => *expr = Expr::Int { value: *v, long: true, span },
                             Some(salvo_syntax::ast::TypeLit::Bool(v)) => *expr = Expr::Bool { value: *v, span },
-                            None => self.error(span, format!("`{}.value` is a literal member's, read in a `[for … in x.literals]` [comptime-literals]", root.name)),
+                            None => self.error(span, messages::comptime_literals_value_outside_literals(&root.name)),
                         },
                         "last" => *expr = Expr::Bool { value: bd.last, span },
                         // [comptime-docs] The element's doc comment, as a
@@ -3953,7 +3833,7 @@ impl MutVisitor for Expander<'_> {
                         // where it declares none, so a copy can pass it to a
                         // `T?` either way.
                         "default" if bd.is_arm => {
-                            self.error(span, format!("`{}` is an arm, and only a field has a default [comptime-default]", root.name));
+                            self.error(span, messages::comptime_default_arm_default(&root.name));
                         }
                         "default" => {
                             *expr = match &bd.default_of {
@@ -3967,10 +3847,10 @@ impl MutVisitor for Expander<'_> {
                             };
                         }
                         "kind" => {
-                            self.error(span, format!("`{}.kind` is tested in a comptime head (`[if {}.kind is Struct]`, `[when {}.kind]`), not read as a value [comptime-kind]", root.name, root.name, root.name));
+                            self.error(span, messages::comptime_kind_kind_as_value(&root.name));
                         }
                         other => {
-                            self.error(span, format!("a `Field`/`Arm` has `.name`, `.kind`, `.type`, `.index`, `.first`, `.last`, `.docs` and (a field) `.default`, not `.{other}` [comptime-fields]"));
+                            self.error(span, messages::comptime_fields_unknown_property(&other));
                         }
                     }
                     return;
@@ -4060,7 +3940,7 @@ impl MutVisitor for Expander<'_> {
                     Some(bd) if !bd.is_arm => name.name = bd.name.clone(),
                     _ => {
                         let span = name.span;
-                        self.error(span, format!("`[{b}]:` names a field through a binder, and `{b}` is not a field binder of an enclosing `[for …]` [comptime-access]"));
+                        self.error(span, messages::comptime_access_not_a_field_binder(&b));
                     }
                 }
             }

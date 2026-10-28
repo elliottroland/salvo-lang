@@ -340,8 +340,14 @@ struct P : Ordered<self> {
     assert_eq!(errs.len(), 1, "{errs:?}");
     assert!(
         errs[0].starts_with("4: parameter `cmp` hides the function `cmp` that `auto`'s `cmp` calls in its body")
-            && errs[0].ends_with("[fn-by]"),
+            && errs[0].ends_with(": name the parameter differently"),
         "{errs:?}"
+    );
+    let built = salvo_testkit::front::program("kt", &[("main.sv", src)]);
+    assert!(
+        built.diagnostics.iter().any(|d| d.id == Some("fn-by:param-hides-name")),
+        "{:?}",
+        built.diagnostics
     );
     // Any other name stamps, the declared one included.
     let renamed = src.replace("cmp(cmp: P", "cmp(first: P");

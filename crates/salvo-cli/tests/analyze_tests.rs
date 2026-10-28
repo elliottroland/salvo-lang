@@ -177,7 +177,7 @@ fn a_project_module_under_std_is_refused() {
     assert!(!out.status.success(), "stderr: {stderr}");
     assert!(
         stderr.contains("module `std.core.extra.auto` is under `std`, which is reserved for the standard library")
-            && stderr.contains("[std-root] --> std/core/extra/auto.sv:1:1"),
+            && stderr.contains("move this file out of its `std/` directory --> std/core/extra/auto.sv:1:1"),
         "stderr: {stderr}"
     );
     assert!(!stderr.contains("[diag-std-hidden]"), "std itself checks: {stderr}");
@@ -200,7 +200,7 @@ fn a_bare_std_import_names_the_corrected_path() {
     assert!(!out.status.success(), "stderr: {stderr}");
     for corrected in ["import std.time`", "import std.core.list`", "import std.fs.mem.MemFs`"] {
         assert!(
-            stderr.contains(&format!("the standard library's modules are under `std`: write `{corrected} [std-root]")),
+            stderr.contains(&format!("the standard library's modules are under `std`: write `{corrected} --> ")),
             "{corrected}: {stderr}"
         );
     }
@@ -3081,7 +3081,7 @@ fn a_same_signature_overload_beside_std_is_refused_at_its_declaration() {
         stderr.contains("`to_str(List<T>)` has the shape of `to_str` on `List`")
             && stderr.contains("(module `std.core.list`)")
             && stderr.contains("Give this one another name and pass it explicitly")
-            && stderr.contains("[op-unique-shape] --> main.sv:1:4"),
+            && stderr.contains("(`to_str = by_name`) --> main.sv:1:4"),
         "{stderr}"
     );
     // [op-unique-shape] The refused declaration is a candidate nowhere, so its
@@ -3116,7 +3116,7 @@ fn an_unfillable_winner_is_an_error_naming_the_chain() {
     assert!(!out.status.success(), "{stderr}");
     assert!(
         stderr.contains("`to_str(T)` has the shape of `to_str` on the type parameter `T`, which has no declaring file")
-            && stderr.contains("[op-unique-shape] --> main.sv:1:4"),
+            && stderr.contains("(`to_str = by_name`) --> main.sv:1:4"),
         "{stderr}"
     );
 

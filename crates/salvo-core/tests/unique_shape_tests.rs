@@ -54,7 +54,7 @@ fn refusals(files: &[File]) -> Vec<String> {
     resolution
         .errors
         .iter()
-        .filter(|d| d.message.contains("[op-unique-shape]"))
+        .filter(|d| d.id.is_some_and(|id| salvo_syntax::messages::label_of(id) == "op-unique-shape"))
         .map(|d| {
             let file = &program.files[d.file];
             let line = file.content[..(d.span.start as usize).min(file.content.len())].matches('\n').count() + 1;

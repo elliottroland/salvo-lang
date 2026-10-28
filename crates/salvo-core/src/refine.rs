@@ -47,6 +47,7 @@ use salvo_syntax::ast::{
     Deduction, DeductionKind, Ident, Item, Param, QualSubject, QualifierDecl, RefnDecl,
     Type, TypeRef,
 };
+use salvo_syntax::messages;
 use salvo_syntax::Span;
 
 use crate::diag::FileDiagnostic;
@@ -382,12 +383,7 @@ fn resolve_refn<'p>(
         errors.push(FileDiagnostic::error(
             file_idx,
             id.span,
-            format!(
-                "unknown type `{name}` in this refinement's parameter list: if it \
-                 is a type parameter of the function being refined, declare it \
-                 here too (`refn {}<{name}>(...)`)",
-                decl.name.name
-            ),
+            messages::qual_refn_match_unknown_type(name, &decl.name.name),
         ));
     }
     if any_unbound {
@@ -399,11 +395,7 @@ fn resolve_refn<'p>(
         errors.push(FileDiagnostic::error(
             file_idx,
             decl.name.span,
-            format!(
-                "no function `{name}` is visible here, so there is nothing to \
-                 refine: a refinement names an existing function and repeats its \
-                 parameter list to pick one overload"
-            ),
+            messages::qual_refn_match_no_function(name),
         ));
         return None;
     }
@@ -453,12 +445,7 @@ fn resolve_refn<'p>(
         errors.push(FileDiagnostic::error(
             file_idx,
             decl.name.span,
-            format!(
-                "this refinement matches no `{name}` in scope: its parameters must \
-                 line up positionally with an overload's (each base type a super- \
-                 or subtype of the other, `*` for the rest). In scope: {}",
-                shapes.join(", ")
-            ),
+            messages::qual_refn_match_no_overload(name, &shapes.join(", ")),
         ));
         return None;
     }
@@ -474,7 +461,7 @@ fn resolve_refn<'p>(
             errors.push(FileDiagnostic::error(
                 file_idx,
                 e.span,
-                format!("`{param}` appears twice in this refinement's deductions"),
+                messages::qual_refn_duplicate_param(param),
             ));
             continue;
         }
@@ -484,7 +471,7 @@ fn resolve_refn<'p>(
             errors.push(FileDiagnostic::error(
                 file_idx,
                 e.span,
-                format!("`{param}` is not a parameter of this refinement"),
+                messages::qual_refn_unknown_param(param),
             ));
             continue;
         };
@@ -497,10 +484,7 @@ fn resolve_refn<'p>(
             errors.push(FileDiagnostic::error(
                 file_idx,
                 e.span,
-                format!(
-                    "`{param}` states nothing: write `+Qual` if the call \
-                     establishes a qualifier, `-Qual` if it invalidates one"
-                ),
+                messages::qual_refn_states_nothing(param),
             ));
             continue;
         }
@@ -514,10 +498,7 @@ fn resolve_refn<'p>(
                 errors.push(FileDiagnostic::error(
                     file_idx,
                     e.span,
-                    format!(
-                        "`{name}` moves `{param}`, so a caller knows nothing about \
-                         it afterwards — there is nothing to refine"
-                    ),
+                    messages::qual_refn_moved_param(name, param),
                 ));
                 continue;
             }
@@ -545,10 +526,7 @@ fn resolve_refn<'p>(
                 errors.push(FileDiagnostic::error(
                     file_idx,
                     e.span,
-                    format!(
-                        "this refinement both establishes and invalidates `{q}` for \
-                         `{param}`"
-                    ),
+                    messages::qual_refn_entry_contradiction(q, param),
                 ));
             }
         }
@@ -568,11 +546,7 @@ fn resolve_refn<'p>(
                 errors.push(FileDiagnostic::error(
                     file_idx,
                     decl.name.span,
-                    format!(
-                        "this refinement both establishes and invalidates `{q}` for \
-                         parameter {} — it cannot do both [qual-refn]",
-                        pos + 1
-                    ),
+                    messages::qual_refn_position_contradiction(q, pos + 1),
                 ));
             }
         }
@@ -632,13 +606,7 @@ fn check_refined_qual(
             errors.push(FileDiagnostic::error(
                 file_idx,
                 r.span,
-                format!(
-                    "a refinement declared by `{}` can only {verb} `{}`, not \
-                     `{q}`: a qualifier states what happens to *its own* claim. \
-                     A call that needs both statements names the place it means \
-                     (`f@place`) [qual-refn]",
-                    owner.name.name, owner.name.name
-                ),
+                messages::qual_refn_foreign_qualifier(&owner.name.name, verb, q),
             ));
             return None;
         }
@@ -663,7 +631,7 @@ fn check_refined_qual(
         errors.push(FileDiagnostic::error(
             file_idx,
             r.span,
-            format!("unknown qualifier `{q}`"),
+            messages::qual_refn_unknown_qualifier(q),
         ));
         return None;
     };
@@ -676,11 +644,7 @@ fn check_refined_qual(
         errors.push(FileDiagnostic::error(
             file_idx,
             r.span,
-            format!(
-                "`{q}` is one of the compiler's own qualifiers: a refinement may \
-                 only {verb} a state qualifier, since it changes what is *known* \
-                 about a value and not what may be done with it"
-            ),
+            messages::qual_subject_compiler_qualifier(q, verb),
         ));
         return None;
     }
@@ -688,11 +652,7 @@ fn check_refined_qual(
         errors.push(FileDiagnostic::error(
             file_idx,
             r.span,
-            format!(
-                "`{q}` is a provenance qualifier, which no call can invalidate \
-                 [qual-subject] — so there is nothing for a refinement to say \
-                 about it; only state qualifiers can be refined"
-            ),
+            messages::qual_subject_provenance(q),
         ));
         return None;
     }
@@ -710,11 +670,7 @@ fn check_refined_qual(
             errors.push(FileDiagnostic::error(
                 file_idx,
                 r.span,
-                format!(
-                    "`{q}` is not a dependent qualifier [qual-depend]: `preserve` \
-                     speaks about claims other values hold, which only a \
-                     qualifier with value slots can be"
-                ),
+                messages::qual_depend_preserve_not_dependent(q),
             ));
             return None;
         }
@@ -727,11 +683,7 @@ fn check_refined_qual(
                 errors.push(FileDiagnostic::error(
                     file_idx,
                     r.span,
-                    format!(
-                        "no value slot of `{q}` accepts a `{}`: `preserve` names \
-                         the parameter the claims depend on",
-                        param.ty
-                    ),
+                    messages::qual_preserve_no_value_slot(q, &param.ty),
                 ));
                 return None;
             }
@@ -743,10 +695,7 @@ fn check_refined_qual(
             errors.push(FileDiagnostic::error(
                 file_idx,
                 r.span,
-                format!(
-                    "`{q}` applies to `{}`, not to `{}`: `{}` is declared `{}: {}`",
-                    qd.of, base, decl.name.name, param.name.name, param.ty
-                ),
+                messages::qual_of_wrong_subject(q, &qd.of, &base, &decl.name.name, &param.name.name, &param.ty),
             ));
             return None;
         }

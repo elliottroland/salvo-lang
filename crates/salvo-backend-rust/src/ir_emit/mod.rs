@@ -98,7 +98,7 @@ fn run(
         union_sizes: BTreeSet::new(),
         needs_str: false,
         needs_seq: false,
-        errors: fn_names.errors.clone(),
+        errors: fn_names.errors.iter().map(|m| m.text.clone()).collect(),
         decls: HashMap::new(),
         platform_effects: reach.platform_effects.clone(),
         platform_hosts: BTreeSet::new(),
@@ -299,7 +299,7 @@ fn run(
             continue;
         }
         let what: String = program.units().filter(|u| u.file.module == *module).map(|u| salvo_core::platform_declarations(u.ast)).collect::<Vec<_>>().join(", ");
-        errors.push(salvo_core::missing_handler_host_error(&what, module, &salvo_core::host_rel_path(module, "rs")));
+        errors.push(salvo_core::missing_handler_host_error(&what, module, &salvo_core::host_rel_path(module, "rs")).text);
     }
     // Crate-root assembly [rs-crate].
     if !files.is_empty() {

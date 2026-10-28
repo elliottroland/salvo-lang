@@ -17670,7 +17670,7 @@ fn a_catch_all_to_str_is_refused_at_its_declaration() {
     assert!(
         errors.iter().any(|e| e.contains("`to_str(T)` has the shape of `to_str` on the type parameter `T`")
             && e.contains("give this one another name and pass it explicitly")
-            && e.contains("[op-unique-shape]")),
+            && e.contains("where it is wanted (`to_str = by_name`)")),
         "{errors:?}"
     );
 }

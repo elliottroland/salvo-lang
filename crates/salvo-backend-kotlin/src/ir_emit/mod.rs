@@ -103,7 +103,7 @@ pub fn emit_program_ir_over(program: &Program, abi: bool, std: Option<&salvo_cor
         if declares && salvo_core::host_file(&program.companions, &m.path).is_none() {
             let what: String = program.units().filter(|u| u.file.module == m.path).map(|u| salvo_core::platform_declarations(u.ast)).collect::<Vec<_>>().join(", ");
             let rel = salvo_core::host_rel_path(&m.path, "kt");
-            shared.errors.push(salvo_core::missing_handler_host_error(&what, &m.path, &rel));
+            shared.errors.push(salvo_core::missing_handler_host_error(&what, &m.path, &rel).text);
         }
     }
     let mut files = Vec::new();

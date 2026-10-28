@@ -709,12 +709,11 @@ fn the_default_clauses_are_validated_at_the_declaration() {
     // A `canbe Mut` struct could change under the collection holding it. The
     // refusal is one error; the obligation left unfulfilled by it is another,
     // at the clause.
-    let mutable =
-        lit_messages("struct K : Hashed<self> by auto canbe Mut {\n    v: Int\n}\n");
+    let mutable = lit_checked("struct K : Hashed<self> by auto canbe Mut {\n    v: Int\n}\n").errors;
     assert!(
-        mutable
-            .iter()
-            .any(|m| m.contains("`K` refused") && m.contains("`Mut`-capable struct") && m.contains("[comptime-refuse]")),
+        mutable.iter().any(|d| d.id == Some("comptime-refuse:refused")
+            && d.message.contains("`K` refused")
+            && d.message.contains("`Mut`-capable struct")),
         "unexpected messages: {mutable:?}"
     );
 

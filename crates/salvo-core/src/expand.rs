@@ -11,6 +11,7 @@
 use std::sync::Arc;
 
 use salvo_syntax::ast::{Item, Module};
+use salvo_syntax::messages;
 
 use crate::diag::FileDiagnostic;
 use crate::source::{ModulePath, SourceFile};
@@ -99,12 +100,7 @@ pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Ve
         for item in std::mem::take(&mut module.items) {
             match item {
                 Item::Test(t) => diags.push(salvo_syntax::Diagnostic::error(
-                    format!(
-                        "a `test` block belongs in a test annex, not in a \
-                         production source file: move it to `{annex}`, which is \
-                         part of this module and sees its private declarations \
-                         [test-file]"
-                    ),
+                    messages::test_file_test_in_production(&annex),
                     t.name_span,
                 )),
                 other => kept.push(other),

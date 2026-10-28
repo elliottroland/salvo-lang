@@ -65,6 +65,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use salvo_syntax::ast::{self, Item};
+use salvo_syntax::messages;
 use salvo_syntax::span::Span;
 
 use crate::check::Checked;
@@ -782,16 +783,7 @@ fn report(
         out.errors.push(FileDiagnostic::error(
             occ.file,
             occ.span,
-            format!(
-                "these actors can wait for each other through a shared handler: {path} \
-                 ({handlers}). A sync member of a mixed handler parks its caller until \
-                 the servant answers, and a parked activation serves nothing of its own \
-                 mailbox — so each step of this cycle waits on the next, and the \
-                 fulfilment routes back through a stalled queue. Break the cycle: have \
-                 the servant answer without reaching the peer, respell the consulting \
-                 call as a send plus a continuation, or bind a handler of the effect \
-                 that does not wait — a monitor, or a scope-local `use`"
-            ),
+            messages::actor_mixed_handler_occupancy_cycle(&path, &handlers),
         ));
         return;
     }
@@ -803,39 +795,17 @@ fn report(
         (true, true) => out.errors.push(FileDiagnostic::error(
             first.file,
             first.span,
-            format!(
-                "these actors wait for each other: {path} ({handlers}). A handler whose \
-                 member waits serves no message while it waits, so each of them \
-                 is waiting for an answer the next can only produce after its own \
-                 arrives — and a thread of its own does not help, since the fulfilment \
-                 routes back through a stalled mailbox. Break the cycle: park a \
-                 continuation with `replyto` instead of waiting, or have the answer \
-                 come from a third actor neither of them waits on"
-            ),
+            messages::actor_deadlock_cycle_wait_cycle(&path, &handlers),
         )),
         (true, false) => out.errors.push(FileDiagnostic::error(
             first.file,
             first.span,
-            format!(
-                "these actors wait for each other: {path} ({handlers}). A `replyto!` \
-                 gate serves nothing but its own answer, so each of them is waiting for \
-                 a reply the next can only produce after its own arrives — a deadlock \
-                 whenever the requests cross. Break the cycle: make one side's \
-                 continuation ungated (`replyto`, whose mailbox stays open), or have \
-                 the answer come from a third actor neither of them waits on"
-            ),
+            messages::actor_deadlock_cycle_gate_cycle(&path, &handlers),
         )),
         (false, _) => out.errors.push(FileDiagnostic::warning(
             first.file,
             first.span,
-            format!(
-                "these actors send to each other in a cycle: {path} ({handlers}). A \
-                 send blocks while the target's mailbox is full, so this deadlocks if \
-                 the mailboxes fill at the same time — a failure that appears under \
-                 load and not in a test. Give the queues room (a larger `capacity`), or \
-                 break the cycle by routing one direction through a reply token, which \
-                 has capacity reserved and never blocks"
-            ),
+            messages::actor_deadlock_cycle_send_cycle(&path, &handlers),
         )),
     }
 }

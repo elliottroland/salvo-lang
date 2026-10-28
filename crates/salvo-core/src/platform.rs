@@ -8,6 +8,7 @@
 //! so they live here rather than twice in the emitters.
 
 use salvo_syntax::ast::{FnDecl, HandlerDecl, Item, Module};
+use salvo_syntax::messages;
 
 use crate::program::Program;
 
@@ -75,13 +76,8 @@ pub fn missing_handler_host_error(
     what: &str,
     module: &ModulePath,
     rel_path: &std::path::Path,
-) -> String {
-    format!(
-        "error: module `{module}` declares {what}, implemented by the host in `{}` under the \
-         platform root, but that file does not exist: run `salvo platform generate` to create \
-         the skeleton",
-        rel_path.display()
-    )
+) -> messages::Message {
+    messages::platform_tree_missing_host_file(what, module, rel_path)
 }
 
 /// [platform-handler] [platform-fn] What a module's implementation file
@@ -204,10 +200,7 @@ pub fn platform_root_required(
         return vec![crate::FileDiagnostic::error(
             file,
             span,
-            format!(
-                "{what} is implemented in platform files, which are found through a platform root \
-                 named in the project's `salvo.toml` — and this program has no `salvo.toml` [platform-root]"
-            ),
+            messages::platform_root_no_manifest(&what),
         )];
     };
     let roots = project.platform_roots();
@@ -216,12 +209,7 @@ pub fn platform_root_required(
         if roots.get(backend).is_some() {
             continue;
         }
-        let msg = format!(
-            "{what} is implemented in platform files, but `salvo.toml` names no platform root \
-             for {backend}: add `[build] platform = \"…\"` (every backend) or `[{backend}] \
-             platform = \"…\"` [platform-root]"
-        );
-        out.push(crate::FileDiagnostic::error(file, span, msg));
+        out.push(crate::FileDiagnostic::error(file, span, messages::platform_root_no_root(&what, backend)));
     }
     out
 }

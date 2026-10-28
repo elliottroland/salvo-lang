@@ -967,6 +967,806 @@ messages! {
         "a test called `{name}` is already declared in this file: test names identify a \
          test to the runner, so they have to differ"
     );
+
+    // ===== expand =====
+
+    // [test-file]
+    /// A `test` block in a production source file.
+    test_file_test_in_production = "test-file:test-in-production" (annex: &str) => format!(
+        "a `test` block belongs in a test annex, not in a production source file: move \
+         it to `{annex}`, which is part of this module and sees its private declarations"
+    );
+
+    // ===== comptime =====
+
+    // [comptime-access]
+    /// `.[b]` with an arm binder.
+    comptime_access_arm_binder = "comptime-access:arm-binder" (b: &str) => format!(
+        "`.[{b}]` reads a field, and `{b}` is an arm binder"
+    );
+    /// `.[b]` where `b` is no binder of an enclosing `[for …]`.
+    comptime_access_not_a_binder = "comptime-access:not-a-binder" (b: &str) => format!(
+        "`{b}` is not a binder of an enclosing `[for …]`"
+    );
+    /// `[b]:` where `b` is no field binder of an enclosing `[for …]`.
+    comptime_access_not_a_field_binder = "comptime-access:not-a-field-binder" (b: &str) => format!(
+        "`[{b}]:` names a field through a binder, and `{b}` is not a field binder of an \
+         enclosing `[for …]`"
+    );
+
+    // [comptime-arm]
+    /// A `None` arm called like a constructor.
+    comptime_arm_none_called = "comptime-arm:none-called" () =>
+        "a `None` arm is built with `None`, not called";
+    /// An arm built by calling a type that has no constructor.
+    comptime_arm_no_constructor = "comptime-arm:no-constructor" (ty: &dyn std::fmt::Display) => format!(
+        "`{ty}` has no constructor to call: an arm built this way is a named type, \
+         qualified or not; a `None` arm is `None`"
+    );
+
+    // [comptime-bound]
+    /// A `by @module` whose module has the member, but not for this kind.
+    comptime_bound_wrong_kind = "comptime-bound:wrong-kind" (module: &dyn std::fmt::Display, member: &str, kind: &str) => format!(
+        "`{module}` has no `comptime fn {member}<T is {kind}>`: its `{member}` is not \
+         written for a `{kind}`"
+    );
+    /// A module that declares one `comptime fn` for a kind twice.
+    comptime_bound_duplicate = "comptime-bound:duplicate" (module: &dyn std::fmt::Display, member: &str, kind: &str) => format!(
+        "`{module}` declares `comptime fn {member}<T is {kind}>` more than once"
+    );
+
+    // [comptime-default]
+    /// `.default` read on an arm binder.
+    comptime_default_arm_default = "comptime-default:arm-default" (binder: &str) => format!(
+        "`{binder}` is an arm, and only a field has a default"
+    );
+
+    // [comptime-docs]
+    /// `.docs` read on something that is neither a binder nor a type.
+    comptime_docs_not_binder_or_type = "comptime-docs:not-binder-or-type" (name: &str) => format!(
+        "`{name}` is neither a binder nor a type"
+    );
+
+    // [comptime-fields]
+    /// A name used as a binder that no enclosing `[for …]` or `[when …]` binds.
+    comptime_fields_not_a_binder = "comptime-fields:not-a-binder" (name: &str) => format!(
+        "`{name}` is not a binder of an enclosing `[for …]` or `[when …]`"
+    );
+    /// A compile-time type root that names nothing walkable.
+    comptime_fields_unknown_type = "comptime-fields:unknown-type" (name: &str) => format!(
+        "`{name}` is not the bound type parameter, a binder's `.type`, or a declared \
+         struct or union type"
+    );
+    /// `.arms` of a type that is not a union.
+    comptime_fields_arms_of_non_union = "comptime-fields:arms-of-non-union" (ty: &dyn std::fmt::Display, kind: &str) => format!(
+        "`{ty}` is a `{kind}`, and only a `Union` has `.arms`"
+    );
+    /// `.fields` of a type that is not a struct.
+    comptime_fields_fields_of_non_struct = "comptime-fields:fields-of-non-struct" (ty: &dyn std::fmt::Display, kind: &str) => format!(
+        "`{ty}` is a `{kind}`, and only a `Struct` has `.fields`"
+    );
+    /// A property a `Field`/`Arm` binder does not have.
+    comptime_fields_unknown_property = "comptime-fields:unknown-property" (other: &str) => format!(
+        "a `Field`/`Arm` has `.name`, `.kind`, `.type`, `.index`, `.first`, `.last`, \
+         `.docs` and (a field) `.default`, not `.{other}`"
+    );
+
+    // [comptime-generic]
+    /// A stamp at a generic type, not supported yet.
+    comptime_generic_generic_target = "comptime-generic:generic-target" (target: &str, template: &str, param: &str, group: &str) => format!(
+        "`{target}` is generic, and stamping `{template}` at a generic type is not \
+         supported yet: the copy for a field of type `{param}` would need an implicit \
+         for it — write the fulfilment by hand, with `?{group}<{param}>` (ROADMAP §2c)"
+    );
+
+    // [comptime-generic-fn]
+    /// A generic struct's fields or arms walked without type arguments.
+    comptime_generic_fn_uninstantiated = "comptime-generic-fn:uninstantiated" (name: &str, what: &str, wanted: &str) => format!(
+        "`{name}` is generic, so its {what} are walked at an instance: write \
+         `{name}<{wanted}>.{what}` with the type arguments meant (a type parameter of \
+         this fn, or a concrete type)"
+    );
+    /// A generic struct walked with the wrong number of type arguments.
+    comptime_generic_fn_type_arg_count = "comptime-generic-fn:type-arg-count" (name: &str, params: usize, given: usize) => format!(
+        "`{name}` takes {params} type argument(s), found {given}"
+    );
+
+    // [comptime-inline]
+    /// A compile-time type test naming an unknown type.
+    comptime_inline_unknown_type = "comptime-inline:unknown-type" (name: &str) => format!(
+        "unknown type `{name}` in a compile-time type test"
+    );
+    /// A comptime condition's subject that is not a binder.
+    comptime_inline_not_a_binder = "comptime-inline:not-a-binder" (name: &str) => format!(
+        "`{name}` is not a binder"
+    );
+    /// An `.index` comparison with a side that is not a binder.
+    comptime_inline_non_binder_index_compare = "comptime-inline:non-binder-index-compare" () =>
+        "both sides of an `.index` comparison must be binders";
+    /// A `[when …]` over a kind meeting a type of a kind it has no arm for.
+    comptime_inline_unhandled_kind = "comptime-inline:unhandled-kind" (ty: &dyn std::fmt::Display, kind: &str) => format!(
+        "`{ty}` is a `{kind}`, which this `[when …]` does not handle"
+    );
+    /// A `[when value]` over something other than a field read or parameter.
+    comptime_inline_when_value_subject = "comptime-inline:when-value-subject" () =>
+        "a `[when value]` dispatches on a field read (`v.[field]`) or a parameter of the \
+         bound type";
+    /// A `[when value]` over a value that is not a union.
+    comptime_inline_when_value_not_union = "comptime-inline:when-value-not-union" (ty: &dyn std::fmt::Display) => format!(
+        "`{ty}` is not a `Union`, so there are no arms to dispatch on"
+    );
+    /// A `[when value]` over a union with an arm `is` cannot test.
+    comptime_inline_unnamed_arm = "comptime-inline:unnamed-arm" (arm: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "arm `{arm}` of `{ty}` cannot be dispatched on: only a named arm can be tested \
+         with `is`"
+    );
+
+    // [comptime-is-splice]
+    /// An `is [b.type]` whose type is not a named type.
+    comptime_is_splice_untestable_type = "comptime-is-splice:untestable-type" (b: &str, ty: &dyn std::fmt::Display) => format!(
+        "`{b}.type` is `{ty}` here, which an `is` cannot test: an `is` tests a named \
+         type, qualified or not"
+    );
+
+    // [comptime-kind]
+    /// A kind word used after `is` as if it were a type.
+    comptime_kind_kind_as_type = "comptime-kind:kind-as-type" (name: &str) => format!(
+        "`{name}` is a kind, not a type: a kind is tested on `.kind` (`field.kind is \
+         {name}`), and `is` after a type compares types"
+    );
+    /// `.kind` read as a value.
+    comptime_kind_kind_as_value = "comptime-kind:kind-as-value" (root: &str) => format!(
+        "`{root}.kind` is tested in a comptime head (`[if {root}.kind is Struct]`, `[when \
+         {root}.kind]`), not read as a value"
+    );
+
+    // [comptime-literals]
+    /// `.literals` of a type that is not a literal union.
+    comptime_literals_not_literal_union = "comptime-literals:not-literal-union" (ty: &dyn std::fmt::Display) => format!(
+        "`{ty}` has no literals: `.literals` walks a literal union's members (`\"json\" \
+         | \"text\"`)"
+    );
+    /// `.value` read on a binder that is not a literal member.
+    comptime_literals_value_outside_literals = "comptime-literals:value-outside-literals" (root: &str) => format!(
+        "`{root}.value` is a literal member's, read in a `[for … in x.literals]`"
+    );
+
+    // [comptime-name]
+    /// A name compared to a binder's `.name` that its sequence does not have.
+    comptime_name_unknown_name = "comptime-name:unknown-name" (owner: &str, is_arm: bool, lit: &str) => format!(
+        "`{owner}` has no {} `{lit}`",
+        if is_arm { "arm" } else { "field" }
+    );
+    /// A `.name` comparison with a side that is not a binder.
+    comptime_name_non_binder_compare = "comptime-name:non-binder-compare" () =>
+        "both sides of a `.name` comparison must be binders";
+    /// A `[when b.name]` whose range is known only where the template is stamped.
+    comptime_name_when_over_derived_name = "comptime-name:when-over-derived-name" (b: &str, bound: &str, f: &str) => format!(
+        "a `[when {b}.name]` cannot be checked here: `{b}.name` ranges over the                              names `{bound}` has, which are known only where `{f}` is stamped, and a                              `[when]` with a subject must cover its range — test with `[if {b}.name is …]`"
+    );
+    /// A `[when b.name]` whose binder no enclosing `[for …]` binds.
+    comptime_name_not_a_binder = "comptime-name:not-a-binder" (name: &str) => format!(
+        "`{name}` is not a binder of an enclosing `[for …]`"
+    );
+    /// A `[when b.name]` arm naming what an earlier arm covers.
+    comptime_name_covered_twice = "comptime-name:covered-twice" (lit: &str, binder: &str) => format!(
+        "`{lit}` is already covered by an earlier arm of this `[when {binder}.name]`"
+    );
+    /// A `[when b.name]` that leaves names of the sequence out.
+    comptime_name_missing_names = "comptime-name:missing-names" (binder: &str, is_arm: bool, owner: &str, missing: &str) => format!(
+        "this `[when {binder}.name]` does not cover every {} of `{owner}`: missing \
+         {missing} — add them",
+        if is_arm { "arm" } else { "field" }
+    );
+
+    // [comptime-pattern]
+    /// A `[when T]` whose range is known only where the template is stamped.
+    comptime_pattern_when_over_derived_type = "comptime-pattern:when-over-derived-type" (subject: &str, bound: &str, f: &str, root: &str) => format!(
+        "a `[when {subject}]` cannot be checked here: `{subject}` ranges over the                              types `{bound}` has, which are known only where `{f}` is stamped, and a                              `[when]` with a subject must cover its range — dispatch on `[when {root}.kind]`,                              or test with `[if {subject} is …]`"
+    );
+    /// A pattern binder no copy used (a warning).
+    comptime_pattern_unused_binder = "comptime-pattern:unused-binder" (name: &str) => format!(
+        "pattern binder `{name}` is never used: write `*` in its place"
+    );
+    /// Pattern binders under `||` or `!`.
+    comptime_pattern_binder_under_or_not = "comptime-pattern:binder-under-or-not" () =>
+        "a pattern's binders bind nothing under `||` or `!` — what the test proves holds \
+         only where it did: write `*` there";
+    /// A pattern binder declared twice in one condition.
+    comptime_pattern_duplicate_binder = "comptime-pattern:duplicate-binder" (name: &str) => format!(
+        "pattern binder `{name}` is declared twice in one condition"
+    );
+    /// A pattern binder that would hide a type, type parameter or binder.
+    comptime_pattern_binder_hides_name = "comptime-pattern:binder-hides-name" (name: &str) => format!(
+        "pattern binder `{name}` would hide a type, type parameter or binder of                          that name: pick a fresh one"
+    );
+    /// A `[when T]` with no arm for the type `T` is at this stamp.
+    comptime_pattern_no_arm_matches = "comptime-pattern:no-arm-matches" (subject: &str, ty: &dyn std::fmt::Display) => format!(
+        "no arm of this `[when {subject}]` matches `{ty}`, which `{subject}` is here: add \
+         an arm for it (`is *` matches every type the arms above it did not)"
+    );
+
+    // [comptime-qualifier]
+    /// A test naming a qualifier that is not a comptime one.
+    comptime_qualifier_not_comptime = "comptime-qualifier:not-comptime" (name: &str) => format!(
+        "`{name}` is not a comptime qualifier"
+    );
+    /// A comptime qualifier tested on the wrong kind of declaration.
+    comptime_qualifier_wrong_subject = "comptime-qualifier:wrong-subject" (name: &str, of: &str, subject: &str) => format!(
+        "`{name}` describes a `{of}`, not a `{subject}`"
+    );
+    /// A comptime qualifier pattern binder spelled like a type.
+    comptime_qualifier_type_binder = "comptime-qualifier:type-binder" (name: &str) => format!(
+        "`{name}` would bind a type, and a comptime qualifier holds constants: name a \
+         constant binder in lowercase"
+    );
+    /// A comptime qualifier test with the wrong number of constants.
+    comptime_qualifier_constant_count = "comptime-qualifier:constant-count" (name: &str, slots: usize, found: usize) => format!(
+        "`{name}` takes {slots} constant(s), found {found}"
+    );
+    /// A comptime qualifier's pattern argument that is neither a binder nor a constant.
+    comptime_qualifier_pattern_argument = "comptime-qualifier:pattern-argument" (pattern: &dyn std::fmt::Display) => format!(
+        "a qualifier's argument in a pattern is a constant binder declared before it \
+         (`<c> Short(c)`) or a constant, not `{pattern}`"
+    );
+    /// A comptime qualifier tested on a binder's `.type`.
+    comptime_qualifier_on_type = "comptime-qualifier:on-type" (qual: &str, root: &str) => format!(
+        "`{qual}` describes a declaration, not a type: test the binder itself (`{root} is \
+         {qual}`)"
+    );
+    /// A comptime qualifier tested on a type that is not a struct.
+    comptime_qualifier_not_a_struct = "comptime-qualifier:not-a-struct" (root: &str) => format!(
+        "`{root}` is not a struct, so it carries no comptime qualifiers"
+    );
+    /// A comptime qualifier tested on an arm binder.
+    comptime_qualifier_on_arm = "comptime-qualifier:on-arm" (name: &str) => format!(
+        "`{name}` is an arm, and an arm carries no comptime qualifiers yet"
+    );
+
+    // [comptime-refuse]
+    /// A `refuse` message that is not literal text.
+    comptime_refuse_non_literal_message = "comptime-refuse:non-literal-message" () =>
+        "a `refuse` message is literal text, with `${T.name}`-style names substituted";
+    /// A `refuse` reached at a stamp: its text, after what refused it (if anything).
+    comptime_refuse_refused = "comptime-refuse:refused" (at: &str, text: &str) =>
+        if at.is_empty() { text.to_string() } else { format!("`{at}` refused: {text}") };
+
+    // [fn-by]
+    /// A `fn … by` with no parameter to stamp at.
+    fn_by_no_param = "fn-by:no-param" (name: &str) => format!(
+        "`fn {name}` says `by`, but has no parameter to say which type it is stamped at"
+    );
+    /// A `fn … by` whose first parameter names no struct or union.
+    fn_by_first_param_not_target = "fn-by:first-param-not-target" (name: &str) => format!(
+        "`fn {name}` is stamped at the type of its first parameter, which has to name a \
+         struct or a declared union type"
+    );
+    /// A `fn … by` stamped at a type that is opaque here.
+    fn_by_opaque_target = "fn-by:opaque-target" (name: &str, target: &str) => format!(
+        "`fn {name}` is stamped at `{target}`, which is opaque outside its module: its \
+         fields are not this module's to walk, so stamp it where `{target}` is declared"
+    );
+    /// A `fn … by` stamped at a type that is not a struct or declared union.
+    fn_by_target_not_struct_or_union = "fn-by:target-not-struct-or-union" (name: &str, target: &str) => format!(
+        "`fn {name}` is stamped at `{target}`, which is not a struct or a declared union \
+         type"
+    );
+    /// A `by` naming several comptime fns of one name for a kind.
+    fn_by_ambiguous_compfn = "fn-by:ambiguous-compfn" (by: &str, count: usize, kind: &str, places: &str) => format!(
+        "`by {by}` names {count} comptime fns of that name for a `{kind}` (in {places}); \
+         select one with `by {by}@<module>`"
+    );
+    /// A declaration whose parameter count differs from the stamped one's.
+    fn_by_param_count = "fn-by:param-count" (what: &str, declared: usize, by: &str, template: &str, target: &str, stamped: usize) => format!(
+        "{what} takes {declared} parameter(s), but `{by}`'s `compfn {template}` stamped at \
+         `{target}` takes {stamped}"
+    );
+    /// A declaration's parameter type that differs from the stamped one's.
+    fn_by_param_type = "fn-by:param-type" (what: &str, param: &str, declared: &dyn std::fmt::Display, template: &str, stamped: &dyn std::fmt::Display) => format!(
+        "{what}'s parameter `{param}` is `{declared}`, but the stamped `{template}` takes \
+         `{stamped}` there"
+    );
+    /// A declaration's return type that differs from the stamped one's.
+    fn_by_return_type = "fn-by:return-type" (what: &str, declared: &str, template: &str, stamped: &str) => format!(
+        "{what} returns `{declared}`, but the stamped `{template}` returns `{stamped}`"
+    );
+    /// A declared parameter name that would capture a name the stamped body uses; `member` is the group and fn of a clause's member.
+    fn_by_param_hides_name = "fn-by:param-hides-name" (name: &str, called: bool, by: &str, template: &str, member: Option<(&str, &str)>) => {
+        let used = if called {
+            format!("the function `{name}` that `{by}`'s `{template}` calls in its body")
+        } else {
+            format!("the name `{name}` that `{by}`'s `{template}` uses in its body")
+        };
+        match member {
+            None => format!("parameter `{name}` hides {used}: name the parameter differently"),
+            Some((group, f)) => format!(
+                "`{group}<self>`'s `fn {f}` names its parameter `{name}`, which hides {used}: \
+                 name the group member's parameter differently"
+            ),
+        }
+    };
+
+    // [obligation-by]
+    /// A `by` clause whose group argument is not `self`.
+    obligation_by_group_arg_not_self = "obligation-by:group-arg-not-self" (group: &str, by: &str) => format!(
+        "`by` stamps the members for the type it is written on, so the group's argument \
+         is `self`: write `: {group}<self> by {by}`"
+    );
+    /// A `by x` where `x` is both a module and a comptime fn.
+    obligation_by_ambiguous_by = "obligation-by:ambiguous-by" (by: &str, module: &dyn std::fmt::Display, fn_module: &dyn std::fmt::Display) => format!(
+        "`by {by}` is ambiguous: `{by}` is a module (`{module}`) and a `comptime fn` (in \
+         `{fn_module}`). Write `by @{by}` for the module, or `by {by}@{fn_module}` for the \
+         function"
+    );
+    /// A `by` path naming several modules.
+    obligation_by_several_modules = "obligation-by:several-modules" (by: &str, count: usize, names: &str) => format!(
+        "`by {by}` names {count} modules — {names}; write more of the path"
+    );
+    /// A `by @x` naming no module the file can see; `unseen` ends it.
+    obligation_by_no_module = "obligation-by:no-module" (by: &str, unseen: &str) => format!(
+        "`by @{by}` names no module this file can see{unseen}"
+    );
+    /// A `by` module without the member's comptime fn.
+    obligation_by_module_lacks_member = "obligation-by:module-lacks-member" (module: &dyn std::fmt::Display, member: &str, by: &str) => format!(
+        "`{module}` has no `comptime fn {member}`, so `by {by}` cannot stamp one"
+    );
+    /// A `by` naming neither a module nor a comptime fn; `unseen` ends it.
+    obligation_by_names_nothing = "obligation-by:names-nothing" (by: &str, member: &str, unseen: &str) => format!(
+        "`by {by}` names neither a module nor a `comptime fn` this file can see — nothing \
+         to stamp `{member}` from{unseen}"
+    );
+
+    // [when-exhaustive]
+    /// A `[when X.kind]` that leaves an arm of `Kind` out.
+    when_exhaustive_kind_arms_missing = "when-exhaustive:kind-arms-missing" (missing: &str) => format!(
+        "this `[when …]` over a kind does not consider every arm of `Kind`: missing \
+         {missing} — add the arms (`is Opaque` covers `Basic` and `Generic`)"
+    );
+
+    // ===== resolve =====
+
+    // [fn-attached]
+    /// A private fn fulfilling an obligation of an exported type.
+    fn_attached_private_fulfilment = "fn-attached:private-fulfilment" (name: &str, target: &str) => format!(
+        "`{name}` fulfils an obligation of `{target}`, which is `export`ed, so it is \
+         declared on an exported type and has to say so: write `export fn {name}(…)`. A \
+         function declared on a type is imported with the type, and a private one would \
+         be unreachable wherever the type is usable — or write it inside `{target}`'s \
+         body, where the visibility is the type's"
+    );
+
+    // [fn-overload-return]
+    /// Two fns of a module no call could tell apart.
+    fn_overload_return_duplicate_fn = "fn-overload-return:duplicate-fn" (name: &str, params: &str, ret: &str, module: &dyn std::fmt::Display) => format!(
+        "duplicate fn `{name}({params}) -> {ret}` in module `{module}`: an overload set is \
+         distinguished by parameter *types*, or by the return type among overloads whose \
+         parameters agree, so this one could never be called. Parameter names take no \
+         part in choosing an overload"
+    );
+
+    // [iter-fn]
+    /// An `iter fn` that reached resolution unexpanded (a driver bug).
+    iter_fn_unexpanded = "iter-fn:unexpanded" () =>
+        "internal: this `iter fn` reached resolution unexpanded — the driver that parsed \
+         it skipped the `iter fn` expansion (`expand_iter_fns`); this is a \
+         compiler-integration bug, not a mistake in this program";
+
+    // [mod-collision]
+    /// Two declarations of one kind and name in a module.
+    mod_collision_duplicate = "mod-collision:duplicate" (kind: &str, name: &str, module: &dyn std::fmt::Display) => format!(
+        "duplicate {kind} `{name}` in module `{module}`"
+    );
+    /// One kind and name declared by two implicitly visible core modules.
+    mod_collision_core_modules = "mod-collision:core-modules" (kind: &str, name: &str, other: &dyn std::fmt::Display, module: &dyn std::fmt::Display) => format!(
+        "{kind} `{name}` is declared in multiple implicitly visible core modules: \
+         `{other}` and `{module}`"
+    );
+    /// An imported name that conflicts with a declaration (`existing` `None`) or another import.
+    mod_collision_import_conflict = "mod-collision:import-conflict" (kind: &str, name: &str, module: &dyn std::fmt::Display, existing: Option<&dyn std::fmt::Display>) => format!(
+        "{kind} `{name}` (imported from `{module}`) conflicts with {}; rename it with `as`",
+        match existing {
+            None => "a declaration in this module".to_string(),
+            Some(m) => format!("the import from `{m}`"),
+        }
+    );
+
+    // [mod-export]
+    /// An import of a declaration its module does not export.
+    mod_export_not_exported = "mod-export:not-exported" (modules: &str, item: &str) => format!(
+        "module `{modules}` declares `{item}` but does not export it, so it cannot be \
+         imported: write `export` in front of that declaration"
+    );
+
+    // [mod-import]
+    /// An import path that is not `module.item`.
+    mod_import_path_shape = "mod-import:path-shape" () =>
+        "import path must be `module.item`";
+    /// An import no module declares.
+    mod_import_unresolved = "mod-import:unresolved" (prefix: &str, item: &str) => format!(
+        "unresolved import: no module matching `{prefix}` declares `{item}`"
+    );
+    /// An import several modules declare.
+    mod_import_ambiguous = "mod-import:ambiguous" (item: &str, modules: &str) => format!(
+        "ambiguous import `{item}`: found in modules {modules}"
+    );
+
+    // [mod-import-module]
+    /// A whole-module import with an alias.
+    mod_import_module_alias = "mod-import-module:alias" (alias: &str) => format!(
+        "a whole-module import has no alias: `as {alias}` renames one imported *name*, \
+         and Salvo has no module-qualified type references to rename a module for. Import \
+         the names you want to alias individually"
+    );
+    /// One type name carried by two whole-module imports (a warning).
+    mod_import_module_two_bulk_imports = "mod-import-module:two-bulk-imports" (kind: &str, name: &str, existing: &dyn std::fmt::Display, module: &dyn std::fmt::Display) => format!(
+        "{kind} `{name}` is carried by two whole-module imports (`{existing}` and \
+         `{module}`); `{existing}`'s wins — import the other by name (`import \
+         {module}.{name} as …`) to pick it"
+    );
+    /// A whole-module import of a path prefix that has modules under it.
+    mod_import_module_path_prefix = "mod-import-module:path-prefix" (prefix: &str, under: &[String]) => format!(
+        "no module `{prefix}` — it is a path prefix, not a module, and a whole-module \
+         import names one module rather than the tree under it. Import the ones you want: \
+         {}",
+        under.iter().map(|m| format!("`import {m}`")).collect::<Vec<_>>().join(", ")
+    );
+    /// A single-segment import naming no module; `known` are the importable ones.
+    mod_import_module_unknown_module = "mod-import-module:unknown-module" (prefix: &str, known: &[String]) => format!(
+        "unknown module `{prefix}`: `import <module>` imports every name in a module{}",
+        if known.is_empty() {
+            String::new()
+        } else {
+            format!(" (importable modules: {})", known.join(", "))
+        }
+    );
+
+    // [mod-namespace]
+    /// A namespace import several modules declare.
+    mod_namespace_ambiguous_import = "mod-namespace:ambiguous-import" (item: &str, modules: &str) => format!(
+        "ambiguous namespace import `{item}`: found in modules {modules}"
+    );
+    /// A namespace import that brings nothing (a warning).
+    mod_namespace_exports_nothing = "mod-namespace:exports-nothing" (ns: &str, module: &dyn std::fmt::Display) => format!(
+        "namespace `{ns}` of `{module}` exports nothing, so this import brings no names"
+    );
+
+    // [mod-std-internal]
+    /// An import of std's internal module from outside std.
+    mod_std_internal_import = "mod-std-internal:import" (root: &str, internal: &str) => format!(
+        "`{root}.{internal}` is the standard library's own module: the runtime every \
+         program runs on, reachable only from std itself"
+    );
+
+    // [mod-visibility]
+    /// An import of what is already visible (a warning); `sees_itself` when it may be the file's own module.
+    mod_visibility_redundant_import = "mod-visibility:redundant-import" (module: &str, sees_itself: bool) => format!(
+        "redundant import: everything in `{module}` is already visible here (`core.*` is \
+         implicit{})",
+        if sees_itself { ", and a module sees itself" } else { "" }
+    );
+
+    // [name-casing]
+    /// A module path segment that starts uppercase.
+    name_casing_module_segment = "name-casing:module-segment" (seg: &str) => format!(
+        "module path segment `{seg}` must start with a lowercase letter: module paths are \
+         file paths, so rename the file or directory"
+    );
+
+    // [name-dot]
+    /// A dot-name namespaced by a generic declaration.
+    name_dot_generic_namespace = "name-dot:generic-namespace" (ns: &str, name: &str) => format!(
+        "`{ns}` is generic, so it cannot namespace `{name}`: Kotlin emits the member as a \
+         nested class, which cannot use the outer type parameters"
+    );
+    /// A dot-name whose prefix is not a namespace.
+    name_dot_not_a_namespace = "name-dot:not-a-namespace" (ns: &str, name: &str) => format!(
+        "`{ns}` in the dot-name `{name}` is not a namespace here: declare `namespace {ns} \
+         {{ … }}`, or a struct or defined `type {ns}` in this file"
+    );
+    /// A dot-name whose flattened spelling is also visible.
+    name_dot_flattened_collision = "name-dot:flattened-collision" (name: &str, concatenated: &str) => format!(
+        "the dot-name `{name}` collides with `{concatenated}`, which is also visible here: \
+         the Rust backend flattens dot-names and overload mangling uses the same spelling \
+         — rename one of them"
+    );
+
+    // [name-dot-import]
+    /// An import of a dot-name with more than two segments.
+    name_dot_import_too_many_segments = "name-dot-import:too-many-segments" () =>
+        "a dot-name has exactly two segments (`module.Ns.Name`)";
+
+    // [obligation-by]
+    /// A fn a `by` clause stamps that the file also declares by hand.
+    obligation_by_stamped_and_written = "obligation-by:stamped-and-written" (name: &str, params: &str, module: &dyn std::fmt::Display) => format!(
+        "`{name}({params})` is declared twice in module `{module}`: a `by` clause stamps \
+         it, and this file also declares it by hand. Keep one — remove the member's group \
+         from the `by` clause, or delete the hand-written fn"
+    );
+
+    // [std-root]
+    /// A module under `std` outside the standard library.
+    std_root_reserved_module = "std-root:reserved-module" (module: &dyn std::fmt::Display, root: &str) => format!(
+        "module `{module}` is under `{root}`, which is reserved for the standard library: \
+         only a tree whose manifest says `[project] std = true` declares modules there — \
+         move this file out of its `{root}/` directory"
+    );
+    /// An import of a std module without its `std.` root.
+    std_root_bare_std_import = "std-root:bare-std-import" (root: &str, path: &str) => format!(
+        "the standard library's modules are under `{root}`: write `import {root}.{path}`"
+    );
+
+    // [test-file]
+    /// A `test` block that reached resolution unexpanded (a driver bug).
+    test_file_unexpanded = "test-file:unexpanded" () =>
+        "internal: this `test` block reached resolution unexpanded — the driver that \
+         parsed it skipped the program-level expansion (`salvo_core::expand`); this is a \
+         compiler-integration bug, not a mistake in this program";
+
+    // [type-literal]
+    /// Overloads apart only by literal types of one base.
+    type_literal_erased_overload = "type-literal:erased-overload" (name: &str, erased: &str) => format!(
+        "`{name}` is overloaded on literal types of one base, and a literal is its base at \
+         run time, so both would be `{name}({erased})` on either backend; take the union \
+         of the literals in one fn and `when` over it"
+    );
+
+    // ===== unique shape =====
+
+    // [op-unique-shape]
+    /// A unique-shape fn outside its type's file. `declared`: the home declares the type (else std names it); `std_home`: the home is std's and this file is not.
+    op_unique_shape_outside_home = "op-unique-shape:outside-home" (sig: &str, shape: &str, what: &str, ops: &str, plural: bool, declared: bool, home: &str, std_home: bool) => format!(
+        "`{sig}` has the shape of `{shape}` on {what}, which {ops} {}, and a function of \
+         that shape is declared only in {}, {home}: so nothing elsewhere can change what \
+         {ops} {} on {what}. {} where it is wanted (`{shape} = by_name`)",
+        if plural { "call" } else { "calls" },
+        if declared {
+            format!("the file that declares {what}")
+        } else {
+            format!("the file std names as the home of {what}")
+        },
+        if plural { "mean" } else { "means" },
+        if std_home {
+            "Give this one another name and pass it explicitly"
+        } else {
+            "Move this one into that file, or give it another name and pass it explicitly"
+        }
+    );
+    /// A unique-shape fn over a bare type parameter.
+    op_unique_shape_bare_type_param = "op-unique-shape:bare-type-param" (sig: &str, shape: &str, param: &str, ops: &str, plural: bool) => format!(
+        "`{sig}` has the shape of `{shape}` on the type parameter `{param}`, which has no \
+         declaring file: it would be the `{shape}` of every type at once, which {ops} {}. \
+         A function of a unique shape is declared in its type's own file; give this one \
+         another name and pass it explicitly where it is wanted (`{shape} = by_name`)",
+        if plural { "call" } else { "calls" }
+    );
+
+    // ===== refine =====
+
+    // [qual-depend]
+    /// A `preserve` naming a qualifier with no value slots.
+    qual_depend_preserve_not_dependent = "qual-depend:preserve-not-dependent" (q: &str) => format!(
+        "`{q}` is not a dependent qualifier: `preserve` speaks about claims other values \
+         hold, which only a qualifier with value slots can be"
+    );
+
+    // [qual-of]
+    /// A refined qualifier whose `of` type is not the parameter's.
+    qual_of_wrong_subject = "qual-of:wrong-subject" (q: &str, of: &dyn std::fmt::Display, base: &str, refn: &str, param: &str, ty: &dyn std::fmt::Display) => format!(
+        "`{q}` applies to `{of}`, not to `{base}`: `{refn}` is declared `{param}: {ty}`"
+    );
+
+    // [qual-preserve]
+    /// A `preserve` parameter no value slot of the qualifier accepts.
+    qual_preserve_no_value_slot = "qual-preserve:no-value-slot" (q: &str, ty: &dyn std::fmt::Display) => format!(
+        "no value slot of `{q}` accepts a `{ty}`: `preserve` names the parameter the \
+         claims depend on"
+    );
+
+    // [qual-refn]
+    /// A refinement deduction naming one parameter twice.
+    qual_refn_duplicate_param = "qual-refn:duplicate-param" (param: &str) => format!(
+        "`{param}` appears twice in this refinement's deductions"
+    );
+    /// A refinement deduction naming no parameter of the refinement.
+    qual_refn_unknown_param = "qual-refn:unknown-param" (param: &str) => format!(
+        "`{param}` is not a parameter of this refinement"
+    );
+    /// A refinement deduction that states nothing.
+    qual_refn_states_nothing = "qual-refn:states-nothing" (param: &str) => format!(
+        "`{param}` states nothing: write `+Qual` if the call establishes a qualifier, \
+         `-Qual` if it invalidates one"
+    );
+    /// A refinement of a parameter the refined fn moves.
+    qual_refn_moved_param = "qual-refn:moved-param" (name: &str, param: &str) => format!(
+        "`{name}` moves `{param}`, so a caller knows nothing about it afterwards — there \
+         is nothing to refine"
+    );
+    /// A refinement entry that both establishes and invalidates a qualifier.
+    qual_refn_entry_contradiction = "qual-refn:entry-contradiction" (q: &str, param: &str) => format!(
+        "this refinement both establishes and invalidates `{q}` for `{param}`"
+    );
+    /// A refinement that both establishes and invalidates a qualifier at one parameter position.
+    qual_refn_position_contradiction = "qual-refn:position-contradiction" (q: &str, position: usize) => format!(
+        "this refinement both establishes and invalidates `{q}` for parameter {position} — \
+         it cannot do both"
+    );
+    /// A qualifier's refinement speaking about another qualifier's claim.
+    qual_refn_foreign_qualifier = "qual-refn:foreign-qualifier" (owner: &str, verb: &str, q: &str) => format!(
+        "a refinement declared by `{owner}` can only {verb} `{owner}`, not `{q}`: a \
+         qualifier states what happens to *its own* claim. A call that needs both \
+         statements names the place it means (`f@place`)"
+    );
+    /// A refinement naming an unknown qualifier.
+    qual_refn_unknown_qualifier = "qual-refn:unknown-qualifier" (q: &str) => format!(
+        "unknown qualifier `{q}`"
+    );
+
+    // [qual-refn-match]
+    /// An unknown type in a refinement's parameter list.
+    qual_refn_match_unknown_type = "qual-refn-match:unknown-type" (name: &str, refn: &str) => format!(
+        "unknown type `{name}` in this refinement's parameter list: if it is a type \
+         parameter of the function being refined, declare it here too (`refn \
+         {refn}<{name}>(...)`)"
+    );
+    /// A refinement of a name no function in scope has.
+    qual_refn_match_no_function = "qual-refn-match:no-function" (name: &str) => format!(
+        "no function `{name}` is visible here, so there is nothing to refine: a \
+         refinement names an existing function and repeats its parameter list to pick \
+         one overload"
+    );
+    /// A refinement whose parameters line up with no overload in scope.
+    qual_refn_match_no_overload = "qual-refn-match:no-overload" (name: &str, shapes: &str) => format!(
+        "this refinement matches no `{name}` in scope: its parameters must line up \
+         positionally with an overload's (each base type a super- or subtype of the \
+         other, `*` for the rest). In scope: {shapes}"
+    );
+
+    // [qual-subject]
+    /// A refinement of one of the compiler's own qualifiers.
+    qual_subject_compiler_qualifier = "qual-subject:compiler-qualifier" (q: &str, verb: &str) => format!(
+        "`{q}` is one of the compiler's own qualifiers: a refinement may only {verb} a \
+         state qualifier, since it changes what is *known* about a value and not what may \
+         be done with it"
+    );
+    /// A refinement of a provenance qualifier.
+    qual_subject_provenance = "qual-subject:provenance" (q: &str) => format!(
+        "`{q}` is a provenance qualifier, which no call can invalidate — so there is \
+         nothing for a refinement to say about it; only state qualifiers can be refined"
+    );
+
+    // ===== deduce =====
+
+    // [deduce-default]
+    /// A written entry keeps a parameter the body moves.
+    deduce_default_promised_back_moved = "deduce-default:promised-back-moved" (param: &str) => format!(
+        "deduction promises `{param}` back to the caller, but the body moves it"
+    );
+    /// A defaulted parameter the body moves.
+    deduce_default_kept_by_default_moved = "deduce-default:kept-by-default-moved" (param: &str) => format!(
+        "`{param}` is kept by default, but the body moves it (returns it, stores it, or \
+         passes it to a consuming call): write `=> !{param}` to declare the move, or \
+         `copy(…)` at the move site to keep the caller's value"
+    );
+
+    // [deduce-gained]
+    /// A promised qualifier the body may remove.
+    deduce_gained_qualifier_removed = "deduce-gained:qualifier-removed" (q: &str, param: &str) => format!(
+        "deduction promises qualifier `{q}` on `{param}`, but the body may remove it"
+    );
+    /// A kept qualifier the parameter does not declare and the body does not establish.
+    deduce_gained_qualifier_not_established = "deduce-gained:qualifier-not-established" (q: &str, param: &str) => format!(
+        "deduction keeps qualifier `{q}`, which is not declared on parameter `{param}` and \
+         nothing in the body establishes it — a plain entry reports what the body leaves \
+         behind, and `+{q}` (legal only in `{q}`'s own file) is how a function *claims* to \
+         establish one"
+    );
+    /// A bodiless declaration keeping a qualifier its parameter does not declare.
+    deduce_gained_bodiless = "deduce-gained:bodiless" (q: &str, param: &str) => format!(
+        "deduction keeps qualifier `{q}`, which is not declared on parameter `{param}` (a \
+         bodiless declaration has nothing to establish it; `+{q}` is how a function says \
+         it *establishes* one)"
+    );
+
+    // [deduce-syntax]
+    /// A deduction naming no parameter of the function.
+    deduce_syntax_unknown_param = "deduce-syntax:unknown-param" (name: &str) => format!(
+        "deduction names unknown parameter `{name}`"
+    );
+    /// Two deductions for one parameter.
+    deduce_syntax_duplicate_param = "deduce-syntax:duplicate-param" (name: &str) => format!(
+        "duplicate deduction for parameter `{name}`"
+    );
+    /// A keep-all deduction on a parameter the function mutates.
+    deduce_syntax_mutated_keep_all = "deduce-syntax:mutated-keep-all" (name: &str, declared: &str) => format!(
+        "`{name}` is mutated by this function, so the deduction cannot keep every \
+         qualifier: mutation can invalidate qualifiers the caller has and this signature \
+         never mentions. List exactly what survives (`[{name}: {declared}]`)"
+    );
+    /// A `-Q` deduction on a parameter the function mutates.
+    deduce_syntax_mutated_remove = "deduce-syntax:mutated-remove" (name: &str, declared: &str) => format!(
+        "`{name}` is mutated by this function, so the deduction cannot drop qualifiers \
+         selectively: mutation can invalidate qualifiers the caller has and this \
+         signature never mentions. List exactly what survives (`[{name}: {declared}]`)"
+    );
+    /// A deduction entry naming a type rather than a qualifier.
+    deduce_syntax_type_narrowing = "deduce-syntax:type-narrowing" () =>
+        "a deduction entry may only name qualifiers (and `Never`): type narrowing in \
+         deductions is not supported yet";
+
+    // ===== deadlock =====
+
+    // [actor-deadlock-cycle]
+    /// A cycle of actors whose members wait for each other.
+    actor_deadlock_cycle_wait_cycle = "actor-deadlock-cycle:wait-cycle" (path: &str, handlers: &str) => format!(
+        "these actors wait for each other: {path} ({handlers}). A handler whose member \
+         waits serves no message while it waits, so each of them is waiting for an answer \
+         the next can only produce after its own arrives — and a thread of its own does \
+         not help, since the fulfilment routes back through a stalled mailbox. Break the \
+         cycle: park a continuation with `replyto` instead of waiting, or have the answer \
+         come from a third actor neither of them waits on"
+    );
+    /// A cycle of `replyto!` gates.
+    actor_deadlock_cycle_gate_cycle = "actor-deadlock-cycle:gate-cycle" (path: &str, handlers: &str) => format!(
+        "these actors wait for each other: {path} ({handlers}). A `replyto!` gate serves \
+         nothing but its own answer, so each of them is waiting for a reply the next can \
+         only produce after its own arrives — a deadlock whenever the requests cross. \
+         Break the cycle: make one side's continuation ungated (`replyto`, whose mailbox \
+         stays open), or have the answer come from a third actor neither of them waits on"
+    );
+    /// A cycle of sends, which deadlocks only when the mailboxes fill (a warning).
+    actor_deadlock_cycle_send_cycle = "actor-deadlock-cycle:send-cycle" (path: &str, handlers: &str) => format!(
+        "these actors send to each other in a cycle: {path} ({handlers}). A send blocks \
+         while the target's mailbox is full, so this deadlocks if the mailboxes fill at \
+         the same time — a failure that appears under load and not in a test. Give the \
+         queues room (a larger `capacity`), or break the cycle by routing one direction \
+         through a reply token, which has capacity reserved and never blocks"
+    );
+
+    // [actor-mixed-handler]
+    /// A wait cycle through a mixed handler's servant.
+    actor_mixed_handler_occupancy_cycle = "actor-mixed-handler:occupancy-cycle" (path: &str, handlers: &str) => format!(
+        "these actors can wait for each other through a shared handler: {path} \
+         ({handlers}). A sync member of a mixed handler parks its caller until the servant \
+         answers, and a parked activation serves nothing of its own mailbox — so each \
+         step of this cycle waits on the next, and the fulfilment routes back through a \
+         stalled queue. Break the cycle: have the servant answer without reaching the \
+         peer, respell the consulting call as a send plus a continuation, or bind a \
+         handler of the effect that does not wait — a monitor, or a scope-local `use`"
+    );
+
+    // ===== platform =====
+
+    // [platform-root]
+    /// Platform declarations in a program with no `salvo.toml`.
+    platform_root_no_manifest = "platform-root:no-manifest" (what: &str) => format!(
+        "{what} is implemented in platform files, which are found through a platform root \
+         named in the project's `salvo.toml` — and this program has no `salvo.toml`"
+    );
+    /// Platform declarations with no platform root for a backend.
+    platform_root_no_root = "platform-root:no-root" (what: &str, backend: &str) => format!(
+        "{what} is implemented in platform files, but `salvo.toml` names no platform root \
+         for {backend}: add `[build] platform = \"…\"` (every backend) or `[{backend}] \
+         platform = \"…\"`"
+    );
+
+    // [platform-tree]
+    /// A module whose platform implementation file is missing.
+    platform_tree_missing_host_file = "platform-tree:missing-host-file" (what: &str, module: &dyn std::fmt::Display, rel_path: &std::path::Path) => format!(
+        "error: module `{module}` declares {what}, implemented by the host in `{}` under \
+         the platform root, but that file does not exist: run `salvo platform generate` \
+         to create the skeleton",
+        rel_path.display()
+    );
+
+    // ===== naming =====
+
+    // [fn-emit-name]
+    /// Overloads no naming rule tells apart.
+    fn_emit_name_indistinct_overloads = "fn-emit-name:indistinct-overloads" (module: &str, name: &str, which: &str) => format!(
+        "module `{module}` declares overloads of `{name}` that no naming rule tells apart \
+         ({which}): their parameter types, qualifiers, implicit parameters and return \
+         types all agree, so neither backend can give them names of their own"
+    );
 }
 
 #[cfg(test)]

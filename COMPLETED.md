@@ -144,6 +144,29 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — The core passes' diagnostics have ids (TESTS.md T2, step 3b part 2)
+
+**132 more messages moved into `salvo_syntax::messages`**: expand, comptime,
+resolve, unique_shape, refine, deduce, deadlock, platform and naming — every
+diagnostic salvo-core reports before the checker. The one messages file
+serves the parser and these passes (salvo-core depends on salvo-syntax, not
+the reverse). Texts are as before less their rule citations, checked by
+script against the old literals; a message composed at run time takes the
+varying part as an argument (`mod-visibility:redundant-import` a `bool`,
+`mod-import-module:path-prefix` the modules under the prefix). Helpers that
+fed diagnostics take `IntoMessage` (comptime's `error`); `deduce`'s
+`from_written` callback takes a `Message`; `missing_handler_host_error` and
+`FnNames::errors` return messages, the backends reading `.text` until their
+part. Tests that matched a dropped citation assert the id instead, or —
+where only stderr is in hand — the message's own ending (`salvo -v test` for
+the one whose whole expectation was the label). Judgement calls (which rule a
+citation-less message reports) are listed in the sub-agent's report kept with
+TESTS.md's log; one worth knowing: the deadlock reports are
+`actor-deadlock-cycle:*`, not `waitfor-effect` (that capability is deleted).
+Some texts carry runs of 20–30 spaces from their original source
+(`comptime-name:when-over-derived-name` and three others); kept as they
+were, for the second wave.
+
 ### 2026-10-28 — Diagnostics carry ids, shown under `-v`; the parser's have them (TESTS.md T2, step 3b part 1)
 
 **Every diagnostic now has a place for an id, `<rule label>:<name>`

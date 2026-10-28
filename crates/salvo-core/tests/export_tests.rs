@@ -37,6 +37,11 @@ fn diags(files: &[(&str, &str)]) -> Vec<String> {
 
 /// The same, with extra std files beside the prelude.
 fn diags_with_std(std_files: &[(&str, &str)], files: &[(&str, &str)]) -> Vec<String> {
+    diagnostics_with_std(std_files, files).into_iter().map(|d| d.message).collect()
+}
+
+/// [diag-id] The diagnostics themselves, ids and all.
+fn diagnostics_with_std(std_files: &[(&str, &str)], files: &[(&str, &str)]) -> Vec<salvo_core::FileDiagnostic> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -67,10 +72,10 @@ fn diags_with_std(std_files: &[(&str, &str)], files: &[(&str, &str)]) -> Vec<Str
         companions: Vec::new(),
     };
     let resolution = resolve(&program);
-    let mut out: Vec<String> = resolution.errors.iter().map(|d| d.message.clone()).collect();
+    let mut out = resolution.errors.clone();
     let symbols = Symbols::collect(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    out.extend(checked.errors.iter().map(|d| d.message.clone()));
+    out.extend(checked.errors.iter().cloned());
     out
 }
 
@@ -261,21 +266,25 @@ const RUNTIME: &str = "export fn tick_count() [] -> Int {\n    return 0\n}\n";
 #[test]
 fn the_runtime_module_is_std_s_own() {
     let program = "import std.runtime\nimport std.runtime.tick_count\n\nfn f() [] -> Int {\n    return 1\n}\n";
-    let errs = diags_with_std(&[("runtime.sv", RUNTIME)], &[("main.sv", program)]);
+    let errs = diagnostics_with_std(&[("runtime.sv", RUNTIME)], &[("main.sv", program)]);
     // Both imports refused (resolution and the checker each report what the
     // resolver found, so every resolve error appears twice here).
-    let refused = errs.iter().filter(|m| m.contains("[mod-std-internal]")).count();
+    let refused = errs.iter().filter(|d| d.id == Some("mod-std-internal:import")).count();
     assert_eq!(refused, 4, "{errs:?}");
 
     // [std-root] The bare spelling is refused for what it would have named:
     // std's own module, not a path to correct towards.
     let bare = "import runtime\n\nfn f() [] -> Int {\n    return 1\n}\n";
-    let errs = diags_with_std(&[("runtime.sv", RUNTIME)], &[("main.sv", bare)]);
+    let errs = diagnostics_with_std(&[("runtime.sv", RUNTIME)], &[("main.sv", bare)]);
     assert!(
-        errs.iter().any(|m| m.contains("`std.runtime` is the standard library's own module") && m.contains("[mod-std-internal]")),
+        errs.iter().any(|d| d.id == Some("mod-std-internal:import")
+            && d.message.contains("`std.runtime` is the standard library's own module")),
         "{errs:?}"
     );
-    assert!(!errs.iter().any(|m| m.contains("[std-root]")), "{errs:?}");
+    assert!(
+        !errs.iter().any(|d| d.id.is_some_and(|id| salvo_syntax::messages::label_of(id) == "std-root")),
+        "{errs:?}"
+    );
 
     let from_std = "import std.runtime.tick_count\n\nexport fn twice() [] -> Int {\n    return tick_count() + tick_count()\n}\n";
     let errs = diags_with_std(&[("runtime.sv", RUNTIME), ("timing.sv", from_std)], &[]);

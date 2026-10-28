@@ -303,7 +303,7 @@ optionally a message fragment where the text itself is the point.
   * Each message loses its `[label]` suffix as it moves; a test that matched
     a label matches the id instead (`salvo_testkit::front::Checked::ids`).
   * Order, one commit each, each green: (1, done) the machinery, `-v`, and the
-    lexer, parser and desugar; (2) the core passes before the checker
+    lexer, parser and desugar; (2, done) the core passes before the checker
     (expand, comptime, resolve, refine, deduce, unique_shape, platform,
     deadlock); (3) the checker; (4) the IR passes; (5) the backends and the
     CLI's own errors, then the string impls go.
@@ -705,3 +705,8 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   parser's and desugarer's 179 messages with ids (labels judged per message
   where the text cited none; `syntax-expected` added for the generic
   ones). Parts 2–5 follow T2's order.
+- **Step 3b part 2 (2026-10-28).** The core passes before the checker: 132
+  messages with ids (comptime 70-odd, resolve, refine, deduce, deadlock,
+  platform, naming). Labels for citation-less messages chosen from the
+  code's own comments; deadlock reports are `actor-deadlock-cycle:*`. Four
+  texts keep long space runs from their old literals (second wave).

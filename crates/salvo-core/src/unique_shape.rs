@@ -31,6 +31,7 @@
 use std::collections::{HashMap, HashSet};
 
 use salvo_syntax::ast::{FnDecl, Item, Type, TypeDecl};
+use salvo_syntax::messages;
 
 use crate::diag::FileDiagnostic;
 use crate::resolve::ModuleScope;
@@ -245,37 +246,24 @@ impl Ctx<'_, '_> {
             f.params.iter().filter(|p| !p.implicit).map(|p| p.ty.to_string()).collect();
         let sig = format!("{}({})", f.name.name, explicit.join(", "));
         let (ops, plural) = spelled(shape);
-        let (call, mean) = if plural { ("call", "mean") } else { ("calls", "means") };
         let message = match self.home(&first.ty, file, &generics, 0) {
             Home::Unknown => return,
             Home::File(home, ..) if home == file => return,
             Home::File(home, what, declared) => {
-                let place = if declared {
-                    format!("the file that declares {what}")
-                } else {
-                    format!("the file std names as the home of {what}")
-                };
                 // A std file is not the program's to edit: the remedy is the name.
-                let remedy = if self.files[home].is_std && !self.files[file].is_std {
-                    "Give this one another name and pass it explicitly"
-                } else {
-                    "Move this one into that file, or give it another name and pass it explicitly"
-                };
-                format!(
-                    "`{sig}` has the shape of `{shape}` on {what}, which {ops} {call}, and a \
-                     function of that shape is declared only in {place}, {}: so nothing \
-                     elsewhere can change what {ops} {mean} on {what}. {remedy} where it is \
-                     wanted (`{shape} = by_name`) [op-unique-shape]",
-                    self.file_text(home)
+                let std_home = self.files[home].is_std && !self.files[file].is_std;
+                messages::op_unique_shape_outside_home(
+                    &sig,
+                    shape,
+                    &what,
+                    ops,
+                    plural,
+                    declared,
+                    &self.file_text(home),
+                    std_home,
                 )
             }
-            Home::Nowhere(param) => format!(
-                "`{sig}` has the shape of `{shape}` on the type parameter `{param}`, which \
-                 has no declaring file: it would be the `{shape}` of every type at once, \
-                 which {ops} {call}. A function of a unique shape is declared in its \
-                 type's own file; give this one another name and pass it explicitly where \
-                 it is wanted (`{shape} = by_name`) [op-unique-shape]"
-            ),
+            Home::Nowhere(param) => messages::op_unique_shape_bare_type_param(&sig, shape, &param, ops, plural),
         };
         out.push(FileDiagnostic::error(file, f.name.span, message));
         refused.insert(f as *const FnDecl as usize);

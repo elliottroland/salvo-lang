@@ -139,11 +139,11 @@ fn a_test_in_a_production_file_is_refused() {
          test \"nope\" {\n    expect(true, \"never runs\")\n}\n",
     )
     .unwrap();
-    let out = salvo_in(&dir, &["test", "--src", ".", "--list"]);
+    let out = salvo_in(&dir, &["-v", "test", "--src", ".", "--list"]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains("calc.test.sv") && stderr.contains("[test-file]"),
+        stderr.contains("calc.test.sv") && stderr.contains("error[test-file:test-in-production]"),
         "{stderr}"
     );
 }

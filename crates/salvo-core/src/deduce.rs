@@ -44,6 +44,7 @@ use salvo_syntax::ast::{
     Block, Deduction, DeductionKind, EffectDecl, Expr, FnDecl, Item, LambdaBody, Param,
     QualSubject, SafeAccess, Stmt, StrExprPart, StructLitFieldKind, Type,
 };
+use salvo_syntax::messages;
 use salvo_syntax::Span;
 
 use crate::check::{Checked, Key};
@@ -346,7 +347,7 @@ pub(crate) fn from_written(
     decl: &FnDecl,
     list: &[Deduction],
     mutated: &HashSet<String>,
-    mut error: impl FnMut(Span, String),
+    mut error: impl FnMut(Span, messages::Message),
 ) -> Vec<ParamDeduction> {
     for (i, d) in list.iter().enumerate() {
         // Every parameter an entry names — plainly, as a field path's root,
@@ -360,10 +361,7 @@ pub(crate) fn from_written(
         }
         for n in named {
             if !decl.params.iter().any(|p| p.name.name == n.name) {
-                error(
-                    n.span,
-                    format!("deduction names unknown parameter `{}`", n.name),
-                );
+                error(n.span, messages::deduce_syntax_unknown_param(&n.name));
             }
         }
         if let Some(pn) = d.param_name() {
@@ -377,10 +375,7 @@ pub(crate) fn from_written(
                         && prev.param_name().is_some_and(|q| q.name == pn.name)
                 })
             {
-                error(
-                    d.span,
-                    format!("duplicate deduction for parameter `{}`", pn.name),
-                );
+                error(d.span, messages::deduce_syntax_duplicate_param(&pn.name));
             }
         }
     }
@@ -447,44 +442,18 @@ pub(crate) fn from_written(
                 DeductionKind::Preserve(_) => QualEffect::KeepAll,
                 DeductionKind::KeepAll => {
                     if invalidates {
-                        error(
-                            d.span,
-                            format!(
-                                "`{name}` is mutated by this function, so the \
-                                 deduction cannot keep every qualifier: mutation \
-                                 can invalidate qualifiers the caller has and \
-                                 this signature never mentions. List exactly \
-                                 what survives (`[{name}: {}]`)",
-                                declared.join(" ")
-                            ),
-                        );
+                        error(d.span, messages::deduce_syntax_mutated_keep_all(&name, &declared.join(" ")));
                     }
                     QualEffect::KeepAll
                 }
                 DeductionKind::Remove(items) => {
                     if invalidates {
-                        error(
-                            d.span,
-                            format!(
-                                "`{name}` is mutated by this function, so the \
-                                 deduction cannot drop qualifiers selectively: \
-                                 mutation can invalidate qualifiers the caller \
-                                 has and this signature never mentions. List \
-                                 exactly what survives (`[{name}: {}]`)",
-                                declared.join(" ")
-                            ),
-                        );
+                        error(d.span, messages::deduce_syntax_mutated_remove(&name, &declared.join(" ")));
                     }
                     let mut drop = Vec::new();
                     for q in items {
                         if !q.args.is_empty() {
-                            error(
-                                q.span,
-                                "a deduction entry may only name qualifiers (and \
-                                 `Never`): type narrowing in deductions is not \
-                                 supported yet"
-                                    .to_string(),
-                            );
+                            error(q.span, messages::deduce_syntax_type_narrowing());
                             continue;
                         }
                         drop.push(q.name.name.clone());
@@ -506,13 +475,7 @@ pub(crate) fn from_written(
                         .chain(reapplied.iter().map(|q| (q, true)))
                     {
                         if !q.args.is_empty() && !is_reapplied {
-                            error(
-                                q.span,
-                                "a deduction entry may only name qualifiers (and \
-                                 `Never`): type narrowing in deductions is not \
-                                 supported yet"
-                                    .to_string(),
-                            );
+                            error(q.span, messages::deduce_syntax_type_narrowing());
                             continue;
                         }
                         // [deduce-gained] A plain entry naming a qualifier the
@@ -527,17 +490,7 @@ pub(crate) fn from_written(
                             && !is_reapplied
                             && decl.body.is_none()
                         {
-                            error(
-                                q.span,
-                                format!(
-                                    "deduction keeps qualifier `{}`, which is not \
-                                     declared on parameter `{name}` (a bodiless \
-                                     declaration has nothing to establish it; \
-                                     `+{}` is how a function says it \
-                                     *establishes* one)",
-                                    q.name.name, q.name.name
-                                ),
-                            );
+                            error(q.span, messages::deduce_gained_bodiless(&q.name.name, &name));
                         } else {
                             keep.push(q.name.name.clone());
                         }
@@ -701,19 +654,9 @@ fn validate_contract(
         let span = entry.map(|e| e.span).unwrap_or(p.name.span);
         if w.kept && !i.kept {
             let remedy = if entry.is_some() {
-                format!(
-                    "deduction promises `{}` back to the caller, but the body \
-                     moves it",
-                    w.param
-                )
+                messages::deduce_default_promised_back_moved(&w.param)
             } else {
-                format!(
-                    "`{}` is kept by default, but the body moves it (returns it, \
-                     stores it, or passes it to a consuming call): write `=> !{}` \
-                     to declare the move, or `copy(…)` at the move site to keep \
-                     the caller's value",
-                    w.param, w.param
-                )
+                messages::deduce_default_kept_by_default_moved(&w.param)
             };
             errors.push(FileDiagnostic::error(file, span, remedy));
             continue;
@@ -738,20 +681,9 @@ fn validate_contract(
             // body may drop, versus one it never had and the body does not
             // establish either.
             let message = if declared.contains(q) {
-                format!(
-                    "deduction promises qualifier `{q}` on `{}`, but the body \
-                     may remove it",
-                    w.param
-                )
+                messages::deduce_gained_qualifier_removed(q, &w.param)
             } else {
-                format!(
-                    "deduction keeps qualifier `{q}`, which is not declared on \
-                     parameter `{}` and nothing in the body establishes it — a \
-                     plain entry reports what the body leaves behind, and \
-                     `+{q}` (legal only in `{q}`'s own file) is how a function \
-                     *claims* to establish one",
-                    w.param
-                )
+                messages::deduce_gained_qualifier_not_established(q, &w.param)
             };
             errors.push(FileDiagnostic::error(file, span, message));
         }

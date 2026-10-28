@@ -28,6 +28,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use salvo_syntax::ast::{FnDecl, Item, Type};
+use salvo_syntax::messages;
 
 use crate::program::Program;
 use crate::source::ModulePath;
@@ -40,7 +41,8 @@ pub struct FnNames {
     by_module: HashMap<(ModulePath, String), Vec<String>>,
     /// Every top-level fn's module.
     modules: HashMap<*const FnDecl, ModulePath>,
-    pub errors: Vec<String>,
+    /// [diag-id] The naming errors, each a message with its id.
+    pub errors: Vec<messages::Message>,
 }
 
 /// Whether `f` is emitted as a named fn that takes part in naming: a fn
@@ -79,13 +81,10 @@ impl FnNames {
                 match overload_names(&name, &fns) {
                     Ok(names) => names,
                     Err(which) => {
-                        out.errors.push(format!(
-                            "module `{}` declares overloads of `{name}` that no naming rule tells \
-                             apart ({}): their parameter types, qualifiers, implicit \
-                             parameters and return types all agree, so neither backend can \
-                             give them names of their own [fn-emit-name]",
-                            module.0.join("."),
-                            which.join("; ")
+                        out.errors.push(messages::fn_emit_name_indistinct_overloads(
+                            &module.0.join("."),
+                            &name,
+                            &which.join("; "),
                         ));
                         fns.iter().map(|_| name.clone()).collect()
                     }

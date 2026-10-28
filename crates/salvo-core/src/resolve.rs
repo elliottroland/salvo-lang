@@ -22,6 +22,7 @@ use crate::decl_id::DeclId;
 use crate::diag::FileDiagnostic;
 use crate::program::Program;
 use crate::source::ModulePath;
+use salvo_syntax::messages;
 use salvo_syntax::Span;
 
 /// A function together with its identity.
@@ -671,13 +672,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
             unexpanded_iter_fns.push(FileDiagnostic::error(
                 file_idx,
                 Span::new(0, 0),
-                format!(
-                    "module `{}` is under `{root}`, which is reserved for the standard \
-                     library: only a tree whose manifest says `[project] std = true` declares \
-                     modules there — move this file out of its `{root}/` directory [std-root]",
-                    file.module,
-                    root = crate::STD_ROOT
-                ),
+                messages::std_root_reserved_module(&file.module, crate::STD_ROOT),
             ));
         }
         let items = by_module.entry(&file.module).or_default();
@@ -697,10 +692,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                     unexpanded_iter_fns.push(FileDiagnostic::error(
                         file_idx,
                         t.name_span,
-                        "internal: this `test` block reached resolution unexpanded — \
-                         the driver that parsed it skipped the program-level \
-                         expansion (`salvo_core::expand`); this is a \
-                         compiler-integration bug, not a mistake in this program",
+                        messages::test_file_unexpanded(),
                     ));
                 }
                 // [iter-fn] An `iter fn` must be expanded before resolution
@@ -712,10 +704,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                     unexpanded_iter_fns.push(FileDiagnostic::error(
                         file_idx,
                         f.name.span,
-                        "internal: this `iter fn` reached resolution unexpanded — \
-                         the driver that parsed it skipped the `iter fn` expansion \
-                         (`expand_iter_fns`); this is a compiler-integration \
-                         bug, not a mistake in this program",
+                        messages::iter_fn_unexpanded(),
                     ));
                 }
                 Item::Fn(f) => items.fns.push((decls.fn_at(file_idx, item_idx), file_idx, f)),
@@ -826,10 +815,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                     errors.push(FileDiagnostic::error(
                         file,
                         span,
-                        format!(
-                            "duplicate {} `{name}` in module `{module}`",
-                            kind.describe()
-                        ),
+                        messages::mod_collision_duplicate(&kind.describe(), name, module),
                     ));
                     continue;
                 }
@@ -839,11 +825,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                         errors.push(FileDiagnostic::error(
                             file,
                             span,
-                            format!(
-                                "{} `{name}` is declared in multiple implicitly \
-                                 visible core modules: `{other}` and `{module}`",
-                                kind.describe()
-                            ),
+                            messages::mod_collision_core_modules(&kind.describe(), name, other, module),
                         ));
                     } else {
                         core_seen.insert((kind, name, subject), (module, file, span));
@@ -889,23 +871,9 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                     // nothing at a bare call site could tell them apart — with a
                     // message that names the half the author can delete.
                     let msg = if f.stamped.is_some() || *other_stamped {
-                        format!(
-                            "`{}({shown})` is declared twice in module `{module}`: a \
-                             `by` clause stamps it, and this file also declares it by \
-                             hand. Keep one — remove the member's group from the `by` \
-                             clause, or delete the hand-written fn [obligation-by]",
-                            f.name.name
-                        )
+                        messages::obligation_by_stamped_and_written(&f.name.name, &shown, module)
                     } else {
-                        format!(
-                            "duplicate fn `{}({shown}) -> {ret}` in module `{module}`: \
-                             an overload set is distinguished by parameter *types*, \
-                             or by the return type among overloads whose parameters \
-                             agree, so this one could never be called. Parameter \
-                             names take no part in choosing an overload \
-                             [fn-overload-rank] [fn-overload-return]",
-                            f.name.name
-                        )
+                        messages::fn_overload_return_duplicate_fn(&f.name.name, &shown, &ret, module)
                     };
                     errors.push(FileDiagnostic::error(
                         *key_file,
@@ -930,15 +898,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                             errors.push(FileDiagnostic::error(
                                 *key_file,
                                 f.name.span,
-                                format!(
-                                    "`{}` is overloaded on literal types of one base, and a literal \
-                                     is its base at run time, so both would be `{}({})` on either \
-                                     backend; take the union of the literals in one fn and `when` \
-                                     over it [type-literal]",
-                                    f.name.name,
-                                    f.name.name,
-                                    erased_sig.join(", ")
-                                ),
+                                messages::type_literal_erased_overload(&f.name.name, &erased_sig.join(", ")),
                             ));
                         }
                     } else {
@@ -1064,16 +1024,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                     errors.push(FileDiagnostic::error(
                         *key_file,
                         f.name.span,
-                        format!(
-                            "`{}` fulfils an obligation of `{target}`, which is \
-                             `export`ed, so it is declared on an exported type and has \
-                             to say so: write `export fn {}(…)`. A function declared on \
-                             a type is imported with the type, and a private one would \
-                             be unreachable wherever the type is usable — or write it \
-                             inside `{target}`'s body, where the visibility is the \
-                             type's [fn-attached] [mod-export]",
-                            f.name.name, f.name.name
-                        ),
+                        messages::fn_attached_private_fulfilment(&f.name.name, target),
                     ));
                 }
             }
@@ -1239,12 +1190,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                 ctx.errors.push(FileDiagnostic::error(
                     file_idx,
                     import.span,
-                    format!(
-                        "`{}.{STD_INTERNAL}` is the standard library's own module: the runtime \
-                         every program runs on, reachable only from std itself \
-                         [mod-std-internal]",
-                        crate::STD_ROOT
-                    ),
+                    messages::mod_std_internal_import(crate::STD_ROOT, STD_INTERNAL),
                 ));
                 continue;
             }
@@ -1252,12 +1198,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                 ctx.errors.push(FileDiagnostic::error(
                     file_idx,
                     import.span,
-                    format!(
-                        "the standard library's modules are under `{root}`: write `import {root}.{}` \
-                         [std-root]",
-                        segs.join("."),
-                        root = crate::STD_ROOT
-                    ),
+                    messages::std_root_bare_std_import(crate::STD_ROOT, &segs.join(".")),
                 ));
                 continue;
             }
@@ -1469,13 +1410,7 @@ impl<'e, 'p> AddCtx<'e, 'p> {
                 self.errors.push(FileDiagnostic::warning(
                     self.file_idx,
                     span,
-                    format!(
-                        "{} `{name}` is carried by two whole-module imports \
-                         (`{existing_module}` and `{module}`); `{existing_module}`'s wins \
-                         — import the other by name (`import {module}.{name} as …`) to \
-                         pick it [mod-import-module]",
-                        kind.describe(),
-                    ),
+                    messages::mod_import_module_two_bulk_imports(&kind.describe(), name, existing_module, module),
                 ));
                 false
             }
@@ -1488,19 +1423,15 @@ impl<'e, 'p> AddCtx<'e, 'p> {
             }
             Some((existing_level, existing_module)) => {
                 let existing_module = *existing_module;
-                let what = match existing_level {
-                    Level::Own => "a declaration in this module".to_string(),
-                    _ => format!("the import from `{existing_module}`"),
+                let existing: Option<&dyn std::fmt::Display> = match existing_level {
+                    Level::Own => None,
+                    _ => Some(&existing_module),
                 };
                 let span = import_span.unwrap_or_default();
                 self.errors.push(FileDiagnostic::error(
                     self.file_idx,
                     span,
-                    format!(
-                        "{} `{name}` (imported from `{module}`) conflicts with {what}; \
-                         rename it with `as`",
-                        kind.describe(),
-                    ),
+                    messages::mod_collision_import_conflict(&kind.describe(), name, module, existing),
                 ));
                 false
             }
@@ -1592,21 +1523,13 @@ fn check_dot_names(
             errors.push(FileDiagnostic::error(
                 file_idx,
                 span,
-                format!(
-                    "`{ns}` is generic, so it cannot namespace `{name}`: Kotlin emits the \
-                     member as a nested class, which cannot use the outer type parameters \
-                     [name-dot]"
-                ),
+                messages::name_dot_generic_namespace(ns, name),
             ));
         } else if !ns_decls.contains(ns) {
             errors.push(FileDiagnostic::error(
                 file_idx,
                 span,
-                format!(
-                    "`{ns}` in the dot-name `{name}` is not a namespace here: declare \
-                     `namespace {ns} {{ … }}`, or a struct or defined `type {ns}` in this \
-                     file [name-dot] [mod-namespace]"
-                ),
+                messages::name_dot_not_a_namespace(ns, name),
             ));
         }
         let concatenated = name.replace('.', "");
@@ -1614,11 +1537,7 @@ fn check_dot_names(
             errors.push(FileDiagnostic::error(
                 file_idx,
                 span,
-                format!(
-                    "the dot-name `{name}` collides with `{concatenated}`, which is also \
-                     visible here: the Rust backend flattens dot-names and overload \
-                     mangling uses the same spelling — rename one of them [name-dot]"
-                ),
+                messages::name_dot_flattened_collision(name, &concatenated),
             ));
         }
     }
@@ -1633,10 +1552,7 @@ fn check_dot_names(
         errors.push(FileDiagnostic::error(
             file_idx,
             Span::default(),
-            format!(
-                "module path segment `{seg}` must start with a lowercase letter: module \
-                 paths are file paths, so rename the file or directory [name-casing]"
-            ),
+            messages::name_casing_module_segment(seg),
         ));
     }
 }
@@ -1918,13 +1834,7 @@ fn resolve_import<'p>(
                 ctx.errors.push(FileDiagnostic::error(
                     file_idx,
                     import.span,
-                    format!(
-                        "a whole-module import has no alias: `as {}` renames one \
-                         imported *name*, and Salvo has no module-qualified type \
-                         references to rename a module for. Import the names you \
-                         want to alias individually [mod-import-module]",
-                        alias.name
-                    ),
+                    messages::mod_import_module_alias(&alias.name),
                 ));
                 return;
             }
@@ -1938,12 +1848,7 @@ fn resolve_import<'p>(
                 ctx.errors.push(FileDiagnostic::warning(
                     file_idx,
                     import.span,
-                    format!(
-                        "redundant import: everything in `{}` is already visible here \
-                         (`core.*` is implicit, and a module sees itself) \
-                         [mod-visibility]",
-                        prefix.join(".")
-                    ),
+                    messages::mod_visibility_redundant_import(&prefix.join("."), true),
                 ));
             } else {
                 let items = &by_module[*module];
@@ -1981,28 +1886,14 @@ fn resolve_import<'p>(
                 ctx.errors.push(FileDiagnostic::warning(
                     file_idx,
                     import.span,
-                    format!(
-                        "redundant import: everything in `{}` is already visible here \
-                         (`core.*` is implicit) [mod-visibility]",
-                        prefix.join(".")
-                    ),
+                    messages::mod_visibility_redundant_import(&prefix.join("."), false),
                 ));
                 return;
             }
             ctx.errors.push(FileDiagnostic::error(
                 file_idx,
                 import.span,
-                format!(
-                    "no module `{}` — it is a path prefix, not a module, and a \
-                     whole-module import names one module rather than the tree \
-                     under it. Import the ones you want: {} [mod-import-module]",
-                    prefix.join("."),
-                    under
-                        .iter()
-                        .map(|m| format!("`import {m}`"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
+                messages::mod_import_module_path_prefix(&prefix.join("."), &under),
             ));
             return;
         }
@@ -2020,16 +1911,7 @@ fn resolve_import<'p>(
             ctx.errors.push(FileDiagnostic::error(
                 file_idx,
                 import.span,
-                format!(
-                    "unknown module `{}`: `import <module>` imports every name in a \
-                     module [mod-import-module]{}",
-                    prefix.join("."),
-                    if known.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" (importable modules: {})", known.join(", "))
-                    }
-                ),
+                messages::mod_import_module_unknown_module(&prefix.join("."), &known),
             ));
             return;
         }
@@ -2038,7 +1920,7 @@ fn resolve_import<'p>(
         ctx.errors.push(FileDiagnostic::error(
             file_idx,
             import.span,
-            "import path must be `module.item`",
+            messages::mod_import_path_shape(),
         ));
         return;
     }
@@ -2056,7 +1938,7 @@ fn resolve_import<'p>(
         ctx.errors.push(FileDiagnostic::error(
             file_idx,
             import.span,
-            "a dot-name has exactly two segments (`module.Ns.Name`) [name-dot]",
+            messages::name_dot_import_too_many_segments(),
         ));
         return;
     }
@@ -2065,7 +1947,7 @@ fn resolve_import<'p>(
         ctx.errors.push(FileDiagnostic::error(
             file_idx,
             import.span,
-            "import path must be `module.item`",
+            messages::mod_import_path_shape(),
         ));
         return;
     }
@@ -2114,11 +1996,7 @@ fn resolve_import<'p>(
                 ctx.errors.push(FileDiagnostic::error(
                     file_idx,
                     import.span,
-                    format!(
-                        "ambiguous namespace import `{item_name}`: found in modules {} \
-                         [mod-namespace]",
-                        names.join(", ")
-                    ),
+                    messages::mod_namespace_ambiguous_import(item_name, &names.join(", ")),
                 ));
                 return;
             }
@@ -2167,12 +2045,7 @@ fn resolve_import<'p>(
         ctx.errors.push(FileDiagnostic::error(
             file_idx,
             import.span,
-            format!(
-                "module `{}` declares `{item_name}` but does not export it, so it \
-                 cannot be imported: write `export` in front of that declaration \
-                 [mod-export]",
-                names.join("`, `")
-            ),
+            messages::mod_export_not_exported(&names.join("`, `"), item_name),
         ));
         return;
     }
@@ -2193,10 +2066,7 @@ fn resolve_import<'p>(
                 FileDiagnostic::error(
                     file_idx,
                     import.span,
-                    format!(
-                        "unresolved import: no module matching `{}` declares `{item_name}`",
-                        prefix.join(".")
-                    ),
+                    messages::mod_import_unresolved(&prefix.join("."), item_name),
                 )
                 .with_imports(suggestions),
             );
@@ -2231,10 +2101,7 @@ fn resolve_import<'p>(
             ctx.errors.push(FileDiagnostic::error(
                 file_idx,
                 import.span,
-                format!(
-                    "ambiguous import `{item_name}`: found in modules {}",
-                    names.join(", ")
-                ),
+                messages::mod_import_ambiguous(item_name, &names.join(", ")),
             ));
         }
     }
@@ -2291,10 +2158,7 @@ fn add_namespace_items<'p>(
         ctx.errors.push(FileDiagnostic::warning(
             ctx.file_idx,
             import_span,
-            format!(
-                "namespace `{ns}` of `{module}` exports nothing, so this import brings \
-                 no names [mod-namespace]"
-            ),
+            messages::mod_namespace_exports_nothing(ns, module),
         ));
         return;
     }

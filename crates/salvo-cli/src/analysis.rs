@@ -1110,7 +1110,7 @@ mod tests {
                 assert!(
                     full.diagnostics.iter().any(|d| {
                         d.message.contains("module `std.core.extra.auto` is under `std`")
-                            && d.message.contains("[std-root]")
+                            && d.id == Some("std-root:reserved-module")
                             && full.program.files[d.file].name.ends_with("auto.sv")
                     }),
                     "{}: a project module under `std` was not refused: {:#?}",

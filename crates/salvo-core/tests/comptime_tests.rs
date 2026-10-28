@@ -52,6 +52,8 @@ struct Reported {
     line: usize,
     message: String,
     warning: bool,
+    /// [diag-id] What the diagnostic is.
+    id: Option<&'static str>,
 }
 
 fn errors(src: &str) -> Vec<Reported> {
@@ -110,6 +112,7 @@ fn diagnostics_in(files: &[(&str, &str)]) -> Vec<Reported> {
                 line: file.content[..at].matches('\n').count() + 1,
                 message: d.message.clone(),
                 warning: !d.is_error(),
+                id: d.id,
             }
         })
         .collect()
@@ -270,7 +273,9 @@ comptime fn f(p: P) [] -> Int => p {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.message == "`f` refused: `b` is not handled yet [comptime-refuse]" && e.line == 7),
+        errs.iter().any(|e| e.id == Some("comptime-refuse:refused")
+            && e.message == "`f` refused: `b` is not handled yet"
+            && e.line == 7),
         "expected the refusal at the `refuse!`, naming the fn: {errs:?}"
     );
 }
@@ -278,12 +283,10 @@ comptime fn f(p: P) [] -> Int => p {
 /// What each `refuse!` in `src` said, in order: a body that refuses with
 /// `${field.name}` reports exactly the copies a condition selected.
 fn refused(src: &str) -> Vec<String> {
-    let mut out: Vec<String> = messages(src)
+    let mut out: Vec<String> = errors(src)
         .into_iter()
-        .filter_map(|m| {
-            m.strip_suffix(" [comptime-refuse]")
-                .and_then(|m| m.split_once(" refused: ").map(|(_, t)| t.to_string()))
-        })
+        .filter(|e| e.id == Some("comptime-refuse:refused"))
+        .filter_map(|e| e.message.split_once(" refused: ").map(|(_, t)| t.to_string()))
         .collect();
     out.sort();
     out
