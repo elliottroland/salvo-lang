@@ -6212,6 +6212,132 @@ fn kotlinc_compiles_and_runs_implicits_selected_as_calls_select() -> KotlinCase 
     kotlin_case(files, "implicit-selection", IMPLICIT_SELECTION_OUTPUT)
 }
 
+/// [op-equality] [op-order] [op-arm-eq] [unique-shape] [implicit-resolve-body]
+/// A comparison operator is the call it names (OPERATOR_OVERLOAD.md O1;
+/// PIPELINE.md §3 R10): an enclosing `?eq`/`?cmp` takes `==`/`<` on a `Str`
+/// (D1) and `<` on a `Double`; the qualified operands rank as the call ranks
+/// them, so the `Packed` overload in `Bag`'s file wins (D5); a mixed
+/// `eq(Meters, Feet)` is `m == f` (D6); an available effect's member is the
+/// `eq` (D3); `x == -1L` on a `Long?` stays a lowering before the call (D7),
+/// and mixed widths widen before it [op-promote].
+const COMPARISON_CALLS_DEMO: &str = r#"
+import bag.Bag
+import bag.pack
+import bag.eq
+
+struct Meters {
+    v: Int
+}
+
+struct Feet {
+    v: Int
+}
+
+// R10 D6: a mixed `eq`, declared with its left operand's type.
+fn eq(a: Meters, b: Feet) [] -> Bool => a, b {
+    return a.v * 328 == b.v * 100
+}
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+effect Same {
+    fn eq(a: Point, b: Point) -> Bool => a, b
+}
+
+handler ByX of Same {
+    fn eq(a: Point, b: Point) -> Bool {
+        return a.x == b.x
+    }
+}
+
+fn same_len(a: Str, b: Str) [] -> Bool => a, b {
+    return size(a) == size(b)
+}
+
+fn by_len(a: Str, b: Str) [] -> Int => a, b {
+    return cmp(size(a), size(b))
+}
+
+fn backwards(a: Double, b: Double) [] -> Int => a, b {
+    if a < b {
+        return 1
+    }
+    if a > b {
+        return -1
+    }
+    return 0
+}
+
+// R10 D1: the enclosing implicits take `==` and `<` on `Str`, as they take the calls.
+fn check(a: Str, b: Str, ?eq: (a: Str, b: Str) -> Bool, ?cmp: (a: Str, b: Str) -> Int) [] -> Str => a, b {
+    return "${a == b} ${a < b}"
+}
+
+// …and `<` on a `Double`, which has no `cmp` of its own.
+fn float_lt(a: Double, b: Double, ?cmp: (a: Double, b: Double) -> Int) [] -> Bool => a, b {
+    return a < b
+}
+
+// R10 D3: the available effect's member is the `eq` the operator calls.
+fn points(a: Point, b: Point) [Same] -> Str => a, b {
+    return "${a == b} ${a != b}"
+}
+
+fn main() [use] {
+    use StdConsole()
+    println(check("ab", "cd", eq = same_len, cmp = by_len))
+    println("${float_lt(1.0, 2.0, cmp = backwards)} ${1.0 < 2.0}")
+    let xs = pack(Bag { items: List(1, 2) })
+    let ys = pack(Bag { items: List(3, 4) })
+    println("${xs == ys}")
+    let m = Meters { v: 100 }
+    let f = Feet { v: 328 }
+    println("${m == f}")
+    use ByX()
+    println(points(Point { x: 1, y: 2 }, Point { x: 1, y: 3 }))
+    let n = -1L
+    let x: Long? = n
+    let y: Long? = None
+    println("${x == -1L} ${y == -1L}")
+    let i = 3
+    println("${i < 4L} ${2.5 > 1.0f} ${i == 3L}")
+}
+"#;
+
+const COMPARISON_CALLS_BAG: &str = r#"
+// The two overloads of `eq` on `Bag`, in `Bag`'s own file [unique-shape].
+export struct Bag<T> {
+    items: List<T>
+}
+
+export qualifier Packed of Bag<Int>
+
+export fn eq<T>(a: Bag<T>, b: Bag<T>, ?eq: (x: T, y: T) -> Bool) [] -> Bool => a, b {
+    return false
+}
+
+export fn eq(a: Packed Bag<Int>, b: Packed Bag<Int>) [] -> Bool => a, b {
+    return true
+}
+
+export fn pack(b: Bag<Int>) -> +Packed Bag<Int> => !b {
+    return b
+}
+"#;
+
+const COMPARISON_CALLS_OUTPUT: &str = "true false\nfalse true\ntrue\ntrue\ntrue false\ntrue false\ntrue true true\n";
+
+fn kotlinc_compiles_and_runs_comparisons_as_the_calls_they_name() -> KotlinCase {
+    let program = build_program(&[("main.sv", COMPARISON_CALLS_DEMO), ("bag.sv", COMPARISON_CALLS_BAG)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "comparison-calls", COMPARISON_CALLS_OUTPUT)
+}
+
 /// [fn-value-select] [fn-overload-scope] A function passed by name is chosen
 /// as a call chooses (user decision 2026-10-14, ROADMAP 0w): an imported
 /// `tag(Int)` is more specific than this module's `tag<T>`, by name as at
@@ -6276,6 +6402,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_fn_value_by_name_ranked_as_a_call,
     kotlinc_compiles_and_runs_implicits_chosen_as_calls_are,
     kotlinc_compiles_and_runs_implicits_selected_as_calls_select,
+    kotlinc_compiles_and_runs_comparisons_as_the_calls_they_name,
     kotlinc_compiles_and_runs_safe_navigation,
     kotlinc_compiles_and_runs_a_copy_of_a_pick_over_a_temporary,
     kotlinc_compiles_and_runs_when_binding,

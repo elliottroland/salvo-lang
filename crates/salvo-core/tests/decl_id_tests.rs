@@ -6,7 +6,14 @@ use std::path::Path;
 
 use salvo_core::{resolve, DeclId, DeclKind, Program, SourceSet};
 
-const PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n";
+const PRELUDE: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 fn program(files: &[(&str, &str)]) -> Program {
     let mut sources = SourceSet::default();

@@ -15,6 +15,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// [intrinsic-std-only] Enough of `lib/std/core/compare.sv` to have a bound group,
 /// plus a set to build with it.
 const STD_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Long\n",
     "export intrinsic type Bool\n",
@@ -30,6 +31,11 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn Mut Set<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)\n",
     "export intrinsic fn add<T>(set: Mut Set<T>, elem: T) [] -> None => set: Mut, !elem\n",
     "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
 );
 
 fn errors(src: &str) -> Vec<String> {

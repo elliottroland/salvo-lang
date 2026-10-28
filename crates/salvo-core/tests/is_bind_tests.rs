@@ -25,12 +25,19 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str = "\
+const STD_PRELUDE: &str = concat!(
+    "\
 export intrinsic type Int canbe Mut
 export intrinsic type Str
 export intrinsic type Bool
 export intrinsic fn copy<T>(value: T) [] -> T => value
-";
+",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 /// A subject with a side effect, and a place to compare against.
 const PRELUDE: &str = "\

@@ -24,7 +24,15 @@ use salvo_syntax::diag::Severity;
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on,
 /// loaded as *std* files (only std may write `intrinsic`), one per `std.core`
 /// module so the tests can name them with `@`.
-const STD_LIST: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Char\nexport intrinsic type Any\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn of_list<T>(...elems: T[]) [] -> Mut List<T>\nexport intrinsic fn size<T>(list: List<T>) [] -> Int => list\n";
+const STD_LIST: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Char\nexport intrinsic type Any\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn of_list<T>(...elems: T[]) [] -> Mut List<T>\nexport intrinsic fn size<T>(list: List<T>) [] -> Int => list\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 const STD_STRING: &str = "export intrinsic fn size(str: Str) [] -> Int => str\n";
 
 /// Checks a program of user files (`main.sv` first) against the std prelude.

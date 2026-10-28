@@ -6,7 +6,15 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str = "export intrinsic type Str\nexport intrinsic type Int\nexport intrinsic type Bool\nexport intrinsic type Char\n";
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Str\nexport intrinsic type Int\nexport intrinsic type Bool\nexport intrinsic type Char\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 /// Parses + resolves + checks one file (no std) and returns the checker's
 /// and resolver's error messages.

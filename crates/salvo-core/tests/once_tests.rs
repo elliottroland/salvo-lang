@@ -16,9 +16,15 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// loaded as a *std* file since only std may write `intrinsic`.
 /// [decl-id] `Finished` too: the step protocol's is std's, and only std's
 /// first declaration of a name is that name.
-const STD_PRELUDE: &str =
+const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
-     export intrinsic fn copy<T>(value: T) [] -> T => value\nexport struct Finished {}\n";
+     export intrinsic fn copy<T>(value: T) [] -> T => value\nexport struct Finished {}\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();

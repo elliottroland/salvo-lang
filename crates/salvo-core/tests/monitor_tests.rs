@@ -10,7 +10,8 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str = "\
+const STD_PRELUDE: &str = concat!(
+    "\
 export intrinsic type Int
 export intrinsic type Str
 export intrinsic type Bool
@@ -23,7 +24,13 @@ export intrinsic fn pool(size: Int) [spawn] -> Pool => size
 export effect Console {
     fn println(line: Str) -> None => !line
 }
-";
+",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 /// The shared shapes: a plain effect with mutable state behind it (the
 /// monitor), and an actor that depends on it.

@@ -18,6 +18,7 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// [intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`).
 const STD_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Long\n",
     "export intrinsic type Float\n",
@@ -29,6 +30,17 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn to_double(value: Int) [] -> Double => value\n",
     "export intrinsic fn to_byte(value: Int) [] -> Byte => value\n",
     "export intrinsic fn to_int(value: Byte) [] -> Int => value\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Float, b: Float) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Double, b: Double) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Byte, b: Byte) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
 );
 
 fn checked(src: &str) -> salvo_core::Checked {
@@ -226,7 +238,7 @@ fn ordering_surface() {
     ));
     let msgs = messages(&body("    let a = \"x\" < \"y\""));
     assert!(
-        msgs[0].contains("`<` on `Str` is `cmp(Str, Str)`") && msgs[0].contains("by auto"),
+        msgs[0].contains("no `cmp` for `<` on `Str`: `<` is `cmp(Str, Str)`") && msgs[0].contains("by auto"),
         "{msgs:?}"
     );
     let msgs = messages(&body("    let a = true < false"));

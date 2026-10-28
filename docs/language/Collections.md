@@ -86,7 +86,7 @@ let b = Point { x: 1, y: 2 }
 let same = a == b        // true
 ```
 
-Both sides must be the same type — comparing two different struct types is an error rather than a quiet `false` — and qualifiers are ignored, because equality is about the data at the moment of the check, not about what is claimed of the handle. A struct holding a *function* cannot have the generated `eq` (no two backends agree on what equal functions are), which is exactly the case for writing one by hand that ignores the field. Floating-point values compare with semantics Salvo defines itself so that both backends agree (`NaN` equals nothing, including itself).
+`a == b` is the call `eq(a, b)`, so comparing two different struct types is an error rather than a quiet `false` unless an `eq` taking the pair is declared, and a qualified value compares through its plain type's `eq` unless one is declared for the qualifier ([What an operator calls](Comparison-and-Hashing.md#what-an-operator-calls)). A struct holding a *function* cannot have the generated `eq` (no two backends agree on what equal functions are), which is exactly the case for writing one by hand that ignores the field. Floating-point values compare with semantics Salvo defines itself so that both backends agree (`NaN` equals nothing, including itself).
 
 ### Claims a list can carry
 

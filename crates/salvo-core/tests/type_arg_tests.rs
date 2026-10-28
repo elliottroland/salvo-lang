@@ -18,7 +18,14 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn empty_list<T>() [] -> Mut List<T>\nexport intrinsic fn of_list<T>(...elems: T[]) [] -> Mut List<T>\n";
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn empty_list<T>() [] -> Mut List<T>\nexport intrinsic fn of_list<T>(...elems: T[]) [] -> Mut List<T>\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 fn checked(src: &str) -> (Program, salvo_core::Checked) {
     let mut sources = SourceSet::default();

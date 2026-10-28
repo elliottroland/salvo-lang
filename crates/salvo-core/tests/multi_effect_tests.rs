@@ -14,7 +14,8 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 /// [intrinsic-std-only] The intrinsic declarations the sources need, loaded as
 /// a std file since only std may write `intrinsic`.
-const STD_PRELUDE: &str = "\
+const STD_PRELUDE: &str = concat!(
+    "\
 export intrinsic type Int
 export intrinsic type Str
 export intrinsic type Bool
@@ -28,7 +29,13 @@ export intrinsic type Pool
 export intrinsic fn pool(size: Int) [spawn] -> Pool => size
 export provenance qualifier Dedicated of Pool
 export intrinsic fn thread() [spawn] -> Dedicated Pool
-";
+",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 /// The two-faced pair T-4 is named for: a public protocol and an admin one,
 /// both `actor effect`s, plus a synchronous pair beside them.

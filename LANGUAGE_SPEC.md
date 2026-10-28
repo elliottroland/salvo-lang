@@ -1253,11 +1253,13 @@ Conventions:
   every struct compares structurally (user decision 2026-09-21): the operator
   now resolves like any call [op-equality], and a type with no `eq` says so.
   What survives from the old rule:
-  * Both operands must be the **same base type** — comparing two different
-    struct types is an error, not a constant `false` — and qualifiers are
-    ignored on both sides (`Surname Person == Person` is fine): equality is
-    about the data at the moment of the check, not about what is claimed of the
-    handle. State, provenance and `Mut` alike.
+  * ~~Both operands must be the same base type, and qualifiers are ignored~~
+    — **dropped in B3.3c** (R10 D5, D6): the operands are the call's
+    arguments, so two types compare exactly when an `eq` takes the pair
+    (comparing two struct types with none is still an error, not a constant
+    `false`, now the call's refusal said of the operator), and a qualified
+    operand ranks as the call ranks it (`Surname Person == Person` is
+    `eq(Person, Person)` unless a more specific `eq` takes the qualifier).
   * A **fn-typed field bars the *structural* `eq`**: `Rc<dyn Fn>` has none on
     Rust and Kotlin would compare by reference, so no answer exists that both
     backends can give — `: Eq<self> by auto` fails at the copy for that field,
@@ -1267,9 +1269,9 @@ Conventions:
     with a `hash` to match).
   * **Ordering and equality are separate axes still**, and both are now
     separate *functions*: `cmp` and `eq`.
-  * **Numeric widths mix** [op-promote]: `Long == Int` compares at `Long`.
-    Everything else still demands the same base type, and the int↔float mix
-    is refused with the conversions named.
+  * **Numeric widths mix** [op-promote]: `Long == Int` compares at `Long`,
+    widened before the call; the int↔float mix is refused with the
+    conversions named.
   * **Salvo owns floating-point equality.** Rust's derived `PartialEq` is
     IEEE (`NaN` equals nothing, `+0.0 == -0.0`); Kotlin's data-class
     `equals` calls `Double.equals`, which is the *opposite* on both counts,
@@ -2432,6 +2434,17 @@ Conventions:
   set already covers the mixes. Mixing the integer and float classes is
   an error naming the explicit conversions — never implicit, so float
   surprises stay opt-in.
+  * **At a comparison the widening is a lowering before the call** (B3.3c):
+    `i < l` is `cmp(widen(i), l) < 0`, `n == 0` on a `Long` `n` is
+    `eq(n, widen(0))`, resolved at the wide type (std's `cmp(Long, Long)`).
+    The call rule has no widening of its own — `cmp(i, l)` written out is
+    refused, as `f(i)` into a `Long` parameter is — so the operator keeps the
+    meaning it had; whether that stays a lowering or becomes something the
+    call expresses is PIPELINE.md §II.10 P11 (open, ROADMAP 0ai). A
+    mixed-class pair is refused before any call.
+  * The IR widens the operand wherever it is lowered (`Lower::promoted`, in a
+    call's argument list too, since an operator's operands are its call's
+    arguments); only an operator's operands are ever promoted.
 * [op-wrap] **Integer arithmetic wraps** (user decision 2026-09-23, A-6;
   built 2026-10-05, ROADMAP §0j step 2): `Int`/`Long` `+`, `-`, `*`, unary `-`
   and `++`/`--` keep the low 32/64 bits on both backends — the JVM's
@@ -2453,43 +2466,73 @@ Conventions:
   (Kotlin `toX()` ≡ Rust `as`, verified pairwise).
 * [op-order] **Ordering is `cmp`**: `a < b` is `cmp(a, b) < 0`, and likewise
   for `<=`, `>` and `>=` (user decision 2026-09-21, superseding the
-  2026-09-14 surface). So ordering works wherever a `cmp` is in scope:
-  * **Basic types [type-basic] use the host's operator**, widened per
-    [op-promote] — the canonical implementation for a scalar *is* the host's
-    operator, so `cmp(Int, Int)` is a wrapper around `<` for passing to
-    generic code, and an ordering of two basic values never calls it. `Double` is orderable
-    at the operator (both backends agree on IEEE partial comparison, `NaN`
-    answering `false`) while a *sorted container* of them stays refused (no
-    total order) — the same deliberate difference as before, now expressed as
-    "`cmp(Double, Double)` does not exist, but `<` on numerics does not need
-    it".
-  * **Everything else resolves `cmp`** [implicit-resolve]: `Str` now orders (by
-    code point, on both backends, which is what `cmp(Str, Str)` promises and
-    the JVM's `<` does not), a struct orders when it has a `cmp`, and a tuple,
-    a container or a fn value orders when its home declares one — std, for the
-    built-in and structural types, since a `cmp` on a type is declared only in
-    its declaring file [unique-shape]. With none in
-    scope the operator is an error naming the remedy — a `cmp` inside the
-    type's body, or `: Ordered<self> by auto`.
+  2026-09-14 surface), and since B3.3c (2026-10-28; OPERATOR_OVERLOAD.md O1,
+  PIPELINE.md §3 R10) **the operator is the call it names**, resolved exactly
+  as the written call `cmp(a, b)` is — one rule, no semantic fast path:
+  * **The enclosing fn's own implicit first** [implicit-resolve-body]: an
+    implicit named `cmp` whose parameters the operands fit takes the operator,
+    at a basic type or `Str` too (R10 D1: inside `f(a: Str, b: Str, ?cmp: …)`,
+    `a < b` is the implicit, as `cmp(a, b)` is), several ranked like
+    overloads [implicit-same-name]. **Recorded divergence** (§II.10 P13,
+    open): a binder alias counts by the slot it fills — `?cmp: cmp2` is a
+    `cmp` for the operator, as [cmp-binder] decided 2026-09-22, while the
+    call `cmp(a, b)` does not see `cmp2`; and a fn-typed local or ordinary
+    parameter named `cmp` does not take the operator (§II.10 P14, open).
+  * **Then the visible declarations and the available effects' members**
+    (R10 D3), ranked as the call ranks them, an ambiguity being the call's
+    (`m@E` its remedy for a member). The operand types are the call's
+    arguments: **qualifiers included** (R10 D5: a `Packed Bag<Int>` overload
+    beats `eq<T>(Bag<T>, …)`), and **no same-type rule** (R10 D6: the
+    operands meet whatever `cmp` takes them, a mixed one declared with its
+    left type [unique-shape]). Under [unique-shape] a concrete type has one
+    candidate, so no import changes what `<` means.
+  * **Two lowerings run before the call**, as [op-arm-eq] does (R10 D7):
+    mixed numeric widths widen first [op-promote], since the call rule has no
+    widening of its own (`i < l` is `cmp(widen(i), l) < 0`; §II.10 P11
+    records it, open), and **float ordering with no `cmp` in reach** keeps
+    the host's IEEE order (`NaN` answering `false`): std declares no
+    `cmp(Double, Double)`, because a sorted container of them has no total
+    order, so `<` on floats is a call only when something in reach — an
+    implicit — answers it (§II.10 P12, open).
+  * **What the backends spell natively is the selected declaration's
+    business, not the operand types'** [core-layers]: a comparison resolved
+    to std's intrinsic `cmp`/`eq` at a basic type [type-basic] *is* the
+    primitive comparison, so the IR writes its own operator, which every
+    backend spells as the host's; resolved to anything else — an enclosing
+    implicit on an `Int`, a member, a struct's `cmp`, `Str`'s intrinsic — it
+    is the call (`Ctx::is_primitive_compare`).
+  * **`Str` orders by code point** on both backends (`cmp(Str, Str)`, which
+    the JVM's `<` does not deliver [kt-ordered]); a struct orders when it has
+    a `cmp`, and a tuple, a container or a fn value when its home declares one
+    — std, for the built-in and structural types [unique-shape]. With none in
+    scope the operator is an error **naming the operator** ("no `cmp` for
+    `<` on `P`: `<` is `cmp(P, P)`, and no `cmp` in scope takes `(P, P)`")
+    and the remedy — a `cmp` inside the type's body, or `: Ordered<self> by
+    auto`; any other refusal of the call is said of the operator ("`<` on `P`
+    is `cmp(P, P)`: …"). A call that reaches a `cmp` not returning `Int` is
+    refused at the operator.
   * **At a generic `T`** the only candidate is an enclosing implicit parameter
     [implicit-forward], so a comparison in generic code publishes the
-    capability in the signature (`?Ordered<T>`). Comparing an unconstrained `T`
-    used to compile silently and emit `a < b` on a boundless generic; that hole
-    is closed.
-* [op-equality] **Equality is `eq`**: `a == b` is `eq(a, b)` and `a != b` its
-  negation, resolved exactly as ordering resolves `cmp` (user decision
-  2026-09-21). Equality is therefore **opt-in** for a type of your own
-  [col-equality].
-  * **Basic types [type-basic] use the host's `==`**, as ordering does.
-    `Str` is not basic: `a == b` on it is the call of `eq(Str, Str)`, an
-    intrinsic each backend renders as its host's string equality, and `a < b`
-    the call of `cmp(Str, Str)`, which must compare by code point where the
-    JVM's `<` compares code units [kt-ordered].
-  * A **possibly-absent** operand is still refused [op-no-none], and numeric
-    widths still mix [op-promote].
-  * The checker records which function each comparison resolved to, and both
-    emitters read it: the operator and the call cannot disagree about what
-    `==` means.
+    capability in the signature (`?Ordered<T>`), and the refusal says so.
+  * A possibly-absent operand is refused once [op-no-none]: its call is not
+    resolved, since it could only repeat the refusal.
+  * The checker records the operator as the call (`call_fn`,
+    `implicit_args`, `local_calls`/`local_call_names` through an implicit,
+    `member_calls` for a member, at the comparison's node); the IR lowers it
+    through the call path (`Lower::call_named`). The `comparisons` table and
+    its `CompareVia` are gone.
+* [op-equality] **Equality is `eq`**: `a == b` is `eq(a, b)` and `a != b` is
+  `!eq(a, b)`, resolved exactly as ordering resolves `cmp` [op-order], with
+  every bullet there applying (user decisions 2026-09-21; the call it names
+  since B3.3c, R10 D1, D3, D5, D6). Equality is therefore **opt-in** for a
+  type of your own [col-equality].
+  * **Basic types and `Str` have std's intrinsic `eq`** (`Double` and `Float`
+    included, IEEE: `NaN` equals nothing). At a basic type the backends
+    write the host's `==`; `Str`'s is the intrinsic each backend renders as
+    its host's string equality. An enclosing `?eq` on either is a call (D1).
+  * A **possibly-absent** operand is still refused [op-no-none], numeric
+    widths still mix by widening first [op-promote], and a union compared
+    with a value matching one arm is a test before the call [op-arm-eq].
   * **Each type has one**: an `eq` (or `cmp`) on a type is declared only in
     the type's own file [unique-shape], so for a concrete type the call has
     one candidate and no import changes what `==` means.
@@ -5053,11 +5096,9 @@ Conventions:
     *keeps* its parameters (no deduction clause keeps everything
     [fn-contract]), which is what lets a body compare two values and still own
     them.
-  * **Not yet the operators.** `<`/`==` still resolve as [op-order] and
-    [col-equality] describe; routing them through these groups (and with it
-    opt-in equality, the `default` generator, `@`-scoped canonicals and
-    ordering-carrying types) is the rest of the round — see ROADMAP.md
-    "Ordering, equality and hashing".
+  * **The operators are calls of these names** [op-order] [op-equality]:
+    `a < b` is `cmp(a, b) < 0` and `a == b` is `eq(a, b)`, so a group's
+    `cmp`/`eq` in a signature is what makes them legal at a `T`.
 * [fn-attached] **A function is declared *on* a type by being declared with
   it** (user decision 2026-09-26, replacing the `fn cmp@Person(…)` spelling).
   Two routes, and they are the same idea — the two ways to write something down
@@ -5179,11 +5220,16 @@ Conventions:
     `std.core.basic`, `Str`'s (and its `to_str`) in `std.core.string`,
     `List`'s in `std.core.list`; `std.core.compare` keeps the groups, the
     hashes and `mix_hash`. `unique_shape_tests.rs` checks std has no refusal.
-  * **A refused declaration is still a candidate** where it is visible, so
-    its uses may also report the ambiguity it causes (ROADMAP 0ag).
-  * Not changed by the rule: how an operator selects its function (that is
-    [op-order], [op-equality], [interp-to-str] and [iter-resolve] until
-    PIPELINE.md §II.9 B3 piece 3c lowers them to calls).
+  * **A refused declaration is a candidate nowhere** (B3.3c, closing ROADMAP
+    0ag): resolution leaves it out of every scope's fns and members
+    (`Resolution::refused_shapes`), and the checker out of the members a body
+    reaches through its effect list, so its uses report nothing beyond its
+    refusal — one mistake, one diagnostic. An explicit `m@E` still reaches a
+    refused member (the selector names it).
+  * The rule does not select: the comparison operators are the calls they
+    name [op-order] [op-equality]; interpolation [interp-to-str] and `for`
+    [iter-resolve] are lowered to their calls in their own pieces
+    (PIPELINE.md §II.9 B3).
 * [obligation-by] **`by X` on an obligation clause stamps every member of the
   group from `X`'s `comptime fn`s** (user decisions 2026-09-28, the comptime
   rounds; replaces `auto`, which is deleted from the grammar):

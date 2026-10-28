@@ -3066,8 +3066,11 @@ fn a_same_signature_overload_beside_std_is_refused_at_its_declaration() {
             && stderr.contains("[unique-shape] --> main.sv:1:4"),
         "{stderr}"
     );
-    // The refused declaration is still a candidate where it is visible, so
-    // its uses still report the ambiguity it causes (ROADMAP 0ag).
+    // [unique-shape] The refused declaration is a candidate nowhere, so its
+    // uses report nothing more: one mistake, one diagnostic (ROADMAP 0ag,
+    // closed in B3.3c). Before, the interpolation and `render`'s implicit
+    // each reported the ambiguity it caused.
+    assert!(stderr.contains("1 error,") && !stderr.contains("ambiguous"), "{stderr}");
 }
 
 /// [implicit-recursive] The winner's own implicits are filled after it is

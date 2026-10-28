@@ -25,7 +25,8 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// the `iter` overloads, and the generic sequence functions beside their
 /// `List` fast paths. Loaded as *std* files, since only std may write
 /// `intrinsic`.
-const STD_PRELUDE: &str = "\
+const STD_PRELUDE: &str = concat!(
+    "\
 export intrinsic type Int\n\
 export intrinsic type Bool\n\
 export intrinsic type Char\n\
@@ -108,7 +109,14 @@ export fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Next<It, T>) []
     return acc\n\
 }\n\
 export intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f\n\
-";
+",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 fn checked(src: &str) -> (Program, salvo_core::Checked) {
     let mut sources = SourceSet::default();

@@ -363,6 +363,11 @@ Conventions:
   a tuple's `cmp` are Salvo (2026-10-06; beside their types, `std.core.list` and
   `std.core.basic`, since 2026-10-27 [unique-shape]), and the generated
   `TupleN` classes carry nothing for ordering.
+  * [op-order] [op-equality] A comparison operator is Kotlin's own (`a < b`,
+    `a == b`) exactly when the checker resolved it to std's intrinsic
+    `cmp`/`eq` at a basic type — the IR's `Op` — and the call otherwise: an
+    enclosing `?eq` on a `Str` or `?cmp` on an `Int` is a call through the
+    parameter (B3.3c, R10 D1), as the written `eq(a, b)` is.
 * [struct-spread] `P {...p, f: v}` emits as `p.copy(f = v)`. The shallow
   copy aliases `Mut` fields where Rust deep-clones, which is
   unobservable because the checker consumes the spread base

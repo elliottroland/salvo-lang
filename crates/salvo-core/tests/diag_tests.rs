@@ -10,7 +10,14 @@ use salvo_core::{check_program, resolve, Checked, Program, SourceSet, Symbols};
 /// (module `std.core.prelude`, implicitly imported) rather than pasted into the
 /// sources under test. Added *after* the user files so their file indices —
 /// which these tests assert on — stay stable.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n";
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 /// Parses + resolves + checks a multi-file program. Each entry is
 /// `(file_name, source)`; a std prelude supplies the base types.

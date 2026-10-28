@@ -8,10 +8,16 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, ModulePath, Program, SourceSet, Symbols};
 
 const STD_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Bool\n",
     "export intrinsic type List<T> canbe Mut\n",
     "export intrinsic fn List<T>(...elems: T[]) [] -> List<T>\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
 const BAG: &str = "export opaque struct Bag {\n    items: List<Int>,\n    total: Int\n}\n\n\

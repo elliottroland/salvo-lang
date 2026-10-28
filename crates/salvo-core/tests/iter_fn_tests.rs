@@ -30,7 +30,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str =
+const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
      export intrinsic type List<T> canbe Mut\n\
      export intrinsic fn copy<T>(value: T) [] -> T => value\n\
@@ -47,7 +47,13 @@ const STD_PRELUDE: &str =
      export fns Iter<C, It, T> => iter with next {\n    fn iter(collection: C) -> Mut It\n    fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut\n}\n\
      export effect Console {\n    fn print(message: Str) -> None => !message\n}\n\
      export handler StdConsole of Console {\n    fn print(message: Str) -> None => !message {}\n}\n\
-     export fn println(message: Str) [Console] -> None => !message {}\n";
+     export fn println(message: Str) [Console] -> None => !message {}\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 /// Every diagnostic — parse, resolve and check — because an `iter fn`'s own
 /// rules are reported by the desugaring, which runs inside the parser.

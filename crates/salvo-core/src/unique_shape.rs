@@ -28,7 +28,7 @@
 //! * A bare type parameter has no home, so a shape on one is refused: the
 //!   catch-all `fn to_str<T>(x: T)`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use salvo_syntax::ast::{FnDecl, Item, Type, TypeDecl};
 
@@ -232,7 +232,7 @@ impl Ctx<'_, '_> {
 
     /// [unique-shape] Check one declaration; `outer` are the type parameters
     /// of the declaration containing it (an effect's, a qualifier's).
-    fn check(&self, file: usize, f: &FnDecl, outer: &[&str], out: &mut Vec<FileDiagnostic>) {
+    fn check(&self, file: usize, f: &FnDecl, outer: &[&str], out: &mut Vec<FileDiagnostic>, refused: &mut HashSet<usize>) {
         if f.compfn.as_ref().is_some_and(|c| c.bound.is_some()) {
             return;
         }
@@ -278,18 +278,22 @@ impl Ctx<'_, '_> {
             ),
         };
         out.push(FileDiagnostic::error(file, f.name.span, message));
+        refused.insert(f as *const FnDecl as usize);
     }
 }
 
 /// [unique-shape] Every declaration of a unique shape outside its type's
-/// declaring file, as errors at the declaration (the `resolve` phase).
+/// declaring file, as errors at the declaration (the `resolve` phase), and
+/// the refused declarations by address: a refused one is a candidate nowhere
+/// (one mistake, one diagnostic; ROADMAP 0ag, closed in B3.3c).
 pub fn check_program<'p>(
     files: &[SourceFile],
     modules: &[&'p salvo_syntax::ast::Module],
     scopes: &[ModuleScope<'p>],
     decl_files: &HashMap<usize, usize>,
     errors: &mut Vec<FileDiagnostic>,
-) {
+) -> HashSet<usize> {
+    let mut refused: HashSet<usize> = HashSet::new();
     let home_of = |path: ModulePath| {
         files.iter().position(|f| f.module == path && !f.is_test)
     };
@@ -308,21 +312,22 @@ pub fn check_program<'p>(
         }
         for item in &ast.items {
             match item {
-                Item::Fn(f) => ctx.check(file, f, &[], errors),
+                Item::Fn(f) => ctx.check(file, f, &[], errors, &mut refused),
                 Item::Effect(e) => {
                     let outer: Vec<&str> = e.generics.iter().map(|g| g.name.as_str()).collect();
                     for f in &e.fns {
-                        ctx.check(file, f, &outer, errors);
+                        ctx.check(file, f, &outer, errors, &mut refused);
                     }
                 }
                 Item::Qualifier(q) => {
                     let outer: Vec<&str> = q.generics.iter().map(|g| g.name.as_str()).collect();
                     for f in &q.fns {
-                        ctx.check(file, f, &outer, errors);
+                        ctx.check(file, f, &outer, errors, &mut refused);
                     }
                 }
                 _ => {}
             }
         }
     }
+    refused
 }

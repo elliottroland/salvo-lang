@@ -12,7 +12,11 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "export intrinsic type Str\nexport intrinsic type Int\n";
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Str\nexport intrinsic type Int\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 /// Parses + resolves + checks one file (no std) and returns the checker's
 /// and resolver's error messages.

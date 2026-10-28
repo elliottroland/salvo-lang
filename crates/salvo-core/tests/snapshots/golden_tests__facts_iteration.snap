@@ -54,7 +54,7 @@ countdown(Int) -> Mut Countdown@main
 next(Mut Countdown) -> Emitted Int | Finished@main
   54:9    `p`                            Mut Countdown
   55:5    `if p.at <= 0 {…`              None
-  55:8    `p.at <= 0`                    Bool
+  55:8    `p.at <= 0`                    Bool  -> std.core.basic::cmp(Int, Int)
   55:8    `p.at`                         Int
   55:8    `p`                            Mut Countdown
   55:16   `0`                            Int
@@ -76,7 +76,7 @@ next(Mut Countdown) -> Emitted Int | Finished@main
 skip(Mut Countdown) -> Emitted Int | Finished@main
   66:9    `p`                            Mut Countdown
   67:5    `if p.at <= 1 {…`              None
-  67:8    `p.at <= 1`                    Bool
+  67:8    `p.at <= 1`                    Bool  -> std.core.basic::cmp(Int, Int)
   67:8    `p.at`                         Int
   67:8    `p`                            Mut Countdown
   67:16   `1`                            Int
@@ -110,7 +110,7 @@ take(Mut Countdown, Int) -> None@main
   81:16   `seen`                         Int
   81:23   `1`                            Int
   82:9    `if seen == count {…`          None
-  82:12   `seen == count`                Bool
+  82:12   `seen == count`                Bool  -> std.core.basic::eq(Int, Int)
   82:12   `seen`                         Int
   82:20   `count`                        Int
   83:13   `break`                        Never
@@ -124,7 +124,7 @@ next(Mut Halving) -> Emitted Int | Finished@main
   97:6    `fn halving(start: Int) -> …`  Mut Halving
   97:9    `halving`                      Mut Halving
   103:5   `if at <= 0 {…`                None
-  103:8   `at <= 0`                      Bool
+  103:8   `at <= 0`                      Bool  -> std.core.basic::cmp(Int, Int)
   103:8   `at`                           Int
   103:14  `0`                            Int
   104:9   `return finished()`            Never
@@ -182,7 +182,7 @@ next(Mut Fibs) -> Emitted Int | Finished@main
   142:6   `fn fibs(count: Int) [Conso…`  Mut Fibs
   142:9   `fibs`                         Mut Fibs
   148:5   `if made >= count {…`          None
-  148:8   `made >= count`                Bool
+  148:8   `made >= count`                Bool  -> std.core.basic::cmp(Int, Int)
   148:8   `made`                         Int
   148:16  `count`                        Int
   149:9   `println("3. finished")`       None  -> std.core.console::println
@@ -338,7 +338,7 @@ main() -> None@main
   246:14  `naturals(10)`                 Mut Naturals  -> main::naturals
   246:23  `10`                           Int
   247:9   `if n > 12 {…`                 None
-  247:12  `n > 12`                       Bool
+  247:12  `n > 12`                       Bool  -> std.core.basic::cmp(Int, Int)
   247:12  `n`                            Int
   247:16  `12`                           Int
   248:13  `break`                        Never
@@ -358,7 +358,7 @@ main() -> None@main
   259:22  `xs`                           NonEmpty List<Int>
   259:26  `n -> n % 2 == 1`              (Int) -> Bool
   259:26  `n`                            Int
-  259:31  `n % 2 == 1`                   Bool
+  259:31  `n % 2 == 1`                   Bool  -> std.core.basic::eq(Int, Int)
   259:31  `n % 2`                        Int
   259:31  `n`                            Int
   259:35  `2`                            Int
@@ -414,10 +414,10 @@ main() -> None@main
   270:37  `c -> c == 'i' || c == 'o'`    (Char) -> Bool
   270:37  `c`                            Char
   270:42  `c == 'i' || c == 'o'`         Bool
-  270:42  `c == 'i'`                     Bool
+  270:42  `c == 'i'`                     Bool  -> std.core.basic::eq(Char, Char)
   270:42  `c`                            Char
   270:47  `'i'`                          Char
-  270:54  `c == 'o'`                     Bool
+  270:54  `c == 'o'`                     Bool  -> std.core.basic::eq(Char, Char)
   270:54  `c`                            Char
   270:59  `'o'`                          Char
   271:5   `println("5. vowels: ${size…`  None  -> std.core.console::println

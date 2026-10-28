@@ -85,7 +85,14 @@ fn messages(src: &str) -> Vec<String> {
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file (module `std.core.prelude`, implicitly imported)
 /// rather than pasted into the source under test.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Store<T> canbe Mut\n";
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Store<T> canbe Mut\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 // [name-dot] A dot-name resolves as one dotted name, and the namespace
 // struct in the same file satisfies the rule.

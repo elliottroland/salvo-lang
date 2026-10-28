@@ -685,14 +685,6 @@ pub struct Checked {
     /// reader of the `DeclId`-keyed tables below asks for a key's file.
     pub decls: std::sync::Arc<crate::decl_id::DeclIndex>,
     pub expr_ty: HashMap<Key, Ty>,
-    /// [op-order] [op-equality] How a comparison operator lowers, keyed by the
-    /// span of the binary expression. **Absent means the host's own operator**:
-    /// numeric operands keep the native fast path, and so do the other
-    /// intrinsic types' equality, where the canonical implementation *is* that
-    /// operator [cmp-groups]. Present means the comparison goes through a
-    /// `cmp`/`eq` the checker resolved — a struct's canonical, or the enclosing
-    /// fn's implicit parameter at a generic `T`.
-    pub comparisons: HashMap<Key, CompareVia>,
     /// [op-arm-eq] An equality whose one side is a union and whose other side
     /// is a value matching exactly one of its arms, keyed by the comparison's
     /// span. The checker proved which arm, and the IR lowers it to
@@ -1356,20 +1348,38 @@ enum UnfilledWhy {
     Other(String),
 }
 
-/// [op-order] [op-equality] What a comparison operator resolved to, for the
-/// emitters: `a < b` is `cmp(a, b) < 0` and `a == b` is `eq(a, b)`, so the
-/// operator needs the function that implements it (user decisions 2026-09-21).
-#[derive(Clone, Debug, PartialEq)]
-pub enum CompareVia {
-    /// A declared `cmp`/`eq` — a canonical [fn-attached], a generated
-    /// structural member [obligation-by], or any other visible overload that
-    /// fits. Intrinsic declarations included, which is how `Str` ordering
-    /// reaches the backends' code-point comparison.
-    Call(DeclId),
-    /// The enclosing fn's own implicit parameter of that name
-    /// [implicit-forward]: the only thing that *can* compare an opaque `T`,
-    /// and the colouring that makes the capability visible in a signature.
-    Implicit(String),
+/// [op-equality] [op-order] A comparison operator being resolved as the call
+/// it names (`a == b` is `eq(a, b)`, `a < b` is `cmp(a, b) < 0`, O1): the
+/// call's diagnostics are worded for the operator.
+#[derive(Clone, Debug)]
+struct OperatorSite {
+    /// The operator as written (`==`, `<`, …).
+    sym: &'static str,
+    /// The function it names (`eq`, `cmp`).
+    member: &'static str,
+    /// The operand types the call is resolved at.
+    lhs: Ty,
+    rhs: Ty,
+    /// What the refusal of a missing function suggests ([`Checker::compare_remedy`]).
+    remedy: String,
+}
+
+impl OperatorSite {
+    /// The call's diagnostic, said of the operator: a missing function names
+    /// the operator and the remedy, anything else is prefixed with what the
+    /// operator is.
+    fn reword(&self, msg: String) -> String {
+        let OperatorSite { sym, member, lhs, rhs, remedy } = self;
+        let on = if lhs.strip_quals() == rhs.strip_quals() { format!("`{lhs}`") } else { format!("`{lhs}` and `{rhs}`") };
+        let call = format!("no matching overload for `{member}({lhs}, {rhs})`");
+        match msg.strip_prefix(&call) {
+            Some(rest) => format!(
+                "no `{member}` for `{sym}` on {on}: `{sym}` is `{member}({lhs}, {rhs})`, and no `{member}` in \
+                 scope takes `({lhs}, {rhs})`{rest}{remedy}"
+            ),
+            None => format!("`{sym}` on {on} is `{member}({lhs}, {rhs})`: {msg}"),
+        }
+    }
 }
 
 /// [op-arm-eq] An equality `union == value` the checker reduced to an arm
@@ -3215,6 +3225,11 @@ struct Checker<'p, 'r> {
     /// [implicit-resolve-body] Argument types of a call that fell through an
     /// implicit to the fns of its name, consumed by `resolve_named_call`.
     pending_arg_tys: Option<Vec<Ty>>,
+    /// [op-equality] [op-order] The comparison operator whose call is being
+    /// resolved: what its diagnostics are worded for, so an error at `a == b`
+    /// names the operator (`no `eq` for `==` on `Foo``), and what keeps the
+    /// call from recording a fn reference at the operator's span.
+    operator_site: Option<OperatorSite>,
     /// [fn-overload-at] The `@module` selectors (by the span of the written
     /// path) at calls whose bare name something other than the declared fns
     /// would take: a local or parameter of the name, a handler's own `send
@@ -3233,7 +3248,7 @@ struct Checker<'p, 'r> {
     /// the `try_nested` that opened it.
     nested_miss: Option<Unfilled>,
     /// [comptime-generic] `resolve_implicit_fn_at` is answering for a call
-    /// (an operator, an interpolation), which fills the found fn's own
+    /// (an interpolation part), which fills the found fn's own
     /// implicits, rather than for a fn value, which cannot yet.
     resolve_as_call: bool,
     /// [implicit-infer] Selection asked by inference: an ambiguity among
@@ -3547,6 +3562,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             lending_ctor: None,
             own_implicits: Vec::new(),
             pending_arg_tys: None,
+            operator_site: None,
             at_needed: HashSet::new(),
             last_nested: Vec::new(),
             resolve_depth: 0,
@@ -3582,7 +3598,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn error(&mut self, span: Span, msg: impl Into<String>) {
-        let (span, msg, decl) = self.render_origin(span, msg.into());
+        let msg: String = match &self.operator_site {
+            Some(site) => site.reword(msg.into()),
+            None => msg.into(),
+        };
+        let (span, msg, decl) = self.render_origin(span, msg);
         self.out
             .errors
             .push(FileDiagnostic::error(self.file_idx, span, msg).in_decl(decl));
@@ -7279,7 +7299,18 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// none fits, `Err` with the tied ones' types when no single one is most
     /// specific.
     fn pick_own_implicit(&self, name: &str, fits: &dyn Fn(&ImplicitParam) -> bool) -> Result<Option<ImplicitParam>, Vec<Ty>> {
-        let fitting: Vec<&ImplicitParam> = self.own_implicits.iter().filter(|p| p.name == name && fits(p)).collect();
+        self.pick_own_implicit_by(&|p: &ImplicitParam| p.name == name, fits)
+    }
+
+    /// [`Checker::pick_own_implicit`] among the implicits `named` accepts:
+    /// a comparison operator asks by name or by the slot a binder alias fills
+    /// [cmp-binder].
+    fn pick_own_implicit_by(
+        &self,
+        named: &dyn Fn(&ImplicitParam) -> bool,
+        fits: &dyn Fn(&ImplicitParam) -> bool,
+    ) -> Result<Option<ImplicitParam>, Vec<Ty>> {
+        let fitting: Vec<&ImplicitParam> = self.own_implicits.iter().filter(|p| named(p) && fits(p)).collect();
         match fitting.len() {
             0 => return Ok(None),
             1 => return Ok(Some(fitting[0].clone())),
@@ -7331,7 +7362,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             for (index, f) in effect.fns.iter().enumerate() {
-                if f.name.name != name || f.is_send {
+                if f.name.name != name || f.is_send || self.shape_refused(f) {
                     continue;
                 }
                 if out.iter().any(|m| std::ptr::eq(m.decl, f) && m.instance == instance) {
@@ -8550,6 +8581,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         !self.overloads_of(name).is_empty()
     }
 
+    /// [unique-shape] Whether resolution refused this declaration for its
+    /// placement: a candidate nowhere, so its uses add nothing to its refusal
+    /// (ROADMAP 0ag). The scopes' fns and members already leave it out; this
+    /// is for the members a body reaches through its effect list.
+    fn shape_refused(&self, f: &FnDecl) -> bool {
+        !self.resolution.refused_shapes.is_empty() && self.resolution.refused_shapes.contains(&(f as *const FnDecl as usize))
+    }
+
     /// [effect-alias] [effect-prereq] The effect members answering to
     /// `name` here: those this file's scope sees, plus the members of every
     /// effect *available* in the current body. An effect reaches a body
@@ -8562,7 +8601,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for t in &self.effect_env {
             let Ty::Named { name: key, .. } = &t.ty else { continue };
             let Some(e) = self.symbols.effects.get(key.as_str()).copied() else { continue };
-            for f in e.fns.iter().filter(|f| f.name.name == name) {
+            for f in e.fns.iter().filter(|f| f.name.name == name && !self.shape_refused(f)) {
                 if !out.iter().any(|(oe, of)| std::ptr::eq(*oe, e) && std::ptr::eq(*of, f)) {
                     out.push((e, f));
                 }
@@ -9049,6 +9088,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         members: &[&'p FnDecl],
         fn_cands: &[crate::resolve::FnEntry<'p>],
         args: &[&'p Expr],
+        // [implicit-resolve-body] [op-equality] Arguments the caller already
+        // typed (a call that fell through an implicit, an operator).
+        pre_typed: Option<Vec<Ty>>,
         span: Span,
     ) -> Route {
         // Typed without expected types: the lead-candidate machinery belongs
@@ -9070,7 +9112,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         for decl in members.iter().copied().chain(fn_cands.iter().map(|e| e.decl)) {
             position_tys.push(self.declared_param_tys(decl));
         }
-        let arg_tys: Vec<Ty> = args
+        let arg_tys: Vec<Ty> = match pre_typed {
+            Some(tys) => tys,
+            None => args
             .iter()
             .enumerate()
             .map(|(i, a)| {
@@ -9127,7 +9171,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 self.check_expr(a, want.as_ref())
             })
-            .collect();
+            .collect(),
+        };
         let m = self.fitting_members(effect, members, &arg_tys);
         let f = self.fitting_fns(fn_cands, &arg_tys);
         let shown = |tys: &[Ty]| -> String {
@@ -12243,13 +12288,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// always a missing narrowing — and the backends disagree about it
     /// (Kotlin compares/prints `null`, Rust rejects the `Option`), which
     /// makes leniency a parity hole. `Unknown`/`Never` stay lenient.
-    fn reject_optional_operand(&mut self, op: BinaryOp, operand: &Expr, ty: &Ty) {
+    fn reject_optional_operand(&mut self, op: BinaryOp, operand: &Expr, ty: &Ty) -> bool {
         if ty.is_unknown() || matches!(ty, Ty::Never) {
-            return;
+            return false;
         }
         let stripped = ty.strip_quals();
         if !(stripped.has_none_arm() || stripped.is_none_ty()) {
-            return;
+            return false;
         }
         let symbol = op_symbol(op);
         let message = if stripped.is_none_ty() {
@@ -12261,6 +12306,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             )
         };
         self.error(operand.span(), message);
+        true
     }
 
     fn lookup_mut(&mut self, name: &str) -> Option<&mut LocalVar> {
@@ -12722,37 +12768,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                             | "Byte" | "Str"
                     )
         )
-    }
-
-    /// [interp-to-str] Checks that an interpolated value has a text form, and
-    /// records the `to_str` to reach it by when it is not native.
-    ///
-    /// Resolution is the ordinary implicit machinery at this site: a `to_str`
-    /// in scope whose parameter accepts this type and which returns `Str`.
-    /// std provides one for `List<T>`; `Mut Str` never arrives here (a
-    /// builder is converted first [str-drop-mut]).
-    /// [implicit-resolve] Fills the implicits of the fn `key` (a `name`
-    /// overload) as a call with arguments `arg_tys` would, keyed at `at`.
-    /// Nothing for a fn without implicits.
-    fn fill_resolved_implicits(&mut self, key: DeclId, name: &str, arg_tys: &[Ty], at: Span) {
-        let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
-        if implicits.is_empty() {
-            return;
-        }
-        let Some(entry) = self.overloads_of(name).into_iter().find(|e| e.key == key) else {
-            return;
-        };
-        let decl = entry.decl;
-        let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
-        let saved = self.enter_generics(&decl.generics);
-        let patterns: Vec<Ty> = fixed.iter().map(|p| self.lower_type(&p.ty)).collect();
-        self.generics = saved;
-        let mut subst: HashMap<String, Ty> = HashMap::new();
-        for (p, a) in patterns.iter().zip(arg_tys) {
-            unify(p, a.strip_quals(), &mut subst);
-        }
-        let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
-        self.fill_implicits(&implicits, name, &mut subst, &generics, &[], at);
     }
 
     /// [interp-to-str] How a value of type `ty` reaches text when it is not
@@ -14254,73 +14269,68 @@ impl<'p, 'r> Checker<'p, 'r> {
         true
     }
 
-    /// [op-order] [op-equality] Operand rules for the comparison operators,
-    /// which **resolve through the capability groups** (user decisions
-    /// 2026-09-21): `a < b` is `cmp(a, b) < 0` and `a == b` is `eq(a, b)`.
+    /// [op-order] [op-equality] A comparison operator is **the call it names**
+    /// (O1, R10): `a == b` is `eq(a, b)`, `a != b` is `!eq(a, b)`, and `a < b`
+    /// is `cmp(a, b) < 0` (`>`, `<=`, `>=` alike), resolved exactly as the
+    /// written call is — no semantic fast path (R10 D1), the operand types as
+    /// the call ranks them, qualifiers included (D5), and no same-type rule
+    /// (D6: `m == f` with `eq(Meters, Feet)` declared is that call).
     ///
-    /// * **Numerics keep the native fast path**, widening within their class
-    ///   [op-promote]: the canonical implementation for a primitive *is* the
-    ///   host's operator, so emitting the operator is emitting the
-    ///   implementation. Equality at the other intrinsic types is the same
-    ///   story.
-    /// * **Everything else needs a function.** Ordering resolves `cmp` at the
-    ///   operand type, equality resolves `eq` — a canonical [fn-attached], a
-    ///   generated structural member [obligation-by], or any other fitting
-    ///   overload. With none in scope the operator is an **error naming the
-    ///   remedy**, which is what makes equality opt-in for a type of your own
-    ///   and closes the silent comparison of unconstrained generics.
-    /// * **At a generic `T`** the only thing that can compare is an enclosing
-    ///   implicit parameter [implicit-forward] — the colouring that puts the
-    ///   capability in the signature. `Ty::Var` is therefore no longer lenient
-    ///   for comparisons (it was "a documented leftover").
-    /// * **The two sides must still be the same base type.** Comparing
-    ///   different struct types is an error rather than a constant `false`.
-    /// * A **fn-typed field** no longer bars a struct from equality by itself:
-    ///   a struct holding one becomes comparable by declaring an `eq` that
-    ///   ignores it (new capability, decision 6). What is refused is the
-    ///   *structural* `auto Eq`, where the field has no answer either
-    ///   backend can give.
+    /// * **The enclosing fn's own implicit first** [implicit-resolve-body]:
+    ///   one named `eq`/`cmp` whose parameters the operands fit takes the
+    ///   operator, as it takes the call — at a scalar or `Str` too (D1) — and
+    ///   several are ranked like overloads [implicit-same-name] (D21).
+    ///   [cmp-binder] A binder alias counts by the slot it fills
+    ///   (`?cmp: cmp2` is a `cmp` here), as decided 2026-09-22; the call
+    ///   `cmp(a, b)` does not see it (PIPELINE.md §II.10 P13, open).
+    /// * **Then the visible declarations and the available effects' members**,
+    ///   by `resolve_named_call` (R10 D3: a member competes; a tie is the
+    ///   ordinary ambiguity, `m@E` its remedy). Under [unique-shape] a
+    ///   concrete type has one candidate.
+    /// * **Lowerings before the call, kept:** [op-arm-eq] (R10 D7, already
+    ///   done by the caller) and [op-promote]: mixed numeric widths widen the
+    ///   narrower operand first, so `i < l` is `cmp(widen(i), l) < 0`, and an
+    ///   integer and a float operand are refused — the call rule has no
+    ///   widening of its own (§II.10 P11, open).
+    /// * **Float ordering with nothing to call** keeps the host's IEEE order:
+    ///   std declares no `cmp(Double, Double)` (a sorted container of them has
+    ///   no total order), so `<` on floats goes through a `cmp` only when one
+    ///   is in reach, an implicit (§II.10 P12, open).
     ///
-    /// Unknown and `Never` operands stay lenient [type-unknown-lenient].
+    /// Whether the backends spell it natively is read off the selected
+    /// declaration (std's intrinsic `eq`/`cmp` at a basic type), not the
+    /// operand types [core-layers]. A possibly-`None` operand was refused by
+    /// the caller, which then skips this (one mistake, one diagnostic);
+    /// `Unknown` and `Never` stay lenient [type-unknown-lenient].
     fn check_comparison_operands(
         &mut self,
         op: ast::BinaryOp,
         span: Span,
-        lhs: &Expr,
-        rhs: &Expr,
+        lhs: &'p Expr,
+        rhs: &'p Expr,
         l: &Ty,
         r: &Ty,
     ) {
         let equality = matches!(op, ast::BinaryOp::Eq | ast::BinaryOp::NotEq);
         // [type-literal] A literal (or a union of them) compares as its base.
         let (lw, rw) = (crate::literal::widen(l), crate::literal::widen(r));
-        let (l, r) = (&lw, &rw);
-        let (lb, rb) = (l.strip_quals(), r.strip_quals());
-        // [type-unknown-lenient] `Unknown` and `Never` stay lenient — one
-        // mistake, one diagnostic. A **type variable** does not: comparing an
-        // opaque `T` used to compile silently and emit `a < b` on a boundless
-        // generic, which rustc then refused (`op_lenient`'s "documented
-        // leftover"). It is now the ordinary missing-capability error.
+        let (lb, rb) = (lw.strip_quals().clone(), rw.strip_quals().clone());
         if lb.is_unknown() || rb.is_unknown() || matches!(lb, Ty::Never) || matches!(rb, Ty::Never) {
             return;
         }
         let sym = op_symbol(op);
-        // [op-promote] Numeric operands widen within their class for **every**
-        // comparison, equality included (user decision 2026-09-18): `Int <
-        // Long` compares at `Long` with the narrower side recording a
-        // promotion, and so does `Int == Long`. Equality used to be excluded,
-        // which made `n == 0` an error for a `Long` `n` while `n < 0` was fine
-        // — an inconsistency with no reading behind it, since a widening
-        // comparison is exact in both directions. The int↔float mix stays
-        // refused the same way. This runs *before* the same-base check, which
-        // mixed widths would otherwise trip.
-        match (op_numeric(lb), op_numeric(rb)) {
+        let member: &'static str = if equality { "eq" } else { "cmp" };
+        // [op-promote] Mixed numeric widths widen within their class before the
+        // call, for every comparison (equality joined 2026-09-18): the
+        // narrower operand records a promotion and the call is made at the
+        // wider type. Mixing the integer and float classes is refused.
+        let (lt, rt) = match (op_numeric(&lb), op_numeric(&rb)) {
             (Some((lf, lr)), Some((rf, rr))) => {
                 if lf != rf {
                     self.error(
                         span,
                         format!(
-                            "`{sym}` cannot mix `{l}` and `{r}`: integer and \
+                            "`{sym}` cannot mix `{lw}` and `{rw}`: integer and \
                              floating-point operands need an explicit conversion \
                              (`to_double`, `to_long`, …)"
                         ),
@@ -14328,183 +14338,125 @@ impl<'p, 'r> Checker<'p, 'r> {
                     return;
                 }
                 match lr.cmp(&rr) {
-                    std::cmp::Ordering::Less => self.record_promotion(lhs.span(), rb),
-                    std::cmp::Ordering::Greater => self.record_promotion(rhs.span(), lb),
-                    std::cmp::Ordering::Equal => {}
+                    std::cmp::Ordering::Less => {
+                        self.record_promotion(lhs.span(), &rb);
+                        (rb.clone(), rw.clone())
+                    }
+                    std::cmp::Ordering::Greater => {
+                        self.record_promotion(rhs.span(), &lb);
+                        (lw.clone(), lb.clone())
+                    }
+                    std::cmp::Ordering::Equal => (lw.clone(), rw.clone()),
                 }
+            }
+            _ => (lw.clone(), rw.clone()),
+        };
+        let tys = vec![lt.clone(), rt.clone()];
+        let ret = if equality { Ty::named("Bool") } else { Ty::named("Int") };
+        // 1. [implicit-resolve-body] The enclosing fn's own implicit of the
+        // name, when the operands fit it; [cmp-binder] by the slot it fills.
+        let fits = |p: &ImplicitParam| match p.ty.strip_quals() {
+            Ty::Fn { params, .. } => params.len() == 2 && tys.iter().zip(params).all(|(a, q)| Self::arg_fits_fn_value(a, q)),
+            _ => p.ty.is_unknown(),
+        };
+        let is_member = |p: &ImplicitParam| p.name == member || p.slot.as_deref() == Some(member);
+        match self.pick_own_implicit_by(&is_member, &fits) {
+            Ok(Some(own)) => {
+                self.operator_through_implicit(&own, sym, member, lhs, rhs, &tys, &ret, span);
                 return;
             }
-            (None, None) => {}
-            _ => {
+            Ok(None) => {}
+            Err(tied) => {
+                // [cmp-binder] Named by what the body calls them, an alias
+                // included: that is what the remedy writes.
+                let shown: Vec<String> = self
+                    .own_implicits
+                    .iter()
+                    .filter(|p| is_member(p) && fits(p))
+                    .map(|p| format!("`{}`", p.local))
+                    .collect();
                 self.error(
                     span,
                     format!(
-                        "cannot compare `{l}` with `{r}`: the operands of a \
-                         comparison must be the same type"
+                        "`{sym}` on `{lt}` is `{member}({lt}, {rt})`, and this function has {} \
+                         of them in scope ({}), and none is more specific: the operator cannot \
+                         choose, so call the one you mean [cmp-binder] [implicit-same-name]",
+                        tied.len(),
+                        shown.join(", ")
                     ),
                 );
                 return;
             }
         }
-        // Same base type on both sides — qualifiers ignored, since a
-        // comparison is about the data.
-        let mismatch = match (lb, rb) {
-            (Ty::Named { name: ln, .. }, Ty::Named { name: rn, .. }) => ln != rn,
-            _ => false,
-        };
-        if mismatch {
-            self.error(
-                span,
-                format!(
-                    "cannot compare `{l}` with `{r}`: the operands of a \
-                     comparison must be the same type"
-                ),
-            );
-            return;
-        }
-        // [op-equality] Equality at an intrinsic type is the host's operator:
-        // `eq(Str, Str)` and its siblings *are* `==`, so resolving them would
-        // buy nothing and cost every emitted comparison an indirection.
-        // Ordering is deliberately not on this path — `Str` must compare by
-        // code point, which is what `cmp(Str, Str)` delivers and what the JVM's
-        // `<` does not [kt-ordered].
-        if equality && self.is_intrinsic_type_ty(lb) {
-            return;
-        }
-        // Everything else: the operator *is* the capability's function.
-        let member = if equality { "eq" } else { "cmp" };
-        let ret = if equality {
-            Ty::named("Bool")
-        } else {
-            Ty::named("Int")
-        };
-        let want = Ty::Fn {
-            params: vec![lb.clone(), rb.clone()],
-            ret: Box::new(ret),
-            contract: None,
-            effects: Vec::new(),
-        };
-        // 1. The enclosing fn's own implicit — the only possibility at a
-        // generic `T` [implicit-forward], and what a bound-carrying signature
-        // publishes.
-        //
-        // [cmp-binder] Two of them for one capability is an **ambiguity**, and
-        // aliasing is what makes it visible rather than what dodges it: a
-        // signature holding two heaps ordered differently has two `cmp`s in
-        // scope, so `a < b` there could mean either and the body must say which
-        // (user decision 2026-09-22). Asked of what a parameter *is* — the slot
-        // it fills — not of what it is called.
-        let candidates: Vec<&ImplicitParam> = self
-            .own_implicits
-            .iter()
-            .filter(|p| p.name == member || p.slot.as_deref() == Some(member))
-            // [implicit-same-name] Of one name at different types, only the
-            // ones that fit the operands compete.
-            .filter(|p| is_subtype(&p.ty, &want) || p.ty.is_unknown())
-            .collect();
-        // [implicit-same-name] Among several that fit, the most specific,
-        // ranked like overloads (R10 D21); only a tie is refused.
-        let ranked: Option<usize> = if candidates.len() > 1 {
-            let ranks: Vec<crate::types::RankedCandidate> = candidates
-                .iter()
-                .map(|p| crate::types::RankedCandidate {
-                    patterns: match p.ty.strip_quals() {
-                        Ty::Fn { params, .. } => params.clone(),
-                        _ => Vec::new(),
-                    },
-                    variadic: false,
-                })
-                .collect();
-            crate::types::most_specific(&ranks)
-        } else {
-            None
-        };
-        if let Some(i) = ranked {
-            let local = candidates[i].local.clone();
-            self.out.comparisons.insert(self.key(span), CompareVia::Implicit(local));
-            return;
-        }
-        if candidates.len() > 1 {
-            let shown: Vec<String> = candidates
-                .iter()
-                .map(|p| format!("`{}`", p.name))
-                .collect();
-            self.error(
-                span,
-                format!(
-                    "`{sym}` on `{lb}` is `{member}({lb}, {rb})`, and this function has \
-                     {} of them in scope ({}), and none is more specific: the operator \
-                     cannot choose, so call the one you mean [cmp-binder] [implicit-same-name]",
-                    candidates.len(),
-                    shown.join(", ")
-                ),
-            );
-            return;
-        }
-        if let Some(own) = self
-            .own_implicits
-            .iter()
-            .find(|p| p.name == member && (is_subtype(&p.ty, &want) || p.ty.is_unknown()))
-        {
-            {
-                let local = own.local.clone();
-                self.out
-                    .comparisons
-                    .insert(self.key(span), CompareVia::Implicit(local));
+        // [op-order] Float ordering with no `cmp` in reach: the host's order.
+        if !equality && matches!(op_numeric(lt.strip_quals()), Some((true, _))) {
+            let want = Ty::Fn { params: tys.clone(), ret: Box::new(ret.clone()), contract: None, effects: Vec::new() };
+            if !self.some_fn_accepts(member, &want) {
                 return;
             }
         }
-        // 2. A visible declaration: the canonical, a generated structural
-        // member, or any other fitting overload [implicit-resolve].
-        // [comptime-generic] The operator is a *call*, so a candidate with
-        // implicits of its own is fine: they are filled here.
-        self.resolve_as_call = true;
-        let resolved = self.resolve_implicit_fn_at(member, None, &want);
-        self.resolve_as_call = false;
-        match resolved {
-            Ok((key, _)) => {
-                self.out
-                    .comparisons
-                    .insert(self.key(span), CompareVia::Call(key));
-                // [comptime-generic] A `cmp`/`eq` with implicits of its own (one
-                // stamped at a generic struct) is a call made here: they are
-                // filled at the comparison's span, where the emitters read a
-                // call's implicit arguments.
-                self.fill_resolved_implicits(key, member, &[lb.clone(), rb.clone()], span);
-            }
-            Err(why) => {
-                // The *base* types, not the written ones: a comparison ignores
-                // qualifiers, so `Tagged Point == Point` is `eq(Point, Point)`
-                // and the diagnostic must say so.
-                let remedy = self.compare_remedy(lb, member);
-                let detail = match why {
-                    ImplicitMiss::Unknown => format!("no `{member}` for `{lb}` is in scope"),
-                    ImplicitMiss::NearMiss(reason) => {
-                        format!("no `{member}` fits `({lb}, {rb})`: {reason}")
-                    }
-                    ImplicitMiss::Ambiguous(cands) if cands.iter().all(|(s, _)| s.is_empty()) => format!(
-                        "`{member}` is ambiguous for `{lb}`: {} declarations fit, so the \
-                         choice would be a guess",
-                        cands.len()
-                    ),
-                    // [fn-overload-ambiguous] The remedies an operator has: call
-                    // the one meant (`eq@mod(a, b)`), or rename one.
-                    ImplicitMiss::Ambiguous(cands) => format!(
-                        "`{member}` is ambiguous for `{lb}`: {}",
-                        Self::implicit_ambiguity(member, &cands, Some(&format!("`{member}@{{m}}(a, b)`")))
-                    ),
-                    // Not reached today: an operator is a call, whose found
-                    // fn's implicits are filled at the call, not nested.
-                    ImplicitMiss::Unfilled(u) => {
-                        format!("the `{member}` it resolves to cannot be completed: {}", Self::unfilled_text(member, &want, &u, false))
-                    }
-                };
-                self.error(
-                    span,
-                    format!("`{sym}` on `{lb}` is `{member}({lb}, {rb})`, and {detail}{remedy}"),
-                );
-            }
+        // 2. The call: visible fns and the available effects' members.
+        let remedy = self.compare_remedy(lt.strip_quals(), member);
+        let saved = self.operator_site.replace(OperatorSite { sym, member, lhs: lt.clone(), rhs: rt.clone(), remedy });
+        self.pending_arg_tys = Some(tys);
+        let args: [&'p Expr; 2] = [lhs, rhs];
+        let got = self.resolve_named_call(member, span, &[], &args, &[], Some(&ret), None, span);
+        self.pending_arg_tys = None;
+        self.operator_site = saved;
+        self.operator_returns(&got, &ret, sym, member, &lt, &rt, span);
+    }
+
+    /// [op-equality] [op-order] `a == b` through the enclosing fn's own
+    /// implicit `own`: the call through it [implicit-resolve-body], recorded
+    /// as a call through that local is (`local_calls`, and the local it is
+    /// for the IR), with its arguments checked as a fn value's are.
+    #[allow(clippy::too_many_arguments)]
+    fn operator_through_implicit(
+        &mut self,
+        own: &ImplicitParam,
+        sym: &'static str,
+        member: &'static str,
+        lhs: &'p Expr,
+        rhs: &'p Expr,
+        tys: &[Ty],
+        ret: &Ty,
+        span: Span,
+    ) {
+        let key = self.key(span);
+        self.out.local_calls.insert(key);
+        self.out.local_call_names.insert(key, own.local.clone());
+        let (params, got, contract, effects) = match self.lookup(&own.local).map(|v| v.narrowed.strip_quals().clone()) {
+            Some(Ty::Fn { params, ret, contract, effects }) => (params, *ret, contract, effects),
+            _ => match own.ty.strip_quals().clone() {
+                Ty::Fn { params, ret, contract, effects } => (params, *ret, contract, effects),
+                _ => return,
+            },
+        };
+        if let Some(v) = self.lookup_mut(&own.local) {
+            v.used = true;
         }
+        self.check_fn_value_effects(&effects, span);
+        let callee = format!("`{}`", own.local);
+        self.check_fn_value_args(&callee, &[lhs, rhs], &params, contract.as_deref(), Some(tys.to_vec()), span);
+        self.operator_returns(&got, ret, sym, member, &tys[0], &tys[1], span);
+    }
+
+    /// [op-equality] [op-order] What the operator's call returned must be what
+    /// the operator reads: `eq` a `Bool`, `cmp` an `Int` (an `eq` returning
+    /// anything else is not of `==`'s shape [unique-shape], but a call may
+    /// still reach one).
+    #[allow(clippy::too_many_arguments)]
+    fn operator_returns(&mut self, got: &Ty, want: &Ty, sym: &str, member: &str, lt: &Ty, rt: &Ty, span: Span) {
+        if got.is_unknown() || matches!(got, Ty::Never) || is_subtype(got, want) {
+            return;
+        }
+        self.error(
+            span,
+            format!(
+                "`{sym}` on `{lt}` is `{member}({lt}, {rt})`, which must return `{want}`, and the \
+                 `{member}` it resolves to returns `{got}` [op-equality] [op-order]"
+            ),
+        );
     }
 
     /// [op-order] [op-equality] The remedy a refused comparison names, which
@@ -14532,19 +14484,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                  `: …<self> by auto` where the type is declared [obligation-by]"
             ),
         }
-    }
-
-    /// Whether a type is one of the intrinsic (std-declared, compiler-known)
-    /// types, whose canonical `eq` is the host's `==` [cmp-groups].
-    fn is_intrinsic_type_ty(&self, ty: &Ty) -> bool {
-        matches!(
-            ty,
-            Ty::Named { name, args } if args.is_empty()
-                && matches!(
-                    name.as_str(),
-                    "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte" | "Str"
-                )
-        )
     }
 
     /// [op-arith] Arithmetic operand typing (user decision 2026-09-14):
@@ -25375,19 +25314,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                         // [op-no-none] Comparison (ordering and equality)
                         // likewise: nullability is tested with `is None`.
-                        self.reject_optional_operand(*op, lhs, &l);
-                        self.reject_optional_operand(*op, rhs, &r);
+                        let refused = self.reject_optional_operand(*op, lhs, &l);
+                        let refused = self.reject_optional_operand(*op, rhs, &r) || refused;
                         // [str-drop-mut] Equality especially: a builder
                         // compares by identity where a string compares by
                         // content.
                         self.drop_mut_operand(lhs, &l);
                         self.drop_mut_operand(rhs, &r);
-                        // [col-equality] [op-order] Comparison operands must
-                        // be compatible, and what may be compared at all
-                        // depends on the operator: `==`/`!=` work on any
-                        // struct, ordering on numerics (widened) and structs
-                        // with a `cmp`.
-                        self.check_comparison_operands(*op, expr.span(), lhs, rhs, &l, &r);
+                        // [op-equality] [op-order] The operator is the call
+                        // it names — unless an operand was just refused, whose
+                        // call would only repeat the refusal (one mistake, one
+                        // diagnostic).
+                        if !refused {
+                            self.check_comparison_operands(*op, expr.span(), lhs, rhs, &l, &r);
+                        }
                         Ty::named("Bool")
                     }
                 }
@@ -30967,7 +30907,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_fn_value_effects(&effects, span);
                     let typed = implicit_typed.take();
                     let callee_name = format!("`{}`", id.name);
-                    self.check_fn_value_args(&callee_name, args, &params, contract.as_deref(), typed, span);
+                    let arg_refs: Vec<&'p Expr> = args.iter().collect();
+                    self.check_fn_value_args(&callee_name, &arg_refs, &params, contract.as_deref(), typed, span);
                     // [readonly-return] [rs-loc] A fn value whose return is a
                     // **wholesale** projection lends that argument outright
                     // (`?at: (c: C, k: Int) -> ref(c) Mut T?`, or a plain
@@ -31112,7 +31053,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             // (B1 census D19, 2026-10-27): before, each argument was only
             // *typed* against its parameter, so a wrong argument or a wrong
             // count passed the checker and rustc and kotlinc refused it.
-            self.check_fn_value_args("this function value", args, &params, contract.as_deref(), None, span);
+            let arg_refs: Vec<&'p Expr> = args.iter().collect();
+            self.check_fn_value_args("this function value", &arg_refs, &params, contract.as_deref(), None, span);
             return *ret;
         }
         // [call-resolve] As above: a known non-fn type is not callable.
@@ -31451,7 +31393,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_fn_value_args(
         &mut self,
         callee: &str,
-        args: &'p [Expr],
+        args: &[&'p Expr],
         params: &[Ty],
         contract: Option<&[FnParamContract]>,
         typed: Option<Vec<Ty>>,
@@ -31516,8 +31458,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [fn-contract] Apply the fn value's contract to the arguments
         // (default: keeps everything).
-        let arg_refs: Vec<&'p Expr> = args.iter().collect();
-        self.apply_fn_value_contract(&arg_refs, params, contract, span);
+        self.apply_fn_value_contract(args, params, contract, span);
     }
 
     /// [call-resolve] Whether an argument whose base already fits a fn
@@ -31630,8 +31571,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 match available.as_slice() {
                     [one] => *one,
                     [] => {
-                        for a in args {
-                            self.check_expr(a, None);
+                        if pre_typed.is_none() {
+                            for a in args {
+                                self.check_expr(a, None);
+                            }
                         }
                         self.error(
                             span,
@@ -31646,8 +31589,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     more => {
                         let first = more[0].name.name.as_str();
-                        for a in args {
-                            self.check_expr(a, None);
+                        if pre_typed.is_none() {
+                            for a in args {
+                                self.check_expr(a, None);
+                            }
                         }
                         self.error(
                             span,
@@ -31664,7 +31609,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             // [effect-member-overload] The effect is chosen; its overloads of
             // this name are what the argument types choose between.
-            let overloads = crate::effect_members_named(effect, name);
+            let overloads: Vec<&'p FnDecl> =
+                crate::effect_members_named(effect, name).into_iter().filter(|f| !self.shape_refused(f)).collect();
             // [effect-available] **One overload set** (user decision
             // 2026-09-14): where the name is *also* a fn, both sides compete
             // and the more specific signature wins. Only the colliding case
@@ -31673,10 +31619,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             let fn_cands = self.overloads_of(name);
             if fn_cands.is_empty() {
                 return self.check_effect_call(
-                    effect, &overloads, type_args, args, named, expected, None, span,
+                    effect, &overloads, type_args, args, named, expected, pre_typed.take(), span,
                 );
             }
-            match self.route_member_or_fn(name, effect, &overloads, &fn_cands, args, span) {
+            match self.route_member_or_fn(name, effect, &overloads, &fn_cands, args, pre_typed.take(), span) {
                 Route::Member(arg_tys) => {
                     return self.check_effect_call(
                         effect,
@@ -31718,8 +31664,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if candidates.is_empty() {
             // 3. Handler constructor.
-            for a in args {
-                self.check_expr(a, None);
+            if pre_typed.is_none() {
+                for a in args {
+                    self.check_expr(a, None);
+                }
             }
             if self.scope.handlers.contains_key(name) {
                 // [handler-not-value] A handler instance is produced by
@@ -32283,8 +32231,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         let best = &viable[best_idx];
         if let Some(key) = best.key {
             self.out.call_fn.insert(self.key(span), key);
-            // The callee name resolves to this declaration [fn-ref-table].
-            self.out.fn_refs.insert(self.key(name_span), key);
+            // The callee name resolves to this declaration [fn-ref-table]. An
+            // operator names nothing: its call is all there is [op-equality].
+            if self.operator_site.is_none() {
+                self.out.fn_refs.insert(self.key(name_span), key);
+            }
         }
         let callee_generics: HashSet<String> =
             best.decl.generics.iter().map(|g| g.name.clone()).collect();
@@ -33597,7 +33548,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             })
             .collect();
         if let [only] = by_arity.as_slice() {
-            return Picked::Only(only);
+            return match pre_typed {
+                Some(tys) => Picked::ByArgs(only, tys),
+                None => Picked::Only(only),
+            };
         }
         let pool: Vec<&'p FnDecl> = if by_arity.is_empty() {
             members.to_vec()

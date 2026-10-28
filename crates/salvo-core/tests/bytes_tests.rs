@@ -17,6 +17,7 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// *std* file (only std may write `intrinsic`) — the shape of the real
 /// `std.core.bytes`, trimmed to what the cases below name.
 const STD_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Bool\n",
     "export intrinsic type Byte\n",
@@ -38,6 +39,13 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn to_hex(data: Bytes) [] -> Str => data\n",
     "export intrinsic fn Mut Map<K, V>() [] -> Mut Map<K, V>\n",
     "export intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None => map: Mut, !key, !value\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Byte, b: Byte) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
 fn errors_of(src: &str) -> Vec<FileDiagnostic> {

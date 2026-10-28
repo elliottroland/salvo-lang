@@ -19,7 +19,14 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// [decl-id] `Throw` too: the compiler's `Throw` is std's (a key is its
 /// declaration's, and only std's first declaration of a name is the name),
 /// so a test's stand-in for it lives in the std file.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Never\nexport intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\nexport effect Throw<M> {\n    fn throw(message: M) -> Never => !message\n}\n";
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Never\nexport intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\nexport effect Throw<M> {\n    fn throw(message: M) -> Never => !message\n}\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 /// Parses + resolves + checks one file (no std) and returns every error
 /// message.

@@ -255,12 +255,6 @@ pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> Has
             walk(arg, &mut out);
         }
     }
-    // [cmp-groups] An operator names nothing: `a < b` resolves to a `cmp`.
-    for (_, via) in checked.comparisons.iter().filter(|(k, _)| mine(k)) {
-        if let crate::check::CompareVia::Call(key) = via {
-            out.insert(*key);
-        }
-    }
     // [interp-to-str] [interp-struct] The text form an interpolation resolved.
     for (_, fn_key) in checked.interp_to_str.iter().filter(|(k, _)| mine(k)) {
         out.insert(*fn_key);

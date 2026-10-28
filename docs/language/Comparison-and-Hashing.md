@@ -175,6 +175,45 @@ stripped: `eq(a: NonEmpty List<T>, b: List<T>)` is on `List`, and
 `hash`, `default` and `from_str` are not operators: they are filled by name,
 like any implicit, and may be declared anywhere.
 
+### What an operator calls
+
+`a == b` is exactly the call `eq(a, b)` — `a != b` is `!eq(a, b)` — and
+`a < b` is the call `cmp(a, b)` compared with `0`. The call is chosen the way
+the written one would be, with nothing special about the operator:
+
+* **An implicit of the function you are in comes first.** Inside
+  `check(a: Str, b: Str, ?eq: (a: Str, b: Str) -> Bool)`, `a == b` goes
+  through `?eq`, as `eq(a, b)` does there — on a `Str` or an `Int` too, so a
+  caller passing `eq = same_len` gets `same_len`'s answer from the operator.
+  This is how generic code compares: `?Ordered<T>` makes `a < b` legal at a
+  `T`.
+* **Then the declarations in scope, and the members of your effects.** An
+  available effect's member `eq` is a candidate like a function; beside a
+  function of the same signature the operator is ambiguous, and `eq@Same(a, b)`
+  says which.
+* **The operands are the arguments as written.** Their qualifiers take part
+  in the ranking (`xs == ys` on two `Packed Bag<Int>`s picks an
+  `eq(a: Packed Bag<Int>, b: Packed Bag<Int>)` over the generic one), and the
+  two sides need not be one type: with `eq(a: Meters, b: Feet)` declared
+  (with `Meters`, in its file), `m == f` is that call. With no `eq` taking the
+  pair, the operator says so: "no `eq` for `==` on `Meters` and `Feet`".
+
+Two things happen *before* the call. Numbers of one class but different
+widths are widened first — `i < l` with an `Int` and a `Long` compares at
+`Long`, as `cmp(to_long(i), l)` would — while `cmp(i, l)` written out is
+refused, since a call does not widen a variable. And `x == -1L` on a `Long?`
+tests that `x` holds a `Long` before comparing it, so a `None` is simply
+unequal.
+
+`Double` and `Float` have no `cmp`, yet `1.5 < x` works: with nothing to call,
+floats order by the host's IEEE comparison (`NaN` is neither less nor
+greater). An implicit `?cmp` over `Double`s, where one is in reach, is called
+instead.
+
+The backends write the host's own `<` or `==` when the call is std's
+built-in `cmp` or `eq` for a scalar — which is what it means — and the call
+otherwise.
+
 For the everyday case — compare the fields, in order — you do not write the
 bodies at all. `by auto` **stamps** them from the standard library's
 compile-time functions:

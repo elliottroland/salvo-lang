@@ -16,7 +16,15 @@ use salvo_core::{check_program, resolve, Coercion, FileDiagnostic, Program, Sour
 /// [intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`). Module `std.core.prelude`:
 /// `std.core.*` is implicitly imported, so the test source sees these names.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Bool\nexport intrinsic type Char\nexport intrinsic type Str canbe Mut\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn mut_str(...parts: Str[]) [] -> Mut Str => parts\nexport intrinsic fn size(str: Str) [] -> Int => str\nexport intrinsic fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text\n";
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type Bool\nexport intrinsic type Char\nexport intrinsic type Str canbe Mut\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn mut_str(...parts: Str[]) [] -> Mut Str => parts\nexport intrinsic fn size(str: Str) [] -> Int => str\nexport intrinsic fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 fn checked(src: &str) -> (Program, salvo_core::Checked) {
     let mut sources = SourceSet::default();

@@ -77,6 +77,26 @@ impl<'p> Ctx<'p> {
         self.resolution.decls.fn_decl(&self.program.modules, key)
     }
 
+    /// [op-equality] [op-order] [core-layers] Whether `key` is std's intrinsic
+    /// `eq` or `cmp` at a basic type [type-basic]: the primitive comparison
+    /// itself, so a comparison operator resolved to it is the IR's own
+    /// operator (which every backend spells natively), and one resolved to
+    /// anything else is the call (R10 D1).
+    pub fn is_primitive_compare(&self, key: DeclId) -> bool {
+        let Some(decl) = self.fn_by_key(key) else { return false };
+        if !decl.intrinsic || !matches!(decl.name.name.as_str(), "eq" | "cmp") {
+            return false;
+        }
+        let Some(loc) = self.resolution.decls.loc(key) else { return false };
+        if !self.program.files.get(loc.file).is_some_and(|f| f.is_std) {
+            return false;
+        }
+        let basic = |t: &ast::Type| matches!(t, ast::Type::Named { qualifiers, base }
+            if qualifiers.is_empty() && base.args.is_empty() && crate::types::BASIC_TYPES.contains(&base.name.name.as_str()));
+        let explicit: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
+        explicit.len() == 2 && explicit.iter().all(|p| basic(&p.ty))
+    }
+
     /// [decl-id] The id of the declaration at (`file_idx`, `item`), if it
     /// declares something.
     pub fn item_id(&self, file_idx: usize, item: usize) -> Option<DeclId> {

@@ -238,25 +238,30 @@ into one `Str` arm).
 
 ## Comparisons and operators
 
-The rule turns on the **basic types**: `Byte`, `Int`, `Long`, `Float`,
-`Double`, `Bool` and `Char` ([Data and Types](Data-and-Types.md)).
+A comparison is the call it names — `eq(a, b)`, `!eq(a, b)`, `cmp(a, b)`
+against `0` — and the IR writes it as what that call resolved to
+([Comparison, equality and hashing](Comparison-and-Hashing.md#what-an-operator-calls)):
 
-* **On basic types, an operator is written inline.** `i < 4` is
-  `(read i < 4)` and `i != 2` is `(read i != 2)`. No basic-type operator goes through
-  `cmp` or `eq`. Those intrinsics exist only so a scalar's ordering can be
-  passed to generic code, where they appear as a value:
+* **std's own `eq` or `cmp` for a basic type is written inline.** The basic
+  types are `Byte`, `Int`, `Long`, `Float`, `Double`, `Bool` and `Char`
+  ([Data and Types](Data-and-Types.md)), and their `eq` and `cmp` *are* the
+  host's operators, so `i < 4` is `(read i < 4)` and `i != 2` is
+  `(read i != 2)`. A `Float` or `Double` ordering, which has no `cmp`, is
+  inline too. The intrinsics also appear as values, where a scalar's ordering
+  is passed to generic code:
   `call main::bigger<Int>(2, 7, fn std.core.basic::cmp(Int, Int))`.
-* **On every other type, `Str` included, an operator is a call** of the
-  function the checker resolved, whether it is declared in Salvo or is an
-  intrinsic. `a == b` is `call std.core.string::eq(read a, read b)`,
-  and `a != b` is `!` of that call. An ordering is the `cmp` call
-  followed by a sign test of its `Int` result, which is inline because `Int`
-  is basic:
+* **Anything else is a call** of the function the checker resolved, whether
+  it is declared in Salvo or is an intrinsic: `a == b` on `Str`s is
+  `call std.core.string::eq(read a, read b)`, and `a != b` is `!` of that
+  call. An ordering is the `cmp` call followed by a sign test of its `Int`
+  result, which is inline because `Int` is basic. An enclosing implicit takes
+  the operator on any type, a basic one included, and an effect's member is a
+  member call:
 
   ```
   (call std.core.string::cmp(read s, "c") < 0)
   (call main::cmp(read p, read q) < 0)
-  (call local cmp(read a, read b) > 0)     // a forwarded ?cmp
+  (call local cmp(read a, read b) > 0)     // a forwarded ?cmp, on a T or an Int
   ```
 
 Arithmetic (`+`, `-`, `*`, `/`, `%`) is defined on numbers only, so it is

@@ -9,8 +9,19 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Long\nexport intrinsic type Str\n\
-     export intrinsic type Bool\nexport intrinsic type Char\nexport intrinsic type Double\nexport intrinsic type Never\n";
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type Long\nexport intrinsic type Str\n\
+     export intrinsic type Bool\nexport intrinsic type Char\nexport intrinsic type Double\nexport intrinsic type Never\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Double, b: Double) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
+);
 
 /// The checker's diagnostics over one file (and a scalar-only prelude):
 /// `(errors, warnings)`.

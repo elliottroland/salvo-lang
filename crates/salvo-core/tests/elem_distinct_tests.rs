@@ -8,8 +8,14 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str =
-    "export intrinsic type Str\nexport intrinsic type Int\nexport intrinsic type Bool\n";
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Str\nexport intrinsic type Int\nexport intrinsic type Bool\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 /// A miniature `std.core.list`: the mint recognition is nominal — `get` and
 /// `at` declared by the `std.core.list` module — so the tests declare exactly the

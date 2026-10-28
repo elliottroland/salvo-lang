@@ -1,7 +1,7 @@
 //! Expressions (IR record §2): every construct lowered to the node set, every
 //! resolution copied from the checker.
 
-use crate::check::{CompareVia, ImplicitArg, UnionTest};
+use crate::check::{ImplicitArg, UnionTest};
 use crate::param_mode::PassMode;
 use crate::types::Ty;
 use salvo_syntax::ast::{self, BinaryOp, Expr as AExpr, LambdaBody, Pattern, StrExprPart, UnaryOp};
@@ -845,54 +845,57 @@ impl<'a, 'p> Lower<'a, 'p> {
                 if let Some(ac) = self.ctx.checked.arm_compares.get(&self.key(span)).cloned() {
                     return self.arm_compare(op, &ac, lhs, rhs, span);
                 }
-                let l = self.promoted(lhs);
-                let r = self.promoted(rhs);
                 let equality = matches!(op, BinaryOp::Eq | BinaryOp::NotEq);
                 // `x == None` is a `None` test of the other side.
-                if equality && (l.ty.is_none_ty() || r.ty.is_none_ty()) {
+                let (lt, rt) = (self.ty_of(lhs.span()), self.ty_of(rhs.span()));
+                if equality && (lt.is_none_ty() || rt.is_none_ty()) {
+                    let l = self.promoted(lhs);
+                    let r = self.promoted(rhs);
                     let subject = if r.ty.is_none_ty() { l } else { r };
                     let id = self.id();
                     let test = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id, subject: Box::new(subject), test: ArmTest::None } };
                     return if op == BinaryOp::Eq { test } else { Expr { ty, span, kind: ExprKind::Op { op: Op::Not, args: vec![test] } } };
                 }
-                let via = self.ctx.checked.comparisons.get(&self.key(span)).cloned();
-                // [type-basic] [ir-op] On basic types the operator is the
-                // host's own; `cmp`/`eq` are only their function values.
-                if l.ty.is_basic() && r.ty.is_basic() && !matches!(via, Some(CompareVia::Implicit(_))) {
-                    let o = match op {
-                        BinaryOp::Eq => Op::Eq,
-                        BinaryOp::NotEq => Op::NotEq,
-                        BinaryOp::Lt => Op::Lt,
-                        BinaryOp::Gt => Op::Gt,
-                        BinaryOp::LtEq => Op::LtEq,
-                        _ => Op::GtEq,
-                    };
+                // [op-equality] [op-order] The operator is the call it names
+                // (O1): `eq(a, b)`, `!eq(a, b)`, `cmp(a, b) < 0`, lowered as
+                // that call is — the callee, an implicit taking it, or an
+                // effect's member. [core-layers] std's intrinsic `eq`/`cmp` at
+                // a basic type *is* the primitive comparison, so a call
+                // resolved to it is the IR's own operator, which every backend
+                // spells natively; nothing about the operand types decides it
+                // (R10 D1: an enclosing `?eq` on an `Int` is a call). With
+                // nothing recorded the checker left the operator to the host
+                // (float ordering with no `cmp` in reach, [op-order]).
+                let key = self.key(span);
+                let info = self.ctx.checked.call_info(key);
+                let primitive = match info.call_fn.copied() {
+                    Some(k) => self.ctx.is_primitive_compare(k),
+                    None => !info.local_call && info.member_call.is_none(),
+                };
+                let o = match op {
+                    BinaryOp::Eq => Op::Eq,
+                    BinaryOp::NotEq => Op::NotEq,
+                    BinaryOp::Lt => Op::Lt,
+                    BinaryOp::Gt => Op::Gt,
+                    BinaryOp::LtEq => Op::LtEq,
+                    _ => Op::GtEq,
+                };
+                if primitive {
+                    let l = self.promoted(lhs);
+                    let r = self.promoted(rhs);
                     return Expr { ty, span, kind: ExprKind::Op { op: o, args: vec![l, r] } };
                 }
-                let target = match via {
-                    Some(CompareVia::Call(k)) => Some(FnRef::Decl(k)),
-                    Some(CompareVia::Implicit(name)) => Some(FnRef::Local(Local(name))),
-                    None => {
-                        let fname = if equality { "eq" } else { "cmp" };
-                        let lt = l.ty.clone();
-                        self.intrinsic_fn(fname, &[lt.clone(), lt]).map(FnRef::Decl)
-                    }
-                };
-                let Some(target) = target else {
-                    self.error(span, format!("comparison on `{}` resolves to no `cmp`/`eq`", l.ty));
+                let (member, call_ty) = if equality { ("eq", Ty::named("Bool")) } else { ("cmp", Ty::named("Int")) };
+                let Some(call) = self.call_named(member, vec![lhs, rhs], &[], span, call_ty) else {
+                    self.error(span, format!("comparison `{op:?}` resolves to no `{member}`"));
                     return unsupported(ty, span, "comparison");
                 };
-                let mut args = vec![l, r];
-                args.extend(self.implicit_args_at(span));
-                let call_ty = if equality { Ty::named("Bool") } else { Ty::named("Int") };
-                let call = Expr { ty: call_ty, span, kind: ExprKind::Call { target, type_args: Vec::new(), args, moved: false } };
                 match op {
                     BinaryOp::Eq => call,
                     BinaryOp::NotEq => Expr { ty, span, kind: ExprKind::Op { op: Op::Not, args: vec![call] } },
                     // `a < b` is `cmp(a, b) < 0`: the sign test of the ordering.
                     _ => {
                         let zero = Expr { ty: Ty::named("Int"), span, kind: ExprKind::Int(0) };
-                        let o = match op { BinaryOp::Lt => Op::Lt, BinaryOp::Gt => Op::Gt, BinaryOp::LtEq => Op::LtEq, _ => Op::GtEq };
                         Expr { ty, span, kind: ExprKind::Op { op: o, args: vec![call, zero] } }
                     }
                 }
@@ -962,13 +965,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     }
 
     /// [implicit-resolve] The arguments filling a callee's implicit
-    /// positions, recorded at `at`.
-    pub(crate) fn implicit_args_at(&mut self, at: Span) -> Vec<Expr> {
-        let key = self.key(at);
-        self.implicit_args_keyed(key, at)
-    }
-
-    /// [`Lower::implicit_args_at`] by the key the checker recorded them at.
+    /// positions, by the key the checker recorded them at.
     pub(crate) fn implicit_args_keyed(&mut self, key: crate::check::Key, at: Span) -> Vec<Expr> {
         let Some(filled) = self.ctx.checked.implicit_args.get(&key).cloned() else { return Vec::new() };
         self.implicit_list(&filled, &[], at)
@@ -1137,77 +1134,13 @@ impl<'a, 'p> Lower<'a, 'p> {
             all_args.push(base);
         }
         all_args.extend(args.iter());
-        // [effect-dispatch]
-        if let Some(mc) = info.member_call.cloned() {
-            let Some(interface) = self.ctx.decl_of_effect(&mc.effect) else {
-                self.error(span, format!("effect `{}` has no declaration", mc.effect));
-                return unsupported(ty, span, "member call");
-            };
-            let instance_ty = info.effect_call.cloned().unwrap_or_else(|| Ty::named(mc.effect.clone()));
-            let instance = self.effect_instance(&instance_ty, span);
-            let decl = self.ctx.symbols.effects.get(mc.effect.as_str()).copied();
-            let member_decl = decl.and_then(|d| d.fns.get(mc.index));
-            let (args_lowered, prelude) = self.args_for(member_decl.map(Callee::Member), &all_args, named, span);
-            let mut lowered = args_lowered;
-            lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), named, span));
-            let type_args = self.type_args_of(span);
-            let call = Expr { ty: ty.clone(), span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index: mc.index }, type_args, args: lowered } };
-            return if prelude.is_empty() { call } else { self.block_expr(prelude, call, span) };
-        }
-        // A fn-typed local, or the fn's own implicit [call-resolve].
-        if info.local_call {
-            let name = match callee {
-                AExpr::Ident(id) => id.name.clone(),
-                AExpr::Field { field, .. } => field.name.clone(),
-                _ => String::new(),
-            };
-            let local_name = info.local_call_name.cloned().unwrap_or(name.clone());
-            // By the chosen local's own name first: two implicits may share
-            // a resolution name [implicit-same-name].
-            let local = self
-                .lookup(&local_name)
-                .map(|b| b.local.clone())
-                .or_else(|| self.implicit_locals.get(&local_name).cloned())
-                .or_else(|| self.lookup(&name).map(|b| b.local.clone()));
-            let Some(local) = local else {
-                self.error(span, format!("call through unknown local `{name}`"));
-                return unsupported(ty, span, "local call");
-            };
-            // [fn-effects] the effects the fn value performs are its leading
-            // arguments; the contract says how each position is taken.
-            let mut a: Vec<Expr> = Vec::new();
-            if let Some(Ty::Fn { effects, .. }) = self.lookup(&local.0).map(|b| b.ty.clone()) {
-                // [throw] A throw is not a threaded instance: it goes to the
-                // delimiter, as a named callee's does.
-                for t in crate::threaded_effects(&effects) {
-                    a.push(self.effect_instance(&t, span));
-                }
-            }
-            let rest: Vec<Expr> = all_args.iter().map(|x| self.expr(x)).collect();
-            let rest = self.mark_consumed_by_contract(rest, &key);
-            a.extend(rest);
-            // [once-fn] [flow-use-after-move] A `once` local's call is its move.
-            let moved = self.ctx.checked.flow_moves.contains(&key);
-            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Local(local), type_args: Vec::new(), args: a, moved } };
-        }
-        if let Some(k) = info.call_fn.copied() {
-            let decl = self.ctx.fn_by_key(k);
-            let mut lowered: Vec<Expr> = Vec::new();
-            // Effects as values: the instances a callee declaring effects takes.
-            if let Some(effs) = info.call_effects.cloned() {
-                for t in effs {
-                    if matches!(&t, Ty::Named { name, .. } if name == crate::THROW_EFFECT) {
-                        continue;
-                    }
-                    lowered.push(self.effect_instance(&t, span));
-                }
-            }
-            let (args_lowered, prelude) = self.args_for(decl.map(|d| Callee::Fn(k, d)), &all_args, named, span);
-            lowered.extend(args_lowered);
-            lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), named, span));
-            let type_args = self.type_args_of(span);
-            let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(k), type_args, args: lowered, moved: false } };
-            return if prelude.is_empty() { call } else { self.block_expr(prelude, call, span) };
+        let name = match callee {
+            AExpr::Ident(id) => id.name.clone(),
+            AExpr::Field { field, .. } => field.name.clone(),
+            _ => String::new(),
+        };
+        if let Some(call) = self.call_named(&name, all_args.clone(), named, span, ty.clone()) {
+            return call;
         }
         // A computed callee: a lambda or fn value expression.
         let target = self.expr(callee);
@@ -1230,6 +1163,85 @@ impl<'a, 'p> Lower<'a, 'p> {
         a.extend(self.mark_consumed_by_contract(rest, &key));
         let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Local(tmp.clone()), type_args: Vec::new(), args: a, moved: false } };
         self.block_expr(vec![Stmt::Let { id, local: tmp, ty: tt, value: target }], call, span)
+    }
+
+    /// A call by name with its arguments in hand: to an effect's member, through
+    /// a fn-typed local or the fn's own implicit, or to a declaration — as the
+    /// checker resolved the node at `span`. `None` when it recorded none of
+    /// them (a computed callee). [op-equality] [op-order] A comparison
+    /// operator is lowered through here as the call it names.
+    fn call_named(&mut self, name: &str, all_args: Vec<&AExpr>, named: &[ast::NamedArg], span: Span, ty: Ty) -> Option<Expr> {
+        let key = self.key(span);
+        let checked = self.ctx.checked;
+        let info = checked.call_info(key);
+        // [effect-dispatch]
+        if let Some(mc) = info.member_call.cloned() {
+            let Some(interface) = self.ctx.decl_of_effect(&mc.effect) else {
+                self.error(span, format!("effect `{}` has no declaration", mc.effect));
+                return Some(unsupported(ty, span, "member call"));
+            };
+            let instance_ty = info.effect_call.cloned().unwrap_or_else(|| Ty::named(mc.effect.clone()));
+            let instance = self.effect_instance(&instance_ty, span);
+            let decl = self.ctx.symbols.effects.get(mc.effect.as_str()).copied();
+            let member_decl = decl.and_then(|d| d.fns.get(mc.index));
+            let (args_lowered, prelude) = self.args_for(member_decl.map(Callee::Member), &all_args, named, span);
+            let mut lowered = args_lowered;
+            lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), named, span));
+            let type_args = self.type_args_of(span);
+            let call = Expr { ty: ty.clone(), span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index: mc.index }, type_args, args: lowered } };
+            return Some(if prelude.is_empty() { call } else { self.block_expr(prelude, call, span) });
+        }
+        // A fn-typed local, or the fn's own implicit [call-resolve].
+        if info.local_call {
+            let local_name = info.local_call_name.cloned().unwrap_or(name.to_string());
+            // By the chosen local's own name first: two implicits may share
+            // a resolution name [implicit-same-name].
+            let local = self
+                .lookup(&local_name)
+                .map(|b| b.local.clone())
+                .or_else(|| self.implicit_locals.get(&local_name).cloned())
+                .or_else(|| self.lookup(name).map(|b| b.local.clone()));
+            let Some(local) = local else {
+                self.error(span, format!("call through unknown local `{name}`"));
+                return Some(unsupported(ty, span, "local call"));
+            };
+            // [fn-effects] the effects the fn value performs are its leading
+            // arguments; the contract says how each position is taken.
+            let mut a: Vec<Expr> = Vec::new();
+            if let Some(Ty::Fn { effects, .. }) = self.lookup(&local.0).map(|b| b.ty.clone()) {
+                // [throw] A throw is not a threaded instance: it goes to the
+                // delimiter, as a named callee's does.
+                for t in crate::threaded_effects(&effects) {
+                    a.push(self.effect_instance(&t, span));
+                }
+            }
+            let rest: Vec<Expr> = all_args.iter().map(|x| self.promoted(x)).collect();
+            let rest = self.mark_consumed_by_contract(rest, &key);
+            a.extend(rest);
+            // [once-fn] [flow-use-after-move] A `once` local's call is its move.
+            let moved = self.ctx.checked.flow_moves.contains(&key);
+            return Some(Expr { ty, span, kind: ExprKind::Call { target: FnRef::Local(local), type_args: Vec::new(), args: a, moved } });
+        }
+        if let Some(k) = info.call_fn.copied() {
+            let decl = self.ctx.fn_by_key(k);
+            let mut lowered: Vec<Expr> = Vec::new();
+            // Effects as values: the instances a callee declaring effects takes.
+            if let Some(effs) = info.call_effects.cloned() {
+                for t in effs {
+                    if matches!(&t, Ty::Named { name, .. } if name == crate::THROW_EFFECT) {
+                        continue;
+                    }
+                    lowered.push(self.effect_instance(&t, span));
+                }
+            }
+            let (args_lowered, prelude) = self.args_for(decl.map(|d| Callee::Fn(k, d)), &all_args, named, span);
+            lowered.extend(args_lowered);
+            lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), named, span));
+            let type_args = self.type_args_of(span);
+            let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(k), type_args, args: lowered, moved: false } };
+            return Some(if prelude.is_empty() { call } else { self.block_expr(prelude, call, span) });
+        }
+        None
     }
 
     fn mark_consumed_by_contract(&mut self, mut args: Vec<Expr>, key: &crate::check::Key) -> Vec<Expr> {
@@ -1269,7 +1281,9 @@ impl<'a, 'p> Lower<'a, 'p> {
         let mut tail: Vec<Expr> = Vec::new();
         for (i, a) in args.iter().enumerate() {
             let is_tail = variadic_at.is_some_and(|v| i >= v);
-            let mut x = self.expr(a);
+            // [op-promote] An operator's operand, widened as the checker
+            // recorded (only an operator's operands are ever promoted).
+            let mut x = self.promoted(a);
             let param = if is_tail { fixed.get(variadic_at.unwrap()) } else { fixed.get(i) };
             if let Some(p) = param {
                 let mode = mode_of(p);

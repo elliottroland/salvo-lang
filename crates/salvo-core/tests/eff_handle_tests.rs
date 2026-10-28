@@ -7,9 +7,18 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
                            export intrinsic type Long\nexport intrinsic type Any\nexport intrinsic type Never\n\
-                           export intrinsic type Addr<E>\nexport struct Mailbox { capacity: Int }\n";
+                           export intrinsic type Addr<E>\nexport struct Mailbox { capacity: Int }\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
+);
 
 fn diags(src: &str) -> Vec<FileDiagnostic> {
     let mut sources = SourceSet::default();

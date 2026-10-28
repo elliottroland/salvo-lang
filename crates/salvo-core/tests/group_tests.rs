@@ -15,7 +15,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on,
 /// loaded as a *std* file since only std may write `intrinsic`.
-const STD_PRELUDE: &str =
+const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
      export intrinsic type List<T> canbe Mut\n\
      export intrinsic fn copy<T>(value: T) [] -> T => value\n\
@@ -23,7 +23,13 @@ const STD_PRELUDE: &str =
      export qualifier Emitted<T> of T\n\
      export struct Finished {}\n\
      export fn emitted<T>(value: T) [] -> +Emitted T => !value {\n    return value\n}\n\
-     export fn finished() [] -> Finished {\n    return Finished {}\n}\n";
+     export fn finished() [] -> Finished {\n    return Finished {}\n}\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();

@@ -12,6 +12,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 /// [intrinsic-std-only] The intrinsic types these sources use, loaded as std.
 const STD_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Long\n",
     "export intrinsic type Bool\n",
@@ -24,6 +25,15 @@ const STD_PRELUDE: &str = concat!(
     // [comptime-qualifier] The two subjects a comptime qualifier may have.
     "export comptime struct Field {}\n",
     "export comptime struct Struct {}\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
 );
 
 /// A reported error: its message and the 1-based line it lands on in its file.

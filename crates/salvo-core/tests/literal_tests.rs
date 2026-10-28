@@ -9,8 +9,17 @@ use salvo_syntax::ast::TypeLit;
 
 /// The declarations these sources rely on, loaded as a *std* file: the base
 /// types, and `std.core.other`'s qualifier and constructor.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Long\nexport intrinsic type Bool\nexport intrinsic type Str\n\
-export provenance qualifier Other<T> of T\nexport fn other<T>(value: T) [] -> +Other T\n=> !value {\n    return value\n}\n";
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type Long\nexport intrinsic type Bool\nexport intrinsic type Str\n\
+export provenance qualifier Other<T> of T\nexport fn other<T>(value: T) [] -> +Other T\n=> !value {\n    return value\n}\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
+);
 
 fn checked(src: &str) -> (Program, salvo_core::Checked) {
     let mut sources = SourceSet::default();

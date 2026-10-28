@@ -11,6 +11,7 @@ use salvo_core::{check_program, resolve, Checked, DeclId, DeclKind, Program, Sou
 /// What the checks below need of std: the scalars, the groups `by auto`
 /// stamps against, and the canonical overloads for `Int`.
 const STD_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Long\n",
     "export intrinsic type Bool\n",
@@ -18,6 +19,13 @@ const STD_PRELUDE: &str = concat!(
     "export fns Hashed<T> {\n    fn hash(value: T) -> Long\n    fn eq(a: T, b: T) -> Bool\n}\n",
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
     "export intrinsic fn hash(value: Int) [] -> Long => value\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
 );
 
 /// `lib/std/core/auto.sv`'s `eq` and `hash`, as `compare_tests` has them.

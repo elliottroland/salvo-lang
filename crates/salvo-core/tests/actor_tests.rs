@@ -15,7 +15,8 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// A stand-in for `std.core.actor` and the little of std these tests need.
 /// `intrinsic` is std-only [intrinsic-std-only], so it is loaded as a std
 /// file rather than pasted into the source under test.
-const STD_PRELUDE: &str = "\
+const STD_PRELUDE: &str = concat!(
+    "\
 export intrinsic type Int
 export intrinsic type Str
 export intrinsic type Bool
@@ -37,7 +38,13 @@ export actor effect Faults {
 export intrinsic fn pool(size: Int, sink: eff[Faults]) [spawn] -> Pool => size, sink
 export struct Exit { reason: Str }
 export intrinsic fn watch<E>(target: eff[E], on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit
-";
+",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 /// The effects and handlers the cases share: a `Counter` protocol with a
 /// request/response pair, a `Log` dependency, and handlers for both.

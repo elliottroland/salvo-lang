@@ -847,22 +847,16 @@ Recommendation: (a), since a binder's fill is a different kind of thing
 
 Left by B3.1 for later pieces (PIPELINE.md §II.13 "Order for B3"): a bare
 member name as a value (`apply(to_str, p)`, piece 6); members at
-interpolation parts and operators (pieces 2–3); and at implicit positions
+interpolation parts (piece 2; at the comparison operators done in piece 3c);
+and at implicit positions
 two available effects' same-named members are already ranked as one set,
 while a bare *call* still refuses them (D15, piece 5).
 
-### 0ag — Open defect: a refused unique shape is still a candidate (found 2026-10-28, B3.3b)
+### 0ag — Closed 2026-10-28: a refused unique shape is a candidate nowhere
 
-A declaration refused by [unique-shape] stays in its scopes, so where it is
-visible it still competes, and its uses report the ambiguity it causes as well
-as the refusal: a module's `to_str<T>(list: List<T>, …)` beside std's gives
-the refusal at the declaration and two `[fn-overload-ambiguous]` errors, at
-`"${List(1, 2)}"` and at `render(List(1, 2))`
-(`analyze_tests::a_same_signature_overload_beside_std_is_refused_at_its_declaration`).
-One mistake, two or three diagnostics. The fix is to leave a refused
-declaration out of the candidate sets (resolution knows it at scope-building
-time), which is a selection change and so was kept out of B3.3b; a natural
-part of B3 piece 3c.
+Fixed in B3 piece 3c (COMPLETED.md "Comparison operators are the calls they
+name"): resolution leaves a declaration [unique-shape] refused out of every
+scope's fns and members, so its uses report nothing beyond the refusal.
 
 ### 0ah — DECISION: three readings of [unique-shape] built for confirmation (B3.3b, 2026-10-28)
 
@@ -888,6 +882,87 @@ were built on the reading that follows from it, and are yours to confirm
 
 Also recorded, not a decision: the anonymous unions' std home, which D-5 does
 not name, is `std.core.basic` (with tuples and fn types).
+
+### 0ai — DECISION: numeric widening at a comparison (B3.3c, 2026-10-28)
+
+`i < l` with an `Int` and a `Long` compares at `Long` [op-promote], but the
+call it names, `cmp(i, l)`, is refused when written out: a call does not widen
+a variable (`f(i)` into a `Long` parameter is refused too; only literals adopt
+[lit-adopt]). The call rule cannot express the widening, so B3.3c kept it as a
+**lowering before the call**, as [op-arm-eq] is (R10 D7): the narrower operand
+is widened, then `cmp(Long, Long)` is called; an integer and a float operand
+are refused before any call. Options (PIPELINE.md §II.10 P11):
+
+- **(a) A lowering before the call** (built): the operator's meaning is
+  unchanged; operator and written call differ for mixed widths, as for an arm
+  comparison.
+- **(b) Declare the mixed overloads in std** (`cmp(Int, Long)`, `eq(Long,
+  Int)`, … for every pair of widths in a class, intrinsics): the operator is
+  then a plain call and `cmp(i, l)` works written out; eight more intrinsics
+  per class and comparison, and each backend lowers them.
+- **(c) Let a call widen an integer (float) argument to a wider parameter of
+  its class**, for every call: one rule, but it changes overload resolution
+  everywhere (an `f(Int)`/`f(Long)` pair, adoption's "exact candidate blocks
+  it" rule) and is a language change well beyond the operators.
+
+Recommendation: (a), until arithmetic operators (`plus` …, O1) raise the same
+question and the three can be decided together.
+
+### 0aj — DECISION: float ordering has no `cmp` to call (B3.3c, 2026-10-28)
+
+std declares `eq(Double, Double)` and `eq(Float, Float)` but no `cmp` for
+them (a sorted container of floats has no total order), so the call `a < b`
+names does not exist at a `Double`. B3.3c kept the host's IEEE order there
+(`NaN` neither less nor greater) **when no `cmp` is in reach**; an enclosing
+`?cmp` over `Double`s takes the operator, as it takes the call (R10 D1).
+Options (PIPELINE.md §II.10 P12):
+
+- **(a) Host order when nothing answers** (built): the one fast path left, and
+  only where the call finds no candidate.
+- **(b) Declare intrinsic `cmp(Double, Double)`/`cmp(Float, Float)`** with a
+  total order (`NaN` last, say), so `<` is the call everywhere: floats become
+  orderable keys (`SortedSet<Double>`), reversing the 2026-09-21 refusal, and
+  either `<` stays IEEE (the backends spelling the intrinsic natively) and
+  disagrees with `cmp(a, b) < 0` on `NaN`, or `<` follows the total order and
+  disagrees with the host.
+- **(c) Refuse `<` on floats** without a `cmp` in reach: one rule, and every
+  float comparison in std and the examples needs a function (`lt(a, b)`).
+
+Recommendation: (a).
+
+### 0ak — DECISION: two places a comparison and its call still differ (B3.3c, 2026-10-28)
+
+Built as before B3.3c, since R10 did not name them (PIPELINE.md §II.10 P13,
+P14):
+
+1. **A binder alias counts for the operator** (P13): `?cmp: cmp2` fills the
+   `cmp` slot under the name `cmp2`, and [cmp-binder] (user decision
+   2026-09-22) makes two orderings in one scope an ambiguity for `<`
+   "whatever they are called" (`carry_tests::two_orderings_in_scope_refuse_the_operator`).
+   The call `cmp(x, y)` sees only `cmp`. Options: (a) keep (built: the
+   operator asks what a parameter *is*); (b) the operator is the call by name
+   only, so `x < y` there is `cmp`'s, and the 2026-09-22 rule goes; (c) the
+   call asks by slot too, so `cmp(x, y)` is ambiguous there as well.
+   Recommendation: (c), which keeps the 2026-09-22 reasoning and the one
+   rule.
+2. **A fn-typed local or ordinary parameter named `eq`/`cmp` does not take
+   the operator** (P14), while it takes the call `eq(a, b)`
+   ([call-resolve]). std has such parameters (`sort_by(list, cmp: (T, T) ->
+   Int)`, `platform fn`s); a body with one that compares `Int`s with `<`
+   would, under the call rule, call the parameter at `(Int, Int)` and be
+   refused. Options: (a) keep (built: only implicits shadow an operator, as
+   only they shadow by fit); (b) follow the call. Recommendation: (a).
+
+### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
+
+`let x: Long? = -1L` lowers to `present(-(present(1L)))` (IR): the optional
+coercion is recorded on the literal under the negation as well as on the
+negation, and rustc refuses `i64::wrapping_neg(Some(1i64))` (E0308). Kotlin
+runs it. Present at f1c17831 (the census probe `op-arm-compare` used this
+line; it was rebuilt with `let n = -1L; let x: Long? = n`). A
+checker-clean program the target compiler refuses [backend-never-wrong]; the
+expected type should not flow through unary `-` into the literal as an
+optional, only its numeric width ([lit-adopt]).
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 

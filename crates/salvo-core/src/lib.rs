@@ -42,7 +42,7 @@ pub mod unique_shape;
 pub mod wire;
 
 pub use check::{
-    check_program, check_project, check_project_cached, Checked, Coercion, CompareVia, ImplicitArg, ImplicitParam, PassDriver,
+    check_program, check_project, check_project_cached, Checked, Coercion, ImplicitArg, ImplicitParam, PassDriver,
     PassMember, StdCache,
     ThrowSite,
     UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,

@@ -20,6 +20,7 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// [intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`).
 const STD_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Long\n",
     "export intrinsic type Bool\n",
@@ -40,6 +41,14 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
     "export intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
     "export intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None\n    => map: Mut, !key, !value\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Double, b: Double) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
 );
 
 fn checked(src: &str) -> salvo_core::Checked {
@@ -275,6 +284,7 @@ fn a_fn_typed_local_outranks_a_same_named_effect_member() {
 /// The prelude above plus what the literals need: `List` for the bracket
 /// form, and a struct to keep the bare-struct-literal reading honest.
 const LIT_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Long\n",
     "export intrinsic type Bool\n",
@@ -305,6 +315,12 @@ const LIT_PRELUDE: &str = concat!(
     "export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n",
     "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
     "export intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
 );
 
 /// [obligation-by] The structural `comptime fn`s `by auto` stamps, mirroring
@@ -581,8 +597,10 @@ fn a_struct_without_an_eq_cannot_be_compared() {
     );
 }
 
-/// [col-equality] Comparing two *different* struct types is an error, not a
-/// constant `false`.
+/// [col-equality] [op-equality] Comparing two *different* struct types with no
+/// `eq` taking the pair is an error, not a constant `false`: the operator is
+/// the call `eq(A, B)`, which nothing declares (R10 D6 dropped the same-type
+/// rule; the call's refusal is what remains).
 #[test]
 fn comparing_different_struct_types_is_refused() {
     let msgs = lit_messages(
@@ -591,7 +609,7 @@ fn comparing_different_struct_types_is_refused() {
     );
     assert_eq!(msgs.len(), 1, "expected one error: {msgs:?}");
     assert!(
-        msgs[0].contains("must be the same type"),
+        msgs[0].contains("no `eq` for `==` on `A` and `B`"),
         "unexpected message: {}",
         msgs[0]
     );
@@ -762,6 +780,7 @@ fn canbe_rejects_an_unknown_optin() {
 /// The literal prelude plus the sorted types, so the key rules can be
 /// compared side by side.
 const SORTED_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Long\n",
     "export intrinsic type Bool\n",
@@ -782,6 +801,14 @@ const SORTED_PRELUDE: &str = concat!(
     "export intrinsic fn size<T>(set: SortedSet<T>) [] -> Int => set\n",
     "export intrinsic fn size<K, V>(map: SortedMap<K, V>) [] -> Int => map\n",
     "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Double, b: Double) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
 );
 
 fn sorted_messages(src: &str) -> Vec<String> {

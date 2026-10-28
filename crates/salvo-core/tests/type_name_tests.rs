@@ -20,7 +20,14 @@ const COMPTIME: &str = concat!(
     "export comptime type Kind = Struct | Union\n",
 );
 
-const BASICS: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n";
+const BASICS: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();

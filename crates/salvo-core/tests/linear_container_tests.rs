@@ -24,7 +24,8 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str = "\
+const STD_PRELUDE: &str = concat!(
+    "\
 export intrinsic type Int
 export intrinsic type Str
 export intrinsic type Bool
@@ -49,7 +50,13 @@ export intrinsic fn drain<K, V canbe linear>(map: Map<K, V>, each: (x: V) -> Non
 =>[each] !x => !map, each
 export intrinsic type Set<T> canbe Mut
 export intrinsic fn Mut Set<T>(...elems: T[]) [] -> Mut Set<T>
-";
+",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 /// A linear token with a discharger, and a plain struct for the negative
 /// half of every conditional rule.

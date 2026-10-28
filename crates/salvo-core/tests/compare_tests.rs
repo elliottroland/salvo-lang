@@ -21,6 +21,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// `intrinsic` — and `std.core.*` is implicitly visible, which is how a canonical
 /// `cmp` is in scope without an import.
 const STD_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Long\n",
     "export intrinsic type Bool\n",
@@ -37,6 +38,11 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn hash(value: Int) [] -> Long => value\n",
     "export intrinsic fn hash(value: Str) [] -> Long => value\n",
     "export intrinsic fn to_long(value: Int) [] -> Long => value\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
 );
 
 /// [obligation-by] The structural `comptime fn`s `by auto` stamps, mirroring
@@ -1406,13 +1412,83 @@ fn the_canbe_optins_are_deleted() {
     }
 }
 
-/// [op-order] Comparing two different base types is still refused — the check
-/// runs before resolution, so the message is about the *operands* rather than a
-/// missing function.
+/// [op-equality] [effect-member-overload] An available effect's member `eq`
+/// is a candidate for `==` as for the call `eq(a, b)` (R10 D3), so beside a fn
+/// of the same signature the operator is the call's ordinary ambiguity, said of
+/// the operator.
 #[test]
-fn the_operands_must_still_be_one_type() {
+fn a_member_beside_a_fn_of_one_signature_is_the_operators_ambiguity() {
+    let src = r#"
+struct P {
+    v: Int
+}
+
+fn eq(a: P, b: P) [] -> Bool => a, b {
+    return true
+}
+
+effect Same {
+    fn eq(a: P, b: P) -> Bool => a, b
+}
+
+fn probe(a: P, b: P) [Same] -> Bool => a, b {
+    return a == b
+}
+
+fn call(a: P, b: P) [Same] -> Bool => a, b {
+    return eq(a, b)
+}
+"#;
+    let errs = errors(src);
+    assert_eq!(errs.len(), 2, "the operator and the call, once each: {errs:?}");
+    assert!(errs[0].starts_with("`==` on `P` is `eq(P, P)`: "), "{errs:?}");
+    assert_eq!(errs[0].trim_start_matches("`==` on `P` is `eq(P, P)`: "), errs[1], "the operator says what the call says");
+}
+
+/// [op-no-none] [op-equality] A possibly-`None` operand is refused once: its
+/// call would only repeat the refusal (one mistake, one diagnostic).
+#[test]
+fn an_optional_operand_is_refused_once() {
+    let errs = errors("fn probe(x: Int?) [] -> Bool => x {\n    return x < 1\n}\n");
+    assert_eq!(errs.len(), 1, "{errs:?}");
+    assert!(errs[0].contains("may be `None`"), "{errs:?}");
+}
+
+/// [op-equality] The operator reads what its call returns: an `eq` returning
+/// anything but `Bool` is not of `==`'s shape [unique-shape], and a call that
+/// reaches one is refused at the operator.
+#[test]
+fn an_eq_returning_no_bool_is_refused_at_the_operator() {
     let errs = errors(
-        r#"
+        "struct P {\n    v: Int\n}\n\nfn eq(a: P, b: P) [] -> Int => a, b {\n    return 0\n}\n\n\
+         fn probe(a: P, b: P) [] -> Bool => a, b {\n    return a == b\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("`==` on `P` is `eq(P, P)`, which must return `Bool`") && e.contains("returns `Int`")),
+        "{errs:?}"
+    );
+}
+
+/// [op-order] Ordering `Double`s keeps the host's IEEE order where no `cmp` is
+/// in reach (std declares none: a sorted container of them has no total
+/// order), and an enclosing `?cmp` takes it as it takes the call
+/// [implicit-resolve-body] (PIPELINE.md §II.10 P12).
+#[test]
+fn float_ordering_is_the_host_order_unless_a_cmp_is_in_reach() {
+    let errs = errors(
+        "fn plain(a: Double, b: Double) [] -> Bool => a, b {\n    return a < b\n}\n\n\
+         fn through(a: Double, b: Double, ?cmp: (a: Double, b: Double) -> Int) [] -> Bool => a, b {\n    return a < b\n}\n",
+    );
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
+/// [op-equality] No same-type rule (R10 D6): `a == b` on two types is the
+/// call `eq(a, b)`, so it is refused only when no `eq` takes the pair — saying
+/// so of the operator — and accepted once one is declared, with `B`'s operand
+/// the second argument.
+#[test]
+fn different_operand_types_need_an_eq_that_takes_both() {
+    let prelude = r#"
 struct A : Eq<self> by auto {
     v: Int
 }
@@ -1424,12 +1500,14 @@ struct B : Eq<self> by auto {
 fn probe(a: A, b: B) [] -> Bool => a, b {
     return a == b
 }
-"#,
-    );
+"#;
+    let errs = errors(prelude);
     assert!(
-        errs.iter().any(|e| e.contains("must be the same type")),
-        "expected the same-type rule, got: {errs:?}"
+        errs.iter().any(|e| e.contains("no `eq` for `==` on `A` and `B`") && e.contains("takes `(A, B)`")),
+        "expected the operator's call to be refused: {errs:?}"
     );
+    let errs = errors(&format!("{prelude}\nfn eq(a: A, b: B) [] -> Bool => a, b {{\n    return a.v == b.v\n}}\n"));
+    assert!(errs.is_empty(), "a mixed `eq` is the operator's call: {errs:?}");
 }
 
 // ===== [comptime-inline] [comptime-refuse] [comptime-instantiate] the comptime forms =====

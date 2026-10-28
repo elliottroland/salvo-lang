@@ -2602,6 +2602,30 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   decision (the doc's obvious candidate, as instructed): the anonymous
   unions' std home is `std.core.basic`, with tuples and fn types.
 
+- **P11. DECISION (open, B3.3c, 2026-10-28): numeric widening at a
+  comparison.** `i < l` (`Int`, `Long`) compares at `Long` [op-promote], but
+  the call it names, `cmp(i, l)`, is refused written out (a call widens no
+  variable). Built: **(a)** a lowering before the call, as [op-arm-eq] (D7):
+  widen the narrower operand, then call at the wide type; (b) declare the
+  mixed overloads in std; (c) let every call widen within a numeric class.
+  Recommendation (a). ROADMAP 0ai.
+- **P12. DECISION (open, B3.3c, 2026-10-28): float ordering.** std has no
+  `cmp(Double, Double)` (no total order), so `a < b` on floats names no call.
+  Built: **(a)** the host's IEEE order when no `cmp` is in reach (an enclosing
+  `?cmp` takes it); (b) declare a total-order intrinsic `cmp` for floats;
+  (c) refuse `<` on floats without one. Recommendation (a). ROADMAP 0aj.
+- **P13. DECISION (open, B3.3c, 2026-10-28): a binder alias at an
+  operator.** `?cmp: cmp2` counts as a `cmp` for `<` ([cmp-binder], user
+  2026-09-22: two orderings in scope are ambiguous whatever they are called),
+  while the call `cmp(x, y)` sees only `cmp`. Built: (a) keep; (b) the
+  operator by name only; (c) the call by slot too. Recommendation (c).
+  ROADMAP 0ak.
+- **P14. DECISION (open, B3.3c, 2026-10-28): a fn-typed local or ordinary
+  parameter named `eq`/`cmp`** takes the call `eq(a, b)` but not `==`.
+  Built: (a) keep (only implicits shadow an operator); (b) follow the call
+  (a body with `cmp: (T, T) -> Int` comparing `Int`s with `<` would be
+  refused). Recommendation (a). ROADMAP 0ak.
+
 ## II.11. Rounds
 
 ### 2026-10-27, first
@@ -3021,6 +3045,47 @@ this log current so the work can resume after a context reset). Newest last.
   concrete type; D2 is gone (§II.13). `plus`…`pow` are reserved shapes with
   no operator yet; `**` is not lexed.
 
+- **B3.3c: done** (committed "Resolve comparison operators as the calls they
+  name"). Built ([op-order], [op-equality], [op-promote], [unique-shape];
+  COMPLETED.md "Comparison operators are the calls they name"): `a == b`,
+  `a != b`, `a < b`… lower to `eq(a, b)`, `!eq(a, b)`, `cmp(a, b) < 0`,
+  resolved by `resolve_named_call` with the operands pre-typed, after the
+  enclosing implicit step (`pick_own_implicit_by`, by name or [cmp-binder]
+  slot). **D1** an enclosing `?eq`/`?cmp` takes the operator at a scalar or
+  `Str`; the native operator is chosen by the selected declaration
+  (`Ctx::is_primitive_compare`: std's intrinsic `eq`/`cmp` at a basic type is
+  the IR's `Op`), otherwise the IR lowers the call (`Lower::call_named`).
+  **D3** members compete (the call's member step; its pre-typed path made
+  consistent). **D5** qualified operands, **D6** no same-type rule. **D7**
+  [op-arm-eq] untouched; [op-promote]'s widening likewise a lowering before
+  the call (P11), and float ordering keeps the host order where no `cmp` is
+  in reach (P12). Kept as before and recorded: a binder alias counts for `<`
+  (P13), a fn-typed local named `eq`/`cmp` does not take `==` (P14). **0ag**
+  closed: a refused shape is in no scope (`Resolution::refused_shapes`).
+  Errors name the operator (`OperatorSite`, read by `Checker::error`). Deleted:
+  `comparisons`/`CompareVia` (checker, partition router and `insert_rows`,
+  `reach.rs`, IR builder), `fill_resolved_implicits`, `is_intrinsic_type_ty`,
+  `implicit_args_at`; the facts are the call tables at the comparison's node.
+  The differential (`SALVO_XP_B33C`, removed; base a worktree of f1c17831,
+  full fresh suites both sides, then salvo-core's with the fixtures' added
+  intrinsics out of the hash): no behaviour change in any checked program;
+  rewordings, one diagnostic instead of two at an optional operand, the 0ag
+  program, a `borrow_as` on a borrowed `Str` operand, explicit type arguments
+  on a generic `eq`/`cmp` (both the call's). Emitted code: examples,
+  `modules/aws`, benches identical on both backends; a run test's
+  `Wrapper<Str>` comparison now emits what its written `cmp(a, b)` emits
+  (Rust turbofish and typed adapter closure). 58 test-fixture preludes
+  declare `eq`/`cmp` for their scalars (an operator calls them). Tests
+  2,139. Timings: lsp-timing medians cluster ~30–32ms, aws ~34–36ms, both
+  binaries; `analyze` cluster check 173–178 → 180–182ms (std's comparisons
+  resolved as calls).
+  **Open:** P11–P14 (ROADMAP 0ai–0ak); ROADMAP 0al (found, not fixed).
+  **What the next pieces need:** `Lower::call_named` lowers any call by name
+  from the call tables at a node, given the argument expressions — the shape
+  interpolation's `to_str` parts (piece 2) and `for`'s `next`/`iter` can use;
+  `OperatorSite` is how a lowered form's diagnostics name the form; an
+  operator's operand promotion is read in every argument list.
+
 ## II.13. The call census (B1, 2026-10-27)
 
 Kept here, not in `tmp/`, because B2 and B3 work from it. The probe programs
@@ -3172,6 +3237,12 @@ Str)` "uses the enclosing implicit". That holds only for elements nested
 inside a std container's `to_str` (the 2026-10-14 test); a direct `${n}`
 does not use it. You may want the native fast path kept as an exception.
 
+Fixed, the operator half (commit "Resolve comparison operators as the calls they name"): `==`, `!=` and `<`… are the calls they name,
+so an enclosing `?eq`/`?cmp` takes them on a scalar or `Str`; the probe prints
+`op:   true` on both backends. The backends write the host's operator exactly
+when the selected callee is std's intrinsic `eq`/`cmp` at a basic type
+(`Ctx::is_primitive_compare`). Interpolation waits for piece 2.
+
 #### D2. The native fast path skips resolution altogether
 
 The same early returns mean a module's own `eq(Str, Str)` or `to_str(Int)`
@@ -3213,6 +3284,11 @@ new: a member as a fn value carries its effect.
 
 Fixed, the implicit half (commit "Select every implicit argument as a call selects"): an available member fills an implicit position, passed as a closure over the handler, and `m@E` is the value that names it; `render(p)` in the probe prints `<1, 2>` on both backends. Interpolation and operators wait for pieces 2–3.
 
+Fixed, the operator half (commit "Resolve comparison operators as the calls they name"): an available member `eq`/`cmp` is a candidate
+for `==`/`<` as for the call; beside a fn of the same signature the operator
+is the call's ambiguity (`eq@Same(…)` or `eq@main(…)`). Interpolation waits
+for piece 2.
+
 #### D4. A union interpolates arm by arm; the call has no overload
 
 - `interp-union`: `u: Point | Int`, with `to_str(Point)` declared.
@@ -3244,6 +3320,12 @@ deliberate, so you may want "operators compare the data" kept as an
 exception. Then the lowering would be `eq(strip(xs), strip(ys))`, which is
 not a plain call.
 
+Fixed (commit "Resolve comparison operators as the calls they name"): the operands are the call's arguments, qualifiers included. The
+probe is rebuilt with a user type, since [unique-shape] puts both overloads in
+the type's file: `Bag<T>` with `eq<T>(Bag<T>, Bag<T>, ?eq)` and `eq(Packed
+Bag<Int>, Packed Bag<Int>)` in `bag.sv`; `xs == ys` on two `Packed Bag<Int>`s
+prints `op:   true` on both backends, like the call.
+
 #### D6. `==` and `<` require the same base type on both sides
 
 - `op-mixed-types`: with `fn eq(a: Meters, b: Feet) -> Bool` declared,
@@ -3256,6 +3338,10 @@ with `Meters`. **Decision: yes.** Either drop the same-type rule (P3), or
 keep it as an operator-only exception, and if kept, add it to D-3's shape so
 that a mixed `eq` is not an operator at all.
 
+Fixed (commit "Resolve comparison operators as the calls they name"): no same-type rule; `m == f` is `eq(m, f)` and prints `op:   true`
+on both backends. Two types with no `eq` taking the pair are refused as the
+call is, said of the operator ("no `eq` for `==` on `A` and `B`").
+
 #### D7. An arm comparison lowers to a test and a comparison, not to the call
 
 - `op-arm-compare`: `x: Long? = -1L`. `x == -1L` and `y == -1L` (with `y =
@@ -3266,6 +3352,12 @@ that a mixed `eq` is not an operator at all.
 eq(x, -1L)`. Nothing would change. **Decision:** confirm that [op-arm-eq]
 (user decision 2026-10-12) stays as such a pre-call lowering; it is not a
 selection divergence.
+
+Kept (commit "Resolve comparison operators as the calls they name", R10 D7): [op-arm-eq] runs before the call; `op-arm-compare` prints
+`op:   true false` on both backends, unchanged. (Rebuilt with `let n = -1L;
+let x: Long? = n`: the probe's `let x: Long? = -1L` miscompiles on Rust at
+f1c17831, ROADMAP 0al.) [op-promote]'s widening is the same kind of
+lowering (P11).
 
 #### D8. `for` drives the first `next` in scope order, with no ranking or ambiguity
 

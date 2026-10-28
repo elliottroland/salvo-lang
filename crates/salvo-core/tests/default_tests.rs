@@ -15,6 +15,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// shape of std's `InRange`), `Big` one whose `qualifies` needs an implicit,
 /// `Sorted` a constructive one.
 const STD_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Bool\n",
     "export intrinsic type Str\n",
@@ -27,6 +28,12 @@ const STD_PRELUDE: &str = concat!(
     "    fn qualifies(n: Int, ?limit: (n: Int) -> Bool) -> Bool { return limit(n) }\n",
     "}\n",
     "export qualifier Sorted<T> of List<T>\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
 fn messages(src: &str) -> Vec<String> {

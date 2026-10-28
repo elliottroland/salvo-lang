@@ -10,7 +10,11 @@ use salvo_syntax::ast::Item;
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn copy<T>(value: T) [] -> T => value\nexport intrinsic type Store<T> canbe Mut\nexport intrinsic fn fresh() [] -> List<Int>\nexport intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n";
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn copy<T>(value: T) [] -> T => value\nexport intrinsic type Store<T> canbe Mut\nexport intrinsic fn fresh() [] -> List<Int>\nexport intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+);
 
 /// Parses + resolves + checks a single-file program (no std).
 fn check_src(src: &str) -> (Program, Checked) {

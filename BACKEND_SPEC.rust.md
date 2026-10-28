@@ -1438,9 +1438,12 @@ the blanket rule:
   `(Ord::cmp(&(a), &(b)) as i32)` — `Ordering` is a fieldless `#[repr(i8)]`
   enum whose discriminants *are* the sign convention Salvo's `cmp` answers,
   so the cast is the whole lowering — written as a path call so it works
-  whether the argument arrives owned or borrowed. An operator on basic
-  types never reaches these: the IR writes it as an `Op` [ir-op], rendered
-  `(a < b)`, `(n == 0i32)`. `eq` is `==` (`((n) == (0i32))`) where a call is
+  whether the argument arrives owned or borrowed. A comparison operator
+  never reaches these when it resolved to std's intrinsic `cmp`/`eq` at a
+  basic type: the IR writes that as an `Op` [ir-op] [op-order], rendered
+  `(a < b)`, `(n == 0i32)`. The selected declaration decides, not the operand
+  types (B3.3c, R10 D1): `a < b` on two `Int`s through an enclosing `?cmp` is
+  the call through the parameter, `(cmp(a, b) < 0i32)`. `eq` is `==` (`((n) == (0i32))`) where a call is
   written or passed as a value. A `Str` is compared and
   hashed as `str` (`(&a[..] == &b[..])`), which is byte-wise UTF-8 and
   therefore code-point order [kt-ordered] — no runtime helper needed on

@@ -19,7 +19,8 @@ with total `get`/`swap`/`substr` overloads, `preserve` entries, claim-minting
 passes, and constant slots), everything-is-an-expression control
 flow, algebraic effects with handler dependencies, non-resumption
 (`throw`/`try`), implicit parameters and obligation groups (each operator's
-function on a type declared once, in the type's own file [unique-shape]), linear types with a
+function on a type declared once, in the type's own file [unique-shape], and a
+comparison operator the call it names), linear types with a
 designated `close`, mutable element handles (`ref(c)`, minted by `at`,
 aliasing by a shared named container), and pull iteration reduced to a `next` that `for` drives —
 with `iter fn` writing the iterator struct its `state Name { … }` block names
@@ -62,7 +63,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2134 tests, complete: the toolchain tests are
+cargo test                  # 2139 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -141,6 +142,131 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-28 — Comparison operators are the calls they name (B3 piece 3c, R10 D1, D3, D5, D6, D7)
+
+**`a == b` is `eq(a, b)`, `a != b` is `!eq(a, b)`, `a < b` is `cmp(a, b) <
+0`** (`>`, `<=`, `>=` alike), selected by the call rule
+(OPERATOR_OVERLOAD.md O1; PIPELINE.md §3 R10; [op-order], [op-equality]).
+`check_comparison_operands` no longer resolves anything of its own: it runs
+the two lowerings that stay before the call and then `resolve_named_call`
+with the operands pre-typed, so the call's selection, its effect members,
+its implicit filling and its records are the operator's.
+
+- **R10 D1, no semantic fast path.** The enclosing fn's own implicit takes the
+  operator when the operands fit it, as it takes the call
+  [implicit-resolve-body], on a scalar or `Str` too (`op-eq-native-implicit`
+  now prints `op:   true`, like the call). Ranking among several is
+  [implicit-same-name]'s (`pick_own_implicit_by`).
+- **How the backends choose the native operator** [core-layers]: the IR
+  builder decided it by operand type (`is_basic()` on both sides, unless an
+  implicit was recorded). It now reads the selected declaration:
+  `Ctx::is_primitive_compare` — std's intrinsic `eq`/`cmp` whose explicit
+  parameters are basic types — lowers to the IR's own `Op`, which every
+  backend already spells natively; anything else is lowered through the call
+  path (`Lower::call_named`, split out of `Lower::call`: a member call, a call
+  through a local or implicit, or a declared callee). Neither backend
+  changed.
+- **R10 D3, members compete**: `resolve_named_call`'s member step is the
+  operator's, so an available member `eq` fills `==`; beside a fn of the same
+  signature the operator is the call's ambiguity ("`==` on `P` is `eq(P, P)`:
+  ambiguous call to `eq`: … `eq@Same(…)` … `eq@main(…)`"). The member path
+  now honours pre-typed arguments everywhere (`route_member_or_fn` takes
+  them, `pick_effect_member`'s single-by-arity case keeps them, the error
+  branches do not retype) — a latent double typing for a call that fell
+  through an implicit into a member as well.
+- **R10 D5, D6**: the operand types go to the call as written, qualifiers
+  included, and the same-type rule is gone (`m == f` with `eq(Meters, Feet)`
+  declared is accepted).
+- **R10 D7 and numeric promotion stay lowerings before the call.**
+  [op-arm-eq] is untouched. [op-promote]: `cmp(i, l)` written out is refused
+  (calls do not widen a variable; `cmp(Int, Long)` has no overload), so the
+  operator widens the narrower operand first and calls at the wide type, the
+  meaning it always had — recorded as DECISION P11 (ROADMAP 0ai). The IR
+  widens wherever an operand is lowered (`args_for` and local calls read
+  `Lower::promoted`; only operator operands are ever promoted).
+- **Float ordering** has no call: std declares no `cmp(Double, Double)`. With
+  no `cmp` in reach (`some_fn_accepts`) the host's IEEE order stays and no
+  call is recorded; an enclosing `?cmp` over `Double`s takes it. DECISION P12
+  (ROADMAP 0aj).
+- **Kept from before, recorded as DECISIONs** (P13, P14; ROADMAP 0ak): a
+  binder alias (`?cmp: cmp2`) still counts as a `cmp` for `<` ([cmp-binder],
+  2026-09-22) though the call does not see it; a fn-typed local or ordinary
+  parameter named `eq`/`cmp` does not take the operator, though it takes the
+  call.
+- **Diagnostics name the operator** (`OperatorSite`, consulted by
+  `Checker::error` while the operator's call is resolved): a missing function
+  is "no `eq` for `==` on `A` and `B`: `==` is `eq(A, B)`, and no `eq` in
+  scope takes `(A, B)`" plus the remedy (`compare_remedy`), anything else the
+  call says is prefixed "`<` on `P` is `cmp(P, P)`: ". No fn reference is
+  recorded at the operator (it names nothing). A call reaching an `eq` not
+  returning `Bool` (or a `cmp` not `Int`) is refused at the operator. An
+  operand refused by [op-no-none] skips the call (one diagnostic, where
+  there were two).
+- **ROADMAP 0ag closed**: `unique_shape::check_program` returns the refused
+  declarations; resolution drops them from every scope's fns and members
+  (`Resolution::refused_shapes`), and the checker from the members a body
+  reaches through its effect list (`shape_refused`). The refused catch-all
+  `to_str(List<T>)` beside std's now reports its refusal and nothing else.
+  An explicit `m@E` still reaches a refused member.
+- **Tables**: `comparisons` and `CompareVia` deleted (from `Checked`,
+  `partition.rs`'s router and `insert_rows`, `reach.rs`, the IR builder; it
+  was never in `check_cache::StepRows`). The operator's facts are the call
+  tables at the comparison's node: `call_fn`, `implicit_args`,
+  `call_type_args`, `member_calls`/`effect_member_calls`, `local_calls` and
+  `local_call_names` (always, for an implicit). Dead with it:
+  `fill_resolved_implicits`, `is_intrinsic_type_ty`, `implicit_args_at`.
+  `salvo facts` shows each comparison's call (`-> std.core.basic::cmp(Int,
+  Int)`; `facts_iteration` snapshot reviewed).
+
+**The differential** (temporary `SALVO_XP_B33C`, removed: every checked
+program's diagnostics and `salvo facts`, every IR build's dump, std's modules
+by content; base a worktree of f1c17831; full fresh suites both sides, then
+the salvo-core suites again with the fixtures' added intrinsics left out of
+the program hash, so every fixture program had its counterpart): no program
+the suite checks changed behaviour. Differences, each reviewed: the facts'
+new call column; rewordings at refused operators; one diagnostic instead of
+two at an optional operand; the 0ag program (two ambiguity errors gone, its
+`main` built); a `borrow_as[proj Str -> Str]` coercion on a borrowed `Str`
+operand, which the call records (emitted code identical); explicit type
+arguments on a generic `eq`/`cmp` (`Wrapper<T>`, `Bag<T>`) — the call's.
+**Emitted code**: every example, `modules/aws` and both benches identical on
+both backends (compiled with both binaries and diffed); the one difference
+found is in a run test's program (`rustc_compiles_and_runs_generic_stamp`):
+`a < b` on a `Wrapper<Str>` now emits exactly what the written `cmp(a, b)`
+beside it emits (`cmp__Wrapper_Wrapper::<String>(…, &mut |__a0: &String,
+__a1: &String| …)`, where the operator had no turbofish and untyped
+closure parameters). No golden or `expected.txt` changed.
+
+**Programs rewritten**: fixtures modelling std must declare what an operator
+calls — 58 test-file preludes (`STD_PRELUDE` and kin, in salvo-core's tests)
+gained `intrinsic fn eq`/`cmp` for the scalars they declare (equality for the
+eight intrinsic types, ordering for `Int`/`Long`, as the old fast path
+covered), beside each type [unique-shape]; without them `i < 3` in a
+std-less fixture was "no function named `cmp`". Tests rewritten by what they
+meant: `compare_tests::the_operands_must_still_be_one_type` is
+`different_operand_types_need_an_eq_that_takes_both` (refused without the
+mixed `eq`, accepted with it); `collection_tests` and `op_tests` assert the
+operator's wording.
+
+**Tests**: 2,139 (+5): `compare_tests` (a member beside a fn is the
+operator's ambiguity, said as the call says it; an optional operand refused
+once; an `eq` returning `Int` refused at the operator; float ordering with
+and without a `?cmp`), and one program on both backends
+(`comparisons_as_the_calls_they_name`, a `KotlinCase` and `run_rust_files`:
+D1 at `Str` `==` and `<`, a `?cmp` at `Double`, D5 with `Packed Bag<Int>`, D6,
+a member `eq`, D7 and widening, `true false / false true / true / true /
+true false / true false / true true true` on both). `analyze_tests`' 0ag
+program now asserts a single error. Found beside it, not fixed: ROADMAP 0al
+(`let x: Long? = -1L` miscompiles on Rust, already at f1c17831).
+
+**Timings** (debug, base binary alternated with this one, after the suites,
+load settling): `tools/lsp-timing.py`, three rounds of four edits, medians of
+the summed top-level phases: `examples/cluster` 30.6/32.0/31.7 →
+32.1/30.2/30.2ms, `modules/aws` 34.8/34.5/36.0 → 34.6/36.5/34.2ms (flat).
+`SALVO_TIMINGS=1 salvo analyze --src examples/cluster/salvo`: check
+173–178ms → 180–182ms, std's comparisons being resolved as calls where a
+numeric one returned at once (an edit does not pay it: std is cached).
 
 ### 2026-10-28 — Each operator on a type is declared in the type's file (B3 piece 3b, user decision O1-D)
 
@@ -31193,7 +31319,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2134 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2139 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -32485,6 +32611,24 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A fixture without std's comparisons cannot compare** (B3.3c,
+  2026-10-28, [op-order]): an operator is the call it names, so a test
+  prelude declaring `intrinsic type Int` must also declare `intrinsic fn
+  cmp(a: Int, b: Int)` (and `eq`) for `i < 3` to check; the failure reads "no
+  function named `cmp` is in scope" at the operator. Many tests check for
+  *some* error or a specific one, so a missing fixture function can pass
+  silently while adding noise — a differential's diagnostics show it.
+- **A pre-typed call must stay pre-typed through the member path** (B3.3c):
+  `pending_arg_tys` reaches `resolve_named_call`, whose member branch typed
+  the arguments again in `route_member_or_fn`, a single-by-arity member and
+  its error branches. Every typing of `args` in that function has to check
+  `pre_typed` first, or an operator's operands (or a call that fell through
+  an implicit) are checked twice and report twice.
+- **A differential across a fixture change needs a hash that ignores it**
+  (B3.3c): outputs keyed by the program's text lose every program whose
+  fixture gained lines; appending the lines at the prelude's end keeps every
+  span, so hashing the text without them pairs each program with its base.
 
 - **A shape is on the type the checker would lower** (B3.3b, 2026-10-28,
   [unique-shape]): a scope can hold a file's own alias *and* an imported

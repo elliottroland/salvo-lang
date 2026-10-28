@@ -10,7 +10,7 @@
 //!
 //! Unresolved and ambiguous imports are reported as errors [mod-import].
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use salvo_syntax::ast::{
     Obligation, FnsDecl, EffectAliasDecl,
@@ -234,6 +234,9 @@ pub struct Resolution<'p> {
     /// [comptime-hygiene] The same for every written type reference inside
     /// such a fn, by the reference's address.
     pub type_ref_stamp: HashMap<usize, usize>,
+    /// [unique-shape] The declarations refused for their placement, by
+    /// address: left out of every candidate set (ROADMAP 0ag).
+    pub refused_shapes: HashSet<usize>,
 }
 
 impl<'p> Resolution<'p> {
@@ -1291,8 +1294,27 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     // [unique-shape] Each operator (unique function shape) on a type is
     // declared in the type's file: a per-declaration interface fact, checked
     // once the scopes say which declaration each written type names.
+    //
+    // [unique-shape] A refused declaration is a candidate nowhere (ROADMAP
+    // 0ag): left out of every scope's fns here, and out of the effect members
+    // a body reaches by `refused_shapes`, so its uses report nothing more
+    // than its refusal — one mistake, one diagnostic.
+    let mut refused_shapes: HashSet<usize> = HashSet::new();
     if !scopes_only {
-        crate::unique_shape::check_program(files, &modules, &scopes, &decl_files, &mut errors);
+        refused_shapes = crate::unique_shape::check_program(files, &modules, &scopes, &decl_files, &mut errors);
+        if !refused_shapes.is_empty() {
+            let refused = |f: &FnDecl| refused_shapes.contains(&(f as *const FnDecl as usize));
+            for scope in scopes.iter_mut() {
+                for entries in scope.fns.values_mut() {
+                    entries.retain(|e| !refused(e.decl));
+                }
+                scope.fns.retain(|_, entries| !entries.is_empty());
+                for members in scope.effect_members.values_mut() {
+                    members.retain(|(_, f)| !refused(f));
+                }
+                scope.effect_members.retain(|_, members| !members.is_empty());
+            }
+        }
     }
 
     if scopes_only {
@@ -1309,6 +1331,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
             stamp_scopes: Vec::new(),
             fn_stamp_scope: HashMap::new(),
             type_ref_stamp: HashMap::new(),
+            refused_shapes,
         };
     }
     let (stamp_scopes, fn_stamp_scope, type_ref_stamp) = stamp_scopes(program, &scopes);
@@ -1325,6 +1348,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
         stamp_scopes,
         fn_stamp_scope,
         type_ref_stamp,
+        refused_shapes,
     }
 }
 

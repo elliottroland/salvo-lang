@@ -22,9 +22,15 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// [unique-shape] `cmp` and `times` are operators on `Int`, so they are
 /// declared in `Int`'s own file, here, and reach the tests' programs as any
 /// std overload does.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
+const STD_PRELUDE: &str = concat!(
+    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
                            export fn cmp(a: Int, b: Int) -> Int { return 0 }\n\
-                           export fn times(a: Int, b: Int) -> Int { return 0 }\n";
+                           export fn times(a: Int, b: Int) -> Int { return 0 }\n",
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+);
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();

@@ -16,6 +16,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// `lib/std/core/compare.sv` declares them, plus the list surface a heap is built
 /// on.
 const STD_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Long\n",
     "export intrinsic type Bool\n",
@@ -29,6 +30,12 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn Mut List<T>(...elems: T[]) [] -> Mut List<T>\n",
     "export intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n",
     "export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
 );
 
 /// The user code every test shares: a struct with a canonical ordering

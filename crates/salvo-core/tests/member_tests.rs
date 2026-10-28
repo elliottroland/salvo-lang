@@ -19,6 +19,7 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
 const STD_PRELUDE: &str = concat!(
+    concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Str\n",
     "export intrinsic type Bool\n",
@@ -32,6 +33,12 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type Addr<E>\n",
     "export struct Mailbox { capacity: Int }\n",
     "export intrinsic type List<T> canbe Mut\n",
+),
+    // [op-equality] [op-order] What the comparison operators call.
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
 fn check_errors(src: &str) -> Vec<FileDiagnostic> {
