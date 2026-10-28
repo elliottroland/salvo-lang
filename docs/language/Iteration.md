@@ -19,11 +19,11 @@ fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Next<It, T>) -> Mut List<U> => it: Mu
 }
 ```
 
-A `for` over a **type parameter** works because of the spread: the position says
-"this call supplies a `next` for `It`", which is as much of a declaration as a
-`: Next<self, T>` clause is, so the loop drives by calling that parameter and
-takes the element type from its result. Nothing about `for` is special-cased for
-std — this is how any combinator of your own reads.
+A `for` over a **type parameter** works because `for x in it` is the call
+`next(it)`, and the spread brought in a `next` that takes an `It`: inside `map`
+it is a parameter, which a call reaches before any declared `next`, so the loop
+drives by calling it and takes the element type from its result. Nothing about
+`for` is special-cased for std — this is how any combinator of your own reads.
 
 There is no `Next` *type* and nothing implements it: `map` needs a `next` for
 whatever `it` is, and the call site supplies one. The subject is an
@@ -36,9 +36,10 @@ let letters = filter(iter("hello"), keep)   // a string's characters
 let capped = map(countdown(3), double)      // an `iter fn` of your own
 ```
 
-A type of your own joins in by declaring `: Iter<self, It, T>`, naming its
-iterator struct, and an `iter` — an `iter fn` whose `state` is that struct, or
-a fn handing one back ([Iterators](Iterators.md)):
+A type of your own joins in with an `iter` — an `iter fn` whose `state` is its
+iterator struct, or a fn handing one back — and may declare `: Iter<self, It,
+T>`, naming that struct, to have the pair checked at the type
+([Iterators](Iterators.md)):
 
 ```
 struct Bag : Iter<self, ListNext<Int>, Int> {
@@ -53,13 +54,14 @@ let total = reduce(iter(bag), 0, (acc, n) -> acc + n)
 ```
 
 Inference runs *through* the group: `It` comes from the subject, and `T` — the
-element type — is read from `It`'s `: Next<self, T>` clause. That is what lets
-the lambda be written bare (`n -> n * 2`) with no annotation anywhere.
+element type — from the `next` that takes an `It` (or `It`'s `: Next<self, T>`
+clause). That is what lets the lambda be written bare (`n -> n * 2`) with no
+annotation anywhere.
 
 The other spread, `?Iter<C, It, T>`, is for a combinator over a **source**
 rather than an iterator: it brings in the `iter` that mints an `It` and the
 `next` that drives it, so `total(xs)` and `total(bag)` both work and the body
-writes `for x in c`:
+writes `for x in c` — `next(iter(c))`, through the two parameters:
 
 ```
 fn total<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c {

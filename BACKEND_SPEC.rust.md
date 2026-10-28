@@ -343,6 +343,13 @@ Conventions:
     over Copy elements, `for mut f in roster.iter()` over a borrowed list,
     `.into_iter()` when the loop consumes it, `.iter().cloned()` when an owned
     element is needed from a kept one, `s.chars()` over a `Str`.
+  * [for-iter] The driving `next` and the minting `iter` are the calls `for`
+    names, lowered from the checker's call facts at the subject (B3.3d): to the
+    declaration, through the fn's own `?next` (`next(&mut __pass)` on the
+    closure parameter), or to an effect's member on its handle. No turbofish is
+    written on them: the loop is this backend's spelling of `next(iter(c))`,
+    and rustc infers the type arguments from the iterator. The native loop
+    above is used only where both calls went to declarations.
   * An **effectful `next`** takes its handles as leading arguments, threaded
     into every turn of the loop from the scope the `for` is written in
     (`crate::next__Fibs(&__handle_2, &mut __pass_12)`, [fn-effects]).

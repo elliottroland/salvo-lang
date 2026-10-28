@@ -952,6 +952,8 @@ P14):
    would, under the call rule, call the parameter at `(Int, Int)` and be
    refused. Options: (a) keep (built: only implicits shadow an operator, as
    only they shadow by fit); (b) follow the call. Recommendation: (a).
+   The same holds for the `next`/`iter` a `for` names since B3.3d (a local
+   `next` does not take the loop), decided with this one.
 
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 
@@ -963,6 +965,43 @@ line; it was rebuilt with `let n = -1L; let x: Long? = n`). A
 checker-clean program the target compiler refuses [backend-never-wrong]; the
 expected type should not flow through unary `-` into the literal as an
 optional, only its numeric width ([lit-adopt]).
+
+### 0am — DECISION: a type with both a `next` and an `iter` (B3.3d, 2026-10-28)
+
+`for x in e` is `next(e)` when a `next` takes `e`, otherwise `next(iter(e))`
+[for-iter] (R10 D10). A type some `next` takes *and* some `iter` takes is
+therefore driven by its `next`, and its `iter` is never called by a `for`.
+OPERATOR_OVERLOAD.md's brief: "I suppose it should be an error for _both_ next
+and iter to be defined on the same type"; R10 did not decide it. What the code
+refuses today is only the *obligation* pair (`: Iter<…>` beside `: Next<…>` on
+one struct, [iter-group]); the fns alone are accepted. Options (PIPELINE.md
+§II.10 P15):
+
+- **(a) Accept, `next` wins** (built): a value some `next` takes is already a
+  position in a sequence, so minting a second one would be wrong (the old
+  [iter-resolve] reasoning); the obligation pair stays refused.
+- **(b) Refuse at the type**: a per-declaration check beside [unique-shape]
+  (both shapes are declared in the type's file, so it needs no program-wide
+  search) — "`T` has both a `next` (an iterator) and an `iter` (a source)";
+  the brief's rule, and the obligation-pair refusal becomes its special case.
+  No program in the suite has the pair except the test of (a).
+- **(c) Accept, and drop the obligation-pair refusal too**, since the
+  obligations no longer decide anything for `for`.
+
+Recommendation: (b), the brief's rule, cheap to check where it is declared;
+(a) until decided.
+
+### 0an — The `for` header's calls apply no argument contract (B3.3d, 2026-10-28)
+
+Recorded, not a decision: the `next`/`iter` a `for` names are resolved,
+ranked, filled and recorded as calls, but what a call does to its argument
+places (consumption, the `Mut` mutation of a root, removal sets, derived
+links, temporary-view checks) is not applied at them — driving keeps its own
+rules for the subject ([iter-drive-in-place], [proj-type], [for-elem-write]).
+They agree on every program the suite checks (the differential); folding the
+loop's rules into the call's contract would make the header a written
+`let it = Mut e; loop { when next(it) … }` (PIPELINE.md §II.6), and belongs to
+the typed partial IR (Stage D).
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
@@ -2106,7 +2145,8 @@ and generic code that may receive one takes the discharger as a callback
 [linear-generics]. Sendability of a composed iterator is unchanged.
 
 **Cleanup riding along**: the internal names still say "pass" (`PassDriver`,
-`PassMember`, `pass_elem_ty`, `pass_driver_of`, `for_drivers`' doc) and the
+`pass_driver_of`, `for_drivers`' doc; `PassMember` and `pass_elem_ty` went
+with B3.3d) and the
 dead residue of the deleted `yield fn` origin machinery is still in the tree
 (`PassDriver.origin`, always `false`; `mint_machines`, `ORIGIN_PASS_PREFIX`,
 `pass_or_origin_elem_ty`'s origin branch, the emitters' `if driver.origin`

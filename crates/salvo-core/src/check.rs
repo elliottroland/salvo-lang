@@ -59,6 +59,14 @@ impl Key {
     /// its qualifier's index (below it).
     pub const INTERP_TEXT: u32 = 63;
 
+    /// [for-iter] The `n` of the `iter` call a `for` over a source names
+    /// (`for x in c` is `next(iter(c))`), at the subject's node.
+    pub const FOR_ITER: u32 = 62;
+
+    /// [for-iter] The `n` of the `next` call a `for` names, at the subject's
+    /// node: `next(c)` for an iterator, `next(iter(c))`'s for a source.
+    pub const FOR_NEXT: u32 = 61;
+
     /// [node-id] The `n`th node the checker makes at this one, which no
     /// tree holds (a `qualifies` call an `is` test implies, the `to_str`
     /// call an interpolated value does): a key of the same declaration no
@@ -403,36 +411,15 @@ pub struct PickTest {
     pub nullable: bool,
 }
 
-/// [iter-protocol] Which function a `for` calls to drive a pass — the `next`
-/// that advances it, or the `close` that releases it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PassMember {
-    /// A declared overload, resolved from the subject's own type.
-    Fn(DeclId),
-    /// [implicit-group] [iter-generic-drive] An **implicit parameter** of the
-    /// enclosing fn. The subject's type is one of its type parameters, so there
-    /// is no declaration to resolve against: the member came in through a
-    /// `?Next<It, T>` (or `?Linear<It>`) spread and is called by that name.
-    Implicit(String),
-}
-
-impl PassMember {
-    /// The declaration behind it, when there is one — what the emitters need
-    /// for a mangled name, an effect list or a machine name.
-    pub fn key(&self) -> Option<DeclId> {
-        match self {
-            PassMember::Fn(key) => Some(*key),
-            PassMember::Implicit(_) => None,
-        }
-    }
-}
-
-/// [iter-protocol] What a `for` over a **pass** needs from the checker: which
-/// `next` to call, and which arm of its result carries an element.
+/// [iter-protocol] [for-iter] What a `for` over an **iterator** needs from the
+/// checker beyond the calls it names: which arm of `next`'s result carries an
+/// element, and how the loop holds the iterator. The calls themselves — the
+/// `next` that advances it and, for a source, the `iter` that mints it — are
+/// ordinary call facts (`call_fn`, `implicit_args`, `local_calls`,
+/// `member_calls`, …) at `Key::FOR_NEXT` and `Key::FOR_ITER` of the subject's
+/// node.
 #[derive(Clone, Debug)]
 pub struct PassDriver {
-    /// The `next` this subject is driven by.
-    pub next: PassMember,
     /// Index of the `Emitted` arm among the result's non-`None` arms
     /// [union-arm-identity] — positional over the *declared* type, so
     /// `Finished | Emitted T` is as valid as the usual order. Unused when
@@ -460,21 +447,18 @@ pub struct PassDriver {
     /// the caller's pass never advanced, while Kotlin aliased it and the caller
     /// saw the new position [backend-parity].
     pub in_place: bool,
-    /// [iter-mint] The `iter` that **mints** the iterator, when the subject is
-    /// a source rather than an iterator itself (`for x in bag`, where
-    /// `iter(bag)` answers one): a declared overload, or — for a generic source
-    /// under a `?Iter<C, It, T>` spread [iter-group] — the `iter` implicit
-    /// parameter of this body. The emitters call it once, before the driving
-    /// loop, and drive its result. `None` when the subject *is* the iterator —
-    /// and also for the intrinsic containers (a list, an array, a `Str`), which
-    /// record no driver at all because the backends iterate their own data
-    /// natively [iter-for-native].
-    pub mint: Option<PassMember>,
+    /// [iter-mint] The type of the iterator `iter` **mints**, when the
+    /// subject is a source rather than an iterator itself (`for x in bag`,
+    /// which is `next(iter(bag))`): the loop calls `iter` once, before it, and
+    /// drives the result. `None` when the subject *is* the iterator — and the
+    /// containers a backend walks natively (a list, an array, a `Str`) record
+    /// no driver at all [iter-for-native].
+    pub mint: Option<Ty>,
     /// [iter-step-call] The subject is a **step call** — `for i in next(p)`,
     /// `for i in step(a, b)` — whose result is `Emitted T | Finished`: the
     /// loop re-invokes the call itself each turn until `Finished`, with its
-    /// arguments (all places or literals, checked) evaluated as written.
-    /// `next` is unused; the call node carries the callee.
+    /// arguments (all places or literals, checked) evaluated as written. The
+    /// call node carries the callee; nothing is recorded at `Key::FOR_NEXT`.
     pub step_call: bool,
 }
 
@@ -1379,6 +1363,28 @@ impl OperatorSite {
             ),
             None => format!("`{sym}` on {on} is `{member}({lhs}, {rhs})`: {msg}"),
         }
+    }
+}
+
+/// [for-iter] A `for` header being resolved as the calls it names (`for x
+/// in c` is `next(c)` for an iterator, `next(iter(c))` for a source, O1): the
+/// call has no node of its own, so its facts go to a synthetic key of the
+/// subject's (`at`, the `for`'s span, is what the call is resolved at, and
+/// `Checker::key` answers `key` for it), its diagnostics land on the subject
+/// (`loc`) and are said of the `for`.
+#[derive(Clone, Debug)]
+struct ForSite {
+    at: Span,
+    key: Key,
+    loc: Span,
+    /// The call as the `for` names it (`next(Bag)`, `next(iter(Bag))`).
+    call: String,
+    subject: Ty,
+}
+
+impl ForSite {
+    fn reword(&self, msg: String) -> String {
+        format!("`for` over `{}` is `{}`: {msg}", self.subject, self.call)
     }
 }
 
@@ -3230,6 +3236,14 @@ struct Checker<'p, 'r> {
     /// names the operator (`no `eq` for `==` on `Foo``), and what keeps the
     /// call from recording a fn reference at the operator's span.
     operator_site: Option<OperatorSite>,
+    /// [for-iter] The `for` header whose `next`/`iter` call is being resolved.
+    for_site: Option<ForSite>,
+    /// [for-iter] The pending call's arguments are typed and have no
+    /// expressions of their own (`pending_arg_tys` with the `for`'s subject
+    /// as a stand-in): selection, implicits and records run, and what a call
+    /// does to its argument places does not — a `for` has its own rules
+    /// for what driving does to its subject [iter-drive-in-place] [proj-type].
+    pending_typed_only: bool,
     /// [fn-overload-at] The `@module` selectors (by the span of the written
     /// path) at calls whose bare name something other than the declared fns
     /// would take: a local or parameter of the name, a handler's own `send
@@ -3563,6 +3577,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             own_implicits: Vec::new(),
             pending_arg_tys: None,
             operator_site: None,
+            for_site: None,
+            pending_typed_only: false,
             at_needed: HashSet::new(),
             last_nested: Vec::new(),
             resolve_depth: 0,
@@ -3586,6 +3602,11 @@ impl<'p, 'r> Checker<'p, 'r> {
 impl<'p, 'r> Checker<'p, 'r> {
     /// [node-id] The key of the node `span` holds, in this file.
     fn key(&self, span: Span) -> Key {
+        if let Some(site) = &self.for_site {
+            if site.at == span && site.at.node == span.node {
+                return site.key;
+            }
+        }
         self.out.decls.key(self.file_idx, span, &self.key_hint)
     }
 
@@ -3601,6 +3622,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         let msg: String = match &self.operator_site {
             Some(site) => site.reword(msg.into()),
             None => msg.into(),
+        };
+        let (span, msg) = match &self.for_site {
+            Some(site) => (if site.at == span { site.loc } else { span }, site.reword(msg)),
+            None => (span, msg),
         };
         let (span, msg, decl) = self.render_origin(span, msg);
         self.out
@@ -5314,6 +5339,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let mut found = false;
                 if let Some(entries) = scope.fns.get(member.name.name.as_str()) {
                     for e in entries {
+                        // [fn-rename] A renamed overload answers to its new
+                        // name only, here as at a call (B1 census D9).
+                        if self.renamed_away(&member.name.name, e.key) {
+                            continue;
+                        }
                         let inner = self.enter_generics(&e.decl.generics);
                         let candidate = self.member_fn_ty(e.decl);
                         self.generics = inner;
@@ -26087,12 +26117,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 iterable,
                 body,
                 else_block,
-                ..
+                span: for_span,
             } => {
                 let iter_ty = self.check_expr(iterable, None);
                 let elem = match self.step_call_elem_ty(&iter_ty, iterable) {
                     Some(elem) => elem,
-                    None => self.iter_elem_ty(&iter_ty, iterable, iterable.span()),
+                    None => self.for_subject(&iter_ty, iterable, *for_span),
                 };
                 // [qual-depend] A pass's element may carry a dependent claim
                 // whose slot names the pass's own borrowed field
@@ -26134,15 +26164,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // it lives: the loop mutates it rather than taking it over, so
                 // the caller sees the position it reached and may drive it on.
                 let drives_in_place = recorded.as_ref().is_some_and(|d| d.in_place);
+                // [for-iter] The subject *is* the iterator: `next(e)` drives it
+                // (not a minted one, not a step call) — or the `next` is the
+                // fn's own implicit, whose element is handed over by value
+                // [iter-generic-drive], or a step call is made through a fn
+                // value, whose element is the value's own.
+                let next_through_implicit = self
+                    .out
+                    .local_calls
+                    .contains(&self.key(iterable.span()).synthetic(Key::FOR_NEXT));
                 let drives_pass = !drives_origin
                     && !drives_in_place
                     && (iter_ty.quals().iter().any(|q| q.name == "once")
-                        || self.next_obligation(iter_ty.strip_quals()).is_some()
-                        // [iter-generic-drive] A generic pass is a pass: the
-                        // implicit `next` in the driver is the declaration.
-                        || recorded
-                            .as_ref()
-                            .is_some_and(|d| matches!(d.next, PassMember::Implicit(_))));
+                        || recorded.as_ref().is_some_and(|d| {
+                            if d.step_call {
+                                !self.out.call_fn.contains_key(&self.key(iterable.span()))
+                            } else {
+                                d.mint.is_none() || next_through_implicit
+                            }
+                        }));
                 if drives_in_place {
                     if let Some(place) = crate::place::Place::of_expr(iterable) {
                         let root = place.root.clone();
@@ -26152,20 +26192,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [yield-proj] Whether the pass's `next` emits a *borrow*:
                 // then each element shares fate with the pass's source, and
                 // driving the pass is a read of that source, not a move.
-                let next_borrows = recorded.as_ref().is_some_and(|d| match &d.next {
-                    PassMember::Fn(key) => self
-                        .scope
-                        .fns
-                        .values()
-                        .flatten()
-                        .find(|e| e.key == *key)
-                        .is_some_and(|e| {
-                            e.decl
-                                .return_type
-                                .as_ref()
-                                .is_some_and(|t| !proj_arm_indices(t).is_empty())
-                        }),
-                    PassMember::Implicit(_) => false,
+                let next_borrows = recorded.as_ref().is_some_and(|d| {
+                    if d.step_call {
+                        self.out
+                            .call_fn
+                            .get(&self.key(iterable.span()))
+                            .copied()
+                            .and_then(|k| self.fn_decl_by_key(k))
+                            .and_then(|f| f.return_type.as_ref())
+                            .is_some_and(|t| !proj_arm_indices(t).is_empty())
+                    } else {
+                        self.for_next_borrows(iterable)
+                    }
                 });
                 // A pass that is itself a *view* — a local bound from
                 // `iter(xs)`, or a call result borrowing its argument — has
@@ -26616,234 +26654,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.pass_declared_elem_ty(&origin_ty)
     }
 
-    /// The `next` overload a subject drives, found by unifying the protocol
-    /// shape against the subject's bare type: the overload, the element
-    /// type, the arm identity, and the (unsubstituted) state parameter
-    /// type. Extracted from `pass_elem_ty` so the not-iterable diagnostic
-    /// can use the same scan for its remedy hint.
-    fn find_next_driver(&mut self, stripped: &Ty) -> Option<(DeclId, Ty, usize, usize, Ty)> {
-        let entries: Vec<crate::resolve::FnEntry<'p>> = self.scope.fns.get("next")?.clone();
-        for entry in entries {
-            let decl = entry.decl;
-            if decl.params.len() != 1 {
-                continue;
-            }
-            // [iter-resolve] A `Ty::Named` carries no module, so unifying the
-            // protocol shape by *name* cannot tell two same-named structs
-            // apart: with a user `Range` beside `std.core.range`'s, the loop drove
-            // the wrong module's `next` and emitted a call the target compiler
-            // rejected (E0308) — wrong output, not a diagnostic. Compare the
-            // **declarations** instead: the subject's name resolved in *this*
-            // file against the parameter's name resolved in the file that
-            // declares the overload (fixed 2026-09-25).
-            if !self.same_pass_decl(stripped, decl, entry.key) {
-                continue;
-            }
-            let saved = self.enter_generics(&decl.generics);
-            let pt = self.lower_type(&decl.params[0].ty);
-            let ret = decl
-                .return_type
-                .as_ref()
-                .map(|t| self.lower_type(t))
-                .unwrap_or_else(Ty::none);
-            self.generics = saved;
-            let mut subst = HashMap::new();
-            // The parameter is `Mut St` [iter-protocol]: advancing a pass
-            // mutates its position. Match on the bare types.
-            if !unify(pt.strip_quals(), stripped, &mut subst) {
-                continue;
-            }
-            let callee_generics: HashSet<String> =
-                decl.generics.iter().map(|g| g.name.clone()).collect();
-            let ret = substitute_vars(&ret, &subst, &callee_generics);
-            let Some((elem, emitted_arm, arms)) = emitted_arm_ty(&ret) else {
-                // A `next` of some other shape is not the protocol; keep
-                // looking, and let `iter` have its turn.
-                continue;
-            };
-            return Some((entry.key, elem, emitted_arm, arms, pt));
-        }
-        None
-    }
-
-    /// [iter-resolve] Whether a `next` overload's state parameter names the
-    /// **same declaration** as the loop's subject. Both sides are resolved in
-    /// their own file's scope and compared by declaration identity, which is
-    /// what a name cannot do across modules. A subject or parameter that is
-    /// not a plain struct name (a generic variable, an intrinsic type, a
-    /// machine) answers `true`: those are matched by `unify` as before, and
-    /// this test only exists to separate two structs of one name.
-    fn same_pass_decl(&self, subject: &Ty, decl: &'p FnDecl, key: DeclId) -> bool {
-        let Ty::Named { name, .. } = subject.strip_quals() else {
-            return true;
-        };
-        let Some(mine) = self.symbols.structs.get(name.as_str()).copied() else {
-            return true;
-        };
-        let param_name = match &decl.params[0].ty {
-            ast::Type::Named { base, .. } => base.name.name.as_str(),
-            ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
-                ast::Type::Named { base, .. } => base.name.name.as_str(),
-                _ => return true,
-            },
-            _ => return true,
-        };
-        if param_name != name {
-            // A differing name is `unify`'s business (a generic parameter, an
-            // alias); only a *collision* needs deciding here.
-            return true;
-        }
-        let Some(theirs) = self
-            .resolution
-            .scopes
-            .get(self.resolution.decls.file(key))
-            .and_then(|s| s.structs.get(param_name).copied())
-        else {
-            return true;
-        };
-        std::ptr::eq(mine, theirs)
-    }
-
-    /// [iter-protocol] The element type of a **pass**: a value whose type
-    /// declares `: Next<T>` [group-obligation]. Records the overload the
-    /// emitters have to drive (there is no call node in the AST for them to
-    /// resolve, since the driving loop is synthesized).
-    ///
-    /// The declaration is the gate; the scan only resolves *which* overload
-    /// (and the arm identity). When the declaration is there but no overload
-    /// fits, the obligation check has already reported it at the struct —
-    /// the declared element type is returned so the one mistake does not
-    /// cascade [type-unknown-lenient].
-    fn pass_elem_ty(
-        &mut self,
-        stripped: &Ty,
-        iterable: Option<&'p Expr>,
-        span: Span,
-    ) -> Option<Ty> {
-        self.pass_elem_ty_minted(stripped, iterable, span, None)
-    }
-
-    /// The same, for a pass the loop **mints** from a container through the
-    /// `iter` overload `mint` [iter-mint]: the driving is identical, and the
-    /// emitters get told to call `iter` once before the loop.
-    fn pass_elem_ty_minted(
-        &mut self,
-        stripped: &Ty,
-        iterable: Option<&'p Expr>,
-        span: Span,
-        mint: Option<DeclId>,
-    ) -> Option<Ty> {
-        let (decl, ob) = self.next_obligation(stripped)?;
-        if let Some((key, elem, emitted_arm, arms, pt)) = self.find_next_driver(stripped) {
-            // [iter-protocol] The state is taken as `Mut`: advancing a pass
-            // mutates its position, and the backends pass a mutable place.
-            // A `next` of the right *result* shape whose state is not `Mut`
-            // clearly means to be the protocol, so say what is wrong rather
-            // than falling through to a puzzling "not iterable".
-            if !pt.quals().iter().any(|q| q.name == "Mut") {
-                self.error(
-                    span,
-                    format!(
-                        "`next` has to take its state as `Mut {}` — advancing an \
-                         iterator mutates its position",
-                        pt.strip_quals()
-                    ),
-                );
-            }
-            // [linear-group] **No implicit discharge sites** (user decision
-            // 2026-09-12, replacing the 2026-09-09 loop-splice): a `for`
-            // never closes a pass. A linear pass must be *kept* — bound
-            // with `let`, driven in place, and explicitly discharged — so
-            // a consuming drive of one is refused here rather than
-            // leaking on the loop's exits.
-            // [iter-drive-in-place] A pass the fn keeps is the caller's: it
-            // advances where it lives, and its discharge stays the owner's.
-            let in_place = iterable.is_some_and(|e| self.drives_in_place(e));
-            if !in_place && self.ty_own_linear(stripped) {
-                let hint = self.linear_discharge_hint(stripped);
-                self.error(
-                    span,
-                    format!(
-                        "a `for` cannot consume a linear iterator (`{stripped}`): the \
-                         loop never discharges what it drives — bind the iterator with \
-                         `let`, loop over it, then discharge it with {hint}"
-                    ),
-                );
-            }
-            self.out.for_drivers.insert(
-                self.key(span),
-                PassDriver {
-                    next: PassMember::Fn(key),
-                    emitted_arm,
-                    arms,
-                    origin: false,
-                    in_place,
-                    mint: mint.map(PassMember::Fn),
-                    step_call: false,
-                },
-            );
-            return Some(elem);
-        }
-        // Declared but not satisfied: already an error at the struct
-        // [group-obligation]. Answer with the declared element type.
-        let subst: HashMap<String, Ty> = decl
-            .generics
-            .iter()
-            .map(|g| g.name.clone())
-            .zip(match stripped {
-                Ty::Named { args, .. } => args.clone(),
-                _ => Vec::new(),
-            })
-            .collect();
-        let saved = self.enter_generics(&decl.generics);
-        let elem = next_elem_arg(ob)
-            .map(|a| self.lower_type_subst(a, &subst, 0))
-            .unwrap_or(Ty::Unknown);
-        self.generics = saved;
-        Some(elem)
-    }
-
-    /// [iter-mint] The `iter` overload that turns this container into a pass,
-    /// with the pass type it answers (substituted for the subject). Passes are
-    /// looked for *first* by the caller: a value that is already a position in
-    /// a sequence must not have a second pass minted from it.
-    fn iter_pass_for(&mut self, subject: &Ty) -> Option<(DeclId, Ty)> {
-        let entries: Vec<crate::resolve::FnEntry<'p>> = self.scope.fns.get("iter")?.clone();
-        for entry in entries {
-            let decl = entry.decl;
-            if decl.params.len() != 1 {
-                continue;
-            }
-            // [iter-resolve] The mint is chosen by declaration identity, not
-            // by type *name*, for the same reason the `next` scan is: two
-            // same-named structs in two modules are one `Ty::Named`, and
-            // minting from one module's `iter` while driving the other's
-            // `next` emitted a program neither backend accepts.
-            if !self.same_pass_decl(subject, decl, entry.key) {
-                continue;
-            }
-            let saved = self.enter_generics(&decl.generics);
-            let pt = self.lower_type(&decl.params[0].ty);
-            let ret = decl
-                .return_type
-                .as_ref()
-                .map(|t| self.lower_type(t))
-                .unwrap_or_else(Ty::none);
-            self.generics = saved;
-            let mut subst = HashMap::new();
-            if !unify(&pt, subject, &mut subst) {
-                continue;
-            }
-            let callee_generics: HashSet<String> =
-                decl.generics.iter().map(|g| g.name.clone()).collect();
-            let ret = substitute_vars(&ret, &subst, &callee_generics);
-            if self.next_obligation(ret.strip_quals()).is_some() {
-                return Some((entry.key, ret.strip_quals().clone()));
-            }
-        }
-        None
-    }
-
     /// The element type a pass *declares* it yields, read from the obligation
     /// alone [group-obligation] — no `next` resolved and no driver recorded,
     /// which is what the native container loop needs [iter-for-native].
@@ -26878,138 +26688,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         crate::place::Place::of_expr(iterable)
             .map(|p| self.lookup(&p.root).is_some())
             .unwrap_or(false)
-    }
-
-    /// [iter-generic-drive] The element type of a **generic** pass: the
-    /// subject's type is one of the enclosing fn's type parameters, and a
-    /// protocol-shaped `next` for it is in scope as an *implicit parameter* —
-    /// the `?Next<It, T>` spread a combinator declares [implicit-group] (user
-    /// decision 2026-09-09).
-    ///
-    /// The spread is the declaration `for` reads here: there is no struct to
-    /// carry a `: Next<self, T>` clause, but the position that says "this call
-    /// supplies a `next` for `It`" says exactly as much, and the element type
-    /// falls out of its result. The loop therefore drives by **calling the
-    /// implicit parameter** rather than a resolved overload.
-    fn generic_pass_elem_ty(&mut self, subject: &Ty, iterable: &'p Expr, span: Span) -> Option<Ty> {
-        if !matches!(subject, Ty::Var(_)) {
-            return None;
-        }
-        // The protocol shape, against the implicits this body has: one
-        // parameter the subject fits, and an `Emitted T | Finished` result.
-        let mut found: Option<(String, Ty, usize, usize, bool)> = None;
-        for imp in &self.own_implicits {
-            // The protocol's member name, as everywhere else: `for` drives
-            // `next`, whatever grouping brought the position in [iter-protocol].
-            if imp.name != "next" {
-                continue;
-            }
-            let Ty::Fn { params, ret, .. } = imp.ty.strip_quals() else {
-                continue;
-            };
-            if params.len() != 1 || params[0].strip_quals() != subject {
-                continue;
-            }
-            let Some((elem, emitted_arm, arms)) = emitted_arm_ty(ret) else {
-                continue;
-            };
-            let mutable = params[0].quals().iter().any(|q| q.name == "Mut");
-            found = Some((imp.name.clone(), elem, emitted_arm, arms, mutable));
-            break;
-        }
-        // [iter-group] No `next` over the subject itself: a generic **source**
-        // under a `?Iter<C, It, T>` spread has an `iter` implicit over it answering
-        // the iterator type `It`, and a `next` over *that*. The loop mints
-        // with the one and drives with the other — the pair the spread brought
-        // in together [implicit-with].
-        let mut mint: Option<PassMember> = None;
-        if found.is_none() {
-            let mut it_ty: Option<Ty> = None;
-            for imp in &self.own_implicits {
-                if imp.name != "iter" {
-                    continue;
-                }
-                let Ty::Fn { params, ret, .. } = imp.ty.strip_quals() else {
-                    continue;
-                };
-                if params.len() != 1 || params[0].strip_quals() != subject {
-                    continue;
-                }
-                if matches!(ret.strip_quals(), Ty::Var(_)) {
-                    it_ty = Some(ret.strip_quals().clone());
-                    break;
-                }
-            }
-            if let Some(it) = it_ty {
-                for imp in &self.own_implicits {
-                    if imp.name != "next" {
-                        continue;
-                    }
-                    let Ty::Fn { params, ret, .. } = imp.ty.strip_quals() else {
-                        continue;
-                    };
-                    if params.len() != 1 || *params[0].strip_quals() != it {
-                        continue;
-                    }
-                    let Some((elem, emitted_arm, arms)) = emitted_arm_ty(ret) else {
-                        continue;
-                    };
-                    let mutable = params[0].quals().iter().any(|q| q.name == "Mut");
-                    found = Some((imp.name.clone(), elem, emitted_arm, arms, mutable));
-                    mint = Some(PassMember::Implicit("iter".to_string()));
-                    break;
-                }
-            }
-        }
-        let (name, elem, emitted_arm, arms, mutable) = found?;
-        // The state is taken as `Mut` [iter-protocol]: advancing a pass mutates
-        // its position, and the backends hand over a mutable place. A position
-        // of the right *result* shape that does not say so plainly means to be
-        // the protocol, so say what is wrong.
-        if !mutable {
-            self.error(
-                span,
-                format!(
-                    "`{name}` has to take its state as `Mut {subject}` — advancing an \
-                     iterator mutates its position"
-                ),
-            );
-        }
-        // [iter-drive-in-place] A pass the fn keeps advances where it lives, and
-        // its release stays the caller's. [linear-group] A consuming drive
-        // of a possibly-linear pass is refused — no implicit discharge
-        // sites (user decision 2026-09-12) — and the remedy is the same as
-        // for a concrete pass: keep it, or take a consuming callback and
-        // hand the pass to it.
-        // A minted iterator is the loop's own value, never a place the caller
-        // keeps.
-        let in_place = mint.is_none() && self.drives_in_place(iterable);
-        if mint.is_none() && !in_place && self.ty_own_linear(subject) {
-            self.error(
-                span,
-                format!(
-                    "a `for` cannot consume an iterator that may be linear \
-                     (`{subject}` is `canbe linear`): the loop never discharges \
-                     what it drives — keep the iterator (drive it in place and let \
-                     the caller discharge it), or take a consuming callback \
-                     (`end: ({subject}) -> None` with `=>[end] !it`) and hand \
-                     the iterator to it after the loop"
-                ),
-            );
-        }
-        self.out.for_drivers.insert(
-            self.key(span),
-            PassDriver {
-                next: PassMember::Implicit(name),
-                emitted_arm,
-                arms,
-                origin: false,
-                in_place,
-                mint,
-                step_call: false,
-            },
-        );
-        Some(elem)
     }
 
     /// The declaration behind a `DeclId`, through its own file's scope (which
@@ -27109,21 +26787,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        let next = match callee_key {
-            Some(key) => PassMember::Fn(key),
-            None => PassMember::Implicit(callee_name),
-        };
         self.out.for_drivers.insert(
             self.key(span),
-            PassDriver {
-                next,
-                emitted_arm,
-                arms,
-                origin: false,
-                in_place: false,
-                mint: None,
-                step_call: true,
-            },
+            PassDriver { emitted_arm, arms, origin: false, in_place: false, mint: None, step_call: true },
         );
         Some(elem)
     }
@@ -27145,76 +26811,436 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    fn iter_elem_ty(&mut self, iter_ty: &Ty, iterable: &'p Expr, span: Span) -> Ty {
-        match iter_ty.strip_quals() {
-            Ty::Array(elem) => (**elem).clone(),
-            other => {
-                let other = other.clone();
-                // [iter-protocol] A **pass** — anything with a `next` — is
-                // driven directly, and is looked for *before* `iter`: a type
-                // that has both is already a position in a sequence, so
-                // minting a second pass from it would be wrong. This is the
-                // manual half of the iterator story (`zip`, `merge`), which
-                // `yield` cannot express.
-                if let Some(elem) = self.pass_elem_ty(&other, Some(iterable), span) {
-                    return elem;
-                }
-                // [iter-mint] `for x in xs` iterates a **container**: its
-                // `iter` answers a fresh pass, and the loop drives that. For
-                // an *intrinsic* container (a list, an array, a `Str`) no
-                // driver is recorded at all — the backends iterate their own
-                // data natively, which is both faster and non-consuming
-                // [iter-for-native]; for anything else the `iter` call is the
-                // mint, made once before the loop.
-                // [iter-generic-drive] A **generic** pass: its `next` is an
-                // implicit parameter of this body, which is as much of a
-                // declaration as a `: Next<self, T>` clause is.
-                if let Some(elem) = self.generic_pass_elem_ty(&other, iterable, span) {
-                    return elem;
-                }
-                if let Some((iter_key, pass_ty)) = self.iter_pass_for(&other) {
-                    if self.is_intrinsic_container(&other) {
-                        if let Some(elem) = self.pass_declared_elem_ty(&pass_ty) {
-                            return elem;
-                        }
-                    } else if let Some(elem) =
-                        // The *minted* pass is the loop's own value, never a
-                        // place the caller keeps, so it is never driven in place.
-                        self.pass_elem_ty_minted(&pass_ty, None, span, Some(iter_key))
-                    {
-                        return elem;
-                    }
-                }
-                // [iter-resolve] Nothing makes this value iterable: no
-                // `Iter`, no array, and no `iter` overload accepts it. An
-                // un-inferred value stays lenient
-                // [type-unknown-lenient]; everything else is an error
-                // (user decision 2026-09-03).
-                if !other.is_unknown() && !matches!(other, Ty::Never) {
-                    // A matching protocol-shaped `next` without the
-                    // declaration is the likeliest near-miss; name the
-                    // remedy [group-obligation] rather than leaving a
-                    // puzzling "not iterable".
-                    let hint = match self.find_next_driver(&other) {
-                        Some((_, elem, _, _, _)) => format!(
-                            " (`{other}` has a matching `next` — declare \
-                             `: Next<self, {elem}>` on it to make it an iterator struct)"
-                        ),
-                        None => String::new(),
-                    };
-                    self.error(
-                        span,
-                        format!(
-                            "`{other}` is not iterable: `for` takes an array, an \
-                             iterator struct (a type declaring `: Next<self, T>`), a \
-                             source (a type declaring `: Iter<self, It, T>`, or a value some \
-                             `iter` function accepts), or a step call (`next(p)`){hint}"
-                        ),
-                    );
-                }
-                Ty::Unknown
+    /// [for-iter] [iter-protocol] Whether something named `name` takes a
+    /// value of type `ty` as the one argument a `for` hands it — the question
+    /// "does a `next` fit" that decides between driving the subject and
+    /// minting from it (R10 D10). Asked of every candidate the call would
+    /// have: the enclosing fn's own implicits [implicit-resolve-body], the
+    /// available effects' members (R10 D3) and the visible fns, renamed ones
+    /// under their new name only [fn-rename]. By shape, as an [implicit-fit]
+    /// probe is: the call that follows ranks, fills and reports. A `next` is
+    /// one only with `next`'s result shape, `Emitted T | Finished` (D-3): a
+    /// `next` of any other shape is an ordinary fn [unique-shape].
+    fn for_fits(&mut self, name: &str, ty: &Ty) -> bool {
+        let arg = crate::literal::widen(ty).strip_quals().clone();
+        let shaped = |ret: &Ty| name != "next" || ret.is_unknown() || emitted_arm_ty(ret.strip_quals()).is_some();
+        if self.own_implicits.iter().any(|p| Self::own_for_fit(p, name, ty)) {
+            return true;
+        }
+        for m in self.available_members(name) {
+            let (full, _) = self.member_value_ty(&m);
+            let Ty::Fn { params, ret, .. } = full else { continue };
+            let fixed: Vec<&Ty> = m.decl.params.iter().zip(&params).filter(|(p, _)| !p.implicit).map(|(_, t)| t).collect();
+            if fixed.len() == 1 && shaped(&ret) && unify(fixed[0].strip_quals(), &arg, &mut HashMap::new()) {
+                return true;
             }
         }
+        for entry in self.overloads_of(name) {
+            let decl = entry.decl;
+            let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit && !p.variadic).collect();
+            if !Self::call_shape_fits(&fixed, false, 1, &[]) || !self.may_take(decl, &fixed[0].ty, &arg) {
+                continue;
+            }
+            let saved = self.enter_generics(&decl.generics);
+            let pt = self.lower_type(&fixed[0].ty);
+            let ret = decl.return_type.as_ref().map(|t| self.lower_type(t)).unwrap_or_else(Ty::none);
+            self.generics = saved;
+            if shaped(&ret) && unify(pt.strip_quals(), &arg, &mut HashMap::new()) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// [for-iter] A cheap pre-test for [`Checker::for_fits`], read off the
+    /// written parameter: a parameter naming a struct or an intrinsic type
+    /// — not one of the fn's own type parameters, not an alias — takes only a
+    /// value of that type, so a value of another one need not have the
+    /// parameter lowered and unified at all.
+    fn may_take(&self, decl: &FnDecl, param: &ast::Type, arg: &Ty) -> bool {
+        let base = match param {
+            ast::Type::Named { base, .. } => base,
+            ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
+                ast::Type::Named { base, .. } => base,
+                _ => return true,
+            },
+            _ => return true,
+        };
+        let written = base.name.name.as_str();
+        if decl.generics.iter().any(|g| g.name == written) || self.symbols.type_aliases.contains_key(written) {
+            return true;
+        }
+        match arg {
+            Ty::Named { name, .. } => name.split('§').next() == Some(written),
+            _ => false,
+        }
+    }
+
+    /// [for-iter] [implicit-resolve-body] Whether the enclosing fn's own
+    /// implicit `p` takes the `for`'s call `name(ty)`: named so, one
+    /// parameter the value fits, and for `next` the `Emitted T | Finished`
+    /// result.
+    fn own_for_fit(p: &ImplicitParam, name: &str, ty: &Ty) -> bool {
+        if p.name != name {
+            return false;
+        }
+        match p.ty.strip_quals() {
+            Ty::Fn { params, ret, .. } => {
+                params.len() == 1
+                    && Self::arg_fits_fn_value(ty, &params[0])
+                    && (name != "next" || emitted_arm_ty(ret.strip_quals()).is_some())
+            }
+            _ => false,
+        }
+    }
+
+    /// [for-iter] The call `name(ty)` a `for` names, resolved as that call
+    /// is, its facts at `key` (`Key::FOR_NEXT` / `Key::FOR_ITER` of the
+    /// subject's node): the enclosing fn's own implicit of the name first
+    /// [implicit-resolve-body], ranked like overloads [implicit-same-name],
+    /// then `resolve_named_call` over the available members and the visible
+    /// fns, with the argument typed (`subject` is only a stand-in for its
+    /// position). Answers the call's result type, `Unknown` when it was
+    /// refused (and reported).
+    #[allow(clippy::too_many_arguments)]
+    fn for_call(&mut self, name: &'static str, subject: &'p Expr, ty: &Ty, key: Key, at: Span, call: String, shown: &Ty) -> Ty {
+        let loc = subject.span();
+        match self.pick_own_implicit(name, &|p: &ImplicitParam| Self::own_for_fit(p, name, ty)) {
+            Ok(Some(own)) => {
+                self.out.local_calls.insert(key);
+                self.out.local_call_names.insert(key, own.local.clone());
+                let (ret, effects) = match self.lookup(&own.local).map(|v| v.narrowed.strip_quals().clone()) {
+                    Some(Ty::Fn { ret, effects, .. }) => (*ret, effects),
+                    _ => match own.ty.strip_quals().clone() {
+                        Ty::Fn { ret, effects, .. } => (*ret, effects),
+                        _ => (Ty::Unknown, Vec::new()),
+                    },
+                };
+                if let Some(v) = self.lookup_mut(&own.local) {
+                    v.used = true;
+                }
+                let saved = self.for_site.replace(ForSite { at, key, loc, call, subject: shown.clone() });
+                self.check_fn_value_effects(&effects, at);
+                self.for_site = saved;
+                return ret;
+            }
+            Ok(None) => {}
+            Err(tied) => {
+                let saved = self.for_site.replace(ForSite { at, key, loc, call, subject: shown.clone() });
+                self.own_implicit_tie(name, &tied, at);
+                self.for_site = saved;
+                return Ty::Unknown;
+            }
+        }
+        let saved = self.for_site.replace(ForSite { at, key, loc, call, subject: shown.clone() });
+        self.pending_arg_tys = Some(vec![ty.clone()]);
+        self.pending_typed_only = true;
+        let args: [&'p Expr; 1] = [subject];
+        let got = self.resolve_named_call(name, at, &[], &args, &[], None, None, at);
+        self.pending_arg_tys = None;
+        self.pending_typed_only = false;
+        self.for_site = saved;
+        got
+    }
+
+    /// [for-iter] Forgets the call facts a `for` recorded at `key`: the native
+    /// loop a backend writes for a container makes no call [iter-for-native],
+    /// so nothing it would have reached is reached.
+    fn forget_for_call(&mut self, key: Key) {
+        self.out.call_fn.remove(&key);
+        self.out.call_type_args.remove(&key);
+        self.out.implicit_args.remove(&key);
+        self.out.call_effects.remove(&key);
+        self.out.effect_calls.remove(&key);
+    }
+
+    /// [for-iter] Whether the call a `for` recorded at `key` went to a
+    /// declared fn — not the enclosing fn's implicit, not an effect member.
+    fn for_call_is_decl(&self, key: Key) -> bool {
+        self.out.call_fn.contains_key(&key) && !self.out.local_calls.contains(&key) && !self.out.member_calls.contains_key(&key)
+    }
+
+    /// [iter-protocol] Whether the `next` a `for` resolved at `key` takes its
+    /// state as `Mut`, and the state type to name when it does not: a
+    /// declared fn's or member's first parameter, the implicit's parameter.
+    fn for_next_state(&mut self, key: Key, pass: &Ty) -> (bool, Ty) {
+        if let Some(name) = self.out.local_call_names.get(&key).cloned() {
+            let ty = self.lookup(&name).map(|v| v.narrowed.clone()).or_else(|| self.own_implicits.iter().find(|p| p.local == name).map(|p| p.ty.clone()));
+            if let Some(Ty::Fn { params, .. }) = ty.map(|t| t.strip_quals().clone()) {
+                if let Some(p) = params.first() {
+                    return (p.quals().iter().any(|q| q.name == "Mut"), pass.strip_quals().clone());
+                }
+            }
+            return (true, pass.clone());
+        }
+        if let Some(mc) = self.out.member_calls.get(&key).cloned() {
+            let Some(effect) = self.symbols.effects.get(mc.effect.as_str()).copied() else { return (true, pass.clone()) };
+            let Some(member) = effect.fns.get(mc.index) else { return (true, pass.clone()) };
+            let Some(p) = member.params.iter().find(|p| !p.implicit) else { return (true, pass.clone()) };
+            let saved = self.enter_generics(&effect.generics);
+            self.enter_generics(&member.generics);
+            let pt = self.lower_type(&p.ty);
+            self.generics = saved;
+            return (pt.quals().iter().any(|q| q.name == "Mut"), pt.strip_quals().clone());
+        }
+        let Some(decl) = self.out.call_fn.get(&key).copied().and_then(|k| self.fn_decl_by_key(k)) else { return (true, pass.clone()) };
+        let Some(p) = decl.params.iter().find(|p| !p.implicit) else { return (true, pass.clone()) };
+        let saved = self.enter_generics(&decl.generics);
+        let pt = self.lower_type(&p.ty);
+        self.generics = saved;
+        (pt.quals().iter().any(|q| q.name == "Mut"), pt.strip_quals().clone())
+    }
+
+    /// [for-iter] [iter-resolve] The element type of `for x in e`, which is
+    /// the calls it names (OPERATOR_OVERLOAD.md O1, R10 D10): `next(e)` when a
+    /// `next` takes `e` — `e` is an **iterator**, driven where it lives —
+    /// and otherwise `next(iter(e))` — `e` is a **source**, and the loop
+    /// mints an iterator from it first. Each call is resolved as it would be
+    /// written [fn-overload-rank] [fn-rename] [implicit-resolve-body], so no
+    /// `: Next` or `: Iter` declaration is needed; a type with both a `next`
+    /// and an `iter` is driven (P15). What the loop does with the calls is
+    /// `Checked::for_drivers`; the calls' own facts are the call tables at
+    /// `Key::FOR_NEXT` and `Key::FOR_ITER` of the subject's node. A container
+    /// a backend walks natively (an array, an `iterable platform type`), when
+    /// both calls went to declarations, records neither [iter-for-native].
+    fn for_subject(&mut self, iter_ty: &Ty, iterable: &'p Expr, for_span: Span) -> Ty {
+        let span = iterable.span();
+        let ty = crate::literal::widen(iter_ty);
+        let subject = ty.strip_quals().clone();
+        if subject.is_unknown() || matches!(subject, Ty::Never) {
+            return Ty::Unknown;
+        }
+        let node = self.key(span);
+        let (next_key, iter_key) = (node.synthetic(Key::FOR_NEXT), node.synthetic(Key::FOR_ITER));
+        // 1. An iterator: `next(e)`.
+        if self.for_fits("next", &ty) {
+            let call = format!("next({subject})");
+            let ret = self.for_call("next", iterable, &Self::driven(&ty), next_key, for_span, call.clone(), &subject);
+            return self.for_drive(&ty, ret, next_key, None, iterable, &call, &subject);
+        }
+        // 2. A source: `next(iter(e))`.
+        if self.for_fits("iter", &ty) {
+            let call = format!("next(iter({subject}))");
+            let before = self.out.errors.len();
+            let it = self.for_call("iter", iterable, &ty, iter_key, for_span, format!("iter({subject})"), &subject);
+            if it.is_unknown() || matches!(it, Ty::Never) {
+                return Ty::Unknown;
+            }
+            if !self.for_fits("next", &it) {
+                self.error(
+                    span,
+                    format!(
+                        "`{subject}` is not iterable: `for` over it is `{call}`, and `iter({subject})` \
+                         is a `{it}`, which no `next` in scope takes — declare `next(it: Mut {}) -> \
+                         Emitted T | Finished` beside it [iter-protocol]",
+                        it.strip_quals()
+                    ),
+                );
+                return Ty::Unknown;
+            }
+            let ret = self.for_call("next", iterable, &Self::driven(&it), next_key, for_span, call.clone(), &subject);
+            // [iter-for-native] A container the backends walk themselves.
+            let native = (matches!(subject, Ty::Array(_)) || self.is_intrinsic_container(&subject))
+                && self.for_call_is_decl(iter_key)
+                && self.for_call_is_decl(next_key);
+            if native {
+                // The loop makes neither call, so what a call instantiating
+                // `iter<T>` would refuse (a linear `T` [linear-generics]) is
+                // not refused: only the element type is read off them.
+                self.out.errors.truncate(before);
+                self.forget_for_call(iter_key);
+                self.forget_for_call(next_key);
+                return match &subject {
+                    Ty::Array(elem) => (**elem).clone(),
+                    _ => emitted_arm_ty(ret.strip_quals()).map(|(elem, _, _)| elem).unwrap_or(Ty::Unknown),
+                };
+            }
+            return self.for_drive(&it, ret, next_key, Some(it.clone()), iterable, &call, &subject);
+        }
+        // An iterator struct whose `: Next<self, T>` promise no `next` keeps
+        // is refused at its declaration [group-obligation]; the loop stays
+        // quiet then, one mistake one diagnostic [type-unknown-lenient].
+        if let Some(elem) = self.broken_next_promise(&subject) {
+            return elem;
+        }
+        let home = match &subject {
+            Ty::Named { name, .. } => self.symbols.structs.get(name.as_str()).copied().and_then(|d| self.home_next(d).map(|f| (d, f))),
+            _ => None,
+        };
+        let remedy = match &subject {
+            // [fn-attached] A `next` declared with the struct travels with
+            // it, so the struct is what this file has not imported.
+            _ if home.is_some_and(|(_, f)| f != self.file_idx) => {
+                let (d, f) = home.expect("checked above");
+                format!(
+                    ": a `next` over it is declared in `{}`, and is not in scope here — import \
+                     `{}.{}`, whose `next` travels with it [fn-attached]",
+                    self.files[f].module,
+                    self.files[f].module,
+                    d.name.name
+                )
+            }
+            Ty::Named { name, .. } if self.symbols.structs.contains_key(name.as_str()) => format!(
+                ": declare `next(it: Mut {subject}) -> Emitted T | Finished` beside it to make it an \
+                 iterator, or an `iter` to make it a source, or loop over a step call (`for x in \
+                 step(p)`)"
+            ),
+            _ => String::new(),
+        };
+        self.error(
+            span,
+            format!(
+                "`{subject}` is not iterable: `for x in e` is `next(e)` when a `next` takes `e`, and \
+                 `next(iter(e))` otherwise, and no `next` or `iter` in scope takes \
+                 `{subject}`{remedy} [iter-resolve]"
+            ),
+        );
+        Ty::Unknown
+    }
+
+    /// [iter-protocol] [iter-drive-in-place] What `next` is handed: the
+    /// iterator in the loop's mutable place — the place it lives in, or the
+    /// loop's own binding of a temporary — so `Mut` whether the value's type
+    /// says so or not, as the driving always was.
+    fn driven(ty: &Ty) -> Ty {
+        if ty.quals().iter().any(|q| q.name == "Mut") {
+            return ty.clone();
+        }
+        ty.clone().qualify(vec![Qual { effect: false, name: "Mut".to_string(), args: Vec::new() }])
+    }
+
+    /// [type-unknown-lenient] [group-obligation] The element type `subject`'s
+    /// `: Next<self, T>` clause promises, when the promise is broken where it
+    /// is made: the group is unknown in the struct's file, or no `next` of the
+    /// protocol's shape over the struct is declared there — the one place it
+    /// may be [unique-shape] — so the clause has been refused there already,
+    /// and the loop answers the promised element instead of a second
+    /// diagnostic. `None` whenever such a `next` exists, even one this loop
+    /// cannot reach: then the loop's own error is the only one.
+    fn broken_next_promise(&mut self, subject: &Ty) -> Option<Ty> {
+        let (decl, _) = self.next_obligation(subject)?;
+        let file = *self.resolution.decl_files.get(&(decl as *const StructDecl as usize))?;
+        let scope = self.resolution.scopes.get(file)?;
+        // A group the struct's file cannot see is refused there as unknown.
+        if scope.fn_groups.contains_key("Next") && self.home_next(decl).is_some() {
+            return None;
+        }
+        self.pass_declared_elem_ty(subject)
+    }
+
+    /// [iter-protocol] [unique-shape] The file of `decl` when it declares a
+    /// `next` of the protocol's shape over the struct — the one place such a
+    /// `next` may be — whether or not this file can reach it.
+    fn home_next(&mut self, decl: &'p StructDecl) -> Option<usize> {
+        let file = *self.resolution.decl_files.get(&(decl as *const StructDecl as usize))?;
+        let scope = self.resolution.scopes.get(file)?;
+        let entries: Vec<crate::resolve::FnEntry<'p>> = scope.fns.get("next").cloned().unwrap_or_default();
+        let key = self.symbols.key_or(decl, &decl.name.name).to_string();
+        let saved_scope = self.scope;
+        let saved_errors = self.out.errors.len();
+        self.scope = scope;
+        let mut found = false;
+        for e in entries {
+            if self.resolution.decls.file(e.key) != file || (file == self.file_idx && self.renamed_away("next", e.key)) {
+                continue;
+            }
+            let fixed: Vec<&ast::Param> = e.decl.params.iter().filter(|p| !p.implicit).collect();
+            let [p] = fixed.as_slice() else { continue };
+            let saved = self.enter_generics(&e.decl.generics);
+            let pt = self.lower_type(&p.ty);
+            let ret = e.decl.return_type.as_ref().map(|t| self.lower_type(t)).unwrap_or_else(Ty::none);
+            self.generics = saved;
+            if matches!(pt.strip_quals(), Ty::Named { name, .. } if *name == key) && emitted_arm_ty(ret.strip_quals()).is_some() {
+                found = true;
+                break;
+            }
+        }
+        self.scope = saved_scope;
+        self.out.errors.truncate(saved_errors);
+        found.then_some(file)
+    }
+
+    /// [iter-protocol] Drives `pass` with the `next` resolved at `next_key`,
+    /// which answered `ret`: the element is its `Emitted` arm, the state must
+    /// be `Mut`, a named iterator is driven where it lives
+    /// [iter-drive-in-place], and a linear one the loop would consume is
+    /// refused [linear-group]. `minted` is the iterator's type when `iter`
+    /// made it [iter-mint].
+    #[allow(clippy::too_many_arguments)]
+    fn for_drive(&mut self, pass: &Ty, ret: Ty, next_key: Key, minted: Option<Ty>, iterable: &'p Expr, call: &str, subject: &Ty) -> Ty {
+        let span = iterable.span();
+        if ret.is_unknown() || matches!(ret, Ty::Never) {
+            return Ty::Unknown;
+        }
+        let Some((elem, emitted_arm, arms)) = emitted_arm_ty(ret.strip_quals()) else {
+            self.error(
+                span,
+                format!(
+                    "`for` over `{subject}` is `{call}`, which must return `Emitted T | Finished`, \
+                     and the `next` it resolves to returns `{ret}` [iter-protocol]"
+                ),
+            );
+            return Ty::Unknown;
+        };
+        // [iter-protocol] Advancing an iterator mutates its position, and the
+        // backends pass a mutable place.
+        let (mutable, state) = self.for_next_state(next_key, pass);
+        if !mutable {
+            self.error(
+                span,
+                format!(
+                    "`next` has to take its state as `Mut {state}` — advancing an iterator \
+                     mutates its position"
+                ),
+            );
+        }
+        let bare = pass.strip_quals().clone();
+        // [linear-group] No implicit discharge sites (user decision
+        // 2026-09-12): a `for` never closes an iterator, so a consuming drive
+        // of a linear one is refused. [iter-drive-in-place] A named one is
+        // the owner's, advanced where it lives; a minted one is the loop's.
+        let in_place = minted.is_none() && self.drives_in_place(iterable);
+        if !in_place && !matches!(bare, Ty::Var(_)) && self.ty_own_linear(&bare) {
+            let hint = self.linear_discharge_hint(&bare);
+            self.error(
+                span,
+                format!(
+                    "a `for` cannot consume a linear iterator (`{bare}`): the loop never \
+                     discharges what it drives — bind the iterator with `let`, loop over it, \
+                     then discharge it with {hint}"
+                ),
+            );
+        } else if !in_place && minted.is_none() && matches!(bare, Ty::Var(_)) && self.ty_own_linear(&bare) {
+            self.error(
+                span,
+                format!(
+                    "a `for` cannot consume an iterator that may be linear \
+                     (`{bare}` is `canbe linear`): the loop never discharges \
+                     what it drives — keep the iterator (drive it in place and let \
+                     the caller discharge it), or take a consuming callback \
+                     (`end: ({bare}) -> None` with `=>[end] !it`) and hand \
+                     the iterator to it after the loop"
+                ),
+            );
+        }
+        self.out.for_drivers.insert(
+            self.key(span),
+            PassDriver { emitted_arm, arms, origin: false, in_place, mint: minted, step_call: false },
+        );
+        elem
+    }
+
+    /// [iter-step-call] The `next` a `for` drives, when it is a declared fn
+    /// whose written result emits a borrow [yield-proj].
+    fn for_next_borrows(&self, iterable: &'p Expr) -> bool {
+        let key = self.key(iterable.span()).synthetic(Key::FOR_NEXT);
+        let Some(k) = self.out.call_fn.get(&key).copied() else { return false };
+        if self.out.local_calls.contains(&key) || self.out.member_calls.contains_key(&key) {
+            return false;
+        }
+        self.fn_decl_by_key(k)
+            .and_then(|d| d.return_type.as_ref())
+            .is_some_and(|t| !proj_arm_indices(t).is_empty())
     }
 
     fn check_lambda(
@@ -31507,6 +31533,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [implicit-resolve-body] A call that fell through an implicit of its
         // name arrives with its arguments typed.
         let mut pre_typed: Option<Vec<Ty>> = self.pending_arg_tys.take();
+        // [for-iter] Typed arguments with no expressions of their own.
+        let typed_only = std::mem::take(&mut self.pending_typed_only);
         // 1. Effect member call: resolve which effect instance in scope
         // provides it (validating availability and disambiguating generic
         // effects). [effect-member-overload] Several effects may declare
@@ -31537,8 +31565,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Fall through to the fn overloads below [effect-available].
             } else {
             // [lsp-definition] members are not keyed by their `DeclId`; the def-site table
-            // carries their declaration span.
-            self.record_def_ref(name_span, name);
+            // carries their declaration span. A `for` names no member.
+            if self.for_site.is_none() {
+                self.record_def_ref(name_span, name);
+            }
             // [effect-member-overload] One candidate per *effect*: within one
             // effect the name may be overloaded, and those entries are one
             // choice, made by the argument types further down — not an
@@ -31618,12 +31648,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             // side's path runs exactly as it always did.
             let fn_cands = self.overloads_of(name);
             if fn_cands.is_empty() {
+                self.pending_typed_only = typed_only;
                 return self.check_effect_call(
                     effect, &overloads, type_args, args, named, expected, pre_typed.take(), span,
                 );
             }
             match self.route_member_or_fn(name, effect, &overloads, &fn_cands, args, pre_typed.take(), span) {
                 Route::Member(arg_tys) => {
+                    self.pending_typed_only = typed_only;
                     return self.check_effect_call(
                         effect,
                         &overloads,
@@ -32233,7 +32265,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.out.call_fn.insert(self.key(span), key);
             // The callee name resolves to this declaration [fn-ref-table]. An
             // operator names nothing: its call is all there is [op-equality].
-            if self.operator_site.is_none() {
+            if self.operator_site.is_none() && self.for_site.is_none() {
                 self.out.fn_refs.insert(self.key(name_span), key);
             }
         }
@@ -32246,7 +32278,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // reply parameter handed to any callee but the discharge (std's
         // `send`, whose first argument is the token being fulfilled) leaves
         // the activation and must be declared `defer`.
-        if self.servant_reply_params.is_some() {
+        if self.servant_reply_params.is_some() && !typed_only {
             let is_discharge = decl.name.name == "send" && decl.intrinsic;
             for (i, arg) in args.iter().enumerate() {
                 if is_discharge && i == 0 {
@@ -32256,7 +32288,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         // Record argument coercions against the selected parameter types.
-        for (i, pt) in best.pairings.clone() {
+        for (i, pt) in best.pairings.clone().into_iter().filter(|_| !typed_only) {
             let logical = arg_tys[i].clone();
             let repr = self.repr_of(args[i], &logical);
             self.maybe_coerce(args[i].span(), &logical, &repr, &pt);
@@ -32320,7 +32352,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // the identity restriction [cmp-carry] has. The host may call it
         // from any thread, long after this call returns, which a closure's
         // captures could not survive on Rust and would race on Kotlin.
-        if decl.platform && !runtime_kept {
+        if decl.platform && !runtime_kept && !typed_only {
             for (i, p) in decl.params.iter().enumerate() {
                 if !matches!(p.ty, ast::Type::Fn { .. }) || !crate::check::platform_keeps_param(decl, p) {
                     continue;
@@ -32601,6 +32633,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // (`self.inferred`), so `return list` in a callee consumes
         // the caller's argument just like an explicit `[]`.
         let contract: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
+            // [for-iter] What a `for`'s call does to its subject is the
+            // loop's own rule [iter-drive-in-place].
+            _ if typed_only => None,
             // Shape errors on written lists are reported by the deduce
             // pass; the mapping here is silent.
             Some(_) => self.effective_contract(best.key, decl),
@@ -32910,7 +32945,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [readonly-return] Record derived-return calls: the result
         // borrows the annotated argument — the caller links the result
         // to it, and the Rust backend renders the result as a borrow.
-        if decl.derived_return.is_some() {
+        if decl.derived_return.is_some() && !typed_only {
             // Every source of the *first* wholesale `proj` in the return type
             // (`proj(a, b) T`: a projection joined across branches is
             // of both) [proj-anywhere].
@@ -32953,7 +32988,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // hold a borrow of the argument at `other`: the variable passed as
         // `v` gains a held link to `other`'s roots. (The body is trusted for
         // these today; see ROADMAP.)
-        if let Some(list) = &decl.deductions {
+        if let Some(list) = decl.deductions.as_ref().filter(|_| !typed_only) {
             let repoints: Vec<(usize, Vec<usize>)> = list
                 .iter()
                 .filter_map(|d| match (&d.target, &d.kind) {
@@ -32999,7 +33034,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // fields) ties itself to the lent arguments; the caller links the
         // result to them, held. A lent temporary is as dangling as a
         // projected one.
-        if decl.derived_return.is_none() {
+        if decl.derived_return.is_none() && !typed_only {
             let mut lent = self.infer_lends(decl);
             // [proj-type] Instantiation can make a result hold borrows the
             // declaration could not see: `keep_all<It, T>(…) -> Mut List<T>`
@@ -33070,7 +33105,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [qual-depend] A dependent claim in the result names the callee's
         // parameters; hand the caller the claim about *its* values, bound
         // to their roots.
-        let result = if Self::ty_has_value_ref(&result) {
+        // [for-iter] A `for`'s element claim binds the subject's source, which
+        // the loop fills itself [qual-depend].
+        let result = if Self::ty_has_value_ref(&result) && !typed_only {
             let fixed: Vec<&'p ast::Param> = decl
                 .params
                 .iter()
@@ -33637,6 +33674,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // overload here, or for disambiguating instances below. Recorded once
         // so the arguments are never checked twice.
         let mut typed_args: Option<Vec<Ty>> = None;
+        // [for-iter] Typed arguments with no expressions of their own.
+        let typed_only = std::mem::take(&mut self.pending_typed_only);
         let member: &'p FnDecl = match self.pick_effect_member(effect, members, args, pre_typed, span) {
             Picked::Only(m) => m,
             Picked::ByArgs(m, arg_tys) => {
@@ -33807,7 +33846,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             // Multiple instances in scope: disambiguate by the argument
             // types, then by the expected type.
-            let arg_tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+            let arg_tys: Vec<Ty> = match typed_args.clone() {
+                Some(tys) if typed_only => tys,
+                _ => args.iter().map(|a| self.check_expr(a, None)).collect(),
+            };
             let viable: Vec<Ty> = candidates
                 .iter()
                 .filter(|c| {
@@ -33868,7 +33910,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
 
         let mut subst = resolved.as_ref().map(&subst_for).unwrap_or_default();
-        match typed_args {
+        match typed_args.clone() {
             Some(arg_tys) => {
                 // Args already typed: bind the member's own generics from
                 // them [effect-member-generics], then record coercions
@@ -33876,7 +33918,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for (p, a) in member_params.iter().zip(&arg_tys) {
                     unify(p, a, &mut subst);
                 }
-                for (i, p) in member_params.iter().enumerate().take(arg_tys.len()) {
+                for (i, p) in member_params.iter().enumerate().take(arg_tys.len()).filter(|_| !typed_only) {
                     let sp = substitute_vars(p, &subst, &generic_set);
                     let logical = arg_tys[i].clone();
                     let repr = self.repr_of(args[i], &logical);
@@ -33980,11 +34022,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue;
                 };
                 let want = substitute_vars(p, &subst, &generic_set);
-                let got = self
-                    .out
-                    .ty_of(self.file_idx, a.span())
-                    .cloned()
-                    .unwrap_or(Ty::Unknown);
+                let got = match &typed_args {
+                    Some(tys) if typed_only => tys.get(i).cloned().unwrap_or(Ty::Unknown),
+                    _ => self.out.ty_of(self.file_idx, a.span()).cloned().unwrap_or(Ty::Unknown),
+                };
                 // [proj-opt-slot] A member's kept position reads its argument,
                 // as a fn's does: the fit is the one overloads use.
                 let pname = positional.get(i).and_then(|&pi| member.params.get(pi)).map(|p| p.name.name.as_str());
@@ -34010,7 +34051,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // takes ownership consumes its argument. (Validating each
         // *handler* body against the member's contract is the E1-adjacent
         // follow-up; the declaration is trusted here.)
-        if let Some(list) = &member.deductions {
+        if let Some(list) = member.deductions.as_ref().filter(|_| !typed_only) {
             let facts = crate::deduce::from_written(member, list, &HashSet::new(), |_, _| {});
             let contract: Vec<FnParamContract> = member
                 .params
@@ -34035,6 +34076,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // borrow of what its list declares (`[p: proj]`), else of every
         // kept parameter.
         if member.derived_return.is_none()
+            && !typed_only
             && member
                 .return_type
                 .as_ref()

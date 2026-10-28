@@ -145,10 +145,9 @@ fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {
 "#;
 
 /// [iter-protocol] [once-fn] A type with a `next` is driven directly rather
-/// than through `iter` — but only if its declaration says it is a pass
-/// [group-obligation]: `for` reads the `: Next<self, T>` clause rather than
-/// scanning overloads for a `next` and guessing (roadmap R2, user decisions
-/// 2026-09-08).
+/// than through `iter`: `for x in c` is `next(c)` when a `next` takes `c`
+/// [for-iter] (R10 D10; the `: Next<self, T>` clause is a promise checked at
+/// the struct [group-obligation], not the loop's gate).
 /// [iter-protocol] The whole point: a hand-written pass drives a `for` loop,
 /// which is what makes `zip`/`merge` — the iterators `yield` cannot express —
 /// writable at all.
@@ -195,29 +194,151 @@ fn driving_a_hand_written_pass_twice_is_legal() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [group-obligation] [iter-resolve] A matching `next` without the
-/// declaration is not a pass — the tie is the `: Next<self, T>` clause, not the
-/// method name — and the not-iterable error names the clause as the remedy.
+/// The protocol without an iterator struct, for the `for` tests below.
+const BARE_PROTOCOL: &str = "qualifier Emitted<T> of T\n\
+     fn emitted<T>(value: T) [] -> +Emitted T => !value { return value }\n\
+     fn finished() [] -> Finished { return Finished {} }\n\
+     fns Next<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
+
+/// [for-iter] [iter-protocol] R10 D10 (B1 census D10): `for x in c` is the
+/// call `next(c)` when a `next` takes `c`, so a type declaring no `: Next<self,
+/// T>` is driven as the call reaches it — the declaration is a promise checked
+/// where it is written [group-obligation], not the loop's gate.
 #[test]
-fn a_next_without_a_next_obligation_is_not_a_pass() {
-    let errs = errors(
-        "qualifier Emitted<T> of T\n\
-         fn emitted<T>(value: T) [] -> +Emitted T => !value { return value }\n\
-         fn finished() [] -> Finished { return Finished {} }\n\
-         fns Next<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
-         struct Countdown canbe Mut {\n    at: Int\n}\n\
-         fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {\n\
+fn a_next_without_a_next_obligation_drives_the_loop() {
+    let errs = errors(&format!(
+        "{BARE_PROTOCOL}\
+         struct Countdown canbe Mut {{\n    at: Int\n}}\n\
+         fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {{\n\
              return finished()\n\
-         }\n\
-         fn build(from: Int) -> Countdown { return Countdown { at: from } }\n\
-         fn go() -> None { for n in build(3) {} }\n",
-    );
+         }}\n\
+         fn build(from: Int) -> Countdown {{ return Countdown {{ at: from }} }}\n\
+         fn go() -> None {{ for n in build(3) {{}} }}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [for-iter] [fn-rename] R10 / B1 census D9: a renamed `next` answers to its
+/// new name only — in a call, so in the `for` that names one, and in the
+/// `: Next` obligation it used to satisfy.
+#[test]
+fn a_renamed_next_does_not_drive_the_loop() {
+    let undeclared = errors(&format!(
+        "{BARE_PROTOCOL}\
+         struct Countdown canbe Mut {{\n    at: Int\n}}\n\
+         fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {{\n\
+             return finished()\n\
+         }}\n\
+         rename fn advance = next(c: Mut Countdown)\n\
+         fn go(c: Mut Countdown) -> None => c: Mut {{ for n in c {{}} }}\n"
+    ));
     assert!(
-        errs.iter().any(|e| e.contains("is not iterable")
-            && e.contains("has a matching `next`")
-            && e.contains(": Next<self, Int>")),
-        "expected the not-iterable error naming the declaration remedy, got {errs:?}"
+        undeclared.iter().any(|e| e.starts_with("`Countdown` is not iterable: `for x in e` is `next(e)`")),
+        "expected the not-iterable error, got {undeclared:?}"
     );
+    let declared = errors(&format!(
+        "{BARE_PROTOCOL}\
+         struct Countdown : Next<self, Int> canbe Mut {{\n    at: Int\n}}\n\
+         fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {{\n\
+             return finished()\n\
+         }}\n\
+         rename fn advance = next(c: Mut Countdown)\n\
+         fn go(c: Mut Countdown) -> None => c: Mut {{ for n in advance(c) {{}} }}\n"
+    ));
+    assert!(
+        declared.iter().any(|e| e.contains("declares `: Next` but no visible `next` matches")),
+        "expected the obligation refused at the struct, got {declared:?}"
+    );
+    assert_eq!(declared.len(), 1, "the step call through the new name drives: {declared:?}");
+}
+
+/// [for-iter] [effect-member-overload] [fn-overload-ambiguous] R10 D3: an
+/// available effect's member `next` competes with the fn as at the call, and
+/// a tie is the call's ambiguity, said of the `for`.
+#[test]
+fn a_member_and_a_fn_next_tie_at_the_loop_as_at_the_call() {
+    let errs = errors(&format!(
+        "{BARE_PROTOCOL}\
+         struct Ctr canbe Mut {{\n    n: Int\n}}\n\
+         effect Gen {{\n    fn next(c: Mut Ctr) -> Emitted Int | Finished => c: Mut\n}}\n\
+         fn next(c: Mut Ctr) -> Emitted Int | Finished => c: Mut {{\n\
+             return finished()\n\
+         }}\n\
+         fn go(c: Mut Ctr) [Gen] -> None => c: Mut {{ for n in c {{}} }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.starts_with("`for` over `Ctr` is `next(Ctr)`: ambiguous call to `next`")
+            && e.contains("next@Gen(…)")
+            && e.contains("next@main(…)")),
+        "expected the call's ambiguity, said of the `for`, got {errs:?}"
+    );
+}
+
+/// [for-iter] [implicit-resolve-body] [implicit-same-name] R10 D11: the
+/// enclosing fn's own implicit `?next` drives the loop when it takes the
+/// subject, as it takes the call `next(c)` — and two that both fit with none
+/// more specific are the call's tie.
+#[test]
+fn the_enclosing_implicit_next_drives_the_loop() {
+    let errs = errors(&format!(
+        "{BARE_PROTOCOL}\
+         struct Ctr canbe Mut {{\n    n: Int\n}}\n\
+         fn walk(c: Mut Ctr, ?next: (c: Mut Ctr) -> Emitted Int | Finished) -> None => c: Mut {{\n\
+             for n in c {{}}\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors (no declared `next` exists), got {errs:?}");
+    let tied = errors(&format!(
+        "{BARE_PROTOCOL}\
+         struct Ctr canbe Mut {{\n    n: Int\n}}\n\
+         fn walk(c: Mut Ctr, ?next: (c: Ctr | Int) -> Emitted Int | Finished, ?next: (c: Ctr | Str) -> Emitted Int | Finished) -> None => c: Mut {{\n\
+             for n in c {{}}\n\
+         }}\n"
+    ));
+    assert!(
+        tied.iter().any(|e| e.starts_with("`for` over `Ctr` is `next(Ctr)`: `next` here could go through more than one implicit of that name")),
+        "expected a tie between the two implicits, got {tied:?}"
+    );
+}
+
+/// [for-iter] [iter-protocol] A `next` of another result shape is an ordinary
+/// fn (D-3) and does not make its argument an iterator; with no `iter` either,
+/// the value is not iterable, and the error says which calls `for` names.
+#[test]
+fn a_next_of_another_shape_is_not_a_driver() {
+    let errs = errors(&format!(
+        "{BARE_PROTOCOL}\
+         struct Ctr canbe Mut {{\n    n: Int\n}}\n\
+         fn next(c: Mut Ctr) -> Int => c: Mut {{ return 1 }}\n\
+         fn go(c: Mut Ctr) -> None => c: Mut {{ for n in c {{}} }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.starts_with("`Ctr` is not iterable: `for x in e` is `next(e)` when a `next` takes `e`, and `next(iter(e))` otherwise")
+            && e.contains("declare `next(it: Mut Ctr) -> Emitted T | Finished`")),
+        "expected the not-iterable error, got {errs:?}"
+    );
+}
+
+/// [for-iter] [iter-group] A type with both a `next` and an `iter` and no
+/// obligations is driven by its `next` — "a `next` fits" decides (DECISION
+/// P15: whether to refuse such a type); declaring both obligations stays
+/// refused at the type.
+#[test]
+fn a_type_with_both_a_next_and_an_iter_is_driven() {
+    let errs = errors(&format!(
+        "{BARE_PROTOCOL}\
+         struct Other canbe Mut {{\n    n: Int\n}}\n\
+         fn next(o: Mut Other) -> Emitted Str | Finished => o: Mut {{ return finished() }}\n\
+         struct Ctr canbe Mut {{\n    n: Int\n}}\n\
+         fn next(c: Mut Ctr) -> Emitted Int | Finished => c: Mut {{ return finished() }}\n\
+         fn iter(c: Ctr) -> Mut Other => c {{ return Mut Other {{ n: 0 }} }}\n\
+         fn go(c: Mut Ctr) -> Int => c: Mut {{\n\
+             let total = 0\n\
+             for n in c {{ total = n }}\n\
+             return total\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "the loop drives `next` (an `Int`), got {errs:?}");
 }
 
 // [once-fn] D6 (user decision 2026-09-12): `once` on a *data* type — the

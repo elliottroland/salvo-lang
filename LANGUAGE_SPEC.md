@@ -668,8 +668,9 @@ Conventions:
     constructor does not.
   * std's `std.core.array` mirrors `std.core.list`'s function surface minus
     mutation (arrays are fixed-size): `array_of`, `size`, `get`, `first`,
-    `iter` (user decision 2026-09-02). `for` iterates arrays natively —
-    `iter_elem_ty` handles `Ty::Array` before the implicit-`iter` lookup.
+    `iter` (user decision 2026-09-02). `for x in xs` over an array is
+    `next(iter(xs))` with std's `iter`, which the backends spell as their native
+    loop [for-iter] [iter-for-native]; the element is the array's `T`.
 * [col-by] Every collection has a **generated constructor**: `*_by(size,
   init)` builds `size` elements by calling `init` once per index, in order —
   `array_by`, `list_by`/`mut_list_by`, `set_by`/`mut_set_by` (duplicates
@@ -2888,9 +2889,49 @@ Conventions:
     without a binding is read once by the test and so needs nothing.
   * `when` needs no rule of its own: its subject must already be a plain
     variable [when-union-subject].
-* [for-iter] `for x in e` drives `e` when it is an iterator [iter-protocol] and
-  otherwise iterates `iter(e)` implicitly [iter-mint]; missing or ambiguous
-  `iter` resolution is an error [iter-resolve].
+* [for-iter] **`for x in e` is the calls it names** (OPERATOR_OVERLOAD.md O1,
+  R10 D10, B3.3d): `next(e)` when a `next` takes `e` — `e` is an **iterator**
+  [iter-protocol], driven where it lives — and otherwise `next(iter(e))` — `e`
+  is a **source**, and the loop mints an iterator from it once [iter-mint].
+  Each call is resolved exactly as it would be written: the enclosing fn's own
+  implicit of the name first [implicit-resolve-body] [implicit-same-name], then
+  the available effects' members and the visible fns ranked as one set
+  [effect-member-overload] [fn-overload-rank], a renamed overload under its new
+  name only [fn-rename]. Nothing taking `e` is [iter-resolve]'s error; an
+  ambiguity or a refused fill is the call's, said of the `for` ("`for` over
+  `Ctr` is `next(Ctr)`: ambiguous call to `next`: …"). A fn-typed local or an
+  ordinary parameter named `next` does not take it, as for an operator (P14).
+  * **"A `next` takes `e`"** is asked of every candidate by shape — one explicit
+    parameter `e` unifies with, and `next`'s result shape `Emitted T | Finished`
+    (D-3 [unique-shape]): a `next` of another shape is an ordinary fn and does
+    not make its argument an iterator. The call that follows ranks, fills and
+    reports.
+  * `next` is handed the iterator in the loop's mutable place (the place it
+    lives in, or the loop's binding of a temporary), so the call is resolved at
+    `Mut E` whatever `e`'s type says.
+  * **No declaration gates it** (R10 D10): a type needs no `: Next<self, T>` or
+    `: Iter<self, It, T>` for a `for`. Both stay what [group-obligation] makes
+    them — a promise checked at the declaration — and `: Next<self, T>` still
+    teaches a `?Next<It, T>` spread its element type [implicit-group].
+  * **A type with both a `next` and an `iter`** is driven by its `next`: "a
+    `next` takes `e`" decides. Whether to refuse such a type, as the brief
+    suggests ("it should be an error for both next and iter to be defined on
+    the same type"), is DECISION P15 (ROADMAP 0am). Declaring both obligations
+    stays refused at the type [iter-group].
+  * **The calls' facts.** Neither call has a node of its own, so their call
+    facts (`call_fn`, `implicit_args`, `call_effects`, `local_calls`/
+    `local_call_names`, `member_calls`/`effect_calls`) are keyed `Key::FOR_NEXT`
+    and `Key::FOR_ITER` of the subject's node [node-id]; `Checked::for_drivers`
+    keeps what the loop needs beyond them (the `Emitted` arm, whether the
+    iterator is driven in place, the type `iter` mints, a step call). What a
+    call does to its argument places is not applied there: driving has its own
+    rules for the subject [iter-drive-in-place] [proj-type] [for-elem-write].
+  * **The native loop is the backends' spelling** [iter-for-native]
+    [core-layers]: a `for` over an array or an `iterable platform type` whose
+    `iter` and `next` both went to declarations — the type's own, by
+    [unique-shape] — is walked natively and records neither call (it makes
+    none, so it reaches neither). An enclosing `?iter`/`?next` or a member that
+    takes it is called instead.
 
 ## Functions
 
@@ -3170,8 +3211,10 @@ Conventions:
   ambiguity the ranking cannot settle is settled.
   * **Not an alias**: from that point the overload answers *only* to the new
     name — it leaves the old name's candidate set, in calls, in fn values
-    and in implicit resolution. That is what makes the old name unambiguous
-    again.
+    and in implicit resolution, and so in the `next`/`iter` a `for` names
+    [for-iter] and the member an obligation is satisfied by
+    [group-obligation] (B1 census D9, B3.3d: both read the raw scope until
+    then). That is what makes the old name unambiguous again.
   * The parameter list repeats one overload's parameters exactly (same
     names, same types, type parameters positional), matched by the same
     matcher `refn` uses [qual-refn-match] — so a std rename surfaces as a
@@ -3382,46 +3425,47 @@ Conventions:
 * [index-resolve] `[]` subscripts arrays only. Other collections expose
   element access as declared functions (std's `get(list, index)`), and
   tuples use constant positions ([expr-tuple-index]).
-* [iter-resolve] A `for` subject must be an array, a **step call**
-  [iter-step-call], an **iterator struct** — a type declaring `: Next<self, T>`
-  [iter-protocol] [group-obligation] — or a **source**: a value some declared
-  `iter` overload accepts (the implicit `iter(subject)` call), a type declaring
-  `: Iter<self, It, T>` [iter-group], or a generic under a `?Iter<C, It, T>` spread;
-  anything else is an error. When the subject has a protocol-shaped `next` but
-  no declaration, the error names the `: Next<self, T>` remedy.
-  * Resolution order: a step call, arrays natively, then the declared iterator
-    struct [iter-protocol], then `iter` [iter-mint]. The struct comes before
-    `iter` because a type with both is *already* a position in a sequence, so
-    minting a second iterator from it would be wrong — and declaring both is
-    refused at the struct [iter-group].
-  * **Both lookups match the subject by declaration, not by type name** (fixed
-    2026-09-25): a `Ty::Named` carries no module, so two same-named structs in
-    two modules are one type as far as unification is concerned — a user
-    `Range` beside `std.core.range`'s drove the *other* module's `next`, or minted
-    with the other module's `iter`, and the emitted program was rejected by
-    both target compilers (E0308 / an argument type mismatch). Wrong output
-    rather than a diagnostic, so [backend-never-wrong]-grade. Each side's name
-    is resolved in *its own* file's scope and the declarations compared; a name
-    that differs, or a subject that is not a plain struct, stays `unify`'s
-    business.
-* [iter-generic-drive] A `for` over a **type parameter** drives it when the
-  enclosing fn has a protocol-shaped `?Next<It, T>` spread for it
-  [implicit-group] (user decision 2026-09-09): the position *is* the declaration
-  — it says "this call supplies a `next` for `It`" — so the loop calls that
-  implicit parameter and takes the element type from its result. This is what
-  lets std's own combinators be written with `for`, and any combinator of one's
-  own with them. A type parameter that is a **source** under a `?Iter<C, It, T>`
-  spread is minted with the `iter` implicit first and driven with the `next`
-  beside it [iter-group].
+* [iter-resolve] A `for` subject must be a **step call** [iter-step-call], or a
+  value some `next` takes (an **iterator**) or some `iter` takes (a
+  **source**), the calls [for-iter] names; anything else is an error saying
+  which calls `for x in e` is and that none takes the subject, with the remedy
+  of declaring a `next` or an `iter` beside a struct of one's own. No
+  declaration is asked for (R10 D10, B3.3d): until then the subject had to be
+  an array, a type declaring `: Next<self, T>` or `: Iter<self, It, T>`, a
+  value some `iter` accepted, or a generic under a spread, and a matching
+  `next` without the clause was an error naming it.
+  * Resolution order: a step call, then `next(e)`, then `next(iter(e))`. A
+    value some `next` takes is *already* a position in a sequence, so it is
+    driven and never minted from — a type with both a `next` and an `iter` is
+    driven (DECISION P15), and declaring both obligations is refused at the
+    struct [iter-group].
+  * **Same-named structs in two modules** (fixed 2026-09-25): a `Ty::Named`
+    carried no module, so a user `Range` beside `std.core.range`'s drove the
+    *other* module's `next`, or minted with the other module's `iter`, and both
+    target compilers rejected the program — [backend-never-wrong]-grade. The
+    fix compared the declarations each side's name resolved to. Since A1 a
+    type's key names its module [type-identity], so the calls' own
+    unification tells the two apart and the comparison went with B3.3d.
+* [iter-generic-drive] A `for` over a **type parameter** is driven by the
+  enclosing fn's protocol-shaped `?Next<It, T>` spread [implicit-group] (user
+  decision 2026-09-09): its `next` is an implicit of this body, so it takes
+  `next(it)` as it takes the call [for-iter] [implicit-resolve-body] — there is
+  no path of its own (since B3.3d) — and the element type is its result's. This
+  is what lets std's own combinators be written with `for`, and any combinator
+  of one's own with them. A type parameter that is a **source** under a
+  `?Iter<C, It, T>` spread takes `next(iter(c))` through the two implicits the
+  spread brought in: minted with the `iter`, driven with the `next` beside it
+  [iter-group].
   * **By name, not by shape**: the implicit must be called `next`, which is what
     `for` drives everywhere else [iter-protocol]; and it must take its state as
     `Mut It`, for the same reason a declared `next` does (the same diagnostic
     fires when it does not).
-  * **The element is owned.** `next` hands the element over by value, so the
-    loop binding is *not* a projection of the iterator and may be moved on — which
-    is what lets a combinator put each element in its output. (A native
-    container loop is the other case: there the binding really is a projection
-    and it links [fate-link].)
+  * **The element is owned.** A `next` reached through the fn's own implicit
+    hands the element over by value — minted or not — so the loop binding is
+    *not* a projection of the iterator and may be moved on, which is what lets
+    a combinator put each element in its output. (A container loop is the
+    other case: there the binding really is a projection of the source and it
+    links [fate-link].)
   * Without the spread there is nothing to drive with, and the subject reports
     the ordinary not-iterable error [iter-resolve]: a bare type parameter says
     nothing, which is [call-resolve]'s rule for generics.
@@ -3463,20 +3507,24 @@ Conventions:
     same container twice is `iter(xs)` twice, and mutating `xs` while an iterator
     over it lives is refused [proj-infer].
   * A `for` over a container is lowered as *mint then drive*: the checker
-    records the `iter` to call beside the `next` to drive, and **both emitters
-    call it** — until 2026-09-09 the record was read by nobody, so a `for` over a
+    records the `iter` call (at `Key::FOR_ITER`, [for-iter]) beside the `next`
+    to drive, and **the IR calls it** once before the loop — until 2026-09-09 the record was read by nobody, so a `for` over a
     container of one's own emitted a drive of the container itself, which the
     target compiler rejected (found while building [iter-fn], whose generated
     `iter` walks the same path).
   * **`for` over a *generic* source** mints through the `iter` implicit a
-    `?Iter<C, It, T>` spread brought in, recorded as `PassMember::Implicit("iter")`
-    [iter-group].
+    `?Iter<C, It, T>` spread brought in: the call `iter(c)` goes through it
+    [for-iter] [iter-group].
 * [iter-for-native] A `for` over an **array** or an **`iterable platform
   type`** [platform-iterable] (`List`, `Str`, `Bytes`, `Deque`, `Set`, `Map`,
-  the sorted pair) records no driver at all: the backends iterate
-  natively, which neither allocates a Salvo iterator nor consumes the
-  subject. The language gets no special case (the rule is a declaration, not
-  a name list); the fast path is the emitters'.
+  the sorted pair) records no driver at all when the `iter` and `next` it
+  names [for-iter] are declarations: the backends iterate natively, which
+  neither allocates a Salvo iterator nor consumes the subject. The language
+  gets no special case (the rule is a declaration, not a name list); the fast
+  path is the backends' spelling of `next(iter(xs))` [core-layers], and its
+  element type is the call's (an array's: its `T`). A native loop makes no
+  call, so what a call to std's `iter<T>` would refuse — a linear `T`
+  [linear-generics] — it does not.
 * [iter-protocol] The pull iteration protocol is declared in std
   (`lib/std/core/iterator.sv`), not built into the compiler: an **iterator
   struct** is a value some `next` accepts, and `next` reports
@@ -3495,23 +3543,23 @@ Conventions:
     "the sequence ended".
   * `fns Next<It, T> { fn next(it: Mut It) -> Emitted T | => it: Mut
     Finished }` [group-obligation] [group-self]: a type of your own becomes
-    drivable by declaring `: Next<self, T>` (the group was `Yield` until
-    2026-10-27, OPERATOR_OVERLOAD.md O1) and supplying the `next` — checked at
-    the struct, where a misspelled member is caught, rather than surfacing
-    as "not iterable" at some loop (roadmap R2, user decisions 2026-09-08;
-    this replaced `fns Iterator<St, T>` and the `once` requirement). The
-    state is `Mut` because advancing an iterator mutates its position.
+    drivable by supplying the `next` [for-iter]; declaring `: Next<self, T>`
+    (the group was `Yield` until 2026-10-27, OPERATOR_OVERLOAD.md O1) checks it
+    at the struct, where a misspelled member is caught (roadmap R2, user
+    decisions 2026-09-08; this replaced `fns Iterator<St, T>` and the `once`
+    requirement). The state is `Mut` because advancing an iterator mutates its
+    position.
   * Only the exact `Emitted T | Finished` shape is a driver; a `next` of
     any other shape is an ordinary function.
-  * **`for` reads the declaration** — the `: Next<self, T>` clause is the one
-    fact that makes a value an iterator, and the element type is the clause's
-    argument. The overload scan only resolves *which* `next` (and the arm
-    identity); when the obligation is declared but unsatisfied, the error
-    has already landed at the struct and the loop stays lenient, answering
-    the declared element type [type-unknown-lenient]. A matching `next`
-    without the clause is not an iterator ([iter-resolve] names the remedy) —
-    the tie is declared, never inferred from a method name. A step under
-    another name is driven by naming the call [iter-step-call].
+  * **`for` reads no declaration** (R10 D10, B3.3d): `for x in it` is the call
+    `next(it)` [for-iter], and the element type is that call's `Emitted` arm.
+    Until then the `: Next<self, T>` clause was the one fact that made a value
+    an iterator (roadmap R2): a matching `next` without it was not one, and
+    the loop drove the first `next` in scope order whose state unified (B1
+    census D8), ignoring renames (D9) and the enclosing `?next` at a concrete
+    type (D11). An unsatisfied clause is refused at the struct and the loop
+    says what the call says (it no longer answers the declared element). A
+    step under another name is driven by naming the call [iter-step-call].
   * Driving consumes the subject: it is moved into the loop, exactly as the
     `once` passes it replaced were. Drive-in-place (`Mut` borrow — "a
     second drive continues") is recorded as the eventual semantics and
@@ -3520,12 +3568,15 @@ Conventions:
     position, and the backends pass a mutable place. A `next` with the right
     *result* shape and a non-`Mut` state is an error saying so, rather than
     a puzzling "not iterable".
-  * **What the checker hands over**: `Checked::for_drivers`, keyed by the
-    subject's span — the overload *and* the arm identity (`PassDriver`).
-    The driving loop is synthesized, so there is no call node for the
-    emitters to resolve, and having each of them re-derive the arm index
-    from the declaration is exactly the checker/emitter disagreement the
-    invariants forbid.
+  * **What the checker hands over**: the `next` (and `iter`) as call facts at
+    `Key::FOR_NEXT` (`Key::FOR_ITER`) of the subject's node [for-iter], and
+    `Checked::for_drivers`, keyed by the subject's span: the arm identity, in
+    place or not, the minted iterator's type (`PassDriver`). The driving loop
+    is synthesized, so there is no call node for the IR to resolve, and having
+    each emitter re-derive the arm index from the declaration is exactly the
+    checker/emitter disagreement the invariants forbid. The IR lowers the
+    calls from those facts (`Lower::for_call`) without type arguments — the
+    loop is the backends' spelling, and they infer them from the iterator.
   * **Lowering** (both backends, phase I2c): the subject is moved into a
     local — driving consumes an iterator, so nothing else is looking at
     it — and each turn calls `next` on a mutable place.
@@ -3540,9 +3591,10 @@ Conventions:
       no call node — and falls back to stars plus a cast, and the emitted
       function carries `@Suppress("UNCHECKED_CAST")` so generated code stays
       warning-free [kt-suppress-cast].
-  * An **effectful** `next` is a codegen error for now: its handlers would
-    have to be threaded into every turn of the loop, which is phase I4
-    [backend-never-wrong].
+  * An **effectful** `next` (std's `Lines`, `[Streams]`) takes its effects as
+    its call does: the instances are passed on every turn [fn-effects]. (It
+    was a codegen error until phase I4 threaded them; the call's effect check
+    [fn-effects] applies at the loop since B3.3d.)
 * [seq-lazy] **Lazy adaptors are named by a present participle** (user
   decisions 2026-10-03/04): `mapping(it, f)`, `filtering(it, keep)`,
   `taking(it, n)`, `taking_while(it, keep)`, `skipping(it, n)` and
@@ -3978,8 +4030,13 @@ Conventions:
   * The obligation adds no scope and no dispatch: the satisfying fn is an
     ordinary overload, and calls to it resolve as ever [fn-overload]. The
     clause moves the *check* to the declaration; nothing is designated in
-    the mechanism itself (`Next<T>`/`Linear` designation is roadmap
-    R2/R4).
+    the mechanism itself. `for` reads no obligation either (R10 D10,
+    B3.3d): it is the calls `next`/`iter` [for-iter], so `: Next<self, T>`
+    and `: Iter<self, It, T>` are promises checked here — and `: Next<self,
+    T>` the element type a `?Next<It, T>` spread learns from the iterator's
+    type [implicit-group], and a refused `for` the remedy it names.
+  * A **renamed** overload satisfies no member under its old name
+    [fn-rename], as it answers no call by it (B1 census D9, B3.3d).
   * **`by` is rejected on an `intrinsic type`** [obligation-by]: `by X`
     stamps a generated body over a struct's fields or a union's arms, and
     an intrinsic type has neither — its implementation is always a
@@ -4379,8 +4436,8 @@ Conventions:
     a group parameter no member parameter mentions, so it lends every kept
     parameter, as a fn type with an opaque return does [proj-infer-fn-type].
     Inside the body, `for x in c` over the generic source mints with the `iter`
-    implicit and drives with the `next` beside it (`PassDriver.mint =
-    Some(PassMember::Implicit("iter"))`, `generic_pass_elem_ty`); `iter(c)` is a
+    implicit and drives with the `next` beside it (the calls `iter(c)` and
+    `next(…)` through the implicits [for-iter]); `iter(c)` is a
     `Mut It` a `?Next` combinator accepts with the paired `next` forwarded
     [implicit-forward]. At a call, `It` is learned from the `iter` that fills
     the pair [implicit-infer] — the one *written* there when the call overrides
@@ -4407,7 +4464,7 @@ Conventions:
   * A *value* of that shape that is not a call (`let r = next(p); for i in r`)
     is an error: a union is not iterable, and only a call can be re-invoked.
   * Recorded as `PassDriver { step_call: true, .. }` keyed by the subject's
-    span; both emitters render the call as written inside the loop header
+    span, with nothing at `Key::FOR_NEXT` (the call node is the call); both emitters render the call as written inside the loop header
     (Rust `while let Union2::U1(i) = skip(&mut z) {`; Kotlin re-invokes into
     the step local), so argument modes follow the ordinary call rules
     [rs-borrows].
@@ -11047,7 +11104,7 @@ between endpoints and delivers what arrives into the scheduler.
   * The checker's fn-keyed tables (`fn_effects`, `fn_lends`,
     `implicit_params`, `established_quals`, `param_mutations`,
     `deductions`, `call_fn`, `fn_refs`, `replyto_tasks`, `interp_to_str`,
-    `ImplicitArg::Resolved`, `PassMember::Fn`, …) and the IR's references
+    `ImplicitArg::Resolved`, …) and the IR's references
     are keyed by it; a handler's member is its own declaration, so the facts
     of its nodes are keyed by its member id [node-id], and its IR `FnDecl`
     carries that id.

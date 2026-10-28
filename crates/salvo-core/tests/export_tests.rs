@@ -208,6 +208,45 @@ fn an_exported_iter_fn_exports_its_pass_type() {
     );
 }
 
+/// [for-iter] [fn-attached] [backend-never-wrong] A `for` over an `iter fn`'s
+/// pass from another module calls the pass's `next`, which travels with the
+/// pass *type* (B3.3d): without the type imported no `next` takes the value,
+/// and the loop says which import brings it. Until B3.3d the loop answered the
+/// `: Next` clause's element with no `next` to call and emitted a native loop
+/// over the struct, which both target compilers refused.
+#[test]
+fn a_pass_whose_next_is_not_in_scope_names_the_import() {
+    let protocol = "export qualifier Emitted<T> of T\nexport struct Finished {}\n\
+                    export fn emitted<T>(value: T) [] -> +Emitted T => !value {\n    return value\n}\n\
+                    export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
+                    export fns Next<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
+    let lib = "export struct Countdown {\n    from: Int\n}\n\n\
+               export iter fn iter(c: Countdown) [] -> Emitted Int | Finished {\n    \
+               state CountdownIter {\n        at: Int = c.from\n    }\n    \
+               if at <= 0 {\n        return finished()\n    }\n    \
+               at = at - 1\n    return emitted(at + 1)\n}\n";
+    let user = |imports: &str| {
+        format!(
+            "import lib.Countdown\nimport lib.iter\n{imports}\n\
+             fn total() [] -> Int {{\n    let sum = 0\n    \
+             let c = Countdown {{from: 3}}\n    \
+             for x in iter(c) {{\n        sum = sum + x\n    }}\n    \
+             return sum\n}}\n"
+        )
+    };
+    let without = diags_with_std(&[("core/iterator.sv", protocol)], &[("lib.sv", lib), ("main.sv", &user(""))]);
+    assert!(
+        without.iter().any(|m| m.starts_with("`CountdownIter` is not iterable")
+            && m.contains("a `next` over it is declared in `lib`, and is not in scope here — import `lib.CountdownIter`")),
+        "expected the loop to name the import: {without:?}"
+    );
+    let with = diags_with_std(
+        &[("core/iterator.sv", protocol)],
+        &[("lib.sv", lib), ("main.sv", &user("import lib.CountdownIter\n"))],
+    );
+    assert!(with.is_empty(), "the imported pass type brings its `next`: {with:?}");
+}
+
 // ===================== std's own module [mod-std-internal] =====================
 
 const RUNTIME: &str = "export fn tick_count() [] -> Int {\n    return 0\n}\n";

@@ -8256,12 +8256,13 @@ fn rustc_compiles_and_runs_overload_overrides() {
 
 /// [backend-never-wrong] [call-resolve] [fn-overload-at] A declared callee
 /// beside a same-named local, parameter or class member (B1 census D11 and
-/// D13, 2026-10-27): the `for` over a concrete pass drives the declared
-/// `next` though the fn holds an implicit `?next`; `5.show()` and
+/// D13, 2026-10-27): the `for` over a concrete pass drives the fn's own
+/// implicit `?next`, as the call `next(c)` does (R10 D11, B3.3d; it drove the
+/// declared `next` before) [for-iter]; `5.show()` and
 /// `show@main(5)` call the declared `show` though a local `show` is in scope;
 /// a handler member `label` calls, and passes by name, the top-level `label`.
-/// Kotlin printed the implicit's `10, 20`, the local's `local 5` twice, and
-/// recursed into the member, because it wrote each call as a bare name.
+/// Kotlin printed the local's `local 5` twice and recursed into the member,
+/// because it wrote each call as a bare name.
 /// `roots` names its locals `salvo`, `kotlin` and `java`, the package roots
 /// the qualified Kotlin names go through.
 const DECLARED_CALLEE_DEMO: &str = r#"
@@ -8332,7 +8333,7 @@ fn main() [use] {
 }
 "#;
 
-const DECLARED_CALLEE_OUTPUT: &str = "for: 1\nfor: 2\ncall: 10\ncall: local 5\ndot: decl 5\nat: decl 5\nroots: decl 2\nmember, fn 7, fn 7\n";
+const DECLARED_CALLEE_OUTPUT: &str = "for: 10\nfor: 20\ncall: 10\ncall: local 5\ndot: decl 5\nat: decl 5\nroots: decl 2\nmember, fn 7, fn 7\n";
 
 /// [call-resolve] [fn-value] [effect-available] [fn-overload-rank] Calls the
 /// checker now types and checks where it did not (B1 census D16 and D19,
@@ -17925,6 +17926,168 @@ const COMPARISON_CALLS_OUTPUT: &str = "true false\nfalse true\ntrue\ntrue\ntrue 
 fn rustc_compiles_and_runs_comparisons_as_the_calls_they_name() {
     let files = generate(&[("main.sv", COMPARISON_CALLS_DEMO), ("bag.sv", COMPARISON_CALLS_BAG)]);
     run_rust_files(&files, "comparison-calls", COMPARISON_CALLS_OUTPUT);
+}
+
+/// [for-iter] [iter-protocol] [fn-rename] [implicit-resolve-body] [unique-shape]
+/// `for` is the calls it names (R10 D10): `next(c)` when a `next` takes `c`,
+/// `next(iter(c))` otherwise, each resolved as the call. D8: the specific
+/// `next` drives (×100); D9: a renamed `next` no longer does, so the `iter`
+/// mints; D10: no `: Next` anywhere; D11: the enclosing `?next` drives; R10
+/// D3: an effect's member `next` drives; a type with both a `next` and an
+/// `iter` is driven by its `next` (P15).
+const FOR_CALLS_DEMO: &str = r#"
+// R10 D8: the most specific `next` drives `for`, as it takes the call.
+// R10 D10: `Ctr` declares no `: Next<self, Int>`.
+struct Ctr<T> canbe Mut {
+    n: Int,
+    tag: T
+}
+
+fn next<T>(c: Mut Ctr<T>) [] -> Emitted Int | Finished => c: Mut {
+    if c.n >= 2 {
+        return finished()
+    }
+    c.n = c.n + 1
+    return emitted(c.n)
+}
+
+fn next(c: Mut Ctr<Str>) [] -> Emitted Int | Finished => c: Mut {
+    if c.n >= 2 {
+        return finished()
+    }
+    c.n = c.n + 1
+    return emitted(c.n * 100)
+}
+
+// R10 D9: a renamed `next` answers to its new name only, so `for` mints
+// with the `iter` instead.
+struct Steps canbe Mut {
+    n: Int,
+    items: List<Int>
+}
+
+fn next(s: Mut Steps) [] -> Emitted Int | Finished => s: Mut {
+    if s.n >= 2 {
+        return finished()
+    }
+    s.n = s.n + 1
+    return emitted(s.n)
+}
+
+rename fn advance = next(s: Mut Steps)
+
+fn iter(s: Steps) [] -> Mut ListNext<Int> => s {
+    return iter(s.items)
+}
+
+// R10 D11: the enclosing fn's own `?next` drives, as it takes the call.
+struct Tick canbe Mut {
+    n: Int
+}
+
+fn next(t: Mut Tick) [] -> Emitted Int | Finished => t: Mut {
+    if t.n >= 2 {
+        return finished()
+    }
+    t.n = t.n + 1
+    return emitted(t.n)
+}
+
+fn by_tens(t: Mut Tick) [] -> Emitted Int | Finished => t: Mut {
+    if t.n >= 2 {
+        return finished()
+    }
+    t.n = t.n + 1
+    return emitted(t.n * 10)
+}
+
+fn walk(t: Mut Tick, ?next: (t: Mut Tick) -> Emitted Int | Finished) [] -> Str => t: Mut {
+    let out = Mut List<Int>()
+    for x in t {
+        add(out, x)
+    }
+    return "${out}"
+}
+
+// R10 D3: an available effect's member `next` drives.
+struct Gauge canbe Mut {
+    n: Int
+}
+
+effect Gen {
+    fn next(g: Mut Gauge) -> Emitted Int | Finished => g: Mut
+}
+
+handler ByThrees of Gen {
+    fn next(g: Mut Gauge) -> Emitted Int | Finished => g: Mut {
+        if g.n >= 2 {
+            return finished()
+        }
+        g.n = g.n + 1
+        return emitted(g.n * 3)
+    }
+}
+
+fn gauge(g: Mut Gauge) [Gen] -> Str => g: Mut {
+    let out = Mut List<Int>()
+    for x in g {
+        add(out, x)
+    }
+    return "${out}"
+}
+
+// A type with both a `next` and an `iter` is driven by its `next` (P15).
+struct Both canbe Mut {
+    n: Int,
+    items: List<Int>
+}
+
+fn next(b: Mut Both) [] -> Emitted Int | Finished => b: Mut {
+    if b.n >= 2 {
+        return finished()
+    }
+    b.n = b.n + 1
+    return emitted(b.n)
+}
+
+fn iter(b: Both) [] -> Mut ListNext<Int> => b {
+    return iter(b.items)
+}
+
+fn main() [use] {
+    use StdConsole()
+    let c = Mut Ctr { n: 0, tag: "s" }
+    let cs = Mut List<Int>()
+    for x in c {
+        add(cs, x)
+    }
+    println("${cs}")
+    let s = Mut Steps { n: 0, items: List(7, 8, 9) }
+    let ss = Mut List<Int>()
+    for x in s {
+        add(ss, x)
+    }
+    let a = advance(s)
+    println("${ss} ${a is Emitted Int}")
+    println(walk(Mut Tick { n: 0 }, next = by_tens))
+    println(walk(Mut Tick { n: 0 }))
+    use ByThrees()
+    println(gauge(Mut Gauge { n: 0 }))
+    let b = Mut Both { n: 0, items: List(7, 8, 9) }
+    let bs = Mut List<Int>()
+    for x in b {
+        add(bs, x)
+    }
+    println("${bs}")
+}
+"#;
+
+const FOR_CALLS_OUTPUT: &str = "[100, 200]\n[7, 8, 9] true\n[10, 20]\n[1, 2]\n[3, 6]\n[1, 2]\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_for_as_the_calls_it_names() {
+    let files = generate(&[("main.sv", FOR_CALLS_DEMO)]);
+    run_rust_files(&files, "for-calls", FOR_CALLS_OUTPUT);
 }
 
 /// [fn-value-select] [fn-overload-scope] A function passed by name is chosen

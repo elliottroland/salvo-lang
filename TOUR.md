@@ -488,7 +488,10 @@ pub fn next(__p: &mut Countdown) -> Union2<i32, Finished> {   // your body
 ```
 
 The `for` loop is the only generated control flow, and it is a plain loop that
-calls `next` (the checker records the driver in `for_drivers`):
+calls `next`: `for x in e` is `next(e)`, or `next(iter(e))` for a source, and
+the checker resolves those calls as written ones and records them at the
+subject (`Key::FOR_NEXT`/`FOR_ITER`), with what the loop needs beyond them in
+`for_drivers` [for-iter]:
 
 ```rust
 let mut __loop1_pass = countdown(3);

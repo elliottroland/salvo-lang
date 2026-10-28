@@ -43,7 +43,7 @@ pub mod wire;
 
 pub use check::{
     check_program, check_project, check_project_cached, Checked, Coercion, ImplicitArg, ImplicitParam, PassDriver,
-    PassMember, StdCache,
+    StdCache,
     ThrowSite,
     UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };

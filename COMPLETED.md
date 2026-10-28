@@ -22,7 +22,8 @@ flow, algebraic effects with handler dependencies, non-resumption
 function on a type declared once, in the type's own file [unique-shape], and a
 comparison operator the call it names), linear types with a
 designated `close`, mutable element handles (`ref(c)`, minted by `at`,
-aliasing by a shared named container), and pull iteration reduced to a `next` that `for` drives —
+aliasing by a shared named container), and pull iteration reduced to the `next` and `iter` a `for`
+names, resolved as the calls they are —
 with `iter fn` writing the iterator struct its `state Name { … }` block names
 under any name, and `Iter<C, It, T>` for sources.
 Effect handlers also bind *asynchronously* — an actor is one, with a mailbox, a
@@ -63,7 +64,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2139 tests, complete: the toolchain tests are
+cargo test                  # 2146 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -142,6 +143,135 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-28 — A `for` is the `next` and `iter` it names (B3 piece 3d, R10 D10, D3; census D8–D11)
+
+**`for x in e` is `next(e)` when a `next` takes `e`, and `next(iter(e))`
+otherwise** (OPERATOR_OVERLOAD.md O1; PIPELINE.md §3 R10 D10; [for-iter]),
+each call resolved exactly as it would be written: the enclosing fn's own
+implicit of the name first, ranked like overloads ([implicit-resolve-body],
+[implicit-same-name]), then `resolve_named_call` over the available effects'
+members and the visible fns ([effect-member-overload], [fn-overload-rank],
+[fn-rename]). `for_drivers`' own resolution is gone: `find_next_driver`,
+`same_pass_decl`, `pass_elem_ty`/`pass_elem_ty_minted`, `iter_pass_for`,
+`generic_pass_elem_ty`, `iter_elem_ty` and `PassMember` (checker, `reach.rs`,
+the IR's `pass_member_full`, `unify_vars`/`subst_map`).
+
+- **The divergences, each as R10 names it.** D8: the most specific `next`
+  drives (`for-first-next` prints 100, 200; it drove the first in scope
+  order). D9: a renamed `next` answers to its new name only, in the loop and
+  in the `: Next` obligation's member match, which read the raw scope (a
+  renamed `next` with an `iter` beside it: the loop mints instead). D10: no
+  `: Next`/`: Iter` declaration is needed (`for-no-yield` runs). D11: the
+  enclosing `?next` drives at a concrete type (Rust printed 1, 2; both print
+  10, 20 now, the call's answer). R10 D3: an available member `next` drives,
+  and beside a fn of its signature is the call's ambiguity, said of the
+  `for`.
+- **"A `next` takes `e`"** (`Checker::for_fits`) is asked of every candidate
+  by shape: one explicit parameter `e` unifies with, and `next`'s result
+  shape (D-3), so a `next` of another shape stays an ordinary fn, as it was;
+  an AST pre-test (`may_take`) skips a parameter naming another struct
+  without lowering it. The call then ranks, fills and reports. `next` is
+  resolved at `Mut E` (`Checker::driven`): the loop hands it the iterator in
+  its own mutable place, as the drive always did — without it `for n in
+  build(3)` over a `Countdown` result found no `next(Mut Countdown)`.
+- **What the obligations still do** ([group-obligation]): `: Next<self, T>`
+  and `: Iter<self, It, T>` are promises checked at the declaration;
+  `: Next<self, T>` still teaches a `?Next<It, T>` spread its element type
+  (`learn_next_elems`, [implicit-group]) and is what keeps a loop quiet when
+  the promise is broken where it is made (`broken_next_promise`: the group
+  unknown there, or no `next` of the shape over the struct in its own file —
+  the one place one may be, [unique-shape]). A generic fn's `?Next<It, T>`
+  spread supplies `next` as an implicit, which the call reaches first; the
+  separate implicit logic is gone. The obligation pair on one struct stays
+  refused [iter-group].
+- **Both a `next` and an `iter` on one type** (no obligations): driven by the
+  `next` ("a `next` fits"). Nothing in the code refuses it; the brief
+  suggests an error, so it is DECISION P15 (ROADMAP 0am), with option (b),
+  refusing it at the type, recommended.
+- **The calls' facts**: neither call has a node, so they are keyed
+  `Key::FOR_NEXT` (61) and `Key::FOR_ITER` (62) of the subject's node
+  [node-id]. `Checker::for_site` (a `ForSite`) makes `Checker::key` answer
+  that key for the `for`'s span while the call resolves, moves its
+  diagnostics onto the subject, and words them for the loop ("`for` over
+  `Ctr` is `next(Ctr)`: ambiguous call to `next`: … `next@Gen(…)` …
+  `next@main(…)`"). `pending_typed_only` makes `resolve_named_call` and
+  `check_effect_call` skip what a call does to its argument *places*
+  (coercions, contract application, derived and lending links, value-ref
+  roots): driving keeps its own rules for the subject ([iter-drive-in-place],
+  [proj-type], [for-elem-write] unchanged in meaning; ROADMAP 0an).
+  `PassDriver` lost `next` and keeps the arm identity, in place, the minted
+  iterator's type and the step-call flag; `for_drivers` keeps its place in
+  `partition.rs`, and the call tables need nothing new there (rows route by
+  `Key::decl`). `reach.rs` reads the calls from `call_fn`.
+- **The native loop is the backends' spelling** [iter-for-native]
+  [core-layers]: an array or an `iterable platform type` whose `iter` and
+  `next` both went to declarations is walked natively and records neither
+  call (`forget_for_call`; it makes none, so it reaches neither, and what a
+  call to std's `iter<T>` would refuse — `Mut PoolRec` elements, linear, in
+  `std.runtime` — it does not). An enclosing `?iter`/`?next` or a member is
+  called instead. An array's element stays its `T`.
+- **The IR** lowers both calls from the facts (`Lower::for_call`, the
+  key-and-lowered-arguments sibling of `call_named`): a member call, a call
+  through the fn's own implicit, or a declaration with `call_effects` (else
+  `fn_effects`) and its implicits; no type arguments, so the Rust turbofish
+  and Kotlin's arm spelling are unchanged.
+- **Elements owned or linked, as before**: a pass driven directly, or any
+  loop whose `next` went through the fn's own implicit, owns its elements (a
+  generic `?Iter` source was consumed and its elements owned before, through
+  the old `PassMember::Implicit` test, and is still; found by the IR golden
+  `ir_iteration`).
+- **Found and fixed by the differential's probes** [backend-never-wrong]: a
+  `for` over an `iter fn`'s pass from another module whose pass type is not
+  imported answered the `: Next` clause's element with no `next` to call,
+  and both target compilers refused the native loop emitted over the struct
+  (`for (x in salvo.lib.iter(c))`, rustc E0433). Now refused at the loop,
+  naming the import that brings the `next` (`import lib.CountdownIter`,
+  [fn-attached]).
+- **Diagnostics reworded**: the not-iterable error says which calls `for x in
+  e` is, and the remedy (a `next` or `iter` beside the struct, the import
+  above, or a step call); the `: Next<self, T>` hint is gone with the gate.
+
+**The differential** (temporary `SALVO_XP_B33D`, removed: every checked
+program's sorted diagnostics and `salvo facts`, every IR build's dump, std's
+facts and IR modules by content; base a worktree of b1a9db34; both sides full
+fresh nextest runs): 3,187 programs in common, 6 outputs differing, each
+named: D10's program now driven (the old not-a-pass test's program, kept
+as the new test's), D11's (`call local next`), three rewordings of the
+not-iterable error, and one erroneous fixture's extra loop error, removed by
+`broken_next_promise` (re-run: identical). std's facts and IR identical.
+**Emitted code**: every example, `modules/aws` and both benches identical on
+both backends (examples regenerated in place: no diff; the others compiled
+with both binaries and diffed); goldens unchanged; in the run tests only
+D11's program changes (it calls the implicit), and `expected.txt` everywhere
+unchanged.
+
+**Programs rewritten**: three std-less fixtures that loop over an array
+(`member_tests`, `place_tests`, `fn_effect_tests`) gained a `std/core/array.sv`
+with `ArrayNext`, an intrinsic `iter` and `next` — the call a `for` over an
+array names, in the arrays' std home [unique-shape].
+`once_tests::a_next_without_a_next_obligation_is_not_a_pass` is
+`a_next_without_a_next_obligation_drives_the_loop`; both codegen suites'
+declared-callee program expects 10, 20 from its `for` (D11).
+
+**Tests**: 2,146 (+7): `once_tests` (a renamed `next` does not drive, with
+and without the clause; a member and a fn tie at the loop as at the call;
+the enclosing `?next` drives, and two that tie are refused; a `next` of
+another shape is no driver; a type with both a `next` and an `iter` is
+driven), `export_tests` (the import a pass's `next` needs), and one program
+on both backends (`a_for_as_the_calls_it_names`: D8, D9, D10, D11, a member
+`next`, both `next` and `iter`; `[100, 200] / [7, 8, 9] true / [10, 20] /
+[1, 2] / [3, 6] / [1, 2]`; a `KotlinCase` and `run_rust_files`).
+
+**Timings** (debug, base binary alternated with this one, on a loaded
+machine, load average ~20 on 10 cores): `SALVO_TIMINGS=1 salvo analyze --src
+examples/cluster/salvo` check 181–186ms → 191–209ms, std's own `for`s now
+resolving `iter` and `next` as calls (the shape probe's pre-test took off
+about half the first cost); `tools/lsp-timing.py`, three rounds of four
+edits, medians of the summed top-level phases: `examples/cluster`
+55.3/52.6/42.0 → 52.2/53.8/53.7ms, `modules/aws` (an edit in `s3.sv`)
+43.4/33.0/37.8 → 47.0/35.5/35.1ms — within the spread at that load; an edit
+does not re-check std.
 
 ### 2026-10-28 — Comparison operators are the calls they name (B3 piece 3c, R10 D1, D3, D5, D6, D7)
 
@@ -31319,7 +31449,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2139 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2146 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -32611,6 +32741,27 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A call with no node needs a key, a location and a wording** (B3.3d,
+  2026-10-28, [for-iter]): `resolve_named_call` records under
+  `self.key(span)` and reports at `span` all the way down, so a call a form
+  makes without a node of its own (the `for` header's `next`/`iter`) is
+  resolved at a span only it uses (the `for`'s) while a site
+  (`Checker::for_site`) maps that span to a synthetic key and its diagnostics
+  to the subject. A stand-in argument expression must not be read for
+  anything but arity: `pending_typed_only` guards every use of `args` after
+  selection (coercions, contracts, links, value roots) and in the member
+  path (`check_effect_call` read the argument's type off its node).
+- **A native fast path that drops a call drops its rows too** (B3.3d): the
+  call facts at a native loop's keys are what `reach.rs` walks, so leaving
+  them would emit std's `iter`/`next` (and their iterator structs) into every
+  program with a `for` over a list. Resolve, read what the spelling needs,
+  then forget the rows and the call-site refusals.
+- **A loop is driven at `Mut`** (B3.3d): a `for` subject typed `Countdown`
+  (a call result, an immutable local) is advanced in the loop's own mutable
+  place, so the `next` it names is resolved at `Mut Countdown`; resolved at
+  the value's own type, every hand-written `next(c: Mut C)` is "no matching
+  overload".
 
 - **A fixture without std's comparisons cannot compare** (B3.3c,
   2026-10-28, [op-order]): an operator is the call it names, so a test

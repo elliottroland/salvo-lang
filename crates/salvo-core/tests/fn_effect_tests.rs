@@ -17,6 +17,13 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
+/// [for-iter] [iter-for-native] What a `for` over an array calls, in the
+/// arrays' std home [unique-shape]: `for x in xs` is `next(iter(xs))`, which
+/// the backends walk natively when these are the calls.
+const STD_ARRAY: &str = "export struct ArrayNext<T> canbe Mut {\n    at: Int\n}\n\
+     export intrinsic fn iter<T>(array: T[]) [] -> Mut ArrayNext<T> => array\n\
+     export intrinsic fn next<T>(p: Mut ArrayNext<T>) [] -> Emitted T | Finished => p: Mut\n";
+
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
      export intrinsic fn copy<T>(value: T) [] -> T => value\n\
@@ -38,6 +45,12 @@ fn errors(src: &str) -> Vec<String> {
         "std/core/prelude.sv",
         SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
         STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "std/core/array.sv",
+        SourceSet::classify(Path::new("std/core/array.sv")).unwrap(),
+        STD_ARRAY.to_string(),
         true,
     );
     sources.add(

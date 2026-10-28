@@ -2625,6 +2625,14 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   Built: (a) keep (only implicits shadow an operator); (b) follow the call
   (a body with `cmp: (T, T) -> Int` comparing `Int`s with `<` would be
   refused). Recommendation (a). ROADMAP 0ak.
+  Extended by B3.3d: a local `next`/`iter` does not take a `for` either.
+- **P15. DECISION (open, B3.3d, 2026-10-28): a type with both a `next` and
+  an `iter`.** `for x in e` is `next(e)` when a `next` takes `e`, so such a
+  type is driven and its `iter` never called by a `for`; the brief suggests
+  an error, R10 did not decide, and only the obligation pair (`: Iter` beside
+  `: Next`) is refused today. Built: **(a)** accept, `next` wins; (b) refuse
+  at the type, a per-declaration check beside [unique-shape]; (c) accept and
+  drop the obligation-pair refusal too. Recommendation (b). ROADMAP 0am.
 
 ## II.11. Rounds
 
@@ -3086,6 +3094,44 @@ this log current so the work can resume after a context reset). Newest last.
   `OperatorSite` is how a lowered form's diagnostics name the form; an
   operator's operand promotion is read in every argument list.
 
+- **B3.3d: done** (committed "Drive a for loop through the next and iter it
+  names"). Built ([for-iter], [iter-resolve], [iter-protocol],
+  [group-obligation], [fn-rename]; COMPLETED.md "A `for` is the `next` and
+  `iter` it names"): `for x in e` is `next(e)` when a `next` takes `e`
+  (`Checker::for_fits`, by shape: one parameter, `next`'s result shape),
+  otherwise `next(iter(e))`, each resolved by `for_call`: the enclosing fn's
+  own implicit first (`pick_own_implicit`), then `resolve_named_call` with the
+  argument typed (at `Mut E`) and `pending_typed_only` (no argument-place
+  effects). **D8** the specific `next` drives; **D9** a renamed `next` neither
+  drives nor satisfies `: Next`; **D10** no gate; **D11** the enclosing
+  `?next` drives; **R10 D3** members compete. The call facts are keyed
+  `Key::FOR_NEXT`/`Key::FOR_ITER` of the subject's node (`ForSite` maps the
+  `for`'s span to them and words diagnostics for the loop); `PassDriver` keeps
+  the arm, in-place, the minted type and the step-call flag; `PassMember`, the
+  driver scans, `same_pass_decl`, the generic path and `pass_member_full` are
+  gone; `reach.rs` reads `call_fn`. The native loop is the backends' spelling
+  when both calls went to declarations (rows and call-site refusals
+  forgotten). **What the obligations still do**: promises checked at the
+  declaration, `: Next`'s element for a `?Next` spread's inference, and the
+  loop's quiet when the promise is broken where it is made
+  (`broken_next_promise`). **Found and fixed:** a pass from another module
+  whose type (so whose `next`) is not imported was a native loop over a
+  struct both compilers refused; now an error naming the import. The
+  differential (`SALVO_XP_B33D`, removed; 3,187 programs, full fresh runs both
+  sides, base a worktree of b1a9db34): 6 outputs differ, all named (D10, D11,
+  three rewordings, one erroneous fixture's extra loop error, then removed).
+  Emitted code: examples, `modules/aws`, benches identical on both backends;
+  only D11's run test changes. Tests 2,146. Timings: `analyze` cluster check
+  181–186 → 191–209ms (std's loops resolve their calls), lsp-timing medians
+  within the spread on a loaded machine (COMPLETED.md).
+  **Open:** P15 (ROADMAP 0am, a type with both a `next` and an `iter`); 0an
+  (the header's calls apply no argument contract); P14 extends to a local
+  `next`/`iter`.
+  **What the next pieces need:** `for_call` is the shape of a call a form
+  makes without a node (a key, a site, typed arguments with
+  `pending_typed_only`), and `Lower::for_call` its IR side with lowered
+  arguments; interpolation's `to_str` parts (piece 2) can take both.
+
 ## II.13. The call census (B1, 2026-10-27)
 
 Kept here, not in `tmp/`, because B2 and B3 work from it. The probe programs
@@ -3184,8 +3230,8 @@ covariant in the result, contract included).
 | 18 | `a < b`, `a <= b`, `a == b`, `a != b` | `comparisons`, `promotions` | `check_comparison_operands` 13897 | `cmp(a, b) < 0`, `eq(a, b)`, `!eq(a, b)` (O1) | D1, D2, D5, D6 |
 | 19 | `x == v` with `x` a union and `v` matching one arm | `arm_compares` | `try_arm_compare` 13820 | `x is A && eq(x, v)` | D7 (a rule to keep) |
 | 20 | `a + b`, `- * /` | `promotions` | `check_arith` 14148: numeric operands only; nothing is resolved | `plus(a, b)` … (O1 adds these names; not a call today) | none yet: O1 adds the feature |
-| 21 | `for x in it` (a pass), `for x in c` (a source) | `for_drivers` | `iter_elem_ty` 26708 → `pass_elem_ty` / `find_next_driver` 26184, `generic_pass_elem_ty` 26454, `iter_pass_for` 26370 | `loop { when next(it) … }`, with `it = iter(c)` (O1) | D8, D9, D10, D11 |
-| 22 | `for x in next(p)` (a step call) | `for_drivers` (`step_call`), `call_fn` | `step_call_elem_ty` 26602: the call's own resolution | itself | none |
+| 21 | `for x in it` (a pass), `for x in c` (a source) | `for_drivers` | `iter_elem_ty` 26708 → `pass_elem_ty` / `find_next_driver` 26184, `generic_pass_elem_ty` 26454, `iter_pass_for` 26370 | `loop { when next(it) … }`, with `it = iter(c)` (O1) | D8, D9, D10, D11 (all fixed, B3.3d: the calls at `Key::FOR_NEXT`/`FOR_ITER`) |
+| 22 | `for x in next(p)` (a step call) | `for_drivers` (`step_call`), `call_fn` | `step_call_elem_ty` 26602: the call's own resolution | itself | none (kept as is by B3.3d) |
 | 23 | `a.m(x)` with `a: eff[E]` (a send) | `addr_calls`, `effect_member_calls` | `addr_receiver` 15645 (the receiver must be a place) → `check_addr_call` 15689: members picked by arity; type arguments and named arguments ignored | `m@E(a, x)` as a send | D14, D24 |
 | 24 | `m@self(x)`, and a servant's bare call to a sibling `send fn` | `self_sends`, `facade_sends` | `check_self_send` 15531, `check_servant_send` 16491: the first member of that name | `m@self(x)` | D24 |
 | 25 | `replyto k(c…)`, `k` a free `send fn` | `replyto_tasks`, `fn_refs`, `task_mint_effects` | `check_replyto` 17003 → `free_send_target` 16761 (scope rungs) | a mint of `k@m` with captures `c…` | D18 |
@@ -3374,6 +3420,12 @@ become an ambiguity error where today the earlier one wins silently. This
 survives O1-D: both overloads are in `Ctr`'s file. `iter` has the same
 first-match rule (not probed separately). **Decision:** none.
 
+Fixed (commit "Drive a for loop through the next and iter it names"): `for x in c` is the call `next(c)`, ranked as the call
+ranks; `for-first-next` prints `for:  100`, `for:  200` on both backends.
+Two same-signature `next`s cannot meet at a concrete type any more
+([unique-shape] puts both in the type's file, where [fn-overload-duplicate]
+refuses the second); the probe's generic-beside-specific pair is ranked.
+
 #### D9. `for` ignores `rename fn`
 
 Both the driver scan and the `: Next` obligation check read `scope.fns`
@@ -3389,6 +3441,14 @@ obligation, since it is no longer satisfied by a `next`. [fn-rename] already
 says a renamed overload leaves the old name "in calls, in fn values and in
 implicit resolution". **Decision:** none.
 
+Fixed (commit "Drive a for loop through the next and iter it names"): the `for` resolves `next` through the call's candidate
+set, so a renamed overload answers only to its new name; the `: Next`
+obligation's member match skips it too. `for-renamed-next` is refused at the
+struct (the obligation) and the loop stays quiet (one mistake, one
+diagnostic); without the clause the loop is refused as not iterable, and with
+an `iter` beside it the loop mints from that instead (the run test's
+`Steps`).
+
 #### D10. `for` needs a `: Next` declaration that `next(c)` does not
 
 - `for-no-yield`: `Ctr` declares no `: Next`. `next(d)` is accepted;
@@ -3402,6 +3462,10 @@ to `next`/`iter`, but whether the obligation stays as the gate on which of
 the two forms is meant ("a type declares `: Iter` or `: Next`, never
 both") is yours. Keeping the gate is an exception to P3 that reads a
 declaration, not a resolution.
+
+Fixed (commit "Drive a for loop through the next and iter it names", R10 D10): no `: Next` / `: Iter` gate; `for-no-yield`
+prints `call: 1`, `for:  1`, `for:  2` on both backends. The obligations stay
+promises checked at the declaration [group-obligation].
 
 #### D11. At a concrete pass type, `for` ignores the enclosing `?next`, and Kotlin does not
 
@@ -3427,6 +3491,10 @@ let P3's core call node do it.
 
 Fixed (commit "Qualify every declared callee in Kotlin and check fn-value calls"): every declared call is
 package-qualified on Kotlin; both backends print 1, 2 and 10.
+
+Fixed, the P3 half (commit "Drive a for loop through the next and iter it names"): the enclosing `?next` takes the loop at a
+concrete type as it takes the call; `for-own-implicit` prints `for:  10`,
+`for:  20`, `call: 10` on both backends.
 
 #### D12. A dot call ignores enclosing implicits
 

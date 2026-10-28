@@ -270,15 +270,9 @@ pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> Has
             }
         }
     }
-    // [iter-resolve] The `next` a `for` drives and the `iter` it mints with.
-    for (_, driver) in checked.for_drivers.iter().filter(|(k, _)| mine(k)) {
-        if let Some(key) = driver.next.key() {
-            out.insert(key);
-        }
-        if let Some(crate::PassMember::Fn(key)) = driver.mint {
-            out.insert(key);
-        }
-    }
+    // [iter-resolve] The `next` a `for` drives and the `iter` it mints with
+    // are call facts like any (`call_fn` above, at the subject's
+    // `Key::FOR_NEXT`/`Key::FOR_ITER`).
     // [cmp-carry] An identity a keyed container carries reaches this answer
     // through `fn_refs`, where the checker records it at the span that names
     // it — per *file*, which the `carried_identities` table is not: it is

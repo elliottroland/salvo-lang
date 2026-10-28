@@ -845,6 +845,13 @@ nothing but the monitor.
   * A `for` over a **container** calls its `iter` once before the loop and drives
     the result [iter-mint]; a list, an array or a `String` keeps Kotlin's own
     `for` instead [iter-for-native].
+  * [for-iter] The driving `next` and the minting `iter` are the calls `for`
+    names, lowered from the checker's call facts at the subject (B3.3d): to the
+    declaration (package-qualified [kt-decl-call-qualified]), through the fn's
+    own `?next` parameter, or to an effect's member on its handler. No type
+    arguments are written on them; a generic `next`'s arm keeps the
+    stars-and-cast spelling [kt-suppress-cast]. Kotlin's own `for` is used
+    only where both calls went to declarations.
   * An **effectful `next`** takes its handlers as leading arguments, threaded
     into every turn of the loop [fn-effects].
   * [linear-group] A pass with a `close` is released in a `finally`, so

@@ -19,9 +19,11 @@ Finished` has two arms where `None | None` would have one. `Finished` is a
 fieldless struct because it has nothing to qualify.
 
 **`for` is sugar for calling a step until `Finished`.** There is one protocol
-and one lowering. A `for` over *data* — a list, an array, a string — is walked
-natively by the backend; anything else is an iterator, driven by its `next`, or
-a source, from which an `iter` mints one.
+and one lowering: `for x in e` is the call `next(e)` when some `next` takes
+`e` — `e` is an **iterator** — and `next(iter(e))` otherwise — `e` is a
+**source**, from which `iter` mints one. A `for` over *data* — a list, an array,
+a string — is the same pair of calls, std's, which the backends spell as their
+own native loop.
 
 ```
 for x in xs { ... }             // a list: walked in place
@@ -39,11 +41,8 @@ loop reached, so a function can take two elements and leave the rest. Only a
 ## Writing an iterator struct by hand
 
 Declaring a `next` is what makes iteration writable — `zip`, `merge`, anything
-reading two sources at once. The method alone does not make a struct an
-iterator: the tie is stated as an obligation, `: Next<self, T>`, and checked
-at the struct (declaring it without a matching `next` is an error naming the
-missing signature). `for` reads the declaration — it does not scan overloads
-for a `next` and guess:
+reading two sources at once. The function is all it takes: `for pair in z` is
+`next(z)`, so a struct some `next` takes is an iterator.
 
 ```
 struct Zip<A, B> : Next<self, (A, B)> canbe Mut {
@@ -55,11 +54,31 @@ struct Zip<A, B> : Next<self, (A, B)> canbe Mut {
 fn next<A, B>(z: Mut Zip<A, B>) -> Emitted (A, B) | Finished => z: Mut { ... }
 ```
 
-Leave the clause off `Zip` and the `for` reports it:
+The `: Next<self, (A, B)>` clause is optional. It promises the `next`, checked
+at the struct, where a misspelled one is caught (declaring the clause without
+a matching `next` is an error naming the missing signature), and it says what
+the iterator yields to a combinator that infers its element type from it.
+
+### Which `next` a `for` calls
+
+The one the call `next(z)` would: the most specific of the `next`s that take
+the iterator, wherever they come from, or an error when none is more specific.
+Everything that changes what a call means changes what the loop calls:
+
+- an enclosing implicit `?next` that takes the iterator is the one called, as
+  it is for a written `next(z)` ([Implicit parameters](Implicit-Parameters.md));
+- a member `next` of an effect in the function's effect list competes with the
+  functions ([Effects and handlers](Effects-and-Handlers.md));
+- a `next` given another name with `rename fn` is no longer a `next`, for the
+  loop as for a call.
+
+A `next` counts only with its result shape, `Emitted T | Finished`: a `next`
+returning anything else is an ordinary function. When nothing takes the value,
+the loop says so in those terms:
 
 ```
-`Zip<(A, B)>` is not iterable … (`Zip` has a matching `next` — declare
-`: Next<self, (A, B)>` on it to make it an iterator struct)
+`Zip<Int, Str>` is not iterable: `for x in e` is `next(e)` when a `next` takes `e`,
+and `next(iter(e))` otherwise, and no `next` or `iter` in scope takes `Zip<Int, Str>` …
 ```
 
 An iterator struct that owns something declares itself `linear struct` and
@@ -168,7 +187,8 @@ a hand-written iterator works here.
 ## Sources: `Iter`
 
 A type becomes a **source** — something `for` mints an iterator from — by
-declaring the `Iter` group as an obligation:
+having an `iter` that takes it; declaring the `Iter` group as an obligation
+states the pair and checks it at the type:
 
 ```
 fns Iter<C, It, T> => iter with next {
@@ -213,14 +233,17 @@ Over an iterator rather than a source, the spread is `?Next<It, T>` with the
 iterator as a parameter: `fn first<It>(it: Mut It, ?Next<It, Int>)`.
 
 A type declares `: Iter<self, It, T>` **or** `: Next<self, T>`, never both: it is
-a source or an iterator struct, and `for x in s` would otherwise have two
-answers.
+a source or an iterator struct, and declaring both is refused. A type that has
+both a `next` and an `iter` without declaring either is driven by its `next`:
+a value some `next` takes is already a position in a sequence.
 
 std's containers are sources through their `iter` (`fn iter<T>(list: List<T>)
 -> Mut ListNext<T>`, and the same for arrays, `Str`, `Set`, `Map`); each
 answers a named struct with an ordinary `next`, so nothing about container
 iteration is special-cased. The backends keep their native loop as a fast path
-for a `for` straight over a list, an array or a string.
+for a `for` straight over a list, an array or a string — their spelling of
+`next(iter(xs))` when those are std's own `iter` and `next`. An enclosing
+`?iter` or `?next` that takes the list is called instead.
 
 std's `range` is an `iter fn range(start, end, step)` whose state is `Range`,
 and two overloads, `fn range(start: Int, end: Int) -> Mut Range` and `fn

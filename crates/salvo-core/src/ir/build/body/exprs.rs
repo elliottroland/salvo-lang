@@ -696,44 +696,57 @@ impl<'a, 'p> Lower<'a, 'p> {
         Expr { ty: str_ty, span, kind: ExprKind::UnionToStr { value: Box::new(value), arms: fns } }
     }
 
-    /// [iter-protocol] A pass member (`iter`, `next`): the fn reference and its
-    /// result type at `subject_ty`.
-    /// [iter-protocol] A pass member (`iter`, `next`): the fn reference, its
-    /// result type at `subject_ty`, and the effect instances its declaration
-    /// takes [fn-effects].
-    fn pass_member_full(&mut self, m: &crate::check::PassMember, subject_ty: &Ty) -> (FnRef, Ty, Vec<Ty>) {
-        match m {
-            crate::check::PassMember::Fn(k) => {
-                let effects: Vec<Ty> = self
-                    .ctx
-                    .checked
-                    .fn_effects
-                    .get(k)
-                    .map(|v| v.iter().filter(|t| !matches!(t, Ty::Named { name, .. } if name == crate::THROW_EFFECT)).map(erase).collect())
-                    .unwrap_or_default();
-                let ret = match self.ctx.fn_by_key(*k) {
-                    Some(d) => {
-                        let declared = d.return_type.as_ref().map(|t| self.ctx.written_ty(self.file_idx, t)).unwrap_or_else(Ty::none);
-                        let first = d.params.iter().find(|p| !p.implicit).map(|p| self.ctx.written_ty(self.file_idx, &p.ty));
-                        let mut map = std::collections::HashMap::new();
-                        if let Some(f) = first {
-                            unify_vars(&f, subject_ty, &mut map);
-                        }
-                        subst_map(&declared, &map)
-                    }
-                    None => Ty::Unknown,
-                };
-                (FnRef::Decl(*k), ret, effects)
-            }
-            crate::check::PassMember::Implicit(n) => {
-                let local = self.lookup(n).map(|b| b.local.clone()).or_else(|| self.implicit_locals.get(n).cloned()).unwrap_or(Local(n.clone()));
-                let (ret, effects) = match self.lookup(&local.0).map(|b| b.ty.clone()) {
-                    Some(Ty::Fn { ret, effects, .. }) => ((*ret).clone(), effects.clone()),
-                    _ => (Ty::Unknown, Vec::new()),
-                };
-                (FnRef::Local(local), ret, effects)
-            }
+    /// [for-iter] The call a `for` names (`next(it)`, `iter(c)`), lowered from
+    /// the call facts the checker recorded at `key` (`Key::FOR_NEXT` /
+    /// `Key::FOR_ITER` of the subject's node) with its argument in hand: to an
+    /// effect's member, through the fn's own implicit, or to a declaration
+    /// with its effects and implicits. No type arguments are written: the
+    /// driving call is the backends' own spelling of the loop, and they infer
+    /// them from the argument.
+    fn for_call(&mut self, key: crate::check::Key, args: Vec<Expr>, ty: Ty, span: Span) -> Expr {
+        let checked = self.ctx.checked;
+        let info = checked.call_info(key);
+        // [effect-dispatch]
+        if let Some(mc) = info.member_call.cloned() {
+            let Some(interface) = self.ctx.decl_of_effect(&mc.effect) else {
+                self.error(span, format!("effect `{}` has no declaration", mc.effect));
+                return unsupported(ty, span, "member call");
+            };
+            let instance_ty = info.effect_call.cloned().unwrap_or_else(|| Ty::named(mc.effect.clone()));
+            let instance = self.effect_instance(&instance_ty, span);
+            let mut lowered = args;
+            lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), &[], span));
+            return Expr { ty, span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index: mc.index }, type_args: Vec::new(), args: lowered } };
         }
+        // [implicit-resolve-body] Through the fn's own implicit.
+        if info.local_call {
+            let name = info.local_call_name.cloned().unwrap_or_default();
+            let local = self.lookup(&name).map(|b| b.local.clone()).or_else(|| self.implicit_locals.get(&name).cloned()).unwrap_or(Local(name.clone()));
+            let mut a: Vec<Expr> = Vec::new();
+            if let Some(Ty::Fn { effects, .. }) = self.lookup(&local.0).map(|b| b.ty.clone()) {
+                for t in crate::threaded_effects(&effects) {
+                    a.push(self.effect_instance(&t, span));
+                }
+            }
+            a.extend(args);
+            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Local(local), type_args: Vec::new(), args: a, moved: false } };
+        }
+        let Some(k) = info.call_fn.copied() else {
+            self.error(span, "a `for` with no call recorded for its iterator".to_string());
+            return unsupported(ty, span, "for");
+        };
+        // Effects as values: the instances a callee declaring effects takes.
+        let effects: Vec<Ty> = match info.call_effects {
+            Some(effs) => effs.clone(),
+            None => self.ctx.checked.fn_effects.get(&k).cloned().unwrap_or_default(),
+        };
+        let mut lowered: Vec<Expr> = Vec::new();
+        for t in effects.iter().filter(|t| !matches!(t, Ty::Named { name, .. } if name == crate::THROW_EFFECT)) {
+            lowered.push(self.effect_instance(&erase(t), span));
+        }
+        lowered.extend(args);
+        lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), &[], span));
+        Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(k), type_args: Vec::new(), args: lowered, moved: false } }
     }
 
     /// The std intrinsic `name` declared over exactly these parameter types.
@@ -2845,13 +2858,11 @@ impl<'a, 'p> Lower<'a, 'p> {
             Some(d) => {
                 // The pass: minted, or the subject itself.
                 let pass = self.fresh("__pass");
-                let subject_ty = subject.ty.clone();
+                let node = self.key(iterable.span());
                 let minted = match &d.mint {
-                    Some(m) => {
-                        let (target, ret, effects) = self.pass_member_full(m, &subject_ty);
-                        let mut args: Vec<Expr> = effects.iter().map(|t| self.effect_instance(t, span)).collect();
-                        args.push(subject);
-                        Expr { ty: ret, span, kind: ExprKind::Call { target, type_args: Vec::new(), args, moved: false } }
+                    // [iter-mint] `next(iter(c))`: the `iter`, once.
+                    Some(pass_ty) => {
+                        self.for_call(node.synthetic(crate::check::Key::FOR_ITER), vec![subject], erase(pass_ty), span)
                     }
                     None => subject,
                 };
@@ -2883,10 +2894,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                     self.expr(iterable)
                 } else {
                     let pass_ty = pass_tys.iter().find(|(l, _)| *l == pass).map(|(_, t)| t.clone()).unwrap_or(Ty::Unknown);
-                    let (next_target, _, effects) = self.pass_member_full(&d.next, &pass_ty);
-                    let mut args: Vec<Expr> = effects.iter().map(|t| self.effect_instance(t, span)).collect();
-                    args.push(Expr { ty: pass_ty, span, kind: ExprKind::Read { place: Place { root: pass.clone(), steps: Vec::new() }, consume: false, moved: false } });
-                    Expr { ty: step_ty.clone(), span, kind: ExprKind::Call { target: next_target, type_args: Vec::new(), args, moved: false } }
+                    let it = Expr { ty: pass_ty, span, kind: ExprKind::Read { place: Place { root: pass.clone(), steps: Vec::new() }, consume: false, moved: false } };
+                    self.for_call(node.synthetic(crate::check::Key::FOR_NEXT), vec![it], step_ty.clone(), span)
                 };
                 stmts.push(Stmt::Let { id: sid, local: step.clone(), ty: step_ty.clone(), value: step_value });
                 let swid = self.id();
@@ -3400,47 +3409,6 @@ pub(crate) fn subst_vars(t: &Ty, generics: &[String], args: &[Ty]) -> Ty {
         Ty::Union(v) => Ty::Union(v.iter().map(|x| subst_vars(x, generics, args)).collect()),
         Ty::Tuple(v) => Ty::Tuple(v.iter().map(|x| subst_vars(x, generics, args)).collect()),
         Ty::Array(e) => Ty::Array(Box::new(subst_vars(e, generics, args))),
-        other => other.clone(),
-    }
-}
-
-/// Binds the variables of `pattern` to the parts of `concrete` they stand for.
-pub(crate) fn unify_vars(pattern: &Ty, concrete: &Ty, map: &mut std::collections::HashMap<String, Ty>) {
-    match (pattern.strip_quals(), concrete.strip_quals()) {
-        (Ty::Var(v), c) => {
-            map.entry(v.clone()).or_insert_with(|| c.clone());
-        }
-        (Ty::Named { name, args: _ }, c) if !matches!(c, Ty::Named { .. }) => {
-            map.entry(name.clone()).or_insert_with(|| c.clone());
-        }
-        (Ty::Named { name: pn, args: pa }, Ty::Named { name: cn, args: ca }) => {
-            if pn != cn && pa.is_empty() {
-                map.entry(pn.clone()).or_insert_with(|| concrete.strip_quals().clone());
-                return;
-            }
-            for (p, c) in pa.iter().zip(ca) {
-                unify_vars(p, c, map);
-            }
-        }
-        (Ty::Union(ps), Ty::Union(cs)) | (Ty::Tuple(ps), Ty::Tuple(cs)) => {
-            for (p, c) in ps.iter().zip(cs) {
-                unify_vars(p, c, map);
-            }
-        }
-        (Ty::Array(p), Ty::Array(c)) => unify_vars(p, c, map),
-        _ => {}
-    }
-}
-
-pub(crate) fn subst_map(t: &Ty, map: &std::collections::HashMap<String, Ty>) -> Ty {
-    match t {
-        Ty::Var(v) => map.get(v).cloned().unwrap_or_else(|| t.clone()),
-        Ty::Named { name, args } if args.is_empty() && map.contains_key(name) => map[name].clone(),
-        Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(|x| subst_map(x, map)).collect() },
-        Ty::Qualified { quals, base } => Ty::Qualified { quals: quals.clone(), base: Box::new(subst_map(base, map)) },
-        Ty::Union(v) => Ty::Union(v.iter().map(|x| subst_map(x, map)).collect()),
-        Ty::Tuple(v) => Ty::Tuple(v.iter().map(|x| subst_map(x, map)).collect()),
-        Ty::Array(e) => Ty::Array(Box::new(subst_map(e, map))),
         other => other.clone(),
     }
 }
