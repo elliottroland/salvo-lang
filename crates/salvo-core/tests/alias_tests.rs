@@ -3,6 +3,8 @@
 //! away before resolution, the same way prerequisites are (user decision
 //! 2026-10-14): the checker and both emitters see an ordinary program with no
 //! aliases in it.
+//!
+//! The rest of these tests are test data, `tests/check/aliases/` (TESTS.md T1).
 
 use std::path::Path;
 
@@ -92,150 +94,12 @@ handler Out() of Console {
 }
 ";
 
-// [effect-alias] An alias in a fn's effect list is its member list: a fn
-// declaring `[App]` may call members of every effect in `App`, and nothing
-// else. A transitive alias (`Big = [App, Clock]`) closes to the same set,
-// deduped.
-#[test]
-fn an_alias_is_its_member_list_in_a_fn() {
-    let src = &format!(
-        "{CLOCK}\
-effects App = [Console, Clock]
-effects Big = [App, Clock]
-
-fn a() [App] -> None {{
-    print(\"x\")
-    let _ = now()
-}}
-
-fn b() [Big] -> None {{
-    print(\"y\")
-    let _ = now()
-}}
-
-fn main() [use] {{
-    use Out()
-    use Ticking()
-    a()
-    b()
-}}
-"
-    );
-    let errs = errors(&[("main.sv", src)]);
-    assert!(errs.is_empty(), "{errs:?}");
-}
-
-// [effect-alias] A fn that declares `[App]` may not perform an effect App does
-// not stand for — expansion adds nothing extra.
-#[test]
-fn an_alias_grants_only_its_members() {
-    let src = &format!(
-        "{CLOCK}\
-effect Secret {{
-    fn leak() -> None
-}}
-effects App = [Console]
-
-fn a() [App] -> None {{
-    leak()
-}}
-"
-    );
-    let errs = errors(&[("main.sv", src)]);
-    assert!(!errs.is_empty(), "calling an effect outside the alias must fail");
-}
-
-// [effect-alias] An alias works in a handler's dependency list and in an
-// effect's prerequisite list, not only in a fn's.
-#[test]
-fn an_alias_expands_in_handler_deps_and_prereqs() {
-    let src = &format!(
-        "{CLOCK}\
-effects App = [Console, Clock]
-
-effect Logger {{
-    fn log(m: Str) -> None => m
-}}
-handler StampLog() [App] of Logger {{
-    fn log(m: Str) -> None => m {{
-        print(\"${{now()}} ${{m}}\")
-    }}
-}}
-
-effect Reporter [App] {{
-    fn report(w: Str) -> None => w
-}}
-handler Rep() of Reporter {{
-    fn report(w: Str) -> None => w {{
-        print(\"${{now()}} ${{w}}\")
-    }}
-}}
-
-fn do_log(m: Str) [Logger] -> None => m {{ log(m) }}
-fn do_rep(w: Str) [Reporter] -> None => w {{ report(w) }}
-
-fn main() [use] {{
-    use Out()
-    use Ticking()
-    use StampLog()
-    do_log(\"a\")
-    use Rep()
-    do_rep(\"b\")
-}}
-"
-    );
-    let errs = errors(&[("main.sv", src)]);
-    assert!(errs.is_empty(), "{errs:?}");
-}
-
-// [effect-alias] An exported alias is usable from another module: `import
-// caps.App` brings the alias, and expansion synthesizes imports for whichever
-// members the consuming file cannot already name (a `std.core.*` effect needs
-// none; a local effect of the alias's module does).
-#[test]
-fn an_alias_crosses_modules() {
-    let caps = "\
-export effect Clock {
-    fn now() -> Int
-}
-export handler Ticking() of Clock {
-    state { tick: Int = 0 }
-    fn now() -> Int {
-        tick = tick + 1
-        return tick
-    }
-}
-export effect Console {
-    fn print(message: Str) -> None => message
-}
-export handler Out() of Console {
-    fn print(message: Str) -> None => message {}
-}
-export effects App = [Console, Clock]
-";
-    let main = "\
-import caps.App
-import caps.Ticking
-import caps.Out
-
-fn report(label: Str) [App] -> None => label {
-    print(label)
-    let _ = now()
-}
-
-fn main() [use] {
-    use Out()
-    use Ticking()
-    report(\"x\")
-}
-";
-    let errs = errors(&[("caps.sv", caps), ("main.sv", main)]);
-    assert!(errs.is_empty(), "{errs:?}");
-}
-
 // [effect-alias] The declaration's own rules: no cycle, and only plain named
 // effects as members — `use`, `spawn` and `any` are refused where the alias
 // is declared.
+//
+// Kept over its prelude, not moved to `check/aliases/`: checked exactly, the
+// cycle is also reported at the `[A]` that uses it (ROADMAP §0ar).
 #[test]
 fn a_malformed_alias_is_refused() {
     let cycle = &format!("{CLOCK}effects A = [B, Console]\neffects B = [A]\nfn f() [A] -> None {{ print(\"x\") }}\n");
@@ -262,6 +126,9 @@ fn a_malformed_alias_is_refused() {
 
 // [effect-alias] `any Alias` in a use-site list is refused: an alias is several
 // effects, and `any` is about one instance of one effect.
+//
+// Kept over its prelude, not moved to `check/aliases/`: checked exactly, the
+// refused `any App` also reports `print` as having no `Console` handler.
 #[test]
 fn any_on_an_alias_is_refused() {
     let src = &format!("{CLOCK}effects App = [Console, Clock]\nfn f() [any App] -> None {{ print(\"x\") }}\n");
@@ -269,35 +136,5 @@ fn any_on_an_alias_is_refused() {
     assert!(
         errs.iter().any(|d| d.id == Some("effect-alias:any-alias") && d.message.contains("is an effect alias")),
         "{errs:?}"
-    );
-}
-
-// [effect-eff-handle] An alias flattens inside an `eff[…]` handle type too, not only
-// in an effect list: `eff[App]` is `eff[Console, Clock]`, so a fn taking
-// `eff[App]` accepts a handle carrying those effects.
-#[test]
-fn an_alias_flattens_inside_a_handle_type() {
-    let src = &format!(
-        "{CLOCK}\
-effects App = [Console, Clock]
-
-fn read(h: eff[App]) [use] -> None => h {{
-    use h
-    print(\"x\")
-    let _ = now()
-}}
-
-fn main() [use] {{
-    let c = use Out()
-    let _ = c
-}}
-"
-    );
-    let errs = errors(&[("main.sv", src)]);
-    // `eff[App]` must resolve its members (`Console`, `Clock`) — no unknown
-    // effect from an unexpanded `App` inside the handle type.
-    assert!(
-        !errs.iter().any(|e| e.contains("App")),
-        "`eff[App]` must flatten to its members: {errs:?}"
     );
 }

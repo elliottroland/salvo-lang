@@ -1,9 +1,9 @@
 # Reorganizing the tests (working document)
 
 **Status:** rounds 1–3 decided (§6, 2026-10-28): TD1–TD12, nothing open.
-Sequence steps 1 (T6), 2 (T3 with C2) and 3 (T2: the label rename,
-`@compilerrules`, diagnostic ids) are done (§7); step 4 (T1, data files) is
-next.
+Sequence steps 1 (T6), 2 (T3 with C2), 3 (T2: the label rename,
+`@compilerrules`, diagnostic ids) and 4 (T1, check data files) are done
+(§7); step 5 (C3 with C1, the run-data runner) is next.
 Started at
 the user's request while PIPELINE.md Part II was paused (its §II.12 "Where it
 stands"): this run spent about half its logged time on tests (since Part II's
@@ -732,6 +732,10 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   ROADMAP §0ar.
 - **Step 4 wave 2 (2026-10-28).** 23 files → 23 more areas (34 in all);
   435 Rust tests → data + 51 Rust tests; ROADMAP §0ar extended.
+- **Step 4 wave 3 (2026-10-28).** The last 20 files with checker
+  diagnostics → 19 more areas (53 in all, 139 files, 868 annotations).
+  salvo-core's Rust tests: 67 files / 1,168 fns before step 4, 44 / 169
+  after. Step 4 is done; next is step 5 (C3 with C1, the run-data runner).
 - **The migration procedure** (what each wave's sub-agents follow; the full
   prompt is kept as `tmp/migrate_prompt.md` while the waves run). Per test:
   a diagnostic or clean-program test becomes data in an area named for the

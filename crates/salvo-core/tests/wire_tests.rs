@@ -1,228 +1,37 @@
-//! [net-wire-format] [net-noremote] [actor-protocol-hash] What may cross a machine, as the
-//! checker sees it — step ② of the network sequence (user decisions
-//! 2026-09-26). Every type is serializable unless it is, or holds, something
-//! `noremote`; `encode`/`decode` are refused at the call, naming what stops
-//! them; and an actor protocol's canonical hash is a property of its shape,
-//! not its names.
+//! [actor-protocol-hash] An actor protocol's canonical hash is a property of
+//! its shape, not its names: a table (`Checked::protocol_hashes`), so these
+//! stay Rust tests, over the real std (`salvo_testkit::front`). What may cross
+//! a machine — [net-wire-format] [net-noremote], the diagnostics — is
+//! `tests/check/wire/` (TESTS.md T1).
 
-use std::path::Path;
-
-use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
-
-/// [platform-intrinsic-std-only] A std-shaped prelude: the scalars, the containers the
-/// predicate names, and `net`'s two intrinsics in a module of their own.
-const STD_PRELUDE: &str = concat!(
-    concat!(
-    "export intrinsic type Int\n",
-    "export intrinsic type Long\n",
-    "export intrinsic type Bool\n",
-    "export intrinsic type Str canbe Mut\n",
-    "export intrinsic type Bytes canbe Mut\n",
-    "export intrinsic type List<T> canbe Mut\n",
-    "export intrinsic type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut\n",
-    "export intrinsic fn hash(value: Int) [] -> Long => value\n",
-    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
-    "export intrinsic fn Set<T>(...elems: T[]) [] -> Set<T>\n",
-    "export noremote intrinsic type Pool\n",
-    "export intrinsic fn pool(size: Int) [spawn] -> Pool => size\n",
-    "export intrinsic type Addr<E>\n",
-    "export linear intrinsic type Reply<T>\n",
-    "export intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value\n",
-    "export struct Mailbox { capacity: Int }\n",
-    "export intrinsic fn Mut List<T>(...elems: T[]) [] -> Mut List<T>\n",
-    "export intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n",
-    "export intrinsic fn copy<T>(value: T) [] -> T => value\n",
-),
-    // [op-equality] [op-order] What the comparison operators call.
-    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
-    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
-    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
-    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
-    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
-);
-
-const STD_NET: &str = concat!(
-    "export intrinsic fn encode<T>(value: T) [] -> Bytes => !value\n",
-    "export intrinsic fn decode<T>(data: Bytes) [] -> T? => data\n",
-    "export struct Protocol<E> { name: Str, hash: Str }\n",
-    "export intrinsic fn protocol<E>() [] -> Protocol<E>\n",
-    "export actor effect NodeGroup { send fn leave() }\n",
-    "export actor effect ActorGroup<E> { send fn join(member: eff[E]) => !member }\n",
-    // [actor-group] An ordinary fn over an implicit `?protocol`, as std's is:
-    // the intrinsic that fills it is where a noremote `E` is refused.
-    "export fn actor_group<E>(nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [spawn] -> Int => !nodes {\n",
-    "    let _p = protocol()\n    return 0\n}\n",
-    // The pick kit's shape, enough for the erased-sibling rule [actor-route-stub].
-    "export struct RouteView<E> { size: Int = 0 }\n",
-    "export effect RouteSelector<E> { fn changed(view: RouteView<E>) -> None => view\n    fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key }\n",
-    "export handler LeastLoaded<E>(prefer_local: Bool) of RouteSelector<E> {\n",
-    "    fn changed(view: RouteView<E>) -> None => view {}\n    fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key { return None }\n}\n",
-    "export handler Sharded<E>() of RouteSelector<E> {\n",
-    "    fn changed(view: RouteView<E>) -> None => view {}\n    fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key { return None }\n}\n",
-);
-
-fn program(src: &str) -> (Program, Vec<FileDiagnostic>) {
-    let mut sources = SourceSet::default();
-    sources.add(
-        "std/core/prelude.sv",
-        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
-        STD_PRELUDE.to_string(),
-        true,
-    );
-    // [fn-type-named] `List<T>()` resolves to `std.core.list`'s `List`.
-    sources.add(
-        "std/core/list.sv",
-        SourceSet::classify(Path::new("std/core/list.sv")).unwrap(),
-        "export intrinsic fn List<T>() [] -> List<T>\n".to_string(),
-        true,
-    );
-    sources.add(
-        "std/net.sv",
-        SourceSet::classify(Path::new("std/net.sv")).unwrap(),
-        STD_NET.to_string(),
-        true,
-    );
-    sources.add(
-        "main.sv",
-        SourceSet::classify(Path::new("main.sv")).unwrap(),
-        src.to_string(),
-        false,
-    );
-    let mut modules = Vec::with_capacity(sources.files.len());
-    for file in &sources.files {
-        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
-        let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-        assert!(
-            parse_errors.is_empty(),
-            "parse errors in {}: {parse_errors:?}",
-            file.name
-        );
-        modules.push(ast);
-    }
-    // [comptime-instantiate] The `by` sites stamp before resolution.
-    let _expansion = salvo_core::expand(&sources.files, &mut modules);
-    let program = Program {
-        files: sources.files,
-        modules: Program::share(modules),
-        companions: Vec::new(),
-    };
-    let symbols = Symbols::collect(&program);
-    let resolution = resolve(&program);
-    let mut errors: Vec<FileDiagnostic> = resolution.errors.clone();
-    errors.extend(check_program(&program, &resolution, &symbols).errors);
-    (program, errors)
-}
-
-fn messages(src: &str) -> Vec<String> {
-    program(src).1.iter().map(|d| d.message.clone()).collect()
-}
-
-const IMPORT: &str = "import std.net\n\n";
-
-/// [net-wire-format] The default: a struct of scalars, strings, lists, options
-/// and unions has a wire form, and so do `encode` and `decode` of it.
-#[test]
-fn ordinary_data_encodes() {
-    let errs = messages(&format!(
-        "{IMPORT}struct Tag {{ name: Str }}\n\
-         struct Pin {{ x: Int, label: Str?, tags: List<Tag>, kind: Tag | Int | None, raw: Bytes }}\n\
-         fn main() -> None {{\n    \
-         let p = Pin {{ x: 1, label: None, tags: List<Tag>(), kind: 2, raw: encode(3) }}\n    \
-         let b = encode(p)\n    let _back = decode<Pin>(b)\n}}\n"
-    ));
+/// The protocol hash of `effect` (its key) in `files`, which must check clean.
+fn hash_of(files: &[(&str, &str)], effect: &str) -> String {
+    let checked = salvo_testkit::front::check(files);
+    let errs = checked.errors();
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
-}
-
-/// [net-noremote] A `noremote` struct is refused at the `encode`, by name.
-#[test]
-fn a_noremote_struct_is_refused_at_encode() {
-    let errs = messages(&format!(
-        "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
-         fn main() -> None {{\n    let b = encode(Canvas {{ n: 1 }})\n}}\n"
-    ));
-    assert!(
-        errs.iter().any(|e| e.contains("`encode` needs a type with a wire form")
-            && e.contains("`Canvas` is declared `noremote`")),
-        "expected the noremote refusal, got {errs:?}"
-    );
-}
-
-/// [net-noremote] Transitive: a struct holding a `noremote` field is refused, and
-/// the message names the field that stops it.
-#[test]
-fn noremote_is_transitive_through_fields() {
-    let errs = messages(&format!(
-        "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
-         struct Frame {{ title: Str, canvas: Canvas }}\n\
-         fn main() -> None {{\n    let b = encode(Frame {{ title: \"t\", canvas: Canvas {{ n: 1 }} }})\n}}\n"
-    ));
-    assert!(
-        errs.iter().any(|e| e.contains("`Frame.canvas (Canvas)` is declared `noremote`")),
-        "expected the field to be named, got {errs:?}"
-    );
-}
-
-/// [net-noremote] std's process-local handles are `noremote` by declaration
-/// (`Pool` here), so a struct holding one has no wire form.
-#[test]
-fn a_pool_has_no_wire_form() {
-    let errs = messages(&format!(
-        "{IMPORT}struct Placement {{ where: Pool }}\n\
-         fn main() -> None {{\n    let b = encode(Placement {{ where: pool(2) }})\n}}\n"
-    ));
-    assert!(
-        errs.iter().any(|e| e.contains("`Placement.where (Pool)` is declared `noremote`")),
-        "expected Pool to block, got {errs:?}"
-    );
-}
-
-/// [net-noremote] A function value has no wire form, by construction.
-#[test]
-fn a_function_value_has_no_wire_form() {
-    let errs = messages(&format!(
-        "{IMPORT}struct Rule {{ test: (Int) -> Bool }}\n\
-         fn main() -> None {{\n    let b = encode(Rule {{ test: n -> n > 0 }})\n}}\n"
-    ));
-    assert!(
-        errs.iter().any(|e| e.contains("holds a function value")),
-        "expected the fn-value block, got {errs:?}"
-    );
-}
-
-/// [net-wire-format] Step ②'s recorded cuts, each refused with its reason: a keyed
-/// container (identity capabilities not yet carried), and a generic `T`
-/// (the form is the instantiation's).
-#[test]
-fn keyed_containers_and_generic_parameters_are_refused_for_now() {
-    let errs = messages(&format!(
-        "{IMPORT}fn ship<T>(v: T) -> Bytes => !v {{\n    return encode(v)\n}}\n\
-         fn main() -> None {{\n    let b = decode<Set<Int>>(encode(1))\n}}\n"
-    ));
-    assert!(
-        errs.iter().any(|e| e.contains("`Set` is a keyed container")),
-        "expected the keyed-container cut, got {errs:?}"
-    );
-    assert!(
-        errs.iter().any(|e| e.contains("`T` is a generic parameter")),
-        "expected the generic cut, got {errs:?}"
-    );
+    checked.checked.protocol_hashes.get(effect).unwrap_or_else(|| panic!("no hash for `{effect}`")).clone()
 }
 
 /// [actor-protocol-hash] [decl-id] A protocol's hash does not depend on an unrelated
 /// type named like its type parameter: std's `ActorGroup<E>`'s `E` is the
 /// parameter whether or not the program declares a `struct E` (found by the
-/// A1 differential, which saw `ActorGroup`'s hash change with one).
+/// A1 differential, which saw `ActorGroup`'s hash change with one). Over the
+/// std front std is checked once, without the program, so the same shape is
+/// also checked across two of the program's own modules: a generic effect in
+/// `grp`, a `struct E` in `main`.
 #[test]
 fn a_type_named_like_a_type_parameter_leaves_the_hash_alone() {
-    fn hash_of(src: &str) -> String {
-        let (prog, errs) = program(src);
-        assert!(errs.is_empty(), "expected no errors, got {errs:?}");
-        let symbols = Symbols::collect(&prog);
-        let resolution = resolve(&prog);
-        let checked = check_program(&prog, &resolution, &symbols);
-        checked.protocol_hashes["ActorGroup"].clone()
-    }
-    assert_eq!(hash_of(""), hash_of("struct E { hp: Int }\n"), "the parameter, not the struct");
+    let std_group = |main: &str| hash_of(&[("main.sv", main)], "ActorGroup");
+    assert_eq!(std_group(""), std_group("struct E { hp: Int }\n"), "the parameter, not the struct");
+
+    let grp = "export actor effect Grp<E> {\n    send fn join(member: eff[E]) => !member\n}\n";
+    let key = salvo_core::typekey::keyed("Grp", "grp");
+    let own_group = |main: &str| hash_of(&[("grp.sv", grp), ("main.sv", main)], key);
+    assert_eq!(
+        own_group("import grp\n"),
+        own_group("import grp\n\nstruct E { hp: Int }\n"),
+        "the parameter, not the struct"
+    );
 }
 
 /// [actor-protocol-hash] The hash is over the protocol's *shape*: a struct renamed
@@ -230,28 +39,21 @@ fn a_type_named_like_a_type_parameter_leaves_the_hash_alone() {
 /// does not (the encoding is positional), and a member added does not.
 #[test]
 fn protocol_hash_follows_shape_not_names() {
-    fn hash_of(src: &str) -> String {
-        let (prog, errs) = program(src);
-        assert!(errs.is_empty(), "expected no errors, got {errs:?}");
-        let symbols = Symbols::collect(&prog);
-        let resolution = resolve(&prog);
-        let checked = check_program(&prog, &resolution, &symbols);
-        // [decl-id] A user declaration's key names its module.
-        checked.protocol_hashes[salvo_core::typekey::keyed("Ledger", "main")].clone()
-    }
-    let base = hash_of(
+    // [decl-id] A user declaration's key names its module.
+    let ledger = |src: &str| hash_of(&[("main.sv", src)], salvo_core::typekey::keyed("Ledger", "main"));
+    let base = ledger(
         "struct Entry { who: Str, amount: Long }\n\
          actor effect Ledger { send fn record(e: Entry) => !e\n send fn close() }\n",
     );
-    let renamed = hash_of(
+    let renamed = ledger(
         "struct Row { who: Str, amount: Long }\n\
          actor effect Ledger { send fn record(e: Row) => !e\n send fn close() }\n",
     );
-    let reordered = hash_of(
+    let reordered = ledger(
         "struct Entry { amount: Long, who: Str }\n\
          actor effect Ledger { send fn record(e: Entry) => !e\n send fn close() }\n",
     );
-    let grown = hash_of(
+    let grown = ledger(
         "struct Entry { who: Str, amount: Long }\n\
          actor effect Ledger { send fn record(e: Entry) => !e\n send fn close()\n send fn audit() }\n",
     );
@@ -266,150 +68,4 @@ fn protocol_hash_follows_shape_not_names() {
         base,
         "the canonical form is `member(types);` with structs expanded"
     );
-}
-
-/// [actor-group] [net-noremote] The **crossing site**: naming a protocol with a
-/// `noremote` payload for a group is refused at `protocol<E>()`, by member and
-/// type — the protocol itself stays a legal local one (user decision
-/// 2026-09-26: the check lands at the binding, not the declaration).
-#[test]
-fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
-    let errs = messages(&format!(
-        "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
-         actor effect Painter {{ send fn paint(c: Canvas) => !c }}\n\
-         actor effect Counter {{ send fn bump(n: Int) }}\n\
-         fn main() -> None {{\n    let _ok = protocol<Counter>()\n    let _bad = protocol<Painter>()\n}}\n"
-    ));
-    assert_eq!(errs.len(), 1, "one refusal, for the noremote protocol only: {errs:?}");
-    assert!(
-        errs[0].contains("a group of `Painter` cannot span nodes")
-            && errs[0].contains("`Painter.paint` takes `Canvas`"),
-        "expected the crossing-site refusal, got {errs:?}"
-    );
-    // [actor-group] [implicit-resolve] The same site one level up:
-    // `actor_group<E>(…)`, where a program actually writes the protocol. Now
-    // an ordinary fn over `?protocol: () -> Protocol<E>`, so the refusal fires
-    // where the intrinsic `protocol<E>` is resolved to fill it — and names
-    // the call the program wrote.
-    let errs = messages(&format!(
-        "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
-         actor effect Painter {{ send fn paint(c: Canvas) => !c }}\n\
-         fn main(nodes: eff[NodeGroup]) [spawn] -> None\n=> !nodes {{\n    let _bad = actor_group<Painter>(nodes)\n}}\n"
-    ));
-    assert_eq!(errs.len(), 1, "{errs:?}");
-    assert!(
-        errs[0].contains("a group of `Painter` cannot span nodes") && errs[0].contains("`actor_group<Painter>`"),
-        "{errs:?}"
-    );
-    // [implicit-forward] A generic fn of the program's own forwards its
-    // `?protocol` into `actor_group<E>` without resolving anything (nothing
-    // about an opaque `E` is knowable); the refusal lands at *its* concrete
-    // call, and a wire-form protocol passes through the same path.
-    let errs = messages(&format!(
-        "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
-         actor effect Painter {{ send fn paint(c: Canvas) => !c }}\n\
-         actor effect Counter {{ send fn bump(n: Int) }}\n\
-         fn open<E>(nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [spawn] -> Int => !nodes {{\n\
-             return actor_group<E>(nodes)\n}}\n\
-         fn main(a: eff[NodeGroup], b: eff[NodeGroup]) [spawn] -> None\n=> !a, !b {{\n\
-             let _ok = open<Counter>(a)\n    let _bad = open<Painter>(b)\n}}\n"
-    ));
-    assert_eq!(errs.len(), 1, "one refusal, at the concrete `open<Painter>` call: {errs:?}");
-    assert!(
-        errs[0].contains("a group of `Painter` cannot span nodes") && errs[0].contains("`open<Painter>`"),
-        "{errs:?}"
-    );
-}
-
-/// [effect-generic-decl] An effect generic over an *effect*: `eff[E]` is the
-/// one position `E` may take, a generic instance is itself an effect inside
-/// `Addr` (`eff[Reg<Ping>]`), and a phantom struct parameter (`Protocol<E>`)
-/// types a value without occurring in it.
-#[test]
-fn effect_typed_generics_check() {
-    let errs = messages(&format!(
-        "{IMPORT}actor effect Ping {{ send fn ping(n: Int) }}\n\
-         actor effect Reg<E> {{\n    send fn join(member: eff[E]) => !member\n    \
-         send fn peers(out: Reply<List<eff[E]>>) => !out\n    \
-         send fn twin(other: eff[Reg<E>]) => !other\n}}\n\
-         handler Registering<E>() of Reg<E> {{\n    mailbox {{ capacity: 4 }}\n    \
-         state {{\n    all: Mut List<eff[E]> = Mut List()\n    }}\n    \
-         send fn join(member: eff[E]) => !member {{ add(all, member) }}\n    \
-         send fn peers(out: Reply<List<eff[E]>>) => !out {{ out.send(copy(all)) }}\n    \
-         send fn twin(other: eff[Reg<E>]) => !other {{ }}\n}}\n\
-         fn main() [spawn] -> None {{\n    let _r = spawn Registering<Ping>() on pool(1)\n    \
-         let _p = protocol<Ping>()\n}}\n"
-    ));
-    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
-}
-
-/// [effect-generic-decl] Two instances of an effect whose arguments are
-/// effects erase to one type, so one scope holds one: the second `use` is
-/// refused, naming the nested-block remedy; a nested scope is fine.
-#[test]
-fn two_erased_instances_cannot_share_a_scope() {
-    let src = "\
-import std.net
-
-actor effect Ping {
-    send fn ping(out: Reply<Str>) => !out
-}
-
-actor effect Pong {
-    send fn pong(out: Reply<Str>) => !out
-}
-
-fn inner() [use] {
-    use LeastLoaded<Pong>(true)
-}
-
-fn main() [use] {
-    use LeastLoaded<Ping>(true)
-    inner()
-    use Sharded<Pong>()
-}
-";
-    let errs: Vec<String> = program(src)
-        .1
-        .iter()
-        .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
-        .collect();
-    assert_eq!(errs.len(), 1, "{errs:?}");
-    assert!(
-        errs[0].contains("`RouteSelector<Pong>` cannot be bound while `RouteSelector<Ping>` is")
-            && errs[0].contains("nested block"),
-        "{errs:?}"
-    );
-}
-
-/// [actor-group] The `in GROUP` clause of a spawn: the group must be of one
-/// of the spawn's faces, and must be a group handle at all.
-#[test]
-fn spawn_in_group_needs_a_group_of_one_of_its_faces() {
-    let src = "\
-import std.net
-
-actor effect Ping { send fn ping() }
-actor effect Pong { send fn pong() }
-handler Pinging() of Ping { mailbox { capacity: 1 } send fn ping() {} }
-handler Both() of Ping, Pong { mailbox { capacity: 1 } send fn ping() {} send fn pong() {} }
-
-fn main(pings: eff[ActorGroup<Ping>], pongs: eff[ActorGroup<Pong>], n: Int) [spawn] -> None
-    => !pings, !pongs, !n {
-    let _ok = spawn Pinging() on pool(1) in pings
-    let (_p, _q) = spawn Both() on pool(1) in pongs
-    let _wrong = spawn Pinging() on pool(1) in pongs
-    let _not = spawn Pinging() on pool(1) in n
-}
-";
-    let errs: Vec<String> = program(src)
-        .1
-        .iter()
-        .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
-        .collect();
-    assert_eq!(errs.len(), 2, "{errs:?}");
-    assert!(errs[0].contains("answers no `eff[Pong]`") && errs[0].contains("serves `Ping`"), "{errs:?}");
-    assert!(errs[1].contains("`in` takes a group handle") && errs[1].contains("this is `Int`"), "{errs:?}");
 }

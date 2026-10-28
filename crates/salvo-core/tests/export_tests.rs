@@ -1,12 +1,9 @@
-//! [mod-export] Module-private by default, `export` to let a declaration out
-//! (user decision 2026-09-18).
-//!
-//! The rule is one line — a declaration is visible outside its own module only
-//! if it says `export` — and what the tests here pin is the surface around it:
-//! every declaration kind takes the modifier, the *diagnostics* say "declared
-//! but not exported" rather than "no such name" (the difference between a rule
-//! and a mystery), an import of a private name is refused at the import, and
-//! `export` stays an ordinary identifier everywhere else.
+//! [mod-export] [mod-std-internal] [mod-use] [runtime-layers] What std's own
+//! modules may do. Everything a *program* sees of the export rule is test
+//! data, `tests/check/exports/` (TESTS.md T1); these tests stay in Rust over
+//! a prelude because their point is std files of the test's own (a
+//! `std/runtime.sv`, a `std/runtime/timers.sv`), which the real std cannot
+//! be swapped for.
 
 use std::path::Path;
 
@@ -29,19 +26,14 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
-/// Parses + resolves + checks a multi-file program over the prelude above,
-/// returning every diagnostic message.
-fn diags(files: &[(&str, &str)]) -> Vec<String> {
-    diags_with_std(&[], files)
-}
-
-/// The same, with extra std files beside the prelude.
-fn diags_with_std(std_files: &[(&str, &str)], files: &[(&str, &str)]) -> Vec<String> {
-    diagnostics_with_std(std_files, files).into_iter().map(|d| d.message).collect()
+/// Parses + resolves + checks std files (beside the prelude) over the
+/// prelude, returning every diagnostic message.
+fn std_diags(std_files: &[(&str, &str)]) -> Vec<String> {
+    std_diagnostics(std_files).into_iter().map(|d| d.message).collect()
 }
 
 /// [diag-id] The diagnostics themselves, ids and all.
-fn diagnostics_with_std(std_files: &[(&str, &str)], files: &[(&str, &str)]) -> Vec<salvo_core::FileDiagnostic> {
+fn std_diagnostics(std_files: &[(&str, &str)]) -> Vec<salvo_core::FileDiagnostic> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -52,10 +44,6 @@ fn diagnostics_with_std(std_files: &[(&str, &str)], files: &[(&str, &str)]) -> V
     for (name, src) in std_files {
         let module = SourceSet::classify(Path::new(&format!("std/{name}"))).unwrap();
         sources.add(format!("std/{name}"), module, src.to_string(), true);
-    }
-    for (name, src) in files {
-        let module = SourceSet::classify(Path::new(name)).unwrap();
-        sources.add(*name, module, src.to_string(), false);
     }
     let mut modules = Vec::new();
     for file in &sources.files {
@@ -79,232 +67,25 @@ fn diagnostics_with_std(std_files: &[(&str, &str)], files: &[(&str, &str)]) -> V
     out
 }
 
-// ===================== the rule =====================
-
-/// [mod-export] An exported declaration crosses; the module's own code sees
-/// everything either way.
+/// [mod-std-internal] std may import its own runtime module, by name. (That
+/// a program may not is `check/exports/std_internal.sv`.)
 #[test]
-fn an_exported_declaration_crosses_and_a_private_one_does_not() {
-    let lib = "export fn shown() [] -> Int {\n    return 1\n}\n\n\
-               fn hidden() [] -> Int {\n    return 2\n}\n\n\
-               export fn both() [] -> Int {\n    return shown() + hidden()\n}\n";
-    // Its own module reaches the private one — that is what "module-private"
-    // means, and `both` calling `hidden` proves it.
-    let user = "import lib.shown\nimport lib.both\n\n\
-                fn use_them() [] -> Int {\n    return shown() + both()\n}\n";
-    assert!(
-        diags(&[("lib.sv", lib), ("main.sv", user)]).is_empty(),
-        "{:?}",
-        diags(&[("lib.sv", lib), ("main.sv", user)])
-    );
-}
-
-/// [mod-export] The diagnostic is the feature: a name that exists and is
-/// private says so, and names the fix.
-#[test]
-fn a_private_name_is_reported_as_private_not_missing() {
-    let lib = "fn hidden() [] -> Int {\n    return 2\n}\n";
-    let user = "fn f() [] -> Int {\n    return hidden()\n}\n";
-    let errs = diags(&[("lib.sv", lib), ("main.sv", user)]);
-    assert!(
-        errs.iter().any(|m| m.contains("no function named `hidden`")
-            && m.contains("declared in module `lib` but not exported")
-            && m.contains("write `export`")),
-        "{errs:?}"
-    );
-}
-
-/// [mod-export] …and it does not suggest an import that could not work.
-#[test]
-fn a_private_name_is_not_offered_as_an_import() {
-    let lib = "fn hidden() [] -> Int {\n    return 2\n}\n";
-    let user = "fn f() [] -> Int {\n    return hidden()\n}\n";
-    let errs = diags(&[("lib.sv", lib), ("main.sv", user)]);
-    assert!(
-        !errs.iter().any(|m| m.contains("import lib.hidden")),
-        "a private name must not be suggested as an import: {errs:?}"
-    );
-}
-
-/// [mod-export] An import of a private name is refused **at the import**,
-/// which is where the reader is looking, rather than silently importing
-/// nothing and failing at every use.
-#[test]
-fn importing_a_private_name_is_refused_at_the_import() {
-    let lib = "struct Point {\n    x: Int\n}\n";
-    let user = "import lib.Point\n\nfn f() [] -> Int {\n    return 1\n}\n";
-    let errs = diags(&[("lib.sv", lib), ("main.sv", user)]);
-    assert!(
-        errs.iter().any(|m| m.contains("module `lib` declares `Point` but does not export it")
-            && m.contains("cannot be imported")),
-        "{errs:?}"
-    );
-}
-
-/// [mod-export] A name that *is* in scope under another kind has a different
-/// problem, and must not be told about exports — it would send the reader to
-/// the wrong file.
-#[test]
-fn a_wrong_kind_name_in_scope_is_not_reported_as_private() {
-    // `Tag` is a qualifier here, used where a type belongs; another module
-    // declares a private `Tag` too, which must not colour the diagnostic.
-    let other = "struct Tag {\n    v: Int\n}\n";
-    let user = "qualifier Tag of Int\n\nfn f(x: Tag) [] -> Int {\n    return 1\n}\n";
-    let errs = diags(&[("other.sv", other), ("main.sv", user)]);
-    assert!(
-        errs.iter().any(|m| m.contains("is a qualifier, not a type")),
-        "{errs:?}"
-    );
-    assert!(
-        !errs.iter().any(|m| m.contains("not exported")),
-        "a name in scope under another kind is not an export problem: {errs:?}"
-    );
-}
-
-/// [mod-export] Every declaration kind takes the modifier, and it comes
-/// *first* — before `intrinsic` / `linear` / `actor` / `platform` /
-/// `provenance`.
-#[test]
-fn every_declaration_kind_takes_the_modifier() {
-    let lib = "export struct Shape {\n    side: Int\n}\n\n\
-               export linear struct Ticket {\n    id: Int\n}\n\n\
-               export type Alias = Int\n\n\
-               export qualifier Tagged of Int\n\n\
-               export provenance qualifier Vetted of Shape\n\n\
-               export effect Logger {\n    fn log(m: Str) -> None => !m\n}\n\n\
-               export actor effect Mailer {\n    send fn mail(m: Str) => !m\n}\n\n\
-               export effect Host {\n    fn tick() [] -> Int\n}\n\n\
-               export platform handler HostTick of Host\n\n\
-               export handler Loud of Logger {\n    fn log(m: Str) -> None {}\n}\n\n\
-               export fns ToText<T> {\n    fn text(v: T) -> Str => v\n}\n\n\
-               export fn plain() [] -> Int {\n    return 1\n}\n\n\
-               export fn close(t: Ticket) [] -> None => !t {}\n";
-    let user = "import lib.Shape\nimport lib.Ticket\nimport lib.Alias\n\
-                import lib.Tagged\nimport lib.Vetted\nimport lib.Logger\n\
-                import lib.Mailer\nimport lib.Host\nimport lib.HostTick\nimport lib.Loud\n\
-                import lib.ToText\nimport lib.plain\n\n\
-                fn f() [] -> Int {\n    return plain()\n}\n";
-    let errs = diags(&[("lib.sv", lib), ("main.sv", user)]);
-    assert!(
-        !errs.iter().any(|m| m.contains("not export") || m.contains("unresolved import")),
-        "every kind should be exportable and importable: {errs:?}"
-    );
-}
-
-/// [mod-export] An `iter fn`'s generated pass type inherits the function's
-/// visibility: a `for` over the pass needs the *type* in scope, so exporting
-/// the function while hiding its pass would make the iterator undrivable from
-/// another module.
-#[test]
-fn an_exported_iter_fn_exports_its_pass_type() {
-    let lib = "export struct Countdown {\n    from: Int\n}\n\n\
-               export qualifier Emitted<T> of T\n\
-               export qualifier Finished of None\n\n\
-               export iter fn iter(c: Countdown) [] -> Emitted Int | Finished {\n    \
-               state CountdownIter {\n        at: Int = c.from\n    }\n    \
-               if at <= 0 {\n        return finished()\n    }\n    \
-               at = at - 1\n    return emitted(at)\n}\n\n\
-               export fn emitted<T>(v: T) [] -> +Emitted T => v {\n    return v\n}\n\
-               export fn finished() [] -> +Finished None {\n    return None\n}\n";
-    let user = "import lib.Countdown\nimport lib.iter\n\n\
-                fn total() [] -> Int {\n    let sum = 0\n    \
-                let c = Countdown {from: 3}\n    \
-                for x in iter(c) {\n        sum = sum + x\n    }\n    \
-                return sum\n}\n";
-    let errs = diags(&[("lib.sv", lib), ("main.sv", user)]);
-    assert!(
-        !errs.iter().any(|m| m.contains("not exported")),
-        "the generated pass must travel with its `iter fn`: {errs:?}"
-    );
-}
-
-/// [iter-for] [fn-attached] [backend-never-wrong] A `for` over an `iter fn`'s
-/// pass from another module calls the pass's `next`, which travels with the
-/// pass *type* (B3.3d): without the type imported no `next` takes the value,
-/// and the loop says which import brings it. Until B3.3d the loop answered the
-/// `: Next` clause's element with no `next` to call and emitted a native loop
-/// over the struct, which both target compilers refused.
-#[test]
-fn a_pass_whose_next_is_not_in_scope_names_the_import() {
-    let protocol = "export qualifier Emitted<T> of T\nexport struct Finished {}\n\
-                    export fn emitted<T>(value: T) [] -> +Emitted T => !value {\n    return value\n}\n\
-                    export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
-                    export fns Next<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
-    let lib = "export struct Countdown {\n    from: Int\n}\n\n\
-               export iter fn iter(c: Countdown) [] -> Emitted Int | Finished {\n    \
-               state CountdownIter {\n        at: Int = c.from\n    }\n    \
-               if at <= 0 {\n        return finished()\n    }\n    \
-               at = at - 1\n    return emitted(at + 1)\n}\n";
-    let user = |imports: &str| {
-        format!(
-            "import lib.Countdown\nimport lib.iter\n{imports}\n\
-             fn total() [] -> Int {{\n    let sum = 0\n    \
-             let c = Countdown {{from: 3}}\n    \
-             for x in iter(c) {{\n        sum = sum + x\n    }}\n    \
-             return sum\n}}\n"
-        )
-    };
-    let without = diags_with_std(&[("core/iterator.sv", protocol)], &[("lib.sv", lib), ("main.sv", &user(""))]);
-    assert!(
-        without.iter().any(|m| m.starts_with("`CountdownIter` is not iterable")
-            && m.contains("a `next` over it is declared in `lib`, and is not in scope here — import `lib.CountdownIter`")),
-        "expected the loop to name the import: {without:?}"
-    );
-    let with = diags_with_std(
-        &[("core/iterator.sv", protocol)],
-        &[("lib.sv", lib), ("main.sv", &user("import lib.CountdownIter\n"))],
-    );
-    assert!(with.is_empty(), "the imported pass type brings its `next`: {with:?}");
-}
-
-// ===================== std's own module [mod-std-internal] =====================
-
-const RUNTIME: &str = "export fn tick_count() [] -> Int {\n    return 0\n}\n";
-
-/// [mod-std-internal] A program cannot import the runtime module, whole or by
-/// name, even what it exports; std can.
-#[test]
-fn the_runtime_module_is_std_s_own() {
-    let program = "import std.runtime\nimport std.runtime.tick_count\n\nfn f() [] -> Int {\n    return 1\n}\n";
-    let errs = diagnostics_with_std(&[("runtime.sv", RUNTIME)], &[("main.sv", program)]);
-    // Both imports refused (resolution and the checker each report what the
-    // resolver found, so every resolve error appears twice here).
-    let refused = errs.iter().filter(|d| d.id == Some("mod-std-internal:import")).count();
-    assert_eq!(refused, 4, "{errs:?}");
-
-    // [std-root] The bare spelling is refused for what it would have named:
-    // std's own module, not a path to correct towards.
-    let bare = "import runtime\n\nfn f() [] -> Int {\n    return 1\n}\n";
-    let errs = diagnostics_with_std(&[("runtime.sv", RUNTIME)], &[("main.sv", bare)]);
-    assert!(
-        errs.iter().any(|d| d.id == Some("mod-std-internal:import")
-            && d.message.contains("`std.runtime` is the standard library's own module")),
-        "{errs:?}"
-    );
-    assert!(
-        !errs.iter().any(|d| d.id.is_some_and(|id| salvo_syntax::messages::label_of(id) == "std-root")),
-        "{errs:?}"
-    );
-
+fn std_imports_its_own_runtime_module() {
+    let runtime = "export fn tick_count() [] -> Int {\n    return 0\n}\n";
     let from_std = "import std.runtime.tick_count\n\nexport fn twice() [] -> Int {\n    return tick_count() + tick_count()\n}\n";
-    let errs = diags_with_std(&[("runtime.sv", RUNTIME), ("timing.sv", from_std)], &[]);
+    let errs = std_diags(&[("runtime.sv", runtime), ("timing.sv", from_std)]);
     assert!(errs.is_empty(), "std may import its own module: {errs:?}");
 }
 
 /// [mod-use] A module-level `use` binds for every function of the module
-/// without being declared — in the runtime module only; anywhere else it is
-/// refused, naming why.
+/// without being declared — in the runtime module only. (That it is refused
+/// anywhere else is `check/exports/std_internal.sv`.)
 #[test]
 fn a_module_level_use_is_the_runtime_module_s_alone() {
     let runtime = "effect Ticks {\n    fn tick() -> Int\n}\n\nhandler Ticking() of Ticks {\n    fn tick() -> Int {\n        return 1\n    }\n}\n\n\
                    use Ticking()\n\nexport fn twice() [] -> Int {\n    return tick() + tick()\n}\n";
-    let errs = diags_with_std(&[("runtime.sv", runtime)], &[]);
+    let errs = std_diags(&[("runtime.sv", runtime)]);
     assert!(errs.is_empty(), "the runtime module may bind at module level: {errs:?}");
-
-    let program = "effect Ticks {\n    fn tick() -> Int\n}\n\nhandler Ticking() of Ticks {\n    fn tick() -> Int {\n        return 1\n    }\n}\n\n\
-                   use Ticking()\n\nfn twice() [] -> Int {\n    return tick()\n}\n";
-    let errs = diagnostics_with_std(&[], &[("main.sv", program)]);
-    assert!(errs.iter().any(|d| d.id == Some("mod-use:module-level")), "{errs:?}");
 }
 
 /// [runtime-layers] The runtime's core may not import one of its services,
@@ -313,9 +94,9 @@ fn a_module_level_use_is_the_runtime_module_s_alone() {
 fn the_runtime_core_does_not_import_its_services() {
     let service = "import std.runtime\n\nexport fn later() [] -> Int {\n    return now() + 1\n}\n";
     let core_ok = "export fn now() [] -> Int {\n    return 1\n}\n";
-    let errs = diags_with_std(&[("runtime.sv", core_ok), ("runtime/timers.sv", service)], &[]);
+    let errs = std_diags(&[("runtime.sv", core_ok), ("runtime/timers.sv", service)]);
     assert!(errs.is_empty(), "{errs:?}");
     let core_bad = "import std.runtime.timers.later\n\nexport fn now() [] -> Int {\n    return 1\n}\n";
-    let errs = diagnostics_with_std(&[("runtime.sv", core_bad), ("runtime/timers.sv", service)], &[]);
+    let errs = std_diagnostics(&[("runtime.sv", core_bad), ("runtime/timers.sv", service)]);
     assert!(errs.iter().any(|d| d.id == Some("runtime-layers:core-imports-service")), "{errs:?}");
 }

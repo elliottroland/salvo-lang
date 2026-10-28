@@ -2,11 +2,13 @@
 //! modules`, at the version declared; loaded as ordinary source trees whose
 //! std-ness follows their own manifest. And [doc-module]: the checker
 //! records where an `@module` selector resolved, for the module hover.
+//! Rust, not test data: these load manifests and dependency trees from disk
+//! and read the checker's tables, which annotations cannot say.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use salvo_core::{check_program, resolve, ModulePath, Program, Project, SourceSet, Symbols};
+use salvo_core::{ModulePath, Project, SourceSet};
 
 fn dir(test: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("dependency_{test}"));
@@ -175,59 +177,25 @@ fn a_dependency_declares_std_modules_only_when_its_manifest_says_std() {
     assert!(own.is_std);
 }
 
-/// The base types the checker needs, as a std file [platform-intrinsic-std-only].
-const STD_PRELUDE: &str = concat!(
-    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
-                           export intrinsic type Long\nexport intrinsic type Any\nexport intrinsic type Never\n",
-    // [op-equality] [op-order] What the comparison operators call.
-    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
-    "export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b\n",
-    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
-    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
-    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
-    "export intrinsic fn cmp(a: Long, b: Long) [] -> Int => a, b\n",
-);
-
 // [doc-module] The checker records the module an `@module` selector resolved
 // to, at the selector's span — the full path, whatever suffix was written
-// [mod-suffix] — for a call and for a fn passed by name.
+// [mod-suffix] — for a call and for a fn passed by name. A table test, over
+// the real std, with only the rows of `main.sv` kept.
 #[test]
 fn module_selectors_are_recorded_with_their_resolved_module() {
-    let mut sources = SourceSet::default();
-    sources.add(
-        "std/core/prelude.sv",
-        ModulePath::parse("std.core.prelude"),
-        STD_PRELUDE.to_string(),
-        true,
-    );
     let shapes = "export fn label(n: Int) -> Str { return \"s\" }\n";
     let main = "import shop.shapes.label\n\
                 fn label(n: Int) -> Str { return \"m\" }\n\
                 fn apply(f: (Int) -> Str, n: Int) -> Str { return f(n) }\n\
-                fn main() -> Str {\n    let a = label@shapes(1)\n    return apply(label@shop.shapes, 2)\n}\n";
-    sources.add("shop/shapes.sv", ModulePath::parse("shop.shapes"), shapes.to_string(), false);
-    sources.add("main.sv", ModulePath::parse("main"), main.to_string(), false);
-    let mut modules = Vec::new();
-    for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
-        assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
-        modules.push(module);
-    }
-    let _expansion = salvo_core::expand(&sources.files, &mut modules);
-    let program = Program {
-        files: sources.files,
-        modules: Program::share(modules),
-        companions: Vec::new(),
-    };
-    let resolution = resolve(&program);
-    let symbols = Symbols::collect(&program);
-    let checked = check_program(&program, &resolution, &symbols);
-    let errors: Vec<_> = checked.errors.iter().filter(|d| d.is_error()).collect();
+                fn main() -> Str {\n    let _a = label@shapes(1)\n    return apply(label@shop.shapes, 2)\n}\n";
+    let out = salvo_testkit::front::check(&[("shop/shapes.sv", shapes), ("main.sv", main)]);
+    let errors = out.errors();
     assert!(errors.is_empty(), "{errors:?}");
 
-    let main_idx = 2;
+    let main_idx = out.program.files.iter().position(|f| f.name == "main.sv").expect("main.sv");
     let text = |span: salvo_syntax::Span| &main[span.start as usize..span.end as usize];
-    let mut refs: Vec<(String, String)> = checked
+    let mut refs: Vec<(String, String)> = out
+        .checked
         .module_refs
         .iter()
         .filter(|(k, _)| k.file() == main_idx)

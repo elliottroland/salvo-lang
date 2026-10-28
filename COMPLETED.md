@@ -144,6 +144,26 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — The rest of the checker tests are data (TESTS.md T1, step 4 wave 3)
+
+**diag, name, module_import, export, dependency, place, elem_distinct,
+assert, throw, effect_at, fn_effect, multi_effect, eff_handle, group,
+prereq, alias, platform, wire, unique_shape and stamp_signature tests** moved
+to 19 more areas (53 in all). Of the 315 old tests, the Rust that stays reads
+tables (`module_refs`, `suggested_imports`, protocol hashes, IR dumps, a
+rendered span), needs std files of its own (the runtime module's import
+rules), loads manifests from disk (dependency_tests, unchanged), or keeps a
+diagnostic that looks wrong (ROADMAP §0ar, now with a narrowed field that
+keeps its narrowing as an assignment target, the one behaviour bug of the
+wave).
+
+- **Where step 4 leaves the suite**: 53 areas, 139 data files, 868
+  annotations; salvo-core's Rust tests fell from 67 files and 1,168
+  test functions to 44 files and 169, of which a dozen files (golden,
+  corpus, node_id, decl_id, source, flow, ir_linear, route_deadlock, …) were
+  never checker-diagnostic tests and were left alone.
+- Every migration left its where-did-each-test-go table; none dropped a case.
+
 ### 2026-10-28 — Twenty-three more checker test files are data (TESTS.md T1, step 4 wave 2)
 
 **Linear types, comptime, `iter fn`, `when`, subjects, guards, implicits,

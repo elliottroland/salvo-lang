@@ -1031,6 +1031,34 @@ repros are over the real std.
     `implicit-resolve:no-fit` twice (for `hash`, for `eq`), where a written
     `Set<Q>` reports one `col-key-eligible:key`
     (`collection_tests::a_linear_element_is_refused_…`).
+- **And from wave 3**:
+  - a narrowed field keeps its narrowing as an assignment target: under
+    `if p.s is Str`, `p.s = None` on a `s: Str? = None` field reports
+    `var-no-widen:assign-mismatch` "cannot assign `None` to `Str`", where a
+    narrowed local checks clean (`place_tests::assignment_to_the_place_invalidates`);
+  - an unknown type in a return or a `let` adds the mismatch it causes
+    (`name_tests::unknown_names_are_reported_at_declaration_sites`); one
+    unresolvable leading-dot arm is reported twice
+    (`name_tests::leading_dot_shorthand_reports_an_unresolvable_sibling`);
+  - `assert!(n)` on an `Int` reports `expr-cond-bool:assert-condition` and
+    `:not-bool` (`assert_tests::a_non_bool_condition_is_refused`); past the
+    parse error, `return v!` adds the return mismatch (parse-only test kept);
+  - one `[use]` on a fn type reports `fn-effects:use` three times
+    (`fn_effect_tests::use_in_a_fn_type_is_rejected`); a member call through
+    a two-face spawn's tuple reports three errors
+    (`multi_effect_tests::several_faces_answer_a_tuple_…`); a cyclic alias
+    pair is reported at both declarations and again at a use, and `[any App]`
+    adds a no-handler error at the body (two `alias_tests`);
+  - `platform type Keyed : Hashed<self> by auto` adds two
+    `group-obligation:no-member`; `platform type Walked : Iter<self, …> by
+    auto` adds an `obligation-by:not-self` telling the user to write what they
+    wrote (`platform_tests::platform_types_are_opaque_handles_…`); a group
+    member parameter hiding the body's callee adds
+    `group-obligation:no-member` for the unstamped member
+    (`stamp_signature_tests::a_group_member_parameter_that_hides_…`);
+  - also noted, annotated as they are: a prerequisite cycle is reported once
+    per effect on it; a poisoned handle is reported at each use on one line
+    (`d.hp = d.hp + 1` gives two).
 - **A message that misstates the mistake**: `fn two(n: Int) -> Ok Int | Err
   Int { return n }` says no arm accepts an `Int`, when two do: the mistake is
   the ambiguity (`carry_tests::provenance_arm_is_inferred_from_a_bare_value`).

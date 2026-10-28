@@ -7,6 +7,10 @@
 //! stop counting.
 //!
 //! Over the real standard library (`lib/`), so the stamps are `std.core.auto`'s.
+//!
+//! What the stamps' diagnostics are is data, `tests/check/stamp_signature/`
+//! (TESTS.md T1); what is left here reads the IR they build, and the one case
+//! whose diagnostics are not yet right (ROADMAP §0ar).
 
 use salvo_core::Program;
 
@@ -93,17 +97,13 @@ fn plain() [] -> Str {
     return label(P { x: 1, y: "a" })
 }
 "#;
-    let errs = errors_in(&[("derive.sv", LABEL), ("main.sv", main)]);
-    assert!(errs.is_empty(), "{errs:?}");
+    // (That it checks clean, and that `between = ` is refused, is
+    // `check/stamp_signature/names.sv`.)
     let dump = ir(&[("derive.sv", LABEL), ("main.sv", main)]);
     assert!(dump.contains("fn main::label(lent value: P, lent sep: Str)"), "{dump}");
     assert!(dump.contains("value.x") && !dump.contains("between"), "{dump}");
     // The declared default, not the template's.
     assert!(dump.contains(r#"y: "a" }, " ")"#), "{dump}");
-
-    let by_template_name = main.replace("sep = ", "between = ");
-    let errs = errors_in(&[("derive.sv", LABEL), ("main.sv", &by_template_name)]);
-    assert!(errs.iter().any(|e| e.contains("`between`")), "{errs:?}");
 }
 
 /// [fn-by] A written declaration keeps its own parameter names and its own
@@ -129,99 +129,10 @@ fn probe(p: P, q: P) [] -> Long {
     return 0L
 }
 "#;
-    let errs = errors(src);
-    assert!(errs.is_empty(), "{errs:?}");
+    // (That it checks clean is `check/stamp_signature/written.sv`.)
     let dump = ir(&[("main.sv", src)]);
     assert!(dump.contains("fn main::hash(lent h: P)") && dump.contains("h.x") && dump.contains("h__p"), "{dump}");
     assert!(dump.contains("fn main::eq(lent left: P, lent right: P)") && dump.contains("left.x"), "{dump}");
-}
-
-/// [fn-by] [deduce-default] The declared contract governs, not the
-/// template's: `std.core.auto`'s `eq` keeps both parameters (`=> a, b`), but a
-/// declaration that consumes its first (`=> !a`) consumes the caller's
-/// argument.
-#[test]
-fn the_declared_deductions_govern_the_callers() {
-    let src = r#"
-struct P : Eq<self> {
-    x: Int,
-    y: Str
-
-    fn eq(a: P, b: P) -> Bool => !a by auto
-}
-
-fn probe(p: P, q: P) [] -> Bool => !p {
-    let same = eq(p, q)
-    return eq(p, q)
-}
-"#;
-    let errs = errors(src);
-    assert!(errs.iter().any(|e| e.starts_with("11:") && e.contains("`p`") && e.contains("moved")), "{errs:?}");
-    // Kept by the default, as the template's clause also says: no move.
-    let errs = errors(&src.replace(" => !a by auto", " by auto"));
-    assert!(errs.is_empty(), "{errs:?}");
-}
-
-/// A derive whose template declares what its group's member does not: an
-/// effect (`Console`), and a move of its parameter (`=> !v`).
-const LOUD: &str = r#"
-export fns Loud<T> {
-    fn loud(v: T) -> Int
-}
-
-export fns Taken<T> {
-    fn take(v: T) -> T
-}
-
-export comptime fn loud<T is Struct>(v: T) [Console] -> Int => v {
-    print("${T.name}")
-    return 0
-}
-
-export comptime fn take<T is Struct>(v: T) [] -> T => !v {
-    return v
-}
-"#;
-
-/// [obligation-by] [comptime-instantiate] A template's effect list and
-/// deductions do not count: the group's member is pure and keeps its
-/// parameter, so a body that prints, or moves the parameter, is an error of
-/// the stamped body — at the `by` site, with the stamp's prefix.
-#[test]
-fn a_template_contract_the_member_lacks_is_an_error_at_the_stamp() {
-    let main = r#"
-import derive
-
-struct P : Loud<self> by derive, Taken<self> by derive { x: Int, y: Str }
-"#;
-    let errs = errors_in(&[("derive.sv", LOUD), ("main.sv", main)]);
-    assert!(
-        errs.iter().any(|e| e.starts_with("4: in `loud` from `derive` for `P`") && e.contains("Console")),
-        "{errs:?}"
-    );
-    assert!(
-        errs.iter().any(|e| e.starts_with("4: in `take` from `derive` for `P`") && e.contains("!v")),
-        "{errs:?}"
-    );
-}
-
-/// [fn-by] The same template under a written declaration that says what the
-/// body does is accepted: the declaration is the contract.
-#[test]
-fn a_written_declaration_may_grant_what_the_body_needs() {
-    let main = r#"
-import derive
-
-struct P : Loud<self>, Taken<self> {
-    x: Int,
-    y: Str
-
-    fn loud(v: P) [Console] -> Int by derive
-    fn take(v: P) -> P => !v by derive
-}
-"#;
-    let errs = errors_in(&[("derive.sv", LOUD), ("main.sv", main)]);
-    assert!(errs.is_empty(), "{errs:?}");
 }
 
 /// [comptime-generic] [obligation-by] At a generic target the member's
@@ -249,8 +160,7 @@ fn probe() [] -> Int {
     return cmp(W { item: "a", n: 1 }, W { item: "b", n: 1 })
 }
 "#;
-    let errs = errors_in(&[("derive.sv", derive), ("main.sv", main)]);
-    assert!(errs.is_empty(), "{errs:?}");
+    // (That it checks clean is `check/stamp_signature/generic.sv`.)
     let dump = ir(&[("derive.sv", derive), ("main.sv", main)]);
     assert!(dump.contains("fn main::cmp<T>(lent a: W<T>, lent b: W<T>; ?lent cmp: (T, T) -> Int)"), "{dump}");
     assert!(dump.contains("a.item") && !dump.contains("x.item"), "{dump}");
@@ -324,41 +234,24 @@ fn probe(p: P, q: P) [] -> Str {
 
 /// [fn-by] A declared parameter named like a function the template's body
 /// calls would capture those calls once the parameters are renamed (ROADMAP
-/// 0u): `std.core.auto`'s `cmp` calls `cmp(…)` per field. The declared names
-/// are the contract and a local shadows a name [call-resolve], so it is one
-/// error at the parameter — not the stamped body's "`cmp` is not callable" —
-/// and nothing is stamped for the member.
+/// 0u): the error at the parameter is `check/stamp_signature/hides.sv`. Any
+/// other name stamps, the declared one included.
 #[test]
 fn a_declared_parameter_that_hides_the_bodys_callee_is_named_at_the_parameter() {
-    let src = r#"
+    let renamed = r#"
 struct P : Ordered<self> {
     x: Int
-    fn cmp(cmp: P, b: P) -> Int by auto
+    fn cmp(first: P, b: P) -> Int by auto
 }
 "#;
-    let errs = errors(src);
-    assert_eq!(errs.len(), 1, "{errs:?}");
-    assert!(
-        errs[0].starts_with("4: parameter `cmp` hides the function `cmp` that `auto`'s `cmp` calls in its body")
-            && errs[0].ends_with(": name the parameter differently"),
-        "{errs:?}"
-    );
-    let built = salvo_testkit::front::program("kt", &[("main.sv", src)]);
-    assert!(
-        built.diagnostics.iter().any(|d| d.id == Some("fn-by:param-hides-name")),
-        "{:?}",
-        built.diagnostics
-    );
-    // Any other name stamps, the declared one included.
-    let renamed = src.replace("cmp(cmp: P", "cmp(first: P");
-    assert!(errors(&renamed).is_empty(), "{:?}", errors(&renamed));
-    let dump = ir(&[("main.sv", &renamed)]);
+    let dump = ir(&[("main.sv", renamed)]);
     assert!(dump.contains("fn main::cmp(lent first: P, lent b: P)") && dump.contains("first.x"), "{dump}");
 }
 
 /// [obligation-by] [fn-by] The same capture through a clause: the group's
 /// member names the parameter, so the error lands at the clause and names the
-/// group member; nothing is stamped for it.
+/// group member; nothing is stamped for it. Kept as it was, not data: the
+/// unstamped member also reports `group-obligation:no-member` (ROADMAP §0ar).
 #[test]
 fn a_group_member_parameter_that_hides_the_bodys_callee_is_named_at_the_clause() {
     let src = r#"
