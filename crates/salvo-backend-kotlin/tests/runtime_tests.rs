@@ -332,7 +332,7 @@ fun main() {
             expect_success: true,
             stderr_contains: "",
         },
-        // [main-pool] [waitfor-pump] Main is the single worker of its own
+        // [actor-main-pool] [waitfor-pump] Main is the single worker of its own
         // pool, and a wait *serves* that pool: an actor spawned on the main
         // pool runs on main's own thread, while main waits — including while
         // it waits for an answer from somewhere else entirely.
@@ -392,7 +392,7 @@ fun main() {
             expect_success: true,
             stderr_contains: "",
         },
-        // [main-pool] The full-main-pool-mailbox report: main fills a
+        // [actor-main-pool] The full-main-pool-mailbox report: main fills a
         // main-pool actor's queue past its bound, and the only thread that
         // could drain it is the one blocked on it. A named error, not a hang.
         SchedulerCase {
@@ -465,7 +465,7 @@ fun main() {
             expect_success: true,
             stderr_contains: "",
         },
-        // [pool-fault-sink] A task that faults has no addr to `watch`, so the
+        // [actor-pool-fault-sink] A task that faults has no addr to `watch`, so the
         // fault goes to the **pool's sink**: an ordinary actor, sent an
         // ordinary message the *pool creation site* built (the runtime cannot
         // construct a Salvo value). Without a sink it is the named report on
@@ -720,7 +720,7 @@ fun main() {
             expect_success: true,
             stderr_contains: "",
         },
-        // [addr-capability] Every forged identity of this node imports as the
+        // [net-addr-capability] Every forged identity of this node imports as the
         // same dead entry, so forging addrs cannot grow the actor table; a
         // genuine one still imports as the actor itself.
         SchedulerCase {

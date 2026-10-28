@@ -12,7 +12,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations the sources need, loaded as
+/// [platform-intrinsic-std-only] The intrinsic declarations the sources need, loaded as
 /// a std file since only std may write `intrinsic`.
 const STD_PRELUDE: &str = concat!(
     "\
@@ -374,7 +374,7 @@ handler Both() of Ping, Pong {
 
 /// The faces must be of one **kind**: a handler is bound one way or the other,
 /// and a handler mixing an `actor effect` with a plain one is refused — the
-/// mixed handler [mixed-handler] is a different construct, classified by
+/// mixed handler [actor-mixed-handler] is a different construct, classified by
 /// shape, with every face plain.
 #[test]
 fn the_faces_must_all_be_of_one_kind() {

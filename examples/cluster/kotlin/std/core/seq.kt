@@ -165,7 +165,7 @@ fun<It, T> next__Filtering(t: Filtering<It, T>): Union2<T, salvo.std.core.iterat
             return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(x_2))
         }
     }
-    throw AssertionError("salvo: unreachable at std.core.seq:179:5")
+    throw AssertionError("salvo: unreachable at std.core.seq:187:5")
     return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
 }
 
@@ -278,7 +278,7 @@ fun<It, T> next__SkippingWhile(t: SkippingWhile<It, T>): Union2<T, salvo.std.cor
             return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(x_3))
         }
     }
-    throw AssertionError("salvo: unreachable at std.core.seq:288:5")
+    throw AssertionError("salvo: unreachable at std.core.seq:304:5")
     return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
 }
 

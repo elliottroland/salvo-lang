@@ -787,7 +787,7 @@ fn literal_members_run_on_both_backends() {
     __stamp.verified();
 }
 
-/// [is-union] [type-literal] [rewrap] `s is "json" | "text"` narrows a `Str` to
+/// [is-union] [type-literal] [type-rewrap] `s is "json" | "text"` narrows a `Str` to
 /// the literal union (into a field of that type), `x is Int | Str` and `x !is
 /// Bool` narrow to the sub-union (into a parameter of it), and a literal test
 /// on a plain `Str` compares the value — it used to pass for every string —
@@ -976,7 +976,7 @@ fn main() [use] -> None {
     __stamp.verified();
 }
 
-/// [type-identity] [wire-format] Two modules declare `Token`: `alpha`'s, which
+/// [type-identity] [net-wire-format] Two modules declare `Token`: `alpha`'s, which
 /// holds the plain key, can cross the wire, and `beta`'s cannot. `beta`'s
 /// `Holder { t: Token }` must be judged by `beta`'s own `Token`, so it gets no
 /// codec. Before 2026-10-20 the wire predicate read the field by its written
@@ -1115,7 +1115,7 @@ fn a_stamped_body_falls_back_to_its_templates_names_on_both_backends() {
     __stamp.verified();
 }
 
-/// [result-errs] The accumulating outcome keeps every error: `map2` of two
+/// [type-result-errs] The accumulating outcome keeps every error: `map2` of two
 /// successes, of two failures (both errors, in order), and of one failure,
 /// on both backends.
 #[test]
@@ -2511,7 +2511,7 @@ fn a_manifest_supplies_what_the_flags_would() {
     assert!(stderr.contains("salvo.toml") && stderr.contains("[build] backend"), "{stderr}");
 }
 
-/// [protocol-lock] A project's actor protocols are locked at its version: a
+/// [actor-protocol-lock] A project's actor protocols are locked at its version: a
 /// changed protocol at the same version fails the build naming the effect,
 /// and a version bump relocks.
 #[test]
@@ -2910,7 +2910,7 @@ fn a_dependency_brings_its_host_libraries_only_when_reached() {
     __stamp.verified();
 }
 
-/// [type-literal] [union-arm-identity] Unions of literals on both backends,
+/// [type-literal] [type-union-arm-identity] Unions of literals on both backends,
 /// same stdout: an open union (`Other Str`) that is a plain string at run time,
 /// `is "A"` and `is Other` in a `when`, a `?`-typed literal union assigned
 /// later and narrowed, a named literal sub-union tested with `is`, widening to
@@ -3365,7 +3365,7 @@ fn main() [use, spawn] {
 /// [is-and-chain], (11) a fn field with a named parameter, (12) a field default
 /// naming a type the literal's file does not import [rs-default-path], (13) a
 /// handler named like another module's type [type-identity], (14) writing a
-/// field of a `for` element [for-elem-write], (16) a fn-typed local named like
+/// field of a `for` element [iter-for-elem-write], (16) a fn-typed local named like
 /// a top-level fn [call-resolve].
 #[test]
 fn the_roadmap_0c_emitter_gaps_build_on_both_backends() {
@@ -3590,7 +3590,7 @@ fn a_generic_union_with_a_scalar_arm_prints_on_both_backends() {
     __stamp.verified();
 }
 
-/// [terminal-scope] A trailing `...` makes the rest of the enclosing block the
+/// [expr-terminal-scope] A trailing `...` makes the rest of the enclosing block the
 /// construct's body — `if` (with an optional inline `else`), loops, `try` and
 /// `waitfor`. Runs on both backends with the same stdout.
 const TERMINAL_SCOPE: &str = "\
@@ -3639,7 +3639,7 @@ fn run_compiles_and_runs_terminal_scopes_on_each_backend() {
     __stamp.verified();
 }
 
-/// [console] `Console`'s three streams on both backends: `printerr` writes
+/// [std-console] `Console`'s three streams on both backends: `printerr` writes
 /// stderr, and `readln` answers each line without its terminator (a `\r\n`
 /// included) and `None` at the end of the input — with the prompt printed
 /// before it already flushed.

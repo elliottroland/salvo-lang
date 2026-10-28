@@ -1,4 +1,4 @@
-// [buffer-type] std's fixed-length runs, for `std.core.buffer`'s `IntBuffer` and
+// [col-buffer] std's fixed-length runs, for `std.core.buffer`'s `IntBuffer` and
 // `LongBuffer` (ROADMAP §0j 6g): a `Vec`, no class, no boxing. `Mut` is the
 // same type, passed as `&mut` [type-canbe-mut]. Callers prove every index
 // (`Idx`), so the reads and writes index directly.

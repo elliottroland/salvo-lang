@@ -215,7 +215,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// The actor interfaces an impl serves, in face order. Empty for a
     /// handler of plain effects; a handler mixing the two kinds is refused by
-    /// the caller ([mixed-handler] is not rendered over the IR yet).
+    /// the caller ([actor-mixed-handler] is not rendered over the IR yet).
     pub(super) fn actor_faces(&self, h: &ImplDecl) -> Vec<&'p InterfaceDecl> {
         // A stub implements an actor interface without being an actor.
         if h.stub {
@@ -362,7 +362,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         ));
     }
 
-    /// [monitor-handler] [kt-monitor] `__Mon_E`: the effect implemented by
+    /// [actor-monitor-handler] [kt-monitor] `__Mon_E`: the effect implemented by
     /// locking a shared instance and delegating; emitted for every interface
     /// so a shared `spawn` of a plain-effect handler has its wrapper.
     pub(super) fn monitor_stub(&mut self, i: &InterfaceDecl) {
@@ -381,7 +381,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // [kt-monitor-reentry] re-entering the handle on its own thread
             // would deadlock on Rust, so it traps here [backend-parity].
             self.out.push_str(&format!(
-                "    override fun{mtps} {kt}({ps}){ret} {{\n        kotlin.check(!lock.isHeldByCurrentThread) {{ \"salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]\" }}\n        lock.lock()\n        try {{ {}inner.{kt}({}) }} finally {{ lock.unlock() }}\n    }}\n",
+                "    override fun{mtps} {kt}({ps}){ret} {{\n        kotlin.check(!lock.isHeldByCurrentThread) {{ \"salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]\" }}\n        lock.lock()\n        try {{ {}inner.{kt}({}) }} finally {{ lock.unlock() }}\n    }}\n",
                 if ret.is_empty() { "" } else { "return " },
                 args.join(", ")
             ));
@@ -461,7 +461,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         };
         let faces = self.actor_faces(decl);
         if faces.is_empty() && self.is_mixed(decl) {
-            // [mixed-handler] [kt-mixed] the mixed spawn: constructor
+            // [actor-mixed-handler] [kt-mixed] the mixed spawn: constructor
             // arguments evaluated once, shared by servant and façade.
             let ExprKind::Construct { fields } = &handler.kind else {
                 self.error("`spawn` of a mixed handler needs its construction");
@@ -493,7 +493,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             );
         }
         if faces.is_empty() {
-            // [monitor-handler] a plain-effect spawn: the instance shared
+            // [actor-monitor-handler] a plain-effect spawn: the instance shared
             // behind the effect's monitor.
             if decl.faces.len() != 1 {
                 self.error(format!("handler `{plain}` implements several plain effects, and a shared instance behind several faces is not supported yet"));
@@ -669,7 +669,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         )
     }
 
-    /// [protocol-hash] `setProtocols` at the top of `main`.
+    /// [actor-protocol-hash] `setProtocols` at the top of `main`.
     pub(super) fn protocol_prelude(&mut self) -> String {
         let mut pairs: Vec<String> = Vec::new();
         let mut ifaces: Vec<&InterfaceDecl> = self.s.ir.modules.iter().flat_map(|m| &m.decls).filter_map(|d| match d {

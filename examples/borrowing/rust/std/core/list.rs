@@ -117,7 +117,7 @@ pub fn drain<T>(mut list: Vec<T>, each: &mut dyn FnMut(T)) {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:247:32")
+                panic!("salvo: unreachable at std.core.list:265:32")
             }
         }; each(__arg1) };
     }
@@ -151,7 +151,7 @@ pub fn first<T>(list: &Vec<T>) -> &T {
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at std.core.list:304:28")
+            panic!("salvo: unreachable at std.core.list:325:28")
         }
     };
 }
@@ -189,7 +189,7 @@ pub fn remove_front_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:347:50")
+                panic!("salvo: unreachable at std.core.list:373:50")
             }
         }))) {
             break;
@@ -208,7 +208,7 @@ pub fn remove_back_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool)
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:359:47")
+                panic!("salvo: unreachable at std.core.list:386:47")
             }
         }))) {
             break;
@@ -234,7 +234,7 @@ pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut 
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:377:39")
+                panic!("salvo: unreachable at std.core.list:405:39")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -322,7 +322,7 @@ pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) ->
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:427:31")
+                panic!("salvo: unreachable at std.core.list:460:31")
             }
         }, elem) {
             return true;
@@ -348,7 +348,7 @@ pub fn all<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> bool {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:444:34")
+                panic!("salvo: unreachable at std.core.list:479:34")
             }
         })) {
             return false;
@@ -371,7 +371,7 @@ pub fn count<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> i32 {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:457:33")
+                panic!("salvo: unreachable at std.core.list:493:33")
             }
         }) {
             n = i32::wrapping_add(n, 1i32);
@@ -395,7 +395,7 @@ pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:474:33")
+                panic!("salvo: unreachable at std.core.list:511:33")
             }
         };
         if pick(x) {

@@ -570,7 +570,7 @@ impl crate::std_time::__Stateful_TimerCtl for ManualTime {
                     let mut __picked_3 = __pick_2.unwrap();
                     __picked_3
                 } else {
-                    panic!("salvo: unreachable at std.time:481:55")
+                    panic!("salvo: unreachable at std.time:494:55")
                 }
             };
             crate::std_core_list::remove_at_platform::<i64>(&mut self.deadlines, at);
@@ -654,7 +654,7 @@ pub fn earliest_due(deadlines: &Vec<i64>, mut target: i64) -> Option<i32> {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.time:505:44")
+                panic!("salvo: unreachable at std.time:519:44")
             }
         };
         if ((at <= target) && ((best < 0i32) || (at < best_at))) {
@@ -754,7 +754,7 @@ impl crate::wire::__Wire for __Msg_Timer {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Timer`.
+/// [actor-protocol-hash] The canonical hash of `Timer`.
 pub const __PROTO_Timer: &str = "d0432e460a159011";
 
 pub enum __Msg_TimerCtl {
@@ -778,7 +778,7 @@ impl crate::wire::__Wire for __Msg_TimerCtl {
     }
 }
 
-/// [protocol-hash] The canonical hash of `TimerCtl`.
+/// [actor-protocol-hash] The canonical hash of `TimerCtl`.
 pub const __PROTO_TimerCtl: &str = "93f92d20477305ad";
 
 pub enum __Cont_DefaultTimer {

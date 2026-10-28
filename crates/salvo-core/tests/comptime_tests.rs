@@ -10,7 +10,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic types these sources use, loaded as std.
+/// [platform-intrinsic-std-only] The intrinsic types these sources use, loaded as std.
 const STD_PRELUDE: &str = concat!(
     concat!(
     "export intrinsic type Int\n",
@@ -804,9 +804,9 @@ fn an_incomplete_kind_dispatch_lands_where_written() {
     assert_eq!(errs[0].line, 5, "{errs:?}");
 }
 
-// ===== [terminal-scope] `[for …] ...` and `[if …] ...` =====
+// ===== [expr-terminal-scope] `[for …] ...` and `[if …] ...` =====
 
-/// [terminal-scope] [comptime-inline] `[for …]` and `[if …]` take a terminal
+/// [expr-terminal-scope] [comptime-inline] `[for …]` and `[if …]` take a terminal
 /// `...` body as `for` and `if` do (user request 2026-10-20): the rest of the
 /// enclosing block, unrolled per field or kept when the condition holds — with
 /// an optional inline braced `else` on the `[if]`, kept instead.
@@ -890,7 +890,7 @@ fn a_comptime_body_may_not_shadow_a_visible_local() {
     assert_eq!(messages(&scoped(ok, "return total")), Vec::<String>::new());
 }
 
-/// [comptime-scope] [terminal-scope] A terminal `[if …] ...` renames the rest
+/// [comptime-scope] [expr-terminal-scope] A terminal `[if …] ...` renames the rest
 /// of the block, which holds every use, so it reads as before; and a renamed
 /// local is named as written in a warning.
 #[test]
@@ -1062,7 +1062,7 @@ fn a_copys_docs_are_tested_in_a_head() {
     assert!(errs.iter().any(|e| e.contains("when `f` is `a`") && e.contains("`?:`")), "{errs:?}");
 }
 
-/// [origin] [comptime-inline] An unresolved name in a copy lands on the
+/// [node-origin] [comptime-inline] An unresolved name in a copy lands on the
 /// written code, saying which copy, like every other error in one: the
 /// unresolved-name funnel used to keep the copy's synthetic span, which
 /// printed past the end of the file with no prefix (found by the A2

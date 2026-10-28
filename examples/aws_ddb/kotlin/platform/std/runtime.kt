@@ -91,7 +91,7 @@ fun activate(b: Body, kind: Int, slot: Long, msg: Dyn): salvo.std.runtime.Ran =
 
 fun dropBody(b: Body) {}
 
-// [remote-backpressure] The routing layer's: a GRANT staged for the next
+// [net-remote-backpressure] The routing layer's: a GRANT staged for the next
 // flush, and the flush.
 fun granted(addr: Int, pool: Int, from: Long) = salvo.std.runtime.routing.creditBack(addr, pool, from)
 
@@ -135,7 +135,7 @@ fun setHere(pool: Int, actor: Int) {
 class HostRuntime : salvo.std.runtime.RuntimeHostPlatform {
     private val random = java.security.SecureRandom()
 
-    // [addr-capability] OS entropy, through the platform's secure source.
+    // [net-addr-capability] OS entropy, through the platform's secure source.
     override fun secureBits(): Long = random.nextLong()
 
     override fun report(line: String) {

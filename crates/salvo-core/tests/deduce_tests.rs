@@ -5,7 +5,7 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Checked, DeclId, Program, SourceSet, Symbols};
 use salvo_syntax::ast::Item;
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
@@ -1016,7 +1016,7 @@ fn take_person(p: Person) [] -> None => !p {}
 fn disjoint_errors(body: &str) -> Vec<String> {
     // `Str`, `Mut List` and `array_of` are not in this file's shared std
     // prelude, so they are declared alongside it here (as std, since
-    // `intrinsic` is the compiler's modifier [intrinsic-std-only]).
+    // `intrinsic` is the compiler's modifier [platform-intrinsic-std-only]).
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -1051,7 +1051,7 @@ fn disjoint_errors(body: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    // Errors only: an unused-variable *warning* [unused-var] is a different
+    // Errors only: an unused-variable *warning* [var-unused] is a different
     // severity and these tests are about legality. [fate-partial-move] As the
     // gates do, the IR analyses (a partial move's use among them, the flow
     // pass's since R8 piece 3b) run on every declaration the checker's
@@ -1471,7 +1471,7 @@ fn main<T>(a: List<T>, b: List<T>) -> None => !a {{
     );
 }
 
-/// [readonly-return] [proj-anywhere] A derived return checks the *returned
+/// [proj-readonly-return] [proj-anywhere] A derived return checks the *returned
 /// expression*, not the first argument of a one-argument call: dot-notation
 /// (`list.pick(index)`) leaves exactly one written argument, and the
 /// constructor-operand unwrap that a `proj`-arm union return needs must not
@@ -1859,9 +1859,9 @@ fn a_field_entry_the_body_exceeds_is_refused() {
     );
 }
 
-// ===== [param-const] a parameter is a constant binding =====
+// ===== [fn-param-const] a parameter is a constant binding =====
 
-/// [param-const] Assigning a parameter is refused — for a scalar as much as
+/// [fn-param-const] Assigning a parameter is refused — for a scalar as much as
 /// for a struct, since the rule is about the *binding*, not the type (user
 /// decision 2026-09-25, pre-aligning with `const`). Before this the
 /// construct type-checked and was then refused by the target compilers:
@@ -1884,7 +1884,7 @@ fn assigning_a_parameter_is_refused() {
     );
 }
 
-/// [param-const] `n++` is an assignment to `n`, so it is refused too.
+/// [fn-param-const] `n++` is an assignment to `n`, so it is refused too.
 #[test]
 fn stepping_a_parameter_is_refused() {
     let errs = field_errors("fn f(n: Int) [] -> Int => n {\n    n++\n    return n\n}\n");
@@ -1894,7 +1894,7 @@ fn stepping_a_parameter_is_refused() {
     );
 }
 
-/// [param-const] What stays legal: assigning a **field** of a parameter (the
+/// [fn-param-const] What stays legal: assigning a **field** of a parameter (the
 /// way to change what the caller holds), and binding a local.
 #[test]
 fn a_parameter_s_field_and_a_local_stay_assignable() {

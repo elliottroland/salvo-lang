@@ -32,9 +32,10 @@ import std.fs.path
 // What went wrong: droppable, storable, and what `detach` hands back for
 // aggregation. Every failing member answers `Err Checked<FsError>`, so the
 // error cannot be dropped in silence — but the value inside is an ordinary
-// union with no obligation of its own [checked-type]. [Streaming] carries a
+// union with no obligation of its own. [Streaming] carries a
 // `stream` failure: a one-shot that opens *and* reads reports either kind
 // through one type.
+// @compilerrules [type-checked]
 export type FsError = NotFound | PermissionDenied | AlreadyExists | NotADirectory
                  | PathEscapes | IoError | Streaming
 
@@ -52,16 +53,18 @@ export struct PathEscapes { path: Str }
 export struct IoError { path: Str, message: Str }
 // Reading or writing the file's stream failed — why is [error]'s. Kept apart
 // from `stream`'s kinds rather than merged into this union, so a value of
-// either type has exactly one text form [interp-to-str].
+// either type has exactly one text form.
+// @compilerrules [interp-to-str]
 export struct Streaming { error: StreamError }
 
 // An error that must be acknowledged: `ignore` it, `detach` it, or narrow the
 // result that carries it to its `Ok` arm — which is what "it was fine" costs.
-// The obligation is `Checked<FsError>` [checked-type], so the mechanism is the
+// The obligation is `Checked<FsError>` [type-checked], so the mechanism is the
 // one every "you must look at this" answer in std uses, and `ignore`/`detach`
 // are the generic ones.
 
-// The text of a failure [interp-to-str].
+// The text of a failure.
+// @compilerrules [interp-to-str]
 export fn to_str(kind: FsError) [] -> Str => kind {
     when kind {
         is NotFound { return "no such file or directory: ${kind.path}" }
@@ -86,11 +89,12 @@ fn fs_stream_error(e: Checked<StreamError>) [] -> Checked<FsError> => !e {
 export struct FileInfo { size: Long, is_dir: Bool }
 
 // The filesystem: the operations on *paths*. Opening mints a stream into the
-// `Streams` bound around it, and `Streams` is a prerequisite [effect-prereq],
+// `Streams` bound around it, and `Streams` is a prerequisite,
 // so application code still declares `[Fs]` alone and reads what it opened.
 //
 // Every failure is a returned `Err Checked<FsError>`, never a `[Throw]`: an
 // effect member may declare no effects of its own.
+// @compilerrules [effect-prereq]
 export effect Fs [Streams] {
     // Opens a file for reading, from the beginning.
     fn open_read(path: Path) -> Ok InStream | Err Checked<FsError> => path

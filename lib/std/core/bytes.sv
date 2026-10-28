@@ -3,8 +3,8 @@
 // It exists because `List<Byte>` was the wrong shape for the job in two ways.
 // One is representation: a list of octets boxes every element on the JVM
 // (`UByte` is a value class with no box cache), and a specialized array cannot
-// be a `List<T>` there, so the honest byte buffer could not be a list at all
-// [kt-bytes]. The other is the surface: bytes want slicing, hex, a strict
+// be a `List<T>` there, so the honest byte buffer could not be a list at all.
+// The other is the surface: bytes want slicing, hex, a strict
 // UTF-8 decode and an in-place fill, and none of those belong on `List`.
 //
 // The two shapes, exactly as `Str` and `Mut Str`:
@@ -13,20 +13,22 @@
 //     `to_str`, `to_hex`, `str_of_bytes`, and `for b in data`.
 //   * `Mut Bytes` is a buffer you build — `add`, `append`, `set`, `clear` —
 //     and it reaches the whole read surface by dropping its `Mut`, which
-//     costs nothing on either backend [bytes-type].
+//     costs nothing on either backend.
 //
 // That is what makes the fill-a-buffer reads work: one `Mut Bytes` is filled,
 // used and cleared for as long as a loop runs, instead of a fresh payload per
-// chunk [fs-read-to].
+// chunk.
 //
-// [platform-value-type] A **value platform type** (ROADMAP 0.7): the host
+// A **value platform type** (ROADMAP 0.7): the host
 // implements it — `lib/platform/std/core/bytes.{rs,kt}` — and its copy is the
-// host's own copy. Its mutable kind is the host's `MutBytes` [platform-type].
+// host's own copy. Its mutable kind is the host's `MutBytes`.
+// @compilerrules [kt-bytes, type-bytes, fs-read-to, platform-value-type, platform-type]
 export iterable platform type Bytes canbe Mut : Iter<self, BytesNext, Byte>
 
 // The bytes of [elems], in order: `bytes_of(to_byte(0), to_byte(255))`.
 // Bytes have no literal syntax — collection literals are retired, and
-// `List(...)` builds a `List` [col-no-literal] — so this is the constructor.
+// `List(...)` builds a `List` — so this is the constructor.
+// @compilerrules [col-no-literal]
 export fn bytes_of(...elems: Byte[]) [] -> Bytes => elems {
     let out = empty_bytes()
     for b in elems {
@@ -56,14 +58,16 @@ export platform fn to_bytes(str: Str) [] -> Bytes => str
 // The text [data] spells in UTF-8, or `None` when it is not valid UTF-8.
 // Decoding is **strict** on both backends — a malformed byte is `None`, never
 // a replacement character — which is the rule the filesystem's text reads
-// follow too [fs-bytes].
+// follow too.
+// @compilerrules [fs-bytes]
 export platform fn str_of_bytes(data: Bytes) [] -> Str? => data
 
-// [cmp-canonical] [op-equality] The canonical equality for a buffer:
+// [cmp-canonical] The canonical equality for a buffer:
 // **structural**, byte for byte, which is what `==` on two `Bytes` means.
 // A plain overload, like every other canonical of an intrinsic type: `std.core.*`
 // is implicitly visible everywhere, which is the travelling that attachment
-// exists to provide [fn-attached].
+// exists to provide.
+// @compilerrules [op-equality, fn-attached]
 export platform fn eq(a: Bytes, b: Bytes) [] -> Bool => a, b
 
 // The number of bytes in [data].
@@ -74,11 +78,13 @@ export platform fn get(data: Bytes, index: Int) [] -> Byte? => data, index
 
 // The bytes from [start] (inclusive) to [end] (exclusive), or `None` when
 // that range does not lie within the buffer. A **copy**, not a view: Salvo
-// states borrows in deductions, and this one does not borrow [proj-field].
+// states borrows in deductions, and this one does not borrow.
+// @compilerrules [proj-field]
 export platform fn slice(data: Bytes, start: Int, end: Int) [] -> Bytes? => data, start, end
 
 // The index of the first occurrence of [byte], or `None` when it does not
-// occur. No `-1` sentinel: absence is `None` [type-nullable].
+// occur. No `-1` sentinel: absence is `None`.
+// @compilerrules [type-nullable]
 export platform fn index_of(data: Bytes, byte: Byte) [] -> Int? => data, byte
 
 // Appends one byte to [data].
@@ -91,33 +97,38 @@ export platform fn append(data: Mut Bytes, more: Bytes) [] -> None => data: Mut,
 // writes nothing and answers `false` — the buffer is the caller's, and growing
 // it here would make a `set` an `add`, exactly as on `Mut Str` [set].
 //
-// [col-bounds] The `Bool` is the same report `swap` makes, and for the same
+// The `Bool` is the same report `swap` makes, and for the same
 // reason (user decision 2026-09-22): a write that quietly did nothing is a bug
 // with no symptom at the call. Ignore it where the index is known good.
+// @compilerrules [col-bounds]
 export platform fn set(data: Mut Bytes, index: Int, byte: Byte) [] -> Bool
 => data: Mut, index, byte
 
 // Removes every byte from [data], keeping whatever room it had. This is the
-// call that makes a buffer reusable across reads [fs-read-to].
+// call that makes a buffer reusable across reads.
+// @compilerrules [fs-read-to]
 export platform fn clear(data: Mut Bytes) [] -> None => data: Mut
 
 // The numbers, as a list is written: `[0, 255, 200]`. Deliberately the same
 // text a `List<Byte>` produces, so what a program prints did not change when
-// the payload type did [interp-to-str].
+// the payload type did.
+// @compilerrules [interp-to-str]
 export platform fn to_str(data: Bytes) [] -> Str => data
 
 // Lower-case hex, two characters per byte and nothing between them:
 // `00ffc8`. The form a checksum, a digest or a wire dump wants.
 export platform fn to_hex(data: Bytes) [] -> Str => data
 
-// [iter-mint] A fresh iterator over the bytes of [data], in order — which is what
+// A fresh iterator over the bytes of [data], in order — which is what
 // makes `for b in data` and the sequence functions work on a buffer.
+// @compilerrules [iter-mint]
 export fn iter(data: Bytes) [] -> Mut BytesNext => data {
     return Mut BytesNext { data: data, at: 0 }
 }
 
-// [iter-protocol] The pass a buffer is walked by: the buffer plus a position
-// in it. The buffer is borrowed, not copied [proj-field].
+// The pass a buffer is walked by: the buffer plus a position
+// in it. The buffer is borrowed, not copied.
+// @compilerrules [iter-protocol, proj-field]
 export struct BytesNext : Next<self, Byte> canbe Mut {
     // The buffer being walked.
     data: proj Bytes,

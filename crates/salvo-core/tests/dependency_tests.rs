@@ -175,7 +175,7 @@ fn a_dependency_declares_std_modules_only_when_its_manifest_says_std() {
     assert!(own.is_std);
 }
 
-/// The base types the checker needs, as a std file [intrinsic-std-only].
+/// The base types the checker needs, as a std file [platform-intrinsic-std-only].
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
                            export intrinsic type Long\nexport intrinsic type Any\nexport intrinsic type Never\n",

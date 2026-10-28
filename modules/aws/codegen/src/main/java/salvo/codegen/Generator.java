@@ -682,7 +682,7 @@ final class Generator {
      */
     /**
      * DynamoDB's `AttributeValue` union, written out by hand: a namespace of one
-     * struct per wire type and the union of them [namespace]. The ten arms are
+     * struct per wire type and the union of them [mod-namespace]. The ten arms are
      * fixed by the protocol, so they are not derived from the model.
      */
     private static String salvoAttributeValue() {
@@ -728,7 +728,7 @@ final class Generator {
 
     /**
      * The arms of `AttributeValue` in declaration order — which is union arm
-     * order [union-arm-identity] — named as the Salvo struct and, in both SDKs,
+     * order [type-union-arm-identity] — named as the Salvo struct and, in both SDKs,
      * the variant.
      */
     private static final List<String> AV_ARMS = List.of("S", "N", "B", "Ss", "Ns", "Bs", "M", "L", "Bool", "Null");
@@ -1186,7 +1186,7 @@ final class Generator {
 
     /**
      * The `AttributeValue` conversions. A Salvo union lowers to `UnionN` over
-     * its arms in declaration order [union-arm-identity], so arm `i` of
+     * its arms in declaration order [type-union-arm-identity], so arm `i` of
      * [AV_ARMS] is `U{i+1}`; the type alias itself is not emitted.
      */
     private String rustAttributeValue() {
@@ -1893,7 +1893,7 @@ final class Generator {
 
     /**
      * The `AttributeValue` conversions. The Salvo union is a `UnionN` over its
-     * arms in declaration order [union-arm-identity], each arm a nested class
+     * arms in declaration order [type-union-arm-identity], each arm a nested class
      * of the `AttributeValue` namespace object; the SDK's is a sealed class
      * with a variant of each name.
      */

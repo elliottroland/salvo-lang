@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""[phase-timings] Time the language server's analysis of an edit.
+"""[cli-phase-timings] Time the language server's analysis of an edit.
 
 Drives `salvo lsp` over stdio with SALVO_TIMINGS=1: opens <file>, then makes
 [edits] edits, each inserting a space after the first occurrence of <needle>

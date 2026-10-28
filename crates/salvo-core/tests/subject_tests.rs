@@ -7,7 +7,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source

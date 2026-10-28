@@ -10,7 +10,7 @@ use salvo_core::{Program, SourceSet};
 /// [std-cache] A program of std and `extra`, over the process's std front
 /// (`salvo_testkit::front`, TESTS.md C2): std was read, parsed, expanded and
 /// checked once, and the program holds its very modules, so only `extra` is
-/// parsed, expanded ([route-stub], what `salvo compile` runs before
+/// parsed, expanded ([actor-route-stub], what `salvo compile` runs before
 /// checking) and — through [`emit`] — checked.
 fn build_program(extra: &[(&str, &str)]) -> Program {
     let built = salvo_testkit::front::program("rs", extra);
@@ -324,7 +324,7 @@ fn golden_unions_rust() {
     insta::assert_snapshot!(combined);
 }
 
-// [rs-union-enums] [union-arm-identity]
+// [rs-union-enums] [type-union-arm-identity]
 #[test]
 fn unions_emit_enums() {
     let files = generate_unions_demo();
@@ -707,7 +707,7 @@ fn golden_loops_rust() {
     insta::assert_snapshot!(combined);
 }
 
-// [while-value] [rs-loop-value]
+// [loop-while-value] [rs-loop-value]
 #[test]
 fn loops_lower_to_block_expressions() {
     let files = generate_loops_demo();
@@ -846,7 +846,7 @@ export fn main() [use] -> None {
     );
 }
 
-// [lit-numeric] [type-basic] Literal suffixes emit explicit Rust types:
+// [type-lit-numeric] [type-basic] Literal suffixes emit explicit Rust types:
 // `5L` -> `5i64`, `2.5f` -> `2.5f32`; unsuffixed literals stay bare.
 #[test]
 fn numeric_literal_suffixes_emit_rust_types() {
@@ -923,7 +923,7 @@ export fn main() [use] -> None {
     );
 }
 
-// ===== S1: the `copy` intrinsic [intrinsic-fn] [copy-fn] [rs-copy] =====
+// ===== S1: the `copy` intrinsic [platform-intrinsic-fn] [copy-fn] [rs-copy] =====
 
 /// The same shape as the Kotlin copy demo: identity/clone lowering per
 /// type, plus a fate-linked alias (`let zs = xs`) whose source must stay
@@ -956,7 +956,7 @@ fn main() [use] -> None {
 }
 "#;
 
-// [intrinsic-fn] [rs-copy] `copy` lowers to
+// [platform-intrinsic-fn] [rs-copy] `copy` lowers to
 // `.clone()` on the argument's place; a fate-linked `let` from a bare
 // identifier clones instead of moving [fate-link].
 #[test]
@@ -1035,7 +1035,7 @@ fn main() [use] {
     run_rust_files(&files, "copy_elements", "5 1\n2 1\n");
 }
 
-/// [field-canbe-mut] The Kotlin backend's `canbe Mut` field case, run on
+/// [struct-field-canbe-mut] The Kotlin backend's `canbe Mut` field case, run on
 /// Rust for parity (`Mut` is erased here; the checker does the work).
 #[test]
 fn rustc_compiles_and_runs_canbe_mut_field() {
@@ -1137,7 +1137,7 @@ fn main() [use] -> None {
 
 /// [struct-slot] [cmp-binder] A struct with a fn slot, run on Rust: a
 /// captured binder is a trailing reference parameter, which counts against
-/// lifetime elision for `top`'s `proj(r)` return [readonly-return].
+/// lifetime elision for `top`'s `proj(r)` return [proj-readonly-return].
 #[test]
 fn rustc_compiles_and_runs_struct_slot() {
     if !rustc_available() {
@@ -1721,7 +1721,7 @@ fn rustc_compiles_and_runs_linear_generics() {
     run_rust_files(&files, "l7a-linear-generics", expected);
 }
 
-// ===== L7b: once fn types [once-fn] =====
+// ===== L7b: once fn types [fn-once] =====
 
 /// A `once` parameter accepts both a capture-consuming lambda (which is
 /// `once`-typed by construction) and a plain lambda (inverted
@@ -1747,7 +1747,7 @@ fn main() [use] -> None {
 }
 "#;
 
-// [once-fn] `once` fn parameters emit `impl FnOnce`.
+// [fn-once] `once` fn parameters emit `impl FnOnce`.
 #[test]
 fn once_fn_params_emit_fnonce() {
     let files = generate(&[("main.sv", ONCE_DEMO)]);
@@ -1775,7 +1775,7 @@ fn rustc_compiles_and_runs_once_fns() {
     run_rust_files(&files, "l7b-once", expected);
 }
 
-// ===== L7c: derived returns [readonly-return] =====
+// ===== L7c: derived returns [proj-readonly-return] =====
 
 /// Zero-copy accessors across fn boundaries: a derived return borrows
 /// the kept parameter (elided lifetime with one reference parameter, a
@@ -1815,7 +1815,7 @@ fn main() [use] -> None {
 }
 "#;
 
-// [readonly-return] Derived returns emit borrows: elided lifetime for a
+// [proj-readonly-return] Derived returns emit borrows: elided lifetime for a
 // single reference parameter, a generated `'a` when there are more; the
 // std `first` is clone-free.
 #[test]
@@ -2266,7 +2266,7 @@ fn rustc_compiles_and_runs_handler_dependencies() {
 // ===== interception [effect-intercept] =====
 // A handler that depends on the effect it implements wraps the instance
 // registered before it (binds strictly outward), and a `use` may shadow an
-// earlier registration — innermost wins [use-no-dup]. Both are new in
+// earlier registration — innermost wins [effect-use-no-dup]. Both are new in
 // 2026-09-14; the emission constraint is that a fusion must carry exactly
 // **one** `__Has_E` impl per effect (two is E0119), so the shadowed
 // instance loses its inherited accessor while staying reachable through
@@ -2439,7 +2439,7 @@ fn rustc_compiles_and_runs_a_shareable_interceptor_chain() {
     run_rust_files(&files, "shareable-chain", SHAREABLE_CHAIN_OUTPUT);
 }
 
-// ===== spawn-inheritance and the `with` clause [spawn-inherit] =====
+// ===== spawn-inheritance and the `with` clause [actor-spawn-inherit] =====
 // The arc's shape, with nothing written where nothing needs to be: the
 // interception wiring lives in a fn that *received* the effects it wires (the
 // lexical cut is lifted — Rust threads the handles in one hidden bundle), a
@@ -2584,7 +2584,7 @@ fn rustc_compiles_and_runs_flattened_replyto() {
     run_rust_files(&files, "replyto-flat", REPLYTO_FLAT_OUTPUT);
 }
 
-/// [spawn-inherit] [with-clause] [rs-handle] The arc end to end:
+/// [actor-spawn-inherit] [effect-with-clause] [rs-handle] The arc end to end:
 /// a signature-supplied effect captured into a handler (the hidden `__Hs_N`
 /// bundle), a spawn inheriting its dependency from the scope, and a `with`
 /// clause overriding the self-dependency with a private instance.
@@ -2599,7 +2599,7 @@ fn rustc_compiles_and_runs_spawn_inheritance() {
     run_rust_files(&files, "spawn-inherit", SPAWN_INHERIT_OUTPUT);
 }
 
-/// [rs-handle] [spawn-inherit] The one shape (user decision 2026-09-28): a fn
+/// [rs-handle] [actor-spawn-inherit] The one shape (user decision 2026-09-28): a fn
 /// declaring `[Logger, Clock]` takes one `&E` handle per effect, a
 /// dependent handler captures clones of them (`Stamped::new(logger.clone(),
 /// clock.clone())`) whether the effect arrived through the signature or a
@@ -3121,7 +3121,7 @@ export fn main() [use] -> None {
 }
 
 // ===== operator typing: widening, literal adoption, conversions =====
-// [op-arith] [op-promote] [lit-adopt] [op-convert] The same source and
+// [op-arith] [op-promote] [type-lit-adopt] [op-convert] The same source and
 // expected stdout as the Kotlin backend's case [backend-parity]: `Long`
 // arithmetic with widened `Int` operands, adopted literals, mixed-width
 // ordering, and the explicit conversions. Values are chosen fractional
@@ -3149,7 +3149,7 @@ fn main() [use] -> None {
 
 const OPERATOR_STDOUT: &str = "11 8000000005 8.25 0.75 false -294967296 -7\n";
 
-/// [op-promote] [lit-adopt] Rust has no mixed-width operators, so widened
+/// [op-promote] [type-lit-adopt] Rust has no mixed-width operators, so widened
 /// operands cast (`as i64`), and adopted literals render at their checked
 /// type (`1i64`).
 #[test]
@@ -3175,7 +3175,7 @@ fn promotions_cast_and_literals_adopt() {
     // [op-convert] The operand is parenthesized inside the cast: `as` binds
     // tighter than unary minus, so `-1 as u8` would be `-(1 as u8)` — which
     // rustc refuses for `to_byte(-1)` and would have meant the wrong thing
-    // for a saturating target [byte-value].
+    // for a saturating target [type-byte].
     assert!(
         c.contains("((big) as i32)"),
         "expected the conversion intrinsic lowered to a cast:\n{c}"
@@ -3252,9 +3252,9 @@ fn rustc_compiles_and_runs_effect_selectors() {
 
 
 
-// ===== destructuring a loop element [let-destructure] =====
+// ===== destructuring a loop element [var-let-destructure] =====
 
-/// [let-destructure] A `for` binds a **pattern**, not just a name: the header
+/// [var-let-destructure] A `for` binds a **pattern**, not just a name: the header
 /// binds the element to a temporary and the body opens with the pattern's
 /// bindings. Expected output is verbatim the Kotlin backend's.
 const LOOP_DESTRUCTURE: &str = r#"
@@ -3262,7 +3262,7 @@ struct Row { name: Str, score: Int }
 
 fn main() [use] -> None {
     use StdConsole
-    // [let-destructure] A loop element destructures like a `let`: a tuple by
+    // [var-let-destructure] A loop element destructures like a `let`: a tuple by
     // position, a struct by field (renamed where the pattern says so).
     let pairs: List<(Str, Int)> = List(("a", 1), ("b", 2))
     for (k, v) in iter(pairs) {
@@ -3300,7 +3300,7 @@ fn rustc_compiles_and_runs_loop_destructuring() {
     run_rust_files(&files, "loop-destructure", LOOP_DESTRUCTURE_OUTPUT);
 }
 
-/// [let-destructure] [rs-borrow-locals] What it lowers to: the element in a
+/// [var-let-destructure] [rs-borrow-locals] What it lowers to: the element in a
 /// temporary, then one binding per name — **by reference**, which is what makes
 /// one shape serve an owned element and a borrowed one (a pattern with `mut`
 /// bindings cannot move out of a pass's projection, `E0507`). A name the body
@@ -3781,7 +3781,7 @@ fn dot_names_in_unions_and_narrowing() {
     );
 }
 
-/// [namespace] A `namespace` groups declarations; its members carry dotted
+/// [mod-namespace] A `namespace` groups declarations; its members carry dotted
 /// names (`Attr.S`, `Outer.Inner.Thing`), a namespaced free fn is called by
 /// its dotted path, and the `.Thing` suffix sugar resolves a `when` arm
 /// against the union's arms. Rust flattens every dotted name.
@@ -3889,7 +3889,7 @@ fn provenance_survives_mutation_where_state_does_not() {
     run_rust_files(&files, "qual_subjects", "trusted 3\nplain 3\nchecked 2\n");
 }
 
-// ===== E3 step 2: throw and `try` [throw] [try] [rs-throw-controlflow] =====
+// ===== E3 step 2: throw and `try` [throw] [throw-try] [rs-throw-controlflow] =====
 
 /// The whole of non-resumption in one program: propagation through a frame
 /// that declares the effect, a linear resource released *before* the call that
@@ -4084,7 +4084,7 @@ fn try_lowers_to_a_labelled_block() {
         main.content
     );
     // Two message types meeting at one delimiter wrap into the message
-    // union's arms [union-arm-identity]; a single type stays bare.
+    // union's arms [type-union-arm-identity]; a single type stays bare.
     assert!(
         main.content.contains("break 'try_3 crate::unions::Union2::U2(crate::unions::Union2::U1(__m))")
             && main.content.contains("break 'try_3 crate::unions::Union2::U2(crate::unions::Union2::U2(__m))")
@@ -4390,7 +4390,7 @@ const WHEN_COND_STDOUT: &str = "negative\nzero\npositive\nsign -1 0 1\nstr hi\ni
 /// [rs-when-cond] Rust has no subject-less `match`, so the chain lowers to
 /// `if`/`else if`/`else`. The mandatory `else` makes it total, so no
 /// `unreachable!()` filler and — in value position — no `else { None }`
-/// [if-else-none].
+/// [expr-if-else-none].
 #[test]
 fn a_subjectless_when_emits_an_if_chain() {
     let files = generate(&[("main.sv", WHEN_COND_DEMO)]);
@@ -4436,7 +4436,7 @@ fn rustc_compiles_and_runs_when_cond() {
 
 // ===== a `try` body is ordinary code to the name/mutability censuses =====
 
-// [try] The Rust counterpart of the Kotlin `var` miss: `collect_mutated_expr`
+// [throw-try] The Rust counterpart of the Kotlin `var` miss: `collect_mutated_expr`
 // and `collect_declared_expr` had no `Expr::Try` arm, so a variable assigned
 // only inside a `try` body — and a local *declared* only inside one, which
 // the generated-name census must know about — were invisible. Rust emits
@@ -4631,9 +4631,9 @@ fn rustc_compiles_and_runs_a_platform_handler() {
     run_rust_files(&files, "platform-handler", "boot@42\n");
 }
 
-// ===== [threadsafe-platform] the thread-safety contract =====
+// ===== [platform-threadsafe] the thread-safety contract =====
 
-/// [threadsafe-platform] [rs-handle] An **undeclared** platform handler
+/// [platform-threadsafe] [rs-handle] An **undeclared** platform handler
 /// binds like every handler: the `use` site wraps the host in the effect's
 /// handle, which serializes it (user decision 2026-09-26, kept under the one
 /// shape of 2026-09-28).
@@ -4705,7 +4705,7 @@ fn generate_threadsafe_platform_handler_demo_with(
     })
 }
 
-/// [threadsafe-platform] [rs-handle] A **`threadsafe`** platform handler is
+/// [platform-threadsafe] [rs-handle] A **`threadsafe`** platform handler is
 /// emission-neutral (user decision 2026-09-28): the word is the contract the
 /// skeleton prints, and the `use` site wraps the host in the effect's handle
 /// exactly as an undeclared one — no twin trait, no `Arc` adapter.
@@ -4729,7 +4729,7 @@ fn a_threadsafe_platform_handler_binds_like_any_other() {
     );
 }
 
-/// [threadsafe-platform] [platform-tree] The skeleton prints the contract the
+/// [platform-threadsafe] [platform-tree] The skeleton prints the contract the
 /// implementer signs; the receivers are `&mut self` implementing the effect's
 /// own trait either way, since the handle serializes every instance today.
 #[test]
@@ -4742,7 +4742,7 @@ fn platform_generate_prints_the_threadsafe_contract_into_the_skeleton() {
         "pub struct HostRawClock {",
         "impl crate::RawClockPlatformSync for HostRawClock {",
         "fn raw_now(&self) -> i32 {",
-        "[threadsafe-platform]",
+        "[platform-threadsafe]",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -4756,7 +4756,7 @@ fn platform_generate_prints_the_threadsafe_contract_into_the_skeleton() {
     );
 }
 
-/// [threadsafe-platform] End to end under rustc with the *generated*
+/// [platform-threadsafe] End to end under rustc with the *generated*
 /// threadsafe skeleton, one stub filled in. Same program, same output as
 /// the undeclared run — and byte-identical to the Kotlin backend's.
 #[test]
@@ -4832,7 +4832,7 @@ fn a_lambda_binds_a_generic_fn_parameter_by_reference() {
         // The lambda's *inner* convention follows the declaration: its
         // parameter arrives borrowed, whatever the annotation says.
         "&mut |mut n| -> i32 {\n        i32::wrapping_mul(*n, 3i32)",
-        // [yield-proj] The element is a borrow, so the parameter is one
+        // [iter-yield-proj] The element is a borrow, so the parameter is one
         // reference deeper than the annotation, and is peeled once.
         "&mut |mut s| -> String {\n        let s = *s;\n        crate::shout(s)",
     ] {
@@ -5322,7 +5322,7 @@ fns Field<T> {
 
 fn add(a: Int, b: Int) -> Int { return a + b }
 fn zero() -> Int { return 0 }
-// [unique-shape] Not `times`: that is the `*` operator on `Int`, declared
+// [op-unique-shape] Not `times`: that is the `*` operator on `Int`, declared
 // only in `Int`'s own file; an override is named for what it does.
 fn multiply(a: Int, b: Int) -> Int { return a * b }
 fn one() -> Int { return 1 }
@@ -5612,7 +5612,7 @@ import people.Person
 
 // A second ordering is named for what it does and passed explicitly: a second
 // `cmp(Person, Person)` here would be refused, since `cmp` on `Person` is
-// declared only in `Person`'s file [unique-shape].
+// declared only in `Person`'s file [op-unique-shape].
 fn by_name(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
@@ -5829,7 +5829,7 @@ fn rustc_compiles_and_runs_comptime() {
     run_rust_files(&files, "comptime", COMPTIME_OUTPUT);
 }
 
-/// [rs-wire] [wire-format] A generic struct's `T?` field round-trips, with the
+/// [rs-wire] [net-wire-format] A generic struct's `T?` field round-trips, with the
 /// bytes the Kotlin suite's `generic-opt-codec` case asserts too (the Kotlin
 /// codec did not compile until 2026-10-20).
 #[test]
@@ -6423,7 +6423,7 @@ pub const PASS_OUTPUT: &str = "n 3\nn 2\nn 1\nada is 36\ngrace is 45\ndone\n";
 
 /// The driving loop: the subject is moved into a mutable local and each turn
 /// calls the resolved `next`, testing for the `Emitted` arm the *checker*
-/// chose [union-arm-identity]; any other arm ends the loop.
+/// chose [type-union-arm-identity]; any other arm ends the loop.
 #[test]
 fn a_pass_lowers_to_a_driving_loop() {
     let files = generate(&[("main.sv", PASS_DEMO)]);
@@ -6983,7 +6983,7 @@ fn rustc_compiles_and_runs_a_lift_binding() {
     run_rust_files(&files, "lift-binding", LIFT_BINDING_OUTPUT);
 }
 
-/// [elvis] [placeholder] The positional pick: `?:` keeps the first arm
+/// [op-elvis] [expr-placeholder] The positional pick: `?:` keeps the first arm
 /// (`Forward(1)`); a run of `?`s keeps that many (`??:` keeps two). The shapes
 /// here are the ones that emit differently:
 ///
@@ -7035,7 +7035,7 @@ fn main() [use] {
     println(greet(named))
     println(greet(plain))
 
-    // [elvis] `?:` picks the first arm (`Str`); the rest (`Int | None`) go
+    // [op-elvis] `?:` picks the first arm (`Str`); the rest (`Int | None`) go
     // to `_`, which the default here ignores.
     let v: Str | Int | None = pick(2) ?: "none"
     when v {
@@ -7157,7 +7157,7 @@ fn rustc_compiles_and_runs_the_safe_pipe_operator() {
     run_rust_files(&files, "safe_pipe", SAFE_PIPE_OUTPUT);
 }
 
-/// [elvis] The first-arm pick. `?:` keeps the first arm; `_` on the right is
+/// [op-elvis] The first-arm pick. `?:` keeps the first arm; `_` on the right is
 /// the arms left behind, tags and all — the one place the placeholder earns
 /// its keep, since `Err Str` has no other spelling there.
 ///
@@ -7186,7 +7186,7 @@ fn show(label: Str, r: Ok Int | Err Str) [Console] -> None {
     }
 }
 
-// [elvis-guard] After a guarding pick the subject reads as the matched *arm*:
+// [op-elvis-guard] After a guarding pick the subject reads as the matched *arm*:
 // `r` is an `Ok Int` below, so it needs no further check.
 fn guarded(text: Str) [Console] -> None {
     let r = parse(text)
@@ -7217,7 +7217,7 @@ fn rustc_compiles_and_runs_a_positional_pick() {
     run_rust_files(&files, "pick", PICK_OUTPUT);
 }
 
-/// [rewrap] A value spanning **fewer arms than its storage** is produced by
+/// [type-rewrap] A value spanning **fewer arms than its storage** is produced by
 /// mapping arm to arm, which is what the three shapes deferred out of the `?`
 /// family all needed. Two of them are here:
 ///
@@ -7227,7 +7227,7 @@ fn rustc_compiles_and_runs_a_positional_pick() {
 ///   out of the same three-arm storage — the shape from the original sketch.
 ///
 /// The mapping itself is the one an annotated `let` has always emitted
-/// [let-infer]; what was missing was reaching it from a site with no slot.
+/// [var-let-infer]; what was missing was reaching it from a site with no slot.
 const REWRAP_DEMO: &str = r#"
 import std.throw
 
@@ -7631,7 +7631,7 @@ fn rustc_runs_effect_members_taking_fn_values() {
     run_rust_files(&files, "effect-fn-params", "18 4 57\n");
 }
 
-// ===== [safe-nav] `?.` optional chaining =====
+// ===== [op-safe-nav] `?.` optional chaining =====
 
 /// The same source and expected stdout as the Kotlin backend's
 /// `kotlinc_compiles_and_runs_safe_navigation`. A `?.` field chain feeds a
@@ -7680,7 +7680,7 @@ fn rustc_runs_safe_navigation() {
     run_rust_files(&files, "safe-nav", "42\n-1\n-1\nnanos=42\nabsent\n");
 }
 
-// [safe-nav] [rs-safe-nav] A field-only `?.` chain is a combinator chain.
+// [op-safe-nav] [rs-safe-nav] A field-only `?.` chain is a combinator chain.
 #[test]
 fn safe_navigation_field_chain_is_a_combinator_chain() {
     let files = generate(&[("main.sv", SAFE_NAV_DEMO)]);
@@ -7826,7 +7826,7 @@ fn main() [use] {
     }
     println("chars: ${size(count)}")
 
-    // [bytes-type] [byte-value] The text/byte bridge: UTF-8 out, strict UTF-8
+    // [type-bytes] [type-byte] The text/byte bridge: UTF-8 out, strict UTF-8
     // back in, and an octet that is unsigned on both targets. The buffer is a
     // `Bytes`, not a list of octets, so nothing here boxes on the JVM.
     let bytes = to_bytes("hé")
@@ -8208,7 +8208,7 @@ fn rustc_compiles_and_runs_overload_overrides() {
 /// beside a same-named local, parameter or class member (B1 census D11 and
 /// D13, 2026-10-27): the `for` over a concrete pass drives the fn's own
 /// implicit `?next`, as the call `next(c)` does (R10 D11, B3.3d; it drove the
-/// declared `next` before) [for-iter]; `5.show()` and
+/// declared `next` before) [iter-for]; `5.show()` and
 /// `show@main(5)` call the declared `show` though a local `show` is in scope;
 /// a handler member `label` calls, and passes by name, the top-level `label`.
 /// Kotlin printed the local's `local 5` twice and recursed into the member,
@@ -8761,7 +8761,7 @@ fn rustc_compiles_and_runs_a_partial_move() {
     run_rust_files(&files, "partial-move", PARTIAL_MOVE_OUTPUT);
 }
 
-/// [inc-dec] All four step forms, in both statement and value position: the
+/// [op-inc-dec] All four step forms, in both statement and value position: the
 /// fixity decides the *value* (postfix the old, prefix the new) and the
 /// operator the direction. Rust has neither operator, so a value-position
 /// step becomes a block; the stdout is what pins the two backends together.
@@ -8842,7 +8842,7 @@ fn rustc_compiles_and_runs_an_optional_borrow_unwrap() {
     run_rust_files(&files, "opt-borrow", "ann\nann\n");
 }
 
-/// [iter-fn] [proj-field] [yield-proj] An `iter fn` over a *generic* subject
+/// [iter-fn] [proj-field] [iter-yield-proj] An `iter fn` over a *generic* subject
 /// that emits borrowed elements. The generated pass **borrows** its subject
 /// (`b: proj Box<T>`, user decision 2026-09-11) instead of copying it,
 /// so nothing has to `copy` a value of type `T` — which is what used to refuse
@@ -9543,11 +9543,11 @@ fn rustc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter() {
     run_rust_files(&files, "proj-arm-param", PROJ_ARM_PARAM_OUTPUT);
 }
 
-// ===== [lambda-view] a capture-rooted projection, clone-free =====
+// ===== [fate-lambda-view] a capture-rooted projection, clone-free =====
 
 /// A callback picking elements out of a *captured* list — the projection
 /// is rooted in the capture, which no fn type can name, so the closure
-/// itself carries the link [lambda-view]. The emitted Rust must hold the
+/// itself carries the link [fate-lambda-view]. The emitted Rust must hold the
 /// borrow (`Vec<&String>`, no clone in the lambda) and deref the retagged
 /// index in the cast (`(*i) as usize` — E0606 without it; both were open
 /// defects, closed 2026-09-12).
@@ -10998,9 +10998,9 @@ fn rustc_compiles_and_runs_a_linear_token_closed_by_a_member() {
     );
 }
 
-// ===== std's byte buffer [bytes-type] =====
+// ===== std's byte buffer [type-bytes] =====
 
-/// [bytes-type] [byte-value] The whole `Bytes` surface in one program: both
+/// [type-bytes] [type-byte] The whole `Bytes` surface in one program: both
 /// constructors, the read side, the `Mut` side, structural equality, a copy
 /// that does not alias, the text bridge and a `for` over the buffer.
 ///
@@ -11947,7 +11947,7 @@ fn an_actor_lowers_to_a_message_enum_and_a_body() {
     );
 }
 
-/// [monitor-handler] [rs-handle] The monitor spawn (SH-3, user decision
+/// [actor-monitor-handler] [rs-handle] The monitor spawn (SH-3, user decision
 /// 2026-09-19): a **plain** effect's handler shared behind a lock. One
 /// instance serves `main` (use-bound) and a spawned actor (supplied through
 /// the dependency clause), and the output is deterministic because the three
@@ -12054,7 +12054,7 @@ fn a_monitor_lowers_to_the_effects_handle() {
     );
 }
 
-/// [mixed-handler] [rs-mixed] The mixed handler (SH-1): state confined to
+/// [actor-mixed-handler] [rs-mixed] The mixed handler (SH-1): state confined to
 /// `send fn` members (the servant), sync members on the caller's thread (the
 /// façade) sending to it and waiting — one shared instance serving `main`
 /// and a spawned actor, behind a plain effect nobody declares `[waitfor]`
@@ -12108,7 +12108,7 @@ fn main() [use, spawn] -> None {
 }
 "#;
 
-/// [defer-deduction] [mixed-handler] A **rung-4** mixed handler: the servant
+/// [linear-defer] [actor-mixed-handler] A **rung-4** mixed handler: the servant
 /// declares `=> defer out` and answers by *forwarding* the reply to another
 /// actor — the caller's wait ends when Delphi discharges it, one activation
 /// later. Also exercises the `use … on POOL` sugar. Same output as Kotlin.
@@ -12170,7 +12170,7 @@ fn rustc_compiles_and_runs_a_deferring_mixed_handler() {
     run_rust_files(&files, "deferring", "first 7\nsecond 14\n");
 }
 
-/// [defer-deduction] [actor-replyto] [rs-mixed] Parking inside a mixed
+/// [linear-defer] [actor-replyto] [rs-mixed] Parking inside a mixed
 /// handler — the full rung-4 shape: the servant captures the caller's reply
 /// in a continuation on its own `settled` member (`__Cont_H`, handler-keyed),
 /// consults another actor, and answers when the resume delivers the oracle's
@@ -12237,7 +12237,7 @@ fn rustc_compiles_and_runs_a_parking_mixed_handler() {
     run_rust_files(&files, "parking-mixed", "first 8\nsecond 16\n");
 }
 
-/// [mixed-handler] [actor-self-send] [rs-mixed] A servant reaching its
+/// [actor-mixed-handler] [actor-self-send] [rs-mixed] A servant reaching its
 /// siblings (user decision 2026-09-19): a bare sibling call in a send member
 /// and `k@self(…)` in both member kinds, all lowering to enqueues on the
 /// servant's own mailbox (`__Msg_H`), the reply travelling hop to hop by
@@ -12356,7 +12356,7 @@ fn a_mixed_handler_lowers_to_a_servant_and_a_facade() {
     );
 }
 
-/// [mixed-handler] [effect-handler-deps] [spawn-inherit] [with-clause] A
+/// [actor-mixed-handler] [effect-handler-deps] [actor-spawn-inherit] [effect-with-clause] A
 /// mixed handler **with dependencies** (the cut lifted 2026-10-20): the
 /// servant's send member calls `Console`, synthesized from the spawning
 /// scope, and `Label`, built by the `with` clause; the façade carries
@@ -12987,7 +12987,7 @@ fn draining_state_lowers_to_a_take() {
         "the drain of a state field is not a take:\n{}",
         main.content
     );
-    // [addr-routable] A `send(reply, v)` with a payload that has a wire form
+    // [net-addr-routable] A `send(reply, v)` with a payload that has a wire form
     // takes the typed path, which receives the token by value all the same.
     assert!(
         main.content.contains("let mut next_1 = next.unwrap();\n            crate::scheduler::salvo_reply_wire::<String>(next_1, "),
@@ -13403,7 +13403,7 @@ fn generate_addr_stub_demo() -> Vec<salvo_backend_rust::EmittedFile> {
 }
 
 
-/// [waitfor-effect] [waitfor-dedicated] [main-pool] The `waitfor` package, as a
+/// [waitfor-effect] [waitfor-dedicated] [actor-main-pool] The `waitfor` package, as a
 /// program. Three things run here that could not be written before 2026-09-17:
 /// a **handler** that waits (`[waitfor]` in its dependency list, so its members
 /// may occupy the thread), the **dedicated placement** its spawn therefore
@@ -13498,7 +13498,7 @@ fn rustc_compiles_and_runs_the_waitfor_package() {
 }
 
 
-/// [free-send-fn] [task-mint] [task-pool-inherit] The **task kernel**, as a
+/// [actor-free-send-fn] [task-mint] [task-pool-inherit] The **task kernel**, as a
 /// program: a free `send fn` that runs by being scheduled, an ordinary
 /// function that mints a continuation for it and returns (no park, no block),
 /// and the placement — inherited at one mint, written at the other. The
@@ -13957,7 +13957,7 @@ fn emit_example(example: &str) -> Vec<salvo_backend_rust::EmittedFile> {
     let src = examples_dir().join(example).join("salvo");
     let errors = sources.add_dir(&src, "rs", false, false);
     assert!(errors.is_empty(), "failed to read {example}: {errors:?}");
-    // The drivers' pre-resolution expansions [route-stub].
+    // The drivers' pre-resolution expansions [actor-route-stub].
     let built = salvo_testkit::front::std_front("rs").program(sources.files, sources.companions);
     let errors: Vec<_> = built.diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "parse or expansion errors: {errors:?}");
@@ -14323,7 +14323,7 @@ fn main() [use, spawn] {
 
 const NET_MEM_TRANSPORT_OUTPUT: &str = "listen a: sent\nlisten b: sent\nhello: sent\nlost: unreachable: b:1\nagain: sent\nvoid: unreachable: c:9\ndead: unreachable: b:1\nb saw [b <- a:1: hello, b <- a:1: again], routed 2\n";
 
-/// [threadsafe-platform] A `threadsafe` platform handler nobody binds emits
+/// [platform-threadsafe] A `threadsafe` platform handler nobody binds emits
 /// nothing and constructs nothing: the effect's trait is the whole surface
 /// std's shipped host companion implements.
 #[test]
@@ -14349,7 +14349,7 @@ fn rustc_compiles_and_runs_the_mem_transport() {
     run_rust_files(&files, "net-mem-transport", NET_MEM_TRANSPORT_OUTPUT);
 }
 
-/// [threadsafe-platform] The real wire, on localhost: `HostTcpTransport` is
+/// [platform-threadsafe] The real wire, on localhost: `HostTcpTransport` is
 /// std's first `threadsafe` platform handler, so this is the `Arc`-shared,
 /// `&self`-membered host compiled and run under rustc — and the host→scheduler
 /// door for real: a frame read on a socket thread becomes an activation
@@ -14434,7 +14434,7 @@ fn rustc_compiles_and_runs_the_tcp_transport_on_localhost() {
 
 // ===== the network sequence, step ②: the wire format =====
 
-/// [wire-format] [rs-wire] Every scalar, `Str`, `Bytes`, an optional, a list of
+/// [net-wire-format] [rs-wire] Every scalar, `Str`, `Bytes`, an optional, a list of
 /// structs, a three-armed union with a `None` arm — encoded and decoded, and
 /// the bytes printed as hex. **The hex is the parity assertion**: the Kotlin
 /// backend runs the same program and must print the same bytes, since a
@@ -14526,7 +14526,7 @@ fn rustc_compiles_and_runs_the_wire_format() {
 
 // ===== the network sequence, step ③: routable addrs across two nodes =====
 
-/// [addr-routable] [addr-capability] [remote-backpressure] Two nodes in one
+/// [net-addr-routable] [net-addr-capability] [net-remote-backpressure] Two nodes in one
 /// process over `MemTransport`: `main`'s node and a virtual one booted on a
 /// pool of its own. A counter on node B; its addr `encode`d and `decode`d on
 /// node A comes back as a **proxy** (`credits` answers a number); five sends
@@ -14623,7 +14623,7 @@ fn rustc_compiles_and_runs_two_nodes_over_mem_transport() {
 
 // ===== the network sequence, step ④: node groups =====
 
-/// [node-group] [protocol-hash] Two virtual nodes form a `StaticNodeGroup`
+/// [node-group] [actor-protocol-hash] Two virtual nodes form a `StaticNodeGroup`
 /// over `MemTransport`: the HELLO/ACK handshake, the protocol table (B knows
 /// A's `Counter` hash), a subscriber hearing the join, a LEAVE heard as a
 /// departure. Then three fresh nodes on a second network, each seeded with
@@ -14835,7 +14835,7 @@ fn rustc_compiles_and_runs_an_effect_typed_generic() {
     run_rust_files(&files, "effect-generic", EFFECT_GENERIC_DEMO_OUTPUT);
 }
 
-/// [rs-opt-borrow] [elvis] `?:` over an optional **borrow** — `get` on a
+/// [rs-opt-borrow] [op-elvis] `?:` over an optional **borrow** — `get` on a
 /// list or a map answers `Option<&T>` — dereferences a Copy scalar, keeps a
 /// `proj` result as the borrow it is, and reads a local bound from such a
 /// call the same way. `get(xs, 0) ?: 10` was `&i32` against `10` before
@@ -15151,7 +15151,7 @@ fn rustc_compiles_and_runs_a_router_of_any() {
     run_rust_files(&files, "any-router", ANY_ROUTER_DEMO_OUTPUT);
 }
 
-/// [route-stub] The generated stub with `Sharded`: a `Key`-marked argument
+/// [actor-route-stub] The generated stub with `Sharded`: a `Key`-marked argument
 /// picks the shard, so the same SKU lands on the same member every time.
 const ROUTE_SHARDED_DEMO: &str = r#"import std.net
 import std.time
@@ -15208,7 +15208,7 @@ fn rustc_compiles_and_runs_a_sharded_route() {
     run_rust_files(&files, "route-sharded", ROUTE_SHARDED_DEMO_OUTPUT);
 }
 
-/// [route-stub] `LeastLoaded` (local first) and `Elected` over a two-node
+/// [actor-route-stub] `LeastLoaded` (local first) and `Elected` over a two-node
 /// group: the first stub answers from this node's member, the second from the
 /// member on the node `StaticLeader` names.
 const ROUTE_PICKS_DEMO: &str = r#"import std.net
@@ -16657,7 +16657,7 @@ fn rustc_compiles_and_runs_a_user_struct_named_like_stds() {
 /// module**, which the file never *names*: name-based reachability left the
 /// module un-emitted and name-based imports left it un-imported, so the call
 /// had nothing to bind to. Resolution edges now reach it
-/// (`reach::resolved_dep_files`). [unique-shape] The `to_str` used to be in a
+/// (`reach::resolved_dep_files`). [op-unique-shape] The `to_str` used to be in a
 /// third module (`fmt`) the file imported whole and never named; it now has to
 /// be in `Pair`'s own file, so the case is `Pair`'s attached `to_str`,
 /// imported with `Pair` [fn-attached] and never named: the import half of the
@@ -16965,7 +16965,7 @@ fn main() [use] {
     );
 }
 
-/// [elem-distinct] [ref-notsame] [rs-elem-mut] The distinct-pair shapes: a
+/// [fate-elem-distinct] [ref-notsame] [rs-elem-mut] The distinct-pair shapes: a
 /// `NotSame`-proven pair of bound handles in one call, interleaved mutation
 /// through both, and the pair in a call again — the checker spares the
 /// sibling, the emitter splits the container once per pair call.
@@ -17390,14 +17390,14 @@ fn main() [use] {
     run_rust_files(&files, "pair-value-position", "2\n");
 }
 
-/// [placeholder] `for _ in …` binds nothing: `mut _` is not a binding Rust
+/// [expr-placeholder] `for _ in …` binds nothing: `mut _` is not a binding Rust
 /// accepts, so the loop takes the wildcard pattern. Source and expected stdout
 /// are verbatim the Kotlin backend's `kotlinc_compiles_and_runs_placeholder_loops`.
 const PLACEHOLDER_LOOP_DEMO: &str = r#"
 fn main() [use] {
     use StdConsole()
     let hits: Mut List<Int> = Mut List()
-    // [placeholder] Two loops that bind nothing, in one function: neither
+    // [expr-placeholder] Two loops that bind nothing, in one function: neither
     // introduces a name, so neither can collide with the other.
     for _ in range(0, 3) {
         add(hits, 1)
@@ -17457,7 +17457,7 @@ fn watch_and_on_idle_are_salvo_over_the_core_token() {
     }
 }
 
-/// [while-value] [deduce-same-call] A value loop whose body ends in an
+/// [loop-while-value] [deduce-same-call] A value loop whose body ends in an
 /// `else`-less `if` (a statement: its arm only `break`s), and a call whose
 /// later argument is hoisted past an earlier one with effects of its own —
 /// which must still run first. Both backends print the same.
@@ -17611,7 +17611,7 @@ fn rustc_compiles_and_runs_a_union_interpolates_by_the_text_of_its_arm() {
 /// and `to_str(Int)` fill a list of `Int`, `Foo`'s own `to_str` (declared in
 /// `Foo`'s file) fills the element `Foo`, a written override names a
 /// catch-all for the elements, and an enclosing fn's implicit still shadows
-/// every candidate at each level. [unique-shape] The catch-all is `any_text`,
+/// every candidate at each level. [op-unique-shape] The catch-all is `any_text`,
 /// not `to_str<T>`: a `to_str` on a type parameter is refused where it is
 /// declared (the program as it was, with a catch-all `to_str<T>`, is
 /// `IMPLICIT_CATCH_ALL_DEMO`), so it is passed explicitly.
@@ -17648,7 +17648,7 @@ fn rustc_compiles_and_runs_implicits_chosen_as_calls_are() {
     run_rust_files(&files, "implicit-call-rule", IMPLICIT_CALL_RULE_OUTPUT);
 }
 
-/// [unique-shape] The program above as it was before 2026-10-27, with a
+/// [op-unique-shape] The program above as it was before 2026-10-27, with a
 /// module's catch-all `to_str<T>` beside std's: refused at the catch-all's
 /// declaration, used or not — a `to_str` on a type parameter would be
 /// interpolation's function for every type at once, and a type parameter has
@@ -17670,7 +17670,7 @@ fn a_catch_all_to_str_is_refused_at_its_declaration() {
     assert!(
         errors.iter().any(|e| e.contains("`to_str(T)` has the shape of `to_str` on the type parameter `T`")
             && e.contains("give this one another name and pass it explicitly")
-            && e.contains("[unique-shape]")),
+            && e.contains("[op-unique-shape]")),
         "{errors:?}"
     );
 }
@@ -17742,7 +17742,7 @@ fn rustc_compiles_and_runs_implicits_selected_as_calls_select() {
     run_rust_files(&files, "implicit-selection", IMPLICIT_SELECTION_OUTPUT);
 }
 
-/// [op-equality] [op-order] [op-arm-eq] [unique-shape] [implicit-resolve-body]
+/// [op-equality] [op-order] [op-arm-eq] [op-unique-shape] [implicit-resolve-body]
 /// A comparison operator is the call it names (OPERATOR_OVERLOAD.md O1;
 /// PIPELINE.md §3 R10): an enclosing `?eq`/`?cmp` takes `==`/`<` on a `Str`
 /// (D1) and `<` on a `Double`; the qualified operands rank as the call ranks
@@ -17838,7 +17838,7 @@ fn main() [use] {
 "#;
 
 const COMPARISON_CALLS_BAG: &str = r#"
-// The two overloads of `eq` on `Bag`, in `Bag`'s own file [unique-shape].
+// The two overloads of `eq` on `Bag`, in `Bag`'s own file [op-unique-shape].
 export struct Bag<T> {
     items: List<T>
 }
@@ -17866,7 +17866,7 @@ fn rustc_compiles_and_runs_comparisons_as_the_calls_they_name() {
     run_rust_files(&files, "comparison-calls", COMPARISON_CALLS_OUTPUT);
 }
 
-/// [for-iter] [iter-protocol] [fn-rename] [implicit-resolve-body] [unique-shape]
+/// [iter-for] [iter-protocol] [fn-rename] [implicit-resolve-body] [op-unique-shape]
 /// `for` is the calls it names (R10 D10): `next(c)` when a `next` takes `c`,
 /// `next(iter(c))` otherwise, each resolved as the call. D8: the specific
 /// `next` drives (×100); D9: a renamed `next` no longer does, so the `iter`
@@ -18028,7 +18028,7 @@ fn rustc_compiles_and_runs_a_for_as_the_calls_it_names() {
     run_rust_files(&files, "for-calls", FOR_CALLS_OUTPUT);
 }
 
-/// [op-arith] [op-pow] [op-promote] [unique-shape] [implicit-resolve-body]
+/// [op-arith] [op-pow] [op-promote] [op-unique-shape] [implicit-resolve-body]
 /// Arithmetic operators are the calls they name (B3.3e, O1): `+ - * /` on a
 /// type of your own call its `plus`, `minus`, `times`, `divide`, declared in
 /// its file; the enclosing `?plus` takes `+` at an `Int` (R10 D1) and at a
@@ -18503,7 +18503,7 @@ fn rustc_compiles_and_runs_the_total_at() {
     run_rust_files(&files, "total-at", "45 21\n");
 }
 
-/// [ref-notsame] [elem-distinct] [rs-path] Two handles proven apart by
+/// [ref-notsame] [fate-elem-distinct] [rs-path] Two handles proven apart by
 /// `NotSame`, through a custom container's own accessor: the split lands
 /// where the handles' paths diverge — two map slots (`pair_mut` on the map),
 /// two positions of one slot's roster, a roster and the bench (different
@@ -19112,7 +19112,7 @@ fn rustc_compiles_and_runs_an_infinite_loop_as_never() {
 /// `T = Str | Int` (the `...T` spread captures both), `C = Bool`, and answers
 /// the flat `Str | Int | Bool`. The callee is one generic body over the
 /// nested `Union2<T, Box2<C>>`; the call site rewraps the flat argument to
-/// nested and the nested result back to flat. [union-spread]
+/// nested and the nested result back to flat. [type-union-spread]
 pub const UNION_SPAN_DEMO: &str = r#"
 struct Box2<C> { value: C }
 
@@ -19159,7 +19159,7 @@ fn rustc_compiles_and_runs_union_spanning_generic() {
     run_rust_files(&files, "union-span", UNION_SPAN_OUTPUT);
 }
 
-/// [union-spread] Two bare generic arms `T | S` — each captures **exactly
+/// [type-union-spread] Two bare generic arms `T | S` — each captures **exactly
 /// one** arm (no spread needed), the capability the spread change enables:
 /// before, two unbound generic arms could not be partitioned. `swap` reorders
 /// the two arms of a two-arm union.

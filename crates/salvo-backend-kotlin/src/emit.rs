@@ -90,7 +90,7 @@ pub(crate) fn generate_compare_file() -> String {
 }
 
 /// [kt-bytes] The `Bytes` buffer class, which is `Bytes` *and* `Mut Bytes`
-/// [bytes-type]: neither `List<UByte>` (a box per element) nor `UByteArray`
+/// [type-bytes]: neither `List<UByte>` (a box per element) nor `UByteArray`
 /// (fixed-size, and not a `List<T>`, so generic code cannot take one) is a
 /// growable byte buffer on this backend.
 ///
@@ -147,7 +147,7 @@ pub(crate) fn generate_unions_file(sizes: &BTreeSet<usize>, wire: bool) -> Strin
         }
         out.push_str("    }\n");
         out.push_str("}\n");
-        // [wire-format] [kt-wire] The union's codec: one tag byte holding
+        // [net-wire-format] [kt-wire] The union's codec: one tag byte holding
         // the arm's declared index, then the arm — the Rust `impl __Wire for
         // UnionN`, as a class over the arms' codecs.
         if wire {

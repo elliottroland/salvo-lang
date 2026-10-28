@@ -1,4 +1,4 @@
-// [platform-tree] [console] std's console, for `std.core.console`'s
+// [platform-tree] [std-console] std's console, for `std.core.console`'s
 // `threadsafe platform handler StdConsole` (ROADMAP 0.5): standard output and
 // standard error, with no buffering of their own, so a line printed before a
 // trap is seen; and standard input, a line at a time.

@@ -42,7 +42,7 @@ fn resolve_diags(files: &[(&str, &str)]) -> Vec<String> {
         .collect()
 }
 
-/// The base types the checker needs, as a std file [intrinsic-std-only].
+/// The base types the checker needs, as a std file [platform-intrinsic-std-only].
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
                            export intrinsic type Long\nexport intrinsic type Any\nexport intrinsic type Never\n",

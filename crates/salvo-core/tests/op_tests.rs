@@ -1,4 +1,4 @@
-//! [op-arith] [op-order] [op-bool] [op-promote] [lit-adopt] The operator
+//! [op-arith] [op-order] [op-bool] [op-promote] [type-lit-adopt] The operator
 //! typing slice (user decision 2026-09-14, FILE_SYSTEM.md §5.10.3):
 //! arithmetic on numeric operands only, implicit widening *within* the
 //! integer and float classes with the promotion recorded for the backends,
@@ -17,7 +17,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols, Ty};
 
-/// [intrinsic-std-only] The declarations these sources rely on, loaded as a
+/// [platform-intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`).
 const STD_PRELUDE: &str = concat!(
     concat!(
@@ -186,7 +186,7 @@ fn int_float_mix_needs_explicit_conversion() {
 
 /// [op-arith] `+` on strings is refused toward interpolation; other
 /// non-numeric operands get the general message. `Byte` is deliberately
-/// not operator-numeric [byte-value]: it is an octet, and its arithmetic
+/// not operator-numeric [type-byte]: it is an octet, and its arithmetic
 /// goes through `to_int`/`to_byte`.
 #[test]
 fn non_numeric_arithmetic_is_refused() {
@@ -206,7 +206,7 @@ fn non_numeric_arithmetic_is_refused() {
     assert!(msgs[0].contains("no `minus` for `-` on `Int` and `Str`"), "{msgs:?}");
 }
 
-/// [byte-value] [op-arith] A `Byte` is not a number to the operators, and
+/// [type-byte] [op-arith] A `Byte` is not a number to the operators, and
 /// the way through is the conversion pair — one call each way, which is
 /// also what pins the wrapping (`to_byte` keeps the low 8 bits).
 #[test]
@@ -231,7 +231,7 @@ fn callees(out: &salvo_core::Checked) -> Vec<String> {
     v
 }
 
-/// [op-arith] [unique-shape] `+ - * /` on a type of your own are its `plus`,
+/// [op-arith] [op-unique-shape] `+ - * /` on a type of your own are its `plus`,
 /// `minus`, `times` and `divide`, declared in its file (O1, D-3: any return
 /// type, any right operand), resolved as the written calls are.
 #[test]
@@ -279,7 +279,7 @@ fn probe(a: V, b: V) -> Scaled {
 }
 
 /// [op-arith] A missing function is said of the operator, with the remedy:
-/// declare it in the type's own file [unique-shape].
+/// declare it in the type's own file [op-unique-shape].
 #[test]
 fn a_missing_arithmetic_function_names_the_operator() {
     let msgs = messages(
@@ -371,7 +371,7 @@ fn power_on_the_numeric_scalars() {
     assert!(msgs.len() == 1 && msgs[0].starts_with("no `pow` for `**` on `Float` and `Int`"), "{msgs:?}");
 }
 
-/// [op-pow] [unique-shape] The brief's `Person`: `**` on a type of your own is
+/// [op-pow] [op-unique-shape] The brief's `Person`: `**` on a type of your own is
 /// the `pow` its own file declares (here inside its body [fn-attached]),
 /// with an `Int` exponent.
 #[test]
@@ -470,7 +470,7 @@ fn ordering_surface() {
     );
 }
 
-// ===== literal adoption [lit-adopt] =====
+// ===== literal adoption [type-lit-adopt] =====
 
 /// An unsuffixed literal adopts the expected numeric type: `let`
 /// annotations, negation, optionals' sole value arm. A suffix never

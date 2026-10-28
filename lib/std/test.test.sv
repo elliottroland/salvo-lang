@@ -7,7 +7,8 @@
 // the three functions over it are what a test author writes.
 
 // A function that traps, to have something to catch. Private to the annex, so
-// the shipped module has no such thing [test-visibility].
+// the shipped module has no such thing.
+// @compilerrules [test-visibility]
 fn always_traps(n: Int) -> Int {
     assert!(n > 100, "n should exceed 100, was ${n}")
     return n

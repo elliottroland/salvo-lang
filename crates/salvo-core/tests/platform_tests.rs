@@ -8,7 +8,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
@@ -174,7 +174,7 @@ fn a_platform_handler_is_registered_with_use_like_any_handler() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [platform-handler] [effect-handle] [threadsafe-platform] A platform
+/// [platform-handler] [effect-handle] [platform-threadsafe] A platform
 /// handler binds as a handle either way (user decision 2026-09-26): without
 /// `threadsafe` as a monitor (serialized behind a lock on both backends),
 /// with it bare (shared raw). Either satisfies a `[RawFs]`, so a handler
@@ -197,7 +197,7 @@ fn a_platform_handler_shares() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [threadsafe-platform] The declared form checks identically: `threadsafe`
+/// [platform-threadsafe] The declared form checks identically: `threadsafe`
 /// changes how the instance is shared, never whether it may be.
 #[test]
 fn a_threadsafe_platform_handler_shares() {
@@ -228,7 +228,7 @@ fn a_platform_handler_takes_constructor_arguments() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [platform-handler] [intrinsic-std-only] Unlike `intrinsic`, `platform` is
+/// [platform-handler] [platform-intrinsic-std-only] Unlike `intrinsic`, `platform` is
 /// the *customer's* modifier: the implementation is a file in their source
 /// tree, not a table inside the compiler, so a program may declare one.
 #[test]

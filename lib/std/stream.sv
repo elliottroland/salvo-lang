@@ -25,10 +25,11 @@
 
 import std.runtime.streams
 
-// [stream-handle] A handle for a new stream, unique in this process: every
+// A handle for a new stream, unique in this process: every
 // stream table — the host's and the in-memory ones alike — draws from this one
 // counter, so a handle handed to the wrong table is *unknown* there, never
 // another stream's. The counter is the runtime's stream table's.
+// @compilerrules [stream-handle]
 export fn fresh_handle() [] -> Long {
     return fresh_handle@runtime.streams()
 }
@@ -36,9 +37,10 @@ export fn fresh_handle() [] -> Long {
 // ===== errors =====
 
 // What went wrong reading or writing a stream: droppable, storable, and what
-// `detach` hands back. Every failing member answers `Err Checked<StreamError>`
-// [checked-type]. [source] names the stream — a path for a file, a
+// `detach` hands back. Every failing member answers `Err Checked<StreamError>`.
+// [source] names the stream — a path for a file, a
 // description for anything else — since a stream need not have a path.
+// @compilerrules [type-checked]
 export type StreamError = InvalidUtf8 | StreamFailed
 
 // The bytes read are not valid UTF-8. Decoding is strict on both backends.
@@ -46,7 +48,8 @@ export struct InvalidUtf8 { source: Str }
 // Anything else the provider reported: an I/O error, a dropped connection.
 export struct StreamFailed { source: Str, message: Str }
 
-// The text of a failure [interp-to-str].
+// The text of a failure.
+// @compilerrules [interp-to-str]
 export fn to_str(kind: StreamError) [] -> Str => kind {
     when kind {
         is InvalidUtf8 { return "not valid UTF-8: ${kind.source}" }
@@ -59,9 +62,10 @@ export fn to_str(kind: StreamError) [] -> Str => kind {
 // A stream open for reading. An opaque token: the provider behind it owns the
 // position, the buffer and the resource, so the only thing here is which
 // stream this is. Linear, so a stream that is never closed is a compile error
-// rather than a leak [linear-group]; `close` is the discharger.
-// [noremote] A stream is a handle into *this* process's stream table, so it
+// rather than a leak; `close` is the discharger.
+// A stream is a handle into *this* process's stream table, so it
 // has no wire form — and neither does anything holding one.
+// @compilerrules [linear-group, net-noremote]
 export noremote linear struct InStream { handle: Long }
 
 // A stream open for writing. Its `close` flushes.
@@ -110,11 +114,13 @@ export effect Streams {
     // Up to [max] bytes, exactly as they lie in the stream: no decoding, so a
     // read may stop in the middle of a character and data that is not text is
     // read all the same. Fewer bytes than asked for means the stream ended; an
-    // empty buffer means it has ended already [fs-bytes].
+    // empty buffer means it has ended already.
+    // @compilerrules [fs-bytes]
     fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err Checked<StreamError> => s
     // Up to [max] bytes **appended to [buf]**, answering how many. The
-    // fill-a-buffer read [fs-read-to]: one buffer, `clear`ed and refilled for
+    // fill-a-buffer read: one buffer, `clear`ed and refilled for
     // as long as a loop runs, instead of a fresh payload per chunk.
+    // @compilerrules [fs-read-to]
     fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err Checked<StreamError> => s, buf: Mut
     // Everything left, decoded strictly and **appended to [buf]**, answering
     // how many bytes were consumed.
@@ -143,29 +149,32 @@ export effect Streams {
     // Flushes and releases the stream.
     fn close(s: OutStream) -> Ok None | Err Checked<StreamError> => !s
 
-    // [stream-receive] The next bytes, **without blocking**: hands the stream
+    // The next bytes, **without blocking**: hands the stream
     // and a continuation to the provider and returns at once. The answer
     // arrives on [reply] — the bytes and the stream back, or `End`, or a
     // failure (both of which have closed the stream). A host provider reads on
-    // a thread of its own and completes the reply from there [platform-reply];
+    // a thread of its own and completes the reply from there;
     // an in-memory one answers straight away.
+    // @compilerrules [stream-receive, platform-reply]
     fn receive(s: InStream, reply: Reply<Received>) -> None => !s, !reply
 
-    // [stream-from-bytes] A stream over bytes already in hand — a request
+    // A stream over bytes already in hand — a request
     // body, a test's fixture. Minted in this `Streams`' own table, so it is
-    // read like any other stream here, and only here [stream-provider].
+    // read like any other stream here, and only here.
+    // @compilerrules [stream-from-bytes, stream-provider]
     fn from_bytes(data: Bytes) -> InStream => !data
 }
 
 // ===== copying without blocking =====
 
-// [stream-pipe] Copies everything left in [from] into [to] **without blocking a
+// Copies everything left in [from] into [to] **without blocking a
 // worker**, answering on [done] how many bytes moved. Each chunk is a
 // `receive`; the copy runs as a chain of continuations on the pool this was
 // called on, so a slow producer (a network body) occupies no thread while it
 // is slow. Both streams are closed when the copy ends, whatever happened, and
 // the first failure is the one reported. The synchronous shape is
 // [copy_stream].
+// @compilerrules [stream-pipe]
 export fn pipe(from: InStream, to: OutStream, done: Reply<Ok Long | Err Checked<StreamError>>) [Streams] -> None
 => !from, !to, !done {
     receive(from, replyto pipe_step(to, done, 0))
@@ -202,7 +211,8 @@ send fn pipe_step(to: OutStream, done: Reply<Ok Long | Err Checked<StreamError>>
 
 // An iterator over a stream's lines: `for line in p` drives it. It holds the
 // stream, so it carries the obligation too — bind it, loop over it, and
-// discharge it when you are done [linear-group].
+// discharge it when you are done.
+// @compilerrules [linear-group]
 export linear struct Lines : Next<self, Str> canbe Mut {
     s: InStream
 }
@@ -226,7 +236,8 @@ export fn next(p: Mut Lines) [Streams] -> Emitted Str | Finished => p: Mut {
 
 // Closes the stream the iterator reads, reporting what reading recorded. Named
 // `close` like every other discharger: a member and a fn of one name are one
-// overload set, and the argument type picks [effect-available].
+// overload set, and the argument type picks.
+// @compilerrules [effect-available]
 export fn close(p: Lines) [Streams] -> Ok None | Err Checked<StreamError> => !p {
     return close(p.s)
 }
@@ -235,7 +246,8 @@ export fn close(p: Lines) [Streams] -> Ok None | Err Checked<StreamError> => !p 
 
 // An iterator over a stream's chunks: `for chunk in c` drives it, and each step
 // is up to [size] bytes. Like [Lines] it holds the stream, so it carries the
-// obligation too [linear-group].
+// obligation too.
+// @compilerrules [linear-group]
 export linear struct Chunks : Next<self, Bytes> canbe Mut {
     s: InStream,
     // How many bytes a step asks for.
@@ -250,7 +262,8 @@ export fn chunks(s: InStream, size: Int) [] -> Mut Chunks => !s {
 // The iterator's step. Each chunk is a **fresh** buffer, deliberately: an
 // iterator that handed back its own buffer would have the next step overwrite
 // what the caller is still holding. The allocation-free shape is `read_to`
-// into a buffer of your own — which is what [copy_stream] does [fs-read-to].
+// into a buffer of your own — which is what [copy_stream] does.
+// @compilerrules [fs-read-to]
 export fn next(p: Mut Chunks) [Streams] -> Emitted Bytes | Finished => p: Mut {
     let got = read_bytes(p.s, p.size)
     if got is Err {
@@ -281,7 +294,8 @@ fn stream_chunk_size() [] -> Int {
 
 // Appends everything left in [s] to [buf], answering how many bytes moved.
 // One buffer for the whole read: this is `read_to` in a loop, which is the
-// point of `read_to` existing [fs-read-to].
+// point of `read_to` existing.
+// @compilerrules [fs-read-to]
 export fn fill_from(s: InStream, buf: Mut Bytes) [Streams] -> Ok Long | Err Checked<StreamError> => s, buf: Mut {
     let total: Long = 0
     let reading = true
@@ -332,23 +346,26 @@ export fn copy_stream(s: InStream, w: OutStream) [Streams] -> Ok Long | Err Chec
 // an error when it ends inside a number or a value, or the bytes do not
 // decode as the value asked for.
 
-// [stream-values] Writes [v] as 4 bytes, big-endian; answers the bytes
+// Writes [v] as 4 bytes, big-endian; answers the bytes
 // written.
+// @compilerrules [stream-values]
 export fn write_int(s: OutStream, v: Int) [Streams] -> Long => s {
     return write_bytes(s, fixed_bytes(to_long(v), 4))
 }
 
-// [stream-values] Writes [v] as 8 bytes, big-endian; answers the bytes
+// Writes [v] as 8 bytes, big-endian; answers the bytes
 // written.
+// @compilerrules [stream-values]
 export fn write_long(s: OutStream, v: Long) [Streams] -> Long => s {
     return write_bytes(s, fixed_bytes(v, 8))
 }
 
-// [stream-values] Writes [v] in the canonical encoding [wire-encoding],
+// Writes [v] in the canonical encoding [wire-encoding],
 // behind its length as a 4-byte `Int`, so [read_value] knows where it ends;
 // answers the bytes written. The codec is an implicit, `codec`'s `encode` at
 // the caller's concrete type: a wire form is the instantiation's, so a
-// generic body cannot name it [noremote].
+// generic body cannot name it.
+// @compilerrules [stream-values, net-noremote]
 export fn write_value<T>(s: OutStream, v: T, ?encode: (v: T) -> Bytes) [Streams] -> Long
 =>[encode] !v => s, !v {
     let data = encode(v)
@@ -356,7 +373,8 @@ export fn write_value<T>(s: OutStream, v: T, ?encode: (v: T) -> Bytes) [Streams]
     return n + write_bytes(s, data)
 }
 
-// [stream-values] Reads a 4-byte big-endian `Int`.
+// Reads a 4-byte big-endian `Int`.
+// @compilerrules [stream-values]
 export fn read_int(s: InStream) [Streams] -> Ok Int | End | Err Checked<StreamError> => s {
     let r = read_fixed(s, 4)
     when r {
@@ -366,14 +384,16 @@ export fn read_int(s: InStream) [Streams] -> Ok Int | End | Err Checked<StreamEr
     }
 }
 
-// [stream-values] Reads an 8-byte big-endian `Long`.
+// Reads an 8-byte big-endian `Long`.
+// @compilerrules [stream-values]
 export fn read_long(s: InStream) [Streams] -> Ok Long | End | Err Checked<StreamError> => s {
     return read_fixed(s, 8)
 }
 
-// [stream-values] Reads a value [write_value] wrote: its length, then that
+// Reads a value [write_value] wrote: its length, then that
 // many bytes, decoded as a `T` by the implicit `decode` (`codec`'s, at the
 // caller's type).
+// @compilerrules [stream-values]
 export fn read_value<T>(s: InStream, ?decode: (data: Bytes) -> T?) [Streams] -> Ok T | End | Err Checked<StreamError>
 => s {
     let len = read_int(s)

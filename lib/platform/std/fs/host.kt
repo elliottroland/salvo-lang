@@ -66,7 +66,7 @@ private fun kindOf(path: String, e: Exception): Kind {
 // member runs under one `synchronized` monitor on both backends, so the plain
 // hash maps below are fine. If the host ever synchronizes internally and wants
 // to run concurrently, declare it `threadsafe platform handler` in Salvo
-// [threadsafe-platform]. Reviewed 2026-09-26: an open-file table keyed by
+// [platform-threadsafe]. Reviewed 2026-09-26: an open-file table keyed by
 // handle is inherently one-writer state, so undeclared is the right call.
 // `platform handler HostRawFs` holds nothing of its own now: what it opens goes
 // into the runtime's stream table [stream-table], where `stream.host`'s

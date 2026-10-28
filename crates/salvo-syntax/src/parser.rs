@@ -7,7 +7,7 @@
 //! * Struct literals (`Person { ... }`) are ambiguous with blocks in
 //!   condition position (`if x is Person { ... }`), so struct-literal
 //!   speculation is disabled while parsing conditions (`no_struct`)
-//!   [cond-bool].
+//!   [expr-cond-bool].
 //! * Type names and qualifiers are uppercase by convention; `is` checks use
 //!   this to distinguish the checked type from an optional binding
 //!   (`if x is Str s`) [is-binding].
@@ -50,7 +50,7 @@ pub struct Parser<'s> {
     /// [comptime-pattern] Inside the type after a comptime `is`: `*` is a
     /// wildcard type there, and nowhere else.
     in_comp_pattern: bool,
-    /// [terminal-scope] True while parsing a statement's own expression at the
+    /// [expr-terminal-scope] True while parsing a statement's own expression at the
     /// top of a block, where a body-taking construct (`if`/`while`/`for`/
     /// `try`/`waitfor`) may write its body as a terminal `...` that runs to the
     /// end of the enclosing block instead of a braced block. Cleared the moment
@@ -58,14 +58,14 @@ pub struct Parser<'s> {
     /// `let` value, a call argument, a parenthesised group), so `...` is a body
     /// only for the construct that *is* the statement.
     allow_terminal: bool,
-    /// [terminal-lambda] True while parsing a statement's own expression tree —
+    /// [expr-terminal-lambda] True while parsing a statement's own expression tree —
     /// including through a `return`/`let`/assignment value and call arguments,
     /// where `allow_terminal` is cleared — but false inside a nested block or a
     /// lambda body. The gate for a **trailing-lambda terminal scope**
     /// (`map(xs, (e) -> ...)`): the last argument's lambda body may be written
     /// `...` and becomes the rest of the enclosing block.
     in_stmt_expr: bool,
-    /// [terminal-lambda] Set when a trailing `(params) -> ...` lambda has been
+    /// [expr-terminal-lambda] Set when a trailing `(params) -> ...` lambda has been
     /// parsed in the current statement; its body is filled with the rest of the
     /// block once the statement closes. At most one per statement.
     pending_terminal_lambda: bool,
@@ -140,7 +140,7 @@ pub const WHYNOT_FORM: &str = "whynot";
 /// colouring functions.
 pub const ACTOR_MODIFIER: &str = "actor";
 
-/// [threadsafe-platform] The contextual modifier that states a platform
+/// [platform-threadsafe] The contextual modifier that states a platform
 /// handler's thread-safety contract: `threadsafe platform handler H of E`
 /// (user decision 2026-09-26). The host class may be entered concurrently
 /// from any thread; without it the compiler serializes the instance on both
@@ -153,7 +153,7 @@ pub const THREADSAFE_MODIFIER: &str = "threadsafe";
 /// T>` (user decision 2026-10-05). Only `platform type` may follow it.
 pub const ITERABLE_MODIFIER: &str = "iterable";
 
-/// [noremote] The contextual modifier that keeps a type off the wire:
+/// [net-noremote] The contextual modifier that keeps a type off the wire:
 /// `noremote struct Canvas { … }`, `noremote intrinsic type Pool` (user
 /// decision 2026-09-26). Every type is serializable by default; this is the
 /// opt-out, and it is transitive — a struct holding a `noremote` field is
@@ -173,7 +173,7 @@ pub const OPAQUE_MODIFIER: &str = "opaque";
 /// parse error.
 pub const COMPTIME_WORD: &str = "comptime";
 
-/// [namespace] The contextual word opening a `namespace X { … }` grouping. A
+/// [mod-namespace] The contextual word opening a `namespace X { … }` grouping. A
 /// **contextual** keyword, not reserved: it is read as a keyword only at item
 /// position when a capitalized name follows (`namespace AttributeValue`),
 /// which is what lets `namespace` stay an ordinary identifier (a variable, a
@@ -185,13 +185,13 @@ pub const NAMESPACE_WORD: &str = "namespace";
 /// a capitalized name, so `effects` stays an ordinary identifier.
 pub const EFFECTS_WORD: &str = "effects";
 
-/// [eff-handle] The internal nominal type an `eff[…]` handle lowers to — the
+/// [effect-eff-handle] The internal nominal type an `eff[…]` handle lowers to — the
 /// name `Addr<E>` used before the surface rename. Kept as the internal
 /// spelling so the compiler's actor/handle machinery (keyed on this name) is
 /// untouched by the surface change; only the written syntax moved to `eff[…]`.
 pub const ADDR_TYPE_NAME: &str = "Addr";
 
-/// [eff-handle] The contextual type former `eff[A, B, …]`: the type of a
+/// [effect-eff-handle] The contextual type former `eff[A, B, …]`: the type of a
 /// first-class handle over a flat set of effects (what `Addr<E>` was spelled
 /// before — the mailbox analogy no longer fit once a handle covers any effect,
 /// actor or not). Lowercase and compiler-owned like `proj`/`iter`/`ref`, read
@@ -657,7 +657,7 @@ impl<'s> Parser<'s> {
                 Some(Item::Fn(d))
             }
             Item::Namespace(mut d) => {
-                // [namespace] [name-dot] `export namespace X` exports every
+                // [mod-namespace] [name-dot] `export namespace X` exports every
                 // member (D6); the flag is distributed when the body is
                 // flattened.
                 d.exported = true;
@@ -705,9 +705,9 @@ impl<'s> Parser<'s> {
         }
     }
 
-    /// [namespace] `namespace X { items }`, or the terminal form
+    /// [mod-namespace] `namespace X { items }`, or the terminal form
     /// `namespace X ...` whose body runs to the end of the enclosing item list
-    /// [terminal-scope]. The caller is positioned on `namespace`.
+    /// [expr-terminal-scope]. The caller is positioned on `namespace`.
     ///
     /// Namespaces nest, so the body is parsed with the same `parse_item` loop
     /// the module uses. A braced body ends at its `}`; a terminal body ends at
@@ -726,7 +726,7 @@ impl<'s> Parser<'s> {
             self.error(
                 format!(
                     "expected `{{` or `...` after the namespace name `{}`, found {found} \
-                     [namespace]",
+                     [mod-namespace]",
                     name.name
                 ),
                 span,
@@ -748,7 +748,7 @@ impl<'s> Parser<'s> {
                 break;
             } else if self.at_eof() {
                 self.error(
-                    format!("unterminated `namespace {}`: expected `}}` [namespace]", name.name),
+                    format!("unterminated `namespace {}`: expected `}}` [mod-namespace]", name.name),
                     start,
                 );
                 break;
@@ -777,7 +777,7 @@ impl<'s> Parser<'s> {
     fn parse_declaration(&mut self) -> Option<Item> {
         match self.kind() {
             TokenKind::KwImport => self.parse_import().map(Item::Import),
-            // [intrinsic-fn] [intrinsic-std-only] `intrinsic` marks a
+            // [platform-intrinsic-fn] [platform-intrinsic-std-only] `intrinsic` marks a
             // declaration the *compiler* implements. It is the only backing
             // modifier there is, now that `external`/`define` are gone, and
             // only the standard library may write it — which the checker
@@ -833,7 +833,7 @@ impl<'s> Parser<'s> {
             {
                 self.parse_effect_alias().map(Item::EffectAlias)
             }
-            // [namespace] `namespace X { … }` or `namespace X ...` — a
+            // [mod-namespace] `namespace X { … }` or `namespace X ...` — a
             // grouping of declarations, flattened to dotted names before
             // resolution [name-dot]. A **contextual** keyword: recognised only
             // when a capitalized name follows, so `namespace` stays an
@@ -860,7 +860,7 @@ impl<'s> Parser<'s> {
                 self.bump();
                 self.parse_fn_flavored(false, FnFlavor::Iter).map(Item::Fn)
             }
-            // [free-send-fn] `send fn parse_row(out: Reply<User>, row: Row)` —
+            // [actor-free-send-fn] `send fn parse_row(out: Reply<User>, row: Row)` —
             // the send kind extended to a *free* function (user decision
             // 2026-09-17, FC-1(a)): a unit of work that runs by being
             // scheduled rather than called, and what a `replyto` may target
@@ -958,7 +958,7 @@ impl<'s> Parser<'s> {
                 self.parse_test().map(Item::Test)
             }
             TokenKind::KwStruct => self.parse_struct(false).map(Item::Struct),
-            // [noremote] `noremote struct S`, `noremote linear struct S`,
+            // [net-noremote] `noremote struct S`, `noremote linear struct S`,
             // `noremote intrinsic type T`, `noremote type A = …`: the type
             // stays off the wire. The word is peeled and the declaration
             // parsed as usual, then flagged; anything but a type declaration
@@ -994,7 +994,7 @@ impl<'s> Parser<'s> {
                         self.error(
                             "`noremote` keeps a *type* off the wire, so it precedes a \
                              `struct` or `type` declaration — a function, handler or \
-                             effect has no wire form to refuse [noremote]",
+                             effect has no wire form to refuse [net-noremote]",
                             span,
                         );
                         Some(other)
@@ -1098,7 +1098,7 @@ impl<'s> Parser<'s> {
                 self.bump();
                 self.parse_platform_rest(false)
             }
-            // [threadsafe-platform] `threadsafe platform handler H of E`: the
+            // [platform-threadsafe] `threadsafe platform handler H of E`: the
             // host class is safe to enter concurrently, so the compiler shares
             // it without a lock on either backend. Contextual: `threadsafe`
             // is an ordinary name everywhere but directly before `platform`.
@@ -1118,7 +1118,7 @@ impl<'s> Parser<'s> {
                                 "expected `handler` or `type` after `threadsafe platform`, \
                                  found {found}: the thread-safety contract is a claim about a \
                                  host class, so it belongs on a `platform handler` or a \
-                                 `platform type` [threadsafe-platform]"
+                                 `platform type` [platform-threadsafe]"
                             ),
                             span,
                         );
@@ -1381,7 +1381,7 @@ impl<'s> Parser<'s> {
             );
         }
         // `canbe Mut` — auto-qualifiers the type opts into
-        // [type-canbe-mut] [canbe-optin].
+        // [type-canbe-mut] [qual-canbe-optin].
         let mut auto_qualifiers = Vec::new();
         if self.eat(&TokenKind::KwCanbe).is_some() {
             loop {
@@ -1418,7 +1418,7 @@ impl<'s> Parser<'s> {
         Some(TypeDecl {
             // [mod-export] Set by `parse_item`, which reads the modifier.
             exported: false,
-            // [noremote] Set by `parse_declaration`, which peels the word.
+            // [net-noremote] Set by `parse_declaration`, which peels the word.
             noremote: false,
             comptime: false,
             platform: false,
@@ -1475,7 +1475,7 @@ impl<'s> Parser<'s> {
     }
 
     /// Type parameters with optional per-parameter `canbe` opt-ins
-    /// [linear-generics] [canbe-optin]: `<T canbe linear, U>` — one
+    /// [linear-generics] [qual-canbe-optin]: `<T canbe linear, U>` — one
     /// qualifier per `canbe` (the comma separates parameters).
     fn parse_generics_canbe(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>) {
         let (generics, canbe, slots) = self.parse_generics_all();
@@ -1726,7 +1726,7 @@ impl<'s> Parser<'s> {
         // as.
         let obligations = self.parse_obligations()?;
         // `canbe Mut` — auto-qualifiers the struct opts into
-        // [struct-mut] [canbe-optin].
+        // [struct-mut] [qual-canbe-optin].
         let mut auto_qualifiers = Vec::new();
         if self.eat(&TokenKind::KwCanbe).is_some() {
             loop {
@@ -1788,7 +1788,7 @@ impl<'s> Parser<'s> {
             annotations: Vec::new(),
             // [mod-export] Set by `parse_item`, which reads the modifier.
             exported: false,
-            // [noremote] Set by `parse_declaration`, which peels the word.
+            // [net-noremote] Set by `parse_declaration`, which peels the word.
             noremote: false,
             // [comptime-fields] Set by `parse_declaration` too.
             comptime: false,
@@ -1997,7 +1997,7 @@ impl<'s> Parser<'s> {
     }
 
     /// `name: Type (= default)?`, or — when `allow_inferred` — `name = value`
-    /// with the type inferred from the initializer [state-infer]. The inferred
+    /// with the type inferred from the initializer [handler-state-infer]. The inferred
     /// form is for `state { … }` blocks only (handlers and `iter fn`s); a
     /// struct field or qualifier override always writes its type.
     fn parse_field_decl(&mut self, allow_inferred: bool) -> Option<FieldDecl> {
@@ -2033,7 +2033,7 @@ impl<'s> Parser<'s> {
         } else {
             self.ident_value("field")?
         };
-        // [state-infer] `name = value` in a state block: no annotation, the
+        // [handler-state-infer] `name = value` in a state block: no annotation, the
         // type is the initializer's. Recognised by an `=` where a `:` would
         // otherwise be.
         if allow_inferred && self.at(&TokenKind::Eq) {
@@ -2052,7 +2052,7 @@ impl<'s> Parser<'s> {
         }
         self.expect(&TokenKind::Colon)?;
         let ty = self.parse_type()?;
-        // [field-canbe-mut] `name: T canbe Mut` (user decision 2026-10-20; it
+        // [struct-field-canbe-mut] `name: T canbe Mut` (user decision 2026-10-20; it
         // was `name: canbe Mut T`): written after the type, as a declaration's
         // own `canbe Mut` is after its name. Only `Mut` may follow, since it is
         // the one auto-qualifier a struct value carries.
@@ -2670,7 +2670,7 @@ impl<'s> Parser<'s> {
     /// `handler`, `intrinsic handler` [backend-intrinsic] and
     /// `platform handler` [platform-handler] share every piece of grammar:
     /// the two modifiers differ only in who supplies the members.
-    /// `threadsafe` [threadsafe-platform] rides on the platform form.
+    /// `threadsafe` [platform-threadsafe] rides on the platform form.
     fn parse_handler_flavored(
         &mut self,
         intrinsic: bool,
@@ -2796,13 +2796,13 @@ impl<'s> Parser<'s> {
                     }
                     mailbox = Some(lit);
                 } else if self.at(&TokenKind::KwState) {
-                    // [effect-handler] [state-infer] A handler's state lives in
+                    // [effect-handler] [handler-state-infer] A handler's state lives in
                     // a `state { … }` block, the same shape an `iter fn` uses
                     // (user decision 2026-10-20, replacing the free field decls
                     // that used to sit in the handler body). Each field is
                     // `name: Type = value` or the inferred `name = value`; the
                     // type, when inferred, is the initializer's.
-                    // [state-name] `state Tally { … }` names the struct; the
+                    // [handler-state-name] `state Tally { … }` names the struct; the
                     // name is optional, and the handler's own by default.
                     let state_kw = self.bump().span;
                     if state_seen {
@@ -3442,7 +3442,7 @@ impl<'s> Parser<'s> {
                         );
                         return None;
                     };
-                    // [fn-contract] [once-fn] Through a qualifier group: a
+                    // [fn-contract] [fn-once] Through a qualifier group: a
                     // `once (t: T) -> None` parameter parses as a
                     // `QualifiedGroup` wrapping the fn type, so matching
                     // `Type::Fn` alone rejected exactly the parameter that
@@ -3543,7 +3543,7 @@ impl<'s> Parser<'s> {
                 kind: DeductionKind::Moved,
             });
         }
-        // [defer-deduction] `defer elem`: consumed, and the obligation may
+        // [linear-defer] `defer elem`: consumed, and the obligation may
         // outlive the frame. Contextual — a parameter named `defer` stays
         // writable as a bare keep (`=> defer`), since the form here needs a
         // name after the word.
@@ -3778,7 +3778,7 @@ impl<'s> Parser<'s> {
     // --- Types ---
 
     pub fn parse_type(&mut self) -> Option<Type> {
-        // [union-spread] A leading `...` makes the first arm a spread; it is
+        // [type-union-spread] A leading `...` makes the first arm a spread; it is
         // only meaningful in a union, so a lone `...T` with no `|` is still
         // built as a `Spread` and refused by the checker outside a union.
         let first = self.parse_union_arm()?;
@@ -3793,7 +3793,7 @@ impl<'s> Parser<'s> {
         Some(Type::Union { arms, span })
     }
 
-    /// [union-spread] One arm of a union: a `...T` spread, or an ordinary
+    /// [type-union-spread] One arm of a union: a `...T` spread, or an ordinary
     /// postfix type. The spread's inner type is a full postfix type, but the
     /// checker requires it to be a bare generic name.
     fn parse_union_arm(&mut self) -> Option<Type> {
@@ -3968,7 +3968,7 @@ impl<'s> Parser<'s> {
         Some((ty, generics, canbe))
     }
 
-    /// [eff-handle] `eff[A, B, …]` → the internal `Addr` type carrying the
+    /// [effect-eff-handle] `eff[A, B, …]` → the internal `Addr` type carrying the
     /// effect set as its arguments. One effect reproduces the old `Addr<E>`
     /// exactly (`args: [E]`); several is a multi-effect handle (`args: [A,
     /// B]`). Members are plain effect refs — `use`/`spawn`/`any` are
@@ -4077,14 +4077,14 @@ impl<'s> Parser<'s> {
                 },
             });
         }
-        // [eff-handle] `eff[A, B, …]`: a first-class handle over a flat set of
+        // [effect-eff-handle] `eff[A, B, …]`: a first-class handle over a flat set of
         // effects. Contextual — only before `[` — so `eff` stays a name. It
         // lowers to the internal `Addr` type (unchanged machinery): a single
         // effect is `Addr<E>` as before, several is a multi-effect handle.
         if self.at_word(EFF_WORD) && matches!(self.peek_at(1).kind, TokenKind::LBracket) {
             return self.parse_eff_handle();
         }
-        // [eff-handle] The old handle spelling `Addr<…>` is no longer the
+        // [effect-eff-handle] The old handle spelling `Addr<…>` is no longer the
         // language: a plain parse error naming the replacement. (`Addr` is the
         // compiler's internal name for the handle; the surface is `eff[…]`.)
         if matches!(&self.kind(), TokenKind::Ident(n) if n == ADDR_TYPE_NAME)
@@ -4093,7 +4093,7 @@ impl<'s> Parser<'s> {
             let span = self.peek().span;
             self.error(
                 "`Addr<…>` is not a type you write: a first-class effect handle is \
-                 spelled `eff[E]` (several effects: `eff[A, B]`) [eff-handle]",
+                 spelled `eff[E]` (several effects: `eff[A, B]`) [effect-eff-handle]",
                 span,
             );
             return None;
@@ -4403,7 +4403,7 @@ impl<'s> Parser<'s> {
         {
             return Some(head);
         }
-        // [namespace] A dotted type reference may have any number of
+        // [mod-namespace] A dotted type reference may have any number of
         // uppercase segments (`Outer.Inner.Thing`), since namespaces nest
         // [name-dot] [name-casing]. Each `.Uppercase` extends the name; the
         // whole dotted path is one key, as the two-segment form always was.
@@ -4430,7 +4430,7 @@ impl<'s> Parser<'s> {
     /// never carries value args — a following `(` there is the function's
     /// parameter / argument list, not part of the type.
     fn parse_type_ref_opts(&mut self, allow_value_args: bool) -> Option<TypeRef> {
-        // [namespace] `.S` / `.S.T` — the leading-dot sugar: a reference whose
+        // [mod-namespace] `.S` / `.S.T` — the leading-dot sugar: a reference whose
         // namespace is left to the expected type (D3/D4). Parsed as a name
         // that keeps its leading dot (`.S`), which no ordinary type can spell,
         // so the checker recognises and resolves it against the expected
@@ -4727,7 +4727,7 @@ impl<'s> Parser<'s> {
     /// 2026-09-09) — it is the pass's shape, not code that runs — so it is
     /// parsed with the same `parse_field_decl` a struct body uses, and every
     /// field needs an initializer. The type may be written (`i: Int = 0`) or
-    /// inferred from the initializer (`i = 0`) [state-infer]. The block may be
+    /// inferred from the initializer (`i = 0`) [handler-state-infer]. The block may be
     /// empty: the struct then holds the parameters only.
     fn parse_iter_body(
         &mut self,
@@ -4802,7 +4802,7 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// [terminal-scope] Runs `f` with terminal-`...` bodies **disallowed** —
+    /// [expr-terminal-scope] Runs `f` with terminal-`...` bodies **disallowed** —
     /// used for every sub-expression (a condition, an operand, a call
     /// argument, a `let` value), so `...` is a body only for the construct
     /// that *is* a statement. Restores the flag afterwards.
@@ -4813,7 +4813,7 @@ impl<'s> Parser<'s> {
         out
     }
 
-    /// [terminal-scope] The remaining statements of the enclosing block as a
+    /// [expr-terminal-scope] The remaining statements of the enclosing block as a
     /// `Block` — a terminal scope's body. The enclosing `parse_block` loop sees
     /// `}` next and ends, so nothing may follow at the same level.
     fn parse_terminal_rest(&mut self) -> Block {
@@ -4837,7 +4837,7 @@ impl<'s> Parser<'s> {
         Block { stmts, span: start.to(end) }
     }
 
-    /// [terminal-scope] Parses a body-taking construct's body for the simple
+    /// [expr-terminal-scope] Parses a body-taking construct's body for the simple
     /// constructs (`try`/`while`/`for`/`waitfor`, which take no inline `else`
     /// after a terminal `...`): a braced block, or — only when the construct is
     /// itself a statement — a terminal `...` whose body is the rest of the
@@ -4869,7 +4869,7 @@ impl<'s> Parser<'s> {
         // even when the block itself appears inside parentheses.
         let saved_depth = std::mem::replace(&mut self.group_depth, 0);
         let saved_no_struct = std::mem::replace(&mut self.no_struct, false);
-        // [terminal-lambda] A nested block is not the enclosing statement's
+        // [expr-terminal-lambda] A nested block is not the enclosing statement's
         // expression tree; `parse_block_stmt` re-arms the flag per statement.
         let saved_in_stmt = std::mem::replace(&mut self.in_stmt_expr, false);
         let mut stmts = Vec::new();
@@ -4893,13 +4893,13 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// [terminal-scope] [terminal-lambda] One statement of a block, with the
+    /// [expr-terminal-scope] [expr-terminal-lambda] One statement of a block, with the
     /// terminal-scope flags set for its own expression and the trailing-lambda
     /// capture run afterwards. Shared by `parse_block` and
     /// `parse_terminal_rest`.
     fn parse_block_stmt(&mut self) -> Option<Stmt> {
-        // [terminal-scope] A statement's own expression may end in a terminal
-        // `...` body; a sub-expression may not. [terminal-lambda] And its last
+        // [expr-terminal-scope] A statement's own expression may end in a terminal
+        // `...` body; a sub-expression may not. [expr-terminal-lambda] And its last
         // call argument may be a `(…) -> ...` lambda, allowed through the whole
         // statement expression tree (`in_stmt_expr`).
         self.allow_terminal = true;
@@ -4907,7 +4907,7 @@ impl<'s> Parser<'s> {
         let stmt = self.parse_stmt();
         self.allow_terminal = false;
         self.in_stmt_expr = false;
-        // [terminal-lambda] If a trailing `(…) -> ...` lambda was parsed, the
+        // [expr-terminal-lambda] If a trailing `(…) -> ...` lambda was parsed, the
         // rest of the enclosing block is now its body.
         if self.pending_terminal_lambda {
             self.pending_terminal_lambda = false;
@@ -4978,7 +4978,7 @@ impl<'s> Parser<'s> {
             TokenKind::KwRename => self.parse_rename().map(Stmt::Rename),
             TokenKind::KwUse => {
                 let start = self.bump().span;
-                // [eff-handle] Share one parser with the expression form; the
+                // [effect-eff-handle] Share one parser with the expression form; the
                 // statement is the discarded-value case.
                 let Expr::Use { handler, with_items, any, span } = self.parse_use_expr(start)? else {
                     return None;
@@ -5058,7 +5058,7 @@ impl<'s> Parser<'s> {
 
     /// `[for field in T.fields] { … }`, `[if <cond>] { … } else { … }`,
     /// `[when field.kind] { is Struct { … } … }`, `[when value] { [arm] { … }
-    /// }`. [terminal-scope] `[for …]` and `[if …]` also take a terminal `...`
+    /// }`. [expr-terminal-scope] `[for …]` and `[if …]` also take a terminal `...`
     /// body, as `for` and `if` do: the rest of the enclosing block.
     fn parse_inline(&mut self) -> Option<CompStmt> {
         let start = self.expect(&TokenKind::LBracket)?.span;
@@ -5070,7 +5070,7 @@ impl<'s> Parser<'s> {
                 self.expect(&TokenKind::KwIn)?;
                 let seq = self.parse_comp_seq()?;
                 self.expect(&TokenKind::RBracket)?;
-                // [terminal-scope] `[for f in T.fields] ...`: the rest of the
+                // [expr-terminal-scope] `[for f in T.fields] ...`: the rest of the
                 // block, once per field.
                 let (body, _terminal) = self.parse_body("the `[for …]`")?;
                 let span = start.to(body.span);
@@ -5085,7 +5085,7 @@ impl<'s> Parser<'s> {
                 self.bump();
                 let cond = self.parse_comp_cond()?;
                 self.expect(&TokenKind::RBracket)?;
-                // [terminal-scope] `[if cond] ...` keeps the rest of the block
+                // [expr-terminal-scope] `[if cond] ...` keeps the rest of the block
                 // when the condition holds; an optional braced `else { … }`
                 // written inline right after the `...` is kept instead when it
                 // does not — the runtime `if cond ...` shape.
@@ -5804,7 +5804,7 @@ impl<'s> Parser<'s> {
             None
         };
         self.expect(&TokenKind::Eq)?;
-        // [terminal-scope] A `let` value is a sub-expression: no terminal `...`.
+        // [expr-terminal-scope] A `let` value is a sub-expression: no terminal `...`.
         let value = self.sub_expr(|p| p.parse_expr())?;
         let span = start.to(value.span());
         Some(Stmt::Let {
@@ -5906,7 +5906,7 @@ impl<'s> Parser<'s> {
         let end = match &body {
             LambdaBody::Expr(e) => e.span(),
             LambdaBody::Block(b) => b.span,
-            // [terminal-lambda] The body is captured after the statement; use
+            // [expr-terminal-lambda] The body is captured after the statement; use
             // the span so far.
             LambdaBody::Terminal => start,
         };
@@ -5967,7 +5967,7 @@ impl<'s> Parser<'s> {
         let end = match &body {
             LambdaBody::Expr(e) => e.span(),
             LambdaBody::Block(b) => b.span,
-            // [terminal-lambda] The body is captured after the statement; use
+            // [expr-terminal-lambda] The body is captured after the statement; use
             // the span so far.
             LambdaBody::Terminal => start,
         };
@@ -5979,7 +5979,7 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_lambda_body(&mut self) -> Option<LambdaBody> {
-        // [terminal-lambda] `(params) -> ...` — the lambda's body is the rest
+        // [expr-terminal-lambda] `(params) -> ...` — the lambda's body is the rest
         // of the enclosing block, captured after the statement closes. Allowed
         // only as the trailing argument of a statement's expression tree
         // (`in_stmt_expr`), and only one per statement.
@@ -6131,7 +6131,7 @@ impl<'s> Parser<'s> {
             {
                 (2, InfixKind::SafePipe)
             }
-            // [elvis] `?:` may start a continuation line [elvis-wrap]; the
+            // [op-elvis] `?:` may start a continuation line [elvis-wrap]; the
             // wrap decision is in `parse_elvis_tail`. Only `?` begins a pick
             // now (the backward `:?` form was retired), so a lone `:` is left
             // unconsumed.
@@ -6334,8 +6334,8 @@ impl<'s> Parser<'s> {
                     break;
                 }
             }
-            // [namespace] `is .S` — the leading-dot sugar: the namespace is
-            // left to the subject type [namespace]. A `.` then an uppercase
+            // [mod-namespace] `is .S` — the leading-dot sugar: the namespace is
+            // left to the subject type [mod-namespace]. A `.` then an uppercase
             // name opens a dot-ref, which `parse_type_ref` reads.
             if self.at(&TokenKind::Dot)
                 && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
@@ -6368,9 +6368,9 @@ impl<'s> Parser<'s> {
         Some((refs, binding, lifted))
     }
 
-    /// [elvis] The **positional pick** operator tail, folded onto an
+    /// [op-elvis] The **positional pick** operator tail, folded onto an
     /// already-parsed `subject`. Dispatched from `parse_binary` at the elvis
-    /// [elvis] A `?:` tail. The subject's first arm is the value when it holds
+    /// [op-elvis] A `?:` tail. The subject's first arm is the value when it holds
     /// it; otherwise `rhs` runs with `_` bound to the arms left behind.
     /// Returns `Some(expr)` when a `?:` was consumed, `Some(None)` when the
     /// current token is not a `?:` here (a lone `?`/`:`, or a next-line `?:`
@@ -6386,7 +6386,7 @@ impl<'s> Parser<'s> {
     /// exception.
     fn parse_elvis_tail(&mut self, subject: Expr) -> Option<Option<Expr>> {
         // `?:` is a `?` immediately followed by a `:` (two separate tokens
-        // [elvis]). Anything else at this tier is not a pick.
+        // [op-elvis]). Anything else at this tier is not a pick.
         if !matches!(self.kind(), TokenKind::Question)
             || !matches!(self.peek_at(1).kind, TokenKind::Colon)
         {
@@ -6432,7 +6432,7 @@ impl<'s> Parser<'s> {
     /// the loosest operator — is every tighter operator, i.e. a full
     /// expression stopping only at the next `|>`. That is what makes the chain
     /// left-associative. The `_` it must contain is checked later
-    /// ([placeholder]); here it is an ordinary expression, so `_` parses as a
+    /// ([expr-placeholder]); here it is an ordinary expression, so `_` parses as a
     /// placeholder exactly as it does in an elvis right side.
     /// [expr-safe-pipe] A null-safe pipe `?>` tail, folded onto `lhs`. `v ?>
     /// f(_)` runs `f(_)` only when `v` is present (`T` of a `T?`), binding the
@@ -6472,7 +6472,7 @@ impl<'s> Parser<'s> {
 
     fn parse_unary(&mut self) -> Option<Expr> {
         match self.kind() {
-            // [inc-dec] `++i` / `--i`: the step happens first, so the
+            // [op-inc-dec] `++i` / `--i`: the step happens first, so the
             // expression's value is the *new* one.
             TokenKind::PlusPlus | TokenKind::MinusMinus => {
                 let down = matches!(self.kind(), TokenKind::MinusMinus);
@@ -6769,7 +6769,7 @@ impl<'s> Parser<'s> {
                     }
                 }
                 TokenKind::LBracket if self.same_line() => {
-                    // [eff-handle] `e[A, B]` / `e[IO]` — projection of an
+                    // [effect-eff-handle] `e[A, B]` / `e[IO]` — projection of an
                     // effect handle: the bracket holds capitalised effect/alias
                     // **names**, each followed by `,` or `]`. Anything else is
                     // array indexing (a value expression). The first token
@@ -6815,7 +6815,7 @@ impl<'s> Parser<'s> {
                         span,
                     };
                 }
-                // [safe-nav] `base?.field` / `base?.method(args)`: a `?`
+                // [op-safe-nav] `base?.field` / `base?.method(args)`: a `?`
                 // immediately followed by `.`. A single `?` run ending in
                 // `:` is the elvis operator and belongs to the lower
                 // precedence tier (`parse_elvis`), so only `?.` is taken
@@ -6863,7 +6863,7 @@ impl<'s> Parser<'s> {
                         end,
                     );
                 }
-                // [inc-dec] Postfix, same line so a leading `++`/`--` on the
+                // [op-inc-dec] Postfix, same line so a leading `++`/`--` on the
                 // next line is not swallowed as this expression's suffix.
                 TokenKind::PlusPlus | TokenKind::MinusMinus if self.same_line() => {
                     let down = matches!(self.kind(), TokenKind::MinusMinus);
@@ -7130,14 +7130,14 @@ impl<'s> Parser<'s> {
             return None;
         }
         match self.kind().clone() {
-            // [eff-handle] `use H(...)` as an expression — the value-producing
+            // [effect-eff-handle] `use H(...)` as an expression — the value-producing
             // form, yielding the registered handle. `use` is a real keyword,
             // so no contextual guard.
             TokenKind::KwUse => {
                 let start = self.bump().span;
                 self.parse_use_expr(start)
             }
-            // [namespace] `.S { … }` / `.S(…)` / `.S` — the leading-dot
+            // [mod-namespace] `.S { … }` / `.S(…)` / `.S` — the leading-dot
             // shorthand in expression position: a namespaced type whose
             // namespace is left to the expected type (D3/D4). A `.` followed
             // by an uppercase name opens a dot-type atom (`parse_type_atom`
@@ -7182,7 +7182,7 @@ impl<'s> Parser<'s> {
                 self.error(format!("expected expression, found {found}"), span);
                 None
             }
-            // [placeholder] `_` is the value the enclosing construct left
+            // [expr-placeholder] `_` is the value the enclosing construct left
             // unnamed — today, the `None` side inside an `?:` right-hand side.
             // A contextual keyword rather than a lexer token: `_` lexes as an
             // identifier, it appears in no `.sv` source, and it cannot be
@@ -7272,7 +7272,7 @@ impl<'s> Parser<'s> {
             TokenKind::KwReturn | TokenKind::KwBreak => {
                 let is_break = matches!(self.kind(), TokenKind::KwBreak);
                 let start = self.bump().span;
-                // [terminal-scope] An escape's value is a sub-expression.
+                // [expr-terminal-scope] An escape's value is a sub-expression.
                 let value = if self.stmt_value_follows() {
                     Some(Box::new(self.sub_expr(|p| p.parse_expr())?))
                 } else {
@@ -7354,7 +7354,7 @@ impl<'s> Parser<'s> {
                 // The asynchronous forms are **contextual**: each is
                 // recognised from its word plus what follows, so `spawn`,
                 // `replyto` and `waitfor` all stay usable as ordinary names.
-                // [eff-handle] `eff[a, b]` — **merge**: combine already-bound
+                // [effect-eff-handle] `eff[a, b]` — **merge**: combine already-bound
                 // handle values into one. Contextual (`eff` before `[`), like
                 // the type former; the operands are value expressions, and
                 // `eff[*]` is every handle in scope.
@@ -7764,7 +7764,7 @@ impl<'s> Parser<'s> {
 
     fn parse_condition(&mut self) -> Option<Expr> {
         let saved = std::mem::replace(&mut self.no_struct, true);
-        // [terminal-scope] A condition is a sub-expression: no terminal `...`
+        // [expr-terminal-scope] A condition is a sub-expression: no terminal `...`
         // in it, but the construct's *body* keeps the statement's flag.
         let result = self.sub_expr(|p| p.parse_expr());
         self.no_struct = saved;
@@ -7774,7 +7774,7 @@ impl<'s> Parser<'s> {
     fn parse_if(&mut self) -> Option<Expr> {
         let start = self.expect(&TokenKind::KwIf)?.span;
         let cond = self.parse_condition()?;
-        // [terminal-scope] `if cond ...` — the then-body is the rest of the
+        // [expr-terminal-scope] `if cond ...` — the then-body is the rest of the
         // enclosing block. An optional braced `else` is written inline right
         // after the `...`, before that rest; no `elif`, no `else ...`.
         if self.at(&TokenKind::Ellipsis) {
@@ -7854,8 +7854,8 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// `try { ... }` / `try ...` — the throw delimiter [try]. A braced block,
-    /// or a terminal `...` scope [terminal-scope] when `try` is a statement.
+    /// `try { ... }` / `try ...` — the throw delimiter [throw-try]. A braced block,
+    /// or a terminal `...` scope [expr-terminal-scope] when `try` is a statement.
     fn parse_try(&mut self) -> Option<Expr> {
         let start = self.expect(&TokenKind::KwTry)?.span;
         if !self.at(&TokenKind::LBrace) && !self.at(&TokenKind::Ellipsis) {
@@ -7871,7 +7871,7 @@ impl<'s> Parser<'s> {
     /// [actor-spawn-expr] `spawn H(args) with D1(...), addr on POOL` — the
     /// asynchronous binding of a handler. Both clauses are optional: a
     /// handler with no dependencies needs no `use`, and an omitted `on` means
-    /// the pool current at the spawn [main-pool] — which in `main` is the
+    /// the pool current at the spawn [actor-main-pool] — which in `main` is the
     /// main pool. The mailbox bound is the *handler's* [actor-mailbox].
     ///
     /// No clause takes a `{ ... }` body, so struct-literal speculation stays
@@ -7910,12 +7910,12 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// [eff-handle] `use H(args) [with …] [on POOL]` as an **expression**:
+    /// [effect-eff-handle] `use H(args) [with …] [on POOL]` as an **expression**:
     /// the `use` keyword is already consumed; `start` is its span. Registers
     /// the handler and yields its handle. The `on POOL` form keeps its old
     /// sugar — a `spawn` bound as an addr — so the `pool` field is passed
     /// through and the checker/IR handle it as they did for the statement.
-    /// [eff-handle] `eff[a, b]` / `eff[*]` — the merge constructor in value
+    /// [effect-eff-handle] `eff[a, b]` / `eff[*]` — the merge constructor in value
     /// position: `eff` then `[`, with value operands (or a lone `*` for every
     /// in-scope handle). Distinct from the type former by context (this is
     /// `parse_primary`).
@@ -7949,7 +7949,7 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_use_expr(&mut self, start: Span) -> Option<Expr> {
-        // [route-stub] `use any group`: bind a group handle as `any E`, one
+        // [actor-route-stub] `use any group`: bind a group handle as `any E`, one
         // member per send (user decision R7). `any` is a contextual word —
         // std has an `any(list, pick)` fn — so the route form is `any`
         // followed by an operand that does not open a call or a member.
@@ -7996,9 +7996,9 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// [with-clause] The `with` clause of a `use` or `spawn`: the dependency
+    /// [effect-with-clause] The `with` clause of a `use` or `spawn`: the dependency
     /// instances to supply instead of the scope's resolution
-    /// ([spawn-inherit]), as a comma-separated list of handler constructions
+    /// ([actor-spawn-inherit]), as a comma-separated list of handler constructions
     /// and `Addr` values — the parser keeps both as expressions, as the
     /// `use` *statement* does, and the checker tells them apart.
     ///
@@ -8319,7 +8319,7 @@ impl<'s> Parser<'s> {
         let cond = self.parse_condition()?;
         let (body, terminal) = self.parse_body("the loop")?;
         let mut end = body.span;
-        // [terminal-scope] A terminal loop body is the rest of the block, so
+        // [expr-terminal-scope] A terminal loop body is the rest of the block, so
         // nothing — not even an `else` — can follow it.
         let else_block = if !terminal && self.at(&TokenKind::KwElse) {
             self.bump();
@@ -8529,7 +8529,7 @@ fn compound_op(kind: &TokenKind) -> Option<BinaryOp> {
     }
 }
 
-/// [terminal-lambda] Fills the single `LambdaBody::Terminal` placeholder in a
+/// [expr-terminal-lambda] Fills the single `LambdaBody::Terminal` placeholder in a
 /// just-parsed statement with the captured rest-of-block, in place. There is at
 /// most one per statement (the parser refuses a second).
 fn fill_terminal_lambda(stmt: &mut Stmt, body: Block) {

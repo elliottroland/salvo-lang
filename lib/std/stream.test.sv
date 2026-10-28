@@ -32,9 +32,10 @@ fn drain(s: InStream, seen: Long, chunks: Int) [Streams] -> (Long, Int) => !s {
     }
 }
 
-// [stream-receive] [stream-from-bytes] A buffer as a stream, read without
+// A buffer as a stream, read without
 // blocking: the bytes arrive, then `End` — which has closed the stream, so
 // nothing is owed.
+// @compilerrules [stream-receive, stream-from-bytes]
 test "receive reads a buffer to its end" {
     use MemFs()
     let s = from_bytes(to_bytes("hello"))
@@ -43,8 +44,9 @@ test "receive reads a buffer to its end" {
     expect_eq(chunks, 1)
 }
 
-// [stream-pipe] A buffer piped into a file: the copy's answer is the byte
+// A buffer piped into a file: the copy's answer is the byte
 // count, and the file holds what went in.
+// @compilerrules [stream-pipe]
 test "pipe copies a stream into a file" {
     use MemFs()
     let out = open_write(path("copy.txt"))

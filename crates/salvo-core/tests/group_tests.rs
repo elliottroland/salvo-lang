@@ -13,7 +13,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on,
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on,
 /// loaded as a *std* file since only std may write `intrinsic`.
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\

@@ -1,4 +1,4 @@
-//! [origin] Where a copied node came from, and where a diagnostic about it
+//! [node-origin] Where a copied node came from, and where a diagnostic about it
 //! lands.
 //!
 //! A node an expansion copied keeps the range of the code it was copied
@@ -13,7 +13,7 @@
 use salvo_syntax::ast::{ExpansionKind, Item, Module, Stamp};
 use salvo_syntax::Span;
 
-/// [origin] Where a node of `module`'s file is shown outside a diagnostic
+/// [node-origin] Where a node of `module`'s file is shown outside a diagnostic
 /// (a trap's `module:line:col`, a "moved at line N", a `salvo facts` row,
 /// an editor range): a written span is where it is; a copied one lands
 /// where a diagnostic about it would ([`render`]), through the stamp of the
@@ -27,7 +27,7 @@ pub fn landing(module: &Module, span: Span) -> Span {
     }
 }
 
-/// [origin] The stamped fn of `module`'s file a copied `span` is in — its
+/// [node-origin] The stamped fn of `module`'s file a copied `span` is in — its
 /// item index and its stamp — found by the span's expansion id (the file's
 /// own). `None` for a written span.
 pub fn stamp_of(module: &Module, span: Span) -> Option<(usize, &Stamp)> {
@@ -40,7 +40,7 @@ pub fn stamp_of(module: &Module, span: Span) -> Option<(usize, &Stamp)> {
     })
 }
 
-/// [origin] [comptime-instantiate] [comptime-inline] Where a diagnostic at
+/// [node-origin] [comptime-instantiate] [comptime-inline] Where a diagnostic at
 /// `span`, raised in the fn `stamp` is on, lands, and its message:
 ///
 /// - a written span stays where it is;

@@ -119,17 +119,17 @@ class __Mon_Console(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Console {
     override fun print(message: String) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.print(message) } finally { lock.unlock() }
     }
     override fun printerr(message: String) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.printerr(message) } finally { lock.unlock() }
     }
     override fun readln(): String? {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.readln() } finally { lock.unlock() }
     }
@@ -305,7 +305,7 @@ fun<T> drain(list: List<T>, each: (T) -> Unit) {
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:247:32")
+                throw AssertionError("salvo: unreachable at std.core.list:265:32")
             })
         })
     }
@@ -331,7 +331,7 @@ fun<T> first(list: List<T>): T {
             val __picked_2: T = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.core.list:304:28")
+            throw AssertionError("salvo: unreachable at std.core.list:325:28")
         })
     }
 }
@@ -367,7 +367,7 @@ fun<T> removeFrontWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T)
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:347:50")
+                throw AssertionError("salvo: unreachable at std.core.list:373:50")
             })
         })))) {
             break
@@ -386,7 +386,7 @@ fun<T> removeBackWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T) 
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:359:47")
+                throw AssertionError("salvo: unreachable at std.core.list:386:47")
             })
         })))) {
             break
@@ -412,7 +412,7 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:377:39")
+                throw AssertionError("salvo: unreachable at std.core.list:405:39")
             })
         }))
         i = (i + 1)
@@ -516,7 +516,7 @@ fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:427:31")
+                throw AssertionError("salvo: unreachable at std.core.list:460:31")
             })
         }, elem)) {
             return true
@@ -542,7 +542,7 @@ fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:444:34")
+                throw AssertionError("salvo: unreachable at std.core.list:479:34")
             })
         }))) {
             return false
@@ -565,7 +565,7 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:457:33")
+                throw AssertionError("salvo: unreachable at std.core.list:493:33")
             })
         })) {
             n = (n + 1)
@@ -589,7 +589,7 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): kotlin.Pa
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:474:33")
+                throw AssertionError("salvo: unreachable at std.core.list:511:33")
             })
         }
         if (pick(x)) {
@@ -883,7 +883,7 @@ fun<K, V> toStr(map: salvo.platform.std.core.map.Map<K, V>, toStr: (K) -> String
                 val __picked_2: V = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.map:186:43")
+                throw AssertionError("salvo: unreachable at std.core.map:201:43")
             })
         }))
         i = (i + 1)
@@ -908,7 +908,7 @@ fun<K, V> eq(a: salvo.platform.std.core.map.Map<K, V>, b: salvo.platform.std.cor
                 val __picked_2: V = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.map:208:29")
+                throw AssertionError("salvo: unreachable at std.core.map:224:29")
             })
         }, theirs_4))) {
             return false
@@ -1056,7 +1056,7 @@ fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E):
                     return Union2.U2<kotlin.Pair<A, B>, List<E>>(salvo.std.core.result.Errs(b_3))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:70:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:77:13"))
                 }
             }
         }
@@ -1072,12 +1072,12 @@ fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E):
                     return Union2.U2<kotlin.Pair<A, B>, List<E>>(salvo.std.core.result.Errs(salvo.std.core.result.joined(a_4, b_6, copy)))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:76:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:83:13"))
                 }
             }
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:68:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:75:5"))
         }
     }
 }
@@ -1097,7 +1097,7 @@ fun<A, B, C, E> map2(a: Union2<A, List<E>>, b: Union2<B, List<E>>, f: (A, B) -> 
                     return Union2.U2<C, List<E>>(salvo.std.core.result.Errs(b_3))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:90:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:98:13"))
                 }
             }
         }
@@ -1113,12 +1113,12 @@ fun<A, B, C, E> map2(a: Union2<A, List<E>>, b: Union2<B, List<E>>, f: (A, B) -> 
                     return Union2.U2<C, List<E>>(salvo.std.core.result.Errs(salvo.std.core.result.joined(a_4, b_6, copy)))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:96:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:104:13"))
                 }
             }
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:88:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:96:5"))
         }
     }
 }
@@ -1134,7 +1134,7 @@ fun<X> joined(a: List<X>, b: List<X>, copy: (X) -> X): List<X> {
     if (salvo.std.core.list.NonEmpty_qualifies(errors)) {
         return errors
     }
-    return throw AssertionError(("salvo: " + ("two non-empty lists joined are not empty") + " at std.core.result:118:5"))
+    return throw AssertionError(("salvo: " + ("two non-empty lists joined are not empty") + " at std.core.result:126:5"))
 }
 
 
@@ -1313,7 +1313,7 @@ fun<K, V> toStr__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>, 
                 val __picked_2: V = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.sorted:158:43")
+                throw AssertionError("salvo: unreachable at std.core.sorted:163:43")
             })
         }))
         i = (i + 1)
@@ -1350,7 +1350,7 @@ fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.std.core.sorted.SortedMap<K,
                 val __picked_2: V = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.sorted:191:29")
+                throw AssertionError("salvo: unreachable at std.core.sorted:198:29")
             })
         }, theirs_4))) {
             return false
@@ -1378,7 +1378,7 @@ fun<T> min(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
             val __picked_2: T = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.core.sorted:246:28")
+            throw AssertionError("salvo: unreachable at std.core.sorted:257:28")
         })
     }
 }
@@ -1390,7 +1390,7 @@ fun<T> max(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
             val __picked_2: T = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.core.sorted:250:28")
+            throw AssertionError("salvo: unreachable at std.core.sorted:261:28")
         })
     }
 }
@@ -1402,7 +1402,7 @@ fun<K, V> firstKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
             val __picked_2: K = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.core.sorted:254:34")
+            throw AssertionError("salvo: unreachable at std.core.sorted:265:34")
         })
     }
 }
@@ -1414,7 +1414,7 @@ fun<K, V> lastKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
             val __picked_2: K = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.core.sorted:258:33")
+            throw AssertionError("salvo: unreachable at std.core.sorted:269:33")
         })
     }
 }
@@ -1516,7 +1516,7 @@ fun substr(str: String, at: Span): String {
             val __picked_2: String = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.core.string:150:45")
+            throw AssertionError("salvo: unreachable at std.core.string:162:45")
         })
     }
 }
@@ -2077,7 +2077,7 @@ class SalvoBytes {
 
 // ===== wire.kt =====
 // Generated by the Salvo compiler: the wire — the canonical encoding's codecs
-// [wire-format] [kt-wire].
+// [net-wire-format] [kt-wire].
 //
 // The other half of the encoding: the Kotlin runtime's codecs for every type the language defines without the
 // program's help. Byte for byte what the Rust runtime's `wire.rs` produces
@@ -2176,7 +2176,7 @@ fun <T> salvoDecode(b: SalvoBytes, c: WireCodec<T>): T? {
     }
 }
 
-/** [addr-routable] A decode whose failure is told apart from a decoded `null`. */
+/** [net-addr-routable] A decode whose failure is told apart from a decoded `null`. */
 fun <T> salvoDecodeChecked(b: SalvoBytes, c: WireCodec<T>): Pair<Boolean, Any?> {
     val inp = WireIn(b.toByteArray())
     return try {
@@ -2359,7 +2359,7 @@ object SalvoTime {
 }
 
 // ===== platform/std/core/console.kt =====
-// [platform-tree] [console] std's console, for `std.core.console`'s
+// [platform-tree] [std-console] std's console, for `std.core.console`'s
 // `threadsafe platform handler StdConsole` (ROADMAP 0.5): standard output,
 // standard error, and standard input a line at a time.
 package salvo.platform.std.core.console

@@ -501,7 +501,7 @@ impl crate::wire::__Wire for __Msg_Session {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Session`.
+/// [actor-protocol-hash] The canonical hash of `Session`.
 pub const __PROTO_Session: &str = "7ed70285b7e6568c";
 
 pub enum __Msg_Sleeper {
@@ -534,7 +534,7 @@ impl crate::wire::__Wire for __Msg_Sleeper {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Sleeper`.
+/// [actor-protocol-hash] The canonical hash of `Sleeper`.
 pub const __PROTO_Sleeper: &str = "2385b53950dcbd9c";
 
 pub enum __Cont_Sessions {

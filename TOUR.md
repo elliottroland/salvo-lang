@@ -130,10 +130,10 @@ By what you would come looking for.
   into an ordinary fn. Every stamped node keeps its span in the template and
   carries a fresh expansion id (`Span::expn`, recorded on the fn's `Stamp`)
   and every node has an id of its own [node-id], so the tables tell copies apart; `origin.rs` renders a
-  diagnostic at a copied node through that chain [origin].
+  diagnostic at a copied node through that chain [node-origin].
 * `resolve.rs`: per-file scopes (`ModuleScope`): what names a file sees.
 * `unique_shape.rs`: the placement rule for operator functions
-  [unique-shape], run by `resolve` once the scopes exist: an `eq`, `cmp`,
+  [op-unique-shape], run by `resolve` once the scopes exist: an `eq`, `cmp`,
   `to_str`, `next`, … on a type is declared in the type's own file.
 * `erase.rs`: an effect-only generic (`ActorGroup<E>`) is erased for the
   backends.
@@ -143,7 +143,7 @@ By what you would come looking for.
 * `check.rs` (30k lines): type checking, overload resolution, narrowing, flow,
   effects, actors, qualifiers. It fills `Checked`. Start with
   `check_program`, then `check_call`, `check_effect_call`, `resolve_named_call`.
-  **Its staging** [interface-pass]: `check_once` checks every file's
+  **Its staging** [decl-interface-pass]: `check_once` checks every file's
   interfaces before any body — `walk_interfaces` runs
   `check_signature_facts` (each fn's implicits, established claims and
   effect list: what other headers read out of tables) over every file, then
@@ -492,7 +492,7 @@ The `for` loop is the only generated control flow, and it is a plain loop that
 calls `next`: `for x in e` is `next(e)`, or `next(iter(e))` for a source, and
 the checker resolves those calls as written ones and records them at the
 subject (`Key::FOR_NEXT`/`FOR_ITER`), with what the loop needs beyond them in
-`for_drivers` [for-iter]:
+`for_drivers` [iter-for]:
 
 ```rust
 let mut __loop1_pass = countdown(3);

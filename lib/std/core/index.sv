@@ -3,7 +3,7 @@
 // one `Idx` serves every container with a `size`: `List`, `Deque` and the
 // buffers. `std.core.*` is visible everywhere, so nothing imports it.
 
-// [qual-depend] [col-idx] The claim that an `Int` is a **valid index of one
+// The claim that an `Int` is a **valid index of one
 // particular container**: `0 <= index < size(c)`, bound to that container's
 // identity, so `Idx(xs) Int` and `Idx(ys) Int` are different facts. Tested
 // with the filled block (`i is Idx(xs)`), stripped by any mutation of the
@@ -14,6 +14,7 @@
 // container — `i is Idx(xs)` over a `List<Int>` passes `size(List<T>)`, over a
 // `Mut IntBuffer` the buffer's — so nothing about it prints in the type.
 // `<C canbe linear>`: a list of obligations keeps its claims too.
+// @compilerrules [qual-depend, col-idx]
 export qualifier Idx<C canbe linear>(c: C) of Int {
     fn qualifies(index: Int, c: C, ?size: (c: C) -> Int) -> Bool {
         return index >= 0 && index < size(c)
@@ -33,25 +34,26 @@ export qualifier Idx<C canbe linear>(c: C) of Int {
     refn add_last<T>(d: Mut Deque<T>, elem: T) => d: preserve Idx
     refn add_first<T>(d: Mut Deque<T>, elem: T) => d: preserve Idx
     refn replace<T>(d: Mut Deque<T>, index: Idx(d) Int, value: T) => d: preserve Idx
-    // [buffer-type] A buffer's length never changes.
+    // [col-buffer] A buffer's length never changes.
     refn replace(buf: Mut IntBuffer, index: Idx(buf) Int, value: Int) => buf: preserve Idx
     refn clear(buf: Mut IntBuffer, fill: Int) => buf: preserve Idx
     refn replace(buf: Mut LongBuffer, index: Idx(buf) Int, value: Long) => buf: preserve Idx
     refn clear(buf: Mut LongBuffer, fill: Long) => buf: preserve Idx
 }
 
-// [col-idx] Every index of [list], front to back — and each emitted `Int`
+// Every index of [list], front to back — and each emitted `Int`
 // carries the claim: `for i in indices(xs)` makes `get(xs, i)` total. Sound
-// because the iterator borrows the list [proj-field], so nothing can shrink it
-// while the loop runs [proj-infer].
+// because the iterator borrows the list, so nothing can shrink it
+// while the loop runs.
 //
-// The `+Idx` is [deduce-reapply]'s establishment in a return-type arm, trusted
+// The `+Idx` is an establishment in a return-type arm, trusted
 // in the file that declares `Idx` and only there — which is why the indices
 // live here rather than in `std.core.list`; the bounds test above the emit is the
-// proof the trust rests on. [qual-depend] The claim names the parameter; in
+// proof the trust rests on. The claim names the parameter; in
 // the generated struct's obligation it names the struct's own borrowed field,
 // and a `for` binds it to the *source* list's identity, so the claim reads
 // `Idx(xs)` in the loop body.
+// @compilerrules [col-idx, proj-field, proj-infer, qual-depend, deduce-reapply]
 export iter fn indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished {
     state Indices {
         // The index the next turn emits.
@@ -65,9 +67,10 @@ export iter fn indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished 
     return emitted(index)
 }
 
-// [col-idx] The same indices, back to front: `size(list) - 1` down to `0` —
+// The same indices, back to front: `size(list) - 1` down to `0` —
 // **the founding example of the refinement-types design**: the descending
 // loop whose body needs no `!`.
+// @compilerrules [col-idx]
 export iter fn rev_indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished {
     state RevIndices {
         at: Int = size(list) - 1

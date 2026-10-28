@@ -21,7 +21,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] A miniature of std's iterable surface: the group,
+/// [platform-intrinsic-std-only] A miniature of std's iterable surface: the group,
 /// the `iter` overloads, and the generic sequence functions beside their
 /// `List` fast paths. Loaded as *std* files, since only std may write
 /// `intrinsic`.
@@ -162,7 +162,7 @@ fn checked(src: &str) -> (Program, salvo_core::Checked) {
 }
 
 fn errors(src: &str) -> Vec<FileDiagnostic> {
-    // Errors only: an unused-variable *warning* [unused-var] is a different
+    // Errors only: an unused-variable *warning* [var-unused] is a different
     // severity, and these tests are about legality.
     let mut diags = checked(src).1.errors;
     diags.retain(|d| d.is_error());

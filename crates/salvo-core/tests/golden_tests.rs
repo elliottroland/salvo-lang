@@ -30,7 +30,7 @@ fn example_ir_is_stable() {
     }
 }
 
-/// [facts-dump] The checker's facts about one example's bodies — every
+/// [cli-facts] The checker's facts about one example's bodies — every
 /// expression's type, the declaration each call resolved to, coercions and
 /// moves — as the pre-IR dump (`salvo facts`, PIPELINE.md D1) prints them.
 #[test]

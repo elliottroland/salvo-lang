@@ -17,7 +17,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The declarations these sources rely on, loaded as a
+/// [platform-intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`).
 const STD_PRELUDE: &str = concat!(
     concat!(
@@ -775,7 +775,7 @@ fn a_hashed_struct_is_a_valid_key() {
     assert!(msgs.is_empty(), "expected no errors, got: {msgs:?}");
 }
 
-/// [canbe-optin] The `canbe` list is closed — and since 2026-09-21 it holds only
+/// [qual-canbe-optin] The `canbe` list is closed — and since 2026-09-21 it holds only
 /// `Mut` and `once`: `hashed`/`ordered` were deleted, with a message naming the
 /// obligation that replaced them [cmp-auto].
 #[test]

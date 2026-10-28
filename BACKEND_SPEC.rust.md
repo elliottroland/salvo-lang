@@ -23,7 +23,7 @@ Conventions:
   **consume marks** on reads, **`proj` types**, a fn's **`holds`/`borrows`**
   facts, and **alias groups**. The AST is consulted only for intrinsic
   lowering, keyed by the declaration the checker resolved
-  ([intrinsic-fn]). What the emitter itself decides is representation and
+  ([platform-intrinsic-fn]). What the emitter itself decides is representation and
   Rust idiom: the `UnionN` enums and `Option`, references for `proj` values
   and lent parameters, a `.clone()` where a non-consuming read needs a value
   of its own, the effect handle, and the spelling below.
@@ -143,7 +143,7 @@ Conventions:
   `hoststreams`) or host modules (`platform_*`). The runtime files carry no
   `use crate::…` at all. An aliased Salvo import changes nothing in the
   output: a call names the declaration's path, not the alias.
-  Intrinsic lowerings name everything by absolute path [intrinsic-fn].
+  Intrinsic lowerings name everything by absolute path [platform-intrinsic-fn].
   * Every emitted item (fn, struct, trait, impl fn, enum) is `pub`, and so
     are a struct's fields, so any module can reach them by path. A
     handler's fields stay private (except `__mailbox_capacity`,
@@ -167,7 +167,7 @@ Conventions:
 
 ## Type mappings
 
-* [elvis] [rs-elvis] `subject ?: rhs` is a block that
+* [op-elvis] [rs-elvis] `subject ?: rhs` is a block that
   evaluates the subject once into a temporary and tests whether it holds one of
   the **picked** arms — the picked value when it does, `rhs` when it does not:
 
@@ -188,9 +188,9 @@ Conventions:
   [rs-read-mode]. An `if` rather than `unwrap_or_else` because the right side
   may be an **escape**: a `return` inside a closure returns from the closure
   [expr-escape]. A pick that **widens** its result wraps the picked value into
-  the join union [rewrap].
-* [safe-nav] [rs-safe-nav] `base?.link` lowers by reconstruction to a
-  short-circuiting block ([safe-nav], [ir-switch]). When every link is a
+  the join union [type-rewrap].
+* [op-safe-nav] [rs-safe-nav] `base?.link` lowers by reconstruction to a
+  short-circuiting block ([op-safe-nav], [ir-switch]). When every link is a
   **field** read, the Rust backend renders it as an
   `.and_then(..)`/`.map(..)` combinator chain
   (`base.and_then(|x| x.inner.clone()).map(|y| y.nanos)`): an already-optional
@@ -218,7 +218,7 @@ Conventions:
   docs' original `u64` for `Long` was a spec bug — `Long` is signed; fixed
   during M8.) `Any` has no Rust mapping: a value of it reaching emission is a
   codegen error ([backend-never-wrong]).
-  * [byte-value] [bytes-type] `Byte`→`u8`, and **`Bytes` is std's platform
+  * [type-byte] [type-bytes] `Byte`→`u8`, and **`Bytes` is std's platform
     type over `Vec<u8>`** (`std.core.bytes` re-exports the host's
     `pub type Bytes = Vec<u8>;`, [rs-platform-type]): unboxed, with `Mut`
     erasing as it does for every other type here [type-canbe-mut]. The
@@ -257,9 +257,9 @@ Conventions:
   squaring written out (`__e.unsigned_abs()`, the reciprocal for a negative
   exponent), in the order the Kotlin spelling uses, so the bits agree;
   `Double ** Double` is `f64::powf(a, b)`, the host's.
-* [lit-adopt] Every numeric literal renders at its **checked** type, suffixed
+* [type-lit-adopt] Every numeric literal renders at its **checked** type, suffixed
   (`1i32`, `1i64`, `3f64`, `0.5f32`) — an unsuffixed literal included, at its
-  default type [lit-numeric] — so nothing is left to rustc's literal
+  default type [type-lit-numeric] — so nothing is left to rustc's literal
   inference. [op-convert] lowers to `as` casts (`((x) as i64)`), whose
   semantics match Kotlin's `toX()` pairwise (saturating float→int,
   low-32-bits `i64`→`i32`).
@@ -359,7 +359,7 @@ Conventions:
     over Copy elements, `for mut f in roster.iter()` over a borrowed list,
     `.into_iter()` when the loop consumes it, `.iter().cloned()` when an owned
     element is needed from a kept one, `s.chars()` over a `Str`.
-  * [for-iter] The driving `next` and the minting `iter` are the calls `for`
+  * [iter-for] The driving `next` and the minting `iter` are the calls `for`
     names, lowered from the checker's call facts at the subject (B3.3d): to the
     declaration, through the fn's own `?next` (`next(&mut __pass)` on the
     closure parameter), or to an effect's member on its handle. No turbofish is
@@ -461,7 +461,7 @@ Conventions:
     once in the type namespace of this module"), and the namespace struct
     is required to exist. Flattening is what makes the language-level
     collision ban load-bearing [name-dot].
-  * **Any depth, every kind** [namespace]: the same flattening carries a
+  * **Any depth, every kind** [mod-namespace]: the same flattening carries a
     `namespace X { … }` to any depth (`Outer.Inner.Thing` → `OuterInnerThing`)
     and a namespaced free fn (`Outer.Inner.make` → `OuterInnermake`,
     declaration and call) — no nesting, no Rust `mod`, just the flat name. So
@@ -493,7 +493,7 @@ contract, and the IR carries them as **pass modes** on every parameter and
 argument and **consume marks** on every read [rs-ir]. Salvo source has no
 references; the Rust backend spells the modes mechanically:
 
-* **Parameter modes** (decided by core, [param-mode]; this is their Rust
+* **Parameter modes** (decided by core, [fn-param-mode]; this is their Rust
   spelling):
   * *moved* (`=> !p`, or inferred so) → **by value**, bound `mut p: T`. The
     checker guarantees the caller no longer uses the argument, so the move
@@ -562,7 +562,7 @@ references; the Rust backend spells the modes mechanically:
     is poisoned by a root mutation (its borrows end before the mutation
     under NLL) and mutated captures are consumed at creation. A closure
     filling a `once` or a stored position is a `move` closure
-    (`crate::once_it(move |mut a: i32| -> i32 { a })`) [once-fn]
+    (`crate::once_it(move |mut a: i32| -> i32 { a })`) [fn-once]
     [rs-fn-field].
   * **Move-mode bindings move [fate-move-mode]:** a binding whose read the
     IR marks consuming emits the place itself — a real move, partial for
@@ -611,7 +611,7 @@ references; the Rust backend spells the modes mechanically:
   from all its bindings, which cannot shorten the lifetime one variable holds.
 * **Lifetimes.** Struct fields are owned and — with the exceptions of
   [rs-proj] — results are owned, so functions are lifetime-elision-friendly.
-  A derived-return fn returns `&T` / `Option<&T>` [readonly-return];
+  A derived-return fn returns `&T` / `Option<&T>` [proj-readonly-return];
   elision covers the single-reference-parameter case
   (`pub fn window(roster: &Vec<crate::Fighter>) -> crate::Window<'_>`), and
   with more reference parameters a `'a` is named on the lent parameters and
@@ -640,8 +640,8 @@ references; the Rust backend spells the modes mechanically:
 
 ### Projections [rs-proj]
 
-The `proj` rules of LANGUAGE_SPEC.md ([proj-type] [readonly-return]
-[proj-anywhere] [proj-readonly] [proj-field] [proj-infer] [yield-proj])
+The `proj` rules of LANGUAGE_SPEC.md ([proj-type] [proj-readonly-return]
+[proj-anywhere] [proj-readonly] [proj-field] [proj-infer] [iter-yield-proj])
 are the one place Salvo's source states a borrow, and this backend has
 **one rendering rule**: `proj X` *is* `&X` (2026-09-12, following
 [proj-type]) — at whatever depth the projection sits: a union arm
@@ -697,7 +697,7 @@ the blanket rule:
   that is a `&mut` binding reborrows as shared (`&*heap`), which keeps a
   generic slot (`Idx`'s `c: C`) from binding to the `&mut` itself
   ([col-idx]).
-* [readonly-return] A wholesale projection returns `&T`, `Option<&T>` or
+* [proj-readonly-return] A wholesale projection returns `&T`, `Option<&T>` or
   `Union2<&T, Finished>`. One reference parameter: lifetime elision. More:
   `'a` is named on **every** source parameter and the return
   (`pub fn longest<'a>(a: &'a String, b: &'a String) -> &'a String`), and
@@ -721,7 +721,7 @@ the blanket rule:
     owned `T?` (an argument to an `Int?` parameter, an annotated
     `let v: Int? = get(xs, i)`, a `copy(get(xs, i))`) is `(…).copied()` /
     `.cloned()`.
-  * [elvis] The same rule for the **`?:` read** and for an `is` binding over
+  * [op-elvis] The same rule for the **`?:` read** and for an `is` binding over
     an optional borrow: a non-place subject is bound first
     (`let mut __subject_13: Option<&String> = …;` before the `if`,
     [rs-is-hoist]), the binding is `let mut s = __subject_13.unwrap();`, and a
@@ -730,7 +730,7 @@ the blanket rule:
   * **A borrow *of* an optional** (`&Option<T>`, the total `get` over a
     `List<T?>`, checker type `proj(xs) T?`) is narrowed through
     `s.as_ref().unwrap()`, a `&T`.
-  * [proj-type] [lambda-view] An unwrap whose own checker type is a
+  * [proj-type] [fate-lambda-view] An unwrap whose own checker type is a
     projection stays the reference — no clone, no deref: a lambda tail
     `get(all, i) ?: unreachable!()` typed `proj Str` yields `&String` into the closure's
     return (`&mut |mut i| -> &String { … }`, `Vec<&String>` at the call),
@@ -847,7 +847,7 @@ the blanket rule:
     `Mut T[]`) renders `&mut Vec<T>`: the container lends mutable handles, so
     the write must reach the caller's storage through it even though no
     structural mutation is permitted.
-  * A **proven-distinct pair in one call** ([elem-distinct], two bound
+  * A **proven-distinct pair in one call** ([fate-elem-distinct], two bound
     handles under a `NotSame` claim [ref-notsame]) splits where the two
     paths diverge [rs-path] and the call takes the two `&mut` halves: one
     `crate::seq::salvo_pair_mut` (a `split_at_mut`, [rs-runtime-source]) at a
@@ -1006,7 +1006,7 @@ the blanket rule:
   arm stays by value) — and a mutated one (`Mut T?`, `Mut A | Mut B`)
   borrows each arm mutably: `Option<&mut Entity>`, `Union2<&mut Vec<i32>,
   &String>`. Nothing needs the `&mut Option<T>`: a parameter is never
-  reassigned [param-const]. On fns, effect members and handler members
+  reassigned [fn-param-const]. On fns, effect members and handler members
   alike; the parameter is re-typed inside the emitter
   (`Shared::unalias_params`, `borrowed_arms`), so the signature, the body
   and the call sites agree. A union mentioning a type variable keeps
@@ -1042,13 +1042,13 @@ the blanket rule:
 * [rs-union-convert] **One primitive converts a value of any union type into
   any other** (`ModuleEmitter::convert_union`, 2026-10-12): a `match` that
   maps each source arm to the target arm of the same **arm identity**
-  [union-arm-identity] — exact type, then `alike` (qualifiers and borrow
+  [type-union-arm-identity] — exact type, then `alike` (qualifiers and borrow
   erased). It subsumes every union reshape this backend emits: a permutation
   (`Str | Bool` → `Bool | Str`), a widen or narrow of arms, dropping or
   keeping `None`, owning a borrowed arm (`own = true` clones a `proj` payload
   into an owned slot — the former `own_borrowed_union`), and the flat↔nested
   spread of a union-spanning generic [generic-union-span] (the `...T` surface
-  is [union-spread]). `rewrap` is
+  is [type-union-spread]). `rewrap` is
   `convert_union` with `own = false`. Three arm shapes beyond a plain
   one-to-one map: a source arm that is itself a bare union the target
   *spreads* (recurse), a target arm that is a bare union the source
@@ -1143,7 +1143,7 @@ the blanket rule:
   panicking on the wrong arm) for host code — generated code never calls
   them — a `Display` impl (bounded on every arm being `Display`), and an
   `impl … crate::wire::__Wire` when the wire is mounted [rs-wire].
-* [union-arm-identity] Arm indices from the IR map 1:1 onto the `Ui`
+* [type-union-arm-identity] Arm indices from the IR map 1:1 onto the `Ui`
   variants (positional over the runtime union's non-`None` arms,
   qualifiers erased; literals collapse [type-literal]).
   * Wrap at boundaries: `crate::unions::UnionN::Ui(code)` — the other type
@@ -1209,7 +1209,7 @@ the blanket rule:
     `matches!(subj, crate::unions::UnionN::Ui(_))`; all arms →
     `subj.is_some()` when nullable, `true` otherwise; `is None` →
     `subj.is_none()`; nullable wrappers test `Some(UnionN::Ui(_))` patterns.
-  * Re-wraps between reprs ([let-infer]): a `match` mapping arms by type
+  * Re-wraps between reprs ([var-let-infer]): a `match` mapping arms by type
     equality — `(match x.clone() { crate::unions::Union2::U1(__v) => crate::unions::Union3::U1(__v), …, #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") })`
     — with `None => None` when both sides are nullable.
 * [when-union-subject] `when` over a subject lowers to the `if`/`else if`
@@ -1227,7 +1227,7 @@ the blanket rule:
 
 ## Control flow
 
-* [while-value] [rs-loop-value] Rust `while`/`for` are statements, so a
+* [loop-while-value] [rs-loop-value] Rust `while`/`for` are statements, so a
   value-position loop lowers to a block expression with a
   `let mut __loop_N: Option<T> = None;` result local assigned by the body's
   tail and by `break value`s (assign-then-`break`:
@@ -1237,7 +1237,7 @@ the blanket rule:
   `let mut __loop_value_N = __loop_N.unwrap();` when the checked join type
   has no `None` arm, `let mut __loop_value_N = __loop_N;` when the join is
   itself optional, and answering it.
-* [let-destructure] A **loop pattern** binds the element to an `__elem_N`
+* [var-let-destructure] A **loop pattern** binds the element to an `__elem_N`
   local and opens the body with one binding per name, read off it:
   `for mut __elem_3 in rows.iter() { let mut k = &__elem_3.0; let mut v: i32 = __elem_3.1; … }`
   (`let mut who = &__elem_10.name;` for a struct pattern). A non-Copy part is
@@ -1246,7 +1246,7 @@ the blanket rule:
   pattern in the header cannot do both: `mut k` opts out of match
   ergonomics, so it moves out of a shared reference (`E0507`). A name the
   body **assigns to** takes a value of its own (`let mut a: i32 = __elem_14.0;`).
-* [if-else-none] `if` is an expression in both languages; a missing `else`
+* [expr-if-else-none] `if` is an expression in both languages; a missing `else`
   on a value-position `if` emits `else { None }` (the branch values carry
   `WrapOption` coercions). Statement-position branches emit their tails as
   statements, and the `if` statement ends with `;`.
@@ -1254,12 +1254,12 @@ the blanket rule:
   subject-less `when` lowers to the `if`/`else if`/`else` chain it is
   (`if (n < 0i32) { … } else if ((n) == (0i32)) { … } else { … }`). The
   mandatory `else` makes the chain total, so nothing needs the `else { None }`
-  filler of [if-else-none] and no `unreachable!()` arm is generated.
+  filler of [expr-if-else-none] and no `unreachable!()` arm is generated.
 * [loop-while-is] `while x is T n` is a `loop` that tests at the top and
   re-binds per iteration:
   `loop { if !(x.is_some()) { break; }; let mut n = x.unwrap(); … }`; a
   non-place subject is bound first, inside the loop [rs-is-hoist].
-* [rs-inc-dec] Rust has neither `++` nor `--` [inc-dec], so both are
+* [rs-inc-dec] Rust has neither `++` nor `--` [op-inc-dec], so both are
   blocks over a wrapping step [rs-op-wrap]:
   * postfix answers the old value:
     `{ let mut __old_5: i32 = i; i = i32::wrapping_add(i, 1i32); __old_5 }`
@@ -1354,7 +1354,7 @@ the blanket rule:
     `Continue(v)` and leaves with `Break(m)` on a throw, and a named fn
     passed into one is a forwarding closure answering its `ControlFlow`.
     A lambda whose slot cannot throw has no `Throw` to propagate.
-* [try] [rs-try-label] `try { ... }` is a **labelled block**
+* [throw-try] [rs-try-label] `try { ... }` is a **labelled block**
   (`('try_N: { ... })`), not a closure. A closure would have to capture the
   fn's effect parameters and any local the body mutates — an exclusivity
   trap; a labelled block captures nothing.
@@ -1365,10 +1365,10 @@ the blanket rule:
     `break 'try_3 crate::unions::Union2::U2(crate::unions::Union2::U1(__m))`).
     The body's tail is wrapped into the `Ok` arm (arm 0,
     `crate::unions::Union2::U1(…)`); a body that always leaves still needs a
-    value for the block, which the checker made `Ok None` [try].
+    value for the block, which the checker made `Ok None` [throw-try].
   * Nesting needs no token: the label decides where a `break` lands
     (`'try_3` around `'try_4`), so an inner delimiter cannot swallow an
-    outer throw [try-innermost].
+    outer throw [throw-try-innermost].
 
 ## Qualifiers
 
@@ -1478,7 +1478,7 @@ the blanket rule:
     named fn, so nothing in this backend learns the member was not written by
     hand — and it takes part in overload mangling like any other body-bearing
     fn. The identities of a `List` or a tuple [col-hashed-ordered] are Salvo
-    (`eq`/`cmp` in `std.core.list` and `std.core.basic` [unique-shape],
+    (`eq`/`cmp` in `std.core.list` and `std.core.basic` [op-unique-shape],
     `hash` in `std.core.compare`), not lowerings; `mix_hash` is Salvo too.
   * [cmp-hash-values] `hash` is a block expression holding its own
     `std::hash::DefaultHasher`:
@@ -1661,7 +1661,7 @@ effects" keeps the history).
   **stateless** dependent handler stays stateless. A `use` clones the
   scope's handles into `new` (`crate::Stamped::new(logger.clone(), clock.clone())`)
   whether the effect arrived by a `use` in the same function or through the
-  enclosing *signature* ([spawn-inherit]: the parameter is the handle); a
+  enclosing *signature* ([actor-spawn-inherit]: the parameter is the handle); a
   `with` item is a private instance behind its own handle
   (`crate::Stamped::new(__handle_6.clone(), crate::Clock::shared(crate::FixedClock::new()))`,
   `locked` when stateful). **Interception** ([effect-intercept]) is the
@@ -1687,7 +1687,7 @@ effects" keeps the history).
   the `move` closure (`let __e0 = console.clone();` …
   `std::boxed::Box::new(move |__v| crate::report(&__e0, …))`) — and clones
   them into nested mints.
-* **`threadsafe platform handler`** ([threadsafe-platform]) is the declared
+* **`threadsafe platform handler`** ([platform-threadsafe]) is the declared
   statefulness of a host the compiler cannot see: a `threadsafe` host
   implements `EPlatformSync` with `&self` receivers and the `use` binds
   `crate::E::shared(__use_N)` — rustc checks the half of the contract it
@@ -1714,7 +1714,7 @@ effects" keeps the history).
   inside a handler are direct self calls under the one acquisition. A
   poisoned lock (`unwrap`) surfaces as a panic only after another member
   already panicked, which is the fault boundary's business.
-* **`eff[E]` for a plain effect lowers to `E`** [monitor-handler] (the type
+* **`eff[E]` for a plain effect lowers to `E`** [actor-monitor-handler] (the type
   renderer branches on the effect's declared kind); an actor effect's addr stays `usize`. A
   generic plain effect's addr carries the instantiation (`eff[Random<Int>]`
   is `crate::Random<i32>`).
@@ -1735,7 +1735,7 @@ effects" keeps the history).
   `&mut dyn FnMut(A, ..) -> R` [fn-contract]. Lambda parameters take their
   mode from the position [rs-fn-param-convention]. A `return` inside a
   block-bodied lambda is the closure's own `return` (`&mut |mut n| -> i32 { if (n > 0i32) { return 1i32; }; return 2i32; }`).
-* [intrinsic-fn] Every std lowering lives in this crate's `intrinsics.rs`
+* [platform-intrinsic-fn] Every std lowering lives in this crate's `intrinsics.rs`
   (`fn_call`), keyed by the checker-resolved declaration (name + first
   parameter's base type name, so `size(Str)` / `size(List<T>)` /
   `size(T[])` are distinct entries). It is the one place the emitter reads
@@ -1768,7 +1768,7 @@ effects" keeps the history).
   verbatim from the merged `HostDeps` (a table spec becomes a
   `[dependencies.<name>]` section; a `path` is already absolute).
   `program_command` then runs `cargo build --quiet --manifest-path … --target-dir
-  <target>/.salvo_bin` — with the cargo `[rust] cargo` names [host-tool] — and
+  <target>/.salvo_bin` — with the cargo `[rust] cargo` names [backend-host-tool] — and
   launches `.salvo_bin/debug/<name>`; `entry_hint`
   names the cargo command. With **no** crates declared nothing changes: bare
   `rustc`, no manifest — and a manifest this backend wrote earlier (recognised
@@ -1785,7 +1785,7 @@ effects" keeps the history).
     `crate::platform_<N>::<E>Host`. `module_mod_names` is shared with
     `emit_program` so the skeleton and the mounting cannot disagree on a
     name.
-* [rs-wire] [wire-format] The wire runtime is `runtime/wire.rs`, mounted as
+* [rs-wire] [net-wire-format] The wire runtime is `runtime/wire.rs`, mounted as
   `crate::wire` when a codec is generated or `encode`/`decode` lowered: a
   `__Wire` trait (`__enc(&self, &mut Vec<u8>)`, `__dec(&mut __Reader) ->
   Option<Self>`) with impls for the scalars, `String`, `()`, `Vec<T>`
@@ -1799,7 +1799,7 @@ effects" keeps the history).
   `crate::wire::salvo_encode(&v)`, `decode<T>(b)` to
   `crate::wire::salvo_decode::<T>(&b)` with `T` from the call's checked type
   argument.
-* [rs-wire] [addr-routable] The scheduler's wire section: `ActorState` gains
+* [rs-wire] [net-addr-routable] The scheduler's wire section: `ActorState` gains
   `node`, `bits`, `remote: Option<RemoteRef>`, `credits`, `granted`, `decode:
   Option<MsgDecoder>`; `Sched` gains `node_id`, `hosted_nodes`, `proxies`,
   `routes` (node → encoded endpoint), `wires` (node → outbound hook),
@@ -1849,7 +1849,7 @@ effects" keeps the history).
   `peer_protocol`, `pending`, `node_of`, and `eq(Addr, Addr)` as `==` on the handle.
   `actor_group<E>` is ordinary Salvo since 2026-09-28 [actor-group] (two
   overloads, `actor_group__Addr` and `actor_group__Str_Addr` in the output).
-* [rs-wire] [route-stub] Runtime: the views live in the routing service
+* [rs-wire] [actor-route-stub] Runtime: the views live in the routing service
   (`runtime.routing`'s `view_set`, `view_members` sorted by `(node, actor)`,
   `view_version`, `view_refresh`, `view_wait`); `salvo_key_hash` (FNV-1a 64
   over the wire bytes) stays host-side. Intrinsics: `view_set`,
@@ -1912,10 +1912,10 @@ effects" keeps the history).
   | `List<T>` | `Vec<T>` |
   | `Map<K, V>`, `Set<T>` | `crate::std_core_map::Map` / `crate::std_core_set::Set` (std's host types, re-exported) — insertion-ordered; build the canonical one with `crate::platform_std_core_map::canonical_map(entries)` / `crate::platform_std_core_set::canonical_set(elems)` [rs-collections] [platform-check] |
   | `SortedSet<T>`, `SortedMap<K, V>` (canonical ordering) | `crate::std_core_sorted::SortedSet` / `SortedMap`; build one with `canonical_sorted_set` / `canonical_sorted_map` (Rust's `Ord`, which is Salvo's order for every type that may cross) [platform-check] |
-  | `Deque<T>`, `Bytes` | `std::collections::VecDeque<T>`, `Vec<u8>` (std's host aliases) [rs-deque] [bytes-type] |
+  | `Deque<T>`, `Bytes` | `std::collections::VecDeque<T>`, `Vec<u8>` (std's host aliases) [rs-deque] [type-bytes] |
   | a union, to build | its factories: `FsError::not_found(…)`, `ReadToStr::ok(…)` [platform-factory] |
   | `T?` | `Option<T>` [rs-option] |
-  | a union of *n* ≥ 2 runtime arms | `crate::unions::UnionN<A, …>` with variants `U1`…`Un` in runtime-arm order [union-arm-identity]; `Some(…)` around it when it has a `None` arm |
+  | a union of *n* ≥ 2 runtime arms | `crate::unions::UnionN<A, …>` with variants `U1`…`Un` in runtime-arm order [type-union-arm-identity]; `Some(…)` around it when it has a `None` arm |
   | `struct S { f: T }` | `pub struct S { pub f: T }`, built with a literal of every field; a dot-name `A.B` is `AB`; a field that is a Rust keyword is `r#f` |
   | `Checked<T>` | `crate::std_core_checked::Checked { value: T }` |
   | `Reply<T>` parameter | `crate::scheduler::SalvoReply`; `.hosted()` answers the `SalvoHostReply` whose `send(v)` may run on any thread, exactly once [platform-reply] |
@@ -2024,7 +2024,7 @@ effects" keeps the history).
   * The skeleton is `pub struct H { p: T, … }` with `impl H { pub fn new(p:
     T, …) -> Self }` and an impl with every member stubbed — of
     `<path>::EPlatform` (`&mut self`) for an undeclared handler, of
-    `EPlatformSync` (`&self`) for a `threadsafe` one [threadsafe-platform] — named after
+    `EPlatformSync` (`&self`) for a `threadsafe` one [platform-threadsafe] — named after
     the *handler*, and with a `new` because the `use` site calls one,
     exactly as it does for a generated handler struct.
   * A `use` whose declaring module has no host companion is a codegen error
@@ -2037,7 +2037,7 @@ effects" keeps the history).
     of the same crate, so without them the skeleton does not compile — which
     stayed invisible until a `platform handler` whose members trade in more
     than primitives arrived (`HostRawFs`, 2026-09-14).
-  * **Sharing follows the declared contract** [threadsafe-platform]
+  * **Sharing follows the declared contract** [platform-threadsafe]
     [rs-handle]: a `threadsafe` host implements `EPlatformSync` with `&self`
     receivers and its `use` binds `E::shared(__use_N)` — no lock, and
     rustc refuses a host whose fields are not `Sync`; an undeclared host
@@ -2069,13 +2069,13 @@ effects" keeps the history).
   convention to the declaration's own modes
   (`&mut |__a0: &Vec<crate::Person>| crate::count(__a0)`,
   `&mut |__a0: &i32| crate::double(*__a0)`).
-* [once-fn] `once` fn parameters emit `impl FnOnce(…)`
+* [fn-once] `once` fn parameters emit `impl FnOnce(…)`
   (`pub fn once_it(f: impl FnOnce(i32) -> i32) -> i32`), and a lambda filling
   one is a `move` closure with typed parameters
   (`crate::once_it(move |mut a: i32| -> i32 { a })`). Calling the parameter
   is a plain call (the by-value `call_once` is implicit).
 * [linear-discard] `discard(x)` lowers to `std::mem::drop(x);` on the moved
-  value [intrinsic-fn]; linearity itself is purely static [linear-static] —
+  value [platform-intrinsic-fn]; linearity itself is purely static [linear-static] —
   no `#[must_use]`, no `Drop` impls are generated.
 * [struct-spread] `P {...p, f: v}` binds the base once and builds the literal
   field by field, moving the fields not written out of it:
@@ -2274,7 +2274,7 @@ effects" keeps the history).
   (`pub __mailbox_capacity: i32,`, initialised `__mailbox_capacity: 4i32`): the
   spawn site need not be in the same module, and std's own `DefaultTimer` is
   spawned from user code [backend-never-wrong].
-* [rs-mixed] **The mixed lowering** [mixed-handler] (SH-1, built
+* [rs-mixed] **The mixed lowering** [actor-mixed-handler] (SH-1, built
   2026-09-19). A mixed handler splits into two generated types plus the
   servant's runtime parts:
 
@@ -2291,7 +2291,7 @@ effects" keeps the history).
     body beside them: `handle` downcasts `__Priv_H` into `__dispatch_priv_H`,
     which calls the inherent method (`__handler.advance(out);`),
     and `resume` removes the parked continuation and calls the member with
-    the downcast answer as its trailing argument [defer-deduction].
+    the downcast answer as its trailing argument [linear-defer].
   * **`__Fac_H`**: `#[derive(Clone)]`, `pub __addr: usize` plus the ctor
     params (owned), implementing each plain face's `__Stateless_E` with the
     sync member bodies — emitted with the ordinary handler-member code (ctor
@@ -2434,7 +2434,7 @@ effects" keeps the history).
     `pool(n)` is std Salvo (`crate::std_core_actor::pool(1i32)`, over the runtime
     module); `thread()` → `salvo_thread()`; `watch` and `on_idle` are Salvo
     over `reply_token(r)` → `(r).take_local()` [runtime-handles].
-  * **[main-pool] An omitted `on` clause is `salvo_current_pool()`** — a
+  * **[actor-main-pool] An omitted `on` clause is `salvo_current_pool()`** — a
     thread-local read, so the placement a spawn inherits costs nothing and
     needs no signature. `main`'s thread answers pool 0, the pool it is the
     single worker of; a worker thread answers its own; and an activation
@@ -2448,7 +2448,7 @@ effects" keeps the history).
     waiter's stack. `salvo_thread()` is `salvo_pool(1)`: `Dedicated` is erased
     like every qualifier [qual-erasure], and what it buys is static.
   * **[rs-task] A task mint is a scheduled closure, and nothing else.**
-    `replyto k(caps) on P` where `k` is a free `send fn` [free-send-fn] →
+    `replyto k(caps) on P` where `k` is a free `send fn` [actor-free-send-fn] →
     `{ let __c0 = …; crate::scheduler::salvo_mint_task(P, std::boxed::Box::new(move |__v| crate::k(__c0, …, *__v.downcast::<Payload>().expect("the awaited answer"))), <decoder>) }`,
     with `crate::scheduler::salvo_current_pool()` for an omitted `on`
     [task-pool-inherit]. No continuation enum, no slot, no
@@ -2463,7 +2463,7 @@ effects" keeps the history).
       [fate-lambda] and let this ship without it.
     * A free `send fn` itself needs no special emission: it is an ordinary
       `pub fn` whose parameters are all moved and which returns `()`.
-  * **[pool-fault-sink] `pool(n, sink)`** →
+  * **[actor-pool-fault-sink] `pool(n, sink)`** →
     `crate::scheduler::salvo_pool_with_sink(((n) as usize), Some((((sink) as usize), |__reason| std::boxed::Box::new(crate::std_core_actor::__Msg_Faults::Faulted(crate::std_core_actor::Fault { reason: __reason })))))`. The runtime holds a `String` and cannot
     construct the `Faults` *message* (a generated enum no Salvo fn can name),
     so the *pool creation site* hands over the constructor. Dispatched on

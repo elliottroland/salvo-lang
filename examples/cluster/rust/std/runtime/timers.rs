@@ -175,7 +175,7 @@ impl crate::std_runtime_timers::__Stateful_DeadlineTable for Deadlines {
                     let mut __picked_2 = __pick_1.unwrap();
                     __picked_2
                 } else {
-                    panic!("salvo: unreachable at std.runtime.timers:74:32")
+                    panic!("salvo: unreachable at std.runtime.timers:75:32")
                 }
             } <= now) {
                 let mut _at: Option<i64> = crate::std_core_list::remove_at_platform::<i64>(&mut self.ats, i);
@@ -309,7 +309,7 @@ impl crate::std_runtime_timers::__Stateless_Wheel for Wheeling {
                 crate::std_runtime::park_nanos_platform(&crate::std_runtime::this_parker_platform(), wait);
             };
         }
-        panic!("salvo: unreachable at std.runtime.timers:123:9");
+        panic!("salvo: unreachable at std.runtime.timers:124:9");
     }
 }
 
@@ -408,7 +408,7 @@ impl crate::wire::__Wire for __Msg_Wheel {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Wheel`.
+/// [actor-protocol-hash] The canonical hash of `Wheel`.
 pub const __PROTO_Wheel: &str = "df3353758a650c52";
 
 #[derive(Clone)]

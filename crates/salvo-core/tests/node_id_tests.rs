@@ -159,7 +159,7 @@ fn a_handler_member_is_keyed_by_its_own_id() {
     assert_ne!(key.decl, handler);
 }
 
-/// [node-id] [origin] A row of `salvo facts` for a node a stamp copied is
+/// [node-id] [node-origin] A row of `salvo facts` for a node a stamp copied is
 /// listed where a diagnostic about it would land — the field its copy was
 /// for, or the `by` site — not at the end of the file (ROADMAP 0ac).
 #[test]

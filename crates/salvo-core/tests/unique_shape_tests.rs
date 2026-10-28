@@ -1,4 +1,4 @@
-//! [unique-shape] A function of a unique shape on a type is declared in the
+//! [op-unique-shape] A function of a unique shape on a type is declared in the
 //! type's own file (user decision O1-D, 2026-10-27; OPERATOR_OVERLOAD.md
 //! "D's details"): the class is `eq` (2 explicit parameters, `-> Bool`), `cmp`
 //! (2, `-> Int`), `plus`, `minus`, `times`, `divide`, `pow` (2), `to_str` (1),
@@ -20,7 +20,7 @@ enum File<'a> {
     Annex(&'a str, &'a str),
 }
 
-/// The `[unique-shape]` errors of std plus `files`, as `file:line: message`.
+/// The `[op-unique-shape]` errors of std plus `files`, as `file:line: message`.
 fn refusals(files: &[File]) -> Vec<String> {
     let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib");
     let mut sources = SourceSet::default();
@@ -54,7 +54,7 @@ fn refusals(files: &[File]) -> Vec<String> {
     resolution
         .errors
         .iter()
-        .filter(|d| d.message.contains("[unique-shape]"))
+        .filter(|d| d.message.contains("[op-unique-shape]"))
         .map(|d| {
             let file = &program.files[d.file];
             let line = file.content[..(d.span.start as usize).min(file.content.len())].matches('\n').count() + 1;

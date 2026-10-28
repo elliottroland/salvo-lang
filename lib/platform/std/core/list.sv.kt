@@ -82,7 +82,7 @@ fun<T> drain(list: List<T>, each: (T) -> Unit) {
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:247:32")
+                throw AssertionError("salvo: unreachable at std.core.list:265:32")
             })
         })
     }
@@ -108,7 +108,7 @@ fun<T> first(list: List<T>): T {
             val __picked_2: T = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.core.list:304:28")
+            throw AssertionError("salvo: unreachable at std.core.list:325:28")
         })
     }
 }
@@ -144,7 +144,7 @@ fun<T> removeFrontWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T)
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:347:50")
+                throw AssertionError("salvo: unreachable at std.core.list:373:50")
             })
         })))) {
             break
@@ -163,7 +163,7 @@ fun<T> removeBackWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T) 
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:359:47")
+                throw AssertionError("salvo: unreachable at std.core.list:386:47")
             })
         })))) {
             break
@@ -189,7 +189,7 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:377:39")
+                throw AssertionError("salvo: unreachable at std.core.list:405:39")
             })
         }))
         i = (i + 1)
@@ -293,7 +293,7 @@ fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:427:31")
+                throw AssertionError("salvo: unreachable at std.core.list:460:31")
             })
         }, elem)) {
             return true
@@ -319,7 +319,7 @@ fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:444:34")
+                throw AssertionError("salvo: unreachable at std.core.list:479:34")
             })
         }))) {
             return false
@@ -342,7 +342,7 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:457:33")
+                throw AssertionError("salvo: unreachable at std.core.list:493:33")
             })
         })) {
             n = (n + 1)
@@ -366,7 +366,7 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): kotlin.Pa
                 val __picked_2: T = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.list:474:33")
+                throw AssertionError("salvo: unreachable at std.core.list:511:33")
             })
         }
         if (pick(x)) {

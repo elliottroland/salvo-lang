@@ -509,7 +509,7 @@ fn rename(n: &mut Numberer, r: &mut RenameDecl) {
     }
 }
 
-/// Flattened before resolution [namespace]; a module numbered before that
+/// Flattened before resolution [mod-namespace]; a module numbered before that
 /// holds its declarations here, among the file's own nodes.
 fn namespace(n: &mut Numberer, ns: &mut NamespaceDecl) {
     let NamespaceDecl { docs: _, exported: _, name, items, terminal: _, span } = ns;

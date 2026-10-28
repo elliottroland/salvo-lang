@@ -1652,7 +1652,7 @@ impl crate::wire::__Wire for __Msg_Sequencer {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Sequencer`.
+/// [actor-protocol-hash] The canonical hash of `Sequencer`.
 pub const __PROTO_Sequencer: &str = "7a5334482e5247f7";
 
 pub enum __Msg_Inventory {
@@ -1678,7 +1678,7 @@ impl crate::wire::__Wire for __Msg_Inventory {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Inventory`.
+/// [actor-protocol-hash] The canonical hash of `Inventory`.
 pub const __PROTO_Inventory: &str = "d3482a697a944808";
 
 pub enum __Msg_Search {
@@ -1703,7 +1703,7 @@ impl crate::wire::__Wire for __Msg_Search {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Search`.
+/// [actor-protocol-hash] The canonical hash of `Search`.
 pub const __PROTO_Search: &str = "ed817fc30774f01d";
 
 pub enum __Msg_Lookup {
@@ -1728,7 +1728,7 @@ impl crate::wire::__Wire for __Msg_Lookup {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Lookup`.
+/// [actor-protocol-hash] The canonical hash of `Lookup`.
 pub const __PROTO_Lookup: &str = "7c0f441570dc9a6f";
 
 pub enum __Msg_Gather {
@@ -1754,7 +1754,7 @@ impl crate::wire::__Wire for __Msg_Gather {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Gather`.
+/// [actor-protocol-hash] The canonical hash of `Gather`.
 pub const __PROTO_Gather: &str = "98712ca205da344c";
 
 pub enum __Msg_Race {
@@ -1780,7 +1780,7 @@ impl crate::wire::__Wire for __Msg_Race {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Race`.
+/// [actor-protocol-hash] The canonical hash of `Race`.
 pub const __PROTO_Race: &str = "5e0ec4d63d5f53dd";
 
 pub enum __Msg_Boot {
@@ -1810,7 +1810,7 @@ impl crate::wire::__Wire for __Msg_Boot {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Boot`.
+/// [actor-protocol-hash] The canonical hash of `Boot`.
 pub const __PROTO_Boot: &str = "4b15e647d0ca92a7";
 
 pub enum __Cont_Sequencing {

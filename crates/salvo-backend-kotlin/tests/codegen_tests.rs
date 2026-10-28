@@ -118,7 +118,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
         assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
         modules.push(module);
     }
-    // The drivers' pre-resolution expansions [route-stub].
+    // The drivers' pre-resolution expansions [actor-route-stub].
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     let errors: Vec<_> = expansion.diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "expansion errors: {errors:?}");
@@ -163,7 +163,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
 /// [std-cache] A program of std and `extra`, over the process's std front
 /// (`salvo_testkit::front`, TESTS.md C2): std was read, parsed, expanded and
 /// checked once, and the program holds its very modules, so only `extra` is
-/// parsed, expanded ([route-stub], what `salvo compile` runs before
+/// parsed, expanded ([actor-route-stub], what `salvo compile` runs before
 /// checking) and — through [`emit`] — checked.
 fn build_program(extra: &[(&str, &str)]) -> Program {
     let built = salvo_testkit::front::program("kt", extra);
@@ -291,7 +291,7 @@ fn golden_unions_kotlin() {
     insta::assert_snapshot!(combined);
 }
 
-// [kt-union-wrappers] [union-arm-identity]
+// [kt-union-wrappers] [type-union-arm-identity]
 #[test]
 fn unions_emit_sealed_wrappers() {
     let files = generate_unions_demo();
@@ -394,7 +394,7 @@ fn when_requires_union_subject() {
     );
 }
 
-// [union-arm-identity]
+// [type-union-arm-identity]
 #[test]
 fn union_wrap_requires_matching_arm() {
     let src = r#"
@@ -1057,7 +1057,7 @@ fn main() [use] {
 
 const LIFT_BINDING_OUTPUT: &str = "ok 7\nerr zero\nsize 3\n";
 
-/// [elvis] [placeholder] The first-arm pick: `?:` keeps the subject union's
+/// [op-elvis] [expr-placeholder] The first-arm pick: `?:` keeps the subject union's
 /// first arm; the rest go to `_`. The shapes here are the ones that emit
 /// differently:
 ///
@@ -1108,7 +1108,7 @@ fn main() [use] {
     println(greet(named))
     println(greet(plain))
 
-    // [elvis] `?:` picks the first arm (`Str`); the rest (`Int | None`) go
+    // [op-elvis] `?:` picks the first arm (`Str`); the rest (`Int | None`) go
     // to `_`, which the default here ignores.
     let v: Str | Int | None = pick(2) ?: "none"
     when v {
@@ -1205,7 +1205,7 @@ fn main() [use] {
 const SAFE_PIPE_OUTPUT: &str =
     "present present 84\nabsent absent\nflat present 21\nflat-none absent\nchain present 168\n";
 
-/// [elvis] [placeholder] The first-arm pick. `?:` keeps the first arm; `_` on
+/// [op-elvis] [expr-placeholder] The first-arm pick. `?:` keeps the first arm; `_` on
 /// the right is the arms left behind, tags and all — the one place the
 /// placeholder earns its keep, since `Err Str` has no other spelling there.
 ///
@@ -1234,7 +1234,7 @@ fn show(label: Str, r: Ok Int | Err Str) [Console] -> None {
     }
 }
 
-// [elvis-guard] After a guarding pick the subject reads as the matched *arm*:
+// [op-elvis-guard] After a guarding pick the subject reads as the matched *arm*:
 // `r` is an `Ok Int` below, so it needs no further check.
 fn guarded(text: Str) [Console] -> None {
     let r = parse(text)
@@ -1255,7 +1255,7 @@ fn main() [use] {
 const PICK_OUTPUT: &str =
     "doubled ok 6\ndoubled err empty\nguarded 5 5\n";
 
-/// [rewrap] A value spanning **fewer arms than its storage** is produced by
+/// [type-rewrap] A value spanning **fewer arms than its storage** is produced by
 /// mapping arm to arm, which is what the three shapes deferred out of the `?`
 /// family all needed. Two of them are here:
 ///
@@ -1265,7 +1265,7 @@ const PICK_OUTPUT: &str =
 ///   out of the same three-arm storage — the shape from the original sketch.
 ///
 /// The mapping itself is the one an annotated `let` has always emitted
-/// [let-infer]; what was missing was reaching it from a site with no slot.
+/// [var-let-infer]; what was missing was reaching it from a site with no slot.
 const REWRAP_DEMO: &str = r#"
 import std.throw
 
@@ -2654,7 +2654,7 @@ fn kotlinc_compiles_and_runs_effects() -> KotlinCase {
     kotlin_case(files, "effects", expected)
 }
 
-// [use-requires-use]
+// [effect-use-requires-use]
 #[test]
 fn use_requires_the_use_effect() {
     let errors = expect_errors("fn setup() -> None {\n    use StdConsole\n}\n");
@@ -2678,7 +2678,7 @@ fn duplicate_effect_in_list_is_rejected() {
     );
 }
 
-// [use-no-dup] [effect-intercept]
+// [effect-use-no-dup] [effect-intercept]
 #[test]
 fn a_use_may_shadow_an_earlier_registration() {
     // Until 2026-09-14 this was "a handler for `Console` is already
@@ -2732,7 +2732,7 @@ export fn f() [Random<Int>, Random<Double>] -> None {
     );
 }
 
-// [effect-disambiguation] [use-no-dup] Shadowing collapses repeats of *one*
+// [effect-disambiguation] [effect-use-no-dup] Shadowing collapses repeats of *one*
 // instance, and must not collapse two *different* instances of a generic
 // effect: those are still ambiguous, registered by `use` as much as by an
 // effect list.
@@ -3474,7 +3474,7 @@ import people.Person
 
 // A second ordering is named for what it does and passed explicitly: a second
 // `cmp(Person, Person)` here would be refused, since `cmp` on `Person` is
-// declared only in `Person`'s file [unique-shape].
+// declared only in `Person`'s file [op-unique-shape].
 fn by_name(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
@@ -4033,7 +4033,7 @@ fn kotlinc_compiles_and_runs_elem_mut_handles() -> KotlinCase {
     kotlin_case(files, "elem_mut", "2 13\n")
 }
 
-/// [elem-distinct] [ref-notsame] The distinct-pair program, byte-identical stdout to the
+/// [fate-elem-distinct] [ref-notsame] The distinct-pair program, byte-identical stdout to the
 /// Rust backend's `rustc_compiles_and_runs_distinct_pair_calls` — Kotlin
 /// aliases natively, so the parity is the assertion.
 const DISTINCT_PAIR_DEMO: &str = r#"
@@ -4423,7 +4423,7 @@ fn main() [use] -> None {
 "#;
 
 /// [interp-to-str] A `to_str` resolved in another module the file never names:
-/// the symbol was unresolved on this backend too. [unique-shape] Now `Pair`'s
+/// the symbol was unresolved on this backend too. [op-unique-shape] Now `Pair`'s
 /// own, attached and imported with it (the Rust backend's test says why).
 const INTERP_TO_STR_MODULES: &[(&str, &str)] = &[
     (
@@ -4909,7 +4909,7 @@ fn kotlinc_compiles_and_runs_distinct_pair_calls() -> KotlinCase {
     kotlin_case(files, "distinct_pair", "11 3 17 8\n")
 }
 
-/// [ref-notsame] [elem-distinct] Two handles proven apart by `NotSame`
+/// [ref-notsame] [fate-elem-distinct] Two handles proven apart by `NotSame`
 /// through a custom container's accessor (map slots, one slot's roster, the
 /// bench) and through nested structs with no accessor of their own; two
 /// handles to one element make the test false at run time (`===`). Source
@@ -5201,7 +5201,7 @@ fn kotlinc_compiles_and_runs_notsame_handles() -> KotlinCase {
     kotlin_case(files, "notsame_handles", NOTSAME_OUTPUT)
 }
 
-/// [placeholder] `for _ in …` drives a pass and binds nothing. Kotlin has no
+/// [expr-placeholder] `for _ in …` drives a pass and binds nothing. Kotlin has no
 /// wildcard in a `for` header, so the two lowerings differ: the pass loop drops
 /// its `val` line, the native `for` names a local the body cannot reach. Source
 /// and expected stdout are verbatim the Rust backend's
@@ -5210,7 +5210,7 @@ const PLACEHOLDER_LOOP_DEMO: &str = r#"
 fn main() [use] {
     use StdConsole()
     let hits: Mut List<Int> = Mut List()
-    // [placeholder] Two loops that bind nothing, in one function: neither
+    // [expr-placeholder] Two loops that bind nothing, in one function: neither
     // introduces a name, so neither can collide with the other.
     for _ in range(0, 3) {
         add(hits, 1)
@@ -5239,7 +5239,7 @@ fn kotlinc_compiles_and_runs_placeholder_loops() -> KotlinCase {
     kotlin_case(files, "placeholder-loops", "10\n")
 }
 
-/// [while-value] [deduce-same-call] A value loop whose body ends in an
+/// [loop-while-value] [deduce-same-call] A value loop whose body ends in an
 /// `else`-less `if` (a statement: its arm only `break`s), and a call whose
 /// later argument is hoisted past an earlier one with effects of its own —
 /// which must still run first. Both backends print the same.
@@ -5885,12 +5885,12 @@ fn kotlinc_compiles_and_runs_handles_into_element_containers() -> KotlinCase {
     kotlin_case(files, "elem-container", ELEM_CONTAINER_OUTPUT)
 }
 
-// ===== [safe-nav] `?.` optional chaining =====
+// ===== [op-safe-nav] `?.` optional chaining =====
 
 /// The same source and expected stdout as the Rust backend's
 /// `rustc_runs_safe_navigation`: a `?.` field chain feeding a `?:`, and a
 /// `?.` call link on a place receiver. On Kotlin the field chain renders as a
-/// native `o?.inner?.nanos` ([safe-nav], asserted in
+/// native `o?.inner?.nanos` ([op-safe-nav], asserted in
 /// `safe_navigation_field_chain_is_native_kotlin`); both backends must agree
 /// on the short-circuiting result.
 const SAFE_NAV_DEMO: &str = r#"
@@ -6029,7 +6029,7 @@ fn kotlinc_compiles_and_runs_arm_equality() -> KotlinCase {
     kotlin_case(files, "arm-eq", "none\n42\ntrue\ntrue\n")
 }
 
-// [safe-nav] [kt-safe-nav]
+// [op-safe-nav] [kt-safe-nav]
 #[test]
 fn safe_navigation_field_chain_is_native_kotlin() {
     let program = build_program(&[("main.sv", SAFE_NAV_DEMO)]);
@@ -6053,7 +6053,7 @@ fn safe_navigation_field_chain_is_native_kotlin() {
 /// and `to_str(Int)` fill a list of `Int`, `Foo`'s own `to_str` (declared in
 /// `Foo`'s file) fills the element `Foo`, a written override names a
 /// catch-all for the elements, and an enclosing fn's implicit still shadows
-/// every candidate at each level. [unique-shape] The catch-all is `any_text`,
+/// every candidate at each level. [op-unique-shape] The catch-all is `any_text`,
 /// not `to_str<T>`: a `to_str` on a type parameter is refused where it is
 /// declared (the Rust backend's tests keep the program as it was, with a
 /// catch-all `to_str<T>`, as a test of the refusal), so it is passed
@@ -6162,7 +6162,7 @@ fn kotlinc_compiles_and_runs_implicits_selected_as_calls_select() -> KotlinCase 
     kotlin_case(files, "implicit-selection", IMPLICIT_SELECTION_OUTPUT)
 }
 
-/// [op-equality] [op-order] [op-arm-eq] [unique-shape] [implicit-resolve-body]
+/// [op-equality] [op-order] [op-arm-eq] [op-unique-shape] [implicit-resolve-body]
 /// A comparison operator is the call it names (OPERATOR_OVERLOAD.md O1;
 /// PIPELINE.md §3 R10): an enclosing `?eq`/`?cmp` takes `==`/`<` on a `Str`
 /// (D1) and `<` on a `Double`; the qualified operands rank as the call ranks
@@ -6258,7 +6258,7 @@ fn main() [use] {
 "#;
 
 const COMPARISON_CALLS_BAG: &str = r#"
-// The two overloads of `eq` on `Bag`, in `Bag`'s own file [unique-shape].
+// The two overloads of `eq` on `Bag`, in `Bag`'s own file [op-unique-shape].
 export struct Bag<T> {
     items: List<T>
 }
@@ -6288,7 +6288,7 @@ fn kotlinc_compiles_and_runs_comparisons_as_the_calls_they_name() -> KotlinCase 
     kotlin_case(files, "comparison-calls", COMPARISON_CALLS_OUTPUT)
 }
 
-/// [for-iter] [iter-protocol] [fn-rename] [implicit-resolve-body] [unique-shape]
+/// [iter-for] [iter-protocol] [fn-rename] [implicit-resolve-body] [op-unique-shape]
 /// `for` is the calls it names (R10 D10): `next(c)` when a `next` takes `c`,
 /// `next(iter(c))` otherwise, each resolved as the call. D8: the specific
 /// `next` drives (×100); D9: a renamed `next` no longer does, so the `iter`
@@ -6452,7 +6452,7 @@ fn kotlinc_compiles_and_runs_a_for_as_the_calls_it_names() -> KotlinCase {
     kotlin_case(files, "for-calls", FOR_CALLS_OUTPUT)
 }
 
-/// [op-arith] [op-pow] [op-promote] [unique-shape] [implicit-resolve-body]
+/// [op-arith] [op-pow] [op-promote] [op-unique-shape] [implicit-resolve-body]
 /// Arithmetic operators are the calls they name (B3.3e, O1): `+ - * /` on a
 /// type of your own call its `plus`, `minus`, `times`, `divide`, declared in
 /// its file; the enclosing `?plus` takes `+` at an `Int` (R10 D1) and at a
@@ -7260,7 +7260,7 @@ fn cache_stamp(
 
 /// The M6 demo: loop values from body tails, `break value`, loop `else`
 /// in value and statement position, bare `break` (optional value), and a
-/// union-typed loop value re-wrapped to the declared type [while-value].
+/// union-typed loop value re-wrapped to the declared type [loop-while-value].
 const LOOPS: &str = r#"
 // Its own pass, named `Upto` rather than `Range`: `std.core.range` exports a
 // `Range` of its own [mod-export], and two same-named structs in two modules
@@ -7376,7 +7376,7 @@ fn golden_loops_kotlin() {
     insta::assert_snapshot!(combined);
 }
 
-// [while-value] [kt-loop-value]
+// [loop-while-value] [kt-loop-value]
 #[test]
 fn loops_lower_to_run_blocks() {
     let files = generate_loops_demo();
@@ -7406,7 +7406,7 @@ fn loops_lower_to_run_blocks() {
     assert!(c.contains("var __loop_22: Union2<String, Int>? = null"), "{c}");
 }
 
-// [while-value]
+// [loop-while-value]
 #[test]
 fn break_outside_a_loop_is_an_error() {
     let errors = expect_errors("fn f() -> None {\n    break\n}\n");
@@ -7650,7 +7650,7 @@ export fn main() [use] -> None {
         .contains("println(console__1, \"param: ${console}\")"));
 }
 
-// [let-destructure] Two struct destructures in one block get unique temps.
+// [var-let-destructure] Two struct destructures in one block get unique temps.
 #[test]
 fn struct_destructure_temps_are_unique() {
     let src = r#"
@@ -7674,7 +7674,7 @@ export fn main() [use] -> None {
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
-    // [let-destructure] Each destructure has its own temporary.
+    // [var-let-destructure] Each destructure has its own temporary.
     let temps: Vec<&str> = main.content.lines().filter(|l| l.trim_start().starts_with("val __destructured_")).collect();
     assert_eq!(temps.len(), 2, "{}", main.content);
     assert_ne!(temps[0].split(':').next(), temps[1].split(':').next(), "{}", main.content);
@@ -7714,7 +7714,7 @@ fn companion_collision_with_generated_file_is_an_error() {
 }
 
 
-// [lit-numeric] Literal suffixes map onto Kotlin's: `5L` stays `5L`,
+// [type-lit-numeric] Literal suffixes map onto Kotlin's: `5L` stays `5L`,
 // `2.5f` stays `2.5f`, unsuffixed floats are Double (`1.5`).
 #[test]
 fn numeric_literal_suffixes_emit_kotlin_suffixes() {
@@ -7782,7 +7782,7 @@ export fn main() [use] -> None {
     );
 }
 
-// ===== S1: the `copy` intrinsic [intrinsic-fn] [copy-fn] [kt-copy] =====
+// ===== S1: the `copy` intrinsic [platform-intrinsic-fn] [copy-fn] [kt-copy] =====
 
 /// Exercises every Kotlin `copy` lowering shape: identity for immutable
 /// data, `.toMutableList()` for `Mut List`, `.copy()` for a `Mut` struct
@@ -7816,7 +7816,7 @@ fn main() [use] -> None {
 }
 "#;
 
-// [intrinsic-fn] [kt-copy] `copy` lowers type-directedly from the
+// [platform-intrinsic-fn] [kt-copy] `copy` lowers type-directedly from the
 // checker's resolved argument type.
 #[test]
 fn copy_lowers_type_directedly() {
@@ -7894,7 +7894,7 @@ fn main() [use] {
 }
 "#;
 
-/// [field-canbe-mut] [kt-field-canbe-mut] [kt-copy] A `canbe Mut` field is
+/// [struct-field-canbe-mut] [kt-field-canbe-mut] [kt-copy] A `canbe Mut` field is
 /// `Mut` exactly when its struct value is, and `copy` of a struct is deep:
 /// the copy's lists, nested structs included, are its own.
 pub const CANBE_MUT_FIELD_DEMO: &str = r#"
@@ -8507,7 +8507,7 @@ fn kotlinc_compiles_and_runs_linear_generics() -> KotlinCase {
     kotlin_case(files, "l7a-linear-generics", expected)
 }
 
-// ===== L7b: once fn types [once-fn] =====
+// ===== L7b: once fn types [fn-once] =====
 
 /// A `once` parameter accepts both a capture-consuming lambda (which is
 /// `once`-typed by construction) and a plain lambda (inverted
@@ -8542,7 +8542,7 @@ fn kotlinc_compiles_and_runs_once_fns() -> KotlinCase {
     kotlin_case(files, "l7b-once", expected)
 }
 
-// ===== L7c: derived returns [readonly-return] =====
+// ===== L7c: derived returns [proj-readonly-return] =====
 
 /// Zero-copy accessors across fn boundaries: a derived return borrows
 /// the kept parameter (elided lifetime with one reference parameter, a
@@ -9277,7 +9277,7 @@ export fn main() [use] -> None {
      struct nan equality: false\n")
 }
 
-/// [op-arith] [op-promote] [lit-adopt] [op-convert] The same source and
+/// [op-arith] [op-promote] [type-lit-adopt] [op-convert] The same source and
 /// expected output as the Rust backend's `rustc_compiles_and_runs_operators`
 /// [backend-parity]. Kotlin's own operator set covers the mixed widths
 /// (`Long.plus(Int)`, `Int.compareTo(Long)`), so only the adopted literals
@@ -9517,7 +9517,7 @@ export fn main() [use] -> None {
 
 // ===== interception [effect-intercept] =====
 // A handler may depend on the effect it implements, binding strictly
-// outward, and a `use` may shadow an earlier registration [use-no-dup].
+// outward, and a `use` may shadow an earlier registration [effect-use-no-dup].
 // Kotlin needs no new machinery for either — a dependency is a constructor
 // field, and the fused class keeps one property per instance — but the
 // *lookups* had to become innermost-first: reading the environment as a set
@@ -9689,7 +9689,7 @@ fn kotlinc_compiles_and_runs_a_shareable_interceptor_chain() -> KotlinCase {
     )
 }
 
-// ===== spawn-inheritance and the `with` clause [spawn-inherit] =====
+// ===== spawn-inheritance and the `with` clause [actor-spawn-inherit] =====
 // The arc's shape, shared verbatim with the Rust backend (whose test also
 // pins the hidden handle bundle that side needs; here a JVM reference already
 // is a handle, so nothing extra is emitted).
@@ -9765,7 +9765,7 @@ fn main() [use, spawn] -> None {
 const SPAWN_INHERIT_OUTPUT: &str =
     "log: plain\nlog: [t=1] stamped\nlog: reported inherited\nlog: [t=99] overridden\n";
 
-/// [spawn-inherit] [with-clause] The arc end to end: interception wiring in a
+/// [actor-spawn-inherit] [effect-with-clause] The arc end to end: interception wiring in a
 /// fn that received the effects it wires, a spawn inheriting its dependency
 /// from the scope with no clause, and a `with` clause overriding one with a
 /// private instance. Byte-identical stdout on Rust.
@@ -10181,9 +10181,9 @@ fn kotlinc_compiles_and_runs_handler_deps_mixed() -> KotlinCase {
     )
 }
 
-// ===== destructuring a loop element [let-destructure] =====
+// ===== destructuring a loop element [var-let-destructure] =====
 
-/// [let-destructure] A `for` binds a **pattern**, not just a name. Source and
+/// [var-let-destructure] A `for` binds a **pattern**, not just a name. Source and
 /// expected stdout are **verbatim** the Rust backend's
 /// `rustc_compiles_and_runs_loop_destructuring`.
 const LOOP_DESTRUCTURE: &str = r#"
@@ -10191,7 +10191,7 @@ struct Row { name: Str, score: Int }
 
 fn main() [use] -> None {
     use StdConsole
-    // [let-destructure] A loop element destructures like a `let`: a tuple by
+    // [var-let-destructure] A loop element destructures like a `let`: a tuple by
     // position, a struct by field (renamed where the pattern says so).
     let pairs: List<(Str, Int)> = List(("a", 1), ("b", 2))
     for (k, v) in iter(pairs) {
@@ -10225,7 +10225,7 @@ fn kotlinc_compiles_and_runs_loop_destructuring() -> KotlinCase {
     kotlin_case(files, "loop-destructure", "a=1\nb=2\nx 7\ny 8\n3\n7\nsum 3\n")
 }
 
-/// [let-destructure] What it lowers to: the element in a temporary — cast to its
+/// [var-let-destructure] What it lowers to: the element in a temporary — cast to its
 /// own type, which is what a pass-driven header needs — then one `val` per name,
 /// a tuple's by component and a struct's by field. Kotlin *could* destructure a
 /// `Pair` in the header, but not the pass's payload and not a struct, so one
@@ -10814,7 +10814,7 @@ fn dot_names_in_unions_and_narrowing() -> KotlinCase {
     )
 }
 
-/// [namespace] A `namespace` groups declarations into dotted names; a
+/// [mod-namespace] A `namespace` groups declarations into dotted names; a
 /// namespaced free fn is called by its dotted path (Kotlin flattens it to
 /// `Attr_tag`), types nest as objects, and the `.Thing` suffix sugar resolves
 /// a `when` arm against the union's arms.
@@ -10916,7 +10916,7 @@ fn provenance_survives_mutation_where_state_does_not() -> KotlinCase {
     kotlin_case(files, "qual_subjects", "trusted 3\nplain 3\nchecked 2\n")
 }
 
-// ===== E3 step 2: throw and `try` [throw] [try] [kt-throw-signal] =====
+// ===== E3 step 2: throw and `try` [throw] [throw-try] [kt-throw-signal] =====
 
 /// The whole of non-resumption in one program: propagation through a frame
 /// that declares the effect, a linear resource released *before* the call that
@@ -11393,7 +11393,7 @@ const WHEN_COND_STDOUT: &str = "negative\nzero\npositive\nsign -1 0 1\nstr hi\ni
 /// [kt-when-cond] Kotlin has the same construct, so the source shape
 /// survives: `cond -> { … }` arms closed by `else -> { … }`. Being total it
 /// is an expression without the `else null` filler an `if` chain needs
-/// [if-else-none].
+/// [expr-if-else-none].
 #[test]
 fn a_subjectless_when_emits_a_subjectless_kotlin_when() {
     let program = build_program(&[("main.sv", WHEN_COND_DEMO)]);
@@ -11439,7 +11439,7 @@ fn kotlinc_compiles_and_runs_when_cond() -> KotlinCase {
 
 // ===== a `try` body is ordinary code to the mutability census =====
 
-// [try] A variable assigned *only* inside a `try` body still needs the
+// [throw-try] A variable assigned *only* inside a `try` body still needs the
 // mutable declaration. `collect_mutated_expr` had no `Expr::Try` arm, so it
 // emitted `val counter` next to `counter = counter + 1` and kotlinc
 // rejected the output — a [backend-never-wrong] miss caught by nothing but
@@ -11646,9 +11646,9 @@ fn kotlinc_compiles_and_runs_a_platform_handler() -> KotlinCase {
     kotlin_case(files, "platform-handler", "boot@42\n")
 }
 
-// ===== [threadsafe-platform] the thread-safety contract =====
+// ===== [platform-threadsafe] the thread-safety contract =====
 
-/// [threadsafe-platform] [kt-platform-handler] An **undeclared** platform
+/// [platform-threadsafe] [kt-platform-handler] An **undeclared** platform
 /// handler binds as a monitor (user decision 2026-09-26): the `use` site wraps
 /// the host in the effect's `synchronized` wrapper, so this backend now
 /// serializes the instance exactly as Rust does — the divergence closed.
@@ -11720,7 +11720,7 @@ fn generate_threadsafe_platform_handler_demo_with(
     })
 }
 
-/// [threadsafe-platform] [kt-handle] A **`threadsafe`** platform handler
+/// [platform-threadsafe] [kt-handle] A **`threadsafe`** platform handler
 /// binds the raw host instance — no `__Mon_E` — because the declared contract
 /// is exactly "stateless for the handle's purposes"; an undeclared one binds
 /// behind the monitor. The skeleton prints the contract the implementer
@@ -11742,7 +11742,7 @@ fn a_threadsafe_platform_handler_binds_raw_and_its_skeleton_prints_the_contract(
         "`threadsafe platform handler HostRawClock` — THE CONTRACT YOU ARE SIGNING",
         "NO\n// lock around it",
         "class HostRawClock(private val offset: Int) : RawClockPlatform {",
-        "[threadsafe-platform]",
+        "[platform-threadsafe]",
     ] {
         assert!(
             skeleton.content.contains(expected),
@@ -11758,7 +11758,7 @@ fn a_threadsafe_platform_handler_binds_raw_and_its_skeleton_prints_the_contract(
     );
 }
 
-/// [threadsafe-platform] End to end under kotlinc with the threadsafe
+/// [platform-threadsafe] End to end under kotlinc with the threadsafe
 /// skeleton's stub filled in — the same output as the undeclared run and as
 /// the Rust backend's.
 fn kotlinc_compiles_and_runs_a_threadsafe_platform_handler() -> KotlinCase {
@@ -11840,7 +11840,7 @@ fn main() [use, spawn] {
 
 const NET_MEM_TRANSPORT_OUTPUT: &str = "listen a: sent\nlisten b: sent\nhello: sent\nlost: unreachable: b:1\nagain: sent\nvoid: unreachable: c:9\ndead: unreachable: b:1\nb saw [b <- a:1: hello, b <- a:1: again], routed 2\n";
 
-/// [threadsafe-platform] A program that never binds `HostTcpTransport`
+/// [platform-threadsafe] A program that never binds `HostTcpTransport`
 /// constructs no host class (the shipped companion is copied with `net`, as
 /// every companion is, but nothing names it).
 #[test]
@@ -11859,7 +11859,7 @@ fn kotlinc_compiles_and_runs_the_mem_transport() -> KotlinCase {
     kotlin_case(files, "net-mem-transport", NET_MEM_TRANSPORT_OUTPUT)
 }
 
-/// [threadsafe-platform] The real wire on localhost under kotlinc — the Rust
+/// [platform-threadsafe] The real wire on localhost under kotlinc — the Rust
 /// backend's `NET_TCP_SMOKE` on this backend's own port.
 const NET_TCP_SMOKE: &str = r#"import std.net
 import std.time
@@ -11929,7 +11929,7 @@ fn kotlinc_compiles_and_runs_the_tcp_transport_on_localhost() -> KotlinCase {
 // ===== the network sequence, step ②: the wire format =====
 
 /// The Rust backend's `WIRE_DEMO`, verbatim, with the same expected hex — the
-/// byte-for-byte parity assertion for the wire [wire-format] [kt-wire].
+/// byte-for-byte parity assertion for the wire [net-wire-format] [kt-wire].
 const WIRE_DEMO: &str = r#"import std.net
 import std.codec
 
@@ -12004,7 +12004,7 @@ fn kotlinc_compiles_and_runs_the_wire_format() -> KotlinCase {
 
 // ===== the network sequence, step ③: routable addrs across two nodes =====
 
-/// The Rust backend's `NODES_DEMO`, verbatim [addr-routable].
+/// The Rust backend's `NODES_DEMO`, verbatim [net-addr-routable].
 const NODES_DEMO: &str = r#"import std.net
 import std.codec
 import std.time
@@ -12260,7 +12260,7 @@ fn kotlinc_compiles_and_runs_an_effect_typed_generic() -> KotlinCase {
     kotlin_case(files, "effect-generic", "members: 1\nping 7\n")
 }
 
-/// The Rust backend's `ELVIS_BORROW_DEMO`, verbatim [elvis] — parity for a
+/// The Rust backend's `ELVIS_BORROW_DEMO`, verbatim [op-elvis] — parity for a
 /// Rust-side borrow defect.
 const ELVIS_BORROW_DEMO: &str = r#"fn main() [use] {
     use StdConsole()
@@ -12528,7 +12528,7 @@ fn kotlinc_compiles_and_runs_a_router_of_any() -> KotlinCase {
     kotlin_case(files, "any-router", "a resized cat.png to 100\nb resized dog.png to 100\na resized owl.png to 100\n")
 }
 
-/// The Rust backend's `ROUTE_SHARDED_DEMO`, verbatim [route-stub].
+/// The Rust backend's `ROUTE_SHARDED_DEMO`, verbatim [actor-route-stub].
 const ROUTE_SHARDED_DEMO: &str = r#"import std.net
 import std.time
 
@@ -12577,7 +12577,7 @@ fn kotlinc_compiles_and_runs_a_sharded_route() -> KotlinCase {
     kotlin_case(files, "route-sharded", "s1 took apple (1 so far)\ns2 took pear (1 so far)\ns1 took apple (2 so far)\ns1 took fig (3 so far)\ns2 took pear (2 so far)\n")
 }
 
-/// The Rust backend's `ROUTE_PICKS_DEMO`, verbatim [route-stub].
+/// The Rust backend's `ROUTE_PICKS_DEMO`, verbatim [actor-route-stub].
 const ROUTE_PICKS_DEMO: &str = r#"import std.net
 import std.time
 
@@ -12917,7 +12917,7 @@ fns Field<T> {
 
 fn add(a: Int, b: Int) -> Int { return a + b }
 fn zero() -> Int { return 0 }
-// [unique-shape] Not `times`: that is the `*` operator on `Int`, declared
+// [op-unique-shape] Not `times`: that is the `*` operator on `Int`, declared
 // only in `Int`'s own file; an override is named for what it does.
 fn multiply(a: Int, b: Int) -> Int { return a * b }
 fn one() -> Int { return 1 }
@@ -13318,7 +13318,7 @@ fn main() [use] {
     }
     println("chars: ${size(count)}")
 
-    // [bytes-type] [byte-value] The text/byte bridge: UTF-8 out, strict UTF-8
+    // [type-bytes] [type-byte] The text/byte bridge: UTF-8 out, strict UTF-8
     // back in, and an octet that is unsigned on both targets. The buffer is a
     // `Bytes`, not a list of octets, so nothing here boxes on the JVM.
     let bytes = to_bytes("hé")
@@ -13715,7 +13715,7 @@ fn kotlinc_compiles_and_runs_overload_overrides() -> KotlinCase {
 /// beside a same-named local, parameter or class member (B1 census D11 and
 /// D13, 2026-10-27): the `for` over a concrete pass drives the fn's own
 /// implicit `?next`, as the call `next(c)` does (R10 D11, B3.3d; it drove the
-/// declared `next` before) [for-iter]; `5.show()` and
+/// declared `next` before) [iter-for]; `5.show()` and
 /// `show@main(5)` call the declared `show` though a local `show` is in scope;
 /// a handler member `label` calls, and passes by name, the top-level `label`.
 /// Kotlin printed the local's `local 5` twice and recursed into the member,
@@ -14359,7 +14359,7 @@ fn kotlinc_compiles_and_runs_a_partial_move() -> KotlinCase {
     kotlin_case(files, "partial-move", PARTIAL_MOVE_OUTPUT)
 }
 
-/// [inc-dec] All four step forms, in both statement and value position: the
+/// [op-inc-dec] All four step forms, in both statement and value position: the
 /// fixity decides the *value* (postfix the old, prefix the new) and the
 /// operator the direction. Rust has neither operator, so a value-position
 /// step becomes a block; the stdout is what pins the two backends together.
@@ -14401,7 +14401,7 @@ fn kotlinc_compiles_and_runs_inc_dec() -> KotlinCase {
     kotlin_case(files, "inc-dec", INC_DEC_OUTPUT)
 }
 
-/// [iter-fn] [proj-field] [yield-proj] An `iter fn` over a *generic* subject
+/// [iter-fn] [proj-field] [iter-yield-proj] An `iter fn` over a *generic* subject
 /// that emits borrowed elements. The generated pass **borrows** its subject
 /// (`b: proj Box<T>`, user decision 2026-09-11) instead of copying it,
 /// so nothing has to `copy` a value of type `T` — which is what used to refuse
@@ -14445,7 +14445,7 @@ fn kotlinc_compiles_and_runs_a_generic_subject_iter_fn() -> KotlinCase {
     kotlin_case(files, "generic-iter-fn", GENERIC_ITER_FN_OUTPUT)
 }
 
-/// [kt-wire] [wire-format] A generic struct's `T?` field: its codec wraps the
+/// [kt-wire] [net-wire-format] A generic struct's `T?` field: its codec wraps the
 /// struct's own `WireCodec<T>` in `OptCodec`, which once demanded a non-null
 /// `T` and so did not compile (found 2026-10-20 through lib/std/args). The bytes
 /// are Rust's (`generic_optional_codec` in the Rust suite).
@@ -14639,7 +14639,7 @@ fn kotlinc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter() -> Kot
     kotlin_case(files, "proj-arm-param", PROJ_ARM_PARAM_OUTPUT)
 }
 
-// ===== [lambda-view] a capture-rooted projection =====
+// ===== [fate-lambda-view] a capture-rooted projection =====
 
 /// The Kotlin half of the capture-rooted projection case: a callback
 /// picking elements out of a captured list. On the JVM a capture is an
@@ -15048,9 +15048,9 @@ fn kotlinc_compiles_and_runs_a_linear_token_closed_by_a_member() -> KotlinCase {
     kotlin_case(files, "linear-member-discharge", "line 9\nclosed in\nwrote 5\nclosed out\n")
 }
 
-// ===== std's byte buffer [bytes-type] =====
+// ===== std's byte buffer [type-bytes] =====
 
-/// [bytes-type] [byte-value] The whole `Bytes` surface in one program: both
+/// [type-bytes] [type-byte] The whole `Bytes` surface in one program: both
 /// constructors, the read side, the `Mut` side, structural equality, a copy
 /// that does not alias, the text bridge and a `for` over the buffer.
 ///
@@ -15969,7 +15969,7 @@ fn an_actor_lowers_to_message_classes_and_a_body() {
     );
 }
 
-/// [monitor-handler] [kt-monitor] The monitor spawn (SH-3, user decision
+/// [actor-monitor-handler] [kt-monitor] The monitor spawn (SH-3, user decision
 /// 2026-09-19): the same program the Rust backend runs, with the same
 /// expected output — one plain-effect handler shared behind a lock, serving
 /// `main` and a spawned actor.
@@ -16061,7 +16061,7 @@ fn a_monitor_lowers_to_a_lock_wrapper() {
     );
 }
 
-/// [mixed-handler] [kt-mixed] The mixed handler (SH-1): the same program the
+/// [actor-mixed-handler] [kt-mixed] The mixed handler (SH-1): the same program the
 /// Rust backend runs, with the same expected output — the servant's state
 /// behind a mailbox, the façade on the callers' threads, one instance
 /// serving `main` and a spawned actor.
@@ -16114,7 +16114,7 @@ fn main() [use, spawn] -> None {
 }
 "#;
 
-/// [defer-deduction] [mixed-handler] The same rung-4 forwarding program the
+/// [linear-defer] [actor-mixed-handler] The same rung-4 forwarding program the
 /// Rust backend runs, with the same output.
 const DEFERRING: &str = r#"
 effect Random {
@@ -16172,7 +16172,7 @@ fn kotlinc_compiles_and_runs_a_deferring_mixed_handler() -> KotlinCase {
     )
 }
 
-/// [defer-deduction] [actor-replyto] [kt-mixed] Parking inside a mixed
+/// [linear-defer] [actor-replyto] [kt-mixed] Parking inside a mixed
 /// handler — the full rung-4 shape: the servant captures the caller's reply
 /// in a continuation on its own `settled` member (`__Cont_H`, handler-keyed),
 /// consults another actor, and answers when the resume delivers the oracle's
@@ -16237,7 +16237,7 @@ fn kotlinc_compiles_and_runs_a_parking_mixed_handler() -> KotlinCase {
     )
 }
 
-/// [mixed-handler] [actor-self-send] [kt-mixed] A servant reaching its
+/// [actor-mixed-handler] [actor-self-send] [kt-mixed] A servant reaching its
 /// siblings (user decision 2026-09-19): a bare sibling call in a send member
 /// and `k@self(…)` in both member kinds, all lowering to enqueues on the
 /// servant's own mailbox (`__Msg_H`), the reply travelling hop to hop by
@@ -16293,7 +16293,7 @@ fn generate_mixed_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
     generate_files(&[("main.sv", MIXED)])
 }
 
-/// [mixed-handler] [effect-handler-deps] [spawn-inherit] [with-clause] A
+/// [actor-mixed-handler] [effect-handler-deps] [actor-spawn-inherit] [effect-with-clause] A
 /// mixed handler **with dependencies** (the cut lifted 2026-10-20): the
 /// servant's send member calls `Console`, synthesized from the spawning
 /// scope, and `Label`, built by the `with` clause; the façade carries
@@ -16744,7 +16744,7 @@ fn draining_state_lowers_to_a_foreach_kotlin() {
 }
 
 
-/// [waitfor-effect] [waitfor-dedicated] [main-pool] The `waitfor` package, as a
+/// [waitfor-effect] [waitfor-dedicated] [actor-main-pool] The `waitfor` package, as a
 /// program. Three things run here that could not be written before 2026-09-17:
 /// a **handler** that waits (`[waitfor]` in its dependency list, so its members
 /// may occupy the thread), the **dedicated placement** its spawn therefore
@@ -16837,7 +16837,7 @@ fn kotlinc_compiles_and_runs_the_waitfor_package() -> KotlinCase {
 }
 
 
-/// [free-send-fn] [task-mint] [task-pool-inherit] The **task kernel**, as a
+/// [actor-free-send-fn] [task-mint] [task-pool-inherit] The **task kernel**, as a
 /// program: a free `send fn` that runs by being scheduled, an ordinary
 /// function that mints a continuation for it and returns (no park, no block),
 /// and the placement — inherited at one mint, written at the other. The
@@ -16987,7 +16987,7 @@ fn a_task_mint_lowers_to_a_scheduled_lambda() {
         text.contains(") { __v -> salvo.main.finish("),
         "the continuation must be a trailing lambda (after the answer decoder):\n{text}"
     );
-    // [addr-routable] The actor's `decodeReply` *reads* the parked table for a
+    // [net-addr-routable] The actor's `decodeReply` *reads* the parked table for a
     // wire reply; what a task mint must not do is *write* one.
     assert!(
         !text.contains("__parked[__s] ="),
@@ -17588,7 +17588,7 @@ fn emit_example(example: &str) -> Vec<salvo_backend_kotlin::EmittedFile> {
     let src = examples_dir().join(example).join("salvo");
     let errors = sources.add_dir(&src, "kt", false, false);
     assert!(errors.is_empty(), "failed to read {example}: {errors:?}");
-    // The drivers' pre-resolution expansions [route-stub].
+    // The drivers' pre-resolution expansions [actor-route-stub].
     let built = salvo_testkit::front::std_front("kt").program(sources.files, sources.companions);
     let errors: Vec<_> = built.diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "parse or expansion errors: {errors:?}");

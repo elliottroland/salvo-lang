@@ -25,77 +25,77 @@ class __Mon_RawStreams(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : RawStreams {
     override fun rawReadLine(handle: Long): String? {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawReadLine(handle) } finally { lock.unlock() }
     }
     override fun rawReadAll(handle: Long): Union2<String, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawReadAll(handle) } finally { lock.unlock() }
     }
     override fun rawReadBytes(handle: Long, max: Int): Union2<salvo.platform.std.core.bytes.Bytes, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawReadBytes(handle, max) } finally { lock.unlock() }
     }
     override fun rawReadToBytes(handle: Long, buf: salvo.platform.std.core.bytes.MutBytes, max: Int): Union2<Int, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawReadToBytes(handle, buf, max) } finally { lock.unlock() }
     }
     override fun rawReadToStr(handle: Long, buf: salvo.platform.std.core.string.MutStr): Union2<Long, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawReadToStr(handle, buf) } finally { lock.unlock() }
     }
     override fun rawReadLineToStr(handle: Long, buf: salvo.platform.std.core.string.MutStr): Boolean {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawReadLineToStr(handle, buf) } finally { lock.unlock() }
     }
     override fun rawReadPosition(handle: Long): Long {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawReadPosition(handle) } finally { lock.unlock() }
     }
     override fun rawCloseRead(handle: Long): Union2<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawCloseRead(handle) } finally { lock.unlock() }
     }
     override fun rawWrite(handle: Long, text: String): Long {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawWrite(handle, text) } finally { lock.unlock() }
     }
     override fun rawWriteBytes(handle: Long, data: salvo.platform.std.core.bytes.Bytes): Long {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawWriteBytes(handle, data) } finally { lock.unlock() }
     }
     override fun rawWritePosition(handle: Long): Long {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawWritePosition(handle) } finally { lock.unlock() }
     }
     override fun rawFlush(handle: Long): Union2<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawFlush(handle) } finally { lock.unlock() }
     }
     override fun rawCloseWrite(handle: Long): Union2<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawCloseWrite(handle) } finally { lock.unlock() }
     }
     override fun rawReceive(handle: Long, reply: salvo.SalvoReply) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.rawReceive(handle, reply) } finally { lock.unlock() }
     }
     override fun rawFromBytes(data: salvo.platform.std.core.bytes.Bytes): Long {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawFromBytes(data) } finally { lock.unlock() }
     }
@@ -117,7 +117,7 @@ fun hostReceived(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.platfo
             reply.send(Union3.U3<salvo.std.stream.Packet, salvo.std.stream.End, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(got_3))))
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:71:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:75:5"))
         }
     }
 }
@@ -304,7 +304,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<String, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:264:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:271:9"))
             }
         }
     }
@@ -321,7 +321,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:272:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:279:9"))
             }
         }
     }
@@ -338,7 +338,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Int, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:280:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:287:9"))
             }
         }
     }
@@ -355,7 +355,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Long, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:288:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:295:9"))
             }
         }
     }
@@ -379,7 +379,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:305:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:312:9"))
             }
         }
     }
@@ -417,7 +417,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:342:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:350:9"))
             }
         }
     }
@@ -435,7 +435,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:351:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:359:9"))
             }
         }
     }

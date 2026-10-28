@@ -1,7 +1,7 @@
 //! Borrowing results [borrowed-results]: which results a call hands back as
 //! borrows of its arguments rather than as fresh values.
 //!
-//! A fn with a derived return (`=> p`, [readonly-return]) lends a view of
+//! A fn with a derived return (`=> p`, [proj-readonly-return]) lends a view of
 //! what it was given, and a written `proj` on a union arm says that arm is a
 //! borrow. Both are facts about the declaration; a target that spells
 //! borrows (Rust: `Option<&T>`, `Union2<&T, Finished>`) reads them, and a
@@ -13,7 +13,7 @@ use crate::check::Checked;
 use crate::program::Program;
 
 /// [rs-opt-borrow] Whether `value` is a derived-return call
-/// [readonly-return] whose declared result is optional: the shape that
+/// [proj-readonly-return] whose declared result is optional: the shape that
 /// produces an optional borrow.
 pub fn is_optional_derived_call(checked: &Checked, file_idx: usize, value: &Expr) -> bool {
     let Expr::Call { span, .. } = value else { return false };

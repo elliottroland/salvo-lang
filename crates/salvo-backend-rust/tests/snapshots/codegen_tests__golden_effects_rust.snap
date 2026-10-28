@@ -388,7 +388,7 @@ pub fn drain<T>(mut list: Vec<T>, each: &mut dyn FnMut(T)) {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:247:32")
+                panic!("salvo: unreachable at std.core.list:265:32")
             }
         }; each(__arg1) };
     }
@@ -422,7 +422,7 @@ pub fn first<T>(list: &Vec<T>) -> &T {
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at std.core.list:304:28")
+            panic!("salvo: unreachable at std.core.list:325:28")
         }
     };
 }
@@ -460,7 +460,7 @@ pub fn remove_front_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:347:50")
+                panic!("salvo: unreachable at std.core.list:373:50")
             }
         }))) {
             break;
@@ -479,7 +479,7 @@ pub fn remove_back_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool)
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:359:47")
+                panic!("salvo: unreachable at std.core.list:386:47")
             }
         }))) {
             break;
@@ -505,7 +505,7 @@ pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut 
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:377:39")
+                panic!("salvo: unreachable at std.core.list:405:39")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -593,7 +593,7 @@ pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) ->
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:427:31")
+                panic!("salvo: unreachable at std.core.list:460:31")
             }
         }, elem) {
             return true;
@@ -619,7 +619,7 @@ pub fn all<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> bool {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:444:34")
+                panic!("salvo: unreachable at std.core.list:479:34")
             }
         })) {
             return false;
@@ -642,7 +642,7 @@ pub fn count<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> i32 {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:457:33")
+                panic!("salvo: unreachable at std.core.list:493:33")
             }
         }) {
             n = i32::wrapping_add(n, 1i32);
@@ -666,7 +666,7 @@ pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.list:474:33")
+                panic!("salvo: unreachable at std.core.list:511:33")
             }
         };
         if pick(x) {
@@ -1028,7 +1028,7 @@ pub fn to_str<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, to_str: 
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.map:186:43")
+                panic!("salvo: unreachable at std.core.map:201:43")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -1053,7 +1053,7 @@ pub fn eq<K: Clone, V: Clone>(a: &crate::std_core_map::Map<K, V>, b: &crate::std
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.map:208:29")
+                panic!("salvo: unreachable at std.core.map:224:29")
             }
         }, theirs_4)) {
             return false;
@@ -1463,7 +1463,7 @@ pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &crate::std_core_sorted::Sorte
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.sorted:158:43")
+                panic!("salvo: unreachable at std.core.sorted:163:43")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -1500,7 +1500,7 @@ pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &crate::std_core_sorted::S
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.sorted:191:29")
+                panic!("salvo: unreachable at std.core.sorted:198:29")
             }
         }, theirs_4)) {
             return false;
@@ -1528,7 +1528,7 @@ pub fn min<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> T {
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at std.core.sorted:246:28")
+            panic!("salvo: unreachable at std.core.sorted:257:28")
         }
     };
 }
@@ -1540,7 +1540,7 @@ pub fn max<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> T {
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at std.core.sorted:250:28")
+            panic!("salvo: unreachable at std.core.sorted:261:28")
         }
     };
 }
@@ -1552,7 +1552,7 @@ pub fn first_key<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, 
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at std.core.sorted:254:34")
+            panic!("salvo: unreachable at std.core.sorted:265:34")
         }
     };
 }
@@ -1564,7 +1564,7 @@ pub fn last_key<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at std.core.sorted:258:33")
+            panic!("salvo: unreachable at std.core.sorted:269:33")
         }
     };
 }
@@ -1716,7 +1716,7 @@ pub fn substr(str: &String, at: &crate::std_core_string::Span) -> String {
             let mut __picked_2 = __pick_1.unwrap();
             __picked_2
         } else {
-            panic!("salvo: unreachable at std.core.string:150:45")
+            panic!("salvo: unreachable at std.core.string:162:45")
         }
     };
 }
@@ -2117,7 +2117,7 @@ pub use union2::*;
 
 // ===== wire.rs =====
 // Generated by the Salvo compiler: the wire — the canonical encoding's codec
-// trait and the language's own codecs [wire-format] [rs-wire].
+// trait and the language's own codecs [net-wire-format] [rs-wire].
 //
 // One half of the encoding: the Rust runtime's codec trait and its impls for every type the language defines
 // without the program's help. The Kotlin runtime's `wire.kt` produces and
@@ -2380,7 +2380,7 @@ pub fn salvo_mono_nanos() -> i64 {
 }
 
 // ===== platform/std/core/console.rs =====
-// [platform-tree] [console] std's console, for `std.core.console`'s
+// [platform-tree] [std-console] std's console, for `std.core.console`'s
 // `threadsafe platform handler StdConsole` (ROADMAP 0.5): standard output and
 // standard error, with no buffering of their own, so a line printed before a
 // trap is seen; and standard input, a line at a time.

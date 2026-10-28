@@ -37,7 +37,7 @@ fn resolve_errors(files: &[(&str, &str)]) -> Vec<String> {
 }
 
 /// Parses + resolves + checks a multi-file program and returns the
-/// checker's structured diagnostics. A std prelude ([intrinsic-std-only])
+/// checker's structured diagnostics. A std prelude ([platform-intrinsic-std-only])
 /// supplies the base types the checker needs, loaded as a std file rather
 /// than pasted into the sources under test.
 fn check_errors(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
@@ -81,7 +81,7 @@ fn messages(src: &str) -> Vec<String> {
         .collect()
 }
 
-/// [intrinsic-std-only] The base-type declarations the checker needs.
+/// [platform-intrinsic-std-only] The base-type declarations the checker needs.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file (module `std.core.prelude`, implicitly imported)
 /// rather than pasted into the source under test.
@@ -365,7 +365,7 @@ fn intrinsic_qualifiers_are_known_names() {
     assert!(messages(src).is_empty(), "got {:?}", messages(src));
 }
 
-// [canbe-optin] `canbe` grants one of the compiler's own qualifiers; a
+// [qual-canbe-optin] `canbe` grants one of the compiler's own qualifiers; a
 // user qualifier there is a confusion with `with` [qual-with].
 #[test]
 fn canbe_only_accepts_the_intrinsic_qualifiers() {
@@ -380,7 +380,7 @@ fn canbe_only_accepts_the_intrinsic_qualifiers() {
     );
 }
 
-// [namespace] A `namespace X { … }` flattens to dotted names, and a member
+// [mod-namespace] A `namespace X { … }` flattens to dotted names, and a member
 // referenced as `X.Thing` resolves — the namespace need not also be a struct.
 #[test]
 fn namespace_members_resolve() {
@@ -392,7 +392,7 @@ fn namespace_members_resolve() {
     assert!(resolve_errors(&[("main.sv", src)]).is_empty());
 }
 
-// [namespace] Namespaces nest to any depth; a member of a nested namespace
+// [mod-namespace] Namespaces nest to any depth; a member of a nested namespace
 // resolves by its full dotted path.
 #[test]
 fn nested_namespace_members_resolve() {
@@ -406,7 +406,7 @@ fn nested_namespace_members_resolve() {
     assert!(resolve_errors(&[("main.sv", src)]).is_empty());
 }
 
-// [namespace] A namespace may share its name with a type at the same level
+// [mod-namespace] A namespace may share its name with a type at the same level
 // (the `AttributeValue` case): the union alias and the namespace coexist.
 #[test]
 fn namespace_and_type_may_share_a_name() {
@@ -419,7 +419,7 @@ fn namespace_and_type_may_share_a_name() {
     assert!(resolve_errors(&[("main.sv", src)]).is_empty());
 }
 
-// [namespace] The leading-dot shorthand also resolves inside a `type`
+// [mod-namespace] The leading-dot shorthand also resolves inside a `type`
 // alias's own union-arm list, against the alias's own enclosing namespace
 // (user decision 2026-10-19) — the one context with no outer expected type
 // to derive a namespace from, unlike every other dot-shorthand position
@@ -447,7 +447,7 @@ fn leading_dot_shorthand_resolves_inside_its_own_alias() {
     assert!(msgs.is_empty(), "{msgs:?}");
 }
 
-// [namespace] An arm the shorthand cannot resolve inside the alias's own
+// [mod-namespace] An arm the shorthand cannot resolve inside the alias's own
 // body — no such sibling in its namespace — is still a clear error naming
 // the namespace searched (same error `resolve_alias_arm_dot_ref` reports
 // for every other arm position).
@@ -464,7 +464,7 @@ fn leading_dot_shorthand_reports_an_unresolvable_sibling() {
     );
 }
 
-// [namespace] `export namespace` exports every member; a plain `namespace`
+// [mod-namespace] `export namespace` exports every member; a plain `namespace`
 // keeps them private, so importing one across modules is refused.
 #[test]
 fn export_namespace_distributes_visibility() {
@@ -481,7 +481,7 @@ fn export_namespace_distributes_visibility() {
     assert!(!private.is_empty(), "a private namespace's members must not import");
 }
 
-// [namespace] A declaration that is not a named declaration — an import —
+// [mod-namespace] A declaration that is not a named declaration — an import —
 // cannot appear inside a namespace (reported when the namespace is flattened,
 // at parse time).
 #[test]

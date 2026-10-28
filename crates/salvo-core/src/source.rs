@@ -104,7 +104,7 @@ pub struct SourceFile {
     /// `salvo test` (and by `salvo analyze`, which checks everything), so a
     /// production build never sees one; never `is_std`, whatever tree it
     /// lives in, so a test cannot declare an `intrinsic`
-    /// [intrinsic-std-only] (user decision 2026-09-23).
+    /// [platform-intrinsic-std-only] (user decision 2026-09-23).
     pub is_test: bool,
     /// [manifest-deps] The name of the **dependency** this file came from,
     /// for a file loaded from another project through `[dependencies]`.
@@ -607,7 +607,7 @@ impl SourceSet {
     /// standard library: for every module a loaded file declares that an
     /// embedded std file also declares, the embedded copy is dropped and the
     /// file on disk takes over — std-ness included, so its `intrinsic`
-    /// declarations stay legal [intrinsic-std-only].
+    /// declarations stay legal [platform-intrinsic-std-only].
     ///
     /// This is what makes `salvo test --src lib` test *the checkout* rather
     /// than the std compiled into the binary (user decision 2026-09-23), and
@@ -895,7 +895,7 @@ mod tests {
     }
 
     /// [test-file] An annex is never `is_std`, whatever tree it came from, so a
-    /// test cannot declare an `intrinsic` [intrinsic-std-only].
+    /// test cannot declare an `intrinsic` [platform-intrinsic-std-only].
     #[test]
     fn an_annex_is_never_std() {
         let mut sources = SourceSet::default();

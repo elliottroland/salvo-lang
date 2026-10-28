@@ -2,14 +2,14 @@
 // so letting one go out of scope is a compile-time error rather than a silently
 // dropped answer. The shape exists for the answers a program should not be able
 // to ignore by accident — "did the write land?", "what went wrong?" — where a
-// plain `Bool` or a plain error value is one forgotten line away from a bug
-// [linear-group].
+// plain `Bool` or a plain error value is one forgotten line away from a bug.
 //
 // Two ways to discharge the obligation: [detach] the value and deal with it, or
 // [ignore] it, which says in the source that not looking was the intent.
 //
 // In `std.core` because std's own surfaces answer with it (`swap` on a list), and a
 // type in a returned position has to be visible wherever the function is.
+// @compilerrules [linear-group]
 export linear struct Checked<T> {
     value: T
 }
@@ -35,9 +35,10 @@ export fn detach<T canbe linear>(checked: Checked<T>) -> T => !checked {
     return checked.value
 }
 
-// [interp-to-str] The text of a checked value is its value's, so an error can
+// The text of a checked value is its value's, so an error can
 // be interpolated without detaching it first. It only reads, so the
 // obligation stays with the caller.
+// @compilerrules [interp-to-str]
 export fn to_str<T>(checked: Checked<T>, ?to_str: (x: T) -> Str) [] -> Str => checked {
     return to_str(checked.value)
 }

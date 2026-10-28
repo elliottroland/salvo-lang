@@ -416,7 +416,7 @@ fn char_and_str_constants_match_exactly() {
     assert!(errs.iter().any(|e| e.contains("`1` fills the `c` slot of `Tag`, which needs `Char`, not `Int`")), "{errs:?}");
 }
 
-/// [elvis-guard] A leaving right side takes its flow effects with it: a
+/// [op-elvis-guard] A leaving right side takes its flow effects with it: a
 /// `return elem` there must not consume `elem` on the fall-through path —
 /// found on `std.heap`'s sift (2026-09-24). Here a positional pick's
 /// diverging right side consumes `prize`, which the final `return prize`
@@ -461,7 +461,7 @@ fn reassigning_the_linked_value_strips_the_claim() {
 
 /// [qual-depend] `i++` rebinds the variable, so dependent claims bound to
 /// its old value strip too — the step is a reassignment in every flow
-/// sense [inc-dec].
+/// sense [op-inc-dec].
 #[test]
 fn stepping_a_linked_int_strips_the_claim() {
     let src = "\

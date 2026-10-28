@@ -12,13 +12,13 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-/// [for-iter] [iter-for-native] What a `for` over an array calls, in the
-/// arrays' std home [unique-shape]: `for x in xs` is `next(iter(xs))`, which
+/// [iter-for] [iter-for-native] What a `for` over an array calls, in the
+/// arrays' std home [op-unique-shape]: `for x in xs` is `next(iter(xs))`, which
 /// the backends walk natively when these are the calls.
 const STD_ARRAY: &str = "export struct ArrayNext<T> canbe Mut {\n    at: Int\n}\n\
      export intrinsic fn iter<T>(array: T[]) [] -> Mut ArrayNext<T> => array\n\
@@ -80,7 +80,7 @@ fn errors(src: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    // Errors only: an unused-variable *warning* [unused-var] is a different
+    // Errors only: an unused-variable *warning* [var-unused] is a different
     // severity, and these tests are about which programs are rejected.
     resolution
         .errors

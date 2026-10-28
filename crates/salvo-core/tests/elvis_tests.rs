@@ -1,5 +1,5 @@
-//! The optional-or-else operator `?:` and the placeholder `_` [elvis]
-//! [placeholder].
+//! The optional-or-else operator `?:` and the placeholder `_` [op-elvis]
+//! [expr-placeholder].
 //!
 //! `?:` is the **first-arm pick** (user decision 2026-10-14, simplifying the
 //! earlier positional-pick form that also had `??:`/`:?`): it keeps the
@@ -12,7 +12,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
@@ -70,7 +70,7 @@ fn errors(src: &str) -> Vec<String> {
         .collect()
 }
 
-/// [elvis] The two shapes that matter: a right side that **escapes** (the
+/// [op-elvis] The two shapes that matter: a right side that **escapes** (the
 /// result is just the picked type) and one that gives a **value** (the result
 /// is the join). `?:` is `Forward(1)`, so on a `Str?` it picks the `Str` arm
 /// and `_` is the `None` left behind.
@@ -88,7 +88,7 @@ fn an_elvis_picks_the_first_arm() {
     assert!(errs.is_empty(), "expected a clean `?:`, got: {errs:?}");
 }
 
-/// [elvis] A pick on a one-arm subject leaves nothing for the right side — the
+/// [op-elvis] A pick on a one-arm subject leaves nothing for the right side — the
 /// same "dead scaffolding" refusal a throw-free `try` gets.
 #[test]
 fn a_pick_must_leave_something() {
@@ -99,7 +99,7 @@ fn a_pick_must_leave_something() {
     );
 }
 
-/// [placeholder] `_` is the arms a pick left behind, so it reads only in the
+/// [expr-placeholder] `_` is the arms a pick left behind, so it reads only in the
 /// right-hand side of a pick. Outside one it is an error, not a silent
 /// `Unknown`.
 #[test]
@@ -111,7 +111,7 @@ fn a_placeholder_outside_a_pick_is_an_error() {
     );
 }
 
-/// [elvis] [rewrap] Widening is now allowed (user decision 2026-10-11): a right
+/// [op-elvis] [type-rewrap] Widening is now allowed (user decision 2026-10-11): a right
 /// side outside the subject's arms joins into the result. `Int? ?: "none"` is
 /// `Int | Str`.
 #[test]
@@ -120,8 +120,8 @@ fn a_widening_right_side_joins() {
     assert!(errs.is_empty(), "expected a clean widening pick, got: {errs:?}");
 }
 
-/// [elvis] `_` carries the arms left behind, tags and all, so the right side
-/// can route on them. A multi-arm `_` is a sub-union of the storage [rewrap].
+/// [op-elvis] `_` carries the arms left behind, tags and all, so the right side
+/// can route on them. A multi-arm `_` is a sub-union of the storage [type-rewrap].
 #[test]
 fn the_placeholder_carries_the_left_arms() {
     let errs = errors(
@@ -134,7 +134,7 @@ fn the_placeholder_carries_the_left_arms() {
     assert!(errs.is_empty(), "expected a clean `_` on the left arm, got: {errs:?}");
 }
 
-/// [elvis] A pick on a multi-arm subject keeps the **first** arm and leaves
+/// [op-elvis] A pick on a multi-arm subject keeps the **first** arm and leaves
 /// the rest to `_`. On `Ok Int | Ok Str | Err Str` it picks `Ok Int` and `_`
 /// is `Ok Str | Err Str`.
 #[test]
@@ -148,7 +148,7 @@ fn a_pick_keeps_the_first_arm_of_a_multi_arm_union() {
     assert!(errs.is_empty(), "expected a clean first-arm pick, got: {errs:?}");
 }
 
-/// [elvis-guard] A `?:` whose right side **leaves** has proved its subject was
+/// [op-elvis-guard] A `?:` whose right side **leaves** has proved its subject was
 /// one of the picked arms, so the place narrows on the path below — the same
 /// facts an `is` guard leaves [is-narrow-guard], reached from an expression.
 /// Interpolation is the probe: it refuses a possibly-`None` value, so it passes
@@ -164,7 +164,7 @@ fn a_guarding_elvis_narrows_its_subject() {
     assert!(errs.is_empty(), "expected `t` to read as `Str`, got: {errs:?}");
 }
 
-/// [elvis-guard] A right side that **yields a value** proves nothing: that path
+/// [op-elvis-guard] A right side that **yields a value** proves nothing: that path
 /// is the one where the subject was not picked, so the place keeps its type.
 #[test]
 fn a_valued_elvis_does_not_narrow() {
@@ -180,7 +180,7 @@ fn a_valued_elvis_does_not_narrow() {
     );
 }
 
-/// [elvis-guard] After a guarding pick the place reads as the picked arm, tag
+/// [op-elvis-guard] After a guarding pick the place reads as the picked arm, tag
 /// included.
 #[test]
 fn a_guarding_pick_narrows_to_the_arm() {

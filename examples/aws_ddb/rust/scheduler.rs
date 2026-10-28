@@ -26,7 +26,7 @@ pub trait SalvoActor: Send {
     fn handle(&mut self, ctx: &SalvoCtx, msg: SalvoMsg);
     /// A reply delivery: the slot names the parked continuation.
     fn resume(&mut self, ctx: &SalvoCtx, slot: u64, value: SalvoMsg);
-    /// [addr-routable] [wire-format] Decodes a reply that arrived over the
+    /// [net-addr-routable] [net-wire-format] Decodes a reply that arrived over the
     /// wire for the continuation parked at `slot`: only the actor knows the
     /// answer's type. `None` when nothing is parked there or the bytes are
     /// malformed.
@@ -46,9 +46,9 @@ pub type SalvoReplyCheck = Arc<dyn Fn(&dyn Any) + Send + Sync>;
 /// [task-mint] A task body: a one-shot closure taking the answer.
 pub type TaskBody = Box<dyn FnOnce(SalvoMsg) + Send>;
 
-/// [addr-routable] The routable identity of an actor: the node hosting it,
+/// [net-addr-routable] The routable identity of an actor: the node hosting it,
 /// its index there, and the unguessable capability bits minted at its spawn
-/// [addr-capability].
+/// [net-addr-capability].
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct RemoteRef {
     pub node: u64,
@@ -56,29 +56,29 @@ pub struct RemoteRef {
     pub bits: u64,
 }
 
-/// [wire-format] Decodes one message of one protocol, given the protocol's
+/// [net-wire-format] Decodes one message of one protocol, given the protocol's
 /// hash and the payload.
 pub type MsgDecoder = fn(&str, &[u8]) -> Option<SalvoMsg>;
 /// [node-group] [actor-group] Builds the message a control frame's payload
 /// arrives as: the sink's own private `control(from, data)` member.
 pub type ControlOf = fn(u64, Vec<u8>) -> SalvoMsg;
-/// [wire-format] Decodes one reply payload of a known type.
+/// [net-wire-format] Decodes one reply payload of a known type.
 pub type ReplyDecoder = fn(&[u8]) -> Option<SalvoMsg>;
-/// [actor-watch] [pool-fault-sink] Builds a message from a reason. The core
+/// [actor-watch] [actor-pool-fault-sink] Builds a message from a reason. The core
 /// answers watches with `Exit` itself; for a pool's sink this builds the
 /// `Faults` message its body receives.
 pub type ExitOf = fn(String) -> SalvoMsg;
 
-/// [addr-routable] A reply that arrived over the wire for an actor, still as
+/// [net-addr-routable] A reply that arrived over the wire for an actor, still as
 /// bytes: decoded by the actor's `decode_reply` when its activation runs.
 struct RawReply(Vec<u8>);
 
-/// [main-pool] The pool `main` is the single worker of.
+/// [actor-main-pool] The pool `main` is the single worker of.
 pub const SALVO_MAIN_POOL: usize = 0;
 
 // ---- the local surface: shims onto the core
 
-/// [main-pool] The pool the calling thread works for.
+/// [actor-main-pool] The pool the calling thread works for.
 pub fn salvo_current_pool() -> usize {
     crate::platform_std_runtime::here_pool() as usize
 }
@@ -90,7 +90,7 @@ pub fn salvo_pool(n: usize) -> usize {
     salvo_pool_with_sink(n, None)
 }
 
-/// [pool-fault-sink] The same, with an actor its uncaught faults go to and
+/// [actor-pool-fault-sink] The same, with an actor its uncaught faults go to and
 /// the builder of the message it receives.
 pub fn salvo_pool_with_sink(n: usize, sink: Option<(usize, ExitOf)>) -> usize {
     let sink_addr = match sink {
@@ -107,7 +107,7 @@ pub fn salvo_pool_with_sink(n: usize, sink: Option<(usize, ExitOf)>) -> usize {
 
 /// [waitfor-dedicated] A pool of exactly one thread.
 pub fn salvo_thread() -> usize {
-    // [pool-retire] Its thread returns once its actor is dead.
+    // [actor-pool-retire] Its thread returns once its actor is dead.
     let pool = crate::std_runtime::new_dedicated_pool();
     crate::std_runtime_routing::adopt(pool);
     pool as usize
@@ -184,7 +184,7 @@ pub fn salvo_mint_task(pool: usize, body: TaskBody, decode: ReplyDecoder) -> Sal
     SalvoReply::local(crate::std_runtime::mint_task_on(pool as i32, b), Some(decode))
 }
 
-/// [threadsafe-platform] A host thread that may inject work is open…
+/// [platform-threadsafe] A host thread that may inject work is open…
 pub fn salvo_external_begin() {
     crate::std_runtime::external_begin();
 }
@@ -212,7 +212,7 @@ pub fn salvo_wait(wid: usize) -> SalvoMsg {
 pub struct SalvoReply {
     inner: Mutex<ReplyInner>,
     check: Option<SalvoReplyCheck>,
-    /// [wire-format] How a task's answer is decoded should it come back
+    /// [net-wire-format] How a task's answer is decoded should it come back
     /// over the wire.
     decode: Option<ReplyDecoder>,
 }
@@ -302,7 +302,7 @@ impl Drop for SalvoHostReply {
 }
 
 // ======================================================================
-// [addr-routable] [addr-capability] [remote-backpressure] Across machines.
+// [net-addr-routable] [net-addr-capability] [net-remote-backpressure] Across machines.
 //
 // The routing itself — identities, proxies, credits, routes and the frames,
 // in the canonical encoding — is the Salvo service `runtime.routing`
@@ -343,7 +343,7 @@ pub fn registry() -> std::sync::MutexGuard<'static, Registry> {
     .unwrap()
 }
 
-/// [addr-routable] A reply that arrived over the wire for an actor, still as
+/// [net-addr-routable] A reply that arrived over the wire for an actor, still as
 /// bytes: decoded by the actor when its activation runs.
 pub fn salvo_raw_answer(payload: Vec<u8>) -> Dyn {
     Dyn { v: Box::new(RawReply(payload)) }
@@ -352,22 +352,22 @@ pub fn salvo_raw_answer(payload: Vec<u8>) -> Dyn {
 
 
 
-/// [addr-routable] The routable identity of a local index.
+/// [net-addr-routable] The routable identity of a local index.
 pub fn salvo_addr_identity(addr: usize) -> RemoteRef {
     let r = crate::std_runtime_routing::identity(addr as i32);
     RemoteRef { node: r.node as u64, actor: r.actor as u64, bits: r.bits as u64 }
 }
 
 
-/// [addr-routable] [addr-capability] A decoded identity as a local index.
+/// [net-addr-routable] [net-addr-capability] A decoded identity as a local index.
 pub fn salvo_import_addr(r: RemoteRef) -> usize {
     crate::std_runtime_routing::import_addr(r.node as i64, r.actor as i64, r.bits as i64) as usize
 }
 
 
-/// [addr-routable] [wire-format] The typed send: a local mailbox as any
+/// [net-addr-routable] [net-wire-format] The typed send: a local mailbox as any
 /// send; for a proxy, encoded here and handed to the routing service, which
-/// waits for a credit [remote-backpressure].
+/// waits for a credit [net-remote-backpressure].
 pub fn salvo_send_wire<M: crate::wire::__Wire + Any + Send>(addr: usize, msg: M, proto: &str) {
     // The core hands the message back when the addr is a proxy.
     let Some(back) = crate::std_runtime::send_or_back(addr as i32, Dyn { v: Box::new(msg) }) else { return };
@@ -380,7 +380,7 @@ pub fn salvo_send_wire<M: crate::wire::__Wire + Any + Send>(addr: usize, msg: M,
 
 
 
-/// [route-stub] FNV-1a over the key's canonical bytes.
+/// [actor-route-stub] FNV-1a over the key's canonical bytes.
 pub fn salvo_key_hash(bytes: &[u8]) -> i64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for b in bytes {
@@ -390,7 +390,7 @@ pub fn salvo_key_hash(bytes: &[u8]) -> i64 {
     h as i64
 }
 
-/// [addr-routable] [wire-format] The typed reply: a token that came over the
+/// [net-addr-routable] [net-wire-format] The typed reply: a token that came over the
 /// wire is answered with a REPLY frame; a local one delivers as any reply.
 pub fn salvo_reply_wire<T: crate::wire::__Wire + Any + Send>(reply: SalvoReply, value: T) {
     let remote = match &*reply.inner.lock().unwrap() {
@@ -403,7 +403,7 @@ pub fn salvo_reply_wire<T: crate::wire::__Wire + Any + Send>(reply: SalvoReply, 
     }
 }
 
-/// [addr-routable] The wire form of a reply token. Exporting a task moves
+/// [net-addr-routable] The wire form of a reply token. Exporting a task moves
 /// its body into the routing service until its answer returns.
 fn salvo_reply_export(reply: &SalvoReply) -> crate::std_runtime_routing::ReplyParts {
     let mut inner = reply.inner.lock().unwrap();
@@ -424,7 +424,7 @@ fn salvo_reply_export(reply: &SalvoReply) -> crate::std_runtime_routing::ReplyPa
     }
 }
 
-/// [addr-routable] A reply token decoded from the wire: the original when it
+/// [net-addr-routable] A reply token decoded from the wire: the original when it
 /// names a target on this node, a remote token otherwise.
 fn salvo_reply_import(parts: crate::std_runtime_routing::ReplyParts) -> SalvoReply {
     let here = crate::std_runtime_routing::here_node();
@@ -438,12 +438,12 @@ fn salvo_reply_import(parts: crate::std_runtime_routing::ReplyParts) -> SalvoRep
     SalvoReply { inner: Mutex::new(inner), check: None, decode: None }
 }
 
-/// [addr-routable] Registers how a waiter's reply is decoded off the wire.
+/// [net-addr-routable] Registers how a waiter's reply is decoded off the wire.
 pub fn salvo_waiter_decoder(wid: usize, decode: ReplyDecoder) {
     registry().waiter_decode.insert(wid, decode);
 }
 
-/// [protocol-hash] Registers this program's protocol table.
+/// [actor-protocol-hash] Registers this program's protocol table.
 pub fn salvo_set_protocols(table: Vec<(String, String)>) {
     crate::std_runtime_routing::register_protocols(table);
 }
@@ -462,10 +462,10 @@ pub fn salvo_watch_control(channel: String, sink: usize, build: ControlOf) {
 
 
 
-// [addr-routable] The codecs of the two scheduler handles live here, beside
+// [net-addr-routable] The codecs of the two scheduler handles live here, beside
 // what they ask, so the wire stands alone in a program with no actors.
 
-/// [addr-routable] An `Addr<E>` is a scheduler index in generated code; on
+/// [net-addr-routable] An `Addr<E>` is a scheduler index in generated code; on
 /// the wire it is its routable identity `(node, actor, bits)`, 24 bytes.
 impl crate::wire::__Wire for usize {
     fn __enc(&self, out: &mut Vec<u8>) {
@@ -482,7 +482,7 @@ impl crate::wire::__Wire for usize {
     }
 }
 
-/// [addr-routable] A `Reply<T>` on the wire: `(node, kind, id, slot, bits)`,
+/// [net-addr-routable] A `Reply<T>` on the wire: `(node, kind, id, slot, bits)`,
 /// 33 bytes.
 impl crate::wire::__Wire for SalvoReply {
     fn __enc(&self, out: &mut Vec<u8>) {

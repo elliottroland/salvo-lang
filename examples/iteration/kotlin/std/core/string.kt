@@ -93,7 +93,7 @@ fun substr(str: String, at: Span): String {
             val __picked_2: String = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.core.string:150:45")
+            throw AssertionError("salvo: unreachable at std.core.string:162:45")
         })
     }
 }

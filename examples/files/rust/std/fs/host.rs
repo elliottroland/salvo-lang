@@ -326,7 +326,7 @@ impl crate::std_fs::__Stateless_Fs for DefaultFs {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>>(crate::std_core_checked::checked::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(r_2)));
         } else {
-            panic!("salvo: unhandled union arm at std.fs.host:62:9");
+            panic!("salvo: unhandled union arm at std.fs.host:63:9");
         };
     }
     fn open_read_at(&self, path: &crate::std_fs_path::Path, offset: i64) -> crate::unions::Union2<crate::std_stream::InStream, crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> {
@@ -339,7 +339,7 @@ impl crate::std_fs::__Stateless_Fs for DefaultFs {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>>(crate::std_core_checked::checked::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(r_2)));
         } else {
-            panic!("salvo: unhandled union arm at std.fs.host:71:9");
+            panic!("salvo: unhandled union arm at std.fs.host:72:9");
         };
     }
     fn open_write(&self, path: &crate::std_fs_path::Path) -> crate::unions::Union2<crate::std_stream::OutStream, crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> {
@@ -352,7 +352,7 @@ impl crate::std_fs::__Stateless_Fs for DefaultFs {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>>(crate::std_core_checked::checked::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(r_2)));
         } else {
-            panic!("salvo: unhandled union arm at std.fs.host:80:9");
+            panic!("salvo: unhandled union arm at std.fs.host:81:9");
         };
     }
     fn open_append(&self, path: &crate::std_fs_path::Path) -> crate::unions::Union2<crate::std_stream::OutStream, crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> {
@@ -365,7 +365,7 @@ impl crate::std_fs::__Stateless_Fs for DefaultFs {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>>(crate::std_core_checked::checked::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(r_2)));
         } else {
-            panic!("salvo: unhandled union arm at std.fs.host:89:9");
+            panic!("salvo: unhandled union arm at std.fs.host:90:9");
         };
     }
     fn exists(&self, path: &crate::std_fs_path::Path) -> bool {
@@ -382,7 +382,7 @@ impl crate::std_fs::__Stateless_Fs for DefaultFs {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>>(crate::std_core_checked::checked::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(r_2)));
         } else {
-            panic!("salvo: unhandled union arm at std.fs.host:103:9");
+            panic!("salvo: unhandled union arm at std.fs.host:104:9");
         };
     }
     fn list_dir(&self, path: &crate::std_fs_path::Path) -> crate::unions::Union2<Vec<String>, crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> {
@@ -395,7 +395,7 @@ impl crate::std_fs::__Stateless_Fs for DefaultFs {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>>(crate::std_core_checked::checked::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(r_2)));
         } else {
-            panic!("salvo: unhandled union arm at std.fs.host:112:9");
+            panic!("salvo: unhandled union arm at std.fs.host:113:9");
         };
     }
     fn create_dirs(&self, path: &crate::std_fs_path::Path) -> crate::unions::Union2<(), crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> {
@@ -408,7 +408,7 @@ impl crate::std_fs::__Stateless_Fs for DefaultFs {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>>(crate::std_core_checked::checked::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(r_2)));
         } else {
-            panic!("salvo: unhandled union arm at std.fs.host:121:9");
+            panic!("salvo: unhandled union arm at std.fs.host:122:9");
         };
     }
     fn delete(&self, path: &crate::std_fs_path::Path) -> crate::unions::Union2<(), crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> {
@@ -421,7 +421,7 @@ impl crate::std_fs::__Stateless_Fs for DefaultFs {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>>(crate::std_core_checked::checked::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(r_2)));
         } else {
-            panic!("salvo: unhandled union arm at std.fs.host:130:9");
+            panic!("salvo: unhandled union arm at std.fs.host:131:9");
         };
     }
     fn rename_path(&self, from: &crate::std_fs_path::Path, to: &crate::std_fs_path::Path) -> crate::unions::Union2<(), crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> {
@@ -435,7 +435,7 @@ impl crate::std_fs::__Stateless_Fs for DefaultFs {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>>(crate::std_core_checked::checked::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(r_2)));
         } else {
-            panic!("salvo: unhandled union arm at std.fs.host:140:9");
+            panic!("salvo: unhandled union arm at std.fs.host:141:9");
         };
     }
 }

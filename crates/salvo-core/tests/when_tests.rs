@@ -1,19 +1,19 @@
 //! The subject-less `when` [when-condition] and the boolean-condition rule
-//! [cond-bool].
+//! [expr-cond-bool].
 //!
 //! `when` is always exhaustive, in one of two ways. With a subject it is
 //! exhaustive over the union's arms and takes no `else`
 //! [when-union-subject]; without one it is a condition chain whose `else` is
 //! mandatory — which is exactly what separates it from `if`/`elif`/`else`,
 //! since an `if` without an `else` folds `None` into its value
-//! [if-else-none]. Conditions on both forms (and on `if`/`elif`/`while`) are
+//! [expr-if-else-none]. Conditions on both forms (and on `if`/`elif`/`while`) are
 //! `Bool` and nothing else: Salvo has no truthiness.
 
 use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
@@ -120,7 +120,7 @@ fn a_subjectless_when_is_a_condition_chain() {
 
 /// [when-value] The mandatory `else` is the point: every path produces a
 /// value, so the type is the join of the branches with no `None` folded in —
-/// unlike an `if` chain without an `else` [if-else-none]. A `Str` return
+/// unlike an `if` chain without an `else` [expr-if-else-none]. A `Str` return
 /// type accepting the chain is the observable proof.
 #[test]
 fn the_mandatory_else_keeps_none_out_of_the_value() {
@@ -259,7 +259,7 @@ fn a_subjectless_when_can_be_the_only_return() {
     assert_clean(&errs);
 }
 
-// ===== [cond-bool] =====
+// ===== [expr-cond-bool] =====
 
 /// Conditions are `Bool`. There is no truthiness rule that could turn an
 /// `Int` into a decision, so the non-boolean condition is an error on every

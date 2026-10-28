@@ -464,7 +464,7 @@ impl<'p> Shared<'p> {
         })
     }
 
-    /// [route-stub] A handler the IR generated (a route), by its key, which
+    /// [actor-route-stub] A handler the IR generated (a route), by its key, which
     /// names its module like a generated enum's.
     pub fn generated_impl(&self, key: &str) -> Option<(&'p ImplDecl, ModulePath)> {
         let module = salvo_core::typekey::module_of(key)?;
@@ -635,7 +635,7 @@ impl<'p> Shared<'p> {
         Some((runtime, once))
     }
 
-    /// [once-fn] Whether a fn's `i`th parameter is a `once` fn.
+    /// [fn-once] Whether a fn's `i`th parameter is a `once` fn.
     pub fn once_param(&self, f: &FnDecl, i: usize) -> bool {
         if i < f.effect_params {
             return false;
@@ -786,7 +786,7 @@ pub(crate) fn strip_plain_proj(t: &Ty, vars: &HashSet<String>) -> Ty {
 }
 
 thread_local! {
-    /// [monitor-handler] The plain effects of the program being emitted: an
+    /// [actor-monitor-handler] The plain effects of the program being emitted: an
     /// `Addr` of one is its handle, not a scheduler index.
     static PLAIN_EFFECTS: std::cell::RefCell<HashSet<String>> = std::cell::RefCell::new(HashSet::new());
 }

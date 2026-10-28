@@ -266,7 +266,7 @@ fn the_message_is_optional_and_interpolates() {
     assert!(errors(interp).is_empty(), "{:?}", errors(interp));
 }
 
-/// [cond-bool] No truthiness: the condition is a `Bool`.
+/// [expr-cond-bool] No truthiness: the condition is a `Bool`.
 #[test]
 fn a_non_bool_condition_is_refused() {
     let src = "fn f(n: Int) -> None => n {\n    assert!(n)\n}\n";
@@ -344,10 +344,12 @@ fn whynot_answers_an_optional_message_for_a_predicate_test() {
 /// [doc-tags] The doc tags are checked where they are written: a tag this
 /// version does not know, an `@param` naming no parameter (or nothing, or on
 /// a declaration that is not a fn), and an `@whynot` that is not on a
-/// qualifier's `qualifies` warn, at the documented name.
+/// qualifier's `qualifies` warn, at the documented name; so does an
+/// `@compilerrules` with no bracketed list [doc-compilerrules], while one
+/// with a list is silent.
 #[test]
 fn doc_tags_warn_when_they_cannot_mean_anything() {
-    let src = "// A point.\n//\n// @param x  nothing\n// @frob something\nstruct P {\n    x: Int\n}\n\n\
+    let src = "// A point.\n//\n// @param x  nothing\n// @frob something\n// @compilerrules doc-tags\n// @compilerrules [doc-tags] fine\nstruct P {\n    x: Int\n}\n\n\
                // Adds.\n//\n// @param a  the first\n// @param c  no such\n// @param\n// @whynot nope\n// @returns  the sum,\n//           of both\n\
                fn add(a: Int, b: Int) [] -> Int => a, b {\n    return a + b\n}\n";
     assert!(errors(src).is_empty(), "tags never reject a program: {:?}", errors(src));
@@ -358,8 +360,9 @@ fn doc_tags_warn_when_they_cannot_mean_anything() {
         "`@param c`: `add` has no parameter `c`",
         "`@param` names the parameter it describes",
         "`@whynot` says why a value fails a predicate qualifier",
+        "`@compilerrules` lists the rules it cites in brackets",
     ] {
         assert!(warns.iter().any(|w| w.contains(want)), "missing {want:?} in {warns:?}");
     }
-    assert_eq!(warns.len(), 5, "{warns:?}");
+    assert_eq!(warns.len(), 6, "{warns:?}");
 }

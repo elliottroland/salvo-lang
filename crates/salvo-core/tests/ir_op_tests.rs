@@ -52,7 +52,7 @@ fn basic_types_compare_with_the_host_operator_and_the_rest_call() {
         assert!(ir.contains(op), "missing `{op}` in:\n{ir}");
     }
     // `Str` is not basic: its operators are calls, intrinsic or not, of the
-    // fns declared beside it [unique-shape].
+    // fns declared beside it [op-unique-shape].
     for call in [
         "(call std.core.string::cmp(read s, \"c\") < 0)",
         "call std.core.string::eq(read s, \"b\")",

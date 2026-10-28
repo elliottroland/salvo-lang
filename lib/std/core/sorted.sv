@@ -32,10 +32,11 @@ export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter
 // Constructor. The elements are stored, so they are moved; duplicates
 // collapse, and the result is in order however the arguments were written.
 //
-// [fn-type-named] The constructor **is** the type-named function:
+// The constructor **is** the type-named function:
 // `SortedSet(...)` resolves to this declaration (canonical key `SortedSet`;
 // `Mut_SortedSet` for the mutable pair), the key carried verbatim to the
 // platform shim's `<Key>_platform` wrapper.
+// @compilerrules [fn-type-named]
 export platform fn SortedSet<T>(...elems: T[], ?Ordered<T>) [] -> SortedSet<T>(?cmp)
 
 // Mutable constructor
@@ -75,8 +76,9 @@ export platform fn max<T>(set: SortedSet<T>) [] -> T? => set
 // The elements as a list, in order.
 export platform fn to_list<T>(set: SortedSet<T>) [] -> List<T> => set
 
-// The text form: `{1, 2, 3}` in **sorted** order [col-to-str], each element
-// by its own `to_str` [platform-value-type].
+// The text form: `{1, 2, 3}` in **sorted** order, each element
+// by its own `to_str`.
+// @compilerrules [col-to-str, platform-value-type]
 export fn to_str<T>(set: SortedSet<T>, ?to_str: (x: T) -> Str) [] -> Str => set {
     let out = Mut Str("{")
     let i = 0
@@ -91,9 +93,10 @@ export fn to_str<T>(set: SortedSet<T>, ?to_str: (x: T) -> Str) [] -> Str => set 
     return out
 }
 
-// [iter-mint] A fresh iterator over the elements, in order. A snapshot, like the
+// A fresh iterator over the elements, in order. A snapshot, like the
 // unordered collections' iterators and for the same reason (there is no index
 // to walk) — see `std.core.set`.
+// @compilerrules [iter-mint]
 export fn iter<T>(set: SortedSet<T>) [] -> Mut SetNext<T> => set {
     return Mut SetNext<T> { items: to_list(set), at: 0 }
 }
@@ -104,17 +107,18 @@ export iterable platform type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut : I
 // of its last appearance [col-duplicate-keys]; position is irrelevant here,
 // since the order is the keys'.
 //
-// [fn-type-named] The constructor **is** the type-named function:
+// The constructor **is** the type-named function:
 // `SortedMap(...)` resolves to this declaration (canonical key `SortedMap`;
 // `Mut_SortedMap` for the mutable pair), the key carried verbatim to the
 // platform shim's `<Key>_platform` wrapper.
+// @compilerrules [fn-type-named]
 export platform fn SortedMap<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> SortedMap<K, V>(?cmp)
 
 // Mutable constructor
 export platform fn Mut SortedMap<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> Mut SortedMap<K, V>(?cmp)
 
-// Possibly gets the value stored under [key], **borrowed** out of the map
-// [copy-opt-in].
+// Possibly gets the value stored under [key], **borrowed** out of the map.
+// @compilerrules [copy-opt-in]
 export platform fn get<K, V>(map: SortedMap<K, V>(?cmp), key: K) [] -> (proj(map) V)?
 => map, key
 
@@ -144,7 +148,8 @@ export platform fn last_key<K, V>(map: SortedMap<K, V>) [] -> K? => map
 // The keys, in order.
 export platform fn keys<K, V>(map: SortedMap<K, V>) [] -> List<K> => map
 
-// The text form: `{a: 1, b: 2}` in **key order** [col-to-str].
+// The text form: `{a: 1, b: 2}` in **key order**.
+// @compilerrules [col-to-str]
 export fn to_str<K, V>(map: SortedMap<K, V>(?cmp), ?to_str: (k: K) -> Str, ?to_str: (v: V) -> Str) [] -> Str
 => map {
     let out = Mut Str("{")
@@ -162,8 +167,9 @@ export fn to_str<K, V>(map: SortedMap<K, V>(?cmp), ?to_str: (k: K) -> Str, ?to_s
     return out
 }
 
-// [op-equality] Two sorted sets are equal when they hold the same members
+// Two sorted sets are equal when they hold the same members
 // under their ordering.
+// @compilerrules [op-equality]
 export fn eq<T>(a: SortedSet<T>(?cmp), b: SortedSet<T>(?cmp)) [] -> Bool => a, b {
     if size(a) != size(b) {
         return false
@@ -176,8 +182,9 @@ export fn eq<T>(a: SortedSet<T>(?cmp), b: SortedSet<T>(?cmp)) [] -> Bool => a, b
     return true
 }
 
-// [op-equality] Two sorted maps are equal when they hold the same keys (under
+// Two sorted maps are equal when they hold the same keys (under
 // their ordering) with equal values.
+// @compilerrules [op-equality]
 export fn eq<K, V>(a: SortedMap<K, V>(?cmp), b: SortedMap<K, V>(?cmp), ?eq: (x: V, y: V) -> Bool) [] -> Bool
 => a, b {
     if size(a) != size(b) {
@@ -195,24 +202,27 @@ export fn eq<K, V>(a: SortedMap<K, V>(?cmp), b: SortedMap<K, V>(?cmp), ?eq: (x: 
     return true
 }
 
-// [iter-mint] A fresh iterator over the map's **keys**, in order — the same
+// A fresh iterator over the map's **keys**, in order — the same
 // reading `std.core.map` takes, where a value is reached with `get`.
+// @compilerrules [iter-mint]
 export fn iter<K, V>(map: SortedMap<K, V>) [] -> Mut MapKeyNext<K> => map {
     return Mut MapKeyNext<K> { items: keys(map), at: 0 }
 }
 
 // The plain, optional-answering forms, taken out of the shared name *inside
 // this module* so the `NonEmpty` overloads below can delegate to them without
-// re-picking themselves [fn-rename]. A rename is not importable, so every
+// re-picking themselves. A rename is not importable, so every
 // other module still sees one `min`, one `max`, one `first_key`, one
 // `last_key`.
+// @compilerrules [fn-rename]
 rename fn min_opt = min<T>(set: SortedSet<T>)
 rename fn max_opt = max<T>(set: SortedSet<T>)
 rename fn first_key_opt = first_key<K, V>(map: SortedMap<K, V>)
 rename fn last_key_opt = last_key<K, V>(map: SortedMap<K, V>)
 
-// [qual-overload] `NonEmpty` over the two ordered containers, as `std.core.set`
+// `NonEmpty` over the two ordered containers, as `std.core.set`
 // and `std.core.map` declare it over theirs.
+// @compilerrules [qual-overload]
 export qualifier NonEmpty<T> of SortedSet<T> {
     fn qualifies(set: SortedSet<T>) [] -> Bool {
         return size(set) > 0
@@ -232,16 +242,17 @@ export qualifier NonEmpty<K, V> of SortedMap<K, V> {
 // The dividend, and the reason the claim is worth carrying: the cheap-at-
 // either-end operations of an ordered tree answer with an element instead of
 // an optional. Ranked above the plain ones because they demand more of their
-// argument [fn-overload-rank].
+// argument.
 //
 // Each delegates through a **renamed** plain overload rather than through the
 // shared name: `min@core.sorted(set)` would pick *this* overload again — the
 // selector names a module, and within it a `NonEmpty` argument still ranks
 // this one first — and recurse forever. `rename fn` takes the plain one out of
-// the shared name *here only* (a rename is not importable [fn-rename]), which
-// is the same escape `first(NonEmpty List<T>)` makes by delegating to `get`
-// [col-of-nonempty]. It is why these four used to live in a module of their
+// the shared name *here only* (a rename is not importable), which
+// is the same escape `first(NonEmpty List<T>)` makes by delegating to `get`.
+// It is why these four used to live in a module of their
 // own.
+// @compilerrules [fn-overload-rank, fn-rename, col-of-nonempty]
 export fn min<T>(set: NonEmpty SortedSet<T>) [] -> T => set {
     return min_opt(set) ?: unreachable!()
 }

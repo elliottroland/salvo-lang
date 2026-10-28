@@ -1,4 +1,4 @@
-//! [eff-handle] First-class effect handles: `eff[E]` as a value type, `use H()`
+//! [effect-eff-handle] First-class effect handles: `eff[E]` as a value type, `use H()`
 //! as an expression that registers a handler and yields its handle, a fn that
 //! returns/accepts a handle, and set-subsumption (`eff[A, B]` where `eff[A]` is
 //! wanted). User decisions 2026-10-18.
@@ -72,7 +72,7 @@ handler Ticking() of Clock {
 }
 ";
 
-// [eff-handle] `use H()` is an expression: `let c = use H()` registers the
+// [effect-eff-handle] `use H()` is an expression: `let c = use H()` registers the
 // handler and binds its handle. A fn may return the handle (`-> eff[Clock]`)
 // and accept one (`clock: eff[Clock]`), and `use clock` binds a handed-in
 // handle.
@@ -100,7 +100,7 @@ fn main() [use] {{
     assert!(errs.is_empty(), "{errs:?}");
 }
 
-// [eff-handle] A bare statement `use H()` still binds the effect in scope and
+// [effect-eff-handle] A bare statement `use H()` still binds the effect in scope and
 // yields no binding — the discarded-value case.
 #[test]
 fn use_as_a_statement_still_binds_the_effect() {
@@ -116,7 +116,7 @@ fn main() [use] {{
     assert!(errs.is_empty(), "{errs:?}");
 }
 
-// [eff-handle] A tuple handle's elements are ordinary single handles: you
+// [effect-eff-handle] A tuple handle's elements are ordinary single handles: you
 // project one out by destructuring and pass it where that single handle is
 // wanted (the narrow-from-wide direction, done by projection rather than
 // subsumption).
@@ -152,7 +152,7 @@ fn main() [use] {{
     );
 }
 
-// [eff-handle] A multi-effect handle is a *tuple* of single handles. A
+// [effect-eff-handle] A multi-effect handle is a *tuple* of single handles. A
 // multi-face `use H()` as a value yields `(eff[A], eff[B])`, which destructures
 // into the individual handles; `use e` over the whole tuple binds every effect.
 #[test]
@@ -182,7 +182,7 @@ fn main() [use] {
     assert!(errs.is_empty(), "a multi-effect handle should be a usable tuple: {errs:?}");
 }
 
-// [eff-handle] Projection `e[A]` / `e[A, B]` / `e[alias]`: a non-consuming copy
+// [effect-eff-handle] Projection `e[A]` / `e[A, B]` / `e[alias]`: a non-consuming copy
 // of the sub-handle carrying the named effects, a subset of what `e` carries.
 // Yields a single handle for one effect, a tuple for several; an alias expands.
 #[test]
@@ -215,7 +215,7 @@ fn main() [use] {
     assert!(errs.is_empty(), "projection should type-check: {errs:?}");
 }
 
-// [eff-handle] Projecting an effect the handle does not carry is refused.
+// [effect-eff-handle] Projecting an effect the handle does not carry is refused.
 #[test]
 fn projecting_an_absent_effect_is_refused() {
     let src = "\
@@ -231,12 +231,12 @@ fn main() [use] {
 ";
     let errs = errors(src);
     assert!(
-        errs.iter().any(|m| m.contains("does not carry effect `B`") && m.contains("[eff-handle]")),
+        errs.iter().any(|m| m.contains("does not carry effect `B`") && m.contains("[effect-eff-handle]")),
         "projecting an absent effect should be refused: {errs:?}"
     );
 }
 
-// [eff-handle] Merge `eff[a, b]`: combine already-bound handles into one
+// [effect-eff-handle] Merge `eff[a, b]`: combine already-bound handles into one
 // handle carrying the union of their effects, which `use` then binds whole.
 #[test]
 fn merge_combines_bound_handles() {
@@ -259,7 +259,7 @@ fn main() [use] {
     assert!(errs.is_empty(), "merge should combine handles: {errs:?}");
 }
 
-// [eff-handle] `eff[*]` bundles every effect handle in scope, ordered to the
+// [effect-eff-handle] `eff[*]` bundles every effect handle in scope, ordered to the
 // expected type so it fits a declared return.
 #[test]
 fn star_merge_bundles_every_handle_in_scope() {
@@ -281,7 +281,7 @@ fn main() [use] {
     assert!(errs.is_empty(), "eff[*] should bundle in-scope handles: {errs:?}");
 }
 
-// [eff-handle] Merging a non-handle is refused.
+// [effect-eff-handle] Merging a non-handle is refused.
 #[test]
 fn merging_a_non_handle_is_refused() {
     let src = "\
@@ -295,7 +295,7 @@ fn main() [use] {
 ";
     let errs = errors(src);
     assert!(
-        errs.iter().any(|m| m.contains("merges effect handles") && m.contains("[eff-handle]")),
+        errs.iter().any(|m| m.contains("merges effect handles") && m.contains("[effect-eff-handle]")),
         "merging a non-handle should be refused: {errs:?}"
     );
 }

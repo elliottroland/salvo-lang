@@ -68,11 +68,12 @@ test "peek always returns the smallest element, or None if the heap is empty" {
     expect(heap.peek() is None, "A heap which has been emptied should peek -> None")
 }
 
-// [col-of-nonempty] `heap_of` is non-empty *by construction*: the element
+// `heap_of` is non-empty *by construction*: the element
 // constructor requires a first, the claim travels through `heapify` because
-// exchanging elements cannot change how many there are [qual-refn], and the
+// exchanging elements cannot change how many there are, and the
 // `NonEmpty` overloads are then the ones that answer — `peek` and `pop` without
 // an optional.
+// @compilerrules [col-of-nonempty, qual-refn]
 test "a heap built from elements is known non-empty" {
     let heap = heap_of(5, 1, 9)
     expect_eq(peek(heap), 1)

@@ -236,7 +236,7 @@ fn a_close_alone_does_not_make_a_type_linear() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [canbe-optin] The old spelling is gone from *declarations*: `canbe` grants
+/// [qual-canbe-optin] The old spelling is gone from *declarations*: `canbe` grants
 /// a qualifier, `:` declares an obligation. The error names the new form.
 #[test]
 fn canbe_linear_on_a_declaration_names_the_obligation_form() {
@@ -1015,7 +1015,7 @@ fn a_leak_names_the_member_as_the_discharge() {
 
 /// Two std files, so the same-file discharger rule has a boundary to be
 /// about: the prelude, plus a `token` module whose contents the test writes.
-/// `intrinsic` is std-only [intrinsic-std-only], so an opaque linear type can
+/// `intrinsic` is std-only [platform-intrinsic-std-only], so an opaque linear type can
 /// only be declared this way.
 fn errors_with_std_module(token_src: &str, main_src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();

@@ -184,7 +184,7 @@ fn an_exiting_then_branch_with_an_else_still_narrows_after() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [narrow-assign-reset] An assignment *on the surviving path* still resets:
+/// [is-narrow-assign-reset] An assignment *on the surviving path* still resets:
 /// the fact was about the old value.
 #[test]
 fn an_assignment_on_the_surviving_path_resets_the_narrowing() {
@@ -203,7 +203,7 @@ fn an_assignment_on_the_surviving_path_resets_the_narrowing() {
 /// reaches the code below (the same reason a fall-through merge ignores it).
 ///
 /// The assigned name is a **local** rather than the parameter: a parameter is
-/// a constant binding [param-const], and what this test is about is the
+/// a constant binding [fn-param-const], and what this test is about is the
 /// narrowing reset, not who may be assigned.
 #[test]
 fn an_assignment_in_the_exiting_branch_does_not_reset() {

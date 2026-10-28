@@ -169,7 +169,7 @@ Every `fs` operation and one-shot takes its paths as `Path`s, and only as `Path`
 
 ## Numbers and values in a stream
 
-`write_int`, `write_long`, `read_int` and `read_long` write and read fixed-width numbers, big-endian. `write_value(out, v)` writes any value with a wire form [noremote] in Salvo's canonical encoding, behind its length, and `read_value<T>(in)` reads one back — which is what a file of records needs:
+`write_int`, `write_long`, `read_int` and `read_long` write and read fixed-width numbers, big-endian. `write_value(out, v)` writes any value with a wire form [net-noremote] in Salvo's canonical encoding, behind its length, and `read_value<T>(in)` reads one back — which is what a file of records needs:
 
 ```
 import std.codec.encode

@@ -189,7 +189,7 @@ pub fn to_str(mut kind: crate::unions::Union7<&crate::std_fs::NotFound, &crate::
         let mut kind_7 = match kind { crate::unions::Union7::U7(__v) => __v, _ => unreachable!() };
         return crate::std_stream::to_str((&kind_7.error).as_ref());
     } else {
-        panic!("salvo: unhandled union arm at std.fs:66:5");
+        panic!("salvo: unhandled union arm at std.fs:69:5");
     };
 }
 

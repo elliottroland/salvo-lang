@@ -140,42 +140,42 @@ class __Mon_StreamTable(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : StreamTable {
     override fun nextHandle(): Long {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.nextHandle() } finally { lock.unlock() }
     }
     override fun putIn(handle: Long, e: InEntry) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.putIn(handle, e) } finally { lock.unlock() }
     }
     override fun putOut(handle: Long, e: OutEntry) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.putOut(handle, e) } finally { lock.unlock() }
     }
     override fun takeIn(handle: Long, me: salvo.platform.std.runtime.Parker): Union3<InEntry, Busy, Unknown> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.takeIn(handle, me) } finally { lock.unlock() }
     }
     override fun takeOut(handle: Long, me: salvo.platform.std.runtime.Parker): Union3<OutEntry, Busy, Unknown> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.takeOut(handle, me) } finally { lock.unlock() }
     }
     override fun forget(handle: Long) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.forget(handle) } finally { lock.unlock() }
     }
     override fun addPending(p: Pending) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.addPending(p) } finally { lock.unlock() }
     }
     override fun takePending(handle: Long): Pending? {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.takePending(handle) } finally { lock.unlock() }
     }
@@ -215,7 +215,7 @@ class Streams : StreamTable {
                     val __picked_2: InEntry = __pick_1!!
                     __picked_2
                 } else {
-                    throw AssertionError("salvo: unreachable at std.runtime.streams:161:42")
+                    throw AssertionError("salvo: unreachable at std.runtime.streams:166:42")
                 })
             })
         }
@@ -236,7 +236,7 @@ class Streams : StreamTable {
                     val __picked_2: OutEntry = __pick_1!!
                     __picked_2
                 } else {
-                    throw AssertionError("salvo: unreachable at std.runtime.streams:175:43")
+                    throw AssertionError("salvo: unreachable at std.runtime.streams:180:43")
                 })
             })
         }
@@ -265,7 +265,7 @@ class Streams : StreamTable {
                         val __picked_2: Pending = __pick_1!!
                         __picked_2
                     } else {
-                        throw AssertionError("salvo: unreachable at std.runtime.streams:195:36")
+                        throw AssertionError("salvo: unreachable at std.runtime.streams:200:36")
                     })
                 }
                 __proj_4.handle
@@ -290,7 +290,7 @@ fun indexIn(keys: List<Long>, handle: Long): Int {
                 val __picked_2: Long = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime.streams:209:29")
+                throw AssertionError("salvo: unreachable at std.runtime.streams:214:29")
             })
         } == handle)) {
             return i
@@ -315,7 +315,7 @@ fun unbusy(busy: salvo.platform.std.core.list.MutList<Long>, waiting: salvo.plat
                 val __picked_2: salvo.platform.std.runtime.Parker = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime.streams:226:41")
+                throw AssertionError("salvo: unreachable at std.runtime.streams:231:41")
             })
         })
     }
@@ -355,7 +355,7 @@ fun checkoutIn(handle: Long): InEntry {
         }
         salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
     }
-    throw AssertionError("salvo: unreachable at std.runtime.streams:263:5")
+    throw AssertionError("salvo: unreachable at std.runtime.streams:270:5")
     return salvo.std.runtime.streams.checkoutIn(handle)
 }
 
@@ -373,7 +373,7 @@ fun checkoutOut(handle: Long): OutEntry {
         }
         salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
     }
-    throw AssertionError("salvo: unreachable at std.runtime.streams:278:5")
+    throw AssertionError("salvo: unreachable at std.runtime.streams:285:5")
     return salvo.std.runtime.streams.checkoutOut(handle)
 }
 
@@ -487,7 +487,7 @@ fun readLine(e: InEntry): Read {
                     val __picked_2: UByte = __pick_1!!
                     __picked_2
                 } else {
-                    throw AssertionError("salvo: unreachable at std.runtime.streams:364:52")
+                    throw AssertionError("salvo: unreachable at std.runtime.streams:371:52")
                 })
             }).toInt() == 13))) {
                 n = (n - 1)
@@ -516,7 +516,7 @@ fun readLine(e: InEntry): Read {
         }
         salvo.std.core.bytes.appendPlatform((e.ahead as salvo.platform.std.core.bytes.MutBytes), got.data)
     }
-    throw AssertionError("salvo: unreachable at std.runtime.streams:359:5")
+    throw AssertionError("salvo: unreachable at std.runtime.streams:366:5")
     return salvo.std.runtime.streams.readLine(e)
 }
 
@@ -539,7 +539,7 @@ fun readAll(e: InEntry): Read {
         e.position = (e.position + (salvo.std.core.bytes.sizePlatform(got.data)).toLong())
         salvo.std.core.bytes.appendPlatform(out, got.data)
     }
-    throw AssertionError("salvo: unreachable at std.runtime.streams:391:5")
+    throw AssertionError("salvo: unreachable at std.runtime.streams:398:5")
     return salvo.std.runtime.streams.readAll(e)
 }
 

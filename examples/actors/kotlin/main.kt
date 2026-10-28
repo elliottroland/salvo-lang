@@ -12,12 +12,12 @@ class __Mon_Counter(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Counter {
     override fun bump(n: Int) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.bump(n) } finally { lock.unlock() }
     }
     override fun total(out: salvo.SalvoReply) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.total(out) } finally { lock.unlock() }
     }
@@ -81,12 +81,12 @@ class __Mon_Ledger(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Ledger {
     override fun report(label: String, out: salvo.SalvoReply) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.report(label, out) } finally { lock.unlock() }
     }
     override fun reported(label: String, out: salvo.SalvoReply, total: Int) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.reported(label, out, total) } finally { lock.unlock() }
     }
@@ -150,17 +150,17 @@ class __Mon_Desk(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Desk {
     override fun ticket(out: salvo.SalvoReply) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.ticket(out) } finally { lock.unlock() }
     }
     override fun serve(name: String) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.serve(name) } finally { lock.unlock() }
     }
     override fun closeUp(reason: String) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.closeUp(reason) } finally { lock.unlock() }
     }
@@ -243,7 +243,7 @@ class __Mon_Fragile(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Fragile {
     override fun crash() {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.crash() } finally { lock.unlock() }
     }

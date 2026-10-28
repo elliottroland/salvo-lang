@@ -360,7 +360,7 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
                     type_names(&p.ty, &mut used);
                 }
                 for field in &h.state {
-                    // [state-infer] An inferred field has no written type; its
+                    // [handler-state-infer] An inferred field has no written type; its
                     // reachable names come from the initializer below.
                     if let Some(t) = &field.ty {
                         type_names(t, &mut used);
@@ -404,7 +404,7 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
             // counted anyway, so the refusal and this agree about what the
             // module depends on.
             Item::Test(t) => block_names(&t.body, &mut used),
-            // [namespace] Flattened away in `parse_module_deferred`; never
+            // [mod-namespace] Flattened away in `parse_module_deferred`; never
             // reaches here.
             Item::Namespace(_) => {}
             // [effect-alias] An alias's members are its module's to reach,
@@ -535,7 +535,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             }
         }
         Expr::WhyNot { test, .. } => expr_names(test, used),
-        // [elvis] Names used on either side keep their modules reachable.
+        // [op-elvis] Names used on either side keep their modules reachable.
         Expr::Elvis { subject, rhs, .. } => {
             expr_names(subject, used);
             expr_names(rhs, used);
@@ -545,7 +545,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             expr_names(lhs, used);
             expr_names(rhs, used);
         }
-        // [safe-nav] A `?.m(args)` call-link names `m` just like a dot call;
+        // [op-safe-nav] A `?.m(args)` call-link names `m` just like a dot call;
         // a field link names nothing a module provides.
         Expr::SafeNav { base, access, .. } => {
             expr_names(base, used);
@@ -566,7 +566,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         Expr::Ident(id) => {
             used.insert(&id.name);
         }
-        // [try] The delimiter's body is ordinary code.
+        // [throw-try] The delimiter's body is ordinary code.
         Expr::Try { body, .. } => block_names(body, used),
         // [expr-escape] `return f(x)` uses `f` and `x`.
         Expr::Return { value, .. } | Expr::Break { value, .. } => {

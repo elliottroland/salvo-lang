@@ -847,7 +847,7 @@ pub fn handshake(transport: &crate::std_net::Transport, group: &String, mut from
     } else if msg.is_none() {
         return None;
     } else {
-        panic!("salvo: unhandled union arm at std.net:432:5");
+        panic!("salvo: unhandled union arm at std.net:458:5");
     };
 }
 
@@ -923,7 +923,7 @@ impl StaticNodeGroup {
             let mut event_4 = match &event { Some(crate::unions::Union3::U3(__v)) => __v, _ => unreachable!() };
         } else if event.is_none() {
         } else {
-            panic!("salvo: unhandled union arm at std.net:529:9");
+            panic!("salvo: unhandled union arm at std.net:559:9");
         };
     }
 }
@@ -1087,7 +1087,7 @@ impl GossipNodeGroup {
             }
         } else if event.is_none() {
         } else {
-            panic!("salvo: unhandled union arm at std.net:616:9");
+            panic!("salvo: unhandled union arm at std.net:647:9");
         };
     }
 }
@@ -1784,7 +1784,7 @@ pub fn route_keyed(route_selector: &crate::std_net::RouteSelector, mut group: us
             wait = cap;
         };
     }
-    panic!("salvo: unreachable at std.net:1087:5");
+    panic!("salvo: unreachable at std.net:1144:5");
     return crate::std_net::route_keyed(route_selector, group, seen, key);
 }
 
@@ -2368,7 +2368,7 @@ impl crate::wire::__Wire for __Msg_Inbound {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Inbound`.
+/// [actor-protocol-hash] The canonical hash of `Inbound`.
 pub const __PROTO_Inbound: &str = "8e46ddb2a3e90b03";
 
 pub enum __Msg_Outbound {
@@ -2393,7 +2393,7 @@ impl crate::wire::__Wire for __Msg_Outbound {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Outbound`.
+/// [actor-protocol-hash] The canonical hash of `Outbound`.
 pub const __PROTO_Outbound: &str = "e754249e848e9986";
 
 pub enum __Msg_NodeGroup {
@@ -2426,7 +2426,7 @@ impl crate::wire::__Wire for __Msg_NodeGroup {
     }
 }
 
-/// [protocol-hash] The canonical hash of `NodeGroup`.
+/// [actor-protocol-hash] The canonical hash of `NodeGroup`.
 pub const __PROTO_NodeGroup: &str = "471318a2c85d1f6d";
 
 pub enum __Msg_NodeGroupWatcher {
@@ -2457,7 +2457,7 @@ impl crate::wire::__Wire for __Msg_NodeGroupWatcher {
     }
 }
 
-/// [protocol-hash] The canonical hash of `NodeGroupWatcher`.
+/// [actor-protocol-hash] The canonical hash of `NodeGroupWatcher`.
 pub const __PROTO_NodeGroupWatcher: &str = "db3e0aa5831c2e44";
 
 pub enum __Msg_ActorGroup {
@@ -2502,7 +2502,7 @@ impl crate::wire::__Wire for __Msg_ActorGroup {
     }
 }
 
-/// [protocol-hash] The canonical hash of `ActorGroup`.
+/// [actor-protocol-hash] The canonical hash of `ActorGroup`.
 pub const __PROTO_ActorGroup: &str = "695f43128bdada4a";
 
 pub enum __Msg_ActorGroupWatcher {
@@ -2532,7 +2532,7 @@ impl crate::wire::__Wire for __Msg_ActorGroupWatcher {
     }
 }
 
-/// [protocol-hash] The canonical hash of `ActorGroupWatcher`.
+/// [actor-protocol-hash] The canonical hash of `ActorGroupWatcher`.
 pub const __PROTO_ActorGroupWatcher: &str = "9fa424e5858bb3bd";
 
 pub enum __Msg_MemNet {
@@ -2597,7 +2597,7 @@ impl crate::wire::__Wire for __Msg_MemNet {
     }
 }
 
-/// [protocol-hash] The canonical hash of `MemNet`.
+/// [actor-protocol-hash] The canonical hash of `MemNet`.
 pub const __PROTO_MemNet: &str = "2815c14392023d5e";
 
 pub enum __Cont_Sending {

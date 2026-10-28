@@ -1,4 +1,4 @@
-// [platform-tree] [console] std's console, for `std.core.console`'s
+// [platform-tree] [std-console] std's console, for `std.core.console`'s
 // `threadsafe platform handler StdConsole` (ROADMAP 0.5): standard output,
 // standard error, and standard input a line at a time.
 package salvo.platform.std.core.console

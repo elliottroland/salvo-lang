@@ -89,7 +89,7 @@ fun<K, V> toStr__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>, 
                 val __picked_2: V = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.sorted:158:43")
+                throw AssertionError("salvo: unreachable at std.core.sorted:163:43")
             })
         }))
         i = (i + 1)
@@ -126,7 +126,7 @@ fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.std.core.sorted.SortedMap<K,
                 val __picked_2: V = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.sorted:191:29")
+                throw AssertionError("salvo: unreachable at std.core.sorted:198:29")
             })
         }, theirs_4))) {
             return false
@@ -154,7 +154,7 @@ fun<T> min(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
             val __picked_2: T = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.core.sorted:246:28")
+            throw AssertionError("salvo: unreachable at std.core.sorted:257:28")
         })
     }
 }
@@ -166,7 +166,7 @@ fun<T> max(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
             val __picked_2: T = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.core.sorted:250:28")
+            throw AssertionError("salvo: unreachable at std.core.sorted:261:28")
         })
     }
 }
@@ -178,7 +178,7 @@ fun<K, V> firstKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
             val __picked_2: K = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.core.sorted:254:34")
+            throw AssertionError("salvo: unreachable at std.core.sorted:265:34")
         })
     }
 }
@@ -190,7 +190,7 @@ fun<K, V> lastKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
             val __picked_2: K = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.core.sorted:258:33")
+            throw AssertionError("salvo: unreachable at std.core.sorted:269:33")
         })
     }
 }

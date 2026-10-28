@@ -10,7 +10,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The declarations these sources rely on, loaded as a
+/// [platform-intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file. `Ranged` is a predicate qualifier with constant slots (the
 /// shape of std's `InRange`), `Big` one whose `qualifies` needs an implicit,
 /// `Sorted` a constructive one.

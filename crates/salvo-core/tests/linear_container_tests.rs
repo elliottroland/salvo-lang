@@ -17,7 +17,7 @@
 //!   activation leaves every state field whole.
 //!
 //! The std surface here is a stub (`intrinsic` is std-only
-//! [intrinsic-std-only]), mirroring the real declarations in
+//! [platform-intrinsic-std-only]), mirroring the real declarations in
 //! `lib/std/core/list.sv` and `lib/std/core/map.sv`.
 
 use std::path::Path;

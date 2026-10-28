@@ -10,7 +10,7 @@
 // `lib/std/runtime/` [runtime-layers]; each backend's `scheduler.rs`/
 // `scheduler.kt` is the entry points generated code calls, onto this.
 
-// [runtime-parker] One thread's park/unpark token: how a scheduler thread
+// One thread's park/unpark token: how a scheduler thread
 // with nothing to do sleeps until another thread changes the state it is
 // waiting on (runtime E3, user decision 2026-10-02). Both hosts give
 // `unpark` a **token**: an `unpark` that arrives before the `park` makes the
@@ -21,52 +21,63 @@
 //
 // `threadsafe`: the token is unparked from any thread, while only the thread
 // it belongs to may park on it.
+// @compilerrules [runtime-parker]
 export threadsafe platform type Parker
 
-// [runtime-parker] The calling thread's parker.
+// The calling thread's parker.
+// @compilerrules [runtime-parker]
 export platform fn this_parker() [] -> Parker
 
-// [runtime-parker] Sleeps until [p] is unparked, or returns at once if it
+// Sleeps until [p] is unparked, or returns at once if it
 // already was since the last park. [p] must be the calling thread's own
 // parker; parking on another thread's is a runtime bug and traps.
+// @compilerrules [runtime-parker]
 export platform fn park(p: Parker) [] -> None => p
 
-// [runtime-parker] The same, giving up after [nanos] nanoseconds.
+// The same, giving up after [nanos] nanoseconds.
+// @compilerrules [runtime-parker]
 export platform fn park_nanos(p: Parker, nanos: Long) [] -> None => p, nanos
 
-// [runtime-parker] Wakes [p]'s thread, or makes its next park return at once.
+// Wakes [p]'s thread, or makes its next park return at once.
+// @compilerrules [runtime-parker]
 export platform fn unpark(p: Parker) [] -> None => p
 
-// [runtime-kept-fn] Runs [body] on a new **daemon** thread: the program
+// Runs [body] on a new **daemon** thread: the program
 // ends when `main` returns, whatever this thread is doing. The host keeps
 // the fn value and runs it elsewhere — the runtime's privilege, since a fn
-// value is otherwise only lent for a call [platform-fn-value]. Nothing waits
+// value is otherwise only lent for a call. Nothing waits
 // for the thread to finish; the scheduler stops one by state, not by handle.
+// @compilerrules [runtime-kept-fn, platform-fn-value]
 export platform fn start_thread(body: once () -> None) [] -> None => !body
 
-// [runtime-kept-fn] Runs [body] inside a fault boundary: `None` when it
+// Runs [body] inside a fault boundary: `None` when it
 // returned, or the host's account of the fault that ended it. What an
 // activation runs in, so a fault is the actor's death and not the thread's.
+// @compilerrules [runtime-kept-fn]
 platform fn guarded(body: once () -> None) [] -> Str? => !body
 
-// [test-recover] The same fault boundary for a body that is only lent, and
+// The same fault boundary for a body that is only lent, and
 // answers: its own answer, or the fault's message in its place. Quiet — the
 // host prints nothing for the fault — since the caller reports it. What
 // `std.test`'s `trapped_by` is.
+// @compilerrules [test-recover]
 export platform fn trap_boundary(body: () -> Str?) [] -> Str? => body
 
-// ===== the host [runtime-host] =====
+// ===== the host =====
 //
 // What only the host can do, behind one interface the backends implement in
 // std's platform root (the runtime record): a new backend writes this handler
 // and the scheduler above it is Salvo. Filled in as the port needs it.
+// @compilerrules [runtime-host]
 effect RuntimeHost {
-    // [addr-capability] A fresh value an outsider cannot guess: OS entropy.
+    // A fresh value an outsider cannot guess: OS entropy.
+    // @compilerrules [net-addr-capability]
     fn secure_bits() -> Long
     // A line on standard error, for the runtime's named reports.
     fn report(line: Str) -> None => line
-    // [time-timer] The monotonic clock, in nanoseconds: the timeline
+    // The monotonic clock, in nanoseconds: the timeline
     // `time.tick()` reads, so a deadline and a reading agree.
+    // @compilerrules [time-timer]
     fn mono_nanos() -> Long
 }
 
@@ -76,8 +87,9 @@ threadsafe platform handler HostRuntime() of RuntimeHost
 // here reaches it without declaring it.
 use HostRuntime()
 
-// [addr-capability] The bits an addr's identity carries: from the seed, on
-// the virtual runtime [test-actor].
+// The bits an addr's identity carries: from the seed, on
+// the virtual runtime.
+// @compilerrules [net-addr-capability, test-actor]
 fn fresh_bits() [] -> Long {
     if is_virtual() {
         return random_bits()
@@ -85,9 +97,9 @@ fn fresh_bits() [] -> Long {
     return secure_bits()
 }
 
-// [time-timer] The monotonic clock, for the services: the timeline
-// `time.tick()` reads. On the virtual runtime, the clock the scheduler moves
-// [test-actor].
+// The monotonic clock, for the services: the timeline
+// `time.tick()` reads. On the virtual runtime, the clock the scheduler moves.
+// @compilerrules [time-timer, test-actor]
 export fn now_nanos() [] -> Long {
     if is_virtual() {
         return virtual_now()
@@ -122,10 +134,11 @@ platform fn activate(b: Body, kind: Int, slot: Long, value: Dyn) [] -> Ran
 => !b, !kind, !slot, !value
 export platform fn drop_body(b: Body) [] -> None => !b
 
-// [remote-backpressure] Grants node [from] one credit for actor [addr], on
+// Grants node [from] one credit for actor [addr], on
 // [pool]: a GRANT frame, staged by the routing service and sent once the
 // scheduler's lock is released (`flush_frames`). Called with the lock held,
 // so it must not call back into the scheduler.
+// @compilerrules [net-remote-backpressure]
 platform fn granted(addr: Int, pool: Int, from: Long) [] -> None => addr, pool, from
 
 // Sends the frames the routing layer staged under the scheduler's lock.
@@ -164,8 +177,9 @@ platform fn set_here(pool: Int, actor: Int) [] -> None => pool, actor
 
 // ---- the table
 
-// [main-pool] The pool `main` is the single worker of: it has no thread of
+// The pool `main` is the single worker of: it has no thread of
 // its own, and runs its work while it waits.
+// @compilerrules [actor-main-pool]
 export fn main_pool() [] -> Int {
     return 0
 }
@@ -181,10 +195,11 @@ fn task_frame() [] -> Int {
 }
 
 // A user message, an answer to the continuation parked at a slot, and a
-// fault report to a pool's sink [pool-fault-sink].
-// [remote-backpressure] [from] is the node a message came over the wire
+// fault report to a pool's sink.
+// [from] is the node a message came over the wire
 // from (-1 for a local send), which is granted a credit back when it is
 // dequeued.
+// @compilerrules [actor-pool-fault-sink, net-remote-backpressure]
 linear struct Delivered { msg: Dyn, from: Long }
 linear struct Answered { slot: Long, value: Dyn }
 struct Reported { reason: Str }
@@ -229,14 +244,17 @@ linear struct ActorRec canbe Mut {
     exit_reason: Str,
     // Senders parked on a full mailbox, woken one per dequeue.
     blocked: Mut List<Parker>,
-    // [actor-watch] Tokens to answer with an `Exit` when it dies.
+    // Tokens to answer with an `Exit` when it dies.
+    // @compilerrules [actor-watch]
     watchers: Mut List<Token>,
-    // [actor-on-idle] Tokens aimed at it that nobody has answered.
+    // Tokens aimed at it that nobody has answered.
+    // @compilerrules [actor-on-idle]
     owed: Int,
     // On its pool's ready queue.
     ready: Bool,
-    // [addr-routable] A proxy of an actor on another node: a send to it is
+    // A proxy of an actor on another node: a send to it is
     // handed back, to be encoded and routed.
+    // @compilerrules [net-addr-routable]
     proxy: Bool
 }
 
@@ -258,9 +276,10 @@ linear struct WaiterRec canbe Mut {
     // activation it is, or -1.
     waiting: Int,
     waiting_actor: Int,
-    // [waitfor-pump] The slot of the token minted for this wait: a record is
+    // The slot of the token minted for this wait: a record is
     // reused once its wait has ended, and an answer carrying another slot
     // (late, or forged from the wire) is not this wait's.
+    // @compilerrules [waitfor-pump]
     slot: Long
 }
 
@@ -288,14 +307,18 @@ linear struct PoolRec canbe Mut {
     // died); a taker drops it, and the actor is queued again when it next
     // has something to run.
     ready: Mut Deque<Int>,
-    // [pool-fault-sink] The actor its uncaught faults go to, or -1.
+    // The actor its uncaught faults go to, or -1.
+    // @compilerrules [actor-pool-fault-sink]
     sink: Int,
-    // [actor-on-idle] Tokens owed to work here that belongs to no actor.
+    // Tokens owed to work here that belongs to no actor.
+    // @compilerrules [actor-on-idle]
     owed: Int,
-    // [pool-retire] A `Dedicated` pool: made for one spawn, so nothing is
+    // A `Dedicated` pool: made for one spawn, so nothing is
     // placed on it but what its actors place there themselves.
+    // @compilerrules [actor-pool-retire]
     dedicated: Bool,
-    // [pool-retire] Nothing can run here any more: its threads return.
+    // Nothing can run here any more: its threads return.
+    // @compilerrules [actor-pool-retire]
     retired: Bool
 }
 
@@ -304,9 +327,10 @@ fn drop_pool_rec(p: PoolRec) [] -> None => !p {
     drain(tasks, t -> drop_task_run(t))
 }
 
-// [actor-replyto] Where an answer goes: an actor's parked continuation, a
+// Where an answer goes: an actor's parked continuation, a
 // waiting frame, or a task — whose body travels inside the token until the
-// answer schedules it [task-mint].
+// answer schedules it.
+// @compilerrules [actor-replyto, task-mint]
 struct ToActor { addr: Int }
 struct ToWaiter { wid: Int }
 linear struct ToTask { pool: Int, body: Body }
@@ -317,9 +341,10 @@ fn drop_to_task(t: ToTask) [] -> None => !t {
     drop_body(body)
 }
 
-// [actor-replyto] A one-shot answer channel. Linear: answered exactly once.
-// [tracked] says whether it still counts as owed [actor-on-idle]: a token the
+// A one-shot answer channel. Linear: answered exactly once.
+// [tracked] says whether it still counts as owed: a token the
 // scheduler holds itself (a watch, an idle hook) does not.
+// @compilerrules [actor-replyto, actor-on-idle]
 export linear struct Token {
     target: Target,
     slot: Long,
@@ -347,7 +372,8 @@ fn drop_waiter_mint(m: WaiterMint) [] -> None => !m {
 linear struct RunActor { addr: Int, pool: Int, kind: Int, slot: Long, value: Dyn, body: Body }
 linear struct RunTask { pool: Int, body: Body, value: Dyn }
 type Work = RunActor | RunTask
-// [pool-retire] What a worker of a retired pool is told: return.
+// What a worker of a retired pool is told: return.
+// @compilerrules [actor-pool-retire]
 struct Retire {}
 
 fn drop_run_actor(a: RunActor) [] -> None => !a {
@@ -377,8 +403,9 @@ fn drop_full(f: Full) [] -> None => !f {
     drop_dyn(msg)
 }
 
-// [actor-on-idle] A registered quiescence hook: the pool it reports on, and
+// A registered quiescence hook: the pool it reports on, and
 // the token its `Idle` answers.
+// @compilerrules [actor-on-idle]
 linear struct IdleHook { pool: Int, token: Token }
 
 fn drop_idle_hook(h: IdleHook) [] -> None => !h {
@@ -408,12 +435,14 @@ effect SchedTable {
     // comes back and [waiter] is recorded to be woken by the next dequeue.
     fn enqueue(addr: Int, msg: Dyn, waiter: Parker) -> Sent | Dead | Full | Remote => !addr, !msg, !waiter
     fn set_proxy(addr: Int) -> None => !addr
-    // [addr-routable] A message that came over the wire from [from]: past
+    // A message that came over the wire from [from]: past
     // nothing — its room was granted as a credit — and granted back when
     // dequeued. `false` for an unknown or dead actor (the message dropped).
+    // @compilerrules [net-addr-routable]
     fn enqueue_remote(addr: Int, msg: Dyn, from: Long) -> Bool => !addr, !msg, !from
-    // [node-exit] The actor dies of [reason] without an activation: a proxy
+    // The actor dies of [reason] without an activation: a proxy
     // of an actor on a node that left.
+    // @compilerrules [node-exit]
     fn kill(addr: Int, reason: Str) -> None => !addr, !reason
     fn mint_actor(addr: Int, gated: Bool) -> Token => !addr, !gated
     fn mint_task(pool: Int, body: Body) -> Token => !pool, !body
@@ -426,9 +455,11 @@ effect SchedTable {
     // The next work on [pool]; `None` having recorded [idle] to be woken
     // when work arrives there.
     fn next_work(pool: Int, idle: Parker) -> RunActor | RunTask | Retire | None => !pool, !idle
-    // [pool-retire] Worker threads that have returned from retired pools.
+    // Worker threads that have returned from retired pools.
+    // @compilerrules [actor-pool-retire]
     fn retired_workers() -> Int
-    // [waitfor-pump] Waiter records in the table, free ones included.
+    // Waiter records in the table, free ones included.
+    // @compilerrules [waitfor-pump]
     fn waiter_records() -> Int
     // One step of waiting on [wid] from a frame of kind [frame] (1 an
     // activation or task, 2 main's thread) inside [own], serving [pool].
@@ -441,21 +472,24 @@ effect SchedTable {
     fn pool_of_actor(addr: Int) -> Int => addr
     fn pool_of_waiter(wid: Int) -> Int => wid
     fn external(delta: Int) -> None => !delta
-    // [remote-backpressure] Room left in [addr]'s mailbox, and messages
+    // Room left in [addr]'s mailbox, and messages
     // queued there.
+    // @compilerrules [net-remote-backpressure]
     fn room(addr: Int) -> Int => addr
     fn is_dead(addr: Int) -> Bool => addr
     fn queued(addr: Int) -> Int => addr
-    // [test-actor] The virtual runtime: enters it with randomness from
+    // The virtual runtime: enters it with randomness from
     // [seed], leaving a fresh scheduler (every actor so far dead, silently).
+    // @compilerrules [test-actor]
     fn go_virtual(seed: Long) -> None => !seed
     fn is_virtual() -> Bool
     fn virtual_now() -> Long
     // Moves the virtual clock forward to [at] (never back).
     fn advance_to(at: Long) -> None => !at
     fn random_bits() -> Long
-    // [random-default] A uniform double in [0, 1): from the seed on the
+    // A uniform double in [0, 1): from the seed on the
     // virtual runtime, from a generator seeded by OS entropy otherwise.
+    // @compilerrules [std-random-default]
     fn random_unit() -> Double
     // A token answered when nothing can run: what moves virtual time.
     fn clock_hook(t: Token) -> None => !t
@@ -467,33 +501,39 @@ handler Scheduler() of SchedTable {
     state {
         actors: Mut List<Mut ActorRec> = Mut List()
         waiters: Mut List<Mut WaiterRec> = Mut List()
-        // [waitfor-pump] Waiter records whose wait has ended, to be reused: the
+        // Waiter records whose wait has ended, to be reused: the
         // table stays as large as the most waits ever open at once.
+        // @compilerrules [waitfor-pump]
         free_waiters: Mut List<Int> = Mut List()
         pools: Mut List<Mut PoolRec> = Mut List()
         idle_hooks: Mut List<IdleHook> = Mut List()
         next_slot: Long = 0
         // Frames running — activations and tasks — and, of those, the ones
         // parked in a wait; how deep main's own thread is in a wait; outside
-        // sources of work [threadsafe-platform].
+        // sources of work.
+        // @compilerrules [platform-threadsafe]
         active: Int = 0
         parked_frames: Int = 0
         main_waits: Int = 0
         externals: Int = 0
-        // [pool-retire] Worker threads that have returned.
+        // Worker threads that have returned.
+        // @compilerrules [actor-pool-retire]
         retired: Int = 0
-        // [test-actor] The virtual runtime: no worker threads, a clock moved by
+        // The virtual runtime: no worker threads, a clock moved by
         // the scheduler, randomness from a seed, and the hooks that move time.
+        // @compilerrules [test-actor]
         virtual_mode: Bool = false
         vnow: Long = 0
         rng: Long = 1
-        // [random-default] Whether `rng` has been seeded outside the virtual
+        // Whether `rng` has been seeded outside the virtual
         // runtime, which seeds it itself.
+        // @compilerrules [std-random-default]
         rng_seeded: Bool = false
         clock_hooks: Mut List<Token> = Mut List()
     }
 
-    // [main-pool] Pool 0 exists from the start and belongs to `main`.
+    // Pool 0 exists from the start and belongs to `main`.
+    // @compilerrules [actor-main-pool]
     init {
         add(pools, Mut PoolRec { idle: Mut List(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: -1, owed: 0, dedicated: false, retired: false })
     }
@@ -767,7 +807,7 @@ handler Scheduler() of SchedTable {
         while remove_first(a.watchers) is Token t {
             add(watchers, t)
         }
-        // [pool-fault-sink] The net under supervision: a death nobody was
+        // [actor-pool-fault-sink] The net under supervision: a death nobody was
         // watching still reaches the pool's sink, or the named report.
         if size(watchers) == 0 {
             report_fault(actors, pools, copy(pool), copy(reason))
@@ -886,14 +926,16 @@ handler Scheduler() of SchedTable {
     }
 }
 
-// [test-actor] The next value of a Lehmer generator: in 1..2^31-2, and no
+// The next value of a Lehmer generator: in 1..2^31-2, and no
 // product past 2^47, so nothing overflows.
+// @compilerrules [test-actor]
 fn lehmer(x: Long) [] -> Long => !x {
     return x * 48271 % 2147483647
 }
 
-// [test-actor] A generator state from a seed: never 0, which is the one
+// A generator state from a seed: never 0, which is the one
 // state a Lehmer generator cannot leave.
+// @compilerrules [test-actor]
 fn seed_of(seed: Long) [] -> Long => !seed {
     let s = seed % 2147483646
     if s < 0 {
@@ -902,10 +944,11 @@ fn seed_of(seed: Long) [] -> Long => !seed {
     return s + 1
 }
 
-// [test-actor] A fresh scheduler, keeping the table's indices: every actor is
+// A fresh scheduler, keeping the table's indices: every actor is
 // dead, without a report or an `Exit`, so an addr or a token left from before
 // is a send to the dead; every pool's queued work is dropped, and every pool
 // but main's retired.
+// @compilerrules [test-actor]
 fn reset_all(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, idle_hooks: Mut List<IdleHook>, clock_hooks: Mut List<Token>) [] -> None
 => actors: Mut, pools: Mut, idle_hooks: Mut, clock_hooks: Mut {
     let k = 0
@@ -956,7 +999,8 @@ fn reset_all(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, idle_
     }
 }
 
-// [test-actor] Answers the hook that moves virtual time.
+// Answers the hook that moves virtual time.
+// @compilerrules [test-actor]
 fn fire_clock(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>, hooks: Mut List<Token>) [] -> None
 => actors: Mut, waiters: Mut, pools: Mut, hooks: Mut {
     if remove_first(hooks) is Token t {
@@ -965,7 +1009,8 @@ fn fire_clock(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, 
 }
 
 // The next work for a thread serving [pool] — or, on the virtual runtime
-// ([any]), every pool in order [test-actor].
+// ([any]), every pool in order.
+// @compilerrules [test-actor]
 fn take_for(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, pool: Int, exclude: Int, any: Bool) [] -> Work?
 => actors: Mut, pools: Mut, !pool, !exclude, !any {
     if !any {
@@ -985,8 +1030,9 @@ fn take_for(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, pool: 
     return None
 }
 
-// [actor-on-idle] A token the scheduler takes over (a watch, an idle hook):
+// A token the scheduler takes over (a watch, an idle hook):
 // no longer counted as owed by the program, since the scheduler answers it.
+// @compilerrules [actor-on-idle]
 fn untrack(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>, t: Token) [] -> Token
 => actors: Mut, waiters: Mut, pools: Mut, !t {
     let {target, slot, tracked} = t
@@ -996,7 +1042,8 @@ fn untrack(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, poo
     return Token { target: target, slot: slot, tracked: false }
 }
 
-// [actor-on-idle] One owed token fewer, against whatever it was owed by.
+// One owed token fewer, against whatever it was owed by.
+// @compilerrules [actor-on-idle]
 fn release(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>, target: Target) [] -> None
 => actors: Mut, waiters: Mut, pools: Mut, target {
     if target is ToActor to {
@@ -1018,9 +1065,10 @@ fn release(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, poo
     }
 }
 
-// [actor-replyto] An answer, to wherever its token was aimed.
-// [waitfor-pump] A waiter record for a new wait of slot [slot] on [pool]: a
+// An answer, to wherever its token was aimed.
+// A waiter record for a new wait of slot [slot] on [pool]: a
 // freed one when there is one, else a new one. Answers its index.
+// @compilerrules [actor-replyto, waitfor-pump]
 fn reuse_waiter(waiters: Mut List<Mut WaiterRec>, free: Mut List<Int>, pool: Int, slot: Long) [] -> Int
 => waiters: Mut, free: Mut, !pool, !slot {
     if remove_first(free) is Int wid {
@@ -1078,9 +1126,10 @@ fn deliver_to(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, 
     }
 }
 
-// [pool-fault-sink] An uncaught fault on [pool]: a report to its sink when it
+// An uncaught fault on [pool]: a report to its sink when it
 // has a live one — enqueued past the bound, since a fault report must not
 // block the faulting thread — or the named report on stderr.
+// @compilerrules [actor-pool-fault-sink]
 fn report_fault(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, pool: Int, reason: Str) [] -> None
 => actors: Mut, pools: Mut, !pool, !reason {
     let sink = copy((get(pools, pool) ?: unreachable!()).sink)
@@ -1100,10 +1149,11 @@ fn report_fault(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, po
     report("salvo: an uncaught fault on pool ${pool}: ${reason}")
 }
 
-// [actor-on-idle] True when no work is queued anywhere: no actor has a
+// True when no work is queued anywhere: no actor has a
 // deliverable entry, no pool a ready task, no outside source is open, and no
 // waiting frame has an answer sitting in its slot (its pickup is the waiting
 // thread itself, one instant away).
+// @compilerrules [actor-on-idle]
 fn quiet(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>, externals: Int) [] -> Bool
 => actors, waiters, pools, externals {
     if externals > 0 {
@@ -1127,9 +1177,10 @@ fn quiet(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools
     return true
 }
 
-// [actor-on-idle] Fires every registered hook — quiescence is a property of
+// Fires every registered hook — quiescence is a property of
 // the whole scheduler, so they all see it together — each with what its pool
 // is still owed.
+// @compilerrules [actor-on-idle]
 fn fire_idle(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>, hooks: Mut List<IdleHook>) [] -> None
 => actors: Mut, waiters: Mut, pools: Mut, hooks: Mut {
     while remove_first(hooks) is IdleHook h {
@@ -1148,9 +1199,10 @@ fn fire_idle(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, p
     }
 }
 
-// [waitfor-pump] The deadlock report: nothing can run while [own] (or main)
+// The deadlock report: nothing can run while [own] (or main)
 // waits, naming the two ways a mailbox comes to be unservable — an actor
 // parked in a wait, and a gated actor.
+// @compilerrules [waitfor-pump]
 fn deadlock_report(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, own: Int) [] -> Str
 => actors, waiters, own {
     let occupied: Mut List<Str> = Mut List()
@@ -1179,9 +1231,10 @@ fn deadlock_report(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterR
     return "salvo: deadlock: nothing can run while ${who} waits${detail}"
 }
 
-// [waitfor-pump] The next work on [pool]: a ready task first, then the first
+// The next work on [pool]: a ready task first, then the first
 // actor with a deliverable entry — honouring its gate — other than
 // [exclude], whose own activation is the one waiting.
+// @compilerrules [waitfor-pump]
 fn take_work(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, pool: Int, exclude: Int) [] -> Work?
 => actors: Mut, pools: Mut, !pool, !exclude {
     let p = at(pools, pool) ?: unreachable!()
@@ -1235,7 +1288,7 @@ fn work_of(a: Mut ActorRec, addr: Int, e: Entry, body: Body) [] -> Work? => a: M
             unpark(b)
         }
         let {msg, from} = d
-        // [remote-backpressure] A remote sender's message left the queue:
+        // [net-remote-backpressure] A remote sender's message left the queue:
         // that node gets one credit back for this actor.
         if from >= 0 {
             granted(copy(addr), copy(a.pool), from)
@@ -1296,8 +1349,9 @@ fn wake_every(pools: Mut List<Mut PoolRec>, pool: Int) [] -> None => pools: Mut,
     }
 }
 
-// [waitfor-pump] Wakes every frame parked in a wait, to look at the
+// Wakes every frame parked in a wait, to look at the
 // scheduler again.
+// @compilerrules [waitfor-pump]
 fn wake_waiters(waiters: Mut List<Mut WaiterRec>) [] -> None => waiters: Mut {
     for w in waiters {
         if w.waiting > 0 && w.parker is Parker p {
@@ -1306,10 +1360,11 @@ fn wake_waiters(waiters: Mut List<Mut WaiterRec>) [] -> None => waiters: Mut {
     }
 }
 
-// [pool-retire] Retires [pool] when nothing can run on it any more: a
+// Retires [pool] when nothing can run on it any more: a
 // `Dedicated` pool — nobody holds it but the spawn that consumed it — whose
 // actors are all dead, with no task queued and no token owed to work there.
 // Its threads are woken, see the flag and return.
+// @compilerrules [actor-pool-retire]
 fn retire_if_done(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, pool: Int) [] -> None
 => actors, pools: Mut, !pool {
     let p = at(pools, pool) ?: unreachable!()
@@ -1339,39 +1394,45 @@ use Scheduler()
 
 // ---- the surface
 
-// [runtime-handles] An addr and a pool **are** indices into this runtime's
+// An addr and a pool **are** indices into this runtime's
 // tables; these four are the only way between the two, and they are std's
 // alone (a program cannot import `runtime`), so a program still cannot forge
 // a handle. What lets `std.core.actor` and `net` be Salvo over this module
 // (ROADMAP 0.2).
+// @compilerrules [runtime-handles]
 export intrinsic fn addr_index<E>(a: eff[E]) [] -> Int => a
 export intrinsic fn addr_of<E>(index: Int) [] -> eff[E] => index
 export intrinsic fn pool_index(p: Pool) [] -> Int => p
 export intrinsic fn pool_of(index: Int) [] -> Pool => index
-// [runtime-handles] The core's token inside a reply token, taken out of it:
+// The core's token inside a reply token, taken out of it:
 // what `std.core.actor`'s `watch` and `on_idle` register. `None` for a token
 // minted on another node, which has no local half.
+// @compilerrules [runtime-handles]
 export intrinsic fn reply_token<T canbe linear>(r: Reply<T>) [] -> Token? => !r
 
-// [runtime-sched] A pool of [n] worker threads; uncaught faults on it go to
+// A pool of [n] worker threads; uncaught faults on it go to
 // [sink] (an actor), or to the named report when it is -1.
+// @compilerrules [runtime-sched]
 export fn new_pool_of(n: Int, sink: Int) [] -> Int => n, !sink {
     return start_pool(n, sink, false)
 }
 
-// [pool-retire] [waitfor-dedicated] A `Dedicated` pool: one thread, which returns once its
+// A `Dedicated` pool: one thread, which returns once its
 // actors are dead and nothing is left to run there.
+// @compilerrules [actor-pool-retire, waitfor-dedicated]
 export fn new_dedicated_pool() [] -> Int {
     return start_pool(1, -1, true)
 }
 
-// [waitfor-pump] Waiter records in the scheduler's table: as many as the
+// Waiter records in the scheduler's table: as many as the
 // most waits ever open at once.
+// @compilerrules [waitfor-pump]
 export fn waiter_record_count() [] -> Int {
     return waiter_records()
 }
 
-// [pool-retire] Worker threads that have returned from retired pools.
+// Worker threads that have returned from retired pools.
+// @compilerrules [actor-pool-retire]
 export fn retired_worker_count() [] -> Int {
     return retired_workers()
 }
@@ -1390,14 +1451,16 @@ fn start_pool(n: Int, sink: Int, dedicated: Bool) [] -> Int => n, !sink, !dedica
     return id
 }
 
-// [runtime-sched] An actor on [pool] whose mailbox holds [bound] messages.
+// An actor on [pool] whose mailbox holds [bound] messages.
+// @compilerrules [runtime-sched]
 export fn spawn_body(pool: Int, bound: Int, body: Body) [] -> Int => !pool, !bound, !body {
     return new_actor(pool, bound, body)
 }
 
-// [runtime-sched] Sends [msg] to [addr], waiting while its mailbox is full;
+// Sends [msg] to [addr], waiting while its mailbox is full;
 // a send to the dead is the silent no-op, and so is an untyped send to a
 // proxy, which has no encoding to route.
+// @compilerrules [runtime-sched]
 export fn send_dyn(addr: Int, msg: Dyn) [] -> None => !addr, !msg {
     let back = send_or_back(addr, msg)
     if back is Dyn d {
@@ -1405,8 +1468,9 @@ export fn send_dyn(addr: Int, msg: Dyn) [] -> None => !addr, !msg {
     }
 }
 
-// [addr-routable] The same, but a send to a proxy hands [msg] back, for the
+// The same, but a send to a proxy hands [msg] back, for the
 // caller to encode and route.
+// @compilerrules [net-addr-routable]
 export fn send_or_back(addr: Int, msg: Dyn) [] -> Dyn? => !addr, !msg {
     let r = enqueue(copy(addr), msg, this_parker())
     while r is Full full {
@@ -1418,7 +1482,7 @@ export fn send_or_back(addr: Int, msg: Dyn) [] -> Dyn? => !addr, !msg {
             r = enqueue(copy(addr), again, this_parker())
             continue
         }
-        // [main-pool] Blocking here would be a guaranteed wedge: the only
+        // [actor-main-pool] Blocking here would be a guaranteed wedge: the only
         // thread that could drain a main-pool mailbox is main, sending.
         if here_pool() == main_pool() && here_actor() == no_frame() && pool_of_actor(copy(addr)) == main_pool() {
             report("salvo: deadlock: the main pool's actor ${addr} has a full mailbox and the only thread that could drain it is the one sending: the main pool has one worker, `main` itself, and it serves work only inside a `waitfor` — send fewer messages before waiting, raise the handler's `mailbox` capacity, or place the actor on a pool of its own")
@@ -1442,8 +1506,9 @@ export fn send_or_back(addr: Int, msg: Dyn) [] -> Dyn? => !addr, !msg {
     return None
 }
 
-// [test-actor] Runs one piece of work so a full mailbox can drain, or reports
+// Runs one piece of work so a full mailbox can drain, or reports
 // that nothing can.
+// @compilerrules [test-actor]
 fn make_room(addr: Int) [] -> None => !addr {
     let w = virtual_work(here_actor())
     if w is RunActor ra {
@@ -1458,46 +1523,54 @@ fn make_room(addr: Int) [] -> None => !addr {
     exit_process(1)
 }
 
-// [addr-routable] Marks [addr] a proxy: sends to it are handed back.
+// Marks [addr] a proxy: sends to it are handed back.
+// @compilerrules [net-addr-routable]
 export fn mark_proxy(addr: Int) [] -> None => !addr {
     set_proxy(addr)
 }
 
-// [actor-replyto] A token answering [addr]'s continuation; [gated], the
+// A token answering [addr]'s continuation; [gated], the
 // actor serves nothing else until it is answered.
+// @compilerrules [actor-replyto]
 export fn mint(addr: Int, gated: Bool) [] -> Token => !addr, !gated {
     return mint_actor(addr, gated)
 }
 
-// [task-mint] A token whose answer schedules [body] on [pool].
+// A token whose answer schedules [body] on [pool].
+// @compilerrules [task-mint]
 export fn mint_task_on(pool: Int, body: Body) [] -> Token => !pool, !body {
     return mint_task(pool, body)
 }
 
-// [actor-waitfor] A token answering a frame that will wait for it.
+// A token answering a frame that will wait for it.
+// @compilerrules [actor-waitfor]
 export fn waiter() [] -> WaiterMint {
     return mint_waiter(here_pool())
 }
 
-// [actor-replyto] Answers [t] with [value].
+// Answers [t] with [value].
+// @compilerrules [actor-replyto]
 export fn answer(t: Token, value: Dyn) [] -> None => !t, !value {
     deliver(t, value)
 }
 
-// [actor-watch] Answers [t] with an `Exit` when [addr] dies — at once if it
+// Answers [t] with an `Exit` when [addr] dies — at once if it
 // already has.
+// @compilerrules [actor-watch]
 export fn watch(addr: Int, t: Token) [] -> None => !addr, !t {
     watch_actor(addr, t)
 }
 
-// [actor-on-idle] Answers [t] with an `Idle` the moment nothing anywhere can
+// Answers [t] with an `Idle` the moment nothing anywhere can
 // run, reporting what [pool] is still owed.
+// @compilerrules [actor-on-idle]
 export fn on_idle(pool: Int, t: Token) [] -> None => !pool, !t {
     idle_hook(pool, t)
 }
 
-// [threadsafe-platform] A host thread that may send at any moment is open,
+// A host thread that may send at any moment is open,
 // or closed: while one is open the program is neither idle nor stuck.
+// @compilerrules [platform-threadsafe]
 export fn external_begin() [] -> None {
     // [test-actor] Work arriving from a host thread would arrive off the
     // virtual clock, so an actor test may not open one.
@@ -1508,30 +1581,35 @@ export fn external_begin() [] -> None {
     external(1)
 }
 
-// [test-actor] Enters the virtual runtime, as a fresh scheduler: what an
+// Enters the virtual runtime, as a fresh scheduler: what an
 // actor test runs on.
+// @compilerrules [test-actor]
 export fn enter_virtual(seed: Long) [] -> None => !seed {
     go_virtual(seed)
 }
 
-// [random-default] A uniform double in [0, 1): what `random.DefaultRandom`
-// answers. Repeatable from the seed in an actor test [test-actor].
+// A uniform double in [0, 1): what `random.DefaultRandom`
+// answers. Repeatable from the seed in an actor test.
+// @compilerrules [std-random-default, test-actor]
 export fn random_double() [] -> Double {
     return random_unit()
 }
 
-// [test-actor] Whether this is the virtual runtime.
+// Whether this is the virtual runtime.
+// @compilerrules [test-actor]
 export fn virtual_runtime() [] -> Bool {
     return is_virtual()
 }
 
-// [test-actor] Moves the virtual clock forward to [at].
+// Moves the virtual clock forward to [at].
+// @compilerrules [test-actor]
 export fn set_virtual_now(at: Long) [] -> None => !at {
     advance_to(at)
 }
 
-// [test-actor] Answers [t] once nothing can run: how the timer service moves
+// Answers [t] once nothing can run: how the timer service moves
 // virtual time.
+// @compilerrules [test-actor]
 export fn on_clock(t: Token) [] -> None => !t {
     clock_hook(t)
 }
@@ -1540,9 +1618,10 @@ export fn external_end() [] -> None {
     external(-1)
 }
 
-// [waitfor-pump] Waits for [wid]'s answer, serving this thread's pool
+// Waits for [wid]'s answer, serving this thread's pool
 // meanwhile — everything on it but the waiting actor's own activations — and
 // reporting the deadlock when nothing anywhere can ever answer it.
+// @compilerrules [waitfor-pump]
 export fn await_answer(wid: Int) [] -> Dyn => !wid {
     let pool = here_pool()
     let own = here_actor()
@@ -1609,7 +1688,7 @@ fn serve_pool(pool: Int) [] -> None => !pool {
     }
 }
 
-// ---- for the host's wire layer [addr-routable]
+// ---- for the host's wire layer [net-addr-routable]
 
 // A token for actor [addr]'s continuation at [slot], decoded off the wire:
 // owed on the node that minted it, so not tracked here.
@@ -1622,9 +1701,10 @@ export fn token_to_waiter(wid: Int, slot: Long) [] -> Token => !wid, !slot {
     return Token { target: ToWaiter { wid: wid }, slot: slot, tracked: false }
 }
 
-// [addr-routable] What a token is, for its wire form: kind (0 an actor, 1 a
+// What a token is, for its wire form: kind (0 an actor, 1 a
 // waiter, 2 a task), the actor or waiter index, and the slot. A task's body
 // comes out with it — the routing layer keeps it until the answer returns.
+// @compilerrules [net-addr-routable]
 export linear struct Exported {
     kind: Int,
     id: Int,
@@ -1656,53 +1736,63 @@ fn drop_exported(e: Exported) [] -> None => !e {
     }
 }
 
-// [addr-routable] A message that came over the wire, into [addr]'s mailbox.
+// A message that came over the wire, into [addr]'s mailbox.
+// @compilerrules [net-addr-routable]
 export fn deliver_remote(addr: Int, msg: Dyn, from: Long) [] -> Bool => !addr, !msg, !from {
     return enqueue_remote(addr, msg, from)
 }
 
-// [node-exit] A proxy whose node left dies, firing its watches.
+// A proxy whose node left dies, firing its watches.
+// @compilerrules [node-exit]
 export fn kill_actor(addr: Int, reason: Str) [] -> None => !addr, !reason {
     kill(addr, reason)
 }
 
-// [remote-backpressure] Room left in [addr]'s mailbox.
+// Room left in [addr]'s mailbox.
+// @compilerrules [net-remote-backpressure]
 export fn mailbox_room(addr: Int) [] -> Int => addr {
     return room(addr)
 }
 
-// [actor-group] Messages queued for [addr] — a local member's load.
+// Messages queued for [addr] — a local member's load.
+// @compilerrules [actor-group]
 export fn mailbox_queued(addr: Int) [] -> Int => addr {
     return queued(addr)
 }
 
-// [main-pool] The pool the calling thread works for.
+// The pool the calling thread works for.
+// @compilerrules [actor-main-pool]
 export fn current_pool() [] -> Int {
     return here_pool()
 }
 
-// [actor-watch] Whether [addr] has died: a sender waiting on credits stops.
+// Whether [addr] has died: a sender waiting on credits stops.
+// @compilerrules [actor-watch]
 export fn mailbox_dead(addr: Int) [] -> Bool => addr {
     return is_dead(addr)
 }
 
-// [addr-capability] Fresh capability bits, for an identity the host mints.
+// Fresh capability bits, for an identity the host mints.
+// @compilerrules [net-addr-capability]
 export fn identity_bits() [] -> Long {
     return fresh_bits()
 }
 
-// [addr-routable] The pool actor [addr] runs on.
+// The pool actor [addr] runs on.
+// @compilerrules [net-addr-routable]
 export fn actor_pool(addr: Int) [] -> Int => addr {
     return pool_of_actor(addr)
 }
 
-// [addr-routable] The pool waiting frame [wid] waits on.
+// The pool waiting frame [wid] waits on.
+// @compilerrules [net-addr-routable]
 export fn waiter_pool(wid: Int) [] -> Int => wid {
     return pool_of_waiter(wid)
 }
 
-// [addr-routable] An actor that does nothing with what it is sent: the
+// An actor that does nothing with what it is sent: the
 // table entry a proxy, or the shared dead entry, stands on.
+// @compilerrules [net-addr-routable]
 export fn spawn_inert() [] -> Int {
     return spawn_body(0, 0, body_of((kind, slot, value) -> drop_dyn(value)))
 }

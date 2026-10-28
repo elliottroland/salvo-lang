@@ -54,7 +54,7 @@
 //! argument, applied after the call; an assignment through a projection,
 //! before its value), with what it spares — the acting handle, a handle to
 //! the mutated thing itself under a contents mutation [deduce-field], the
-//! handles a live `NotSame` claim proves apart [elem-distinct]. A poisoned
+//! handles a live `NotSame` claim proves apart [fate-elem-distinct]. A poisoned
 //! local is gone like a moved one (it replaces a move as the reason; a
 //! join keeps the first path's poison over a plain move); a read of it
 //! names the root and the event. A move-mode binding (`FateFacts::bound`:
@@ -713,7 +713,7 @@ impl<'f> Walker<'f> {
     /// mutation (the checker's `record_mutation`) names what it spares: the
     /// acting handle, a handle to the mutated thing itself under a contents
     /// mutation [deduce-field], and the handles proven apart
-    /// [elem-distinct].
+    /// [fate-elem-distinct].
     fn poison(&self, root: &str, path: Option<&[crate::place::Step]>, event: &'static str, span: Span, m: Option<&FlowMutation>, moved: &mut Moved) {
         let contents_only = m.is_some_and(|m| m.contents_only);
         let victims: Vec<String> = moved
@@ -1275,7 +1275,7 @@ impl<'f> Walker<'f> {
                 }
                 Flow::FallsThrough
             }
-            // [once-fn] A call of a local is a use of it; a call the checker
+            // [fn-once] A call of a local is a use of it; a call the checker
             // recorded as consuming it (a `once` fn) is its move, after the
             // arguments.
             ExprKind::Call { target: FnRef::Local(l), args, moved: consumes, .. } => {

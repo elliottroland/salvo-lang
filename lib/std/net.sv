@@ -44,9 +44,9 @@
 //      `RouteSelector<E>` policy chooses per send: `LeastLoaded`, `Sharded` by a
 //      `Key`-marked argument, `Elected` behind a `Leader`.
 //
-// Rules: [net-transport] [net-host] [net-mem] [wire-format] [noremote]
-// [protocol-hash] [addr-routable] [addr-capability] [remote-backpressure]
-// [net-connect] [node-group] [actor-group] [effect-any] [route-stub].
+// Rules: [net-transport] [net-host] [net-mem] [net-wire-format] [net-noremote]
+// [actor-protocol-hash] [net-addr-routable] [net-addr-capability] [net-remote-backpressure]
+// [net-connect] [node-group] [actor-group] [effect-any] [actor-route-stub].
 //
 // Two halves of the transport, deliberately asymmetric:
 //
@@ -62,7 +62,7 @@
 //
 // The platform owns the transport only: [HostTcpTransport] is the host
 // class, declared `threadsafe` because a transport is called from every pool
-// [threadsafe-platform]; [MemTransport] is the pure-Salvo double every test
+// [platform-threadsafe]; [MemTransport] is the pure-Salvo double every test
 // runs on — N virtual endpoints in one process, with the faults a test wants
 // to script.
 
@@ -107,10 +107,11 @@ export fn to_str(e: NetError) [] -> Str => e {
 
 // What a receiver serves: one member, one frame at a time, from whoever sent
 // it. An **actor** effect, because frames arrive from a thread the scheduler
-// does not own and a send is the only door in [actor-effect-kind].
+// does not own and a send is the only door in.
 //
 // The frame is opaque `Bytes`: this layer does not know what a protocol is.
 // The codecs (step ②) decode it one level up, in the actor that registered.
+// @compilerrules [actor-effect-kind]
 export actor effect Inbound {
     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame
 }
@@ -142,32 +143,36 @@ export effect Transport {
 
 // -------------------------------------------------------------- routing ----
 
-// [addr-routable] The identity of a node: a process, or one of the virtual
+// The identity of a node: a process, or one of the virtual
 // nodes a process hosts for the in-process double. Minted by the runtime at
 // start (`this_node`) or on demand (`new_node`), unique across a node group
 // with overwhelming probability, and compared everywhere — a proxy's home,
 // a `Node` in a group, the leader an election answers — so it has a wire
 // form: an `Addr` that crosses the wire is `(node, actor, bits)`.
+// @compilerrules [net-addr-routable]
 export struct NodeId : Hashed<self> by auto {
     value: Long
 }
 
-// [addr-routable] The identity of the node this code runs on: every actor
+// The identity of the node this code runs on: every actor
 // carries the node it was spawned on.
+// @compilerrules [net-addr-routable]
 export fn this_node() [] -> NodeId {
     return NodeId { value: here_node() }
 }
 
-// [addr-routable] Hosts a fresh **virtual node** in this process: the
+// Hosts a fresh **virtual node** in this process: the
 // in-process double of another machine. Pools made with [pool_at] belong to
 // it, actors spawned on them carry it, and an addr of one that crosses to
 // another node — virtual or not — is reached through a proxy, so every remote
 // path runs without a socket.
+// @compilerrules [net-addr-routable]
 export fn new_node() [spawn] -> NodeId {
     return NodeId { value: new_node@runtime.routing() }
 }
 
-// [addr-routable] A pool of [size] workers belonging to [node].
+// A pool of [size] workers belonging to [node].
+// @compilerrules [net-addr-routable]
 export fn pool_at(node: NodeId, size: Int) [spawn] -> Pool => node, size {
     return pool_of(pool_at(node.value, size))
 }
@@ -182,26 +187,29 @@ export fn pool_at(node: NodeId, size: Int) [spawn] -> Pool => node, size {
 // bytes back and the runtime finds the actor, waiter or proxy they are for.
 // These three intrinsics are those bindings; `connect` makes all of them.
 
-// [addr-routable] Records where frames for [node] go. The self-route is
+// Records where frames for [node] go. The self-route is
 // written by `connect`; routes to peers are learnt in the node group's
 // handshake. A frame for a node with no route yet waits until one arrives.
+// @compilerrules [net-addr-routable]
 fn add_route(node: NodeId, at: NodeEndpoint) [] -> None => node, at {
     route(node.value, encode(copy(at)))
 }
 
-// [addr-routable] Binds the current node's outbound side: every frame the
+// Binds the current node's outbound side: every frame the
 // runtime wants sent is queued to [out], whose activation calls
 // `Transport.deliver` — with the scheduler's lock released, which is why it
 // is an actor and not a direct call.
+// @compilerrules [net-addr-routable]
 fn route_frames(out: eff[Outbound]) [] -> None => !out {
     bind_outbound(here_node(), addr_index(out), forward_frame)
     outbound_bound()
 }
 
-// [addr-routable] [platform-fn-value] The outbound hook: called by the host,
+// The outbound hook: called by the host,
 // on whichever thread has a frame for the wire, with the `Outbound` actor's
 // index, the endpoint's canonical bytes and the frame. An endpoint that does
 // not decode is dropped, never sent wrong.
+// @compilerrules [net-addr-routable, platform-fn-value]
 fn forward_frame(out: Int, to: Bytes, frame: Bytes) [] -> None => out, to, !frame {
     if decode<NodeEndpoint>(to) is NodeEndpoint ep {
         let sending: eff[Outbound] = addr_of(out)
@@ -209,23 +217,26 @@ fn forward_frame(out: Int, to: Bytes, frame: Bytes) [] -> None => out, to, !fram
     }
 }
 
-// [platform-fn-value] Records [hook] as node [node]'s outbound hook, called
+// Records [hook] as node [node]'s outbound hook, called
 // with [out]: the host keeps the named fn and calls it for each frame.
+// @compilerrules [platform-fn-value]
 platform fn bind_outbound(node: Long, out: Int, hook: (out: Int, to: Bytes, frame: Bytes) -> None) [] -> None
 =>[hook] !frame => node, out, !hook
 
-// [addr-routable] Hands one frame that arrived on the wire to the runtime:
+// Hands one frame that arrived on the wire to the runtime:
 // a message into an actor's mailbox, a reply to its waiter, a credit to a
 // proxy, a handshake to the node group. Answers whether it was delivered; a
 // frame for an unknown target, with mismatched bits or a malformed payload is
 // dropped, never delivered wrong.
+// @compilerrules [net-addr-routable]
 fn deliver_frame(data: Bytes) [] -> Bool => data {
     return deliver(data)
 }
 
-// [remote-backpressure] For an addr that crossed the wire, how many more
+// For an addr that crossed the wire, how many more
 // messages its mailbox has granted room for; `None` for a local actor. What a
 // pick reads as a remote member's load (step ⑤).
+// @compilerrules [net-remote-backpressure]
 export fn credits<E>(a: eff[E]) [] -> Int? => a {
     let c = credits(addr_index(a))
     if c is None {
@@ -237,9 +248,10 @@ export fn credits<E>(a: eff[E]) [] -> Int? => a {
     return c
 }
 
-// [addr-routable] The outbound protocol: the runtime sends every frame it
+// The outbound protocol: the runtime sends every frame it
 // wants on the wire here, and the one handler of it hands them to the
 // `Transport` in scope.
+// @compilerrules [net-addr-routable]
 export actor effect Outbound {
     send fn send_frame(to: NodeEndpoint, frame: Bytes) => !to, !frame
 }
@@ -253,9 +265,10 @@ export handler Sending() [Transport] of Outbound {
     }
 }
 
-// [addr-routable] The inbound side: the `Inbound` handler that hands every
+// The inbound side: the `Inbound` handler that hands every
 // frame to the runtime. `listen(at, spawn Receiving())` is a node's whole
 // receive path.
+// @compilerrules [net-addr-routable]
 export handler Receiving() of Inbound {
     mailbox { capacity: 256 }
 
@@ -264,14 +277,15 @@ export handler Receiving() of Inbound {
     }
 }
 
-// [net-connect] Whether the current node is connected to the wire: its
+// Whether the current node is connected to the wire: its
 // outbound side bound by [connect]. What makes `connect` idempotent, and what
 // a program asks before it decides to.
+// @compilerrules [net-connect]
 export fn connected() [] -> Bool {
     return connected@runtime.routing()
 }
 
-// [net-connect] Connects the current node to the wire, at endpoint [me]:
+// Connects the current node to the wire, at endpoint [me]:
 // the three bindings between the scheduler and the `Transport` in scope,
 // which every node needs exactly once before it can reach or be reached by
 // another —
@@ -296,6 +310,7 @@ export fn connected() [] -> Bool {
 // place the wire actors itself; otherwise a node group's `init` connects the
 // node at the transport's own endpoint when nothing has (user decision
 // 2026-09-28), so a fresh node needs only its transport and its group.
+// @compilerrules [net-connect]
 export fn connect(me: NodeEndpoint) [Transport, spawn] -> Bool => !me {
     return connect(me, pool(1))
 }
@@ -314,18 +329,20 @@ export fn connect(me: NodeEndpoint, on: Pool) [Transport, spawn] -> Bool => !me,
 
 // ----------------------------------------------------------- node group ----
 
-// [node-group] A member of a node group: the identity the handshake minted and
+// A member of a node group: the identity the handshake minted and
 // the endpoint it answers at. What a mechanism knows *after* contact; a
 // `NodeEndpoint` is what it knows before.
+// @compilerrules [node-group]
 export struct Node : Hashed<self> by auto {
     id: NodeId,
     at: NodeEndpoint
 }
 
-// [node-group] Membership of **nodes**: one actor effect, whose handlers are
+// Membership of **nodes**: one actor effect, whose handlers are
 // the mechanisms — a fixed list, gossip over seeds, a heartbeat store. Every
 // handler serves this face the same way; what differs is how it learns who is
 // there and how it notices who has gone.
+// @compilerrules [node-group]
 export actor effect NodeGroup {
     // Everyone this node currently knows, itself excluded.
     send fn members(out: Reply<List<Node>>) => !out
@@ -335,8 +352,9 @@ export actor effect NodeGroup {
     send fn leave()
 }
 
-// [node-group] What a subscriber hears. [why] on a departure is `"left"` for
+// What a subscriber hears. [why] on a departure is `"left"` for
 // an announced one, or the mechanism's account of an unannounced one.
+// @compilerrules [node-group]
 export actor effect NodeGroupWatcher {
     send fn joined(n: Node) => !n
     send fn left(n: Node, why: Str) => !n, !why
@@ -356,7 +374,7 @@ export actor effect NodeGroupWatcher {
 // (`watch_control`) receives its payload as a private `control(from, data)`
 // message [actor-private-send] — a node group's mechanism on the channel
 // `""`, an actor group's replica on its group's name. The payloads are the
-// canonical encodings of the types below [wire-format]. Control frames
+// canonical encodings of the types below [net-wire-format]. Control frames
 // travel through the runtime rather than as an actor protocol, so a
 // mechanism never sends the protocol it serves, which keeps gossip out of
 // the deadlock graph's send-cycle warning [actor-deadlock-cycle].
@@ -367,14 +385,16 @@ struct Leaving {}
 struct Intro { peers: List<NodeEndpoint> }
 type Handshake = Hello | Ack | Leaving | Intro
 
-// [node-group] [actor-group] The current node's control frames on [channel]
+// The current node's control frames on [channel]
 // go to [sink], as the private `control(from, data)` message of the handler
 // whose `init` calls it — `self@E` there. Every registration is the node's,
 // so several hosted nodes in one process each hear their own.
+// @compilerrules [node-group, actor-group]
 intrinsic fn watch_control<E>(channel: Str, sink: eff[E]) [] -> None => channel, !sink
 
-// [node-group] [actor-group] Routes [payload] to the actor listening on
+// Routes [payload] to the actor listening on
 // [channel] at node [to]: a control frame, parked until [to] has a route.
+// @compilerrules [node-group, actor-group]
 fn send_control(to: NodeId, channel: Str, payload: Bytes) [] -> None => to, channel, !payload {
     send_control(to.value, copy(channel), payload)
 }
@@ -384,48 +404,54 @@ fn send_control(to: NodeId, channel: Str, payload: Bytes) [] -> None => to, chan
 // not known and it has no route — it is handed to the transport directly.
 // (Now `runtime.routing`'s own, called directly [runtime-handles].)
 
-// [node-group] [node-exit] Peer [node] has left: the runtime forgets its route
+// Peer [node] has left: the runtime forgets its route
 // and protocol table, and every proxy of an actor on it dies — a send to one
 // is the silent no-op, and a `watch` on one fires.
+// @compilerrules [node-group, node-exit]
 fn node_left(node: NodeId) [] -> None => node {
     node_left(node.value)
 }
 
-// [protocol-hash] This program's protocol table, which every [Hello] and
+// [actor-protocol-hash] This program's protocol table, which every [Hello] and
 // [Ack] carries.
 // (Now `runtime.routing`'s own, called directly [runtime-handles].)
 
-// [protocol-hash] Records peer [node]'s protocol table, as its handshake
+// Records peer [node]'s protocol table, as its handshake
 // carried it: what [peer_protocol] answers from.
+// @compilerrules [actor-protocol-hash]
 fn set_peer_protocols(node: NodeId, table: List<(Str, Str)>) [] -> None => node, table {
     set_peer_protocols(node.value, copy(table))
 }
 
-// [protocol-hash] A peer's hash for the protocol named [protocol], as its
+// A peer's hash for the protocol named [protocol], as its
 // handshake carried it; `None` for an unknown peer or one without the
 // protocol.
+// @compilerrules [actor-protocol-hash]
 export fn peer_protocol(node: NodeId, protocol: Str) [] -> Str? => node, protocol {
     return peer_protocol(node.value, protocol)
 }
 
-// [node-group] The HELLO for group [group], to be handed to the transport
+// The HELLO for group [group], to be handed to the transport
 // directly: a node with no route yet cannot be sent to any other way.
+// @compilerrules [node-group]
 fn hello_frame(group: Str) [Transport] -> Bytes => group {
     let hello: Handshake = Hello { group: copy(group), at: local_endpoint(), protocols: local_protocols() }
     return control_frame("", encode(hello))
 }
 
-// [node-group] What a mechanism learns from one handshake message.
+// What a mechanism learns from one handshake message.
+// @compilerrules [node-group]
 struct PeerHello { node: NodeId, at: NodeEndpoint }
 struct PeerGone { node: NodeId }
 struct PeerIntro { peers: List<NodeEndpoint> }
 
-// [node-group] The handshake, common to every mechanism: a [Hello] of the
+// The handshake, common to every mechanism: a [Hello] of the
 // same group records the peer's route and protocol table and is answered with
 // an [Ack], which records the same without an answer; a group of another name
 // is refused by its name; a [Leaving] forgets the peer and kills its proxies.
 // Answers what the mechanism should know, or `None` for a message to ignore
 // (malformed, or of another group).
+// @compilerrules [node-group]
 fn handshake(group: Str, from: NodeId, data: Bytes) [Transport] -> PeerHello | PeerGone | PeerIntro | None
     => group, !from, !data {
     let msg = decode<Handshake>(data)
@@ -461,13 +487,15 @@ fn handshake(group: Str, from: NodeId, data: Bytes) [Transport] -> PeerHello | P
     }
 }
 
-// [node-group] Tells peer [node] about [peers]: an [Intro].
+// Tells peer [node] about [peers]: an [Intro].
+// @compilerrules [node-group]
 fn introduce(node: NodeId, peers: List<NodeEndpoint>) [] -> None => node, peers {
     let intro: Handshake = Intro { peers: copy(peers) }
     send_control(copy(node), "", encode(intro))
 }
 
-// [node-group] A [Leaving] to every peer in [known].
+// A [Leaving] to every peer in [known].
+// @compilerrules [node-group]
 fn leave_group(known: Map<NodeId, Node>) [] -> None => known {
     for id in keys(known) {
         let leaving: Handshake = Leaving {}
@@ -475,10 +503,11 @@ fn leave_group(known: Map<NodeId, Node>) [] -> None => known {
     }
 }
 
-// [node-group] Fixed membership: every endpoint is known up front, so the
+// Fixed membership: every endpoint is known up front, so the
 // mechanism is "say HELLO to each, and report who answers". Death detection
 // is the transport's: a LEAVE, or — once step ④'s follow-up lands — a failed
 // delivery. The double every later step tests on, over `MemTransport`.
+// @compilerrules [node-group]
 export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, spawn]
     of NodeGroup {
     mailbox { capacity: 64 }
@@ -490,9 +519,10 @@ export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, s
 
     // The mechanism starts itself: `init` is the first activation, and
     // `self@NodeGroup` is where the control frames of its handshake go.
-    // [net-connect] It connects the node if nothing has yet — the transport it
+    // It connects the node if nothing has yet — the transport it
     // depends on is a handle the two wire actors inherit — at the transport's
     // own endpoint: one source of truth for "where this node is".
+    // @compilerrules [net-connect]
     init {
         let me = local_endpoint()
         let _connected = connect(copy(me))
@@ -566,12 +596,13 @@ fn known_nodes(known: Map<NodeId, Node>) [] -> List<Node> => known {
     return all_known
 }
 
-// [node-group] Gossip membership: a node knows only some [seeds] to start
+// Gossip membership: a node knows only some [seeds] to start
 // with; every node it meets is told who else it knows, and tells everyone
 // else about it, so the group converges on a full mesh from any connected set
 // of seeds. Death is a LEAVE (or, once the failure follow-up lands, a failed
 // delivery). The mechanism most deployments want when the fleet is not fixed;
 // its partition policy is the recorded follow-up.
+// @compilerrules [node-group]
 export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport, spawn]
     of NodeGroup {
     mailbox { capacity: 64 }
@@ -672,38 +703,41 @@ fn dial(dialed: Mut Set<Str>, group: Str, e: NodeEndpoint) [Transport] -> None
 
 // ---------------------------------------------------------- actor group ----
 
-// [protocol-hash] A protocol named as a value: what a replica is told which
+// A protocol named as a value: what a replica is told which
 // effect a group is of, so a peer whose hash for it differs is refused before
-// any message is exchanged. `E` types the value and is erased in the output
-// [effect-generic-decl]; the value carries what erasure drops, which is how
+// any message is exchanged. `E` types the value and is erased in the output;
+// the value carries what erasure drops, which is how
 // a generic fn (`actor_group<E>`) gets to hold the name and hash of an `E`
 // it cannot see.
+// @compilerrules [actor-protocol-hash, effect-generic-decl]
 export struct Protocol<E> {
     name: Str,
     hash: Str
 }
 
-// [protocol-hash] [implicit-intrinsic] The protocol [E], as a value. The
+// The protocol [E], as a value. The
 // **one** intrinsic that reads its type argument: an effect-only generic is
 // erased in the output, so the name and hash of `E` exist only where `E` is
 // written concretely, and this is the function the checker finds for an
 // implicit `?protocol: () -> Protocol<E>` once the call's `E` is known
-// [implicit-resolve] — passed as an adapter closure whose body is the
+// — passed as an adapter closure whose body is the
 // literal, exactly as std's `iter` fills an `?Iterable`. A program never
 // needs to write `protocol<Ping>()` itself: it writes `actor_group<Ping>(…)`
 // and the implicit is filled. Resolving it for an `E` whose payloads have no
-// wire form is refused [noremote]: a group of `E` could not span nodes.
+// wire form is refused: a group of `E` could not span nodes.
+// @compilerrules [actor-protocol-hash, implicit-intrinsic, implicit-resolve, net-noremote]
 export intrinsic fn protocol<E>() [] -> Protocol<E>
 
-// [actor-group] Membership of **actors of one protocol**, across every node
+// Membership of **actors of one protocol**, across every node
 // of a group — the other membership level, beside `NodeGroup`. An
 // `ActorGroup<E>` is a set of `eff[E]`, one replica per node, the replicas
 // finding each other by name through the node group's peers and exchanging
 // their sets; a member may live on any node, and an addr answered by
-// `members` routes there like any addr [addr-routable]. Generic over the
-// *effect* [effect-generic-decl]: `ActorGroup<Counter>` and
+// `members` routes there like any addr. Generic over the
+// *effect*: `ActorGroup<Counter>` and
 // `ActorGroup<Ledger>` are distinct types, so a group can only ever hold the
 // protocol it is of.
+// @compilerrules [actor-group, net-addr-routable, effect-generic-decl]
 export actor effect ActorGroup<E> {
     // Register [member] here; every replica learns of it.
     send fn join(member: eff[E]) => !member
@@ -713,12 +747,14 @@ export actor effect ActorGroup<E> {
     send fn members(out: Reply<List<eff[E]>>) => !out
     // Hear about arrivals and departures.
     send fn subscribe(w: eff[ActorGroupWatcher<E>]) => !w
-    // [route-stub] Something a route selector reads outside the view changed
+    // Something a route selector reads outside the view changed
     // (an election's answer): every route over this group re-reads its view.
+    // @compilerrules [actor-route-stub]
     send fn refresh()
 }
 
-// [actor-group] What a subscriber hears.
+// What a subscriber hears.
+// @compilerrules [actor-group]
 export actor effect ActorGroupWatcher<E> {
     send fn joined(member: eff[E]) => !member
     send fn left(member: eff[E]) => !member
@@ -734,26 +770,28 @@ export actor effect ActorGroupWatcher<E> {
 // whichever opened first. Members travel as addresses; nothing is copied or
 // moved.
 
-// [actor-group] Shares [members] with the replica named [name] on peer
+// Shares [members] with the replica named [name] on peer
 // [node], stamped with this side's [hash] of the protocol.
+// @compilerrules [actor-group]
 fn share_members<E>(name: Str, hash: Str, node: NodeId, members: List<eff[E]>) [] -> None
     => name, hash, node, members {
     send_control(copy(node), copy(name), encode((copy(hash), copy(members))))
 }
 
-// [actor-group] [remote-backpressure] How loaded a member looks from here:
+// How loaded a member looks from here:
 // the queue depth of a local actor, or the messages in flight to a remote one
 // that its host has not yet dequeued. What a pick compares (step ⑦).
+// @compilerrules [actor-group, net-remote-backpressure]
 export fn pending<E>(a: eff[E]) [] -> Int => a {
     return pending(addr_index(a))
 }
 
-// [actor-group] Opens the group of protocol [E] over [nodes] on this node:
+// Opens the group of protocol [E] over [nodes] on this node:
 // one replica, spawned on the current pool, published under the group's name
 // so the replicas other nodes open under the same name find it — the same
 // name from two nodes is one group. Written with the protocol as a type
 // argument, `actor_group<Ping>(nodes)`, which is also where a protocol that
-// cannot cross a node boundary is refused [noremote]. A peer whose hash of
+// cannot cross a node boundary is refused. A peer whose hash of
 // the protocol differs is invisible: its members are never merged.
 //
 // A node group is about **machines** and a program has one; an actor group
@@ -761,12 +799,13 @@ export fn pending<E>(a: eff[E]) [] -> Int => a {
 // one per protocol it routes to or lists the members of.
 //
 // An ordinary fn: the protocol's name and hash are constants of the *written*
-// `E`, and an effect-only generic is erased in the output
-// [effect-generic-decl], so this body cannot produce them — the implicit
+// `E`, and an effect-only generic is erased in the output,
+// so this body cannot produce them — the implicit
 // [protocol] is filled at the call, where `E` is concrete, with the one
-// intrinsic that reads its type argument [protocol-hash] [implicit-resolve].
-// A generic caller forwards its own `?protocol` [implicit-forward], as with
+// intrinsic that reads its type argument.
+// A generic caller forwards its own `?protocol`, as with
 // any implicit.
+// @compilerrules [actor-group, net-noremote, effect-generic-decl, actor-protocol-hash, implicit-resolve, implicit-forward]
 export fn actor_group<E>(nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [spawn] -> eff[ActorGroup<E>]
     => !nodes {
     let proto = protocol()
@@ -774,12 +813,13 @@ export fn actor_group<E>(nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [s
     return actor_group<E>(name, nodes)
 }
 
-// [actor-group] Several groups of one protocol, told apart by [name]. The
+// Several groups of one protocol, told apart by [name]. The
 // subscription to the node group is sent from here rather than from the
 // replica's `init`: sent by the replica it would be a `NodeGroupWatcher →
 // NodeGroup → NodeGroupWatcher` edge in the deadlock graph
-// [actor-deadlock-cycle] — a real one, since the node group sends `joined`
+// — a real one, since the node group sends `joined`
 // back — and sent from the opener's frame it is not.
+// @compilerrules [actor-group, actor-deadlock-cycle]
 export fn actor_group<E>(name: Str, nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [spawn] -> eff[ActorGroup<E>]
     => !name, !nodes {
     let (group, watcher) = spawn ActorGrouping<E>(name, protocol()) on pool(1)
@@ -787,20 +827,22 @@ export fn actor_group<E>(name: Str, nodes: eff[NodeGroup], ?protocol: () -> Prot
     return group
 }
 
-// [actor-group] Registers [member] in [group]. `spawn Pinging() on p in pings`
+// Registers [member] in [group]. `spawn Pinging() on p in pings`
 // is the same thing written at the spawn.
+// @compilerrules [actor-group]
 export fn join<E>(group: eff[ActorGroup<E>], member: eff[E]) [] -> None => group, !member {
     group.join(member)
 }
 
-// [actor-group] The std replica. State: members as a list of addrs (an addr
+// The std replica. State: members as a list of addrs (an addr
 // has no `hash` yet, so membership is checked by `eq`), the peer replicas, the
 // subscribers. Its second face hears the node group: a node's arrival is
 // where the replica first shares with that node's replica, and a node's
-// departure withdraws every member it hosted. [route-stub] After every change
+// departure withdraws every member it hosted. After every change
 // it mirrors the member set into the runtime (`view_set`), which is what a
 // `use any` route reads on the sender's thread — the replica is behind the
 // view by one message, never in the send path.
+// @compilerrules [actor-group, actor-route-stub]
 export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
     of ActorGroup<E>, NodeGroupWatcher {
     mailbox { capacity: 64 }
@@ -840,15 +882,17 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
         }
     }
 
-    // [actor-group] A node of the group: its replica of this name, if it has
+    // A node of the group: its replica of this name, if it has
     // one, hears ours — and answers with its own when we are new to it.
+    // @compilerrules [actor-group]
     send fn joined(n: Node) => !n {
         share_members(name, proto.hash, n.id, all)
     }
 
-    // [actor-group] A node that left took its members with it: withdraw
+    // A node that left took its members with it: withdraw
     // every addr it hosted, telling the subscribers. The runtime has already
     // killed the proxies, so a send to one is the silent no-op.
+    // @compilerrules [actor-group]
     send fn left(n: Node, why: Str) => !n, !why {
         let gone: Mut List<eff[E]> = Mut List()
         for m in all {
@@ -880,9 +924,10 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
         add(watchers, w)
     }
 
-    // [actor-group] A peer replica's members. [protocol-hash] A peer whose
+    // A peer replica's members. A peer whose
     // version of the protocol differs is invisible: its members are never
     // merged, and it never hears ours.
+    // @compilerrules [actor-group, actor-protocol-hash]
     send fn control(from: NodeId, data: Bytes) => !from, !data {
         let got = decode<(Str, List<eff[E]>)>(data)
         if got is None {
@@ -910,7 +955,8 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
     }
 }
 
-// [route-stub] Mirrors [members] into the runtime's view of [group].
+// Mirrors [members] into the runtime's view of [group].
+// @compilerrules [actor-route-stub]
 fn mirror<E>(group: eff[ActorGroup<E>], members: List<eff[E]>) [] -> None => group, members {
     view_set(copy(group), copy(members))
 }
@@ -952,8 +998,9 @@ fn withdraw<E>(list: Mut List<eff[E]>, a: eff[E]) [] -> Bool => list: Mut, !a {
     return true
 }
 
-// [addr-routable] The node an addr lives on — for a log line, and for the
+// The node an addr lives on — for a log line, and for the
 // group's peer check.
+// @compilerrules [net-addr-routable]
 export fn node_of<E>(a: eff[E]) [] -> NodeId => a {
     return NodeId { value: identity(addr_index(a)).node }
 }
@@ -965,10 +1012,11 @@ export fn node_of<E>(a: eff[E]) [] -> NodeId => a {
 // **mirror** the replica keeps in the runtime, written after every change:
 // behind the replica by one message, never in the send path.
 
-// [route-stub] (private) The mirror: written by the replica, read by a
+// (private) The mirror: written by the replica, read by a
 // `use any` route per send. A group with no replica on this node has
 // an empty view, so its stub waits. Every write moves the view's **version**,
 // and so does `refresh`; a waiting send wakes when it moves.
+// @compilerrules [actor-route-stub]
 fn view_set<E>(group: eff[ActorGroup<E>], members: List<eff[E]>) [] -> None
     => !group, !members {
     let ixs = Mut List<Int>()
@@ -995,36 +1043,40 @@ fn view_wait<E>(group: eff[ActorGroup<E>], seen: Long, nanos: Long) [] -> None
     view_wait(addr_index(group), seen, nanos)
 }
 
-// [route-stub] One member as a route selector sees it: where it is, and
+// One member as a route selector sees it: where it is, and
 // whether it is on this node. Load is read when it is wanted, with
 // [pending], since it changes with every send.
+// @compilerrules [actor-route-stub]
 export struct RouteMember<E> {
     addr: eff[E],
     local: Bool
 }
 
-// [route-stub] What a selector chooses from: every member the local replica
+// What a selector chooses from: every member the local replica
 // knows, in a stable order (by node, then actor — the same on every node).
+// @compilerrules [actor-route-stub]
 export struct RouteView<E> {
     members: List<RouteMember<E>>
 }
 
-// [route-stub] The default waits, as a fn: the default of every std
+// The default waits, as a fn: the default of every std
 // policy's `config` parameter. (A field default is inlined where the literal
 // is written, which would need `Duration` imported there.)
+// @compilerrules [actor-route-stub]
 export fn default_route_config() [] -> RouteConfig {
     return RouteConfig {}
 }
 
-// [route-stub] How a `use any` route waits while its selector answers
+// How a `use any` route waits while its selector answers
 // `None`: [first_wait], doubling up to [max_wait], waking at once whenever
 // the view changes. A send waits as long as it takes.
+// @compilerrules [actor-route-stub]
 export struct RouteConfig {
     first_wait: Duration = Duration { nanos: 1000000L },
     max_wait: Duration = Duration { nanos: 5000000000L }
 }
 
-// [route-stub] The policy behind a `use any` route, in two phases.
+// The policy behind a `use any` route, in two phases.
 // [changed] runs when the view has changed since this selector last saw it
 // (a member joined or left, or the group was refreshed): a selector derives
 // whatever it chooses by — a probability per member, a leader, a ring — and
@@ -1039,35 +1091,40 @@ export struct RouteConfig {
 // `None` (user decision R7: the waits are the policy's, since the policy is
 // what says `None`). std's policies take it as a constructor parameter that
 // defaults to [default_route_config].
+// @compilerrules [actor-route-stub]
 export effect RouteSelector<E> {
     fn changed(view: RouteView<E>) -> None => view
     fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key
     fn config() -> RouteConfig
 }
 
-// [route-stub] Marks the parameter of a `send fn` whose value decides the
+// Marks the parameter of a `send fn` whose value decides the
 // member: `send fn reserve(sku: Key Str, ...)`. A claim about the handle,
-// erased like any qualifier [qual-erasure]; the stub hashes the argument
+// erased like any qualifier; the stub hashes the argument
 // into the `key` its selector's `select` receives. At most one per member.
+// @compilerrules [actor-route-stub, qual-erasure]
 export provenance qualifier Key<T> of T
 
-// [route-stub] The canonical hash of a key argument — over its wire encoding,
+// The canonical hash of a key argument — over its wire encoding,
 // so both backends agree on the member a key lands on. Exported for the
 // generated `route` stubs, which call it from the program's own module; a
 // program has no reason to.
+// @compilerrules [actor-route-stub]
 export intrinsic fn key_hash<T>(k: T) [] -> Long => k
 
-// [route-stub] What a stub's send goes to, and the view version its selector
+// What a stub's send goes to, and the view version its selector
 // has now seen.
+// @compilerrules [actor-route-stub]
 export struct RoutePick<E> {
     to: eff[E],
     version: Long
 }
 
-// [route-stub] The route's whole send path: read the view, tell the selector
+// The route's whole send path: read the view, tell the selector
 // when it changed since [seen], ask it, and wait while it answers `None`, as
 // long as the selector's `config` says. Exported for the routes the compiler
 // derives, which call it from the protocol's own module.
+// @compilerrules [actor-route-stub]
 export fn route_pick<E>(group: eff[ActorGroup<E>], seen: Long) [RouteSelector<E>] -> RoutePick<E>
 => group, !seen {
     return route_keyed(group, seen, None)
@@ -1113,10 +1170,11 @@ fn route_view<E>(group: eff[ActorGroup<E>]) [] -> RouteView<E> => group {
     return RouteView { members: copy(members) }
 }
 
-// [route-stub] The default policy: the least loaded member, local members
+// The default policy: the least loaded member, local members
 // first when [prefer_local] — a hop within the node is cheaper than one
 // across the wire. Load is read per send ([pending]). `None` for an empty
 // view.
+// @compilerrules [actor-route-stub]
 export handler LeastLoaded<E>(prefer_local: Bool, config: RouteConfig = default_route_config()) of RouteSelector<E> {
     fn config() -> RouteConfig {
         return copy(config)
@@ -1153,10 +1211,11 @@ export handler LeastLoaded<E>(prefer_local: Bool, config: RouteConfig = default_
     }
 }
 
-// [route-stub] The member that owns the send's key: the view's members are in
+// The member that owns the send's key: the view's members are in
 // a stable order on every node, so `key mod n` lands on the same member
 // everywhere. A member joining reshuffles keys (consistent hashing is a
 // recorded follow-up). A send with no key goes to the first member.
+// @compilerrules [actor-route-stub]
 export handler Sharded<E>(config: RouteConfig = default_route_config()) of RouteSelector<E> {
     fn config() -> RouteConfig {
         return copy(config)
@@ -1177,26 +1236,29 @@ export handler Sharded<E>(config: RouteConfig = default_route_config()) of Route
     }
 }
 
-// [route-stub] Who leads: `None` while an election is in progress. A Salvo
+// Who leads: `None` while an election is in progress. A Salvo
 // election or a platform handler over a lease store serve it alike; std ships
 // [StaticLeader] for a fixed one. Asked when a route's view changes, not per
 // send: whatever runs the election calls `refresh()` on the groups that
 // route by it when its answer changes.
+// @compilerrules [actor-route-stub]
 export effect Leader {
     fn leader() -> NodeId?
 }
 
-// [route-stub] The leader fixed by configuration — for a test, or a
+// The leader fixed by configuration — for a test, or a
 // deployment where one node is the primary by decree.
+// @compilerrules [actor-route-stub]
 export handler StaticLeader(node: NodeId) of Leader {
     fn leader() -> NodeId? {
         return copy(node)
     }
 }
 
-// [route-stub] The member the current leader hosts: worked out when the view
+// The member the current leader hosts: worked out when the view
 // changes, and kept. `None` — so the send waits — while there is no leader or
 // the leader hosts no member yet.
+// @compilerrules [actor-route-stub]
 export handler Elected<E>(config: RouteConfig = default_route_config()) [Leader] of RouteSelector<E> {
     state {
         chosen: eff[E]? = None
@@ -1226,13 +1288,14 @@ export handler Elected<E>(config: RouteConfig = default_route_config()) [Leader]
 
 // The machine's transport: TCP, one connection per peer, length-prefixed
 // frames. The host class lives in std's `platform/net/` tree, one file per
-// backend [platform-tree].
+// backend.
 //
-// `threadsafe` [threadsafe-platform]: a transport is reached from every pool
+// `threadsafe`: a transport is reached from every pool
 // of the program at once, so the host synchronizes its own connection table
 // and the compiler shares the instance with no lock. Signed in the host
 // files. [bind] is the endpoint this node listens on and reports as its
 // `local_endpoint`.
+// @compilerrules [platform-tree, platform-threadsafe]
 export threadsafe platform handler HostTcpTransport(bind: NodeEndpoint) of Transport
 
 // ------------------------------------------------------------------ mem ----
@@ -1336,11 +1399,12 @@ export handler MemNetwork() of MemNet {
 
 // One virtual node's transport over a shared [MemNet]. Stateless — the
 // network holds everything — so a `use` binds it bare and shareable, and it
-// crosses into any actor that needs the wire [effect-handle].
+// crosses into any actor that needs the wire.
 //
 // `deliver` waits on the network for the route: a `waitfor` on the caller's
-// thread, which serves the caller's pool meanwhile [waitfor-pump], so a node
+// thread, which serves the caller's pool meanwhile, so a node
 // delivering from inside an activation does not wedge its own pool.
+// @compilerrules [effect-handle, waitfor-pump]
 export handler MemTransport(me: NodeEndpoint, net: eff[MemNet]) of Transport {
     fn listen(at: NodeEndpoint, sink: eff[Inbound]) -> Ok None | Err NetError => at, !sink {
         net.attach(copy(at), sink)

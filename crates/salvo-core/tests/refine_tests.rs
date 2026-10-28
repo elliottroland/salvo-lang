@@ -12,7 +12,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Str\nexport intrinsic type Int\nexport intrinsic type Bool\n",
     // [op-equality] [op-order] What the comparison operators call.

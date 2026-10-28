@@ -773,7 +773,7 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
             match body {
                 LambdaBody::Expr(e) => walk_expr(v, e),
                 LambdaBody::Block(b) => walk_block(v, b),
-                // [terminal-lambda] A transient placeholder the parser fills
+                // [expr-terminal-lambda] A transient placeholder the parser fills
                 // before anyone walks it; nothing to descend into.
                 LambdaBody::Terminal => {}
             }

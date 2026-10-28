@@ -1,4 +1,4 @@
-//! [elem-distinct] Distinct awareness for mutable element handles: poison
+//! [fate-elem-distinct] Distinct awareness for mutable element handles: poison
 //! consults a live `NotSame` claim between two bound handles before killing
 //! the sibling [ref-notsame], the claim dies when either handle is rebound,
 //! and one call may take two handles only when they are proven apart —
@@ -24,7 +24,7 @@ const STD_PRELUDE: &str = concat!(
 
 /// A miniature `std.core.list`: the mint recognition is nominal — `get` and
 /// `at` declared by the `std.core.list` module — so the tests declare exactly the
-/// surface the feature reads [elem-distinct].
+/// surface the feature reads [fate-elem-distinct].
 const STD_LIST: &str = "\
 export intrinsic type List<T> canbe Mut\n\
 export intrinsic fn List<T>(first: T, ...rest: T[]) [] -> List<T> => !first\n\
@@ -117,7 +117,7 @@ fn attack(a: Mut Entity, d: Mut Entity) [] -> None => a: Mut, d: Mut {\n\
     return None\n\
 }\n";
 
-/// [elem-distinct] [ref-notsame] Two bound handles a live `NotSame` claim
+/// [fate-elem-distinct] [ref-notsame] Two bound handles a live `NotSame` claim
 /// proves apart survive each other's mutations: the sibling names disjoint
 /// storage, so the poison spares it — and a write *through* a handle leaves
 /// the claim standing, so the second round of writes is accepted too.
@@ -139,7 +139,7 @@ fn two_proven_distinct_handles_coexist_across_mutation() {
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
 }
 
-/// [elem-distinct] Without the claim, today's conservative rule stands: a
+/// [fate-elem-distinct] Without the claim, today's conservative rule stands: a
 /// computed index may alias every element [fate-field-disjoint], so the
 /// mutation through one handle poisons the sibling [fate-poison].
 #[test]
@@ -160,7 +160,7 @@ fn without_a_claim_the_sibling_handle_poisons() {
     );
 }
 
-/// [elem-distinct] [ref-notsame] [qual-depend] The claim is about the
+/// [fate-elem-distinct] [ref-notsame] [qual-depend] The claim is about the
 /// handle a name holds *now*: rebinding `d` to another mint strips it, and
 /// the conservative poison returns — even though both names still exist.
 #[test]
@@ -184,7 +184,7 @@ fn rebinding_a_handle_strips_the_claim() {
     );
 }
 
-/// [elem-distinct] The same index minted twice with no proof is the same
+/// [fate-elem-distinct] The same index minted twice with no proof is the same
 /// element as far as the checker is concerned: the sibling poisons. (Proving
 /// such a pair apart is a run-time test that answers false — the
 /// compile-and-run cases on both backends cover it.)
@@ -206,7 +206,7 @@ fn the_same_index_without_a_proof_still_poisons() {
     );
 }
 
-/// [elem-distinct] [ref-notsame] Statement-scoped mints cannot carry the
+/// [fate-elem-distinct] [ref-notsame] Statement-scoped mints cannot carry the
 /// proof — a claim is about two *bound* handles — so two of them in one call
 /// are refused even inside a `NotSame` block over other handles of the same
 /// elements, naming the remedy.
@@ -229,7 +229,7 @@ fn statement_scoped_mints_cannot_carry_the_proof() {
     );
 }
 
-/// [elem-distinct] Without the proof the pair is refused at the call,
+/// [fate-elem-distinct] Without the proof the pair is refused at the call,
 /// naming the remedy — the shape used to pass the checker and die at
 /// rustc (E0499), a checker/emitter disagreement closed with this rule.
 #[test]
@@ -247,7 +247,7 @@ fn an_unproven_pair_in_one_call_is_refused() {
     );
 }
 
-/// [elem-distinct] [ref-notsame] Two *bound* handles proven apart land in
+/// [fate-elem-distinct] [ref-notsame] Two *bound* handles proven apart land in
 /// one call — the shape the Rust backend renders through `salvo_pair_mut`
 /// [rs-elem-mut] — and both survive it: writes through either afterwards
 /// are accepted.
@@ -269,7 +269,7 @@ fn a_proven_bound_pair_may_land_in_one_call() {
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
 }
 
-/// [elem-distinct] …and the same bound pair *without* the proof is refused
+/// [fate-elem-distinct] …and the same bound pair *without* the proof is refused
 /// at the call.
 #[test]
 fn an_unproven_bound_pair_in_one_call_is_refused() {
@@ -303,7 +303,7 @@ fn a_declared_claim_serves_the_total_overload_in_the_body() {
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
 }
 
-/// [elem-distinct] The pair rule covers calls **through fn values** too
+/// [fate-elem-distinct] The pair rule covers calls **through fn values** too
 /// ([fn-contract]'s keep-in-sync duty): two unproven handles into one
 /// container are refused at the second argument.
 #[test]
@@ -322,7 +322,7 @@ fn an_unproven_pair_through_a_fn_value_is_refused() {
     );
 }
 
-/// [elem-distinct] [ref-notsame] …and a `NotSame` proof over two bound
+/// [fate-elem-distinct] [ref-notsame] …and a `NotSame` proof over two bound
 /// handles legalizes it, ordinary Salvo end to end.
 #[test]
 fn a_notsame_proof_carries_a_fn_value_pair() {

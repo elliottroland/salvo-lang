@@ -18,8 +18,8 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
-/// [unique-shape] `cmp` and `times` are operators on `Int`, so they are
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// [op-unique-shape] `cmp` and `times` are operators on `Int`, so they are
 /// declared in `Int`'s own file, here, and reach the tests' programs as any
 /// std overload does.
 const STD_PRELUDE: &str = concat!(
@@ -471,7 +471,7 @@ fn an_override_with_the_wrong_contract_is_explained() {
 /// `order(Int, Int)`, both fitting `(Int, Int) -> Int`, the more specific wins.
 /// Under the old rule — the most specific *scope*, then "two hits are
 /// ambiguous" — this was an ambiguity. (`order`, not `cmp`: a `cmp` on a type
-/// parameter or on `Int` outside `Int`'s file is refused [unique-shape].)
+/// parameter or on `Int` outside `Int`'s file is refused [op-unique-shape].)
 #[test]
 fn a_more_specific_candidate_wins_at_an_implicit() {
     let errs = errors(

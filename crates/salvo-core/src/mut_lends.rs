@@ -1,4 +1,4 @@
-//! Mutable lends [mut-lends]: which fns hand back a result that a `Mut`
+//! Mutable lends [fate-mut-lends]: which fns hand back a result that a `Mut`
 //! position then reads, and which fns cover `canbe` parameters.
 //!
 //! Both are closures over Salvo-level facts: the checker's `mut_lend_calls`

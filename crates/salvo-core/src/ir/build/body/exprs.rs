@@ -105,7 +105,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let span = e.span();
         match e {
             AExpr::Int { value, long, .. } => {
-                // [lit-numeric] an `Int` literal the checker typed as `Long`
+                // [type-lit-numeric] an `Int` literal the checker typed as `Long`
                 // (against a `Long` operand) is a `Long` value in the IR.
                 let ty = self.ty_of(span);
                 let base = match ty.strip_quals() {
@@ -122,7 +122,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 Expr { ty, span, kind }
             }
             AExpr::Float { value, single, .. } => {
-                // [lit-adopt] a literal the checker typed `Float` is one.
+                // [type-lit-adopt] a literal the checker typed `Float` is one.
                 let ty = self.ty_of(span);
                 let is_float = *single || matches!(ty.strip_quals(), Ty::Named { name, .. } if name == "Float");
                 let kind = if is_float { ExprKind::Float(*value) } else { ExprKind::Double(*value) };
@@ -696,7 +696,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         Expr { ty: str_ty, span, kind: ExprKind::UnionToStr { value: Box::new(value), arms: fns } }
     }
 
-    /// [for-iter] The call a `for` names (`next(it)`, `iter(c)`), lowered from
+    /// [iter-for] The call a `for` names (`next(it)`, `iter(c)`), lowered from
     /// the call facts the checker recorded at `key` (`Key::FOR_NEXT` /
     /// `Key::FOR_ITER` of the subject's node) with its argument in hand: to an
     /// effect's member, through the fn's own implicit, or to a declaration
@@ -844,7 +844,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // `plus(a, b)` …, `pow(a, b)`, lowered as that call is. std's
                 // intrinsic `plus`/`minus`/`times`/`divide` at a basic type is
                 // the primitive operation, so a call resolved to it is the IR's
-                // own operator [core-layers]; `%` names no function and is
+                // own operator [backend-core-layers]; `%` names no function and is
                 // always the operator; with nothing recorded (a lenient
                 // operand) the operator stays the host's.
                 let key = self.key(span);
@@ -902,7 +902,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // [op-equality] [op-order] The operator is the call it names
                 // (O1): `eq(a, b)`, `!eq(a, b)`, `cmp(a, b) < 0`, lowered as
                 // that call is — the callee, an implicit taking it, or an
-                // effect's member. [core-layers] std's intrinsic `eq`/`cmp` at
+                // effect's member. [backend-core-layers] std's intrinsic `eq`/`cmp` at
                 // a basic type *is* the primitive comparison, so a call
                 // resolved to it is the IR's own operator, which every backend
                 // spells natively; nothing about the operand types decides it
@@ -1261,7 +1261,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let rest: Vec<Expr> = all_args.iter().map(|x| self.promoted(x)).collect();
             let rest = self.mark_consumed_by_contract(rest, &key);
             a.extend(rest);
-            // [once-fn] [flow-use-after-move] A `once` local's call is its move.
+            // [fn-once] [flow-use-after-move] A `once` local's call is its move.
             let moved = self.ctx.checked.flow_moves.contains(&key);
             return Some(Expr { ty, span, kind: ExprKind::Call { target: FnRef::Local(local), type_args: Vec::new(), args: a, moved } });
         }
@@ -1661,7 +1661,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 Block { stmts: Vec::new(), value: Some(Box::new(v)), span: e.span() }
             }
             LambdaBody::Block(b) => self.block(b, !ret.is_none_ty() && !ret.is_unknown()),
-            // [terminal-lambda] Filled by the parser before lowering.
+            // [expr-terminal-lambda] Filled by the parser before lowering.
             LambdaBody::Terminal => Block { stmts: Vec::new(), value: None, span },
         };
         self.effect_env.truncate(saved_env_len);
@@ -2197,7 +2197,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    /// [safe-nav] `base?.link`: switch on the receiver; `None` short-circuits
+    /// [op-safe-nav] `base?.link`: switch on the receiver; `None` short-circuits
     /// the whole expression to `None`; otherwise the link is performed on the
     /// receiver narrowed to its non-`None` arm and lifted back into an
     /// optional. The present arm's `Narrow` carries `Justification::SafeNav`,
@@ -2220,7 +2220,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let bind = Stmt::Let { id: lid, local: safe.clone(), ty: subj_ty.clone(), value: s };
         // The present arm: narrow the receiver to its first arm, perform the
         // link on it, and lift the result into the result union unless it is
-        // already there ([safe-nav], the `Option<Option<T>>`/arm-collapse
+        // already there ([op-safe-nav], the `Option<Option<T>>`/arm-collapse
         // guard).
         let nav = self.fresh("__nav");
         let nid = self.id();
@@ -2294,9 +2294,9 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.block_expr(vec![bind], br, span)
     }
 
-    /// [safe-nav] Rewrap a value into the result union `ty` when its type is
+    /// [op-safe-nav] Rewrap a value into the result union `ty` when its type is
     /// narrower, so a picked first-arm result or a passed-through remainder
-    /// takes the whole union's representation [rewrap]. A `None`-typed value
+    /// takes the whole union's representation [type-rewrap]. A `None`-typed value
     /// into an optional result is the absent arm (`MakeNone`), not a rewrap. A
     /// value already at the union type is handed back untouched.
     fn rewrap_into(&mut self, value: Expr, ty: &Ty, span: Span) -> Expr {
@@ -2316,7 +2316,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    /// [safe-nav] The link performed on the narrowed receiver local `nav`
+    /// [op-safe-nav] The link performed on the narrowed receiver local `nav`
     /// (type `inner`): a field read, or a dot call built from the checker's
     /// recorded resolution with `nav` as the receiver argument.
     fn safe_link(&mut self, nav: &Local, inner: &Ty, access: &ast::SafeAccess, span: Span) -> Expr {
@@ -2343,7 +2343,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    /// [safe-nav] A `base?.m(args)` call, built from `call_info` recorded under
+    /// [op-safe-nav] A `base?.m(args)` call, built from `call_info` recorded under
     /// the `SafeNav` span, with the narrowed receiver `nav` as argument zero.
     /// Handles the two resolutions a dot call reaches — a declared fn and an
     /// effect member — and refuses anything else rather than emit wrong code
@@ -2445,7 +2445,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.placeholder = saved;
         if optional {
             // Lift the right side's value into the optional result unless it
-            // is already one ([safe-nav]'s `Option<Option<T>>` guard) or it
+            // is already one ([op-safe-nav]'s `Option<Option<T>>` guard) or it
             // diverged.
             let present_value = if matches!(r.ty, Ty::Never) || r.ty.has_none_arm() {
                 r
@@ -2503,10 +2503,10 @@ impl<'a, 'p> Lower<'a, 'p> {
     }
 
     fn elvis(&mut self, subject: &AExpr, rhs: &AExpr, span: Span) -> Expr {
-        // [elvis] `s ?…?: r` / `s :?…? r`: evaluate `s` once into a temporary,
+        // [op-elvis] `s ?…?: r` / `s :?…? r`: evaluate `s` once into a temporary,
         // test whether it holds one of the **picked** arms; if so the value is
         // the subject narrowed to the picked type (widened into the result when
-        // the right side widened it [rewrap]); otherwise `r`, with `_` bound to
+        // the right side widened it [type-rewrap]); otherwise `r`, with `_` bound to
         // the subject narrowed to the arms left behind.
         let ty = self.ty_of(span);
         // [unify-checker] Pull every fact out of the view up front, before any
@@ -2630,7 +2630,7 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     /// [assert-trap] The Salvo location a trap names: `module:line:col` —
     /// the module path, not the file name, which depends on the loader.
-    /// [origin] A node a stamp copied names the place a diagnostic about it
+    /// [node-origin] A node a stamp copied names the place a diagnostic about it
     /// would (`origin::landing`).
     pub(crate) fn location(&self, span: Span) -> String {
         let file = &self.ctx.program.files[self.file_idx];
@@ -3005,7 +3005,7 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     // --------------------------------------------------------------- use --
 
-    /// [eff-handle] `eff[a, b]` / `eff[*]` merge: a handle (single or tuple)
+    /// [effect-eff-handle] `eff[a, b]` / `eff[*]` merge: a handle (single or tuple)
     /// carrying the result effects, one handle each. For `eff[*]` each comes
     /// from the scope's bound handle (`effect_instance`); for explicit items,
     /// from the merged handle values, matched by effect.
@@ -3073,7 +3073,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.block_expr(stmts, value, span)
     }
 
-    /// [eff-handle] `e[A, B]` projection: a non-consuming copy of the handles
+    /// [effect-eff-handle] `e[A, B]` projection: a non-consuming copy of the handles
     /// carrying the requested effects, picked out of the base (a single handle
     /// or a tuple of handles). Yields the one handle (single) or a tuple of
     /// them (several), reading the base's elements by position — the base is
@@ -3121,12 +3121,12 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// Lowers a `use` to the handle bindings it introduces. Returns the
     /// statements **and** the `(face, handle-local)` pairs it bound and pushed
     /// onto `effect_env` — the statement form discards the pairs; the
-    /// expression form ([eff-handle]) reads them back as its value.
+    /// expression form ([effect-eff-handle]) reads them back as its value.
     pub(crate) fn use_stmt_bound(&mut self, handler: &AExpr, with_items: &[AExpr], span: Span) -> (Vec<Stmt>, Vec<(Ty, Local)>) {
         let key = self.key(span);
         let info = self.ctx.checked.use_info(key);
         let faces: Vec<Ty> = info.use_effects.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
-        // [eff-handle] `use <tuple>`: bind one effect per tuple element, in
+        // [effect-eff-handle] `use <tuple>`: bind one effect per tuple element, in
         // order, each `instance_at(tuple.i)` — `use e.0; use e.1`.
         if let Some(effects) = info.use_addr_tuple.map(|v| v.iter().map(erase).collect::<Vec<_>>()) {
             let tup = self.expr(handler);
@@ -3165,7 +3165,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // `use H(args)`: a construct, then one instance per face.
         let deps: Vec<Ty> = info.use_deps.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
         let items: Vec<Option<usize>> = info.use_with_items.cloned().unwrap_or_else(|| vec![None; deps.len()]);
-        // [route-stub] `use any group`: the route derived for the protocol
+        // [actor-route-stub] `use any group`: the route derived for the protocol
         // (`actors::generate`), over the group and the selector in scope.
         let route = self.ctx.checked.route_uses.get(&key).cloned().map(|effect| {
             let module = self.ctx.symbols.key_modules.get(effect.as_str()).map(|m| (*m).clone()).unwrap_or(crate::ModulePath(Vec::new()));
@@ -3185,7 +3185,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let mut out = vec![Stmt::Let { id, local: inst.clone(), ty: handler_ty.clone(), value: construct }];
         // [effect-handle] one handle per face, over the one instance — the
         // instance itself for a `threadsafe platform handler`, which promises
-        // its own synchronization [threadsafe-platform].
+        // its own synchronization [platform-threadsafe].
         let threadsafe = match handler_ty.strip_quals() {
             Ty::Named { name, .. } => self.ctx.symbols.handlers.get(name.as_str()).is_some_and(|h| h.threadsafe),
             _ => false,
@@ -3207,13 +3207,13 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.use_stmt_bound(handler, with_items, span).0
     }
 
-    /// [eff-handle] `use H()` as a value: the bindings, then the handle it
+    /// [effect-eff-handle] `use H()` as a value: the bindings, then the handle it
     /// yields — the one bound handle for a single face, a tuple of them for
     /// several (mirroring how a multi-face `spawn` yields a tuple of addrs).
     pub(crate) fn use_expr(&mut self, handler: &AExpr, with_items: &[AExpr], span: Span) -> Expr {
         let ty = self.ty_of(span);
         let (stmts, bound) = self.use_stmt_bound(handler, with_items, span);
-        // [eff-handle] Hoist the handle bindings to the enclosing statement
+        // [effect-eff-handle] Hoist the handle bindings to the enclosing statement
         // level (via `pending`) rather than nesting them in a block-expr: the
         // handle locals must stay in scope for the rest of the body (a later
         // `now()` or `eff[*]` reads them), and the IR `effect_env` entries this
@@ -3336,7 +3336,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let vspan = v.span;
                 v = Expr { ty: d.clone(), span: vspan, kind: ExprKind::AddrInstance { addr: Box::new(v) } };
             }
-            // [with-clause] [effect-handle] a private instance built for this
+            // [effect-with-clause] [effect-handle] a private instance built for this
             // binding alone is bound behind its handle, like any `use`.
             if let Ty::Named { name, .. } = v.ty.strip_quals() {
                 if let Some(h) = self.ctx.symbols.handlers.get(name.as_str()) {
@@ -3351,7 +3351,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         Some(Expr { ty: handler_ty, span, kind: ExprKind::Construct { fields } })
     }
 
-    /// [with-clause] A `with` item: an instance in scope, or a private handler
+    /// [effect-with-clause] A `with` item: an instance in scope, or a private handler
     /// constructed for this binding alone.
     fn with_item(&mut self, item: &AExpr) -> Expr {
         let is_handler = match item {
@@ -3445,7 +3445,7 @@ pub(crate) fn subst_vars(t: &Ty, generics: &[String], args: &[Ty]) -> Ty {
 
 /// Whether `e` reads any local the statements `binds` bind (a narrowing
 /// binding a condition's later operand depends on).
-/// [eff-handle] The effect a single-effect handle type carries, if it is one.
+/// [effect-eff-handle] The effect a single-effect handle type carries, if it is one.
 fn handle_effect(handle: &Ty) -> Option<Ty> {
     match handle.strip_quals() {
         Ty::Named { name, args } if name == "Addr" && args.len() == 1 => Some(args[0].clone()),
@@ -3453,7 +3453,7 @@ fn handle_effect(handle: &Ty) -> Option<Ty> {
     }
 }
 
-/// [eff-handle] Whether a single-effect handle type `eff[E]` (`Named{Addr,[E]}`)
+/// [effect-eff-handle] Whether a single-effect handle type `eff[E]` (`Named{Addr,[E]}`)
 /// carries effect `w` — its one arg equals `w`.
 fn handle_carries(handle: &Ty, w: &Ty) -> bool {
     matches!(handle.strip_quals(), Ty::Named { name, args } if name == "Addr" && args.len() == 1 && &args[0] == w)
@@ -3638,7 +3638,7 @@ fn literal_arg(text: &str) -> Option<Expr> {
     text.parse::<f64>().ok().and_then(|v| mk("Double", ExprKind::Double(v)))
 }
 
-/// [while-value] Whether a loop body's trailing expression is a value for
+/// [loop-while-value] Whether a loop body's trailing expression is a value for
 /// the loop's result: an `if` with no `else` is a statement (its arms may
 /// only `break`), and so is anything of type `None`.
 fn loop_body_value(v: &Expr) -> bool {

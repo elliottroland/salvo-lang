@@ -12,7 +12,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] Enough of `lib/std/core/compare.sv` to have a bound group,
+/// [platform-intrinsic-std-only] Enough of `lib/std/core/compare.sv` to have a bound group,
 /// plus a set to build with it.
 const STD_PRELUDE: &str = concat!(
     concat!(

@@ -1,4 +1,4 @@
-//! Member-resolution rules [call-resolve] [field-resolve] [index-resolve]
+//! Member-resolution rules [call-resolve] [struct-field-resolve] [col-index-resolve]
 //! [iter-resolve]: Salvo assumes it can see everything, so a call, field
 //! read, subscript, or `for` over something the compiler cannot justify is
 //! an error. Reaching a target-language feature means *declaring* it
@@ -13,13 +13,13 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-/// [for-iter] [iter-for-native] What a `for` over an array calls, in the
-/// arrays' std home [unique-shape]: `for x in xs` is `next(iter(xs))`, which
+/// [iter-for] [iter-for-native] What a `for` over an array calls, in the
+/// arrays' std home [op-unique-shape]: `for x in xs` is `next(iter(xs))`, which
 /// the backends walk natively when these are the calls.
 const STD_ARRAY: &str = "export qualifier Emitted<T> of T\nexport struct Finished {}\n\
      export struct ArrayNext<T> canbe Mut {\n    at: Int\n}\n\
@@ -96,7 +96,7 @@ fn check_errors(src: &str) -> Vec<FileDiagnostic> {
     let resolution = resolve(&program);
     let mut errors: Vec<FileDiagnostic> = resolution.errors.clone();
     errors.extend(check_program(&program, &resolution, &symbols).errors);
-    // Errors only: an unused-variable *warning* [unused-var] is a different
+    // Errors only: an unused-variable *warning* [var-unused] is a different
     // severity, and this file is about which references are rejected.
     errors.retain(|d| d.is_error());
     errors
@@ -229,9 +229,9 @@ fn a_declared_fn_is_callable_by_dot_notation() {
     assert!(errs.is_empty(), "got {errs:?}");
 }
 
-// ===== fields [field-resolve] =====
+// ===== fields [struct-field-resolve] =====
 
-/// [field-resolve] Only structs have fields.
+/// [struct-field-resolve] Only structs have fields.
 #[test]
 fn field_on_a_non_struct_is_an_error() {
     let errs = messages(&body("    let n = 5\n    let x = n.whatever"));
@@ -241,7 +241,7 @@ fn field_on_a_non_struct_is_an_error() {
     );
 }
 
-/// [field-resolve] An opaque (interop) type exposes nothing by itself: its
+/// [struct-field-resolve] An opaque (interop) type exposes nothing by itself: its
 /// members are reached through declared accessors.
 #[test]
 fn field_on_an_opaque_type_is_an_error() {
@@ -255,7 +255,7 @@ fn field_on_an_opaque_type_is_an_error() {
     );
 }
 
-/// [field-resolve] A generic value is opaque too — and its diagnostic must
+/// [struct-field-resolve] A generic value is opaque too — and its diagnostic must
 /// not suggest a declared accessor, which cannot help for a `T`.
 #[test]
 fn field_on_a_generic_is_an_error() {
@@ -277,9 +277,9 @@ fn field_on_a_generic_is_an_error() {
     );
 }
 
-// ===== subscripts [index-resolve] =====
+// ===== subscripts [col-index-resolve] =====
 
-/// [index-resolve] `[]` is for arrays; other collections expose element
+/// [col-index-resolve] `[]` is for arrays; other collections expose element
 /// access as functions.
 #[test]
 fn indexing_a_non_array_is_an_error() {
@@ -291,7 +291,7 @@ fn indexing_a_non_array_is_an_error() {
     );
 }
 
-/// [index-resolve] Arrays still work, of course.
+/// [col-index-resolve] Arrays still work, of course.
 #[test]
 fn indexing_an_array_is_fine() {
     let errs = messages(&body("    let xs: Int[] = array_of(1, 2)\n    let x = xs[0]"));
@@ -406,7 +406,7 @@ fn effect_types_are_rejected_in_data_positions() {
     }
 }
 
-/// [effect-not-data] [eff-handle] A first-class effect handle, `eff[E]`,
+/// [effect-not-data] [effect-eff-handle] A first-class effect handle, `eff[E]`,
 /// carries the effect `E` as a holder's capability over it — and is an
 /// ordinary value, accepted in every data position. This is what lets a
 /// process and a locally `use`d handler stand behind one name.
@@ -429,7 +429,7 @@ fn an_effect_handle_is_legal_in_data_positions() {
     }
 }
 
-/// [eff-handle] The old spelling `Addr<E>` is no longer a type a user writes:
+/// [effect-eff-handle] The old spelling `Addr<E>` is no longer a type a user writes:
 /// `Addr` is the compiler's internal name for the handle, and the surface is
 /// `eff[E]`. It is a plain parse error naming the replacement.
 #[test]
@@ -587,7 +587,7 @@ fn handler_may_intercept_its_own_effect() {
     assert!(errs.is_empty(), "got {errs:?}");
 }
 
-/// [effect-intercept] [use-no-dup] An intercepting `use` **binds strictly
+/// [effect-intercept] [effect-use-no-dup] An intercepting `use` **binds strictly
 /// outward**: it wraps the instance registered before it, so registering it
 /// with nothing to wrap is the error — and shadowing an instance that *is*
 /// there is not.
@@ -610,7 +610,7 @@ fn interception_binds_strictly_outward() {
     );
 
     // Over an instance already in scope: accepted, and the *same* effect
-    // being registered twice is no longer an error [use-no-dup].
+    // being registered twice is no longer an error [effect-use-no-dup].
     let wrapped = effect_messages(&format!(
         "{prelude}\nfn main() [use] -> Int {{\n    use MemCounter()\n    \
          use Wrapper()\n    return bump()\n}}\n"
@@ -625,7 +625,7 @@ fn interception_binds_strictly_outward() {
     assert!(twice.is_empty(), "got {twice:?}");
 }
 
-/// [use-no-dup] Shadowing needs no dependency: a second `use` for an effect
+/// [effect-use-no-dup] Shadowing needs no dependency: a second `use` for an effect
 /// instance already in scope registers a handler that wins for the rest of
 /// the scope, rather than being rejected (which is what it was until
 /// 2026-09-14).
@@ -715,9 +715,9 @@ fn uninferred_types_still_pass_through() {
     assert!(errs[0].contains("no function named `nowhere`"), "got {errs:?}");
 }
 
-// ===== identifier references [ident-resolve] =====
+// ===== identifier references [name-ident-resolve] =====
 
-/// [ident-resolve] [backend-never-wrong] A bare name nothing declares used to
+/// [name-ident-resolve] [backend-never-wrong] A bare name nothing declares used to
 /// pass the checker as `Ty::Unknown` and reach the emitters, which spelled it
 /// straight into the output — so the *target* compiler reported it
 /// (`E0425` / "unresolved reference"). It is a Salvo error now: the same rule
@@ -732,7 +732,7 @@ fn an_undeclared_identifier_is_an_error() {
     );
 }
 
-/// [ident-resolve] Reading a variable *before* its declaration is the same
+/// [name-ident-resolve] Reading a variable *before* its declaration is the same
 /// mistake: scopes are not hoisted.
 #[test]
 fn using_a_variable_before_its_declaration_is_an_error() {
@@ -744,7 +744,7 @@ fn using_a_variable_before_its_declaration_is_an_error() {
     );
 }
 
-/// [ident-resolve] A name that *is* declared but is not a value says what it
+/// [name-ident-resolve] A name that *is* declared but is not a value says what it
 /// is, rather than claiming nothing declares it — the courtesy the effect and
 /// handler rules already extend [effect-not-a-type].
 #[test]
@@ -756,7 +756,7 @@ fn a_declared_non_value_name_says_what_it_is() {
     );
 }
 
-/// [ident-resolve] [type-unknown-lenient] One mistake, one diagnostic: the
+/// [name-ident-resolve] [type-unknown-lenient] One mistake, one diagnostic: the
 /// unresolved name's `Unknown` type does not cascade into the read below it.
 #[test]
 fn an_undeclared_identifier_does_not_cascade() {
@@ -768,7 +768,7 @@ fn an_undeclared_identifier_does_not_cascade() {
     );
 }
 
-// ===== unused variables [unused-var] =====
+// ===== unused variables [var-unused] =====
 
 /// All diagnostics, warnings included — `check_errors` filters to errors, and
 /// the point here is the warning.
@@ -811,7 +811,7 @@ fn all_messages(src: &str) -> Vec<String> {
         .collect()
 }
 
-/// [unused-var] A local that is never read warns — and says how to opt out.
+/// [var-unused] A local that is never read warns — and says how to opt out.
 #[test]
 fn an_unused_local_warns() {
     let msgs = all_messages(&body("    let spare = 1"));
@@ -822,7 +822,7 @@ fn an_unused_local_warns() {
     );
 }
 
-/// [unused-var] A leading `_` is the opt-out, and a read is a use.
+/// [var-unused] A leading `_` is the opt-out, and a read is a use.
 #[test]
 fn an_underscore_prefix_and_a_read_are_both_silent() {
     let msgs = all_messages(&body(
@@ -839,7 +839,7 @@ fn an_underscore_prefix_and_a_read_are_both_silent() {
     );
 }
 
-/// [unused-var] Assignment is not a use: a variable only ever written to has
+/// [var-unused] Assignment is not a use: a variable only ever written to has
 /// no reader, which is exactly the mistake worth reporting.
 #[test]
 fn a_variable_that_is_only_assigned_warns() {
@@ -850,7 +850,7 @@ fn a_variable_that_is_only_assigned_warns() {
     );
 }
 
-/// [unused-var] A *parameter* never warns: a signature often dictates it —
+/// [var-unused] A *parameter* never warns: a signature often dictates it —
 /// an effect or handler member implementing a declared interface cannot drop
 /// one — so the warning would fire where nothing can be done about it.
 #[test]

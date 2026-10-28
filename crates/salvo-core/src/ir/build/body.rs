@@ -57,7 +57,7 @@ pub struct Lower<'a, 'p> {
     pub(crate) loop_results: Vec<Option<Local>>,
     /// Narrowing bindings a test introduced, for the arm it guards.
     pub(crate) pending_after_test: Vec<Stmt>,
-    /// [placeholder] the subject local `_` reads inside a `?:` right side.
+    /// [expr-placeholder] the subject local `_` reads inside a `?:` right side.
     pub(crate) placeholder: Option<Local>,
     /// The storage local (and its declared type) behind each narrowing
     /// alias, for assignments through a narrowed name.
@@ -494,7 +494,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    /// [let-destructure] Binds a tuple or struct pattern's names from `root`.
+    /// [var-let-destructure] Binds a tuple or struct pattern's names from `root`.
     pub(crate) fn destructure(&mut self, pattern: &Pattern, root: Local, ty: &Ty, span: Span) -> Vec<Stmt> {
         let mut out = Vec::new();
         match pattern {

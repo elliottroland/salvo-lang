@@ -3,7 +3,7 @@
 //!
 //! A file's walks (its signature facts, its headers, its bodies) write rows
 //! keyed by that file and read only its own text and other declarations'
-//! interfaces [interface-pass]. So while a file's module is the very `Arc`
+//! interfaces [decl-interface-pass]. So while a file's module is the very `Arc`
 //! it was checked as, and no file's interface has changed, what its walks
 //! would write is what they wrote last time: the cached check inserts those
 //! rows, at the step where each walk would have run, and walks only the
@@ -35,7 +35,7 @@ use crate::program::Program;
 use crate::decl_id::DeclId;
 use crate::types::Ty;
 
-/// The walk steps a file goes through, in order [interface-pass].
+/// The walk steps a file goes through, in order [decl-interface-pass].
 pub(crate) const FACTS: usize = 0;
 pub(crate) const HEADERS: usize = 1;
 pub(crate) const BODIES: usize = 2;
@@ -368,7 +368,7 @@ impl CheckCache {
 /// [lsp-check-cache] Whether a fn's body is read by no interface: an
 /// ordinary hand-written body. A comptime fn's, a stamped one's, and an
 /// `iter fn`'s generated ones are part of the interface (an inferring
-/// minter's body is checked with the interfaces [state-infer]).
+/// minter's body is checked with the interfaces [handler-state-infer]).
 fn plain_body(f: &ast::FnDecl) -> Option<Span> {
     let body = f.body.as_ref()?;
     let plain = f.compfn.is_none() && f.stamped.is_none() && f.by.is_none() && !f.is_iter && f.iter_state_name.is_none();
@@ -452,7 +452,7 @@ fn node_map(old: &Module, old_bodies: &[(u32, u32)], new: &Module, new_bodies: &
     impl Visitor for Collect<'_> {
         fn visit_type(&mut self, t: &ast::Type) {
             let at = t.span();
-            // [origin] A copied node is at its template's range, which no
+            // [node-origin] A copied node is at its template's range, which no
             // body of this file holds.
             if at.is_expanded() || !self.bodies.iter().any(|(s, e)| *s <= at.start && at.start < *e) {
                 self.out.push((t as *const ast::Type as usize, at));
@@ -468,7 +468,7 @@ fn node_map(old: &Module, old_bodies: &[(u32, u32)], new: &Module, new_bodies: &
     }
     let mut map = HashMap::with_capacity(a.out.len());
     for ((oa, opos), (na, npos)) in a.out.into_iter().zip(b.out) {
-        // [origin] A copied node's range is its template's, which a body-only
+        // [node-origin] A copied node's range is its template's, which a body-only
         // edit of this file leaves where it was.
         let same = if opos.is_expanded() {
             opos == npos
@@ -489,7 +489,7 @@ fn remap_sites(rows: &mut Checked, changed: &HashMap<usize, (Vec<(u32, u32)>, Ve
     let mut ok = true;
     for site in rows.def_refs.values_mut().chain(rows.field_refs.values_mut()) {
         let Some((old, new)) = changed.get(&site.file) else { continue };
-        // [origin] A copied node's range is its template's: it does not move.
+        // [node-origin] A copied node's range is its template's: it does not move.
         if site.span.is_expanded() {
             continue;
         }

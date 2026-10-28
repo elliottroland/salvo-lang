@@ -234,7 +234,7 @@ pub struct Resolution<'p> {
     /// [comptime-hygiene] The same for every written type reference inside
     /// such a fn, by the reference's address.
     pub type_ref_stamp: HashMap<usize, usize>,
-    /// [unique-shape] The declarations refused for their placement, by
+    /// [op-unique-shape] The declarations refused for their placement, by
     /// address: left out of every candidate set (ROADMAP 0ag).
     pub refused_shapes: HashSet<usize>,
 }
@@ -393,7 +393,7 @@ struct ModuleItems<'p> {
     opaque_types: Vec<(usize, &'p TypeDecl)>,
     /// [effect-alias] `effects X = […]` declarations.
     effect_aliases: Vec<(usize, &'p EffectAliasDecl)>,
-    /// [namespace] The dotted namespace paths declared anywhere in this
+    /// [mod-namespace] The dotted namespace paths declared anywhere in this
     /// module's files (`AttributeValue`, `Outer`, `Outer.Inner`). A whole-
     /// namespace import (`import mod.X`) brings every member under one of
     /// these prefixes; a pure namespace has no declaration of its own, so
@@ -1008,7 +1008,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                     // returning it. Without the distinction `eq(Int, Int) ->
                     // Bool` in a file declaring both `Int` and `Bool` was
                     // attached to whichever was looked at last (found
-                    // 2026-10-27 [unique-shape], when std's scalar `eq`s moved
+                    // 2026-10-27 [op-unique-shape], when std's scalar `eq`s moved
                     // beside their types).
                     let self_param = ob
                         .group
@@ -1291,11 +1291,11 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
         }
     }
 
-    // [unique-shape] Each operator (unique function shape) on a type is
+    // [op-unique-shape] Each operator (unique function shape) on a type is
     // declared in the type's file: a per-declaration interface fact, checked
     // once the scopes say which declaration each written type names.
     //
-    // [unique-shape] A refused declaration is a candidate nowhere (ROADMAP
+    // [op-unique-shape] A refused declaration is a candidate nowhere (ROADMAP
     // 0ag): left out of every scope's fns here, and out of the effect members
     // a body reaches by `refused_shapes`, so its uses report nothing more
     // than its refusal — one mistake, one diagnostic.
@@ -1544,7 +1544,7 @@ fn check_dot_names(
     // 2026-09-29. A struct/type namespace must not be generic (Kotlin nests
     // the member as a plain nested class, which cannot reference the outer
     // type parameters); an explicit `namespace` has no generics to worry
-    // about. Keyed by the full dotted prefix so nesting works [name-dot] [namespace].
+    // about. Keyed by the full dotted prefix so nesting works [name-dot] [mod-namespace].
     let mut ns_decls: std::collections::HashSet<&str> =
         ast.namespaces.iter().map(|s| s.as_str()).collect();
     let mut generic_ns: HashMap<&str, usize> = HashMap::new();
@@ -1605,7 +1605,7 @@ fn check_dot_names(
                 format!(
                     "`{ns}` in the dot-name `{name}` is not a namespace here: declare \
                      `namespace {ns} {{ … }}`, or a struct or defined `type {ns}` in this \
-                     file [name-dot] [namespace]"
+                     file [name-dot] [mod-namespace]"
                 ),
             ));
         }
@@ -2087,7 +2087,7 @@ fn resolve_import<'p>(
         .map(|i| i.name.as_str())
         .collect();
 
-    // [namespace] A whole-namespace import: `import mod.X` where `X` is a
+    // [mod-namespace] A whole-namespace import: `import mod.X` where `X` is a
     // namespace of the target module (not a declared name of its own). It
     // brings every exported member under the `X.` prefix, keeping them
     // written `X.member` — not a flat dump like a whole-module import. An
@@ -2116,7 +2116,7 @@ fn resolve_import<'p>(
                     import.span,
                     format!(
                         "ambiguous namespace import `{item_name}`: found in modules {} \
-                         [namespace]",
+                         [mod-namespace]",
                         names.join(", ")
                     ),
                 ));
@@ -2240,7 +2240,7 @@ fn resolve_import<'p>(
     }
 }
 
-/// [namespace] Brings a whole namespace's exported members into `scope`:
+/// [mod-namespace] Brings a whole namespace's exported members into `scope`:
 /// every exported declaration of `module` whose name is `ns` itself or starts
 /// with `ns.` (`AttributeValue.S`, `Outer.Inner.Thing`). Without an alias the
 /// members keep their names; with one, the `ns.` prefix is rewritten to
@@ -2293,7 +2293,7 @@ fn add_namespace_items<'p>(
             import_span,
             format!(
                 "namespace `{ns}` of `{module}` exports nothing, so this import brings \
-                 no names [namespace]"
+                 no names [mod-namespace]"
             ),
         ));
         return;

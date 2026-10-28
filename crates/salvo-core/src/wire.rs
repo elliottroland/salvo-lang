@@ -1,4 +1,4 @@
-//! [wire-format] [noremote] [protocol-hash] What may cross a machine, and the
+//! [net-wire-format] [net-noremote] [actor-protocol-hash] What may cross a machine, and the
 //! two compile-time facts a wire needs: whether a type has a wire form, and
 //! the canonical hash of an actor protocol.
 //!
@@ -86,7 +86,7 @@ impl WireBlock {
     }
 }
 
-/// [noremote] Whether `ty` is, or transitively holds, something without a
+/// [net-noremote] Whether `ty` is, or transitively holds, something without a
 /// wire form — and which thing, for the diagnostic. `None` means the type
 /// has a codec on both backends.
 pub fn wire_blocker(symbols: &Symbols<'_>, ty: &Ty) -> Option<WireBlock> {
@@ -118,7 +118,7 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
                 "Set" | "Map" | "SortedSet" | "SortedMap" => {
                     return Some(WireBlock::Keyed(name.clone()))
                 }
-                // [addr-routable] An addr crosses as its routable identity —
+                // [net-addr-routable] An addr crosses as its routable identity —
                 // when the protocol behind it has a wire form, since a proxy
                 // is only good for sends that can be framed; a reply token
                 // crosses when its answer can.
@@ -204,7 +204,7 @@ fn struct_blocker(symbols: &Symbols<'_>, decl: &StructDecl, args: &[Ty], depth: 
         .zip(args.iter().cloned())
         .collect();
     for field in &decl.fields {
-        // [state-infer] A generated iterator struct's inferred field has no
+        // [handler-state-infer] A generated iterator struct's inferred field has no
         // written type here; such a struct is never serialized, so it never
         // needs a wire form. Treating the field as determinable-elsewhere
         // (skip) keeps that true without a type to inspect.
@@ -321,7 +321,7 @@ pub fn approx_ty(t: &Type, subst: &HashMap<String, Ty>, symbols: &Symbols<'_>) -
 
 // ------------------------------------------------------------- protocol ----
 
-/// [protocol-hash] The canonical form of an actor protocol: every `send fn`
+/// [actor-protocol-hash] The canonical form of an actor protocol: every `send fn`
 /// member in declaration order, each as its name and its parameters' types
 /// in order, with every struct **expanded to its fields** (so a renamed
 /// struct is the same protocol and a reordered field is not — the encoding
@@ -329,9 +329,9 @@ pub fn approx_ty(t: &Type, subst: &HashMap<String, Ty>, symbols: &Symbols<'_>) -
 /// nodes may talk on `E` exactly when their canonical forms agree; the hash
 /// is exchanged in the handshake and compared at `attach`/`join` (steps
 /// ④/⑤), never at decode.
-/// [protocol-hash] Whether every payload of an actor effect's `send fn`
+/// [actor-protocol-hash] Whether every payload of an actor effect's `send fn`
 /// members has a wire form — the predicate under "this protocol has a hash",
-/// shared by both emitters and the lock file [protocol-lock].
+/// shared by both emitters and the lock file [actor-protocol-lock].
 pub fn effect_has_wire_form(symbols: &Symbols<'_>, e: &EffectDecl) -> bool {
     let empty = HashMap::new();
     e.fns.iter().filter(|f| f.is_send).all(|f| {
@@ -459,7 +459,7 @@ fn canonical_ty(symbols: &Symbols<'_>, ty: &Ty, out: &mut String, depth: usize) 
     }
 }
 
-/// [protocol-hash] FNV-1a 64 over the canonical form, rendered as sixteen
+/// [actor-protocol-hash] FNV-1a 64 over the canonical form, rendered as sixteen
 /// lowercase hex digits. Computed by the compiler, so the two backends carry
 /// the same constant without either runtime hashing anything.
 pub fn protocol_hash(canonical: &str) -> String {

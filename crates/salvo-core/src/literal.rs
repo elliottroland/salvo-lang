@@ -1,4 +1,4 @@
-//! [type-literal] [union-arm-identity] The runtime representation of literal
+//! [type-literal] [type-union-arm-identity] The runtime representation of literal
 //! types (user decisions 2026-09-30).
 //!
 //! A literal type *is* its base type at run time. In a union, the literals of
@@ -393,7 +393,7 @@ pub fn collapse_ast(ty: &ast::Type) -> ast::Type {
     }
 }
 
-/// [union-arm-identity] Rewrites the checker's coercions into the runtime
+/// [type-union-arm-identity] Rewrites the checker's coercions into the runtime
 /// arms, once, after the last round: an arm index into a declared union with
 /// literals becomes its runtime arm, a wrap into a union that collapsed to its
 /// base is no wrap at all (or an optional wrap, where `None` remains), and a

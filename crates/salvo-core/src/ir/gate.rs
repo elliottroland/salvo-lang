@@ -9,7 +9,7 @@
 //! The rule, as built:
 //! 1. **Which declarations broke**, from the errors' spans. An error raised
 //!    at a node a stamp copied (rendered by its origin at the stamp's `by`
-//!    site, a field or an arm [origin]) carries the stamped fn's id, and
+//!    site, a field or an arm [node-origin]) carries the stamped fn's id, and
 //!    belongs to that fn's body only. Otherwise every item containing the error is
 //!    broken: inside a fn's body, or a handler member's, the body; anywhere
 //!    else in a declaration, its interface (a fn's signature, a struct's,
@@ -84,7 +84,7 @@ impl Gate {
         let (Some(source), Some(module)) = (program.files.get(file), program.modules.get(file)) else {
             return;
         };
-        // [origin] [comptime-instantiate] An error at a node a stamp copied
+        // [node-origin] [comptime-instantiate] An error at a node a stamp copied
         // is rendered at the stamp's `by` site, a field or an arm — written
         // spans of another declaration (the struct the stamp is for) — and
         // names the stamped fn it was raised in.

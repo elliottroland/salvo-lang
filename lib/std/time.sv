@@ -247,24 +247,26 @@ export fn minus(at: Tick, d: Duration) [] -> Tick => at, d {
 
 // --------------------------------------------------------------- clocks ----
 
-// [time-ticker] The monotonic clock: a capability, because a function whose
+// The monotonic clock: a capability, because a function whose
 // answer depends on *when* it was called has a dependency, and Salvo's
 // dependencies live in signatures.
 //
 // This is the effect to bind for measuring — a latency, a timeout, an
 // interval — and the one a test replaces to make those measurements
 // deterministic.
+// @compilerrules [time-ticker]
 export effect Ticker {
     // The monotonic clock's reading now. Two readings subtract into the time
     // that passed between them ([between]); one on its own means nothing.
     fn tick() -> Tick
 }
 
-// [time-clock] The wall clock: what day and second it is, as an [Instant],
+// The wall clock: what day and second it is, as an [Instant],
 // plus the bridge between the two timelines.
 //
 // Reading it is a capability for the same reason [Ticker] is, and replacing it
 // is how a test decides what "now" means.
+// @compilerrules [time-clock]
 export effect Clock {
     // The wall clock's reading now.
     fn now() -> Instant
@@ -293,20 +295,22 @@ export effect Clock {
     fn to_tick(at: Instant) -> Tick => at
 }
 
-// [time-ticker] How long ago [since] was — `between(since, tick())`, which is
+// How long ago [since] was — `between(since, tick())`, which is
 // the shape almost every measurement takes.
+// @compilerrules [time-ticker]
 export fn elapsed(since: Tick) [Ticker] -> Duration => since {
     return between(since, tick())
 }
 
-// [time-ticker] The machine's monotonic clock.
+// The machine's monotonic clock.
+// @compilerrules [time-ticker]
 export handler DefaultTicker() of Ticker {
     fn tick() -> Tick {
         return Tick {nanos: monotonic_nanos()}
     }
 }
 
-// [time-clock] The machine's wall clock, with the correlation between the two
+// The machine's wall clock, with the correlation between the two
 // timelines taken once — here, at construction, where the two readings are as
 // close together as a pair of calls can be.
 //
@@ -314,6 +318,7 @@ export handler DefaultTicker() of Ticker {
 // the arithmetic is the same on both backends, so there is nothing for a
 // backend to decide, and the drift model above is readable where it is
 // implemented.
+// @compilerrules [time-clock]
 export handler DefaultClock() of Clock {
     state {
         base_tick: Long = monotonic_nanos()
@@ -333,36 +338,39 @@ export handler DefaultClock() of Clock {
     }
 }
 
-// [time-clock] The monotonic clock's reading, in nanoseconds from an
+// The monotonic clock's reading, in nanoseconds from an
 // arbitrary origin. The plumbing under [DefaultTicker] and [DefaultClock] —
 // bind [Ticker] instead, so the dependency is visible in your signature.
-// In an actor test, the clock the scheduler moves [test-actor].
+// In an actor test, the clock the scheduler moves.
+// @compilerrules [time-clock, test-actor]
 export fn monotonic_nanos() [] -> Long {
     return now_nanos()
 }
 
-// [time-clock] The wall clock's reading, in nanoseconds since the Unix epoch.
+// The wall clock's reading, in nanoseconds since the Unix epoch.
 // The plumbing under [DefaultClock]; bind [Clock] instead.
+// @compilerrules [time-clock]
 export platform fn epoch_nanos() [] -> Long
 
 // ---------------------------------------------------------------- timer ----
 
-// [time-timer] A deadline that has passed, and what [Timer]'s answer carries.
+// A deadline that has passed, and what [Timer]'s answer carries.
 //
 // [at] is the monotonic reading the deadline came due at — a [Tick] rather
 // than an [Instant], because a deadline that moved when the wall clock was
 // adjusted would not be a deadline. It is the time the timer *fired*, not the
 // time the continuation runs: the answer is queued like every other, so a busy
 // actor reads a slightly older `at` than its own [tick] would say.
+// @compilerrules [time-timer]
 export struct Fired {
     at: Tick
 }
 
-// [time-timer] Sleeping, as an effect — the capability to have something
+// Sleeping, as an effect — the capability to have something
 // happen later.
 //
 // An **actor effect**, which is what run-to-completion leaves: a handler
-// cannot block mid-body [actor-kind], so "wait for two seconds" can only mean
+// cannot block mid-body, so "wait for two seconds" can only mean
 // "park a continuation and be resumed". `after` therefore takes the
 // continuation rather than returning anything, and the caller mints it with
 // `replyto` (in a handler) or `waitfor` (anywhere — a wait needs no
@@ -372,6 +380,7 @@ export struct Fired {
 // continuation that finds its work already done — one no-op activation, the
 // same shape as losing a race. A cancel handle can be added if that ever
 // measures.
+// @compilerrules [time-timer, actor-kind]
 export actor effect Timer {
     // Consume [done] once at least [wait] has passed. A `wait` of zero or less
     // fires as soon as the scheduler looks, which is still a later activation
@@ -379,7 +388,7 @@ export actor effect Timer {
     send fn after(wait: Duration, done: Reply<Fired>) => !wait, !done
 }
 
-// [time-timer] The machine's timer: one deadline structure and one thread for
+// The machine's timer: one deadline structure and one thread for
 // the whole program, however many deadlines are outstanding — the runtime's
 // wheel (`runtime.after_nanos`), written in Salvo over a parker.
 //
@@ -387,6 +396,7 @@ export actor effect Timer {
 // mailbox bounds *registrations*, not deadlines: `after` hands the deadline to
 // the runtime and returns, so the queue only ever holds requests that have not
 // been registered yet.
+// @compilerrules [time-timer]
 export handler DefaultTimer() of Timer {
     mailbox { capacity: 64 }
 
@@ -397,7 +407,7 @@ export handler DefaultTimer() of Timer {
 
 // ----------------------------------------------------------- manual time ----
 
-// [time-manual] The administrative face of a fake clock: the protocol that
+// The administrative face of a fake clock: the protocol that
 // *moves* virtual time, kept separate from [Timer] so that holding one says
 // nothing about holding the other.
 //
@@ -405,13 +415,14 @@ export handler DefaultTimer() of Timer {
 // an addr per face, so the code under test is handed the [Timer] and cannot
 // reach `advance`, while the test keeps the control addr — least authority
 // falling out of the types rather than out of discipline.
+// @compilerrules [time-manual]
 export actor effect TimerCtl {
     // Move virtual time forward by [by], firing every deadline it iterators, in
     // deadline order.
     send fn advance(by: Duration) => !by
 }
 
-// [time-manual] A timer that only moves when told to: `MemFs`'s answer applied
+// A timer that only moves when told to: `MemFs`'s answer applied
 // to time, and ordinary Salvo — no runtime, no threads, no sleeping in a test.
 //
 // Virtual time starts at zero and advances only through [advance], so a test
@@ -425,7 +436,7 @@ export actor effect TimerCtl {
 // Sequence the test with a quiescence hook — "everything I sent has settled" —
 // and then advance.
 //
-// [time-coupling] Where the code under test *reads* a clock as well as setting
+// Where the code under test *reads* a clock as well as setting
 // deadlines, the two must agree, and the way to make them agree is a handler of
 // your own whose reading is a deadline of zero on this very timer:
 //
@@ -441,6 +452,7 @@ export actor effect TimerCtl {
 // std does not ship it: it is six lines, and which effect a test fakes —
 // [Ticker], [Clock] or both — is the test's business. Prefer passing time as
 // data over reading it at all; see `examples/time/`.
+// @compilerrules [time-manual, time-coupling]
 export handler ManualTime() of Timer, TimerCtl {
     mailbox { capacity: 64 }
 
@@ -454,9 +466,10 @@ export handler ManualTime() of Timer, TimerCtl {
         //
         // Two lists rather than one list of pairs, because a list holding
         // obligations cannot be *read* positionally — `get` would alias a linear
-        // element, so only `remove_at` reaches one [linear-container]. Keeping the
+        // element, so only `remove_at` reaches one. Keeping the
         // deadlines in a plain list beside it is what makes "which is earliest" a
         // question this handler can ask at all.
+        // @compilerrules [linear-container]
         deadlines: Mut List<Long> = Mut List()
         pending: Mut List<Reply<Fired>> = Mut List()
     }
@@ -491,12 +504,13 @@ export handler ManualTime() of Timer, TimerCtl {
     }
 }
 
-// [time-manual] The index of the earliest deadline at or before [target], or
+// The index of the earliest deadline at or before [target], or
 // `None` when none is due — [ManualTime]'s ordering, factored out because it is
 // the only part of it with a loop.
 //
 // A linear search: a fake holds a handful of deadlines, and the simple honest
 // thing beats a heap nobody will profile.
+// @compilerrules [time-manual]
 fn earliest_due(deadlines: List<Long>, target: Long) [] -> Int? => deadlines, target {
     let best = -1
     let best_at = 0L

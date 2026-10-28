@@ -1,4 +1,4 @@
-// [test-file] The tests of module `path` [path-type].
+// [test-file] The tests of module `path` [fs-path-type].
 
 fn text(p: Path?) [] -> Str => p {
     if p is Path q {

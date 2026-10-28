@@ -13,7 +13,7 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 /// A stand-in for `std.core.actor` and the little of std these tests need.
-/// `intrinsic` is std-only [intrinsic-std-only], so it is loaded as a std
+/// `intrinsic` is std-only [platform-intrinsic-std-only], so it is loaded as a std
 /// file rather than pasted into the source under test.
 const STD_PRELUDE: &str = concat!(
     "\
@@ -203,7 +203,7 @@ fn start() [use] -> Int {
     );
 }
 
-/// [spawn-inherit] A spawned handler **inherits** what the spawning scope
+/// [actor-spawn-inherit] A spawned handler **inherits** what the spawning scope
 /// has (user decision 2026-09-20, the arc this whole design was for): a
 /// declared dependency the `with` clause does not cover resolves from the
 /// scope and travels as a handle. The clause is now for *overriding*, not for
@@ -222,7 +222,7 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [spawn-inherit] [effect-handle] A spawn inherits an actor-face handler
+/// [actor-spawn-inherit] [effect-handle] A spawn inherits an actor-face handler
 /// bound inline with `use` like any other binding (2026-09-28): the binding
 /// is a handle, so the child holds the same instance the scope calls. (Until
 /// then this was refused, the inline binding having no handle on Rust.)
@@ -1275,7 +1275,7 @@ actor effect Peek {
     );
 }
 
-/// [actor-effect-kind] [monitor-handler] The binding gate, amended by SH-3
+/// [actor-effect-kind] [actor-monitor-handler] The binding gate, amended by SH-3
 /// (user decision 2026-09-19): a plain effect is still never actor-backed —
 /// no mailbox, no messages — but `spawn`, `use addr` and naming `eff[E]` now
 /// accept it as the **monitor** kind: one shared instance behind a lock, its
@@ -1591,9 +1591,9 @@ fn make() -> Pool {
     );
 }
 
-// ===== [free-send-fn] [task-mint] The task kernel =====
+// ===== [actor-free-send-fn] [task-mint] The task kernel =====
 
-/// [free-send-fn] A **free `send fn`** is the send kind extended to a function
+/// [actor-free-send-fn] A **free `send fn`** is the send kind extended to a function
 /// (user decision 2026-09-17, FC-1(a)): it runs by being scheduled, answers
 /// nothing, and the refusal list is checked at the declaration — the same list
 /// an `actor effect`'s members carry, because the reason is the same.
@@ -1681,7 +1681,7 @@ send fn finish<T>(out: Reply<T>, value: T) => !out, !value {
 /// [task-effects] A task body's effects are **inherited from the frame that
 /// mints it** (user decision 2026-09-26): the mint resolves them against the
 /// minting scope, exactly as a `spawn` resolves a synthesized dependency
-/// [spawn-inherit]. What the checker owes is the failure cases, because the
+/// [actor-spawn-inherit]. What the checker owes is the failure cases, because the
 /// remedy differs per case: nothing in scope, several candidates, or a binding
 /// whose whole point is that it does not travel.
 #[test]
@@ -1730,7 +1730,7 @@ fn go() [] -> None {{
 
 }
 
-/// [free-send-fn] It runs by being **scheduled**, so it is neither callable nor
+/// [actor-free-send-fn] It runs by being **scheduled**, so it is neither callable nor
 /// a value: a call would run it in this frame on this thread, which is the
 /// callback anti-pattern the kind exists to refuse.
 #[test]
@@ -2525,7 +2525,7 @@ fn each(f: () [any Counter] -> None) [any Counter] -> None {{
 /// [actor-private-send] A `send fn` no face declares is a **private** member:
 /// reachable by `k@self(…)` and `replyto k(…)`, refused to a bare call (with
 /// the selector named), and carrying the free send fn's written, all-consumed
-/// clause [free-send-fn] since no effect declaration mirrors it. A private
+/// clause [actor-free-send-fn] since no effect declaration mirrors it. A private
 /// member consuming a linear parameter discharges it by its own clause.
 #[test]
 fn a_private_send_member_is_reachable_by_self_send_and_replyto() {
@@ -2570,7 +2570,7 @@ handler Sneaky() of Counter {
     );
 }
 
-/// [mixed-handler] A mixed handler's servant keeps its handler-local send
+/// [actor-mixed-handler] A mixed handler's servant keeps its handler-local send
 /// members under the same rule: a written clause, reached by `@self`.
 #[test]
 fn a_mixed_servant_keeps_its_private_send_members() {

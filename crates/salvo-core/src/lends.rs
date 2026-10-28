@@ -119,7 +119,7 @@ pub fn holds_proj(ty: &Type, structs: &HashMap<&str, &StructDecl>) -> bool {
             structs.get(n.as_str()).is_some_and(|d| {
                 d.fields
                     .iter()
-                    // [state-infer] An inferred field (iterator-struct state)
+                    // [handler-state-infer] An inferred field (iterator-struct state)
                     // holds no written type; its concrete type never carries a
                     // `proj` borrow.
                     .filter_map(|f| f.ty.as_ref())
@@ -139,7 +139,7 @@ fn borrowing_fields<'p>(
     decl.fields
         .iter()
         .filter_map(|f| {
-            // [state-infer] An inferred iterator-state field holds no written
+            // [handler-state-infer] An inferred iterator-state field holds no written
             // type and never borrows.
             let t = f.ty.as_ref()?;
             if type_has_proj(t) {
@@ -288,7 +288,7 @@ impl<'p> Walk<'_, '_, 'p> {
             // [assert-op] `subject ?: unreachable!()` is the subject,
             // unwrapped: what it lends.
             e if e.presence_unwrapped().is_some() => self.lends_of_expr(e.presence_unwrapped().unwrap()),
-            // [elvis] Neither side lends: the picked value is a sub-union of
+            // [op-elvis] Neither side lends: the picked value is a sub-union of
             // the subject's own payload, handed out by value.
             Expr::Elvis { .. } | Expr::Placeholder { .. } => {
                 Some(HashSet::new())
@@ -296,7 +296,7 @@ impl<'p> Walk<'_, '_, 'p> {
             // [expr-pipe] A pipe's value is its right side's value, handed out
             // by value; it lends nothing of the pipe itself.
             Expr::Pipe { .. } | Expr::SafePipe { .. } => Some(HashSet::new()),
-            // [safe-nav] The result is an optional value handed out by value;
+            // [op-safe-nav] The result is an optional value handed out by value;
             // it lends nothing.
             Expr::SafeNav { .. } => Some(HashSet::new()),
             // A struct literal: `proj` fields take the roots of what they

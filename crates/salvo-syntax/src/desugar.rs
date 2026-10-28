@@ -346,7 +346,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
         held.insert(p.name.name.clone(), p.name.name.clone());
     }
     for field in &f.iter_state {
-        // [state-infer] An `iter fn`'s state field keeps its written type, or
+        // [handler-state-infer] An `iter fn`'s state field keeps its written type, or
         // carries `None` for the inferred form (`at = 0`). The initializer
         // moves to the minter's returned struct literal (below), where it is
         // typed with the parameters in scope; the checker infers an untyped
@@ -391,7 +391,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
     let pass_struct = StructDecl {
         annotations: Vec::new(),
         fns: Vec::new(),
-        // [noremote] An iterator holds a position into a value the frame owns;
+        // [net-noremote] An iterator holds a position into a value the frame owns;
         // it is never sent anywhere, so the flag is moot — off.
         noremote: false,
         comptime: false,
@@ -524,7 +524,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
         decl_span,
     };
     rewrite.block(&mut next_body);
-    // [yield-proj] An `iter fn` emitting borrowed elements names the
+    // [iter-yield-proj] An `iter fn` emitting borrowed elements names the
     // *parameter* as their source (`Emitted (proj(list) T)`); in the
     // generated `next` the value is reached through the iterator, so the
     // source is the struct parameter — the borrow chains through its `proj`
@@ -1033,7 +1033,7 @@ impl Rewrite {
                 }
             }
             Expr::Continue { .. } => {}
-            // [elvis] Both sides are ordinary expressions.
+            // [op-elvis] Both sides are ordinary expressions.
             Expr::Elvis { subject, rhs, .. } => {
                 self.expr(subject);
                 self.expr(rhs);
@@ -1386,7 +1386,7 @@ fn is_copy_scalar(ty: &Type) -> bool {
     crate::is_copy_scalar_type(ty)
 }
 
-/// [yield-proj] Renames the source of every `proj(old)` in `ty` to
+/// [iter-yield-proj] Renames the source of every `proj(old)` in `ty` to
 /// `new`, in place.
 fn rename_proj_source(ty: &mut Type, old: &str, new: &str) {
     fn in_ref(r: &mut TypeRef, old: &str, new: &str) {
@@ -1485,7 +1485,7 @@ fn rename_value_arg_root(ty: &mut Type, old: &str, new: &str) {
 /// nested because it *is* an ordinary top-level function in every other
 /// respect — it overloads, it is called bare or with dot notation, and it
 /// takes part in ranking. A `by` declaration [fn-by] and a concrete `compfn`
-/// [namespace] Flattens every `namespace X { … }` into dotted top-level
+/// [mod-namespace] Flattens every `namespace X { … }` into dotted top-level
 /// declarations before anything else sees the module. A member `Thing` inside
 /// `namespace X` becomes a top-level declaration named `X.Thing`; nested
 /// namespaces compose (`X.Y.Thing`) [name-dot]. `export namespace X`
@@ -1571,7 +1571,7 @@ fn prefix_item_name(
                         "a `",
                         $what,
                         "` cannot appear inside a `namespace`: it is file- or \
-                         module-scoped, not a named declaration [namespace]"
+                         module-scoped, not a named declaration [mod-namespace]"
                     )
                     .to_string(),
                     $span,

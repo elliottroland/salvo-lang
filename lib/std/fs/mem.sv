@@ -191,9 +191,10 @@ export handler MemFs of Fs, Streams {
         return mem_read_bytes(reads, s.handle, max)
     }
 
-    // The fill-a-buffer reads [fs-read-to]: each is its returning sibling with
+    // The fill-a-buffer reads: each is its returning sibling with
     // the destination handed in, so the fake has the same three shapes the
     // host does.
+    // @compilerrules [fs-read-to]
     fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err Checked<StreamError> => s, buf: Mut {
         let got = mem_read_bytes(reads, s.handle, max)
         if got is Err {
@@ -242,10 +243,11 @@ export handler MemFs of Fs, Streams {
         return ok(None)
     }
 
-    // [stream-receive] In memory there is nothing to wait for, so the answer
+    // In memory there is nothing to wait for, so the answer
     // is sent at once — still as a later activation, never inside this call.
     // A read of up to 64 KiB, as the host's is: the chunk size is the
-    // provider's [stream-receive].
+    // provider's.
+    // @compilerrules [stream-receive]
     fn receive(s: InStream, reply: Reply<Received>) -> None => !s, !reply {
         let got = mem_read_bytes(reads, s.handle, 65536)
         if got is Err {
@@ -266,7 +268,8 @@ export handler MemFs of Fs, Streams {
         reply.send(ok(Packet { bytes: data, stream: s }))
     }
 
-    // [stream-from-bytes] A stream over [data], in this table.
+    // A stream over [data], in this table.
+    // @compilerrules [stream-from-bytes]
     fn from_bytes(data: Bytes) -> InStream => !data {
         let handle = fresh_handle()
         put(reads, copy(handle), MemRead { source: "<bytes>", data: data, at: 0, failed: false })
@@ -343,9 +346,10 @@ fn mem_append(writes: Mut Map<Long, MemWrite>, handle: Long, data: Bytes) [] -> 
 }
 
 
-// [stream-provider] The state of an open stream, or a trap: a handle this
+// The state of an open stream, or a trap: a handle this
 // table never minted is a stream from another provider — a host stream handed
 // to `MemFs` — which is a program bug, not a condition to report.
+// @compilerrules [stream-provider]
 fn mem_read_state(reads: Map<Long, MemRead>, handle: Long) [] -> MemRead => reads, handle {
     let open = get(reads, handle)
     if open is None {

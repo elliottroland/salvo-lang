@@ -1,4 +1,4 @@
-//! [bytes-type] [byte-value] `Bytes` — std's byte buffer — as the checker sees
+//! [type-bytes] [type-byte] `Bytes` — std's byte buffer — as the checker sees
 //! it: an `intrinsic type` that opts into `Mut`, so it behaves like `Str`
 //! rather than like a container of `Byte`.
 //!
@@ -13,7 +13,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The declarations these sources rely on, loaded as a
+/// [platform-intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`) — the shape of the real
 /// `std.core.bytes`, trimmed to what the cases below name.
 const STD_PRELUDE: &str = concat!(
@@ -105,7 +105,7 @@ fn body(stmts: &str) -> String {
     format!("fn main() [] -> None {{\n{stmts}\n}}\n")
 }
 
-/// [bytes-type] The read surface takes a `Bytes`, and a `Mut Bytes` reaches it
+/// [type-bytes] The read surface takes a `Bytes`, and a `Mut Bytes` reaches it
 /// by dropping its `Mut` — the `Str`/`Mut Str` rule, on the buffer
 /// [str-drop-mut].
 #[test]
@@ -119,7 +119,7 @@ fn a_buffer_reaches_the_read_surface_by_dropping_mut() {
     ));
 }
 
-/// [bytes-type] [type-canbe-mut] Writing needs the `Mut`: a plain `Bytes` is
+/// [type-bytes] [type-canbe-mut] Writing needs the `Mut`: a plain `Bytes` is
 /// read-only, which is what makes `copy` and the fs payloads safe to hand out.
 #[test]
 fn writing_a_plain_buffer_is_refused() {
@@ -139,7 +139,7 @@ fn writing_a_plain_buffer_is_refused() {
     );
 }
 
-/// [bytes-type] The text bridge is strict, so it answers an optional; the
+/// [type-bytes] The text bridge is strict, so it answers an optional; the
 /// element reads are optional too, since an index may be outside the buffer
 /// [type-nullable].
 #[test]
@@ -161,7 +161,7 @@ fn the_optional_reads_must_be_narrowed() {
     assert!(!msgs.is_empty(), "expected the optional to be refused");
 }
 
-/// [byte-value] [op-arith] A `Byte` read out of a buffer is an octet, not a
+/// [type-byte] [op-arith] A `Byte` read out of a buffer is an octet, not a
 /// number: arithmetic goes through `to_int`.
 #[test]
 fn bytes_hold_octets_not_numbers() {

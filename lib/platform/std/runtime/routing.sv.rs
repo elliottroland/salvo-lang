@@ -750,7 +750,7 @@ pub fn bump_in(versions: &mut crate::std_core_map::Map<i32, i64>, waiters: &mut 
                     let mut __picked_2 = __pick_1.unwrap();
                     __picked_2
                 } else {
-                    panic!("salvo: unreachable at std.runtime.routing:171:32")
+                    panic!("salvo: unreachable at std.runtime.routing:184:32")
                 }
             };
             __proj_4.group
@@ -761,7 +761,7 @@ pub fn bump_in(versions: &mut crate::std_core_map::Map<i32, i64>, waiters: &mut 
                     let mut __picked_6 = __pick_5.unwrap();
                     __picked_6
                 } else {
-                    panic!("salvo: unreachable at std.runtime.routing:172:52")
+                    panic!("salvo: unreachable at std.runtime.routing:185:52")
                 }
             };
             crate::std_runtime::unpark_platform(&(w.parker).clone());
@@ -960,7 +960,7 @@ impl crate::std_runtime_routing::__Stateful_RouteTable for Routes {
                     let mut __picked_2 = __pick_1.unwrap();
                     __picked_2
                 } else {
-                    panic!("salvo: unreachable at std.runtime.routing:329:46")
+                    panic!("salvo: unreachable at std.runtime.routing:344:46")
                 }
             }; crate::std_core_list::add_platform::<crate::std_runtime_routing::Staged>(&mut out, __arg1) };
         }
@@ -1044,7 +1044,7 @@ impl crate::std_runtime_routing::__Stateful_RouteTable for Routes {
                     let mut __picked_2 = __pick_1.unwrap();
                     __picked_2
                 } else {
-                    panic!("salvo: unreachable at std.runtime.routing:403:38")
+                    panic!("salvo: unreachable at std.runtime.routing:418:38")
                 }
             } == key) {
                 let mut _k: Option<i64> = crate::std_core_list::remove_at_platform::<i64>(&mut self.task_keys, i);
@@ -1152,7 +1152,7 @@ impl crate::std_runtime_routing::__Stateful_RouteTable for Routes {
                         let mut __picked_2 = __pick_1.unwrap();
                         __picked_2
                     } else {
-                        panic!("salvo: unreachable at std.runtime.routing:498:41")
+                        panic!("salvo: unreachable at std.runtime.routing:513:41")
                     }
                 };
                 __proj_4.id
@@ -1211,7 +1211,7 @@ pub fn wake_senders(waiters: &mut Vec<crate::std_runtime::Parker>) {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.runtime.routing:556:41")
+                panic!("salvo: unreachable at std.runtime.routing:572:41")
             }
         }; crate::std_runtime::unpark_platform(&__arg1) };
     }
@@ -1241,7 +1241,7 @@ pub fn restage(routes: &crate::std_core_map::Map<i64, crate::std_core_bytes::Byt
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.runtime.routing:579:46")
+                panic!("salvo: unreachable at std.runtime.routing:595:46")
             }
         }; crate::std_core_list::add_platform::<crate::std_runtime_routing::Parked>(&mut waiting, __arg1) };
     }
@@ -1339,7 +1339,7 @@ pub fn send_remote(mut addr: i32, mut proto: String, mut payload: crate::std_cor
             return;
         };
     }
-    panic!("salvo: unreachable at std.runtime.routing:676:5");
+    panic!("salvo: unreachable at std.runtime.routing:702:5");
 }
 
 pub fn answer_remote(mut t: crate::std_runtime_routing::ReplyParts, mut payload: crate::std_core_bytes::Bytes) {
@@ -1573,7 +1573,7 @@ pub fn view_members(mut group: i32) -> Vec<i32> {
                     let mut __picked_2 = __pick_1.unwrap();
                     __picked_2
                 } else {
-                    panic!("salvo: unreachable at std.runtime.routing:939:53")
+                    panic!("salvo: unreachable at std.runtime.routing:983:53")
                 }
             }), &crate::std_runtime_routing::identity({
                 let mut __pick_4: Option<i32> = crate::std_core_list::get_platform::<i32>(&left, best).copied();
@@ -1581,7 +1581,7 @@ pub fn view_members(mut group: i32) -> Vec<i32> {
                     let mut __picked_5 = __pick_4.unwrap();
                     __picked_5
                 } else {
-                    panic!("salvo: unreachable at std.runtime.routing:939:104")
+                    panic!("salvo: unreachable at std.runtime.routing:983:104")
                 }
             })) {
                 best = i;
@@ -1594,7 +1594,7 @@ pub fn view_members(mut group: i32) -> Vec<i32> {
                 let mut __picked_8 = __pick_7.unwrap();
                 __picked_8
             } else {
-                panic!("salvo: unreachable at std.runtime.routing:944:43")
+                panic!("salvo: unreachable at std.runtime.routing:988:43")
             }
         }; crate::std_core_list::add_platform::<i32>(&mut out, __arg1) };
     }

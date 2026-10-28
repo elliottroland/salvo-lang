@@ -11,13 +11,13 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-/// [for-iter] [iter-for-native] What a `for` over an array calls, in the
-/// arrays' std home [unique-shape]: `for x in xs` is `next(iter(xs))`, which
+/// [iter-for] [iter-for-native] What a `for` over an array calls, in the
+/// arrays' std home [op-unique-shape]: `for x in xs` is `next(iter(xs))`, which
 /// the backends walk natively when these are the calls.
 const STD_ARRAY: &str = "export qualifier Emitted<T> of T\nexport struct Finished {}\n\
      export struct ArrayNext<T> canbe Mut {\n    at: Int\n}\n\
@@ -461,7 +461,7 @@ fn facts_must_hold_on_every_path_to_survive() {
 
 // ===== destructuring =====
 
-/// [let-destructure] A tuple pattern needs a tuple *of that arity* behind it.
+/// [var-let-destructure] A tuple pattern needs a tuple *of that arity* behind it.
 /// Until 2026-09-18 a mismatch bound `Unknown`s and said nothing, so
 /// `let (a, b) = 7` compiled and the emitters wrote target code that could not
 /// build — the mistake was reported, at best, by rustc or kotlinc.
@@ -494,7 +494,7 @@ fn a_tuple_pattern_must_match_the_arity() {
     );
 }
 
-/// [let-destructure] A **loop** element may be destructured, and the same rule
+/// [var-let-destructure] A **loop** element may be destructured, and the same rule
 /// applies to it: the element has to be a tuple of that arity. `p.tags` is an
 /// array of `Str?`, so a pair pattern reports rather than binding `Unknown`s
 /// (which is what it did until 2026-09-18).

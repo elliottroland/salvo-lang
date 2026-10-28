@@ -3605,7 +3605,7 @@ fn goto_definition_works_inside_std() {
 // to skip `lower_base_ref` (and so never recorded a `def_refs` entry) for an
 // unqualified reference — only a qualified one (`Mut Option.Int`) reached
 // it. Regression for the gap found 2026-10-19 via `namespace Option { ... }`
-// sharing its name with a struct of the same name [namespace].
+// sharing its name with a struct of the same name [mod-namespace].
 #[test]
 fn hover_resolves_a_namespace_members_type_reference() {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_namespace_hover");

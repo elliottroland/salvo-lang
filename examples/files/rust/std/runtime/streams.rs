@@ -372,7 +372,7 @@ impl crate::std_runtime_streams::__Stateful_StreamTable for Streams {
                     let mut __picked_2 = __pick_1.unwrap();
                     __picked_2
                 } else {
-                    panic!("salvo: unreachable at std.runtime.streams:161:42")
+                    panic!("salvo: unreachable at std.runtime.streams:166:42")
                 }
             });
         };
@@ -393,7 +393,7 @@ impl crate::std_runtime_streams::__Stateful_StreamTable for Streams {
                     let mut __picked_2 = __pick_1.unwrap();
                     __picked_2
                 } else {
-                    panic!("salvo: unreachable at std.runtime.streams:175:43")
+                    panic!("salvo: unreachable at std.runtime.streams:180:43")
                 }
             });
         };
@@ -422,7 +422,7 @@ impl crate::std_runtime_streams::__Stateful_StreamTable for Streams {
                         let mut __picked_2 = __pick_1.unwrap();
                         __picked_2
                     } else {
-                        panic!("salvo: unreachable at std.runtime.streams:195:36")
+                        panic!("salvo: unreachable at std.runtime.streams:200:36")
                     }
                 };
                 __proj_4.handle
@@ -447,7 +447,7 @@ pub fn index_in(keys: &Vec<i64>, mut handle: i64) -> i32 {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.runtime.streams:209:29")
+                panic!("salvo: unreachable at std.runtime.streams:214:29")
             }
         } == handle) {
             return i;
@@ -472,7 +472,7 @@ pub fn unbusy(busy: &mut Vec<i64>, waiting: &mut Vec<crate::std_runtime::Parker>
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.runtime.streams:226:41")
+                panic!("salvo: unreachable at std.runtime.streams:231:41")
             }
         }; crate::std_runtime::unpark_platform(&__arg1) };
     }
@@ -511,7 +511,7 @@ pub fn checkout_in(mut handle: i64) -> crate::std_runtime_streams::InEntry {
         };
         crate::std_runtime::park_platform(&crate::std_runtime::this_parker_platform());
     }
-    panic!("salvo: unreachable at std.runtime.streams:263:5");
+    panic!("salvo: unreachable at std.runtime.streams:270:5");
     return crate::std_runtime_streams::checkout_in(handle);
 }
 
@@ -528,7 +528,7 @@ pub fn checkout_out(mut handle: i64) -> crate::std_runtime_streams::OutEntry {
         };
         crate::std_runtime::park_platform(&crate::std_runtime::this_parker_platform());
     }
-    panic!("salvo: unreachable at std.runtime.streams:278:5");
+    panic!("salvo: unreachable at std.runtime.streams:285:5");
     return crate::std_runtime_streams::checkout_out(handle);
 }
 
@@ -646,7 +646,7 @@ pub fn read_line(e: &mut crate::std_runtime_streams::InEntry) -> crate::std_runt
                     let mut __picked_2 = __pick_1.unwrap();
                     __picked_2
                 } else {
-                    panic!("salvo: unreachable at std.runtime.streams:364:52")
+                    panic!("salvo: unreachable at std.runtime.streams:371:52")
                 }
             }) as i32) == 13i32)) {
                 n = i32::wrapping_sub(n, 1i32);
@@ -675,7 +675,7 @@ pub fn read_line(e: &mut crate::std_runtime_streams::InEntry) -> crate::std_runt
         };
         crate::std_core_bytes::append_platform(&mut e.ahead, &got.data);
     }
-    panic!("salvo: unreachable at std.runtime.streams:359:5");
+    panic!("salvo: unreachable at std.runtime.streams:366:5");
     return crate::std_runtime_streams::read_line(&mut *e);
 }
 
@@ -697,7 +697,7 @@ pub fn read_all(e: &mut crate::std_runtime_streams::InEntry) -> crate::std_runti
         e.position = i64::wrapping_add(e.position, ((crate::std_core_bytes::size_platform(&got.data)) as i64));
         crate::std_core_bytes::append_platform(&mut out, &got.data);
     }
-    panic!("salvo: unreachable at std.runtime.streams:391:5");
+    panic!("salvo: unreachable at std.runtime.streams:398:5");
     return crate::std_runtime_streams::read_all(&mut *e);
 }
 

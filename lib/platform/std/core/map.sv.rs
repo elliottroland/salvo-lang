@@ -141,7 +141,7 @@ pub fn to_str<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, to_str: 
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.map:186:43")
+                panic!("salvo: unreachable at std.core.map:201:43")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -166,7 +166,7 @@ pub fn eq<K: Clone, V: Clone>(a: &crate::std_core_map::Map<K, V>, b: &crate::std
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.map:208:29")
+                panic!("salvo: unreachable at std.core.map:224:29")
             }
         }, theirs_4)) {
             return false;

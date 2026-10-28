@@ -70,7 +70,7 @@ pub fn dump_program_over(
     // appended after its module.
     let throws = check::throws_map(&ir);
     let file_content = |file_name: &str| -> Option<&str> { program.files.iter().find(|f| f.name == file_name).map(|f| f.content.as_str()) };
-    // [origin] A copied node's location is where it lands (`origin::landing`).
+    // [node-origin] A copied node's location is where it lands (`origin::landing`).
     let landing = |file_name: &str, span: Span| -> Span {
         match program.files.iter().position(|f| f.name == file_name) {
             Some(i) => crate::origin::landing(&program.modules[i], span),

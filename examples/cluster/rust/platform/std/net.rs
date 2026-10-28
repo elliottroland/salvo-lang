@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 // compile), and rustc enforces `Send + Sync` on this struct. If the
 // host cannot promise that, delete `threadsafe` from the Salvo
 // declaration: the compiler then serializes the instance for you and
-// the receivers become `&mut self` [threadsafe-platform].
+// the receivers become `&mut self` [platform-threadsafe].
 //
 // Signed 2026-09-26: every table below is behind its own `Mutex`, held only
 // for the table operation — never across a socket write — and a connection
@@ -148,7 +148,7 @@ impl crate::std_net::TransportPlatformSync for HostTcpTransport {
         listening.insert((at.host.clone(), at.port), slot.clone());
         // An open listener is a source of work the scheduler cannot see, so
         // it must not declare the program idle or deadlocked while one is
-        // open: tell it [threadsafe-platform] [actor-on-idle].
+        // open: tell it [platform-threadsafe] [actor-on-idle].
         crate::scheduler::salvo_external_begin();
         std::thread::spawn(move || {
             for accepted in listener.incoming() {

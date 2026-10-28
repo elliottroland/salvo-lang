@@ -1,4 +1,4 @@
-//! [actor-deadlock-cycle] [route-stub] [effect-any] A routed protocol in the
+//! [actor-deadlock-cycle] [actor-route-stub] [effect-any] A routed protocol in the
 //! deadlock graph. The route `use any g` binds is derived in the IR
 //! (`__Route_X`), so it is no AST handler; the graph builds its node from the
 //! checker's `route_uses`, as a written `of any X` router gets one: a servant
@@ -140,7 +140,7 @@ fn main(g: eff[ActorGroup<Ping>]) [use, spawn]
     assert_eq!(into, ["Pong → __Route_Ping's servant (Occupancy, Ponging)"], "{edges:#?}");
 }
 
-/// [route-stub] [effect-any] The near miss: the members answer directly, so
+/// [actor-route-stub] [effect-any] The near miss: the members answer directly, so
 /// nothing waits back on `Pong`. The route's forward to `Ping` is no edge —
 /// read as `Ping`'s it would be a `Ping → Ping` cycle, and as the route's
 /// it would re-spell `Pong → Ping` — and the program is silent, though
@@ -177,7 +177,7 @@ fn main(g: eff[ActorGroup<Ping>]) [use, spawn]
 
 
 /// A selector of the program's own that is stateful and depends on `Pong`,
-/// whose `changed` pokes it — a priced shareable handler [monitor-handler] —
+/// whose `changed` pokes it — a priced shareable handler [actor-monitor-handler] —
 /// and the `main` that routes `Ping` through it.
 const WATCHING: &str = "
 handler Watching<E>(config: RouteConfig = default_route_config()) [Pong] of RouteSelector<E> {
@@ -219,7 +219,7 @@ handler Pinging() of Ping {
 }
 ";
 
-/// [route-stub] [monitor-handler] The selector's dependency edges: a policy
+/// [actor-route-stub] [actor-monitor-handler] The selector's dependency edges: a policy
 /// of the program's own that is stateful and depends on `Pong` is a priced
 /// shareable handler, so the route's node gets an occupancy edge to its
 /// lock, as a servant's plain dependency does — next to std's `Elected`,
@@ -277,7 +277,7 @@ handler Pinging(back: eff[Pong]) of Ping {{
     assert!(edges.contains(&"Watching's lock → Pong (BackPressure, Watching)".to_string()), "{edges:#?}");
 }
 
-/// [actor-deadlock-cycle] [effect-any] [route-stub] The ROADMAP repro: the
+/// [actor-deadlock-cycle] [effect-any] [actor-route-stub] The ROADMAP repro: the
 /// members send nothing, so the only cycle is the one through the route.
 /// `Ponging` calls into the route on its own thread, under the route's lock;
 /// the route consults `Watching` under *its* lock, whose `changed` pokes
@@ -366,7 +366,7 @@ fn a_bare_written_routers_node_gets_the_callers_edge() {
     assert!(edges.contains(&"Pong → Ping (BackPressure, Ponging)".to_string()), "{edges:#?}");
 }
 
-/// [actor-deadlock-cycle] [effect-any] [monitor-handler] A stateful written
+/// [actor-deadlock-cycle] [effect-any] [actor-monitor-handler] A stateful written
 /// router binds under a lock, so a caller inside it occupies, as in a priced
 /// shareable handler: the edge in is an occupancy edge, and the same cycle
 /// is an error.

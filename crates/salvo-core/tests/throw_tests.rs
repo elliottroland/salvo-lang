@@ -1,4 +1,4 @@
-//! Non-resumption: `throw` and the intrinsic `try` [throw] [try].
+//! Non-resumption: `throw` and the intrinsic `try` [throw] [throw-try].
 //!
 //! `throw(message)` returns `Never`, so the code between it and its
 //! delimiter does not run; a function that may throw says so with
@@ -11,7 +11,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
@@ -129,9 +129,9 @@ fn check(body: &str) -> Vec<String> {
     ))
 }
 
-// ===== the outcome type [try] =====
+// ===== the outcome type [throw-try] =====
 
-/// [try] The delimiter's value is `Ok T | Thrown M` — read off a
+/// [throw-try] The delimiter's value is `Ok T | Thrown M` — read off a
 /// deliberate annotation mismatch, which is the cheapest way to see the
 /// type the checker computed.
 #[test]
@@ -150,7 +150,7 @@ fn try_yields_ok_and_thrown_arms() {
     );
 }
 
-/// [try] `M` is the *union* of the message types performed in the body
+/// [throw-try] `M` is the *union* of the message types performed in the body
 /// (user decision 2026-09-04, for consistency with `if`/`when` branch
 /// types) — a single type stays bare, several form a union.
 #[test]
@@ -170,7 +170,7 @@ fn several_message_types_union_together() {
     );
 }
 
-/// [try] A body whose every path leaves still has an `Ok` arm: `Ok None`.
+/// [throw-try] A body whose every path leaves still has an `Ok` arm: `Ok None`.
 #[test]
 fn an_always_throwing_body_still_has_an_ok_arm() {
     let errs = errors(&format!(
@@ -188,7 +188,7 @@ fn an_always_throwing_body_still_has_an_ok_arm() {
     );
 }
 
-/// [try] Nothing in the body can throw, so the delimiter has no outcome to
+/// [throw-try] Nothing in the body can throw, so the delimiter has no outcome to
 /// produce (user decision 2026-09-04: an error, not `Thrown None`).
 #[test]
 fn a_try_that_cannot_throw_is_rejected() {
@@ -367,9 +367,9 @@ fn releasing_before_the_call_discharges_it() {
 }
 
 
-// ===== nesting [try-innermost] =====
+// ===== nesting [throw-try-innermost] =====
 
-/// [try-innermost] A throw lands in the innermost delimiter, so an inner
+/// [throw-try-innermost] A throw lands in the innermost delimiter, so an inner
 /// `try` does not need the outer one's message type — and the outer fn's
 /// `[Throw<M>]` is unaffected by what the inner one catches.
 #[test]
@@ -393,14 +393,14 @@ fn an_inner_try_takes_only_its_own_throws() {
     assert_eq!(errs.len(), 1, "expected only the annotation error: {errs:?}");
 }
 
-// ===== nested qualification and union messages [try] =====
+// ===== nested qualification and union messages [throw-try] =====
 // The two shapes the design flagged as wanting a test rather than an
 // assumption. Both are reachable: a *qualified union* is a claim about a
 // union, so the inner arms are matched by binding at the inner type — the
 // droppable-qualifier rule (`Qual T <: T`) does the unwrapping, which is
 // also why `once` (never droppable) needs no special case here.
 
-/// [try] A body that already returns a result yields
+/// [throw-try] A body that already returns a result yields
 /// `Ok (Ok Int | Err Str) | Thrown M`, and the inner result is reachable.
 #[test]
 fn a_nested_result_outcome_can_be_taken_apart() {
@@ -435,7 +435,7 @@ fn a_nested_result_outcome_can_be_taken_apart() {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// [try] The same for a *union message*: `Thrown (Str | Int)`'s arms are
+/// [throw-try] The same for a *union message*: `Thrown (Str | Int)`'s arms are
 /// reachable by binding at the message type.
 #[test]
 fn a_union_message_can_be_taken_apart() {
@@ -504,7 +504,7 @@ fn matching_a_qualified_union_directly_names_the_remedy() {
 
 // ===== a `try` body is ordinary code to every traversal =====
 
-/// [try] [narrow-assign-reset] An assignment inside a `try` body resets an
+/// [throw-try] [is-narrow-assign-reset] An assignment inside a `try` body resets an
 /// earlier `is` narrowing, like an assignment anywhere else. (Flow-sensitive
 /// checking of the body is what achieves this, not the syntactic
 /// assigned-name scan — verified by reverting that scan's `Expr::Try` arm

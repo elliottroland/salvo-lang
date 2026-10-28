@@ -40,7 +40,7 @@ pub struct Key {
     pub decl: DeclId,
     pub node: crate::decl_id::NodeId,
     file: u32,
-    /// [origin] The node's span.
+    /// [node-origin] The node's span.
     pub span: Span,
 }
 
@@ -59,11 +59,11 @@ impl Key {
     /// its qualifier's index (below it).
     pub const INTERP_TEXT: u32 = 63;
 
-    /// [for-iter] The `n` of the `iter` call a `for` over a source names
+    /// [iter-for] The `n` of the `iter` call a `for` over a source names
     /// (`for x in c` is `next(iter(c))`), at the subject's node.
     pub const FOR_ITER: u32 = 62;
 
-    /// [for-iter] The `n` of the `next` call a `for` names, at the subject's
+    /// [iter-for] The `n` of the `next` call a `for` names, at the subject's
     /// node: `next(c)` for an iterator, `next(iter(c))`'s for a source.
     pub const FOR_NEXT: u32 = 61;
 
@@ -351,7 +351,7 @@ struct LeadCandidate {
     rung: crate::resolve::Rung,
 }
 
-/// [safe-nav] What the IR builder needs to lower `base?.link`.
+/// [op-safe-nav] What the IR builder needs to lower `base?.link`.
 #[derive(Clone, Debug)]
 pub struct SafeNavInfo {
     /// The subject's **first arm** — the type the link is checked against and
@@ -364,7 +364,7 @@ pub struct SafeNavInfo {
     /// The link's own result already appears among the result arms (it is
     /// optional, or its type equals a pass-through arm), so the builder must
     /// not wrap/duplicate it — the `Option<Option<T>>` guard, generalized to
-    /// arm collapse [union-arm-identity].
+    /// arm collapse [type-union-arm-identity].
     pub already_opt: bool,
     /// The subject is exactly `T | None` (first arm the value, rest just
     /// `None`): the builder keeps the canonical `None`/`Else` + `Present`
@@ -389,7 +389,7 @@ pub struct UnionTest {
     pub match_none: bool,
     /// [type-literal] Value conditions on runtime arms whose declared arms
     /// were only partly matched — literals that collapsed into one arm
-    /// [union-arm-identity]: `(arm, negate, literals)` means the value on that
+    /// [type-union-arm-identity]: `(arm, negate, literals)` means the value on that
     /// arm must equal one of `literals` (or, `negate`d, none of them). An arm
     /// in `arms` with no entry matches whole. `size` and `arms` are already
     /// the *runtime* union's; `size` 1 with no `None` arm means there is no
@@ -397,7 +397,7 @@ pub struct UnionTest {
     pub values: Vec<(usize, bool, Vec<salvo_syntax::ast::TypeLit>)>,
 }
 
-/// [elvis] How a positional pick (`?:`, `??:`, `:?`, …) lowers against the
+/// [op-elvis] How a positional pick (`?:`, `??:`, `:?`, …) lowers against the
 /// subject's declared union: which arms are the **picked** side, expressed as
 /// indices into the subject's non-`None` value arms plus whether the `None`
 /// arm itself is picked. The emitters build a test for the picked side and
@@ -414,7 +414,7 @@ pub struct PickTest {
     pub nullable: bool,
 }
 
-/// [iter-protocol] [for-iter] What a `for` over an **iterator** needs from the
+/// [iter-protocol] [iter-for] What a `for` over an **iterator** needs from the
 /// checker beyond the calls it names: which arm of `next`'s result carries an
 /// element, and how the loop holds the iterator. The calls themselves — the
 /// `next` that advances it and, for a source, the `iter` that mints it — are
@@ -424,7 +424,7 @@ pub struct PickTest {
 #[derive(Clone, Debug)]
 pub struct PassDriver {
     /// Index of the `Emitted` arm among the result's non-`None` arms
-    /// [union-arm-identity] — positional over the *declared* type, so
+    /// [type-union-arm-identity] — positional over the *declared* type, so
     /// `Finished | Emitted T` is as valid as the usual order. Unused when
     /// `origin` is set: a hidden machine reports absence directly.
     pub emitted_arm: usize,
@@ -543,9 +543,9 @@ pub const THROW_EFFECT: &str = "Throw";
 /// emitters name the generated machine identically, which is how a mint at an
 /// argument and a `for` over the same origin agree.
 pub const ORIGIN_PASS_PREFIX: &str = "__Pass_";
-/// The value arm of a `try` outcome, from `std.core.result` [try].
+/// The value arm of a `try` outcome, from `std.core.result` [throw-try].
 pub const OK_QUALIFIER: &str = "Ok";
-/// The message arm of a `try` outcome, from module `throw` [try].
+/// The message arm of a `try` outcome, from module `throw` [throw-try].
 pub const THROWN_QUALIFIER: &str = "Thrown";
 /// [actor-spawn-expr] The handle a `spawn` produces, from `std.core.actor`:
 /// known by name to the compiler because its type argument is an **effect**,
@@ -587,7 +587,7 @@ pub struct ThrowSite {
     /// The message type at this site.
     pub message: Ty,
     /// Where the throw lands: `Some(span)` is the enclosing `try`
-    /// expression's span (the innermost one [try-innermost]); `None` means
+    /// expression's span (the innermost one [throw-try-innermost]); `None` means
     /// it propagates out of the enclosing fn, which therefore declares
     /// `[Throw<M>]`.
     pub delimiter: Option<Span>,
@@ -662,7 +662,7 @@ pub struct PredicateArg {
     pub copy: bool,
 }
 
-/// [route-stub] The std qualifier marking a protocol member's key parameter.
+/// [actor-route-stub] The std qualifier marking a protocol member's key parameter.
 const ROUTE_KEY_QUALIFIER: &str = "Key";
 
 /// The checker's output.
@@ -693,7 +693,7 @@ pub struct Checked {
     pub coerce: HashMap<Key, Coercion>,
     /// Keyed by the span of the `is` expression or the `when` branch.
     pub is_tests: HashMap<Key, UnionTest>,
-    /// [safe-nav] A `base?.link`, keyed by the `SafeNav` expression's span:
+    /// [op-safe-nav] A `base?.link`, keyed by the `SafeNav` expression's span:
     /// what the IR builder needs to lower it to a short-circuiting
     /// `Switch`/`Branch` over the receiver. The checker typed the link on
     /// the **non-`None`** receiver (recorded as `inner`); `already_opt` says
@@ -753,11 +753,11 @@ pub struct Checked {
     /// [effect-handler-multi] Several entries when the handler wears several
     /// faces: a `use` binds every effect it implements, in declaration order.
     pub use_effects: HashMap<Key, Vec<Ty>>,
-    /// [route-stub] `use any group` sites, mapped to the protocol they route
+    /// [actor-route-stub] `use any group` sites, mapped to the protocol they route
     /// (its type key): the IR derives one `__Route_X` per routed protocol and
     /// constructs it where the program wrote the `use`.
     pub route_uses: HashMap<Key, String>,
-    /// [route-stub] Per actor effect (by key), each send member's
+    /// [actor-route-stub] Per actor effect (by key), each send member's
     /// `Key`-marked parameter, by member name: what the derived route
     /// hashes. Recorded at the effect, since lowering erases `Key`.
     pub route_keys: HashMap<String, HashMap<String, String>>,
@@ -766,7 +766,7 @@ pub struct Checked {
     /// table, which makes them stateful for the handle's purposes
     /// (`salvo_core::handler_is_stateful`) even with no declared state.
     pub parking_handlers: std::collections::HashSet<String>,
-    /// [protocol-hash] Every actor effect's canonical protocol hash
+    /// [actor-protocol-hash] Every actor effect's canonical protocol hash
     /// (`crate::wire::protocol_hash`), by effect name. Computed once here so
     /// both emitters carry the same constants and the handshake (step ④)
     /// compares what the compiler computed rather than what a runtime hashed.
@@ -781,7 +781,7 @@ pub struct Checked {
     /// instance* — which is what a generic dependency would need, and both
     /// backends refuse those today.
     pub use_deps: HashMap<Key, Vec<Ty>>,
-    /// [with-clause] Which written `with` item satisfied which declared
+    /// [effect-with-clause] Which written `with` item satisfied which declared
     /// dependency of a `use`, in the handler's declaration order (keyed by
     /// the `use` statement span): `Some(i)` for the clause item at written
     /// index `i`, `None` for a dependency resolved from the scope. Present
@@ -812,7 +812,7 @@ pub struct Checked {
     /// the matching happens, so recording it here is what keeps both
     /// emitters from re-deriving it (and from disagreeing about it).
     /// Parallel to `spawn_deps`: same length, same order.
-    /// [spawn-inherit] `None` marks a dependency **synthesized from the
+    /// [actor-spawn-inherit] `None` marks a dependency **synthesized from the
     /// spawning scope** rather than written (user decision 2026-09-20): the
     /// emitters then supply the scope's handle where a written item would
     /// have been constructed.
@@ -822,7 +822,7 @@ pub struct Checked {
     /// what identifies a continuation target; an overloaded send member is
     /// not expressible yet and will need the index instead.
     pub replyto_members: HashMap<Key, String>,
-    /// [mixed-handler] Façade sends: a call inside a mixed handler's
+    /// [actor-mixed-handler] Façade sends: a call inside a mixed handler's
     /// sync member that names one of the handler's own `send fn` members —
     /// bare, or spelled `k@self(…)` — mapped to that member's name. The
     /// emitters lower each to an enqueue on the façade value's addr. (The
@@ -860,16 +860,16 @@ pub struct Checked {
     /// the statement's span: the emitters generate a forwarding stub over
     /// the addr rather than constructing a handler.
     pub use_addrs: HashMap<Key, Ty>,
-    /// [eff-handle] `use <tuple-handle>`: the per-element effects when a
+    /// [effect-eff-handle] `use <tuple-handle>`: the per-element effects when a
     /// `use` binds a *tuple* of single handles (`use e` where `e:
     /// (eff[A], eff[B])`). The IR binds one effect per tuple element, in
     /// order — `use e.0; use e.1` — so this carries the whole flat set.
     pub use_addr_tuples: HashMap<Key, Vec<Ty>>,
-    /// [eff-handle] `e[A, B]` projection: the effects projected out, in order,
+    /// [effect-eff-handle] `e[A, B]` projection: the effects projected out, in order,
     /// at the projection's span. The IR picks the matching handles out of the
     /// base (a single handle or a tuple of them) into the result.
     pub project_effects: HashMap<Key, Vec<Ty>>,
-    /// [eff-handle] `eff[a, b]` / `eff[*]` merge: the effects of the result
+    /// [effect-eff-handle] `eff[a, b]` / `eff[*]` merge: the effects of the result
     /// handle, in order. The IR picks the carrying handle for each — from the
     /// merged items (`eff[a, b]`) or from the scope (`eff[*]`).
     pub merge_effects: HashMap<Key, Vec<Ty>>,
@@ -907,7 +907,7 @@ pub struct Checked {
     /// `param_mode` lends whatever the contract, or a `once` value passed
     /// on), a projection whose move took its root wholly (keyed by the
     /// projection [fate-partial-move]), and a call of a `once` local
-    /// (keyed by the call [once-fn]).
+    /// (keyed by the call [fn-once]).
     pub flow_moves: HashSet<Key>,
     /// [fate-poison] Every mutation event on a root (a `Mut` call
     /// argument, an assignment through a projection, a mutation through a
@@ -1074,18 +1074,18 @@ pub struct Checked {
     /// shadowing local for the branch, so reads and any nested `when` see it
     /// at this type.
     pub widen_targets: HashMap<Key, Ty>,
-    /// [elvis] The **unpicked** arms at each positional pick — the type `_`
+    /// [op-elvis] The **unpicked** arms at each positional pick — the type `_`
     /// reads as on the right-hand side, tags and all. Keyed by the operator's
     /// span.
     pub pick_left: HashMap<Key, Ty>,
-    /// [elvis] The **picked** type at each `?:` — the subject's arms the run of
-    /// `?`s selected (a sub-union, by `[rewrap]`). Keyed by the operator's
+    /// [op-elvis] The **picked** type at each `?:` — the subject's arms the run of
+    /// `?`s selected (a sub-union, by `[type-rewrap]`). Keyed by the operator's
     /// span; the emitters read it to know what the left branch yields.
     pub elvis_picks: HashMap<Key, Ty>,
-    /// [elvis] How a positional pick lowers at runtime, keyed by the
+    /// [op-elvis] How a positional pick lowers at runtime, keyed by the
     /// operator's span: which of the subject's arms are the *picked* side.
     pub elvis_tests: HashMap<Key, PickTest>,
-    /// [elvis] [rewrap] When a pick's result **widens** past its picked arms
+    /// [op-elvis] [type-rewrap] When a pick's result **widens** past its picked arms
     /// (`Int? ?: "none"` is `Int | Str`), the coercion that lifts the picked
     /// value into the join, keyed by the operator's span. The emitters wrap
     /// the picked value (only); the right side carries its own coercion at
@@ -1210,11 +1210,11 @@ pub struct Checked {
     /// an alias on both backends).
     pub lambda_captures: HashMap<Key, Vec<LambdaCapture>>,
     /// Calls to fns with a derived return (`proj(param)`
-    /// [readonly-return]), keyed by the call span: the index of the
+    /// [proj-readonly-return]), keyed by the call span: the index of the
     /// argument the result borrows. The checker links the result to that
     /// argument; the Rust backend renders the result as a borrow.
     pub derived_calls: HashMap<Key, Vec<usize>>,
-    /// [elem-distinct] Calls taking **two mutable element handles of one
+    /// [fate-elem-distinct] Calls taking **two mutable element handles of one
     /// container, proven apart** by a live `NotSame` claim, keyed by the
     /// call span: the two parameter indices. The Rust backend renders the
     /// pair through `salvo_pair_mut` (one `split_at_mut`, two `&mut`)
@@ -1369,7 +1369,7 @@ impl OperatorSite {
     }
 }
 
-/// [for-iter] A `for` header being resolved as the calls it names (`for x
+/// [iter-for] A `for` header being resolved as the calls it names (`for x
 /// in c` is `next(c)` for an iterator, `next(iter(c))` for a source, O1): the
 /// call has no node of its own, so its facts go to a synthetic key of the
 /// subject's (`at`, the `for`'s span, is what the call is resolved at, and
@@ -1616,7 +1616,7 @@ pub struct VirtualCandidate {
 /// except the acting handle (`exempt` [ref-handle]), a handle to the
 /// mutated thing itself under a contents mutation (`contents_only`
 /// [deduce-field]), and the handles a live `NotSame` claim proves apart
-/// (`spared` [elem-distinct], a typing fact the checker settles).
+/// (`spared` [fate-elem-distinct], a typing fact the checker settles).
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowMutation {
     pub root: String,
@@ -2230,7 +2230,7 @@ struct WalkCtx<'a, 'p> {
 }
 
 /// Every non-std file's interfaces, then every non-std body, each walked
-/// once [interface-pass] (std's facts come from the cache when there is
+/// once [decl-interface-pass] (std's facts come from the cache when there is
 /// one).
 fn check_once<'p>(
     ctx: &WalkCtx<'_, 'p>,
@@ -2313,7 +2313,7 @@ fn check_once<'p>(
     drop(t);
     let t = crate::timing::phase("  check: protocol hashes");
     out.errors.extend(resolution.errors.iter().cloned());
-    // [protocol-hash] One hash per actor effect, over its canonical form.
+    // [actor-protocol-hash] One hash per actor effect, over its canonical form.
     for (name, effect) in &symbols.effects {
         if effect.is_actor {
             let canonical = crate::wire::protocol_canonical(symbols, effect);
@@ -2423,7 +2423,7 @@ impl Steps<'_> {
     }
 }
 
-/// [interface-pass] The checker over one file, for one pass. Every pass gets
+/// [decl-interface-pass] The checker over one file, for one pass. Every pass gets
 /// a fresh one; what a later pass needs from an earlier one goes through
 /// `FileIface` (`take_iface` / `put_iface`).
 fn file_checker<'r, 'p>(
@@ -2458,7 +2458,7 @@ fn file_checker<'r, 'p>(
     checker
 }
 
-/// [interface-pass] 02-resolve-03-interfaces: every declaration's
+/// [decl-interface-pass] 02-resolve-03-interfaces: every declaration's
 /// interface, checked with its diagnostics before any body is walked, from
 /// the declaration's own text and other interfaces only. Two steps over the
 /// program: first the signature facts other interfaces read out of tables
@@ -2507,7 +2507,7 @@ fn walk_interfaces<'p>(
         // [platform-check] The values the host hands back, planned from
         // signatures.
         checker.check_platform_boundary(ast);
-        // [state-infer] A minter checked with the interfaces made bindings.
+        // [handler-state-infer] A minter checked with the interfaces made bindings.
         checker.finish_fate();
         let logs = checker.take_logs();
         ifaces[file_idx] = checker.take_iface();
@@ -2516,7 +2516,7 @@ fn walk_interfaces<'p>(
 }
 
 /// 02-resolve-05-bodies: the bodies of [files], each walked once, reading
-/// the interfaces `walk_interfaces` recorded [interface-pass].
+/// the interfaces `walk_interfaces` recorded [decl-interface-pass].
 #[allow(clippy::too_many_arguments)]
 fn walk_bodies<'p>(
     ctx: &WalkCtx<'_, 'p>,
@@ -2561,7 +2561,7 @@ fn program_checks(program: &Program, symbols: &Symbols<'_>, out: &mut Checked, p
     crate::deadlock::check(program, symbols, out);
 }
 
-/// [intrinsic-std-only] `intrinsic` marks a declaration the *compiler*
+/// [platform-intrinsic-std-only] `intrinsic` marks a declaration the *compiler*
 /// implements, so only the standard library may write it (user decision
 /// 2026-09-05: a customer has no business declaring `intrinsic` if the
 /// compiler does not already declare it).
@@ -2722,7 +2722,7 @@ struct LocalVar {
     /// keeps `snapshot_narrows`/`restore_narrows`/`merge_fallthrough` the
     /// single source of truth for flow state.
     place_narrows: Vec<PlaceNarrow>,
-    /// [unused-var] Whether the variable has been *read*. Assignment is
+    /// [var-unused] Whether the variable has been *read*. Assignment is
     /// not a read: `let x = 1` followed only by `x = 2` never uses the
     /// value. Checked when the scope closes; a `_` prefix opts out.
     used: bool,
@@ -2757,7 +2757,7 @@ struct FateLink {
     /// ([`Place::overlaps`], the substrate P1 built), so mutating `p.tags`
     /// leaves a value derived from `p.name` alone.
     path: Option<Vec<Step>>,
-    /// The link passes through a derived-return call [readonly-return]:
+    /// The link passes through a derived-return call [proj-readonly-return]:
     /// the value is *physically borrowed*, so move-mode can never take
     /// ownership through it [fate-move-mode].
     borrowed: bool,
@@ -2785,7 +2785,7 @@ struct FateLink {
     /// *see* are inline — a pure field chain or alias of a place — get
     /// `false`.
     crosses: bool,
-    /// [elem-distinct] The **identity of the minting index** of an element
+    /// [fate-elem-distinct] The **identity of the minting index** of an element
     /// handle: the id of the bound handle itself, stamped when it is
     /// declared [ref-notsame]. Two handle links into the same root at the
     /// same path whose identities are proven apart by a live `NotSame`
@@ -2835,7 +2835,7 @@ type NarrowSnapshot = Vec<HashMap<String, VarState>>;
 /// [fate-move-mode].
 type Binding = (Ident, Ty, Vec<FateLink>, Option<Span>);
 
-/// [interface-pass] Which half of each declaration a checking walk does
+/// [decl-interface-pass] Which half of each declaration a checking walk does
 /// (PIPELINE.md §2, 02-resolve-03-interfaces). Every file's interfaces are
 /// checked, with their diagnostics, before any body: `Interface` runs over
 /// each file twice (signature facts, then the rest of every header), and
@@ -2855,7 +2855,7 @@ impl Pass {
     }
 }
 
-/// [interface-pass] A fn's signature facts that other declarations'
+/// [decl-interface-pass] A fn's signature facts that other declarations'
 /// interfaces read, recorded first for every fn of the program
 /// (`check_signature_facts`): its implicit parameters [implicit-param], and
 /// its own effect list [fn-effects] (`check_effect_list`).
@@ -2867,7 +2867,7 @@ struct SigFacts {
     can_spawn: bool,
 }
 
-/// [interface-pass] A fn's interface as its body walk reads it: what
+/// [decl-interface-pass] A fn's interface as its body walk reads it: what
 /// `check_fn` used to compute in its first lines, recorded by the interface
 /// pass and installed by the body pass.
 #[derive(Clone)]
@@ -2891,7 +2891,7 @@ struct FnSig {
     ret_ty: Ty,
 }
 
-/// [interface-pass] A handler's header, as its members' bodies read it.
+/// [decl-interface-pass] A handler's header, as its members' bodies read it.
 #[derive(Clone)]
 struct HandlerSig {
     of_tys: Vec<Ty>,
@@ -2900,7 +2900,7 @@ struct HandlerSig {
     mixed: bool,
 }
 
-/// [interface-pass] What the interface pass hands one file's body pass:
+/// [decl-interface-pass] What the interface pass hands one file's body pass:
 /// the per-declaration records (keyed by declaration address, stable for
 /// one program), the module's renames, and the file's once-per-file
 /// diagnostic memories, so a mistake the header reported is not reported
@@ -2921,9 +2921,9 @@ struct FileIface<'p> {
 }
 
 struct Checker<'p, 'r> {
-    /// [interface-pass] Which half of each declaration this walk checks.
+    /// [decl-interface-pass] Which half of each declaration this walk checks.
     pass: Pass,
-    /// [interface-pass] The file's interface records: written by the
+    /// [decl-interface-pass] The file's interface records: written by the
     /// interface pass, read by the body pass.
     iface: FileIface<'p>,
     scope: &'r ModuleScope<'p>,
@@ -3000,7 +3000,7 @@ struct Checker<'p, 'r> {
     /// [task-mint] The **free `send fn`** whose body is being checked, if any:
     /// what its sends and its own mints are attributed to.
     own_task: Option<String>,
-    /// [mixed-handler] The handler whose **sync member** is being checked,
+    /// [actor-mixed-handler] The handler whose **sync member** is being checked,
     /// when that handler is mixed (plain faces + `send fn` members, SH-1):
     /// the member is the façade, running on the caller's thread over the
     /// façade value. What it changes: bare calls to the handler's own send
@@ -3010,12 +3010,12 @@ struct Checker<'p, 'r> {
     /// `waitfor` needs no capability (SH-5(d)'s down payment — the façade
     /// does not run on the spawned thread at all).
     facade_handler: Option<&'p ast::HandlerDecl>,
-    /// [mixed-handler] The state field names confined to the servant while a
+    /// [actor-mixed-handler] The state field names confined to the servant while a
     /// façade member is checked — consulted by the unresolved-name path, so
     /// touching one is the confinement diagnostic rather than an "unknown
     /// variable".
     confined_state: Vec<String>,
-    /// [defer-deduction] [mixed-handler] The `Reply`-typed parameters of the
+    /// [linear-defer] [actor-mixed-handler] The `Reply`-typed parameters of the
     /// **mixed send member** being checked, each with whether its clause
     /// declares `defer`. `Some` only in that context: it is the rung-4
     /// contract point — an escape of an undeclared reply is refused there,
@@ -3023,7 +3023,7 @@ struct Checker<'p, 'r> {
     servant_reply_params: Option<Vec<(String, bool)>>,
     /// Whether the current fn declared the special `use` effect.
     can_use: bool,
-    /// [placeholder] The type `_` reads as, when a construct has bound one — a
+    /// [expr-placeholder] The type `_` reads as, when a construct has bound one — a
     /// qualifier pick's unpicked arm [pick]. `None` elsewhere, which is what
     /// keeps a stray `_` an error.
     placeholder_ty: Option<Ty>,
@@ -3037,7 +3037,7 @@ struct Checker<'p, 'r> {
     can_spawn: bool,
     /// Enclosing loops of the code being checked; `break`/`continue`
     /// statements record their value contributions into the innermost
-    /// entry [while-value]. Lambda bodies are a barrier.
+    /// entry [loop-while-value]. Lambda bodies are a barrier.
     loop_stack: Vec<LoopCtx>,
     /// [iter-fn] Origins whose `for` loops are currently open: the
     /// root variable's name and the span to blame. A hidden machine reads
@@ -3100,7 +3100,7 @@ struct Checker<'p, 'r> {
     /// reference (a field declaration, a parameter) cannot — there are no
     /// values there to infer from, so that case is still checked.
     in_struct_lit_ty: bool,
-    /// [namespace] The enclosing namespace of the `type` alias currently
+    /// [mod-namespace] The enclosing namespace of the `type` alias currently
     /// being validated, derived from its own flattened name (`Arg.Type` ->
     /// `Some("Arg")`; an un-namespaced alias -> `None`). Lets the
     /// leading-dot shorthand (`.Int`) resolve inside the alias's own
@@ -3119,7 +3119,7 @@ struct Checker<'p, 'r> {
     /// declares (unattached): an identity of one prints `name@module`, the
     /// spelling that says which.
     fn_name_clash: HashSet<String>,
-    /// [comptime-instantiate] [origin] The stamp of the fn being checked, when
+    /// [comptime-instantiate] [node-origin] The stamp of the fn being checked, when
     /// it was produced by a `by` site or expanded in place: its expansions say
     /// where a diagnostic at a copied node lands (`render_origin`) — the
     /// field or arm the copy was for, prefixed with what was being stamped.
@@ -3179,7 +3179,7 @@ struct Checker<'p, 'r> {
     /// derived from the transitively-mutable variables it reads (keyed
     /// by the lambda expression's span, this file only).
     lambda_links: HashMap<Span, Vec<FateLink>>,
-    /// [unused-var] Whether this file is part of the embedded std: an
+    /// [var-unused] Whether this file is part of the embedded std: an
     /// unused-variable warning there is the compiler's own business, not
     /// the user's, so std is exempt.
     is_std: bool,
@@ -3189,7 +3189,7 @@ struct Checker<'p, 'r> {
     /// linear types.
     own_linear_generics: HashSet<String>,
     /// The current fn's derived-return parameter
-    /// (`-> proj(p) T` [readonly-return]): every returned
+    /// (`-> proj(p) T` [proj-readonly-return]): every returned
     /// value must be derived from `p`, and the return is a *borrow*, not
     /// a move.
     own_derived_return: Option<String>,
@@ -3239,9 +3239,9 @@ struct Checker<'p, 'r> {
     /// names the operator (`no `eq` for `==` on `Foo``), and what keeps the
     /// call from recording a fn reference at the operator's span.
     operator_site: Option<OperatorSite>,
-    /// [for-iter] The `for` header whose `next`/`iter` call is being resolved.
+    /// [iter-for] The `for` header whose `next`/`iter` call is being resolved.
     for_site: Option<ForSite>,
-    /// [for-iter] The pending call's arguments are typed and have no
+    /// [iter-for] The pending call's arguments are typed and have no
     /// expressions of their own (`pending_arg_tys` with the `for`'s subject
     /// as a stand-in): selection, implicits and records run, and what a call
     /// does to its argument places does not — a `for` has its own rules
@@ -3288,7 +3288,7 @@ struct Checker<'p, 'r> {
     /// instantiation, a substitution — so the warning needs a memory or it
     /// arrives several times for one clause.
     warned_spare_lends: HashSet<(usize, Span)>,
-    /// Enclosing `try` delimiters [try], innermost last: each collects the
+    /// Enclosing `try` delimiters [throw-try], innermost last: each collects the
     /// message types of the throws performed in its body.
     try_stack: Vec<TryCtx>,
     /// [fn-effects] Effect instances used inside each enclosing lambda
@@ -3308,7 +3308,7 @@ struct Checker<'p, 'r> {
     parking_log: Vec<String>,
 }
 
-/// One enclosing `try` delimiter while its body is checked [try].
+/// One enclosing `try` delimiter while its body is checked [throw-try].
 struct TryCtx {
     /// `locals.len()` at entry: a throw leaves every frame above this
     /// one, which is the floor for the linear-obligation check
@@ -3339,7 +3339,7 @@ struct CaptureInfo {
     /// creation [fate-lambda].
     mutated: bool,
     /// The body *consumes* the capture: legal, but the lambda becomes
-    /// `once` — callable at most once [once-fn].
+    /// `once` — callable at most once [fn-once].
     moved: bool,
 }
 
@@ -3364,7 +3364,7 @@ struct CondInfo {
 }
 
 impl<'p, 'r> Checker<'p, 'r> {
-    /// [interface-pass] Step one of the interface pass: every fn's signature
+    /// [decl-interface-pass] Step one of the interface pass: every fn's signature
     /// facts (`sig_facts`: implicit parameters, established claims, effect
     /// list) and every effect member's implicits, with their diagnostics.
     /// Run over the whole program before any other interface check, because
@@ -3461,7 +3461,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         (std::mem::take(&mut self.written_log), std::mem::take(&mut self.parking_log))
     }
 
-    /// [interface-pass] Hands this file's interface records on to the next
+    /// [decl-interface-pass] Hands this file's interface records on to the next
     /// pass over it, with the once-per-file diagnostic memories.
     fn take_iface(&mut self) -> FileIface<'p> {
         let mut iface = std::mem::take(&mut self.iface);
@@ -3473,7 +3473,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         iface
     }
 
-    /// [interface-pass] The other half of `take_iface`.
+    /// [decl-interface-pass] The other half of `take_iface`.
     fn put_iface(&mut self, mut iface: FileIface<'p>) {
         self.renames = std::mem::take(&mut iface.renames);
         self.reported_ineligible_keys = std::mem::take(&mut iface.reported_ineligible_keys);
@@ -3487,7 +3487,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 impl<'p, 'r> Checker<'p, 'r> {
     /// One file's checker. Every field that is not a borrow from outside
     /// starts empty, so the walks over the program — the interface pass's
-    /// two and the body pass [interface-pass] — differ only in their `pass`
+    /// two and the body pass [decl-interface-pass] — differ only in their `pass`
     /// and in the records they are handed (`put_iface`).
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -3636,7 +3636,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .push(FileDiagnostic::error(self.file_idx, span, msg).in_decl(decl));
     }
 
-    /// [origin] [comptime-instantiate] A diagnostic at a node a stamp copied
+    /// [node-origin] [comptime-instantiate] A diagnostic at a node a stamp copied
     /// lands where its origin says (`crate::origin::render`): on the field or
     /// arm the failing copy was for (or on the `by` site), prefixed with the
     /// compfn, its scope and the type — so a missing `cmp` for a `Double`
@@ -3735,7 +3735,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ));
             }
         }
-        // [origin] At a copied node, where its origin says.
+        // [node-origin] At a copied node, where its origin says.
         let (span, msg, decl) = self.render_origin(span, msg);
         self.out
             .errors
@@ -3832,7 +3832,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 })
                 .collect();
         }
-        // [free-send-fn] The send kind's refusal list, at the
+        // [actor-free-send-fn] The send kind's refusal list, at the
         // declaration where the author is deciding.
         if iface {
             self.check_free_send_fn(f);
@@ -3851,7 +3851,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.own_contract = None;
     }
 
-    /// A handler declaration, in the half `self.pass` names [interface-pass]:
+    /// A handler declaration, in the half `self.pass` names [decl-interface-pass]:
     /// its header (faces, dependencies, parameters, state field types, the
     /// mailbox's presence, conformance, each member's signature) in the
     /// interface pass, which records a `HandlerSig`; its expressions (the
@@ -3871,7 +3871,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             match self.iface.handlers.get(&addr) {
                 Some(sig) => sig.clone(),
                 None => panic!(
-                    "[interface-pass] handler `{}` reached the body pass with no interface",
+                    "[decl-interface-pass] handler `{}` reached the body pass with no interface",
                     h.name.name
                 ),
             }
@@ -3917,7 +3917,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if field.canbe_mut {
                     self.error(
                         field.span,
-                        "`canbe Mut` is for a struct's fields [field-canbe-mut]; a \
+                        "`canbe Mut` is for a struct's fields [struct-field-canbe-mut]; a \
                          handler's state is mutable already, so write `Mut` or nothing"
                             .to_string(),
                     );
@@ -3933,7 +3933,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // was accepted and the emitters never saw the
             // expression's types.)
             //
-            // [state-infer] With no annotation (`name = value`)
+            // [handler-state-infer] With no annotation (`name = value`)
             // the field's type *is* the initializer's, inferred
             // exactly as a `let x = value` is — and recorded at
             // the field-name span for the IR to read back (the
@@ -3973,7 +3973,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(
                     init.name.span,
                     format!(
-                        "handler `{}` is mixed [mixed-handler], and a mixed handler \
+                        "handler `{}` is mixed [actor-mixed-handler], and a mixed handler \
                          has no `init` block yet: start it with a send member instead",
                         h.name.name
                     ),
@@ -3996,7 +3996,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [actor-send-fn] A handler's `send fn` answers
                 // nothing, exactly as the effect's declaration does.
                 self.check_send_member(f);
-                // [mixed-handler] [actor-private-send] A send member
+                // [actor-mixed-handler] [actor-private-send] A send member
                 // no face declares — every one of a mixed handler's,
                 // an actor handler's private ones — carries the free
                 // send fn's obligations, because no effect
@@ -4009,7 +4009,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_local_send_member(h, f);
                 }
             }
-            // [defer-deduction] The rung-4 contract point: while
+            // [linear-defer] The rung-4 contract point: while
             // a mixed send member's body is checked, its reply
             // parameters and their declared deferrals are what
             // the escape hooks consult.
@@ -4037,7 +4037,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .collect()
                 }),
             );
-            // [mixed-handler] A sync member of a mixed handler is
+            // [actor-mixed-handler] A sync member of a mixed handler is
             // the façade: it runs on the caller's thread over the
             // façade value, so it sees the constructor parameters
             // and its own arguments — not the state (confined to
@@ -4111,7 +4111,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.generics = saved;
     }
 
-    /// [interface-pass] A handler's header: its faces, constructor
+    /// [decl-interface-pass] A handler's header: its faces, constructor
     /// parameters, conformance and dependency list, with the generics in
     /// scope.
     fn handler_interface(&mut self, h: &'p ast::HandlerDecl) -> HandlerSig {
@@ -4159,7 +4159,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // one way or the other, and the construct whose plain
         // members run on the caller's thread while its send
         // members run on the actor's is the mixed handler
-        // [mixed-handler] — classified by shape, all faces plain.
+        // [actor-mixed-handler] — classified by shape, all faces plain.
         let kinds: Vec<(&ast::Type, bool)> = h
             .of
             .iter()
@@ -4266,7 +4266,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .iter()
             .flatten()
             .any(|e| matches!(e, EffectRef::Spawn(_)));
-        // [mixed-handler] Plain faces + `send fn` members: the
+        // [actor-mixed-handler] Plain faces + `send fn` members: the
         // mixed handler (SH-1, user decision 2026-09-19). The
         // send members and the state form the servant; the sync
         // members form the façade.
@@ -4275,7 +4275,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
 
-    /// [state-name] [bare-names] A handler's names (user decision
+    /// [handler-state-name] [name-bare] A handler's names (user decision
     /// 2026-10-20, R4). Its constructor parameters and state fields are one
     /// namespace, and a member's parameters reuse neither: a member body
     /// reads all three by bare name, so a clash would be a shadow, which the
@@ -4290,7 +4290,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     format!(
                         "state field `{}` of handler `{}` has the name of its constructor \
                          parameter `{}`: a member reads both by bare name, so one must be \
-                         renamed [bare-names]",
+                         renamed [name-bare]",
                         field.name.name, h.name.name, p.name.name
                     ),
                 );
@@ -4311,7 +4311,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         format!(
                             "parameter `{}` of `{}` has the name of handler `{}`'s {what} \
                              `{}`, which the body reads by bare name: rename the parameter \
-                             [bare-names]",
+                             [name-bare]",
                             p.name.name, f.name.name, h.name.name, p.name.name
                         ),
                     );
@@ -4333,7 +4333,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 h.name.span,
                 format!(
                     "handler `{0}`'s state is named `{0}` by default, which is also a type's \
-                     name here: name it explicitly, `state {0}State {{ … }}` [state-name]",
+                     name here: name it explicitly, `state {0}State {{ … }}` [handler-state-name]",
                     h.name.name
                 ),
             ),
@@ -4341,7 +4341,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 n.span,
                 format!(
                     "handler `{}`'s state `{}` has the name of a declaration already in \
-                     scope: rename the state [state-name]",
+                     scope: rename the state [handler-state-name]",
                     h.name.name, n.name
                 ),
             ),
@@ -4990,7 +4990,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.check_struct_cycle(s);
                     }
                     for field in &s.fields {
-                        // [state-infer] A generated iterator struct's state
+                        // [handler-state-infer] A generated iterator struct's state
                         // field may be inferred (`ty` is `None`); its type is
                         // determined by the minter's struct-literal entry and
                         // recorded there, so there is no written type to
@@ -5027,7 +5027,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_fn_slots(&t.name.name, &t.fn_slots, &t.generics);
                     self.validate_auto_quals(&t.auto_qualifiers);
                     if let Some(alias) = &t.alias {
-                        // [namespace] A leading-dot arm in the alias's own
+                        // [mod-namespace] A leading-dot arm in the alias's own
                         // union-arm list (`type Type = .Int | .Str` inside
                         // `namespace Arg`) resolves against *this*
                         // declaration's own enclosing namespace — the one
@@ -5315,7 +5315,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let member_ty = self.member_fn_ty(member);
                 self.generics = outer;
                 let expected = substitute_vars(&member_ty, &subst, &bound);
-                // [yield-proj] Which borrowness this member's filler must
+                // [iter-yield-proj] Which borrowness this member's filler must
                 // deliver: a `proj` on an argument the member's return
                 // mentions (`Next<self, proj T>`'s `next`). Checked only on a
                 // member over `self` — `Iter`'s `next` is over the iterator
@@ -5352,7 +5352,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.generics = inner;
                         let mut fwd = HashMap::new();
                         let mut rev = HashMap::new();
-                        // [yield-proj] A member not over `self` (`Iter`'s
+                        // [iter-yield-proj] A member not over `self` (`Iter`'s
                         // `next`) reads its element's borrowness off the
                         // iterator struct's own `: Next`, so a walking
                         // iterator's `Emitted (proj(p) T)` fills `Emitted T`.
@@ -5362,7 +5362,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             (strip_ret_arm_proj(&expected), strip_ret_arm_proj(&candidate))
                         };
                         if tys_match_renamed(&expected_m, &candidate, &mut fwd, &mut rev) {
-                            // [yield-proj] `proj` strips from types, so the
+                            // [iter-yield-proj] `proj` strips from types, so the
                             // shapes match either way; the *borrowness* has to
                             // agree separately. An obligation at `proj T`
                             // promises borrowed elements, which the member's
@@ -5424,7 +5424,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [canbe-optin] A `canbe` clause names one of the compiler's
+    /// [qual-canbe-optin] A `canbe` clause names one of the compiler's
     /// permission/obligation qualifiers; user qualifiers are applied in
     /// types, not granted by opt-in.
     ///
@@ -5616,7 +5616,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // Every entry but `Moved`/`Deferred` keeps the parameter: a bare
             // `=> p`, an exhaustive or subtractive qualifier list, or a
             // projection. A deferral consumes too — what differs is what the
-            // body may do with the obligation [defer-deduction].
+            // body may do with the obligation [linear-defer].
             if matches!(
                 d.kind,
                 ast::DeductionKind::Moved | ast::DeductionKind::Deferred
@@ -5780,7 +5780,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [free-send-fn] A **free `send fn`** — the send kind extended to a
+    /// [actor-free-send-fn] A **free `send fn`** — the send kind extended to a
     /// function (user decision 2026-09-17, FC-1(a)). It runs by being
     /// *scheduled*, never called: a `replyto` targets it [task-mint], its
     /// answer arrives as its trailing parameter, and it answers nothing.
@@ -5822,7 +5822,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let inner = self.enter_generics(&f.generics);
         for d in f.deductions.iter().flatten() {
-            // [defer-deduction] A deferral consumes too.
+            // [linear-defer] A deferral consumes too.
             if matches!(
                 d.kind,
                 ast::DeductionKind::Moved | ast::DeductionKind::Deferred
@@ -5887,7 +5887,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // when there were no thread-shareable handlers, and there are now — a
         // shareable binding yields an owned handle that crosses the seam, which
         // is exactly what `spawn` inheritance carries into a child
-        // [spawn-inherit]. The mint site resolves it and says so when the scope
+        // [actor-spawn-inherit]. The mint site resolves it and says so when the scope
         // has nothing to give.
         //
         // Two forms still cannot be: `[use]`/`[spawn]` are capabilities of the
@@ -6370,7 +6370,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let ty = self.member_fn_ty(member);
                 self.generics = saved;
                 let ty = substitute_vars(&ty, &subst, &group_generics);
-                // [yield-proj] `?Next<It, proj T>`: a `proj` on a spread
+                // [iter-yield-proj] `?Next<It, proj T>`: a `proj` on a spread
                 // argument marks the arms of the member's return that mention
                 // that generic as borrows — the caller requires a pass that
                 // *walks* data. The member's own return may mark arms too.
@@ -7384,7 +7384,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// of every effect with an instance available here, one candidate per
     /// member and instance (R10 D3: an effect's members are functions in the
     /// declaring fn's scope, so they fill implicit positions as fns do). A
-    /// `send` member is not a value [free-send-fn], and the throw effect has
+    /// `send` member is not a value [actor-free-send-fn], and the throw effect has
     /// no handler to carry.
     fn available_members(&self, name: &str) -> Vec<MemberCand<'p>> {
         let mut out: Vec<MemberCand<'p>> = Vec::new();
@@ -7613,7 +7613,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             match found {
                 Ok((found, identity)) => {
-                    // [actor-group] [noremote] The position wanted a
+                    // [actor-group] [net-noremote] The position wanted a
                     // `() -> Protocol<E>` and std's `protocol<E>` intrinsic
                     // fills it: `E` is concrete here, and this is where a
                     // protocol that cannot cross a node boundary is refused
@@ -8246,7 +8246,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if entries.is_empty() {
             return Ty::Unknown;
         }
-        // [free-send-fn] A send-kind function is not a value: it runs by being
+        // [actor-free-send-fn] A send-kind function is not a value: it runs by being
         // scheduled, and a fn value runs by being called — there is no
         // position a `send fn` could fill. (A mint is not a value use: it
         // names the target, and the name never becomes a `Ty::Fn`.)
@@ -8614,7 +8614,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         !self.overloads_of(name).is_empty()
     }
 
-    /// [unique-shape] Whether resolution refused this declaration for its
+    /// [op-unique-shape] Whether resolution refused this declaration for its
     /// placement: a candidate nowhere, so its uses add nothing to its refusal
     /// (ROADMAP 0ag). The scopes' fns and members already leave it out; this
     /// is for the members a body reaches through its effect list.
@@ -9137,7 +9137,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // compilers (B1 census D16, 2026-10-27). Ranking members and fns as
         // one candidate set, with a lead candidate, is P4's.
         //
-        // [lit-numeric] Except a numeric literal, which adopts the one numeric
+        // [type-lit-numeric] Except a numeric literal, which adopts the one numeric
         // type both sides name at its position, as on the fn path: a `Path`
         // overload of `open_read_at(Str, Long)` must not turn `5` into a
         // mismatch (found 2026-10-04).
@@ -9398,7 +9398,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let contract = self.effective_contract(Some(entry.key), decl);
             let mut fits = true;
             for (slot, pattern) in patterns.iter().enumerate() {
-                // [union-spread] The marker's job ends at unification; the
+                // [type-union-spread] The marker's job ends at unification; the
                 // assignability check sees the ordinary union it stands for.
                 let sp = substitute_vars(pattern, &subst, &callee_generics).strip_spread();
                 let kept = contract
@@ -9514,7 +9514,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         crate::types::most_specific(&ranks).map(|i| distinct[i])
     }
 
-    /// [lit-adopt] The numeric type an unsuffixed literal argument may adopt
+    /// [type-lit-adopt] The numeric type an unsuffixed literal argument may adopt
     /// at position `i` of a call, read off the candidate pool.
     ///
     /// Deliberately conservative, because adoption must not silently re-rank
@@ -9705,7 +9705,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// A fn, a qualifier fn or a handler member, in the half `self.pass`
-    /// names [interface-pass]: the interface pass checks the signature and
+    /// names [decl-interface-pass]: the interface pass checks the signature and
     /// records it (`FnSig`); the body pass installs that record and walks the
     /// body, re-deriving and re-reporting nothing about the signature. (The
     /// one body walked with the interfaces is an inferring `iter fn`
@@ -9721,7 +9721,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             match self.iface.fns.get(&addr) {
                 Some(sig) => sig.clone(),
                 None => panic!(
-                    "[interface-pass] `{}` reached the body pass with no interface",
+                    "[decl-interface-pass] `{}` reached the body pass with no interface",
                     f.name.name
                 ),
             }
@@ -9742,7 +9742,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.check_fn_body(f, body, extra_params, state, sig, saved_generics);
     }
 
-    /// [interface-pass] [state-infer] The pass that walks `f`'s body: the
+    /// [decl-interface-pass] [handler-state-infer] The pass that walks `f`'s body: the
     /// body pass, except for the generated minter of an `iter fn` whose
     /// state infers a field's type (`at = 0`). That minter's body is the
     /// state initializers, and the types they give are the iterator
@@ -9774,7 +9774,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [interface-pass] Puts a fn's recorded interface where its body walk
+    /// [decl-interface-pass] Puts a fn's recorded interface where its body walk
     /// reads it.
     fn install_sig(&mut self, f: &'p FnDecl, sig: &FnSig) {
         self.own_derived_return = sig.derived_return.clone();
@@ -9788,7 +9788,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.own_linear_generics = sig.linear_generics.clone();
     }
 
-    /// [interface-pass] Records a fn's signature facts that other
+    /// [decl-interface-pass] Records a fn's signature facts that other
     /// declarations' interfaces read (02-resolve-03, step one): its implicit
     /// parameters, the claims it establishes, and its effect list.
     fn sig_facts(&mut self, f: &'p FnDecl) -> SigFacts {
@@ -9812,7 +9812,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         SigFacts { implicits, effects, can_use, can_spawn }
     }
 
-    /// [interface-pass] The signature half of `check_fn`: every check of the
+    /// [decl-interface-pass] The signature half of `check_fn`: every check of the
     /// fn's header, with the fn's generics in scope. Reads the fn's text and
     /// other declarations' interfaces, never a body.
     fn fn_interface(&mut self, f: &'p FnDecl, extra_params: &'p [Param]) -> FnSig {
@@ -9854,7 +9854,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let facts = match self.iface.facts.get(&addr) {
             Some(facts) => facts.clone(),
             None => panic!(
-                "[interface-pass] `{}` reached the interface check with no signature facts",
+                "[decl-interface-pass] `{}` reached the interface check with no signature facts",
                 f.name.name
             ),
         };
@@ -9871,7 +9871,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if f.constructs.is_some() {
             self.check_constructor_sig(f);
         }
-        // [readonly-return] `-> proj(p) T`: `p` must be a
+        // [proj-readonly-return] `-> proj(p) T`: `p` must be a
         // parameter and must be *kept* — a moved parameter's data needs
         // no annotation (the callee owns it), and a borrow of a moved
         // value could not outlive the call.
@@ -10325,7 +10325,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// The body half of `check_fn`: the parameter frame, the body walk, and
     /// what is checked against the walk (declared field mutations, a missing
-    /// return). Every signature fact comes from `sig` [interface-pass].
+    /// return). Every signature fact comes from `sig` [decl-interface-pass].
     fn check_fn_body(
         &mut self,
         f: &'p FnDecl,
@@ -10367,7 +10367,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
         let mut top = HashMap::new();
         for p in extra_params.iter().chain(&f.params) {
-            // [union-spread] The body sees a `...T` arm as plain `T`: the
+            // [type-union-spread] The body sees a `...T` arm as plain `T`: the
             // spread marker is a call-site matching fact only.
             let ty = self.lower_type(&p.ty).strip_spread();
             // Parameter names hover like the variables they are
@@ -10441,7 +10441,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         for field in state {
-            // [state-infer] The field's type: the written annotation, or the
+            // [handler-state-infer] The field's type: the written annotation, or the
             // type the checker inferred from the initializer (recorded at the
             // field-name span by the handler-state check).
             let ty = match &field.ty {
@@ -10560,7 +10560,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.cur_fn_body = None;
     }
 
-    /// [param-const] **A parameter cannot be assigned** (user decision
+    /// [fn-param-const] **A parameter cannot be assigned** (user decision
     /// 2026-09-25): parameters are constant bindings — the reading a future
     /// `const` will extend to struct fields, for scalars and non-scalars
     /// alike, so the rule is the same shape everywhere. A handler's *state*
@@ -10834,12 +10834,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .is_some_and(|e| e.is_actor),
             _ => false,
         });
-        // [mixed-handler] A mixed handler's servant has a mailbox too: its
+        // [actor-mixed-handler] A mixed handler's servant has a mailbox too: its
         // handler-local `send fn` members are delivered through one, so the
         // requirement keys on "has send members" as much as on the faces'
         // kind.
         let has_queue = is_actor || h.fns.iter().any(|f| f.is_send);
-        // [interface-pass] Whether there is a slot is the header's question;
+        // [decl-interface-pass] Whether there is a slot is the header's question;
         // the slot's expression is checked in a frame of locals, the body
         // pass's.
         let (iface, body) = (self.pass.interface(), self.pass.body());
@@ -11242,7 +11242,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [route-stub] A send member's `Key`-marked parameter is what a route
+    /// [actor-route-stub] A send member's `Key`-marked parameter is what a route
     /// over the protocol hashes, so a member marks at most one — refused at
     /// the effect's declaration whether or not anything routes it (user
     /// decision R7). The marks are recorded by member, since lowering erases
@@ -11260,7 +11260,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     f.name.span,
                     format!(
                         "`{}.{}` marks {} parameters `Key`; a member routes on at most one \
-                         [route-stub]",
+                         [actor-route-stub]",
                         e.name.name,
                         f.name.name,
                         marked.len()
@@ -11276,7 +11276,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [route-stub] `use any group` (user decision R7, replacing `use
+    /// [actor-route-stub] `use any group` (user decision R7, replacing `use
     /// route_any(group)`): `group` is a group handle, `eff[ActorGroup<X>]`
     /// for a non-generic actor effect `X`, and the statement binds `any X` —
     /// each send to whichever member the `RouteSelector<X>` in scope picks.
@@ -11308,7 +11308,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     group.span(),
                     format!(
                         "`use any` binds a group handle — an `eff[ActorGroup<E>]` for a \
-                         non-generic actor effect `E` — and this is `{ty}` [route-stub]"
+                         non-generic actor effect `E` — and this is `{ty}` [actor-route-stub]"
                     ),
                 );
             }
@@ -11330,7 +11330,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     "`use any` routes each send through a `RouteSelector<{shown}>` policy, and \
                      none is in scope: bind one first — `use Sharded<{shown}>()`, \
                      `use LeastLoaded<{shown}>(true)`, `use Elected<{shown}>()`, or a handler \
-                     of your own [route-stub]"
+                     of your own [actor-route-stub]"
                 ),
             );
             return;
@@ -11346,7 +11346,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// handler, types its constructor arguments (inferring the handler's
     /// generics from them), and registers the concrete effect instance in
     /// the current scope. A registration may **shadow** an earlier one for
-    /// the same instance — innermost wins [use-no-dup] — which is what makes
+    /// the same instance — innermost wins [effect-use-no-dup] — which is what makes
     /// interception writable [effect-intercept].
     fn check_use(
         &mut self,
@@ -11366,7 +11366,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // answers a tuple, which one binding cannot split — spawn it and
         // bind the faces yourself.
         if let Expr::Spawn { .. } = handler {
-            // [with-clause] The parser gave the clause to the spawn itself
+            // [effect-with-clause] The parser gave the clause to the spawn itself
             // (the instance is the child's), so nothing is left here.
             let ty = self.check_expr(handler, None);
             if matches!(ty, Ty::Tuple(_)) {
@@ -11399,7 +11399,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Expr::Ident(id) = handler {
             if !self.scope.handlers.contains_key(id.name.as_str()) && self.lookup(&id.name).is_some()
             {
-                // [with-clause] A handle is a finished instance: its
+                // [effect-with-clause] A handle is a finished instance: its
                 // dependencies were supplied where it was built.
                 for item in with_items {
                     self.error(
@@ -11435,7 +11435,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // effects propagate: a fn declaring `[E]` may call any member, so a
         // `use` site cannot know which ones this scope will reach.
         //
-        // [mixed-handler] A mixed handler is spawn-only for the structural
+        // [actor-mixed-handler] A mixed handler is spawn-only for the structural
         // reason below whether or not it parks, so its refusal speaks alone.
         let mixed = self
             .scope
@@ -11456,7 +11456,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        // [mixed-handler] The same reasoning, structural: a mixed handler's
+        // [actor-mixed-handler] The same reasoning, structural: a mixed handler's
         // sync members send to the servant and wait for its answers, so
         // bound with `use` they would send toward an instance with no
         // mailbox and no dispatcher. Spawn-only, refused where the binding
@@ -11488,7 +11488,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.finish_use(id, concrete, deps, with_items, span);
     }
 
-    /// [with-clause] One item of a `use`'s `with` clause: the effect
+    /// [effect-with-clause] One item of a `use`'s `with` clause: the effect
     /// instance it supplies. A handler *name or construction* is a **private
     /// instance** — built here, owned by the handler being registered,
     /// unshared with the scope (user decision 2026-09-20) — and an `Addr`
@@ -11563,7 +11563,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         Some(effect)
     }
 
-    /// [spawn-inherit] A declared dependency the `with` clause did not
+    /// [actor-spawn-inherit] A declared dependency the `with` clause did not
     /// cover, resolved from the **spawning scope** (user decision
     /// 2026-09-20): the availability is captured as an owned handle and
     /// crosses the seam with the child, which is sound because every binding
@@ -11634,7 +11634,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// no-op, so binding one takes nothing away from the holder.
     fn check_use_addr(&mut self, addr: &'p Expr, span: Span) {
         let ty = self.check_expr(addr, None);
-        // [eff-handle] `use <tuple>`: a value of tuple type whose elements are
+        // [effect-eff-handle] `use <tuple>`: a value of tuple type whose elements are
         // all single handles (`e: (eff[A], eff[B])`) binds every effect in it,
         // in order — `use e.0; use e.1`. A nested tuple flattens the same way.
         if let Ty::Tuple(_) = ty.strip_quals() {
@@ -11671,7 +11671,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         };
         // [actor-effect-kind] Binding an addr binds an actor's protocol —
-        // or, since SH-3 [monitor-handler], a shared monitor of a plain
+        // or, since SH-3 [actor-monitor-handler], a shared monitor of a plain
         // effect: both kinds are handles a `use` puts in scope, and no call
         // site learns the difference.
         self.out.use_addrs.insert(self.key(span), effect.clone());
@@ -11685,7 +11685,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         });
     }
 
-    /// [eff-handle] Flatten a tuple of single handles into its effect set,
+    /// [effect-eff-handle] Flatten a tuple of single handles into its effect set,
     /// recursing through nested tuples. Returns false if any leaf is not a
     /// single-effect handle (then `use` of it is not meaningful).
     fn collect_handle_tuple(&self, ty: &Ty, out: &mut Vec<Ty>) -> bool {
@@ -12049,7 +12049,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         with_items: &'p [Expr],
         span: Span,
     ) {
-        // [use-no-dup] [effect-intercept] A `use` may *shadow* an earlier
+        // [effect-use-no-dup] [effect-intercept] A `use` may *shadow* an earlier
         // registration for the same effect instance: the innermost wins for
         // the rest of the scope, which is what makes interception writable
         // (`use DefaultFs()` then `use RestrictedFs(root)`). What stays an
@@ -12063,7 +12063,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // *before* this `use` is registered, which is exactly the
         // binds-outward rule for a self-dependency [effect-intercept].
         let mut resolved_deps: Vec<Ty> = Vec::new();
-        // [with-clause] The written clause items, typed once, each carrying
+        // [effect-with-clause] The written clause items, typed once, each carrying
         // the index the program wrote it at: the matching below drains them,
         // so a matched dep remembers *which* item satisfied it and the
         // emitters need not re-derive the pairing (`spawn_dep_items`' rule,
@@ -12080,7 +12080,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let visible = self.visible_avail();
         for want in &deps {
             let want = want.ty.clone();
-            // [with-clause] A written item wins for the dep it matches —
+            // [effect-with-clause] A written item wins for the dep it matches —
             // partial clauses are the rule (user decision 2026-09-20), so
             // the rest still resolve from scope. The self-dependency may be
             // supplied too ([effect-intercept]'s written exception): an
@@ -12116,7 +12116,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 });
             match found {
                 Some(avail) => {
-                    // [spawn-inherit] [effect-handle] A capture over a
+                    // [actor-spawn-inherit] [effect-handle] A capture over a
                     // **signature-supplied** effect is legal: the effect
                     // parameter *is* a handle.
                     resolved_deps.push(avail.ty);
@@ -12175,7 +12175,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // [with-clause] Anything left over was supplied for nothing — worth
+        // [effect-with-clause] Anything left over was supplied for nothing — worth
         // naming, since the reader believes it is being used.
         for (eff, sp, _) in &supplied {
             self.error(
@@ -12256,7 +12256,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [use-no-dup] [effect-intercept] The effect instances visible here,
+    /// [effect-use-no-dup] [effect-intercept] The effect instances visible here,
     /// **innermost first, shadowed duplicates hidden**. `effect_env` is a
     /// stack that a `use` pushes onto and a block truncates
     /// ([effect-scope]); since a `use` may shadow an earlier registration
@@ -12459,7 +12459,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let id = self.next_var_id;
         self.next_var_id += 1;
-        // [elem-distinct] [ref-notsame] A bound handle's links carry its own
+        // [fate-elem-distinct] [ref-notsame] A bound handle's links carry its own
         // identity: what a `NotSame` claim between two handles relates.
         let mut links = links;
         if has_ref_arm(&ty) {
@@ -12585,7 +12585,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return self.links_for_value(b, bind_span);
             }
         }
-        // [readonly-return] `get(xs, i) ?: unreachable!()` is still the
+        // [proj-readonly-return] `get(xs, i) ?: unreachable!()` is still the
         // borrow `get` handed back: the unwrap changes the type, not the
         // provenance.
         if let Some(operand) = value.presence_unwrapped() {
@@ -12593,7 +12593,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return self.links_for_value(operand, bind_span);
             }
         }
-        // [readonly-return] The result of a derived-return call borrows
+        // [proj-readonly-return] The result of a derived-return call borrows
         // the annotated argument: it carries that argument's links
         // (dot-notation receivers are argument 0).
         if let Expr::Call {
@@ -12670,7 +12670,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return links;
             }
         }
-        // [lambda-view] A lambda value is a *view* of its non-Copy read
+        // [fate-lambda-view] A lambda value is a *view* of its non-Copy read
         // captures [fate-lambda]: binding it carries those held links (the
         // direct ones restamped to this bind event).
         if let Expr::Lambda { span, .. } = value {
@@ -12721,7 +12721,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             };
             // A source that is itself physically borrowed propagates the
-            // flag to its direct link [readonly-return].
+            // flag to its direct link [proj-readonly-return].
             let src_borrowed = var.links.iter().any(|l| l.borrowed);
             push(
                 FateLink {
@@ -12965,7 +12965,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         );
     }
 
-    /// [elem-distinct] The two-mutable-element-handles-in-one-call rule,
+    /// [fate-elem-distinct] The two-mutable-element-handles-in-one-call rule,
     /// shared by named calls, calls through fn values and effect members
     /// ([fn-contract]'s "keep the two in sync" applied to this rule):
     /// `mut_kept[i]` says argument `i` lands in a kept `Mut` position. A
@@ -13112,7 +13112,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
 
-    /// [elem-distinct] [ref-notsame] Every pair of handle identities
+    /// [fate-elem-distinct] [ref-notsame] Every pair of handle identities
     /// currently proven apart by a live `NotSame` claim, both orientations:
     /// a handle whose narrowed type carries `NotSame(a)` relates its own
     /// identity to `a`'s. Claims are matched by the qualifier's name, the
@@ -13141,7 +13141,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         pairs
     }
 
-    /// [elem-distinct] Reassigning (or stepping) an index variable erases
+    /// [fate-elem-distinct] Reassigning (or stepping) an index variable erases
     /// every element identity minted from it: the identity means "the
     /// element selected by the variable's *current* value", and the current
     /// value just changed. Eager, at the event — the invalidation style of
@@ -13166,7 +13166,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [ref-handle]: a mutation *through* a mutable element handle must not
     /// kill the handle itself, its storage did not move), and the handles a
     /// live `NotSame` claim proves apart (`acting_elem` is the acting
-    /// handle's identity [elem-distinct]: a sibling link into the same root
+    /// handle's identity [fate-elem-distinct]: a sibling link into the same root
     /// **at the same path** whose identity is proven apart names disjoint
     /// storage; anything short of the full proof poisons). A **contents**
     /// mutation (`contents_only` [deduce-field]) spares a handle to the
@@ -13232,7 +13232,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             }
                         }
                     }
-                    // [elem-distinct] The spare: same container place,
+                    // [fate-elem-distinct] The spare: same container place,
                     // both element identities present, proven apart.
                     if let (Some(i), Some(k)) = (acting_elem, l.elem_idx) {
                         let same_place = match (event_path, &l.path) {
@@ -13375,7 +13375,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [fate-move-mode] Whether a binding with `links` may take ownership of
     /// what it binds: nothing reached through a derived-return call
-    /// [readonly-return] (the value is *physically borrowed*: the binding
+    /// [proj-readonly-return] (the value is *physically borrowed*: the binding
     /// stays borrow-mode and the move site reports the S1 error with the
     /// `copy` remedy), every live ancestor owned by the fn (a local, or a
     /// parameter its contract moves; a dead root has nothing left to consume
@@ -13508,7 +13508,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Handles consumption of a variable inside a lambda body
-    /// [fate-lambda] [once-fn]: consuming a capture makes the lambda
+    /// [fate-lambda] [fn-once]: consuming a capture makes the lambda
     /// `once` — callable at most once — so the consumption is legal and
     /// proceeds (the value is owned by the closure from creation on).
     /// Exception: a *linear* capture may not be swallowed (the closure
@@ -13760,7 +13760,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [proj-anywhere] Whether an argument is a *temporary* — not a variable
     /// or a projection of one, and not a call that forwards a view of one.
     fn is_temporary(&self, arg: &Expr) -> bool {
-        // [lambda-view] A lambda expression is never a dangling source: a
+        // [fate-lambda-view] A lambda expression is never a dangling source: a
         // capturing one is a view whose links pass *through* to the
         // captured variables, and a capture-free one holds nothing a
         // result could borrow.
@@ -13815,7 +13815,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Validates a returned value against the fn's derived-return
-    /// annotation [readonly-return]: `None` is fine (no borrow), and
+    /// annotation [proj-readonly-return]: `None` is fine (no borrow), and
     /// everything else must be derived from the annotated parameter —
     /// its provenance chain must terminate at `from` and nowhere else.
     fn check_derived_return_value(&mut self, value: &Expr, from: &str) {
@@ -13931,7 +13931,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         contract: Option<&[FnParamContract]>,
         span: Span,
     ) {
-        // [elem-distinct] The handle-pair rule applies to these calls
+        // [fate-elem-distinct] The handle-pair rule applies to these calls
         // exactly as to named ones.
         let mut_kept: Vec<bool> = (0..args.len())
             .map(|i| {
@@ -14283,7 +14283,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         let arm_ty = (*arm).clone();
         // Build the arm test on the subject's representation, reusing the
-        // `is`-lowering so the runtime arm identity matches [union-arm-identity].
+        // `is`-lowering so the runtime arm identity matches [type-union-arm-identity].
         let repr = self.repr_of(subject_expr, subject_ty);
         let pat = CheckPat {
             quals: Vec::new(),
@@ -14318,7 +14318,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   `cmp(a, b)` does not see it (PIPELINE.md §II.10 P13, open).
     /// * **Then the visible declarations and the available effects' members**,
     ///   by `resolve_named_call` (R10 D3: a member competes; a tie is the
-    ///   ordinary ambiguity, `m@E` its remedy). Under [unique-shape] a
+    ///   ordinary ambiguity, `m@E` its remedy). Under [op-unique-shape] a
     ///   concrete type has one candidate.
     /// * **Lowerings before the call, kept:** [op-arm-eq] (R10 D7, already
     ///   done by the caller) and [op-promote]: mixed numeric widths widen the
@@ -14332,7 +14332,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///
     /// Whether the backends spell it natively is read off the selected
     /// declaration (std's intrinsic `eq`/`cmp` at a basic type), not the
-    /// operand types [core-layers]. A possibly-`None` operand was refused by
+    /// operand types [backend-core-layers]. A possibly-`None` operand was refused by
     /// the caller, which then skips this (one mistake, one diagnostic);
     /// `Unknown` and `Never` stay lenient [type-unknown-lenient].
     fn check_comparison_operands(
@@ -14474,7 +14474,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [op-equality] [op-order] What the operator's call returned must be what
     /// the operator reads: `eq` a `Bool`, `cmp` an `Int` (an `eq` returning
-    /// anything else is not of `==`'s shape [unique-shape], but a call may
+    /// anything else is not of `==`'s shape [op-unique-shape], but a call may
     /// still reach one).
     #[allow(clippy::too_many_arguments)]
     fn operator_returns(&mut self, got: &Ty, want: &Ty, sym: &str, member: &str, lt: &Ty, rt: &Ty, span: Span) {
@@ -14525,7 +14525,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the call sees it, ranked like overloads [implicit-same-name]; then the
     /// visible fns and the available effects' members by `resolve_named_call`
     /// with the operands pre-typed (R10 D3: a member competes, a tie is the
-    /// call's ambiguity). Under [unique-shape] a concrete type has one
+    /// call's ambiguity). Under [op-unique-shape] a concrete type has one
     /// candidate, declared in its own file — std's intrinsic ones for the
     /// numeric scalars, in `std.core.basic`.
     ///
@@ -14544,7 +14544,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///
     /// Whether the backends spell the host's operator is read off the
     /// selected declaration (`Ctx::is_primitive_operator`), never the operand
-    /// types [core-layers].
+    /// types [backend-core-layers].
     #[allow(clippy::too_many_arguments)]
     fn check_arith_call(
         &mut self,
@@ -14639,7 +14639,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if is(l, "Byte") || is(r, "Byte") {
             return " — a `Byte` is an octet, not a number: compute with `to_int` and come back \
-                    with `to_byte` [byte-value]"
+                    with `to_byte` [type-byte]"
                 .to_string();
         }
         if matches!(op, ast::BinaryOp::Pow) && op_numeric(l.strip_quals()).is_some() {
@@ -14653,7 +14653,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                  (a: {v}, b: {r}) -> {v}` to this function's parameters [implicit-forward]"
             ),
             Ty::Named { name, .. } if self.symbols.structs.contains_key(name.as_str()) => format!(
-                " — declare a `{member}` taking `({l}, {r})` in `{name}`'s own file [unique-shape]"
+                " — declare a `{member}` taking `({l}, {r})` in `{name}`'s own file [op-unique-shape]"
             ),
             _ => String::new(),
         }
@@ -15412,7 +15412,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [actor-private-send] A private member has no face to take its
         // contract from, so its *own* written clause is the contract — a
         // consumed linear parameter declared in this file makes the body a
-        // discharge context, as it does for a free `send fn` [free-send-fn].
+        // discharge context, as it does for a free `send fn` [actor-free-send-fn].
         if f.is_send {
             return self.member_discharges_in(Some(self.file_idx), f);
         }
@@ -15834,7 +15834,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let mut resolved: Vec<Ty> = Vec::new();
-        // [use-no-dup] Innermost first, shadowed duplicates hidden.
+        // [effect-use-no-dup] Innermost first, shadowed duplicates hidden.
         let visible = self.visible_effects();
         for want in effects {
             // [throw] [fn-effects] A function value that may throw needs a
@@ -15886,7 +15886,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    // ================= throw and `try` [throw] [try] =================
+    // ================= throw and `try` [throw] [throw-try] =================
 
     /// The enclosing fn's declared throw message type, if it declared
     /// `[Throw<M>]`.
@@ -15916,7 +15916,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         performs,
                         message,
                         // Filled in by `check_try` (the innermost `try` is
-                        // the one being checked) [try-innermost].
+                        // the one being checked) [throw-try-innermost].
                         delimiter: None,
                         target: Ty::Unknown,
                         arm: None,
@@ -15954,7 +15954,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// The arm of the target message type a site's message wraps into
-    /// [union-arm-identity], reporting a message the target cannot carry.
+    /// [type-union-arm-identity], reporting a message the target cannot carry.
     fn throw_message_arm(&mut self, span: Span, message: &Ty, target: &Ty) -> Option<usize> {
         if target.is_unknown() || message.is_unknown() {
             return None;
@@ -16021,7 +16021,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         Ty::Never
     }
 
-    /// `try { ... }` [try]: the delimiter. The body's value becomes the
+    /// `try { ... }` [throw-try]: the delimiter. The body's value becomes the
     /// `Ok T` arm and the throws it performs the `Thrown M` arm, with `M`
     /// the union of their message types (user decision 2026-09-04) — which
     /// is why the outcome is an ordinary union: `is`, `when` and
@@ -16121,7 +16121,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let repr = self.repr_of(a, &got);
             self.maybe_coerce(a.span(), &got, &repr, want);
-            // [defer-deduction] A reply riding the payload leaves this
+            // [linear-defer] A reply riding the payload leaves this
             // activation — the same hook an addr-send payload passes
             // through (fires only inside a mixed send member).
             self.reply_escape(a, "sending it onward");
@@ -16131,7 +16131,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.fate_move(a, "send", a.span());
         }
         self.record_def_ref(member.span, &member.name);
-        // [mixed-handler] Inside a mixed handler's **sync** member the
+        // [actor-mixed-handler] Inside a mixed handler's **sync** member the
         // explicit spelling means what the bare call means — a send to the
         // servant through the façade value's addr — so it shares that
         // table and lowering (user decision 2026-09-19: `@self` is the
@@ -16187,7 +16187,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Ty::Tuple(elems) => elems.get(*index).cloned(),
                 _ => None,
             },
-            // [index-resolve] Only arrays are subscriptable, so this is the
+            // [col-index-resolve] Only arrays are subscriptable, so this is the
             // whole of element access as a place.
             Expr::Index { base, .. } => match self.peek_place_ty(base)?.strip_quals() {
                 Ty::Array(elem) => Some((**elem).clone()),
@@ -16218,7 +16218,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // The receiver is *read* — it names the target rather than being an
         // argument, but a read is what it is: without checking it here nothing
         // would record the use, and the variable would be reported unused
-        // [unused-var]. Checked exactly once, which is why deciding that this
+        // [var-unused]. Checked exactly once, which is why deciding that this
         // *is* an addr call peeks the type instead of checking it.
         self.check_expr(receiver, None);
         let effect_name = match instance.strip_quals() {
@@ -16364,7 +16364,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let repr = self.repr_of(a, &got);
             self.maybe_coerce(a.span(), &got, &repr, &want);
-            // [defer-deduction] Forwarding a received reply to another actor
+            // [linear-defer] Forwarding a received reply to another actor
             // extends its dependency chain past this activation.
             self.reply_escape(a, "forwarding it to another actor");
             // A payload crosses the seam: the sender gives it up
@@ -16514,7 +16514,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [effect-handler-deps] The child's dependencies, supplied here
         // rather than inherited: each clause item is a handler construction
         // (built on the child) or an `Addr` (an effect another actor serves).
-        // [actor-effect-kind] [monitor-handler] The spawn form serves two
+        // [actor-effect-kind] [actor-monitor-handler] The spawn form serves two
         // kinds, split by the faces' kind. Every face an actor effect: the
         // actor spawn — a mailbox, a scheduler index, an addr per face. Every
         // face a *plain* effect: the **monitor spawn** (SH-3, user decision
@@ -16527,7 +16527,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if self.symbols.effects.get(name.as_str()).is_some_and(|d| !d.is_actor))
             });
         if plain_faces {
-            // [mixed-handler] Send members split the plain-face spawn in two:
+            // [actor-mixed-handler] Send members split the plain-face spawn in two:
             // with them the handler is mixed (a servant + a façade), without
             // them it is a monitor (a lock).
             let mixed = self
@@ -16539,7 +16539,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.check_mixed_spawn(id, &effects, span);
             } else {
                 self.check_monitor_spawn(id, &effects, pool, span);
-                // [monitor-handler] A shared handler's dependencies come from
+                // [actor-monitor-handler] A shared handler's dependencies come from
                 // the **enclosing scope**, captured as handles at
                 // construction — resolved exactly as a `use` resolves them,
                 // never from a spawn clause (that clause builds *on the
@@ -16651,7 +16651,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     resolved.push(eff);
                     items.push(Some(at));
                 }
-                // [spawn-inherit] **Synthesis** (user decision 2026-09-20):
+                // [actor-spawn-inherit] **Synthesis** (user decision 2026-09-20):
                 // a declared dependency the clause does not cover is
                 // resolved from the *spawning scope* — the modular feature
                 // `[E]`-means-shareable bought, since an availability the
@@ -16701,7 +16701,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [monitor-handler] Resolve a shareable spawn's
+    /// [actor-monitor-handler] Resolve a shareable spawn's
     /// dependencies from the enclosing scope — `finish_use`'s rules, at the
     /// spawn: each must be a shareable, lexically bound availability, since
     /// it is captured into the instance as an owned handle. Recorded in
@@ -16742,7 +16742,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [monitor-handler] The monitor spawn (SH-3, user decision 2026-09-19):
+    /// [actor-monitor-handler] The monitor spawn (SH-3, user decision 2026-09-19):
     /// `spawn H(args)` where every face of `H` is a **plain** effect answers a
     /// shared instance behind a lock — reached through the same `Addr<E>`
     /// type, bound with `use addr` like any handle, its members running on
@@ -16799,7 +16799,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        // [monitor-handler] [effect-handle] A monitor may declare deps —
+        // [actor-monitor-handler] [effect-handle] A monitor may declare deps —
         // captured as handles at construction, resolved from the enclosing
         // scope exactly as a `use` resolves them (the availability rule makes
         // the capture acyclic: a dep was bound before this spawn, so no lock
@@ -16856,7 +16856,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [mixed-handler] Whether a handler is **mixed** (SH-1, user decision
+    /// [actor-mixed-handler] Whether a handler is **mixed** (SH-1, user decision
     /// 2026-09-19): every face a plain effect, and at least one `send fn`
     /// member. The send members and the state form the servant (an ordinary
     /// actor over a handler-local protocol); the sync members form the
@@ -16882,7 +16882,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             })
     }
 
-    /// [mixed-handler] [free-send-fn] A handler-local `send fn` carries the
+    /// [actor-mixed-handler] [actor-free-send-fn] A handler-local `send fn` carries the
     /// free send fn's obligations, because no effect declaration mirrors it:
     /// an explicit all-consumed deduction clause (a scheduled body outlives
     /// the frame that enqueued it, so what it is given is always consumed),
@@ -16911,7 +16911,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         for d in f.deductions.iter().flatten() {
-            // [defer-deduction] A deferral consumes too.
+            // [linear-defer] A deferral consumes too.
             if matches!(
                 d.kind,
                 ast::DeductionKind::Moved | ast::DeductionKind::Deferred
@@ -16989,7 +16989,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [mixed-handler] A bare call inside a mixed handler's member that
+    /// [actor-mixed-handler] A bare call inside a mixed handler's member that
     /// names one of the handler's own `send fn` members: a **send to the
     /// servant** (user decision 2026-09-19 — from a sync member since SH-1,
     /// from a send member too since the same-day extension, where it is a
@@ -17073,7 +17073,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let repr = self.repr_of(a, &got);
             self.maybe_coerce(a.span(), &got, &repr, want);
-            // [defer-deduction] A reply riding the payload leaves this
+            // [linear-defer] A reply riding the payload leaves this
             // activation, so it must be declared `defer` — the same hook an
             // addr-send payload passes through. (Nothing fires in a façade:
             // sync members have no reply parameters to escape.)
@@ -17093,7 +17093,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         Some(Ty::none())
     }
 
-    /// [defer-deduction] [mixed-handler] The escape check at the rung-4
+    /// [linear-defer] [actor-mixed-handler] The escape check at the rung-4
     /// contract point: inside a mixed send member, a `Reply` parameter that
     /// leaves this activation any way but the discharge — passed to a
     /// function, forwarded to an actor, stored, captured — must be declared
@@ -17121,12 +17121,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 "`{name}` is a reply this member received, and {how} lets its \
                  answer outlive the activation: declare it — `=> defer {name}` — \
                  which is the handler's opt-in to deferred answers, and what the \
-                 deadlock graph prices [mixed-handler]"
+                 deadlock graph prices [actor-mixed-handler]"
             ),
         );
     }
 
-    /// [mixed-handler] The mixed spawn: `spawn H(args)`, every face plain,
+    /// [actor-mixed-handler] The mixed spawn: `spawn H(args)`, every face plain,
     /// send members present. It answers the same `Addr<E>` a monitor spawn
     /// answers — the façade value: the servant's addr plus the constructor
     /// parameters plus dispatch to the sync bodies. The servant is an
@@ -17332,7 +17332,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// an `on` clause says otherwise, since whoever creates work pays for it.
     /// [task-effects] The effects a task mint inherits, resolved against the
     /// minting scope exactly as a `spawn`'s synthesized dependencies are
-    /// [spawn-inherit]: an availability yields an owned handle that can cross
+    /// [actor-spawn-inherit]: an availability yields an owned handle that can cross
     /// the seam, and an ambiguity between two compatible instances is refused
     /// rather than guessed.
     ///
@@ -17924,7 +17924,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             return Ty::Unknown;
         }
-        // [try] `M` is the union of the message types performed in the
+        // [throw-try] `M` is the union of the message types performed in the
         // body, deduplicated in first-seen order; a single type stays bare.
         let mut messages: Vec<Ty> = Vec::new();
         for (_, ty) in &ctx.sites {
@@ -17955,7 +17955,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Resolves one of the two qualifier names the `try` intrinsic needs
-    /// from the implicitly imported core [try]: `Ok` for the value arm,
+    /// from the implicitly imported core [throw-try]: `Ok` for the value arm,
     /// `Thrown` for the message arm. Absent means std is broken or not on
     /// the source path, which is worth saying out loud rather than
     /// producing a nameless union.
@@ -18020,13 +18020,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [assert-fn] `todo!()` diverges like `unreachable!()`.
             Expr::Todo { .. } => true,
             Expr::Assert { .. } | Expr::WhyNot { .. } => false,
-            // [elvis] Neither side escapes by itself: a diverging right side
+            // [op-elvis] Neither side escapes by itself: a diverging right side
             // is recognized by its recorded type, like any diverging call.
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
             // [expr-pipe] A pipe's value is its right side; it does not escape
             // by itself.
             Expr::Pipe { .. } | Expr::SafePipe { .. } => false,
-            // [safe-nav] A `?.` yields an optional; it exits nothing by itself.
+            // [op-safe-nav] A `?.` yields an optional; it exits nothing by itself.
             Expr::SafeNav { .. } => false,
             // [expr-escape] All three leave the enclosing block. `diverges`
             // above already answers for them off the recorded type; listed
@@ -18355,7 +18355,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if handle_mut {
                 for l in links.clone() {
                     self.record_param_mutation(&l.root_name);
-                    // [elem-distinct] The acting link's index identity rides
+                    // [fate-elem-distinct] The acting link's index identity rides
                     // along: siblings proven apart survive the event.
                     self.record_mutation(
                         l.root_id,
@@ -18746,7 +18746,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///
     /// A variable already consumed keeps that fact — a flow fact outranks a
     /// narrowing, exactly as the restore half has it [deduce-consume].
-    /// [elvis-guard] A `?:` whose right side **leaves** has proved something
+    /// [op-elvis-guard] A `?:` whose right side **leaves** has proved something
     /// about its subject on the path that follows: the value was there. So the
     /// subject's place narrows to the picked type, exactly as the branch of an
     /// `is` guard does [is-narrow-guard] — the same facts, reached from an
@@ -19139,7 +19139,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.mk_union(vec![inner, Ty::none()])
             }
             ast::Type::Spread { inner, .. } => {
-                // [union-spread] `...T` lowers to the spread marker over its
+                // [type-union-spread] `...T` lowers to the spread marker over its
                 // lowered inner type; `unify_union_arms` reads it. Everywhere
                 // else the marker is stripped to its inner (an arm's concrete
                 // reading), so no position outside unification sees it.
@@ -20232,7 +20232,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .collect()
     }
 
-    /// [route-stub] Whether `q` is std `net`'s `Key` — the routing marker on a
+    /// [actor-route-stub] Whether `q` is std `net`'s `Key` — the routing marker on a
     /// protocol parameter. It is recorded at the effect (`route_keys`, for the
     /// route the IR derives) and **erased here**, so the parameter's type is the plain one and a
     /// caller passes a plain value: `Key` claims nothing about the value, it
@@ -20249,7 +20249,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Lowers the base of a named type: substitutions, generic parameters,
     /// alias expansion, plain nominals.
     fn lower_base_ref(&mut self, base: &TypeRef, subst: &HashMap<String, Ty>, depth: usize) -> Ty {
-        // [namespace] A leading-dot arm inside a `type` alias's own
+        // [mod-namespace] A leading-dot arm inside a `type` alias's own
         // union-arm list (`.Int` inside `namespace Arg { type Type = .Int |
         // .Str }`) resolves against the alias's own enclosing namespace —
         // there is no outer expected type here, only the declaration naming
@@ -20313,13 +20313,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             .or_else(|| written_in.opaque_types.get(name).map(|d| d.generics.len()))
             .or_else(|| written_in.type_aliases.get(name).map(|d| d.generics.len()));
         if let Some(expected) = declared_generics {
-            // [eff-handle] `eff[A, B, …]` parses straight to this same
+            // [effect-eff-handle] `eff[A, B, …]` parses straight to this same
             // `Addr` name with one argument per effect — a legitimate
             // multi-effect handle, not an under/over-supplied generic
             // argument list on the single-generic `intrinsic type Addr<E>`
             // declaration. Exempt here the same way a struct literal's
             // written type is exempt: `Addr`'s own arity is governed by
-            // [eff-handle], not this check.
+            // [effect-eff-handle], not this check.
             if expected > 0 && base.args.len() != expected && !self.in_struct_lit_ty && name != ADDR_TYPE {
                 self.error(
                     base.span,
@@ -20375,7 +20375,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !self.type_name_exists(name) && self.scope.fn_groups.contains_key(name) {
             return Ty::Unknown;
         }
-        // [eff-handle] [effect-alias] An alias among an `eff[…]` handle's
+        // [effect-eff-handle] [effect-alias] An alias among an `eff[…]` handle's
         // effects stands for its members, flattened and deduped in order:
         // `eff[IO]` is `eff[Console, Fs, Streams]`.
         let alias_arg = |c: &Self, a: &ast::Type| match a {
@@ -20436,7 +20436,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for (g, arg) in alias.generics.iter().zip(&args) {
                     alias_subst.insert(g.name.clone(), arg.clone());
                 }
-                // [namespace] A leading-dot arm in the alias's own body
+                // [mod-namespace] A leading-dot arm in the alias's own body
                 // (`.Int` inside `namespace Arg { type Type = .Int | .Str
                 // }`) resolves against *this* alias's own enclosing
                 // namespace — set here, at the one place the alias's target
@@ -20455,7 +20455,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return lowered;
             }
         }
-        // [eff-handle] A multi-effect handle `eff[A, B, …]` *is* a tuple of
+        // [effect-eff-handle] A multi-effect handle `eff[A, B, …]` *is* a tuple of
         // single-effect handles — `(eff[A], eff[B], …)` — in the type system
         // and the IR alike: each element is an ordinary single handle with a
         // real backend representation, so there is no flat multi-face handle
@@ -20540,7 +20540,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             || self.scope.effects.contains_key(name)
     }
 
-    /// [namespace] Resolve a leading-dot sugar reference (`.S`, whose written
+    /// [mod-namespace] Resolve a leading-dot sugar reference (`.S`, whose written
     /// name is `.S` — see the parser) against the namespaces the `expected`
     /// type exposes (D3/D4). Returns the full namespaced name (`AttributeValue.S`)
     /// when exactly one exposed namespace has a type-like member of that name,
@@ -20563,7 +20563,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(expected) = expected else {
             return Err(format!(
                 "`{written}` needs a known type to resolve against: there is no \
-                 expected type here, so write the namespace (`Ns{written}`) [namespace]"
+                 expected type here, so write the namespace (`Ns{written}`) [mod-namespace]"
             ));
         };
         match expected.strip_quals() {
@@ -20585,12 +20585,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 match hits.as_slice() {
                     [(name, ty)] => Ok((name.clone(), Some(ty.clone()))),
                     [] => Err(format!(
-                        "`{written}` matches no arm of `{expected}` — its arms are {} [namespace]",
+                        "`{written}` matches no arm of `{expected}` — its arms are {} [mod-namespace]",
                         arm_names(arms)
                     )),
                     many => Err(format!(
                         "`{written}` is ambiguous across the arms of `{expected}`: {} — \
-                         write more of the path [namespace]",
+                         write more of the path [mod-namespace]",
                         many.iter().map(|(m, _)| format!("`{m}`")).collect::<Vec<_>>().join(" or ")
                     )),
                 }
@@ -20623,22 +20623,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                     [one] => Ok((one.clone(), None)),
                     [] => Err(format!(
                         "`{written}` names no member in the namespace of `{expected}` \
-                         [namespace]"
+                         [mod-namespace]"
                     )),
                     many => Err(format!(
-                        "`{written}` is ambiguous: {} — write more of the path [namespace]",
+                        "`{written}` is ambiguous: {} — write more of the path [mod-namespace]",
                         many.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(" or ")
                     )),
                 }
             }
             _ => Err(format!(
                 "`{written}` resolves against a namespaced type, but `{expected}` exposes \
-                 none here — write the namespace explicitly [namespace]"
+                 none here — write the namespace explicitly [mod-namespace]"
             )),
         }
     }
 
-    /// [namespace] Resolves a leading-dot sugar reference (`.Int`) written
+    /// [mod-namespace] Resolves a leading-dot sugar reference (`.Int`) written
     /// inside a `type` alias's own union-arm list, against the alias's own
     /// enclosing namespace `ns` directly — the counterpart to
     /// `resolve_dot_ref` for the one case that has no outer expected type to
@@ -20654,7 +20654,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             Err(format!(
                 "`{written}` names no member of `{ns}` — its declared members are what \
-                 `{ns}.{suffix}` would have to be [namespace]"
+                 `{ns}.{suffix}` would have to be [mod-namespace]"
             ))
         }
     }
@@ -20669,7 +20669,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// visible [name-resolve]. `expect_qual` picks the wording and the
     /// namespace searched.
     fn require_name(&mut self, r: &TypeRef, expect_qual: bool) {
-        // [namespace] A leading-dot arm inside a `type` alias's own
+        // [mod-namespace] A leading-dot arm inside a `type` alias's own
         // union-arm list (`.Int` inside `namespace Arg { type Type = .Int |
         // .Str }`) resolves against the alias's own enclosing namespace —
         // the one case with no outer expected type to derive a namespace
@@ -20891,20 +20891,20 @@ impl<'p, 'r> Checker<'p, 'r> {
         );
     }
 
-    /// [actor-effect-kind] [monitor-handler] The kind gate on an `Addr`'s
+    /// [actor-effect-kind] [actor-monitor-handler] The kind gate on an `Addr`'s
     /// argument, since SH-3 an *acceptance* of both kinds: an `Addr` of an
     /// actor effect is a mailbox handle (a spawn produced it), and an `Addr`
     /// of a **plain** effect is a shared monitor's handle (a monitor spawn
     /// produced it) — one type, two backing shapes, chosen by the effect's
     /// declared kind. What remains refused here is only an argument that is
     /// not an effect at all, which the general argument checks report.
-    /// [actor-effect-kind] [monitor-handler] Naming `Addr<E>` accepts both
+    /// [actor-effect-kind] [actor-monitor-handler] Naming `Addr<E>` accepts both
     /// effect kinds since SH-3 (user decision 2026-09-19): an actor effect's
     /// addr is a mailbox handle, and a plain effect's is a shared monitor's
     /// handle. The former per-kind refusal lived here; the walk above now
     /// documents the acceptance at the one call site it had.
     fn is_addr_effect_arg(&self, base: &TypeRef, index: usize, arg: &ast::Type) -> bool {
-        // [eff-handle] Any argument of an `eff[…]` handle is an effect, not
+        // [effect-eff-handle] Any argument of an `eff[…]` handle is an effect, not
         // just the first: `eff[A, B]` names several (it lowers to a tuple of
         // single handles). The former single-arg `Addr<E>` restriction is
         // widened to every arg.
@@ -21042,7 +21042,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Union { .. } | ast::Type::Nullable { .. } => false,
             // A fn type neither owns nor stores what it is handed.
             ast::Type::Fn { .. } => false,
-            // [union-spread] A `...T` arm is a top-level union-arm position,
+            // [type-union-spread] A `...T` arm is a top-level union-arm position,
             // not a composite that stores the variable.
             ast::Type::Spread { .. } => false,
         }
@@ -21111,7 +21111,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 break;
             }
             let mut seen: Vec<String> = vec![start.to_string()];
-            // [state-infer] An inferred field (a generated iterator struct's
+            // [handler-state-infer] An inferred field (a generated iterator struct's
             // state) names no written type to trace a cycle through — its
             // inferred type is concrete data, never a self-reference.
             let Some(written) = &field.ty else { continue };
@@ -21284,7 +21284,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn check_proj_field(&mut self, owner: &str, field: &ast::FieldDecl) {
-        // [state-infer] An inferred field has no written type to inspect for
+        // [handler-state-infer] An inferred field has no written type to inspect for
         // `proj`; the form takes no qualifiers, so there is nothing to check.
         let Some(field_ty) = &field.ty else { return };
         for r in proj_refs(field_ty) {
@@ -21303,7 +21303,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn check_linear_field(&mut self, owner: &str, field: &ast::FieldDecl) {
-        // [state-infer] No written type → no `linear struct` marker to check;
+        // [handler-state-infer] No written type → no `linear struct` marker to check;
         // an inferred type's own linearity is enforced by the IR linear check.
         let Some(field_ty) = &field.ty else { return };
         // [linear-composite] [linear-group] A concrete linear field is
@@ -21429,7 +21429,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // here rather than in `reject_effect_as_data`, because
                     // only this walk knows what the argument belongs to.
                     if self.is_addr_effect_arg(base, i, a) {
-                        // [actor-effect-kind] [monitor-handler] Legal *as* an
+                        // [actor-effect-kind] [actor-monitor-handler] Legal *as* an
                         // effect here, of either kind: an actor effect's addr
                         // is a mailbox handle, a plain effect's a shared
                         // monitor's handle (SH-3, user decision 2026-09-19).
@@ -21486,7 +21486,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                 }
                 for a in arms {
-                    // [union-spread] A spread arm is validated through its
+                    // [type-union-spread] A spread arm is validated through its
                     // inner here; `validate_type(Spread)` on its own is the
                     // error for a spread outside a union.
                     match a {
@@ -21494,7 +21494,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         other => self.validate_type(other),
                     }
                 }
-                // [union-spread] At most one `...T` spread arm, and each
+                // [type-union-spread] At most one `...T` spread arm, and each
                 // spread's inner must be a bare generic type parameter in
                 // scope — the spread captures a span of arms, which only a
                 // generic can stand for.
@@ -21506,7 +21506,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             *span,
                             "a union may have at most one `...` spread arm: a second \
                              spread would make the split of the arms it captures \
-                             ambiguous [union-spread]"
+                             ambiguous [type-union-spread]"
                                 .to_string(),
                         );
                     }
@@ -21522,7 +21522,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 format!(
                                     "`...{inner}` is not a valid spread arm: a `...` spread \
                                      captures one or more arms, so its type must be a bare \
-                                     generic parameter in scope [union-spread]"
+                                     generic parameter in scope [type-union-spread]"
                                 ),
                             );
                         }
@@ -21559,13 +21559,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Array { elem, .. } => self.validate_type(elem),
             ast::Type::Nullable { inner, .. } => self.validate_type(inner),
             ast::Type::Spread { inner, span } => {
-                // [union-spread] A `...T` is only meaningful as a union arm;
+                // [type-union-spread] A `...T` is only meaningful as a union arm;
                 // elsewhere it captures nothing.
                 self.validate_type(inner);
                 self.error(
                     *span,
                     "a `...` spread is only a union arm (`...T | Bool`): it has no \
-                     meaning on its own [union-spread]"
+                     meaning on its own [type-union-spread]"
                         .to_string(),
                 );
             }
@@ -21687,7 +21687,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     continue;
                 }
-                // [once-fn] `once` is the language-level *use*-multiplicity
+                // [fn-once] `once` is the language-level *use*-multiplicity
                 // qualifier. It began as call-multiplicity, on function
                 // types only, and was generalized 2026-09-07 (user
                 // decision): using a function value means calling it, and
@@ -21728,7 +21728,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue;
                 }
                 if q.name.name == "once" {
-                    // [once-fn] D6 (user decision 2026-09-12): `once` is
+                    // [fn-once] D6 (user decision 2026-09-12): `once` is
                     // valid on **any** type — the upper bound `[0,1]` is a
                     // self-restriction that demands nothing of the type's
                     // author, so `once FileHandle` or `once Ticket` means
@@ -21826,7 +21826,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .is_some_and(|d| d.subject == QualSubject::Provenance)
     }
 
-    /// [arm-infer] Provenance-arm inference (user decision 2026-10-12): at a
+    /// [qual-arm-infer] Provenance-arm inference (user decision 2026-10-12): at a
     /// position whose expected type is a wrapper union, a bare value that
     /// matches no arm by subtyping may still be the payload of exactly one
     /// *provenance-tagged* arm — `return name.size()` for `-> Ok Int | Err
@@ -21842,7 +21842,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if arms.iter().any(|arm| is_subtype(value, arm)) {
             return None;
         }
-        // [arm-infer] A *literal* union with an open provenance arm
+        // [qual-arm-infer] A *literal* union with an open provenance arm
         // (`"A" | "B" | Other Str`) is the deliberate escape-hatch shape: a
         // plain `Str` must be narrowed to a listed literal or wrapped
         // *explicitly* with `other(…)` [type-literal], never auto-wrapped
@@ -22097,7 +22097,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [field-canbe-mut] `name: T canbe Mut` is legal in a `canbe Mut` struct
+    /// [struct-field-canbe-mut] `name: T canbe Mut` is legal in a `canbe Mut` struct
     /// only (elsewhere the struct value is never `Mut`, so the field never
     /// would be), over a `T` whose declaration says `canbe Mut`, written
     /// without a `Mut` of its own.
@@ -22112,7 +22112,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 format!(
                     "field `{}` says `canbe Mut`, but struct `{}` does not: a `{}` value is \
                      never `Mut`, so the field never would be; declare `struct {} canbe Mut` \
-                     [field-canbe-mut]",
+                     [struct-field-canbe-mut]",
                     field.name.name, s.name.name, s.name.name, s.name.name
                 ),
             );
@@ -22127,7 +22127,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 span,
                 format!(
                     "field `{}` is already `Mut`; `canbe Mut` gives a field `Mut` only when \
-                     the struct value has it, so write one or the other [field-canbe-mut]",
+                     the struct value has it, so write one or the other [struct-field-canbe-mut]",
                     field.name.name
                 ),
             );
@@ -22136,7 +22136,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 span,
                 format!(
                     "`canbe Mut` does not apply to `{ty}` (its declaration does not say \
-                     `canbe Mut`) [field-canbe-mut]"
+                     `canbe Mut`) [struct-field-canbe-mut]"
                 ),
             );
         }
@@ -22190,6 +22190,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         Some(_) => {}
                     },
                     ("param", Owner::Other) => found.push((name.span, format!("`@param` describes a fn's parameter, and `{}` is not a fn [doc-tags]", name.name))),
+                    ("compilerrules", _) if salvo_syntax::doc::compiler_rules(&tag.text).is_none() => found.push((
+                        name.span,
+                        "`@compilerrules` lists the rules it cites in brackets: `@compilerrules [rule-a, rule-b]`, then how they apply here, if that needs saying [doc-compilerrules]".to_string(),
+                    )),
                     ("whynot", Owner::Fn(_, true)) => {}
                     ("whynot", _) => found.push((
                         name.span,
@@ -23128,7 +23132,7 @@ fn collect_assigned(block: &Block, out: &mut HashSet<String>) {
     }
 }
 
-/// Collects the names assigned anywhere inside `expr` [narrow-assign-reset].
+/// Collects the names assigned anywhere inside `expr` [is-narrow-assign-reset].
 ///
 /// Exhaustive over `Expr` **on purpose**: a wildcard arm here loses
 /// assignments inside a new syntactic form silently, and the narrowing that
@@ -23307,7 +23311,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         Expr::WhyNot { test, .. } => collect_assigned_expr(test, out),
-        // [elvis] Both sides may hold assignments (a block-valued branch).
+        // [op-elvis] Both sides may hold assignments (a block-valued branch).
         Expr::Elvis { subject, rhs, .. } => {
             collect_assigned_expr(subject, out);
             collect_assigned_expr(rhs, out);
@@ -23317,7 +23321,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             collect_assigned_expr(lhs, out);
             collect_assigned_expr(rhs, out);
         }
-        // [safe-nav] The receiver and any call arguments may hold assignments.
+        // [op-safe-nav] The receiver and any call arguments may hold assignments.
         Expr::SafeNav { base, access, .. } => {
             collect_assigned_expr(base, out);
             if let ast::SafeAccess::Call { args, named, .. } = access {
@@ -23401,7 +23405,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
             collect_assigned(else_block, out);
         }
-        // [try] The delimiter's body is ordinary code.
+        // [throw-try] The delimiter's body is ordinary code.
         Expr::Try { body, .. } => collect_assigned(body, out),
         // [actor-spawn-expr] Every clause is an ordinary expression, and an
         // argument that crosses to the child may itself assign.
@@ -23570,7 +23574,7 @@ pub(crate) fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::Pipe { lhs, rhs, .. } | Expr::SafePipe { lhs, rhs, .. } => {
             expr_mentions(lhs, name) || expr_mentions(rhs, name)
         }
-        // [safe-nav] Mentions whatever its receiver or call arguments mention.
+        // [op-safe-nav] Mentions whatever its receiver or call arguments mention.
         Expr::SafeNav { base, access, .. } => {
             expr_mentions(base, name)
                 || match access {
@@ -23660,7 +23664,7 @@ pub(crate) fn expr_mentions(expr: &Expr, name: &str) -> bool {
             LambdaBody::Block(b) => block_mentions(b),
             LambdaBody::Terminal => false,
         },
-        // [try] The delimiter's body is ordinary code — a value mentioned
+        // [throw-try] The delimiter's body is ordinary code — a value mentioned
         // only inside it is still mentioned.
         Expr::Try { body, .. } => block_mentions(body),
         // [actor-spawn-expr] A spawn's clauses mention values the same way a
@@ -23710,7 +23714,7 @@ struct TailInfo {
 }
 
 /// Value contributions collected while checking one loop body
-/// [while-value].
+/// [loop-while-value].
 #[derive(Default)]
 struct LoopCtx {
     /// `locals.len()` when the loop was entered: frames at or above this
@@ -23761,13 +23765,13 @@ struct IsInfo {
 impl<'p, 'r> Checker<'p, 'r> {
     // ================= widening checks [qual-lift] =================
 
-    /// [elvis] `subject ?: rhs` — the first-arm pick (user decision
+    /// [op-elvis] `subject ?: rhs` — the first-arm pick (user decision
     /// 2026-10-14). The subject's **first** declared arm becomes the value (a
-    /// one-arm sub-union by `[rewrap]`) when the subject holds it; `rhs` runs
+    /// one-arm sub-union by `[type-rewrap]`) when the subject holds it; `rhs` runs
     /// otherwise with `_` bound to the arms left behind. Widening is allowed —
     /// a `rhs` outside the subject's arms joins into the result — and a
     /// diverging `rhs` narrows the subject to the first arm below
-    /// [elvis-guard].
+    /// [op-elvis-guard].
     fn check_elvis(
         &mut self,
         subject: &'p Expr,
@@ -23780,8 +23784,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             let _ = self.check_expr(rhs, None);
             return Ty::Unknown;
         }
-        // [elvis] The pick keeps the subject's **first arm**, in declared
-        // order [union-arm-identity]; the rest go to `_`. A non-union subject
+        // [op-elvis] The pick keeps the subject's **first arm**, in declared
+        // order [type-union-arm-identity]; the rest go to `_`. A non-union subject
         // has one arm, which leaves nothing for the other side — refused like
         // a pointless pick, the same "dead scaffolding" a throw-free `try`
         // gets.
@@ -23828,10 +23832,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         );
         self.out.elvis_picks.insert(self.key(span), picked.clone());
         self.out.pick_left.insert(self.key(span), left.clone());
-        // [placeholder] `_` reads as the arms the pick left behind, tags and
+        // [expr-placeholder] `_` reads as the arms the pick left behind, tags and
         // all.
         let saved = self.placeholder_ty.replace(left.clone());
-        // [elvis-guard] A leaving right side takes its flow effects with it:
+        // [op-elvis-guard] A leaving right side takes its flow effects with it:
         // a `return elem` there moves `elem` on a path the fall-through never
         // shares, so the consumption must not poison it.
         let entry = self.snapshot_narrows();
@@ -23839,7 +23843,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.placeholder_ty = saved;
         // A diverging right side contributes nothing to the type [type-any-never]
         // and *proves* the subject was the picked arm, so the place
-        // narrows [elvis-guard].
+        // narrows [op-elvis-guard].
         if matches!(rhs_ty, Ty::Never) {
             self.restore_narrows(&entry);
             let repr = self.repr_of(subject, &subj_ty);
@@ -23853,7 +23857,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let join = self.mk_union(vec![picked.clone(), rhs_ty.clone()]);
         let rhs_repr = self.repr_of(rhs, &rhs_ty);
         self.maybe_coerce(rhs.span(), &rhs_ty, &rhs_repr, &join);
-        // [rewrap] The picked value widens into the join too when `rhs` widened
+        // [type-rewrap] The picked value widens into the join too when `rhs` widened
         // it. Compute that coercion into `elvis_widen` (not the ordinary
         // `coerce` table, whose entry at this span is the Elvis node's own
         // outer coercion): temporarily borrow the `coerce` slot, record, and
@@ -23886,7 +23890,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.placeholder_ty = saved;
             return Ty::Unknown;
         }
-        // [placeholder] `_` reads as the whole piped value inside the right
+        // [expr-placeholder] `_` reads as the whole piped value inside the right
         // side. Record whether the right side actually read it: a pipe whose
         // right side ignores the piped value is dead scaffolding (the same
         // reasoning that refuses a pick keeping every arm) — write a plain
@@ -23971,7 +23975,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         }
         // Replace the first arm with `rhs`'s result; `union_of` collapses it
-        // into a pass-through arm of the same type ([safe-nav]'s arm-collapse,
+        // into a pass-through arm of the same type ([op-safe-nav]'s arm-collapse,
         // the generalized `Option<Option<T>>` guard).
         self.mk_union(vec![rhs_ty, rest])
     }
@@ -24125,7 +24129,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let binding = binding.map(|b| {
             let bty = matched.clone();
             self.out.expr_ty.insert(self.key(b.span), bty.clone());
-            // [rewrap] A **multi-arm** lift binds a value of a *smaller* union
+            // [type-rewrap] A **multi-arm** lift binds a value of a *smaller* union
             // than the storage, so it is not a payload read: the emitters map
             // arm to arm. Recorded against the binding, which is where they
             // build it.
@@ -24152,7 +24156,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.check_branch_block(block, Vec::new()).0
     }
 
-    /// [unused-var] Warns for locals in the scope about to close that were
+    /// [var-unused] Warns for locals in the scope about to close that were
     /// never read. A leading `_` opts out — the conventional way to say "I
     /// know, and I mean it" — and so do parameters (a signature often
     /// dictates them, especially an effect or handler member implementing a
@@ -24213,7 +24217,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let mut value = Ty::none();
         let mut tail = None;
-        // [dead-code] The first statement reached only after a diverging one
+        // [expr-dead-code] The first statement reached only after a diverging one
         // (`return`, `break`, `continue`, `throw`, `unreachable!()`,
         // `todo!()` — all `Never`-typed) is unreachable. Warn once per block,
         // on that first dead statement; std is exempt, like other smells.
@@ -24305,7 +24309,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let declared = annotated
                     .map(|ann| fill_unwritten_args(&ann, &value_ty))
                     .unwrap_or_else(|| {
-                        // [let-infer] Without an annotation the *logical* value
+                        // [var-let-infer] Without an annotation the *logical* value
                         // type becomes
                         // the declared type; re-wrap narrowed unions physically.
                         let repr = self.repr_of(value, &value_ty);
@@ -24457,7 +24461,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             ),
                         );
                     }
-                    // [param-const] A parameter is a constant binding.
+                    // [fn-param-const] A parameter is a constant binding.
                     self.reject_param_assignment(&id.name, id.span, "assign to");
                     // [linear-obligation] Overwriting a variable that
                     // still owns a linear value drops it: the IR's ledger
@@ -24502,7 +24506,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // across `xs = [9]` kept resolving the total `get` — a
                     // checked out-of-bounds read; defect fixed 2026-09-24.)
                     self.strip_dependent_claims(&id.name, &[]);
-                    // [elem-distinct] And element identities minted from the
+                    // [fate-elem-distinct] And element identities minted from the
                     // old value die with it.
                     if let Some(var_id) = root_var_id {
                         self.erase_elem_identities(var_id);
@@ -24523,7 +24527,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 any,
                 span,
             } => {
-                // [use-requires-use] only `[use]` fns may register handlers.
+                // [effect-use-requires-use] only `[use]` fns may register handlers.
                 if !self.can_use {
                     self.error(
                         *span,
@@ -24585,7 +24589,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .expr_ty
                     .entry(self.key(*span))
                     .or_insert_with(|| ty.clone());
-                // [let-destructure] The subject has to *be* a tuple of this
+                // [var-let-destructure] The subject has to *be* a tuple of this
                 // arity. Until 2026-09-18 a mismatch bound `Unknown`s and said
                 // nothing, so `let (a, b) = 7` compiled and the emitters
                 // produced target code that could not build — a Salvo mistake
@@ -24631,7 +24635,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 fields
                 .iter()
                 .map(|f| {
-                    // [let-destructure] Destructuring reads the declared
+                    // [var-let-destructure] Destructuring reads the declared
                     // field type (qualifier overrides only apply to direct
                     // field accesses, which the backend can cast).
                     let fty = self
@@ -24909,7 +24913,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.lit_spans.insert(key, lit);
         }
         match expr {
-            // [lit-adopt] An *unsuffixed* numeric literal adopts the
+            // [type-lit-adopt] An *unsuffixed* numeric literal adopts the
             // expected numeric type where one exists (`let x: Long = 1`,
             // `f(1)` into a `Long` parameter, `let d: Double = 3`), so
             // `Long` positions need no `to_long(1)` noise (user decision
@@ -25005,7 +25009,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if id.name == "None" {
                     return Ty::none();
                 }
-                // [unused-var] An identifier *expression* is a read — the
+                // [var-unused] An identifier *expression* is a read — the
                 // only thing that counts as a use. An assignment target
                 // looks the variable up directly instead, so writing to a
                 // variable without ever reading it leaves it unused.
@@ -25021,7 +25025,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let declared = var.widened.clone().unwrap_or_else(|| var.declared.clone());
                     let links = var.links.clone();
                     let var_id = var.id;
-                    // [ownership-audit] A read types as the narrowing says,
+                    // [deduce-ownership-audit] A read types as the narrowing says,
                     // whatever ownership did: the walk tracks no moves (the
                     // IR flow pass reports a use of a moved, poisoned or
                     // bound-away value [flow-use-after-move]). A variable
@@ -25069,13 +25073,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // expected fn type instead of an argument list.
                     return self.fn_value_by_name(&id.name, id.span, None, expected);
                 }
-                // [ident-resolve] Nothing declares this name *as a value*.
+                // [name-ident-resolve] Nothing declares this name *as a value*.
                 // Salvo assumes it can see everything, so a reference no
                 // declaration justifies is an error here rather than a
                 // `Ty::Unknown` that reaches a backend and becomes rustc's or
                 // kotlinc's problem [backend-never-wrong].
                 //
-                // [mixed-handler] Inside a mixed handler's sync member, a
+                // [actor-mixed-handler] Inside a mixed handler's sync member, a
                 // state field's name is deliberately out of scope — the
                 // confinement rule — and the diagnostic names the rule
                 // rather than claiming the name does not exist.
@@ -25341,7 +25345,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.check_expr(index, Some(&Ty::named("Int")));
                 match base_ty.strip_quals() {
                     Ty::Array(elem) => (**elem).clone(),
-                    // [index-resolve] Only arrays are subscriptable; other
+                    // [col-index-resolve] Only arrays are subscriptable; other
                     // collections expose element access as declared
                     // functions (`get(list, i)`). Only an un-inferred base
                     // stays lenient [type-unknown-lenient] — a generic `T`
@@ -25418,7 +25422,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 match op {
                     // [op-arith] Negation is numeric. The expectation
                     // passes through, so `let x: Long = -5` adopts
-                    // [lit-adopt].
+                    // [type-lit-adopt].
                     UnaryOp::Neg => {
                         let t = self.check_expr(operand, expected);
                         let tb = t.strip_quals();
@@ -25540,14 +25544,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => {
                 let info = self.analyze_cond(cond);
                 let cond_ty = self.expr_ty_recorded(cond);
-                // [cond-bool] No truthiness: the condition is a `Bool`.
+                // [expr-cond-bool] No truthiness: the condition is a `Bool`.
                 if let Some(t) = cond_ty {
                     if !matches!(t, Ty::Unknown) && t.to_string() != "Bool" {
                         self.error(
                             cond.span(),
                             format!(
                                 "an `assert!` condition must be a `Bool`, found \
-                                 `{t}` [cond-bool]"
+                                 `{t}` [expr-cond-bool]"
                             ),
                         );
                     }
@@ -25591,7 +25595,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // [qual-whynot] `whynot?(x is Q)`: the test, and a `Str?`.
             Expr::WhyNot { test, span } => self.check_whynot(test, *span),
-            // [inc-dec] All four forms do the same thing to the operand — a
+            // [op-inc-dec] All four forms do the same thing to the operand — a
             // step of one on an `Int` place — so the checker ignores the
             // direction and the fixity; they only decide the expression's
             // *value*, which is the emitters' business.
@@ -25608,7 +25612,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [fate-derived-readonly].
                 match operand.as_ref() {
                     Expr::Ident(id) => {
-                        // [param-const] `n++` on a parameter is an
+                        // [fn-param-const] `n++` on a parameter is an
                         // assignment to it.
                         self.reject_param_assignment(&id.name, id.span, "step");
                         let root_var_id = self.lookup(&id.name).map(|var| var.id);
@@ -25618,7 +25622,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // are severed, since the claim roots to strip are
                         // the old value's.
                         self.strip_dependent_claims(&id.name, &[]);
-                        // [elem-distinct] Element identities minted from
+                        // [fate-elem-distinct] Element identities minted from
                         // the stepped variable die with the old value.
                         if let Some(var_id) = root_var_id {
                             self.erase_elem_identities(var_id);
@@ -25671,9 +25675,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.value_expected = saved;
                 t
             }
-            // [try] The throw delimiter: an intrinsic, not an effect.
+            // [throw-try] The throw delimiter: an intrinsic, not an effect.
             Expr::Try { body, span } => self.check_try(body, *span),
-            // [elvis] `subject ?…?: rhs` / `subject :?…? rhs` — the positional
+            // [op-elvis] `subject ?…?: rhs` / `subject :?…? rhs` — the positional
             // pick. A run of `count` `?`s names how many arms of the subject's
             // union it keeps, counted from the declared **front** (`Forward`)
             // or **back** (`Backward`); those arms become the value, and `rhs`
@@ -25694,7 +25698,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // `_`, read in the right side. The result is the right side's type.
             Expr::Pipe { lhs, rhs, span } => self.check_pipe(lhs, rhs, *span),
             Expr::SafePipe { lhs, rhs, span } => self.check_safe_pipe(lhs, rhs, *span),
-            // [placeholder] Outside an `?:` right-hand side there is no value
+            // [expr-placeholder] Outside an `?:` right-hand side there is no value
             // for `_` to mean.
             Expr::Placeholder { span } => match self.placeholder_ty.clone() {
                 Some(ty) => {
@@ -25824,7 +25828,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                         if !ref_mint
                             && !is_subtype(&vty, &expected)
-                            // [arm-infer] A bare value that is the payload of
+                            // [qual-arm-infer] A bare value that is the payload of
                             // exactly one provenance-tagged arm is accepted:
                             // `check_expr` above already recorded the
                             // WrapUnion against the expected union.
@@ -25838,7 +25842,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 format!("expected return type `{expected}`, found `{vty}`"),
                             );
                         }
-                        // [readonly-return] A derived-return fn
+                        // [proj-readonly-return] A derived-return fn
                         // *borrows* its result out: the value must be
                         // derived from the annotated parameter (or be
                         // `None`), and nothing is consumed.
@@ -25897,7 +25901,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if self.loop_stack.is_empty() {
                     self.error(*span, "`break` outside of a loop");
                 }
-                // [while-value] `break value` contributes to the loop's
+                // [loop-while-value] `break value` contributes to the loop's
                 // value; a bare `break` may leave the loop without a value.
                 match value {
                     Some(v) => {
@@ -25975,7 +25979,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 ty
             }
-            // [eff-handle] `use H()` as a value: register the handler (all the
+            // [effect-eff-handle] `use H()` as a value: register the handler (all the
             // side-effects of the statement form) and yield its handle. One
             // face is `eff[E]`; several is a *tuple* of single handles
             // `(eff[A], eff[B])` — the IR already binds one handle per face,
@@ -25999,7 +26003,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 }
             }
-            // [eff-handle] `e[A, B]` / `e[IO]` — projection: a non-consuming
+            // [effect-eff-handle] `e[A, B]` / `e[IO]` — projection: a non-consuming
             // copy of the sub-handle carrying the named effects, which must be
             // a subset of what `e` carries. Yields `eff[S]` (single) or a tuple
             // of single handles (several). An alias among the names expands.
@@ -26014,7 +26018,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         *span,
                         format!(
                             "`{base_ty}` is not an effect handle, so it has no effects to \
-                             project — projection `e[A]` narrows an `eff[…]` handle [eff-handle]"
+                             project — projection `e[A]` narrows an `eff[…]` handle [effect-eff-handle]"
                         ),
                     );
                     return Ty::Unknown;
@@ -26037,7 +26041,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             *span,
                             format!(
                                 "`{base_ty}` does not carry effect `{w}`, so it cannot be \
-                                 projected out — projection narrows to a subset [eff-handle]"
+                                 projected out — projection narrows to a subset [effect-eff-handle]"
                             ),
                         );
                     }
@@ -26053,7 +26057,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 }
             }
-            // [eff-handle] `eff[a, b]` / `eff[*]` — merge already-bound handles
+            // [effect-eff-handle] `eff[a, b]` / `eff[*]` — merge already-bound handles
             // into one. Each item is a handle value (single or tuple); their
             // effects union (deduped, order preserved) into the result handle.
             // `eff[*]` gathers every handle currently in scope.
@@ -26081,13 +26085,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 item.span(),
                                 format!(
                                     "`eff[…]` merges effect handles, and `{ty}` is not one: \
-                                     each item is a bound handle [eff-handle]"
+                                     each item is a bound handle [effect-eff-handle]"
                                 ),
                             );
                         }
                     }
                 }
-                // [eff-handle] A handle set has no inherent order; when an
+                // [effect-eff-handle] A handle set has no inherent order; when an
                 // expected handle(-tuple) type is known, produce the effects
                 // in *its* order so the positional tuple matches (a merge or
                 // `eff[*]` returned where `eff[A, B]` is wanted). Extra effects
@@ -26204,7 +26208,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 else_block,
                 ..
             } => {
-                // [while-value] The loop is an expression: its value is the
+                // [loop-while-value] The loop is an expression: its value is the
                 // body's tail (last iteration), a `break value`, or the
                 // `else` tail when the loop never ran.
                 // [is-bind-once] A binding `is` over a non-place subject is the
@@ -26291,7 +26295,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 } else {
                     elem
                 };
-                // [once-fn] Driving a **pass** consumes it: `once Iter<T>`
+                // [fn-once] Driving a **pass** consumes it: `once Iter<T>`
                 // is a position in a sequence, not a recipe, so a second
                 // `for` over the same value is the ordinary consumed-use
                 // error and the elements are owned by the loop rather than
@@ -26313,7 +26317,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // it lives: the loop mutates it rather than taking it over, so
                 // the caller sees the position it reached and may drive it on.
                 let drives_in_place = recorded.as_ref().is_some_and(|d| d.in_place);
-                // [for-iter] The subject *is* the iterator: `next(e)` drives it
+                // [iter-for] The subject *is* the iterator: `next(e)` drives it
                 // (not a minted one, not a step call) — or the `next` is the
                 // fn's own implicit, whose element is handed over by value
                 // [iter-generic-drive], or a step call is made through a fn
@@ -26338,7 +26342,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.fate_mutation_root(&root, iterable.span());
                     }
                 }
-                // [yield-proj] Whether the pass's `next` emits a *borrow*:
+                // [iter-yield-proj] Whether the pass's `next` emits a *borrow*:
                 // then each element shares fate with the pass's source, and
                 // driving the pass is a read of that source, not a move.
                 let next_borrows = recorded.as_ref().is_some_and(|d| {
@@ -26373,7 +26377,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // The element is a borrow of what the pass walks: it
                         // links to the pass's own links (its source), and the
                         // `borrowed` flag keeps it from ever taking ownership
-                        // [readonly-return].
+                        // [proj-readonly-return].
                         view_links
                             .into_iter()
                             .map(|mut l| {
@@ -26407,7 +26411,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 } else {
                     elem
                 };
-                // [for-elem-write] [ref-handle] Walking a collection of `Mut`
+                // [iter-for-elem-write] [ref-handle] Walking a collection of `Mut`
                 // elements in place hands out **handles** into it: the loop
                 // is a sequence of positions in the walked container, so a
                 // body may write through the element (user decision
@@ -26423,7 +26427,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 } else {
                     elem
                 };
-                // [let-destructure] A loop element may be destructured: the
+                // [var-let-destructure] A loop element may be destructured: the
                 // header binds it to a temporary and the body opens with the
                 // pattern's own bindings, read off that temporary.
                 let bindings = self.pattern_bindings(pattern, elem, links, Some(iterable.span()));
@@ -26530,7 +26534,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         match self.field_ty(base_ty, &field.name) {
             Some(t) => t,
             None => {
-                // [field-resolve] Only structs have fields, and only the
+                // [struct-field-resolve] Only structs have fields, and only the
                 // ones they declare. A target-language member is reached by
                 // declaring an accessor, not by reading
                 // through an opaque type — so an unknown field is an error
@@ -26663,7 +26667,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         let decl: &'p StructDecl = self.symbols.structs.get(name.as_str())?;
         let field = decl.fields.iter().find(|f| f.name.name == field_name)?;
-        // [state-infer] A generated iterator struct's inferred state field has
+        // [handler-state-infer] A generated iterator struct's inferred state field has
         // no written type; the minter's literal determined it and the checker
         // recorded it at the field-name span (the channel the IR reads too).
         // Return the inferred type as declared — the `Mut`-ness of a read flows
@@ -26687,7 +26691,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         Some(self.struct_field_ty(field, &subst, mutable))
     }
 
-    /// [field-canbe-mut] A field's type in a struct value: the declared type
+    /// [struct-field-canbe-mut] A field's type in a struct value: the declared type
     /// under `subst`, gaining `Mut` when the field says `canbe Mut` and the
     /// struct value is `Mut`. Every reading of a declared field type (reads,
     /// literals, destructuring) goes through here, so a plain struct is
@@ -26960,7 +26964,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [for-iter] [iter-protocol] Whether something named `name` takes a
+    /// [iter-for] [iter-protocol] Whether something named `name` takes a
     /// value of type `ty` as the one argument a `for` hands it — the question
     /// "does a `next` fit" that decides between driving the subject and
     /// minting from it (R10 D10). Asked of every candidate the call would
@@ -26969,7 +26973,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// under their new name only [fn-rename]. By shape, as an [implicit-fit]
     /// probe is: the call that follows ranks, fills and reports. A `next` is
     /// one only with `next`'s result shape, `Emitted T | Finished` (D-3): a
-    /// `next` of any other shape is an ordinary fn [unique-shape].
+    /// `next` of any other shape is an ordinary fn [op-unique-shape].
     fn for_fits(&mut self, name: &str, ty: &Ty) -> bool {
         let arg = crate::literal::widen(ty).strip_quals().clone();
         let shaped = |ret: &Ty| name != "next" || ret.is_unknown() || emitted_arm_ty(ret.strip_quals()).is_some();
@@ -27001,7 +27005,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         false
     }
 
-    /// [for-iter] A cheap pre-test for [`Checker::for_fits`], read off the
+    /// [iter-for] A cheap pre-test for [`Checker::for_fits`], read off the
     /// written parameter: a parameter naming a struct or an intrinsic type
     /// — not one of the fn's own type parameters, not an alias — takes only a
     /// value of that type, so a value of another one need not have the
@@ -27025,7 +27029,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [for-iter] [implicit-resolve-body] Whether the enclosing fn's own
+    /// [iter-for] [implicit-resolve-body] Whether the enclosing fn's own
     /// implicit `p` takes the `for`'s call `name(ty)`: named so, one
     /// parameter the value fits, and for `next` the `Emitted T | Finished`
     /// result.
@@ -27043,7 +27047,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [for-iter] The call `name(ty)` a `for` names, resolved as that call
+    /// [iter-for] The call `name(ty)` a `for` names, resolved as that call
     /// is, its facts at `key` (`Key::FOR_NEXT` / `Key::FOR_ITER` of the
     /// subject's node): the enclosing fn's own implicit of the name first
     /// [implicit-resolve-body], ranked like overloads [implicit-same-name],
@@ -27092,7 +27096,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         got
     }
 
-    /// [for-iter] Forgets the call facts a `for` recorded at `key`: the native
+    /// [iter-for] Forgets the call facts a `for` recorded at `key`: the native
     /// loop a backend writes for a container makes no call [iter-for-native],
     /// so nothing it would have reached is reached.
     fn forget_for_call(&mut self, key: Key) {
@@ -27103,7 +27107,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out.effect_calls.remove(&key);
     }
 
-    /// [for-iter] Whether the call a `for` recorded at `key` went to a
+    /// [iter-for] Whether the call a `for` recorded at `key` went to a
     /// declared fn — not the enclosing fn's implicit, not an effect member.
     fn for_call_is_decl(&self, key: Key) -> bool {
         self.out.call_fn.contains_key(&key) && !self.out.local_calls.contains(&key) && !self.out.member_calls.contains_key(&key)
@@ -27140,7 +27144,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         (pt.quals().iter().any(|q| q.name == "Mut"), pt.strip_quals().clone())
     }
 
-    /// [for-iter] [iter-resolve] The element type of `for x in e`, which is
+    /// [iter-for] [iter-resolve] The element type of `for x in e`, which is
     /// the calls it names (OPERATOR_OVERLOAD.md O1, R10 D10): `next(e)` when a
     /// `next` takes `e` — `e` is an **iterator**, driven where it lives —
     /// and otherwise `next(iter(e))` — `e` is a **source**, and the loop
@@ -27262,7 +27266,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `: Next<self, T>` clause promises, when the promise is broken where it
     /// is made: the group is unknown in the struct's file, or no `next` of the
     /// protocol's shape over the struct is declared there — the one place it
-    /// may be [unique-shape] — so the clause has been refused there already,
+    /// may be [op-unique-shape] — so the clause has been refused there already,
     /// and the loop answers the promised element instead of a second
     /// diagnostic. `None` whenever such a `next` exists, even one this loop
     /// cannot reach: then the loop's own error is the only one.
@@ -27277,7 +27281,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.pass_declared_elem_ty(subject)
     }
 
-    /// [iter-protocol] [unique-shape] The file of `decl` when it declares a
+    /// [iter-protocol] [op-unique-shape] The file of `decl` when it declares a
     /// `next` of the protocol's shape over the struct — the one place such a
     /// `next` may be — whether or not this file can reach it.
     fn home_next(&mut self, decl: &'p StructDecl) -> Option<usize> {
@@ -27380,7 +27384,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [iter-step-call] The `next` a `for` drives, when it is a declared fn
-    /// whose written result emits a borrow [yield-proj].
+    /// whose written result emits a borrow [iter-yield-proj].
     fn for_next_borrows(&self, iterable: &'p Expr) -> bool {
         let key = self.key(iterable.span()).synthetic(Key::FOR_NEXT);
         let Some(k) = self.out.call_fn.get(&key).copied() else { return false };
@@ -27504,7 +27508,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 exp_ret.unwrap_or(Ty::Unknown)
             }
-            // [terminal-lambda] The parser fills a `...` body before checking.
+            // [expr-terminal-lambda] The parser fills a `...` body before checking.
             LambdaBody::Terminal => Ty::Unknown,
         };
         self.loop_stack = saved_loops;
@@ -27536,7 +27540,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             contract: None,
             effects,
         };
-        // [once-fn] A lambda that consumes a capture is callable at most
+        // [fn-once] A lambda that consumes a capture is callable at most
         // once: its type gains `once`, so it only fits `once` fn
         // positions and calling it consumes it.
         if consumes_captures {
@@ -27620,7 +27624,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Consume the original: the closure owns the value now.
                 continue;
             }
-            // [lambda-view] A read capture of non-Copy data makes the
+            // [fate-lambda-view] A read capture of non-Copy data makes the
             // closure a **view**: it holds a borrow of the captured
             // variable, exactly as a struct holds its `proj` fields
             // [proj-field] — the body can return projections rooted in a
@@ -27631,7 +27635,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // mutating the capture poisons the closure. Two exclusions: a
             // *consumed* capture is owned — the closure swallowed the
             // value at creation (which is what made it `once`
-            // [once-fn]), so there is no source left to borrow from — and
+            // [fn-once]), so there is no source left to borrow from — and
             // a Copy scalar capture is the value itself on both backends
             // [copy-scalar-free].
             if cap.moved {
@@ -27692,7 +27696,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // other: `Mut Cell { … }` for a struct without `canbe Mut` is refused
         // here, where it used to be accepted and only kotlinc noticed
         // (ROADMAP §0g, fixed 2026-10-05).
-        // [namespace] A leading-dot literal type (`.S { … }`) resolves its
+        // [mod-namespace] A leading-dot literal type (`.S { … }`) resolves its
         // namespace against the expected type first (D3/D4), so the rest of
         // the check sees the full `AttributeValue.S`.
         let ty_resolved: Option<ast::Type> = match ty {
@@ -27833,7 +27837,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut inferred: HashMap<String, Ty> = HashMap::new();
         let mut has_spread = false;
         let mut provided: HashSet<&str> = HashSet::new();
-        // [field-canbe-mut] A `Mut` literal gives its `canbe Mut` fields `Mut`
+        // [struct-field-canbe-mut] A `Mut` literal gives its `canbe Mut` fields `Mut`
         // values; a plain one, plain values.
         let lit_mut = struct_ty.quals().iter().any(|q| q.name == "Mut");
         let mut spreads: Vec<&'p Expr> = Vec::new();
@@ -27842,7 +27846,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 StructLitFieldKind::Named { name, value } => {
                     match decl.fields.iter().find(|df| df.name.name == name.name) {
                         Some(df) if df.ty.is_none() => {
-                            // [state-infer] An inferred state field of a
+                            // [handler-state-infer] An inferred state field of a
                             // generated iterator struct: the minter's literal
                             // entry *is* the initializer whose type the field
                             // takes. Infer it (no expectation), and record it
@@ -27930,7 +27934,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 StructLitFieldKind::InlineFor { .. } => {}
             }
         }
-        // [field-canbe-mut] A `Mut` literal must not take a `canbe Mut` field
+        // [struct-field-canbe-mut] A `Mut` literal must not take a `canbe Mut` field
         // from a plain value: the field would become mutable while whatever
         // shares it (a `copy` of a plain value is the value itself) still
         // reads it as immutable. A spread source must be `Mut` too, and a
@@ -27949,7 +27953,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 "a `Mut {}` literal cannot take field `{}` (`canbe Mut`) from a \
                                  plain `{sty}`: it would make the field mutable where the plain \
                                  value is not; spread a `Mut` value, or give `{}` here \
-                                 [field-canbe-mut]",
+                                 [struct-field-canbe-mut]",
                                 decl.name.name, df.name.name, df.name.name
                             ),
                         );
@@ -27960,7 +27964,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         span,
                         format!(
                             "a `Mut {}` literal must give field `{}`: its default is a plain \
-                             value and the field is `canbe Mut` [field-canbe-mut]",
+                             value and the field is `canbe Mut` [struct-field-canbe-mut]",
                             decl.name.name, df.name.name
                         ),
                     );
@@ -28312,7 +28316,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [cond-bool] A condition is a boolean expression. `if`, `elif`,
+    /// [expr-cond-bool] A condition is a boolean expression. `if`, `elif`,
     /// `while` and a subject-less `when`'s branch heads take `Bool` and
     /// nothing else — Salvo has no truthiness, so there is no rule that
     /// could turn another type into a decision. Checked per *leaf* of a
@@ -28770,7 +28774,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut unresolved = false;
         for (i, r) in check.iter().enumerate() {
             let last = i + 1 == check.len();
-            // [namespace] A leading-dot sugar name (`.S`) resolves against the
+            // [mod-namespace] A leading-dot sugar name (`.S`) resolves against the
             // expected type here; on failure, report and mark unresolved so
             // nothing cascades. A union arm resolves to the arm's own type,
             // used as the check base directly — so it matches the arm whatever
@@ -28930,7 +28934,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         })
     }
 
-    /// [type-literal] [union-arm-identity] An `is` test against a union with
+    /// [type-literal] [type-union-arm-identity] An `is` test against a union with
     /// literals, lowered onto the *runtime* union: the matched declared arms
     /// become runtime arms, and a runtime arm only partly matched gets a
     /// value condition — `is "A"` on `"A" | "B" | Other Str` is "the value is
@@ -29040,7 +29044,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // (`if e is None { return … }`), so whatever follows the `if` is on
         // the else-path and every condition's else-narrows hold there.
         // Installed *before* the assignment resets below, so a branch that
-        // reassigned the subject still wins [narrow-assign-reset].
+        // reassigned the subject still wins [is-narrow-assign-reset].
         if !branches.is_empty() && branches.iter().all(|(_, b)| self.block_exits(b)) {
             let facts = acc_else.clone();
             self.install_narrows(&facts);
@@ -29050,7 +29054,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.maybe_coerce(tail.span, &tail.logical, &tail.repr, &join);
         }
         for (_, block) in branches {
-            // [is-narrow-guard] [narrow-assign-reset] A branch that exits
+            // [is-narrow-guard] [is-narrow-assign-reset] A branch that exits
             // cannot be the path taken to the code below, so its
             // assignments do not reset anything there — the same reason
             // `merge_fallthrough` ignores it.
@@ -29136,7 +29140,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         let Ty::Union(all_arms) = subj_ty else {
             // [when-union-subject] A *qualified* union (`Ok (A | B)`, or an
-            // `Thrown (Str | Int)` message [try]) is a claim **about** a
+            // `Thrown (Str | Int)` message [throw-try]) is a claim **about** a
             // union, not a union: its arms belong to the inner type. The
             // qualifier is droppable ([qual-erasure]'s `Qual T <: T`), so
             // the remedy is a binding at the inner type — which also keeps
@@ -29318,8 +29322,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         join
     }
 
-    /// [safe-nav] `base?.field` / `base?.method(args)`. Picks the receiver's
-    /// **first arm** [union-arm-identity], performs the link on it, and
+    /// [op-safe-nav] `base?.field` / `base?.method(args)`. Picks the receiver's
+    /// **first arm** [type-union-arm-identity], performs the link on it, and
     /// replaces that arm with the link's result in the union — the other arms
     /// pass through unchanged. `(A | B | C)?.field` where `A.field: F` is
     /// `F | B | C` (arms collapse when `F` equals a pass-through arm). A `T?`
@@ -29359,7 +29363,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let rest = self.mk_union(declared[1..].to_vec());
         let optional = base_ty.has_none_arm() && declared.len() == 2 && rest.is_none_ty();
         let link_ty = self.safe_access_ty(base, &base_ty, access, &inner, expected, span);
-        // [safe-nav] The result is the link's type joined with the arms left
+        // [op-safe-nav] The result is the link's type joined with the arms left
         // behind; `union_of` collapses the link's result into a pass-through
         // arm of the same type (`(A | B | C)?.field` with `A.field: B` is
         // `B | C`). `already_opt` records that the link's value needs no
@@ -29374,7 +29378,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         result
     }
 
-    /// [safe-nav] The type of the single link, given the receiver's non-`None`
+    /// [op-safe-nav] The type of the single link, given the receiver's non-`None`
     /// type `inner`. A field reads directly off `inner`. A call resolves as
     /// the dot call `base.m(args)` would, which needs the receiver to read at
     /// `inner`: that is a narrowing, so a call receiver must be a place (a
@@ -29438,7 +29442,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     // ================= coercions =================
 
-    /// Joins a loop's value contributions [while-value]: the body tail,
+    /// Joins a loop's value contributions [loop-while-value]: the body tail,
     /// each `break value`, and the `else` tail — or `None` when there is
     /// no `else` (the loop may never run). A bare `break` or a `continue`
     /// also joins `None` (an iteration may end without producing a value).
@@ -29490,7 +29494,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Records the representation change (if any) needed to use a value of
     /// (`logical`, `repr`) where `expected` is required. Arm matching is
     /// positional over the declared type's non-`None` arms
-    /// [union-arm-identity]; a qualified union group tries wrapping as
+    /// [type-union-arm-identity]; a qualified union group tries wrapping as
     /// a whole arm before stripping its qualifiers [qual-group].
     ///
     /// [str-drop-mut] A `Mut` qualifier dropped on the way is recorded too,
@@ -29649,7 +29653,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             && logical.value_arms().iter().all(|a| repr.value_arms().contains(a))
             && (!logical.has_none_arm() || repr.has_none_arm())
         {
-            // [rewrap] A union narrowed to some of its arms is read through
+            // [type-rewrap] A union narrowed to some of its arms is read through
             // the narrowing binding, which already holds the narrower union
             // (the IR's `Narrow` has the logical type). Found 2026-10-20: a
             // `("json" | "text")?` narrowed past `None` into a `"json" |
@@ -29743,7 +29747,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                 }
                 0 => {
-                    // [arm-infer] Before refusing, try provenance-arm
+                    // [qual-arm-infer] Before refusing, try provenance-arm
                     // inference: a bare value may be the payload of exactly
                     // one provenance-tagged arm (`return name.size()` for
                     // `-> Ok Int | Err Str` is implicitly `Ok(…)`). The
@@ -30010,7 +30014,7 @@ fn fn_value_fits(candidate: &Ty, want: &Ty) -> bool {
 
 // ================= unification =================
 
-/// [union-spread] Unify a union *parameter* against a union *argument*. A
+/// [type-union-spread] Unify a union *parameter* against a union *argument*. A
 /// parameter arm written `...T` (an explicit spread, [`Ty::as_spread_marker`])
 /// binds its variable to a **span** of ≥1 argument arms; every other
 /// parameter arm — concrete, or a bare type variable — captures exactly one
@@ -30179,7 +30183,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             _,
         ) => {
             let arg_quals: Vec<&str> = arg.quals().iter().map(|q| q.name.as_str()).collect();
-            // [once-fn] A `once` requirement is satisfied by any fn
+            // [fn-once] A `once` requirement is satisfied by any fn
             // (inverted subtyping: plain fns may be treated as
             // once-callable). [fn-effects] An effect claim is the same
             // direction: a producer that performs *fewer* effects fits a
@@ -30265,13 +30269,13 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             }
         },
         // `Qual T` can be passed where `T` is expected — except `once`,
-        // which may never be dropped [once-fn]. (A top-level `proj` is
+        // which may never be dropped [fn-once]. (A top-level `proj` is
         // dropped *here*, for the binding: `size(list: List<T>)` given a
         // `proj List<Str>` binds `T = Str`; whether the position may take
         // the projection is the assignability check's business
         // [proj-type].)
         (_, Ty::Qualified { quals, base }) => {
-            // [once-fn] D6 (user decision 2026-09-12): `once` drops on a
+            // [fn-once] D6 (user decision 2026-09-12): `once` drops on a
             // *data* type — a plain-typed holder consumes at most once
             // anyway — and never on a fn type, whose plain form is
             // callable repeatedly.
@@ -30342,7 +30346,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
                 })
                 && unify(pr, ar, subst)
                 // [fn-contract] keeps <: consumes (inverted, like
-                // [once-fn]); mutation permission must be granted.
+                // [fn-once]); mutation permission must be granted.
                 && crate::types::contract_fits(ac.as_deref(), pc.as_deref(), pp.len())
         }
         (Ty::Any, _) => true,
@@ -30809,7 +30813,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
             }
-            // [namespace] A namespaced free-fn call `Outer.Inner.make(x)`: a
+            // [mod-namespace] A namespaced free-fn call `Outer.Inner.make(x)`: a
             // `Field` chain of uppercase namespace segments ending in a
             // lowercase fn name. It resolves to the flat key `Outer.Inner.make`
             // in scope — a direct call, *not* dot-notation, so the base
@@ -31055,7 +31059,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(var) = self.lookup(&lname) {
                 let mut vty = var.narrowed.clone();
                 // [flow-use-after-move] A callable called again (a `once`
-                // fn [once-fn]) or after a move is the flow pass's use; a
+                // fn [fn-once]) or after a move is the flow pass's use; a
                 // `Never` one is called as declared.
                 if matches!(vty, Ty::Never) {
                     vty = var.declared.clone();
@@ -31084,7 +31088,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let callee_name = format!("`{}`", id.name);
                     let arg_refs: Vec<&'p Expr> = args.iter().collect();
                     self.check_fn_value_args(&callee_name, &arg_refs, &params, contract.as_deref(), typed, span);
-                    // [readonly-return] [rs-loc] A fn value whose return is a
+                    // [proj-readonly-return] [rs-loc] A fn value whose return is a
                     // **wholesale** projection lends that argument outright
                     // (`?at: (c: C, k: Int) -> ref(c) Mut T?`, or a plain
                     // read-only `proj`): record it like any derived-return
@@ -31154,7 +31158,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             self.out.lending_calls.insert(self.key(span), lent);
                         }
                     }
-                    // [once-fn] Calling a `once` fn consumes it: the IR flow
+                    // [fn-once] Calling a `once` fn consumes it: the IR flow
                     // pass's move then enforces the multiplicity (second
                     // call, loop back edge, branch merges).
                     if once {
@@ -31197,7 +31201,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return Ty::Unknown;
             }
             let arg_refs: Vec<&'p Expr> = args.iter().collect();
-            // [mixed-handler] Inside a mixed handler's member — sync or
+            // [actor-mixed-handler] Inside a mixed handler's member — sync or
             // send (user decision 2026-09-19) — a bare call naming one of
             // the handler's own `send fn` members is a send to the
             // servant — resolved before the general ladder (the handler's
@@ -31213,7 +31217,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
 
         // Computed callee (a `once`-typed temporary is called at most
-        // once by construction [once-fn]).
+        // once by construction [fn-once]).
         let cty = self.check_expr(callee, None);
         if let Ty::Fn {
             params,
@@ -31682,7 +31686,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [implicit-resolve-body] A call that fell through an implicit of its
         // name arrives with its arguments typed.
         let mut pre_typed: Option<Vec<Ty>> = self.pending_arg_tys.take();
-        // [for-iter] Typed arguments with no expressions of their own.
+        // [iter-for] Typed arguments with no expressions of their own.
         let typed_only = std::mem::take(&mut self.pending_typed_only);
         // 1. Effect member call: resolve which effect instance in scope
         // provides it (validating availability and disambiguating generic
@@ -32056,7 +32060,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 {
                     self.check_expr(a, exp.as_ref())
                 }
-                // [lit-adopt] A numeric literal adopts the numeric type its
+                // [type-lit-adopt] A numeric literal adopts the numeric type its
                 // *parameter* expects — the rule's own `f(1)` into a `Long`
                 // parameter, which until 2026-09-18 only worked for annotated
                 // `let`s and struct fields, so `millis(500)` was refused with
@@ -32226,7 +32230,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // type (a union arm, a type argument) must match exactly.
             let contract = self.effective_contract(Some(key), decl);
             for (i, p) in patterns.iter().enumerate() {
-                // [union-spread] The `...T` marker guides call-site union
+                // [type-union-spread] The `...T` marker guides call-site union
                 // matching (above); the assignability check sees the plain
                 // union it stands for.
                 let sp = substitute_vars(p, &subst, &callee_generics).strip_spread();
@@ -32423,7 +32427,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let subst = best.subst.clone();
         let decl = best.decl;
         let best_key = best.key;
-        // [defer-deduction] The escape check: in a mixed send member, a
+        // [linear-defer] The escape check: in a mixed send member, a
         // reply parameter handed to any callee but the discharge (std's
         // `send`, whose first argument is the token being fulfilled) leaves
         // the activation and must be declared `defer`.
@@ -32452,7 +32456,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // outright and the designated `close` parameter was silently
         // exempt). Anywhere else, dropping a handle is precisely the leak
         // the obligation exists to prevent. Keyed on core's `intrinsic fn
-        // discard` rather than on the bare name [intrinsic-std-only].
+        // discard` rather than on the bare name [platform-intrinsic-std-only].
         if best.decl.name.name == "discard" && best.decl.intrinsic && args.len() == 1 {
             let arg_ty = arg_tys[0].clone();
             if self.ty_own_linear(&arg_ty) {
@@ -32782,7 +32786,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // (`self.inferred`), so `return list` in a callee consumes
         // the caller's argument just like an explicit `[]`.
         let contract: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
-            // [for-iter] What a `for`'s call does to its subject is the
+            // [iter-for] What a `for`'s call does to its subject is the
             // loop's own rule [iter-drive-in-place].
             _ if typed_only => None,
             // Shape errors on written lists are reported by the deduce
@@ -32790,7 +32794,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Some(_) => self.effective_contract(best.key, decl),
             None => best.key.and_then(|key| self.inferred.get(&key).cloned()),
         };
-        // [elem-distinct] Two mutable element handles of one container in
+        // [fate-elem-distinct] Two mutable element handles of one container in
         // one call — `attack(at(es, i)!, at(es, j)!)`, or two bound
         // handles — are the two-`&mut` shape the Rust rendering cannot
         // express unless the elements are provably different. A pair of
@@ -32913,7 +32917,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     continue;
                 };
-                // [once-fn] A `once` fn value escapes when passed as an
+                // [fn-once] A `once` fn value escapes when passed as an
                 // argument: fn-value ownership is otherwise untracked,
                 // so the pass consumes it regardless of the callee's
                 // contract (conservative; relaxable with fn-type
@@ -33091,7 +33095,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // [readonly-return] Record derived-return calls: the result
+        // [proj-readonly-return] Record derived-return calls: the result
         // borrows the annotated argument — the caller links the result
         // to it, and the Rust backend renders the result as a borrow.
         if decl.derived_return.is_some() && !typed_only {
@@ -33254,7 +33258,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [qual-depend] A dependent claim in the result names the callee's
         // parameters; hand the caller the claim about *its* values, bound
         // to their roots.
-        // [for-iter] A `for`'s element claim binds the subject's source, which
+        // [iter-for] A `for`'s element claim binds the subject's source, which
         // the loop fills itself [qual-depend].
         let result = if Self::ty_has_value_ref(&result) && !typed_only {
             let fixed: Vec<&'p ast::Param> = decl
@@ -33267,7 +33271,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             result
         };
-        // [wire-format] [noremote] `encode(value)` / `decode<T>(bytes)`
+        // [net-wire-format] [net-noremote] `encode(value)` / `decode<T>(bytes)`
         // (std's `net`) need a type with a wire form, decided by the shared
         // predicate the emitters generate codecs from — so a value that
         // passes here has a codec on both backends, and one that does not is
@@ -33294,7 +33298,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         span,
                         format!(
-                            "`{}` needs a type with a wire form, and `{subject}` has none: {}                              [noremote]",
+                            "`{}` needs a type with a wire form, and `{subject}` has none: {}                              [net-noremote]",
                             decl.name.name,
                             block.describe()
                         ),
@@ -33302,7 +33306,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // [actor-group] [noremote] `protocol<E>()` names the protocol a group
+        // [actor-group] [net-noremote] `protocol<E>()` names the protocol a group
         // is of, and a group's members are reached from every node — so this
         // is a **crossing site** where a protocol with a `noremote` payload
         // is refused (user decision 2026-09-26: at the binding, not the
@@ -33326,7 +33330,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.adopt_carried_identity(result, expected)
     }
 
-    /// [actor-group] [noremote] Refuses naming `effect` as a group's
+    /// [actor-group] [net-noremote] Refuses naming `effect` as a group's
     /// protocol when any of its `send fn` payloads has no wire form: a group
     /// of it could not span nodes, so there is nothing to name on the wire.
     /// `via` is the call the program wrote (`actor_group`, `protocol`), for
@@ -33346,7 +33350,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         format!(
                             "a group of `{}` cannot span nodes: `{}.{}` takes `{pty}`, and {} — \
                              so `{via}<{}>` has nothing to name on the wire. Keep the \
-                             actor local, or give the payload a wire form [noremote]",
+                             actor local, or give the payload a wire form [net-noremote]",
                             effect.name.name,
                             effect.name.name,
                             f.name.name,
@@ -33508,7 +33512,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        // [free-send-fn] A send-kind function is *scheduled*, never called: a
+        // [actor-free-send-fn] A send-kind function is *scheduled*, never called: a
         // call would run it here, on this thread, inside this frame — which is
         // the callback anti-pattern the kind exists to refuse.
         if decl.is_send {
@@ -33576,7 +33580,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.generics = saved;
         }
-        // [use-no-dup] Innermost first, shadowed duplicates hidden.
+        // [effect-use-no-dup] Innermost first, shadowed duplicates hidden.
         let visible = self.visible_avail();
         for (lowered, req_any) in wants {
             let want = substitute_vars(&lowered, subst, callee_generics);
@@ -33823,7 +33827,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // overload here, or for disambiguating instances below. Recorded once
         // so the arguments are never checked twice.
         let mut typed_args: Option<Vec<Ty>> = None;
-        // [for-iter] Typed arguments with no expressions of their own.
+        // [iter-for] Typed arguments with no expressions of their own.
         let typed_only = std::mem::take(&mut self.pending_typed_only);
         let member: &'p FnDecl = match self.pick_effect_member(effect, members, args, pre_typed, span) {
             Picked::Only(m) => m,
@@ -33892,7 +33896,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
         // Instances of this effect currently available — innermost first,
         // with a shadowed registration hidden by the one that shadows it
-        // [use-no-dup], so interception does not read as ambiguity.
+        // [effect-use-no-dup], so interception does not read as ambiguity.
         let candidates: Vec<Ty> = self
             .visible_effects()
             .into_iter()
@@ -33964,7 +33968,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         ),
                     )
                 }
-                // [mixed-handler] A façade member reaching for one of the
+                // [actor-mixed-handler] A façade member reaching for one of the
                 // handler's dependencies: they are the servant's, so the
                 // remedy is a send, not a declaration.
                 None if self.facade_handler.is_some_and(|h| {
@@ -34305,7 +34309,7 @@ fn arith_member(op: BinaryOp) -> &'static str {
 /// the integer widths `Int` < `Long` and the float widths `Float` <
 /// `Double`, promotion widening within a class only. `Byte` is
 /// deliberately **not** operator-numeric: it is an octet rather than a
-/// number — unsigned on both backends [byte-value] — and its arithmetic
+/// number — unsigned on both backends [type-byte] — and its arithmetic
 /// goes through `to_int`/`to_byte`, which is one call and states the
 /// wrapping instead of implying it.
 fn numeric_class(name: &str) -> Option<(bool, u8)> {
@@ -34337,7 +34341,7 @@ fn op_lenient(ty: &Ty) -> bool {
     ty.is_unknown() || matches!(ty, Ty::Never)
 }
 
-/// [lit-adopt] The numeric type an **unsuffixed** literal adopts from its
+/// [type-lit-adopt] The numeric type an **unsuffixed** literal adopts from its
 /// expected type (user decision 2026-09-14): a plain numeric expectation,
 /// reached through qualifiers and through a sole non-`None` union arm
 /// (`let x: Long? = 1`). A float literal only adopts within the float
@@ -34657,7 +34661,7 @@ fn proj_arm_indices(ty: &ast::Type) -> Vec<usize> {
         .collect()
 }
 
-/// [yield-proj] Whether a written type mentions a generic parameter by name.
+/// [iter-yield-proj] Whether a written type mentions a generic parameter by name.
 pub(crate) fn type_mentions_generic(ty: &ast::Type, name: &str) -> bool {
     fn in_ref(r: &TypeRef, name: &str) -> bool {
         r.name.name == name || r.args.iter().any(|a| type_mentions_generic(a, name))
@@ -34738,11 +34742,11 @@ pub fn written_type_key(ty: &ast::Type) -> usize {
 }
 
 fn spans_overlap(a: Span, b: Span) -> bool {
-    // [origin] Positions compare within one expansion only.
+    // [node-origin] Positions compare within one expansion only.
     a.expn == b.expn && a.start <= b.end && b.start <= a.end
 }
 
-/// [namespace] A readable list of a union's arm type names, for the
+/// [mod-namespace] A readable list of a union's arm type names, for the
 /// leading-dot resolution diagnostics.
 fn arm_names(arms: &[Ty]) -> String {
     let mut out: Vec<String> = Vec::new();
@@ -34759,7 +34763,7 @@ fn arm_names(arms: &[Ty]) -> String {
     }
 }
 
-/// [namespace] The dotted namespace path of a `Field`/`Ident` expression
+/// [mod-namespace] The dotted namespace path of a `Field`/`Ident` expression
 /// whose every segment is an uppercase name — `Outer.Inner` from the base of
 /// `Outer.Inner.make`. `None` when any segment is lowercase (a value
 /// receiver, not a namespace) or the shape is anything but a straight

@@ -269,5 +269,5 @@ impl crate::wire::__Wire for __Msg_Inbound {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Inbound`.
+/// [actor-protocol-hash] The canonical hash of `Inbound`.
 pub const __PROTO_Inbound: &str = "8e46ddb2a3e90b03";

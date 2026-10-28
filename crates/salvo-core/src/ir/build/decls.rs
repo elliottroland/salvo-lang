@@ -148,7 +148,7 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                 }
             }
             Item::Import(_) | Item::Fns(_) | Item::Refn(_) | Item::Rename(_) | Item::Test(_) => {}
-            // [namespace] Flattened away before the IR is built.
+            // [mod-namespace] Flattened away before the IR is built.
             Item::Namespace(_) => {}
             // [effect-alias] Expanded away before the IR is built.
             Item::EffectAlias(_) => {}
@@ -188,7 +188,7 @@ fn fields(
     decls
         .iter()
         .map(|f| {
-            // [state-infer] An inferred state field (`name = value`, `ty` is
+            // [handler-state-infer] An inferred state field (`name = value`, `ty` is
             // `None`) has no written type to lower; the checker recorded the
             // inferred type keyed by the field-name span, so read it back —
             // the same channel `waitfor` uses for its inferred token type.
@@ -293,7 +293,7 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
             }
         })
         .collect();
-    // [protocol-hash] every message payload has a wire form (the types are
+    // [actor-protocol-hash] every message payload has a wire form (the types are
     // the resolved ones, so a clashing name is told from its namesakes).
     let has_wire = members.iter().filter(|m| m.send).all(|m| m.params.iter().all(|p| crate::wire_blocker(ctx.symbols, p.ty.strip_quals()).is_none()));
     let protocol_hash = if e.is_actor && has_wire {

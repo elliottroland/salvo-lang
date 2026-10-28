@@ -15,10 +15,10 @@ pub struct Token {
 pub enum TokenKind {
     // Literals and identifiers
     Ident(String),
-    /// Integer literal [lit-numeric]: `1` is `Int`; the `L` suffix
+    /// Integer literal [type-lit-numeric]: `1` is `Int`; the `L` suffix
     /// (`1L`, `long: true`) makes it a `Long`.
     Int { value: i64, long: bool },
-    /// Floating-point literal [lit-numeric]: `1.2` is `Double`; the `f`
+    /// Floating-point literal [type-lit-numeric]: `1.2` is `Double`; the `f`
     /// suffix (`1.2f`, `single: true`) makes it a `Float`.
     Float { value: f64, single: bool },
     /// String literal, decomposed into text and `${...}` interpolation parts.
@@ -107,7 +107,7 @@ pub enum TokenKind {
     PipePipe, // ||
     PipeGt,   // |> — the [expr-pipe] pipe operator
     AmpAmp,   // &&
-    Question, // ? — the first token of an [elvis] run (`?`, `??`, …)
+    Question, // ? — the first token of an [op-elvis] run (`?`, `??`, …)
     Bang,     // !
     Eq,       // =
     EqEq,     // ==

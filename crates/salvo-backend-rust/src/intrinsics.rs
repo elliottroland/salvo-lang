@@ -35,7 +35,7 @@ pub enum Spread {
     Owned,
 }
 
-/// The Rust lowering of a call to an `intrinsic fn` [intrinsic-fn].
+/// The Rust lowering of a call to an `intrinsic fn` [platform-intrinsic-fn].
 ///
 /// `name` is the declaration's name and `recv` the base type name of its
 /// first parameter (`type_base_name` conventions, so an array is `[]`) —
@@ -96,7 +96,7 @@ pub fn fn_call(
         ("to_long", Some("Int" | "Double" | "Float")) => format!("(({}) as i64)", a(0)),
         ("to_double", Some("Int" | "Long" | "Float")) => format!("(({}) as f64)", a(0)),
         ("to_float", Some("Int" | "Long" | "Double")) => format!("(({}) as f32)", a(0)),
-        // [byte-value] A `Byte` is a `u8` here and a `UByte` on Kotlin, so
+        // [type-byte] A `Byte` is a `u8` here and a `UByte` on Kotlin, so
         // both conversions mean the same thing on both: `as u8` keeps the low
         // 8 bits (300 → 44, -1 → 255) like `toUByte()`, and `as i32` widens
         // into 0..255 like `toInt()`.
@@ -111,7 +111,7 @@ pub fn fn_call(
         // std.core.basic and std.core.string (`cmp`, `eq`), std.core.compare
         // (`hash`) ------------------------------------------------------------
         // [cmp-groups] The canonical `cmp`/`eq`/`hash` at each intrinsic type;
-        // `cmp` and `eq` are declared beside their types [unique-shape], and
+        // `cmp` and `eq` are declared beside their types [op-unique-shape], and
         // the table keys on name and receiver, not module.
         //
         // `Ord::cmp` answers an `Ordering`, which is a fieldless `#[repr(i8)]`
@@ -239,7 +239,7 @@ pub fn fn_call(
         ("send", Some("Reply")) => format!("({}).send(std::boxed::Box::new({}))", a(0), a(1)),
         // [actor-spawn-expr] A pool is a scheduler index; `pool(n)` starts its
         // worker threads.
-        // [pool-fault-sink] The two-argument overload: the sink's addr plus the
+        // [actor-pool-fault-sink] The two-argument overload: the sink's addr plus the
         // builder that turns the host's reason into the language's `Fault`
         // message — the runtime cannot construct one, exactly as with `Exit`
         // [actor-watch]. Dispatched on **arity**, since both overloads take an
@@ -310,7 +310,7 @@ pub fn fn_call(
             }
         }
         // `first` is a derived return (`proj(list)`), so it
-        // borrows rather than clones [readonly-return].
+        // borrows rather than clones [proj-readonly-return].
         ("first", Some("[]")) => format!("{}.first()", a(0)),
         ("size", Some("[]")) => {
             format!("({}.len() as i32)", a(0))

@@ -27,7 +27,7 @@ pub struct FileDiagnostic {
     /// into scope [diag-import-suggest]. Rendered as `help:` lines and
     /// offered as LSP quickfixes; empty for most diagnostics.
     pub suggested_imports: Vec<String>,
-    /// [origin] The declaration the diagnostic was raised in, when it was
+    /// [node-origin] The declaration the diagnostic was raised in, when it was
     /// raised at a node an expansion copied: its span is then where the
     /// origin rendered it (a field, the `by` site), which is another
     /// declaration's text, so this is what attributes it (`ir::gate`).
@@ -73,7 +73,7 @@ impl FileDiagnostic {
         }
     }
 
-    /// [origin] Attributes the diagnostic to the declaration it was raised
+    /// [node-origin] Attributes the diagnostic to the declaration it was raised
     /// in (`FileDiagnostic::decl`).
     pub fn in_decl(mut self, decl: Option<crate::DeclId>) -> Self {
         self.decl = decl;

@@ -15,7 +15,7 @@
 //! - no generic compfn at all: they are removed, since nothing downstream
 //!   could type `T.fields`.
 //!
-//! Origins [origin]: every node of a stamped body keeps the span it has in the
+//! Origins [node-origin]: every node of a stamped body keeps the span it has in the
 //! template, and carries a fresh **expansion** id (`Span::expn`), one per
 //! unrolled copy, so the checker's span-keyed side tables never see two copies
 //! as one node. The `Stamp` on the fn records each expansion (what it is a copy
@@ -255,7 +255,7 @@ fn run<M: crate::expand::ModuleSlot>(
             })
             .collect();
         let mut diags: Vec<Diagnostic> = Vec::new();
-        // [origin] The file's expansion ids: 0 is written code.
+        // [node-origin] The file's expansion ids: 0 is written code.
         let mut next_expn: u32 = 1;
         let mut generated: Vec<Item> = Vec::new();
 
@@ -1622,7 +1622,7 @@ impl World {
     /// The declared arms of a union type, flattened through nullables and
     /// nested written unions (what a `T?` of a union means) but **not**
     /// through an alias, whose arms are positional over its own declaration
-    /// [union-arm-identity].
+    /// [type-union-arm-identity].
     fn arms_of(&self, ty: &Type) -> Vec<Type> {
         match ty {
             Type::Union { arms, .. } => arms.iter().flat_map(|a| self.arms_of(a)).collect(),
@@ -1944,7 +1944,7 @@ struct Stamper<'w> {
     target: &'w Target,
     template: &'w FnDecl,
     by: &'w ByRef,
-    /// [origin] The file's next expansion id.
+    /// [node-origin] The file's next expansion id.
     next_expn: &'w mut u32,
 }
 
@@ -2029,7 +2029,7 @@ impl<'w> Stamper<'w> {
     /// a generic target the additions [comptime-generic] makes: the target's
     /// type parameters, their `canbe` opt-ins and the implicit groups its
     /// fields need. No body: [`Stamper::stamp_into`] supplies it, as for a
-    /// written declaration. The member's nodes are made by the stamp [origin]
+    /// written declaration. The member's nodes are made by the stamp [node-origin]
     /// (`ExpansionKind::Made`), so a diagnostic about the signature lands at
     /// the `by` site.
     fn member_decl(self, group: &FnsDecl, member: &FnDecl) -> Result<FnDecl, Vec<Diagnostic>> {
@@ -2067,7 +2067,7 @@ impl<'w> Stamper<'w> {
         visit_mut::walk_fn(&mut subst, &mut f);
         // [comptime-generic] One `by` site stamps several members (`Hashed`'s
         // `hash` and `eq`), and a generic stamp's implicits are looked up by
-        // its name's span: each gets an expansion of its own [origin], whose
+        // its name's span: each gets an expansion of its own [node-origin], whose
         // diagnostics land at the site.
         let name_span = if generic.is_some() {
             let named = Retag::fresh(self.next_expn);
@@ -2127,7 +2127,7 @@ impl<'w> Stamper<'w> {
     fn stamp_into(self, f: &mut FnDecl, declared: Declared<'_>) -> Result<(), Vec<Diagnostic>> {
         let site = f.by.as_ref().map(|b| b.span).unwrap_or(f.span);
         let mut inst = self.template.clone();
-        // [origin] The template copied whole: every node keeps its span in
+        // [node-origin] The template copied whole: every node keeps its span in
         // the template, under this stamp's expansion.
         let mut whole = Retag::fresh(self.next_expn);
         let template_expn = whole.expn;
@@ -2442,7 +2442,7 @@ impl MutVisitor for RenameParams<'_> {
     }
 }
 
-/// [origin] Tags every span of a tree with a fresh expansion id: the nodes
+/// [node-origin] Tags every span of a tree with a fresh expansion id: the nodes
 /// keep the ranges of the code they were copied from, and the id tells this
 /// copy apart from every other.
 struct Retag {
@@ -2518,12 +2518,12 @@ struct Expander<'w> {
     /// The fn's parameters, for an expanded-in-place compfn's `[when …]` over one.
     params: Vec<Param>,
     site: Span,
-    /// [origin] The file's next expansion id.
+    /// [node-origin] The file's next expansion id.
     next_expn: &'w mut u32,
-    /// [origin] The expansions made: the unrolled copies, and the nodes made
+    /// [node-origin] The expansions made: the unrolled copies, and the nodes made
     /// up, in the order made (ascending ids).
     expansions: Vec<ExpansionRecord>,
-    /// [origin] The expansion the code being expanded is in: the template's
+    /// [node-origin] The expansion the code being expanded is in: the template's
     /// whole copy in a stamp, 0 (written) in an expanded-in-place fn, and the
     /// copy itself while a copy is expanded — the parent of a copy made now.
     current: u32,
@@ -2627,7 +2627,7 @@ impl<'w> Expander<'w> {
         (self.expansions, errors)
     }
 
-    /// The span a span in a copy was copied from [origin]: copies nest, so
+    /// The span a span in a copy was copied from [node-origin]: copies nest, so
     /// follow each copy back to the code it copied — the fn's own text in an
     /// expanded-in-place fn, the template's whole copy in a stamp. What the
     /// expansion made up is no copy, and stays.
@@ -2854,7 +2854,7 @@ impl<'w> Expander<'w> {
                 .iter()
                 .enumerate()
                 .map(|(i, f)| Binding {
-                    // [state-infer] An inferred field has no written type; a
+                    // [handler-state-infer] An inferred field has no written type; a
                     // comptime walk never targets a generated iterator struct,
                     // so this fallback is unreachable in practice.
                     ty: f.ty.as_ref().map(|t| subst_generics(t, &map)).unwrap_or_else(|| Type::Named {
@@ -3558,7 +3558,7 @@ impl<'w> Expander<'w> {
                 // every compfn that did not consider it.
                 if let Some(d) = kind_arms_incomplete(&arms, span) {
                     // At the written construct, as every expansion error is
-                    // (a copy's nodes are the template's [origin]).
+                    // (a copy's nodes are the template's [node-origin]).
                     self.error(span, d.message);
                     return;
                 }
@@ -3728,7 +3728,7 @@ impl<'w> Expander<'w> {
         }
     }
 
-    /// [origin] A fresh expansion for nodes the expansion makes up (the
+    /// [node-origin] A fresh expansion for nodes the expansion makes up (the
     /// `when` an `[when value]` unrolls into, its arms' tests): they keep the
     /// range of what they were made from, and their diagnostics land at the
     /// site.

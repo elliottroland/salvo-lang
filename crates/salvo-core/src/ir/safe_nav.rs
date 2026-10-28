@@ -1,4 +1,4 @@
-//! [safe-nav] Recognizing a lowered safe-navigation link in the IR, so a
+//! [op-safe-nav] Recognizing a lowered safe-navigation link in the IR, so a
 //! backend can reconstruct a native optional chain (`a?.b` on Kotlin, an
 //! `.and_then`/`.map` combinator chain on Rust) instead of emitting the raw
 //! `Switch`.

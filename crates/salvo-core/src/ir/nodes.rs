@@ -34,7 +34,7 @@ pub struct Module {
     /// The file this module came from (diagnostics, trap locations).
     pub file_name: String,
     pub decls: Vec<Decl>,
-    /// [namespace] The dotted paths of every `namespace` declared in this
+    /// [mod-namespace] The dotted paths of every `namespace` declared in this
     /// file (`AttributeValue`, `Outer`, `Outer.Inner`), carried from the AST.
     /// A backend that nests namespaces (Kotlin) reads this to build the
     /// nesting tree, since a flattened dotted name alone cannot say whether a
@@ -75,7 +75,7 @@ pub struct EnumDecl {
     pub name: String,
     pub kind: EnumKind,
     pub variants: Vec<Variant>,
-    /// [protocol-hash] the canonical hash of a message enum with a wire form.
+    /// [actor-protocol-hash] the canonical hash of a message enum with a wire form.
     pub protocol_hash: Option<String>,
     pub span: Span,
 }
@@ -142,7 +142,7 @@ pub struct StructDecl {
     pub opaque: bool,
     /// [type-canbe-mut] values of this struct may be `Mut`.
     pub canbe_mut: bool,
-    /// [wire-format] every field has a wire form.
+    /// [net-wire-format] every field has a wire form.
     pub has_wire_form: bool,
     pub span: Span,
 }
@@ -150,13 +150,13 @@ pub struct StructDecl {
 pub struct Field {
     pub name: String,
     pub ty: Ty,
-    /// [field-canbe-mut] `Mut` when the struct value is `Mut`.
+    /// [struct-field-canbe-mut] `Mut` when the struct value is `Mut`.
     pub canbe_mut: bool,
     pub default: Option<Expr>,
 }
 
 /// A named union type (`type Either = A | B`). Arms in identity order
-/// [union-arm-identity]; a `None` arm is recorded as `has_none`.
+/// [type-union-arm-identity]; a `None` arm is recorded as `has_none`.
 pub struct UnionDecl {
     pub id: DeclId,
     pub name: String,
@@ -177,7 +177,7 @@ pub struct InterfaceDecl {
     pub type_params: Vec<TypeParam>,
     /// [actor-effect-kind] members are messages.
     pub actor: bool,
-    /// [protocol-hash] the hash of an actor effect's canonical form, when
+    /// [actor-protocol-hash] the hash of an actor effect's canonical form, when
     /// every message has a wire form; what two nodes compare before talking.
     pub protocol_hash: Option<String>,
     /// [effect-prereq] effects every member needs in scope.
@@ -272,7 +272,7 @@ pub struct PlatformTypeDecl {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FnKind {
     Plain,
-    /// [intrinsic-fn] no body; the backend lowers it from its own table.
+    /// [platform-intrinsic-fn] no body; the backend lowers it from its own table.
     Intrinsic,
     /// [platform-fn] no body; the host implements it.
     Platform,
@@ -515,7 +515,7 @@ pub enum ObligationKind {
 
 /// [ir-obligation] One obligation named by a directive: the place that holds
 /// (or held) the linear value, and — when it is a union — which of its
-/// runtime arms [union-arm-identity] carry the obligation. `arms` is `None`
+/// runtime arms [type-union-arm-identity] carry the obligation. `arms` is `None`
 /// for a value that is linear as a whole (a linear leaf such as a `Checked`
 /// or a struct), `Some(indices)` for a union some of whose arms are linear.
 #[derive(Clone)]
@@ -544,7 +544,7 @@ pub enum Justification {
     Test { test: NodeId },
     /// Inside arm `arm` of `Switch` `switch`.
     Arm { switch: NodeId, arm: usize },
-    /// [safe-nav] Inside the present arm of a `?.`'s `Switch` `switch`: the
+    /// [op-safe-nav] Inside the present arm of a `?.`'s `Switch` `switch`: the
     /// receiver tested non-`None`, so the link reads it narrowed. A distinct
     /// justification (rather than a plain `Arm`) is the hint a backend uses to
     /// reconstruct the chain as a native `a?.b` (Kotlin) or an
@@ -605,7 +605,7 @@ pub enum ExprKind {
     /// no emitter reads it.
     Read { place: Place, consume: bool, moved: bool },
     /// [flow-use-after-move] `moved`: the call consumes its `FnRef::Local`
-    /// target (a `once` fn called [once-fn]) — flow-only, like `Read`'s.
+    /// target (a `once` fn called [fn-once]) — flow-only, like `Read`'s.
     Call { target: FnRef, type_args: Vec<Ty>, args: Vec<Expr>, moved: bool },
     /// A call of an interface member through an instance [effect-dispatch].
     MemberCall { instance: Box<Expr>, member: MemberRef, type_args: Vec<Ty>, args: Vec<Expr> },
@@ -616,9 +616,9 @@ pub enum ExprKind {
     Op { op: Op, args: Vec<Expr> },
     /// A struct or handler instance.
     Construct { fields: Vec<(String, Expr)> },
-    /// A value placed into arm `arm` of the union `ty` [union-arm-identity].
+    /// A value placed into arm `arm` of the union `ty` [type-union-arm-identity].
     MakeUnion { arm: usize, value: Box<Expr> },
-    /// [rewrap] a value moved between two union representations.
+    /// [type-rewrap] a value moved between two union representations.
     Rewrap { from: Ty, value: Box<Expr> },
     /// [str-drop-mut] a `Mut` value used where the plain type is required.
     DropMut { value: Box<Expr> },

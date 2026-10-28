@@ -1,4 +1,4 @@
-//! [unique-shape] **A function of a unique shape on a type is declared in the
+//! [op-unique-shape] **A function of a unique shape on a type is declared in the
 //! type's own file** (user decision O1-D, 2026-10-27; OPERATOR_OVERLOAD.md
 //! "D's details"). The operators are names (`a == b` is `eq(a, b)`, `"${x}"`
 //! is `to_str(x)`, `for x in c` is `next(iter(c))`, O1-B), resolved exactly
@@ -47,7 +47,7 @@ enum Ret {
     Next,
 }
 
-/// [unique-shape] The class (D-3, D-6): name, explicit parameters (implicit
+/// [op-unique-shape] The class (D-3, D-6): name, explicit parameters (implicit
 /// ones not counted), return. Adding a member is a row here.
 const SHAPES: &[(&str, usize, Ret)] = &[
     ("eq", 2, Ret::Scalar("Bool")),
@@ -78,7 +78,7 @@ fn spelled(name: &str) -> (&'static str, bool) {
     }
 }
 
-/// [unique-shape] Which unique shape `f` has, if any: a row's name, its
+/// [op-unique-shape] Which unique shape `f` has, if any: a row's name, its
 /// explicit arity, and its return type where the row names one
 /// (`written_ret_is` says whether a written type is std's scalar of a name).
 /// A type-named fn (`fn Mut List<T>(…)`) is a constructor, never a shape.
@@ -126,7 +126,7 @@ enum Home {
     Unknown,
 }
 
-/// The std files structural types live in [unique-shape] (D-5).
+/// The std files structural types live in [op-unique-shape] (D-5).
 struct StdHomes {
     basic: Option<usize>,
     array: Option<usize>,
@@ -140,7 +140,7 @@ struct Ctx<'a, 'p> {
 }
 
 impl Ctx<'_, '_> {
-    /// [unique-shape] The home of `ty` written in `file` with the type
+    /// [op-unique-shape] The home of `ty` written in `file` with the type
     /// parameters `generics` in scope (D-2, D-5).
     fn home(&self, ty: &Type, file: usize, generics: &[&str], depth: u8) -> Home {
         let at = |f: Option<usize>, what: &str| match f {
@@ -164,7 +164,7 @@ impl Ctx<'_, '_> {
                     return Home::File(*f, format!("`{name}`"), true);
                 }
                 if let Some(f) = scope.opaque_type_files.get(name) {
-                    // [eff-handle] `eff[E]` is the type `Addr`, which nobody
+                    // [effect-eff-handle] `eff[E]` is the type `Addr`, which nobody
                     // writes: named as the handle it is.
                     if name == crate::check::ADDR_TYPE {
                         return Home::File(*f, "`eff[…]` handles".to_string(), false);
@@ -230,7 +230,7 @@ impl Ctx<'_, '_> {
         format!("`{}` (module `{}`)", f.name, f.module)
     }
 
-    /// [unique-shape] Check one declaration; `outer` are the type parameters
+    /// [op-unique-shape] Check one declaration; `outer` are the type parameters
     /// of the declaration containing it (an effect's, a qualifier's).
     fn check(&self, file: usize, f: &FnDecl, outer: &[&str], out: &mut Vec<FileDiagnostic>, refused: &mut HashSet<usize>) {
         if f.compfn.as_ref().is_some_and(|c| c.bound.is_some()) {
@@ -265,7 +265,7 @@ impl Ctx<'_, '_> {
                     "`{sig}` has the shape of `{shape}` on {what}, which {ops} {call}, and a \
                      function of that shape is declared only in {place}, {}: so nothing \
                      elsewhere can change what {ops} {mean} on {what}. {remedy} where it is \
-                     wanted (`{shape} = by_name`) [unique-shape]",
+                     wanted (`{shape} = by_name`) [op-unique-shape]",
                     self.file_text(home)
                 )
             }
@@ -274,7 +274,7 @@ impl Ctx<'_, '_> {
                  has no declaring file: it would be the `{shape}` of every type at once, \
                  which {ops} {call}. A function of a unique shape is declared in its \
                  type's own file; give this one another name and pass it explicitly where \
-                 it is wanted (`{shape} = by_name`) [unique-shape]"
+                 it is wanted (`{shape} = by_name`) [op-unique-shape]"
             ),
         };
         out.push(FileDiagnostic::error(file, f.name.span, message));
@@ -282,7 +282,7 @@ impl Ctx<'_, '_> {
     }
 }
 
-/// [unique-shape] Every declaration of a unique shape outside its type's
+/// [op-unique-shape] Every declaration of a unique shape outside its type's
 /// declaring file, as errors at the declaration (the `resolve` phase), and
 /// the refused declarations by address: a refused one is a candidate nowhere
 /// (one mistake, one diagnostic; ROADMAP 0ag, closed in B3.3c).

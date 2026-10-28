@@ -44,7 +44,7 @@ fn parse_length(line: Str) [Throw<Str>] -> Int {
     return size(line)
 }
 
-// [try] The delimiter is an intrinsic expression whose value is an ordinary
+// [throw-try] The delimiter is an intrinsic expression whose value is an ordinary
 // union: `Ok Int | Thrown Str`.
 fn describe_length(line: Str) [Console] -> None {
     let outcome = try {

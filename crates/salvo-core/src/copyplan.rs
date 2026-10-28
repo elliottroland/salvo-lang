@@ -102,7 +102,7 @@ fn struct_plan(
     for field in &s.fields {
         let Some(written) = &field.ty else { continue }; let fty = crate::wire::approx_ty(written, &subst, symbols)?;
         // A field is typed as the value has it: a `canbe Mut` field is `Mut`
-        // in a `Mut` struct [field-canbe-mut].
+        // in a `Mut` struct [struct-field-canbe-mut].
         let fty = if field.canbe_mut && has_mut { fty.qualify(vec![Qual::plain("Mut", Vec::new())]) } else { fty };
         if immutable(symbols, &fty, &mut vec![name.clone()]) {
             continue;

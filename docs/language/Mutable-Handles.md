@@ -287,7 +287,7 @@ if d is NotSame(a) {
 ```
 
 The test runs at run time, and the claim it leaves is about the two
-handles' identity [elem-distinct]:
+handles' identity [fate-elem-distinct]:
 
 * a write **through** either handle keeps it, since the element changed but
   is still the same element;

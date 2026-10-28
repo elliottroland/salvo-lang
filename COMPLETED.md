@@ -19,7 +19,7 @@ with total `get`/`swap`/`substr` overloads, `preserve` entries, claim-minting
 passes, and constant slots), everything-is-an-expression control
 flow, algebraic effects with handler dependencies, non-resumption
 (`throw`/`try`), implicit parameters and obligation groups (each operator's
-function on a type declared once, in the type's own file [unique-shape], and the
+function on a type declared once, in the type's own file [op-unique-shape], and the
 comparison and arithmetic operators, `**` among them, the calls they name), linear types with a
 designated `close`, mutable element handles (`ref(c)`, minted by `at`,
 aliasing by a shared named container), and pull iteration reduced to the `next` and `iter` a `for`
@@ -34,7 +34,7 @@ filesystem (`Fs`, with linear stream tokens and an in-memory double) and time
 messages, and virtual time in a test).
 Ownership on the Rust side is derived mechanically from deductions — no
 lifetimes in emitted signatures except the one deliberate exception
-([readonly-return]). Around it: `salvo analyze`, a language server, a VS Code
+([proj-readonly-return]). Around it: `salvo analyze`, a language server, a VS Code
 extension (Salvo and its platform templates), worked [examples/](examples/), and `salvo test` — `test "name" { … }`
 blocks in `*.test.sv` annexes, run by a generated Salvo harness with one report
 on both backends, which is how std's own modules are tested.
@@ -144,6 +144,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Every rule label leads with its feature, and std cites rules in `@compilerrules` (TESTS.md T2, TD10, TD12)
+
+**83 rule labels whose first word was not a feature were renamed so that it
+is** (user, round 3 TD12: short feature words are fine — `op-arith`, `kt`,
+`qual` — but every label starts with one): `[unique-shape]` is
+`[op-unique-shape]`, `[elvis]` `[op-elvis]`, `[try]` `[throw-try]`,
+`[field-resolve]` `[struct-field-resolve]`; the full table is in TESTS.md §7.
+One scripted sweep of the bracketed form over every tracked file (4,119
+references in 445 files: specs, code, tests, snapshots, std, examples' checked-in output,
+COMPLETED.md and ROADMAP.md), leaving the user's `demo/`, OPERATOR_OVERLOAD.md
+and SLICES.md alone. One proposed name collided (`eff-handle` →
+`effect-handle` exists) and became `effect-eff-handle`.
+
+- **`@compilerrules [rule-a, rule-b] comment`** ([doc-compilerrules], user
+  decision TD10): a doc tag listing the rules a declaration implements, the
+  comment optional. Hover leaves it out (the source shows it, through
+  go-to-definition); a tag without a well-formed bracketed list warns; the
+  TextMate grammar colours it.
+- **std's documentation moved its citations into it**: 644 doc blocks, 881
+  citations, by script (a citation is removed from the prose with the
+  punctuation and parentheses around it repaired, and the block gains an
+  `@compilerrules` line in the order the rules appeared). Two used a label
+  as a noun (`[args-derive]'s mapping`) and were reworded by hand; a section
+  header that is part of a doc block lost its label to the tag. Comments that
+  document nothing keep their inline citations.
+- **`docs_tests::std_docs_cite_rules_only_in_compilerrules`** checks both
+  halves: no defined label in a std doc block's prose, and every
+  `@compilerrules` label defined by a spec.
+- **Not done here**: the diagnostic ids (the next step) and the six stale
+  labels std's non-doc comments cite (TESTS.md §7).
+
 ### 2026-10-28 — Tests check over one std per process (TESTS.md T3, C2, T6)
 
 **std's front half moved from the language server into salvo-core, and the
@@ -210,11 +241,11 @@ the call ([op-promote]) and then the enclosing fn's own implicit step and
 `resolve_named_call` with the operands pre-typed; `check_arith` now types `%`
 alone.
 
-- **What std declares** ([unique-shape]: beside each type, in
+- **What std declares** ([op-unique-shape]: beside each type, in
   `std.core.basic`): intrinsic `plus`, `minus`, `times`, `divide` for `Int`,
   `Long`, `Float`, `Double`, one width each (16); `pow(Int, Int) -> Int`,
   `pow(Long, Int) -> Long`, `pow(Double, Int) -> Double`, `pow(Double,
-  Double) -> Double`. `Byte` has none ([byte-value], as before); `Str` has none,
+  Double) -> Double`. `Byte` has none ([type-byte], as before); `Str` has none,
   since `"a" + "b"` was refused before (interpolation builds text), so no
   `plus(Str, Str)` in `string.sv`. std's `time.sv` already declared
   `plus`/`minus`/`times` on `Duration`, `Instant` and `Tick` in their file, so
@@ -232,7 +263,7 @@ alone.
   checks had one. **R10 D3**: an available effect member `times` takes `*`, and beside
   a fn of its signature the operator is the call's ambiguity, said of the
   operator (`OperatorSite`).
-- **The native spelling** [core-layers]: `Ctx::is_primitive_compare` became
+- **The native spelling** [backend-core-layers]: `Ctx::is_primitive_compare` became
   `Ctx::is_primitive_operator`, std's intrinsic `eq`/`cmp`/`plus`/`minus`/
   `times`/`divide` at a basic type. An operator resolved to one is the IR's
   own `Op`, which the backends spelled before and still do; anything else is
@@ -261,11 +292,11 @@ alone.
   Semantics, DECISION P17 (ROADMAP 0ap): integer powers wrap [op-wrap], a
   negative integer exponent traps (the host's exception, as a zero divisor),
   `Double ** Double` is the host's `pow` (last-ulp parity not guaranteed), no
-  `Float` power. The TextMate grammar knows `**`; [unique-shape]'s `pow` row
+  `Float` power. The TextMate grammar knows `**`; [op-unique-shape]'s `pow` row
   has its operator.
 - **Diagnostics name the operator**: "no `plus` for `+` on `V` and `Int`: `+`
   is `plus(V, Int)`, and no `plus` in scope takes `(V, Int)` — declare a
-  `plus` taking `(V, Int)` in `V`'s own file [unique-shape]"; `Str + Str` keeps
+  `plus` taking `(V, Int)` in `V`'s own file [op-unique-shape]"; `Str + Str` keeps
   its interpolation remedy and `Byte + Byte` its conversion pair, after the
   call's sentence; a possibly-absent operand is refused once (it was refused
   twice: [op-no-none] and "needs numeric operands").
@@ -321,7 +352,7 @@ of the summed top-level phases: `examples/cluster` 62.0/64.2/58.8 →
 ### 2026-10-28 — A `for` is the `next` and `iter` it names (B3 piece 3d, R10 D10, D3; census D8–D11)
 
 **`for x in e` is `next(e)` when a `next` takes `e`, and `next(iter(e))`
-otherwise** (OPERATOR_OVERLOAD.md O1; PIPELINE.md §3 R10 D10; [for-iter]),
+otherwise** (OPERATOR_OVERLOAD.md O1; PIPELINE.md §3 R10 D10; [iter-for]),
 each call resolved exactly as it would be written: the enclosing fn's own
 implicit of the name first, ranked like overloads ([implicit-resolve-body],
 [implicit-same-name]), then `resolve_named_call` over the available effects'
@@ -355,7 +386,7 @@ the IR's `pass_member_full`, `unify_vars`/`subst_map`).
   (`learn_next_elems`, [implicit-group]) and is what keeps a loop quiet when
   the promise is broken where it is made (`broken_next_promise`: the group
   unknown there, or no `next` of the shape over the struct in its own file —
-  the one place one may be, [unique-shape]). A generic fn's `?Next<It, T>`
+  the one place one may be, [op-unique-shape]). A generic fn's `?Next<It, T>`
   spread supplies `next` as an implicit, which the call reaches first; the
   separate implicit logic is gone. The obligation pair on one struct stays
   refused [iter-group].
@@ -373,13 +404,13 @@ the IR's `pass_member_full`, `unify_vars`/`subst_map`).
   `check_effect_call` skip what a call does to its argument *places*
   (coercions, contract application, derived and lending links, value-ref
   roots): driving keeps its own rules for the subject ([iter-drive-in-place],
-  [proj-type], [for-elem-write] unchanged in meaning; ROADMAP 0an).
+  [proj-type], [iter-for-elem-write] unchanged in meaning; ROADMAP 0an).
   `PassDriver` lost `next` and keeps the arm identity, in place, the minted
   iterator's type and the step-call flag; `for_drivers` keeps its place in
   `partition.rs`, and the call tables need nothing new there (rows route by
   `Key::decl`). `reach.rs` reads the calls from `call_fn`.
 - **The native loop is the backends' spelling** [iter-for-native]
-  [core-layers]: an array or an `iterable platform type` whose `iter` and
+  [backend-core-layers]: an array or an `iterable platform type` whose `iter` and
   `next` both went to declarations is walked natively and records neither
   call (`forget_for_call`; it makes none, so it reaches neither, and what a
   call to std's `iter<T>` would refuse — `Mut PoolRec` elements, linear, in
@@ -423,7 +454,7 @@ unchanged.
 **Programs rewritten**: three std-less fixtures that loop over an array
 (`member_tests`, `place_tests`, `fn_effect_tests`) gained a `std/core/array.sv`
 with `ArrayNext`, an intrinsic `iter` and `next` — the call a `for` over an
-array names, in the arrays' std home [unique-shape].
+array names, in the arrays' std home [op-unique-shape].
 `once_tests::a_next_without_a_next_obligation_is_not_a_pass` is
 `a_next_without_a_next_obligation_drives_the_loop`; both codegen suites'
 declared-callee program expects 10, 20 from its `for` (D11).
@@ -462,7 +493,7 @@ its implicit filling and its records are the operator's.
   [implicit-resolve-body], on a scalar or `Str` too (`op-eq-native-implicit`
   now prints `op:   true`, like the call). Ranking among several is
   [implicit-same-name]'s (`pick_own_implicit_by`).
-- **How the backends choose the native operator** [core-layers]: the IR
+- **How the backends choose the native operator** [backend-core-layers]: the IR
   builder decided it by operand type (`is_basic()` on both sides, unless an
   implicit was recorded). It now reads the selected declaration:
   `Ctx::is_primitive_compare` — std's intrinsic `eq`/`cmp` whose explicit
@@ -546,7 +577,7 @@ closure parameters). No golden or `expected.txt` changed.
 calls — 58 test-file preludes (`STD_PRELUDE` and kin, in salvo-core's tests)
 gained `intrinsic fn eq`/`cmp` for the scalars they declare (equality for the
 eight intrinsic types, ordering for `Int`/`Long`, as the old fast path
-covered), beside each type [unique-shape]; without them `i < 3` in a
+covered), beside each type [op-unique-shape]; without them `i < 3` in a
 std-less fixture was "no function named `cmp`". Tests rewritten by what they
 meant: `compare_tests::the_operands_must_still_be_one_type` is
 `different_operand_types_need_an_eq_that_takes_both` (refused without the
@@ -574,7 +605,7 @@ numeric one returned at once (an edit does not pay it: std is cached).
 
 ### 2026-10-28 — Each operator on a type is declared in the type's file (B3 piece 3b, user decision O1-D)
 
-**The placement rule [unique-shape]** (user decision O1-D, 2026-10-27:
+**The placement rule [op-unique-shape]** (user decision O1-D, 2026-10-27:
 OPERATOR_OVERLOAD.md "Discussion", O1 "B plus D" and "D's details", D-1 to
 D-7, decided by the user): a function matching a unique function shape on a
 type `T` (or a qualified `T`) is declared in `T`'s declaring file, and a
@@ -717,7 +748,7 @@ and `Yield` → `Next` renames"), made first in B3 piece 3 so the operator and
   written, being the record of the earlier rename; deleted structs
   (`ListEnumYield`, `MapYield`, `FilterYield`, the Rust runtime's
   `SalvoYield`) keep their names where history mentions them.
-- **Labels kept** (stable ids): `[yield-proj]` and `[yield-fn-origin]`; the
+- **Labels kept** (stable ids): `[iter-yield-proj]` and `[yield-fn-origin]`; the
   `yield` statement of an `iter fn` is unchanged.
 - **Emitted code** changes only in names derived from the structs:
   `ListNext`, `next__ListNext`, `__Codec_SetNext`, … in every example's
@@ -855,7 +886,7 @@ declaration the node is in, a file's carried identities to its
   per row, std's seeded rows included, memoized per declaration with a
   pointer hasher (`cache record` on `modules/aws` 0.6 → 0.8ms; 1.4ms
   through `DeclIndex::loc` unmemoized).
-- **`salvo facts` prints by declaration** [facts-dump]: each declaration of
+- **`salvo facts` prints by declaration** [cli-facts]: each declaration of
   a file in declaration order, under its id (`next(Mut Countdown) ->
   Emitted Int | Finished@main`; a file's own nodes under `(file)@module`),
   with every `expr_ty` row of its part — so the bindings' and parameters'
@@ -922,7 +953,7 @@ builder's reads and the IR flow pass's `Decision` are keyed by the
 declaration a node is in ([decl-id]; a handler's or effect's member its own,
 a file's imports, renames, refinements and module-level `use`s its new
 `DeclKind::File` id) and the node's ordinal within it. The span stays on
-every node as its origin [origin]; the key carries the node's file and span
+every node as its origin [node-origin]; the key carries the node's file and span
 for the readers that place a fact (the language server, `salvo facts`, the
 deadlock check, the check cache's per-file split), and they take no part in
 its equality.
@@ -1039,7 +1070,7 @@ Warm `cargo nextest run`: 2,111 passed in 3m17 after the core change.
 
 ### 2026-10-27 — Every copied node keeps its origin (A2)
 
-**Origins replace synthetic spans** ([origin], PIPELINE.md §II.4, Stage A
+**Origins replace synthetic spans** ([node-origin], PIPELINE.md §II.4, Stage A
 piece A2). A comptime copy used to be given spans past the end of its file,
 one region per unrolled copy (`StampRegion`), and its errors were moved back
 by two redirects (the checker's `redirect_stamped`, and
@@ -1514,7 +1545,7 @@ and ran on Kotlin, and rustc refused it (E0308).
   infers it. The previous session's partial edit (the `flat` test in
   `deref_scalar`, effective only where type arguments were stated) was kept
   and finished with the argument-side instantiation. Layering
-  [core-layers]: the arguments' Salvo types already carry the instantiation,
+  [backend-core-layers]: the arguments' Salvo types already carry the instantiation,
   so no core fact was added (recording `type_args` on the IR's synthesized
   `next`/mint calls was the alternative; it would have changed every
   emitted `for` loop on both backends). Kotlin needs nothing.
@@ -1565,7 +1596,7 @@ rustc refused it (E0308, "expected `&mut dyn FnMut(&&String) -> bool`, found
   `&mut |__a0: &i32, __a1: &&String| f((*__a0).clone(), *__a1)`,
   `&mut |__a0: &&T| keep(*__a0)` in a generic body. The closure's parameters
   are typed when the instantiated slot names no foreign type variable.
-  Layering [core-layers]: the instantiation and both fn types were already in
+  Layering [backend-core-layers]: the instantiation and both fn types were already in
   the emitter's hands, so no core fact was added; Kotlin needs nothing.
 - **Neighbours checked** (one program, both backends, 14 lines of output).
   Failed before and fixed: the repro (a parameter, `filter`), the same into
@@ -1706,7 +1737,7 @@ both fixed.
   [copy-opt-in], and the owned result cannot be returned as the declared view.
   (c) A variable per live range: sound by construction (each shadow or
   declaration is chosen only where no read can see the other variable), no
-  copies, and ordinary Rust. Chosen: (c). Layering [core-layers]: Kotlin has
+  copies, and ordinary Rust. Chosen: (c). Layering [backend-core-layers]: Kotlin has
   no use for live ranges, so the analysis is the Rust emitter's, over the IR
   it already reads; no core fact changed.
 - **Neighbours covered** (one program, both backends): the repro (`pick`);
@@ -1756,7 +1787,7 @@ not chosen either.
   `linear`/`Linear`, and an effect claim. Only at the parameter's top level on
   a non-union base (`types::strip_erased_quals`); inside a type argument it is
   the variance question (ROADMAP §7), and a union's qualifiers can be its arm
-  tags [union-arm-identity].
+  tags [type-union-arm-identity].
 - **How**: `is_subtype`'s fn arm compares parameters with
   `types::fn_param_fits(have, want)`: `compatible`, or `want <: have` with the
   two `compatible` once erased qualifiers are stripped. **Results** keep
@@ -2123,7 +2154,7 @@ in-edges"):
 
 Engineering, no decision (ROADMAP 0t's second bullet, closed).
 `bench/scheduler` no longer analyzed: its fan-out list was `Mut
-List<Addr<Counter>>`, the spelling [eff-handle] replaced with `eff[Counter]`.
+List<Addr<Counter>>`, the spelling [effect-eff-handle] replaced with `eff[Counter]`.
 Rewritten, and its seven `!n`-style moves of `Int` parameters dropped
 ([copy-scalar-free] warned on each), so it analyzes with no diagnostics; the
 protocol lock is unchanged. `tools/bench-scheduler.sh both 1` builds and runs
@@ -2610,13 +2641,13 @@ two costs outright:
   it with the written keys it computes anyway (`Symbols::seed_ref_keys`), so
   `salvo analyze` and every compile save it too.
 
-The edit now costs ~62ms. [phase-timings] gained the sub-phases that found
+The edit now costs ~62ms. [cli-phase-timings] gained the sub-phases that found
 them. No behavior changed; no test changed.
 
 ### 2026-10-20 — Every declaration's interface is checked before any body
 
-PIPELINE.md §7 step 7, piece 3 [interface-pass] [implicit-param]
-[fn-effects] [state-infer] [phase-timings]. 02-resolve-03-interfaces is its
+PIPELINE.md §7 step 7, piece 3 [decl-interface-pass] [implicit-param]
+[fn-effects] [handler-state-infer] [cli-phase-timings]. 02-resolve-03-interfaces is its
 own pass, with its own diagnostics. Until now `walk_signatures` recorded
 implicits, established claims and effect lists and dropped its
 diagnostics, and `check_fn`'s first ~450 lines and `check_module`'s
@@ -2760,7 +2791,7 @@ the IR. Emission is unchanged: a program with any error emits nothing.
 ### 2026-10-20 — A binding's mode is decided in the IR, and the walk keeps no consumption state
 
 PIPELINE.md R8 piece 8 [fate-move-mode] [fate-derived-readonly]
-[deduce-fixpoint] [ownership-audit] [flow-use-after-move] [deduce-field].
+[deduce-fixpoint] [deduce-ownership-audit] [flow-use-after-move] [deduce-field].
 The IR flow pass decides which borrow-mode bindings take ownership and
 reports the S1 error for the rest. The checker's walk keeps every binding
 borrow-mode, marks nothing consumed and poisons nothing; it records facts
@@ -2968,7 +2999,7 @@ all-arms-left settling), `linear_settled`, `pending_drops`,
 
 ### 2026-10-20 — A derived route has its node in the deadlock graph
 
-PIPELINE.md R8 piece 6 [actor-deadlock-cycle] [route-stub] [effect-any].
+PIPELINE.md R8 piece 6 [actor-deadlock-cycle] [actor-route-stub] [effect-any].
 When routes moved into the IR (`__Route_X`, step 6 piece 5), the deadlock
 graph lost the router servant node the AST stub (`__Route_X of any X`) had
 got, since the graph reads AST handlers. The node is back, built from the
@@ -3426,7 +3457,7 @@ never showed them.
 ### 2026-10-20 — The ownership audit, as a test
 
 PIPELINE.md §7 step 7, piece 2: the audit the phase split waits on, turned
-from a reading into evidence [ownership-audit]. Reading the checker found
+from a reading into evidence [deduce-ownership-audit]. Reading the checker found
 ownership feeding typing in two ways. **Signature-level** (a callee's
 contract dropping a qualifier, `invalidate_place_narrows`,
 `strip_dependent_claims`) is the callee's interface and stays in typing.
@@ -3559,7 +3590,7 @@ effect aliases, R6). Left, with the signature/body split and its
 ### 2026-10-20 — A mixed handler may declare dependencies
 
 User decision R6 (PIPELINE.md §3): "drop the refusal, and make a more uniform
-experience". The first-slice cut [mixed-handler] is gone; a mixed handler's
+experience". The first-slice cut [actor-mixed-handler] is gone; a mixed handler's
 dependencies — written, or implied by a face's prerequisite — are its
 **servant's**. Nearly everything was already in place: the mixed spawn fell
 through to the actor path's `with` matching and synthesis after the refusal,
@@ -3644,7 +3675,7 @@ keys, the member's resolved in the effect's own file [linear-group]
 ### 2026-10-20 — `salvo facts`, the pre-IR dump
 
 PIPELINE.md §7 step 5, piece 3 (D1): the checker's facts about each body,
-printed before anything lowers them [facts-dump] — per declaration, one line
+printed before anything lowers them [cli-facts] — per declaration, one line
 per expression with its type, the call's resolved declaration, and the
 coercion, dot-call, move and narrowing marks. It reads `Checked` as it is
 (absolute spans), so it stays correct through the storage changes still to
@@ -3705,9 +3736,9 @@ were renamed (`ListReversed`, `Indices`, `MapEntries`, `IntBufferIter`, …).
 
 **Handlers** (R4): the state is named by the handler, and must be named
 (`state Tally { … }`) when the handler shares its name with a type
-[state-name]; the name is recorded for the general `state` effect (ROADMAP §2d
+[handler-state-name]; the name is recorded for the general `state` effect (ROADMAP §2d
 item 9e) and read by nothing else yet. **One namespace of bare names** per
-declaration [bare-names]: constructor parameters and state fields differ, and
+declaration [name-bare]: constructor parameters and state fields differ, and
 a member's parameters reuse neither (`check_handler_names`; locals were
 already [var-no-shadow]'s). That closes ROADMAP §2d item 9d's two clash
 defects, and the third — a state initializer reading a constructor parameter
@@ -3718,7 +3749,7 @@ from `mint_b`), so overriding both members of a `with` pair with another
 struct works [implicit-infer].
 
 What fell out of building it:
-- **`Iter`'s `next` is not over `self`**, so the [yield-proj] borrowness check
+- **`Iter`'s `next` is not over `self`**, so the [iter-yield-proj] borrowness check
   now runs only on members whose parameters mention the generic bound to
   `self`, with the obligation's `proj` read per member (an argument the
   member's *return* mentions); and `Iter`'s `next` is matched modulo `proj`,
@@ -3759,7 +3790,7 @@ text before anything is walked (`syntactic_parking_handlers`: a `replyto` to
 one of its own members, or a `self@` one of its faces), so the `use` refusal
 is right in the first walk [actor-replyto].
 
-Measured ([phase-timings], `demo/`, `examples/actors`, `examples/borrowing`):
+Measured ([cli-phase-timings], `demo/`, `examples/actors`, `examples/borrowing`):
 three rounds became two. The second now runs for the inferred field paths
 (any program with a field-mutating callee), which step 3 removes. The
 per-body second walk for move-mode candidates that PIPELINE.md 4.4 describes
@@ -3787,7 +3818,7 @@ now writes the callee's `=> e.hp: Mut`.
 ### 2026-10-20 — Phase timings, and one analysis per edit in the language server
 
 PIPELINE.md §7 step 1, the first of the pipeline plan (PIPELINE.md records
-the design and its decision rounds R1–R5). [phase-timings]: `SALVO_TIMINGS`
+the design and its decision rounds R1–R5). [cli-phase-timings]: `SALVO_TIMINGS`
 prints each phase's wall time (`salvo_core::timing::phase`, a drop guard).
 The first numbers, `salvo analyze` on `demo/` and on `examples/actors`
 (debug build): parse ~22ms, expand ~10ms, resolve ~17ms, the check ~500ms, of
@@ -3833,7 +3864,7 @@ rewritten by script.
 
 Found on the way: the two forms differ on a union with several value arms.
 `!` dropped `None` and kept the rest; `?:` keeps the **first** value arm
-[elvis]. Three such sites in `lib/std/runtime.sv` were rewritten by hand to
+[op-elvis]. Three such sites in `lib/std/runtime.sv` were rewritten by hand to
 `assert!(entry !is None)`; the hazard is recorded under ROADMAP §2d item 9.
 And `?: unreachable!()` narrows the local for the rest of the scope, so a
 second pick on it is refused ("keeps its only arm"): the rewritten tests read
@@ -3913,7 +3944,7 @@ spec, and [copy-scalar-free] is restated as the one rule. `args` drops its
 they strip an `Idx` claim to reach the partial overload, not a move.
 
 Falling out of the warning: a handler-local `send fn`'s clause, which must be
-written out [mixed-handler], no longer has to name a Copy scalar, and a
+written out [actor-mixed-handler], no longer has to name a Copy scalar, and a
 `send fn` or actor effect member may keep one (keeping and moving a scalar
 are the same thing); otherwise the rule demanded the `!n` the warning
 forbids. `examples/actors` and `examples/cluster`, five doc snippets
@@ -4377,7 +4408,7 @@ comptime_tests `two_binders_names_compare`.
 ### 2026-10-20 — `Errs`: the accumulating outcome
 
 Phase 1.10 of the argument-parsing build (the CLI design record X12, Q11; the arm is
-`Errs`). [result-errs]: `std.core.result` gains `provenance qualifier Errs<T> of
+`Errs`). [type-result-errs]: `std.core.result` gains `provenance qualifier Errs<T> of
 T`, `errs(e)`, `Errs(list)`, `both(a, b)` and `map2(a, b, f)` over `Ok T |
 Errs NonEmpty List<E>`, which keep every error after a failure. The examples
 reaching `std.core.result` regenerated (the added fns only), as did four golden
@@ -4479,7 +4510,7 @@ What it took:
   flattened arms (`None` and non-literal arms skipped, a qualified literal
   read as its literal). A literal binding is arm-like (`is_arm`), so field
   access, `.default` and annotation tests on it are refused as for an arm.
-- **A defect found writing the end-to-end test** [rewrap]: a `("json" |
+- **A defect found writing the end-to-end test** [type-rewrap]: a `("json" |
   "text")?` narrowed by `!is None` and passed to a `"json" | "text"` field
   failed rustc ("expected `String`, found `Option<_>`"). The checker's
   `coerce_repr` took the unnarrowed representation whenever the logical type
@@ -4967,7 +4998,7 @@ are unmangled once at the end of `check_program`/`check_project`
 no flag. Found while probing and recorded in ROADMAP §2c, not fixed: a warning
 in a copy keeps the copy's virtual span (`warn` does not redirect).
 
-**`field: T canbe Mut`** ([field-canbe-mut]): written after the type and before
+**`field: T canbe Mut`** ([struct-field-canbe-mut]): written after the type and before
 a default, as a declaration's own `canbe Mut` follows its name; the prefix
 `field: canbe Mut T` is a plain parse error ("expected identifier, found
 `canbe`"), with no transitional message. `parse_field_decl`, the docs.rs hover
@@ -4986,7 +5017,7 @@ copy: 1939 passed, 0 failed; the examples regenerate unchanged.
 
 ### 2026-10-20 — `Console` gains `printerr` and `readln`, its handler is `StdConsole`; `[for …] ...` and `[if …] ...`
 
-User requests. **Console** ([console]): `printerr(message)` writes standard
+User requests. **Console** ([std-console]): `printerr(message)` writes standard
 error and `readln() -> Str?` reads a line of standard input (terminator
 stripped, `\r\n` included; `None` at the end or on an error, the `Str | None`
 `read_line` answers), flushing stdout first so a prompt shows. The handler
@@ -5002,7 +5033,7 @@ Host files: Rust `stderr().lock()` / `stdin().lock().read_line`, Kotlin
 project regenerated (`salvo platform generate` in `lib/std/`), every example
 recompiled.
 
-**Terminal comptime scopes** ([terminal-scope] [comptime-inline]): `[for …]
+**Terminal comptime scopes** ([expr-terminal-scope] [comptime-inline]): `[for …]
 ...` (the rest of the block, once per field) and `[if …] ...` with the optional
 inline braced `else` and no `else ...` — the runtime `for`/`if` rules, parser
 only (`parse_body` for `[for]`, `parse_if`'s shape for `[if]`), since the
@@ -5394,7 +5425,7 @@ same lookahead-gated pattern:
 **The leading-dot shorthand inside its own alias's union-arm list** — the
 other half of the pattern: `type Type = .Int | .Str | .Bool` written
 *inside* `namespace Arg`, meaning `Arg.Int | Arg.Str | Arg.Bool`. This did
-not work: `[namespace]`'s leading-dot shorthand (`resolve_dot_ref`,
+not work: `[mod-namespace]`'s leading-dot shorthand (`resolve_dot_ref`,
 `check.rs`) resolves `.Thing` only against an **expected type computed from
 outer expression context** (a `let` annotation, a call parameter, a
 return type) — explicitly "rather than any alias's name," per the spec
@@ -5445,7 +5476,7 @@ invariant that such decisions are the user's).
   shorthand) and `leading_dot_shorthand_reports_an_unresolvable_sibling`
   (an arm with no such sibling still names the namespace searched), both
   in `crates/salvo-core/tests/name_tests.rs`.
-* `[namespace]` (LANGUAGE_SPEC.md) and `docs/language/Modules.md`'s
+* `[mod-namespace]` (LANGUAGE_SPEC.md) and `docs/language/Modules.md`'s
   leading-dot-shorthand section both updated with the new rule and a
   worked example.
 
@@ -5629,7 +5660,7 @@ hypothetical sequencing/let-expression `ExprKind` variant were checked for
 collisions and rejected — `Seq`/`Sequence` (collides with std's `std.core.seq`
 and the generated actor `Sequencer`/`Sequencing` types in `examples/`),
 `Scope` (collides with `ModuleScope` and the resolver's own "scope" vocabulary),
-`With` (collides with `[with-clause]`, `use H() with D()`). `Prelude`,
+`With` (collides with `[effect-with-clause]`, `use H() with D()`). `Prelude`,
 `Staged`, and `Binding` were identified as collision-free if the need
 resurfaces; it did not this time.
 
@@ -5866,9 +5897,9 @@ header changed — expected when the platform surface grows.
 
 A call's last argument may be a lambda whose body is a trailing `...`, and then
 the rest of the enclosing block becomes that lambda's body (user request) — the
-trailing-lambda companion to `[terminal-scope]`, so `return map(xs, (e) -> ...)`
+trailing-lambda companion to `[expr-terminal-scope]`, so `return map(xs, (e) -> ...)`
 followed by `return e * 2` makes the mapper the rest of the block. Rule
-`[terminal-lambda]`.
+`[expr-terminal-lambda]`.
 
 - **Two-phase parse.** The call's `)` sits between the lambda and the
   rest-of-block, so the body cannot be parsed inline. `parse_lambda_body` on
@@ -5878,7 +5909,7 @@ followed by `return e * 2` makes the mapper the rest of the block. Rule
   rest-of-block with the existing `parse_terminal_rest` and `fill_terminal_lambda`
   rewrites the placeholder to an ordinary `LambdaBody::Block`. The placeholder
   never reaches the checker, IR or emitters — it is pure syntax, like the
-  `[terminal-scope]` `...` body.
+  `[expr-terminal-scope]` `...` body.
 - **Gating.** A new `in_stmt_expr` flag is true through a statement's whole
   expression tree — including a `return`/`let`/assignment value and call
   arguments, where `allow_terminal` is cleared — but false inside a nested
@@ -5966,7 +5997,7 @@ per the settled design in ROADMAP's "First-class effects" (user decisions
   diagnostics and the IR dump show the surface — which kept the change
   byte-identical in generated code (the many internal `"Addr"` literals,
   codecs, `AddrCodec`, erase/wire/copyplan are untouched). The old `Addr<…>`
-  spelling is a plain parse error naming `eff[E]` [eff-handle]. The std
+  spelling is a plain parse error naming `eff[E]` [effect-eff-handle]. The std
   intrinsic `type Addr<E>` declaration is the one remaining `Addr` spelling.
   A balanced-bracket script did the `.sv`/doc/test sweep; the actor prose no
   longer calls a handle an "address".
@@ -5975,7 +6006,7 @@ per the settled design in ROADMAP's "First-class effects" (user decisions
   thread". The implicit main-pool default is retired; `examples/actors` §7
   became an explicit `pool(1)`. A **monitor** spawn (plain-effect faces) runs
   on no thread and still omits a pool, pending its migration to `use`.
-  `[main-pool]` kept for task-mint (`replyto`) pool inheritance and `main`'s
+  `[actor-main-pool]` kept for task-mint (`replyto`) pool inheritance and `main`'s
   own execution context.
 - **`use` as an expression (commit `28d842e9`).** `Expr::Use` added; `let x =
   use H()` registers the handler **and** yields its handle. A fn returns/accepts
@@ -6134,7 +6165,7 @@ two-segment/same-file-struct restrictions, plus two genuinely new pieces (the
   since a flattened name can't say whether a prefix was a namespace or a
   dot-named struct. **D6/D7** `export namespace` exports every member and
   distributes into the body. **D8** the terminal form `namespace X ...` (literal
-  `...`) puts the rest of the file in `X`, extending `[terminal-scope]` to item
+  `...`) puts the rest of the file in `X`, extending `[expr-terminal-scope]` to item
   level.
 - **The `.Thing` suffix sugar** (D3/D4, with the 2026-10-16 refinement): a
   leading-dot reference names a namespaced type by any *suffix* of its path —
@@ -6167,7 +6198,7 @@ namespace-specific needed.
 parser-AST insta snapshots gained one `namespaces: []` line each (16 files),
 reviewed to be nothing but that.
 
-**Spec/docs.** `[namespace]` rule added to LANGUAGE_SPEC.md and `[name-dot]`
+**Spec/docs.** `[mod-namespace]` rule added to LANGUAGE_SPEC.md and `[name-dot]`
 generalized; `docs/language/Modules.md` rewritten to lead with `namespace`
 (wiki synced); `[kt-nested-dot-name]` (N-level + fn-flatten) and the Rust
 `[name-dot]` note updated. `namespace` added to the TextMate grammar's
@@ -6342,8 +6373,8 @@ retired, so a leading `:` is free).
   New e2e coverage of general-union `?.`/`?>` verified by hand on both
   backends (tmp scratch). Re-accepted the two std AST snapshots (only the
   `dir`/`count` field removal).
-- **Spec/docs**: `[elvis]`, `[safe-nav]`, `[expr-safe-pipe]`, `[expr-pipe]`,
-  `[expr-infix]`, `[placeholder]` in LANGUAGE_SPEC.md; `[kt-elvis]`/`[rs-elvis]`
+- **Spec/docs**: `[op-elvis]`, `[op-safe-nav]`, `[expr-safe-pipe]`, `[expr-pipe]`,
+  `[expr-infix]`, `[expr-placeholder]` in LANGUAGE_SPEC.md; `[kt-elvis]`/`[rs-elvis]`
   backend specs; docs/language/{Control-Flow,Data-and-Types}.md; wiki synced.
 
 ### 2026-10-14 — Union arm spreads (`...T`), replacing implicit grouping
@@ -6381,7 +6412,7 @@ guess.
   `...T` in both backends. std's `detach` takes `Checked<T>` (not a union), so
   it was unaffected. New tests: `union_arm_spread_parses` (parser),
   `rustc_compiles_and_runs_two_generic_union_arms` (the `T | S` capability).
-- **Spec/docs**: `[union-spread]` in LANGUAGE_SPEC.md (superseding the
+- **Spec/docs**: `[type-union-spread]` in LANGUAGE_SPEC.md (superseding the
   `[generic-union-span]` surface description, which stays as the backend
   lowering label), docs/language/Generics-and-Aliases.md ("Generic union arms
   and spreads"), backend specs cross-referenced, wiki synced.
@@ -6524,7 +6555,7 @@ Verified end to end: an `iter fn upto(n) { state { at = 0 } … }` runs
 `i=0 i=1 i=2` identically on both backends, and `examples`/std iter-fns are
 unaffected (the written form still works). Converted the `naturals` iter-fn in
 both backends' codegen tests to the inferred form so an e2e case exercises it.
-ROADMAP step-2 entry removed (done); [state-infer] updated to say iter-fn
+ROADMAP step-2 entry removed (done); [handler-state-infer] updated to say iter-fn
 inference now works. Full warm suite incl. kotlinc/rustc e2e green.
 
 
@@ -6535,7 +6566,7 @@ Handler state is now declared in a `state { … }` block — the same shape an
 naming the block (user decision 2026-10-14). Within the block (and an
 `iter fn`'s), a field may write its type (`i: Int = 0`, which may be *wider*
 than the value) or omit it (`i = 0`), inferring the field's type from the
-initializer exactly as `let x = value` does ([state-infer]). Resolves the
+initializer exactly as `let x = value` does ([handler-state-infer]). Resolves the
 noticeboard `disk.sv` TODO: `notice_by_id = Mut Map<Str, Notice>()` no longer
 repeats the type. References stay bare — ctor params and state both read bare,
 no `state.` receiver; state stays implicitly `Mut`.
@@ -6709,7 +6740,7 @@ Continues the seven-change qualifier/type-construction redesign (QUALIFIERS.md;
 changes 1–3 + change-2 are in the earlier entry). Four more landed, each its
 own commit, warm nextest green before each:
 
-- **Provenance arm inference** [arm-infer]: at a wrapper-union expected type, a
+- **Provenance arm inference** [qual-arm-infer]: at a wrapper-union expected type, a
   bare value that no arm accepts by subtyping is wrapped into the one
   provenance-tagged arm whose payload it fits (`return name.size()` for
   `-> Ok Int | Err Str` is implicitly `Ok(…)`). Checker-only
@@ -6864,7 +6895,7 @@ the loop to be `Never` so the dead code is flagged and no return is required.
   through. Detected in the `Expr::While` arm from `cond` being `Expr::Bool
   { value: true }` and `ctx.breaks.is_empty() && !ctx.may_skip_value`.
 - Everything downstream follows from the recorded `Never`:
-  `block_exits`/`block_returns` satisfy [fn-must-return], and the [dead-code]
+  `block_exits`/`block_returns` satisfy [fn-must-return], and the [expr-dead-code]
   pass warns on code after it — no special case, the one divergence predicate
   [type-any-never].
 - **Lowering**: `while_stmt` now omits the exit test for a literal-`true`
@@ -6896,7 +6927,7 @@ Two `disk.sv` TODOs, both language-design calls the user made:
   one difference is that the checker **warns at every `todo!()` site** so a
   build flags unfinished code. std is exempt. User decision: it warns by its
   mere presence; `unreachable!()` stays silent.
-- **Dead code after divergence** ([dead-code]): a statement reached only after
+- **Dead code after divergence** ([expr-dead-code]): a statement reached only after
   a `Never`-typed statement (`return`/`break`/`continue`/`throw`/
   `unreachable!()`/`todo!()`) is unreachable; the checker **warns** on the
   first such statement. User decision: a warning (not an error), and it fires
@@ -6922,7 +6953,7 @@ nodes/walkers were untouched):
   `warnings()` harness that keeps non-error diagnostics),
   `todo_parses_to_its_own_node` (parser_tests.rs). LSP completion offers
   `todo!` beside the other two builtins. Specs: [assert-fn] extended,
-  [dead-code] added, [lsp-completion] updated. Warm `cargo nextest run`: 1782.
+  [expr-dead-code] added, [lsp-completion] updated. Warm `cargo nextest run`: 1782.
 
 
 
@@ -7059,7 +7090,7 @@ feature: a type parameter may bind to a **span** of union arms. User decisions
 - **Lowering via option (2):** the generic body is one instantiation over the
   nested slot (`Union2<T, …>`, `T` one arm); the call site rewraps the flat
   argument to nested and the nested result back to flat. No per-arity body
-  monomorphisation. This is a backend spelling of a flat fact ([core-layers]),
+  monomorphisation. This is a backend spelling of a flat fact ([backend-core-layers]),
   so it lives in the backends, not core.
 - **At most one span-binding type param per union signature**; a non-unique
   *inferred* split is refused (two bare-var arms `f<A,B>(A|B)` has no overload
@@ -7129,7 +7160,7 @@ brackets everything prior as that operator's subject.
 - Verified end to end on both backends: simple `?:`, a wrapped `?:`, and a
   chained `a ?: b ?: -1` all give the right answers.
 - Tests: `a_forward_elvis_may_wrap_to_the_next_line` extended to assert the
-  left-association and the escape-bracketing. `[elvis]`/`[elvis-assoc]`/
+  left-association and the escape-bracketing. `[op-elvis]`/`[elvis-assoc]`/
   `[elvis-wrap]` in LANGUAGE_SPEC.md. Warm `cargo nextest run`: 1775.
 - The `??:`-keeps-≥2-borrowed-arms Rust codegen bug this entry flagged as a
   "Known separate issue" was fixed in the union-conversion entry above.
@@ -7155,7 +7186,7 @@ brackets everything prior as that operator's subject.
   read as a type ascription). `[elvis-wrap]`. So a chain can read:
   `let v = read()\n    ?: fallback()\n    ?: default()`.
 - Tests: `ir_linear_check_binding_a_borrowed_field_is_not_a_leak` (core),
-  `a_forward_elvis_may_wrap_to_the_next_line` (parser). `[elvis]`/`[elvis-wrap]`
+  `a_forward_elvis_may_wrap_to_the_next_line` (parser). `[op-elvis]`/`[elvis-wrap]`
   and `[ir-linear-check]` in LANGUAGE_SPEC.md, the `?:` paragraph in
   docs/language/Data-and-Types.md (wiki synced). Warm `cargo nextest run`: 1775.
 
@@ -7295,7 +7326,7 @@ rides on the existing `when` machinery.
   docs/language/Control-Flow.md. Parser AST snapshots re-accepted (only
   `binding: None` added to existing `when`s). Warm `cargo nextest run`: 1767.
 
-### 2026-10-12 — Safe navigation `?.` re-added as reconstruction-lowered optional chaining ([safe-nav])
+### 2026-10-12 — Safe navigation `?.` re-added as reconstruction-lowered optional chaining ([op-safe-nav])
 
 `?.` is back (it was built as a `QuestionDot`/`Expr::SafeField` node in Sept
 2026 and **removed 2026-10-11** on the bet that the multi-line `?:` right side
@@ -7340,7 +7371,7 @@ asked for it back, and chose the design in discussion:
   `kotlinc_compiles_and_runs_safe_navigation` (same source, same stdout
   `42/-1/-1/nanos=42/absent`), plus `safe_navigation_field_chain_is_native_kotlin`
   asserting the native `o?.inner?.nanos`. Warm `cargo nextest run`: 1766.
-- Spec: `[safe-nav]` in LANGUAGE_SPEC.md, `[kt-safe-nav]`/`[rs-safe-nav]` in the
+- Spec: `[op-safe-nav]` in LANGUAGE_SPEC.md, `[kt-safe-nav]`/`[rs-safe-nav]` in the
   backend specs, the `?.` paragraph in docs/language/Data-and-Types.md, and the
   lexer removal note rewritten. **This reverses the dated 2026-10-11 removal
   below** — recorded here rather than left stale in prose.
@@ -7600,7 +7631,7 @@ end: Int, step: Int)` that builds a `Range` struct would spuriously demand `=>
 
 A body-taking construct may write its body as a trailing `...` where the `{`
 would go: the **rest of the enclosing block** becomes the body
-([terminal-scope]). It removes a nesting level for the guard-then-continue
+([expr-terminal-scope]). It removes a nesting level for the guard-then-continue
 shape — the structural companion to the elvis guard. Confirmed semantics (user,
 five answered questions):
 
@@ -7627,7 +7658,7 @@ parens/calls/brackets without per-site clears. `parse_if` handles the inline
 (`parser_tests.rs`) and one both-backends e2e run
 (`run_compiles_and_runs_terminal_scopes_on_each_backend`). Docs:
 `Control-Flow.md` gets a "Terminal `...` scopes" section, LANGUAGE_SPEC.md a
-`[terminal-scope]` rule, wiki synced. **Warm suite green.**
+`[expr-terminal-scope]` rule, wiki synced. **Warm suite green.**
 
 Gotcha the e2e test surfaced: a terminal **loop** body swallows *all* remaining
 statements, so a `println` after `for n in xs ...` runs every iteration — which
@@ -7641,7 +7672,7 @@ is now `{ subject, dir: ElvisDir(Forward|Backward), count: u32, rhs }`: a run of
 `n` `?`s before `:` is `Forward(n)` and keeps the first `n` arms of the
 subject's declared union; after `:` (`:?`, `:??`) is `Backward(n)` and keeps the
 last `n`. `?:` is `Forward(1)`. `_` in the right side is the arms left behind, a
-sub-union by `[rewrap]`. **`?` and `:` lex as separate tokens** (`QuestionColon`
+sub-union by `[type-rewrap]`. **`?` and `:` lex as separate tokens** (`QuestionColon`
 deleted); the parser counts a run. What this **removed**:
 
 - **Named-qualifier picks** (`x Ok?: r`, `^Ok` lift) — `check_pick`, the
@@ -7675,7 +7706,7 @@ default never does, and a dead `None`-typed `__rest` local produced invalid
 `val __rest: Unit = null`). Both backends render the `Branch` with no
 elvis-specific emitter code. `Checked` tables: `pick_left` and `elvis_picks`
 kept, `elvis_tests: PickTest` added, `safe_strip` removed, `predicate_tests`
-kept (still used by `is`). Spec: `[elvis]`/`[placeholder]`/`[rewrap]` rewritten,
+kept (still used by `is`). Spec: `[op-elvis]`/`[expr-placeholder]`/`[type-rewrap]` rewritten,
 `[pick]`/`[pick-qualifies]`/`[safe-call]` deleted, backend specs updated. All
 goldens, examples (both backends) and host projects regenerated. **Warm `cargo
 test` green.**
@@ -7958,7 +7989,7 @@ diagnostic, and diagnostics latency).
   the language"). [task-mint] already says targeting a plain `fn` stays an
   error — a fulfilled token must not run arbitrary synchronous code on the
   fulfiller's thread — so a target must be a `send fn` (a free `send fn`
-  [free-send-fn] or a handler send member). The only ask was that the
+  [actor-free-send-fn] or a handler send member). The only ask was that the
   diagnostic name the `send fn` remedy, which the previous agent's
   `check_replyto` → `free_plain_fn` change does
   (`crates/salvo-core/src/check.rs`, test
@@ -8098,7 +8129,7 @@ The design recorded in the entry below, built in four committed steps, with
 the user's further calls: `NotEq` and `update2` retired, `NotSame` in a new
 module `std.core.ref` with an intrinsic identity predicate, the container's
 type kept on the `ref` qualifier in the IR. [rs-path], [ref-notsame],
-[elem-distinct] (re-based), [col-update].
+[fate-elem-distinct] (re-based), [col-update].
 - **IR** (`salvo_ir::build::refs`): a pass after the build gives every `ref`
   qualifier its container's storage type as its argument (`ref<League> Mut
   Player`) — from a mint's lent parameter, a `ref(c)` parameter's anchor, a
@@ -8158,7 +8189,7 @@ meaningless without the path it indexes. Options weighed:
   proof about handles), the removal of `?at` from `ref(c)`, and that a
   `ref`-returning fn renders under its own name (no `at__path`). Recorded
   in the group-borrowing design's Part 7 (its design record, below) and Part 9; the work is ROADMAP item 15. The
-  path types are Rust-backend declarations, not IR enums [core-layers]. Open:
+  path types are Rust-backend declarations, not IR enums [backend-core-layers]. Open:
   whether `NotEq` is retired.
 
 ### 2026-10-10 — A total `at` at an `Idx`
@@ -8184,7 +8215,7 @@ stays and is read-only whatever its `Mut` says. **`get` reads (always
 `ref(c)` parameters; `Locate` is renamed `Ref`; no region scope. Built over
 two sessions in eleven committed steps (the tree was allowed broken between
 them, per user). Rules: [ref-handle] (was `[proj-mut]`, every reference
-renamed), [ref-anchor] (new), [col-locate], [for-elem-write]; `[canbe-entry]`
+renamed), [ref-anchor] (new), [col-locate], [iter-for-elem-write]; `[canbe-entry]`
 is deleted from LANGUAGE_SPEC.md and the code.
 
 What landed, in pipeline order:
@@ -8208,7 +8239,7 @@ What landed, in pipeline order:
   takes per-argument anchors (`ref_anchor_of`); an anchored argument must be
   a `ref` handle whose links include the container argument's own (root and
   path), and two arguments anchored at one container may alias with no proof.
-  `ref(c)` must name another parameter. **[for-elem-write]**: an in-place walk
+  `ref(c)` must name another parameter. **[iter-for-elem-write]**: an in-place walk
   over `Mut` elements binds `ref(xs) Mut T` (the decided `for a in xs {
   a.dead = true }` had regressed into a move-mode inference that consumed
   `xs`). A poisoned handle no longer also reports "cannot mutate: it is a
@@ -8569,7 +8600,7 @@ for locals and properties) — each asserting the same behaviour it did.
 
 Builder facts the remaining cases forced, all backend-neutral:
 
-* **Union arms that erase alike keep their tag** ([union-arm-identity]):
+* **Union arms that erase alike keep their tag** ([type-union-arm-identity]):
   `Err Str | Thrown Str` erased to `Str | Str`, so a rewrap (`attempt(text)
   ^Ok?: return _`) put a `Thrown` message in the `Err` arm — a silently wrong
   output the kotlinc case caught. A rewrap matches the tagged arm exactly,
@@ -8585,7 +8616,7 @@ Builder facts the remaining cases forced, all backend-neutral:
   ([is-qualifies-effects]); `_` binds a fresh unused local; a named pass is
   driven in place ([iter-drive-in-place]); a private `with` instance and every
   `use` bind behind the effect's handle unless `threadsafe`
-  ([threadsafe-platform]); effect parameters are named after their effect
+  ([platform-threadsafe]); effect parameters are named after their effect
   (`console`, `console__1` beside a parameter of that name); a field read a
   qualifier refines narrows by `Justification::Claim`
   ([qual-field-override]); a module-level `use` is one static for the
@@ -8712,7 +8743,7 @@ commits may leave the workspace unbuildable; each transition step ends green
 ### 2026-10-06 — The layering rule, and three corrections to the core tables (user decision)
 
 User decision: core states what Salvo means, `salvo-backend` holds opt-in
-helpers, each backend spells a fact in its target ([core-layers], AGENTS.md).
+helpers, each backend spells a fact in its target ([backend-core-layers], AGENTS.md).
 Checked against the tables already built, three things were target concerns:
 
 * `PassMode` folded "a scalar is passed by value" and "a fn value is a
@@ -8721,7 +8752,7 @@ Checked against the tables already built, three things were target concerns:
   is lent, or moved in when the fn stores callbacks); Rust's `ParamMode::spell`
   and its scalar exception are the backend's.
 * `lend_variants` named a Rust rendering ("locator twin"). It is `mut_lends`
-  ([mut-lends]) and states the fact: which fns hand back a result a `Mut`
+  ([fate-mut-lends]) and states the fact: which fns hand back a result a `Mut`
   position reads.
 * Unifications (user: "unify now"): an effect member now counts element `Mut`
   (`List<Mut T>`) like a fn does, so it takes `&mut Vec<T>` (one codegen test
@@ -8793,7 +8824,7 @@ type.
 
 ### 2026-10-06 — Parameter modes in core (§0j step 12, first table)
 
-`salvo_core::param_mode` ([param-mode]) holds what `param_mode`,
+`salvo_core::param_mode` ([fn-param-mode]) holds what `param_mode`,
 `member_param_mode`, `default_param_mode`, `is_copy_ast_type`, `owns_callbacks`,
 `ast_fn_param_contract`, `is_fn_group`, `type_has_mut` and `type_has_elem_mut`
 decided in the Rust emitter: `PassMode::{Owned, Lent, LentMut}` for a top-level
@@ -8804,7 +8835,7 @@ call site and so is not a fact about the declaration. Generated code is
 byte-identical. The survey behind it found three sources of "kept" (the
 checker's deductions, the clause written on an effect member, a fn type's own
 clause) and that effect members ignore element `Mut` while fns honour it; the
-split is kept as is and documented in [param-mode] rather than unified, since
+split is kept as is and documented in [fn-param-mode] rather than unified, since
 unifying changes emitted signatures. Not moved: the `Ty`-based fn-position
 renderings (`fn_ty_param_renderings`, implicit positions), which also decide
 lifetimes, and the call-site `hoist` analyses, which exist to satisfy rustc's
@@ -9088,7 +9119,7 @@ recorded the same day).**
 - **Deque** gains the total `get` and `replace`; both total reads are the
   host's `get_at`, which **fixes the recorded `List<T?>` defect** (a stored
   `None` read through `!` on the JVM's flattened `T??`).
-- **`std.core.buffer`** [buffer-type]: `IntBuffer`/`LongBuffer` exactly as
+- **`std.core.buffer`** [col-buffer]: `IntBuffer`/`LongBuffer` exactly as
   decided, over private `int_*`/`long_*` platform fns (two platform fns of one
   module may not overload), `iter` for the `Iter` obligation, host files
   `lib/platform/std/core/buffer.{kt,rs}` (`IntArray`/`Vec<i32>`).
@@ -9174,14 +9205,14 @@ FnMut` that `f.params` does not list, so a `proj(r)` return over it was
 E0106 (elision counted one reference) and the `'a` retag measured entry
 positions against `f.params` and tagged the implicit; positions are now
 leading extras plus the written index, and implicit references count
-[readonly-return]. Found and recorded for 6i: whether an implicit shadows
+[proj-readonly-return]. Found and recorded for 6i: whether an implicit shadows
 the fns of its name (ROADMAP §0j 6i, a DECISION), with two defects that wait
 on it. Tests: the identity and mismatch in `carry_tests`, one program e2e on
 both backends. **1708 tests.**
 
 **Shrinking the backends, steps 6b and 6e: `canbe Mut` fields and deep
 copies on Kotlin (2026-10-05, ROADMAP §0j).**
-- **`name: T canbe Mut`** [field-canbe-mut]: the field is `Mut T` exactly when
+- **`name: T canbe Mut`** [struct-field-canbe-mut]: the field is `Mut T` exactly when
   its struct value is `Mut`. Spelling chosen by the implementer from the
   decision's wording (`canbe Mut` written before the field type); the AST
   carries it as `FieldDecl::canbe_mut` with the plain type in `ty`. One
@@ -9633,7 +9664,7 @@ its token's slot, and an answer with another slot is dropped), so a loop of
 boundary for a lent body; both backends' `trapped_by` lowerings are gone.
 `StdConsole` is a `threadsafe platform handler` (`lib/platform/std/core/console.*`)
 and `DefaultRandom` an ordinary handler over `runtime.random_double`, seeded in
-an actor test (user decision) [random-default]; std has no intrinsic handler
+an actor test (user decision) [std-random-default]; std has no intrinsic handler
 left, so the Kotlin test of intrinsic-handler templates went with it (the
 machinery stays, unused). The workarounds 0c had forced are undone:
 `routing.sv`'s nested `is` tests are `&&` chains, `net.sv`'s `departed` is `n`
@@ -9661,7 +9692,7 @@ type its file cannot see through its module's path [rs-default-path]; (13) a
 handler named like another module's type clashes, is keyed, and is looked up
 by a handler-namespace key (`visible_handler_key`) on both backends — broken
 on Rust too; (14) a `for` body writing a field of its element iterates
-`iter_mut()` (user decision: allowed) [for-elem-write]; (15) kotlinc's
+`iter_mut()` (user decision: allowed) [iter-for-elem-write]; (15) kotlinc's
 warnings on generated code are gone (a `Str`'s `to_str` is itself,
 `UNNECESSARY_SAFE_CALL` and `REDUNDANT_ELSE_IN_WHEN` suppressed where the
 emitter cannot know, a task's payload cast noted for suppression), checked by
@@ -9706,7 +9737,7 @@ because the user pointed out that `Set<T>` should beat
 variable ranks least whatever its qualifiers (it had been unrankable). (2)
 Slices as `proj List<T>` / `proj Mut List<T>` are ROADMAP 0f, with the
 functions they would change. (3) `path.Path`, a struct, so `Str`'s
-completion stays clean [path-type], with a `Path` overload of every `fs`
+completion stays clean [fs-path-type], with a `Path` overload of every `fs`
 operation and one-shot. (4) `write_int`/`write_long`/`read_int`/`read_long`
 and `write_value`/`read_value<T>` over the canonical encoding [stream-values];
 the codec is an implicit filled by `net`'s `encode`/`decode` at the caller's
@@ -9827,7 +9858,7 @@ host-module compile checks now run in the `files` example's tree, which has
 the stream table. **1680 tests.**
 
 **A `Dedicated` pool's thread ends with its actor (2026-10-03; the runtime record
-§11.5 step 13) [pool-retire].** `thread()` now makes a pool the core knows is
+§11.5 step 13) [actor-pool-retire].** `thread()` now makes a pool the core knows is
 dedicated; when its actors are all dead, its task queue is empty and no token
 is owed to work there, the core marks it retired and wakes its thread, which
 returns. Ordinary pools stay, since their value may still be held. A runtime
@@ -10215,7 +10246,7 @@ the published-name tables and the five builder types (`HelloOf`, `GoneOf`,
 `IntroOf`, `NamedOf`, `MembersOf`) are gone, replaced by one `ControlOf`.
 `net.sv` defines `Handshake = Hello | Ack | Leaving | Intro` and a shared
 `handshake(group, from, data)` both mechanisms call; the payloads are the
-canonical encoding [wire-format]. The NAMED frame is gone too: a replica
+canonical encoding [net-wire-format]. The NAMED frame is gone too: a replica
 shares `(hash, members)` with each node its node group reports `joined`,
 and shares back when it hears from a new peer whose hash matches, so the
 protocol check no longer depends on the handshake having been recorded
@@ -10438,7 +10469,7 @@ host_fields}`), the checker's host-block checks and `Checked.{host_types,
 host_decls}`, both emitters' `render_host` and host-field layout,
 `host_block_coverage`, the source appendix and the diagnostic remapping, the
 template grammars, the extension's template languages and the language
-server's template support (all built 2026-09-30). [host-splice] is a
+server's template support (all built 2026-09-30). [platform-host-splice] is a
 tombstone. Built in their place: a **`platform fn` compiles to a wrapper**,
 `shoutPlatform` / `shout_platform`, whose body calls the implementation by its
 real name in the module's implementation file (`salvo.platform.<m>.shout` /
@@ -10546,7 +10577,7 @@ the sources (one configuration, Maven Central, a `salvoClasspath` task writing
 the resolved jars to `.salvo_gradle/classpath.txt`) and runs it before
 `kotlinc`, which still compiles ([kt-gradle]); a full Gradle Kotlin build was
 set aside, since it pins a Kotlin plugin to the `kotlinc` in use; (2) **one
-rule for both tools** ([host-tool]): `cargo`/`gradle` on PATH by default,
+rule for both tools** ([backend-host-tool]): `cargo`/`gradle` on PATH by default,
 `[rust] cargo` / `[kotlin] gradle` naming another, a path relative to the
 manifest or a command name — one key for Gradle, because a `gradlew` wrapper
 takes the same command line as the CLI (checked: the aws wrapper run against a
@@ -10588,7 +10619,7 @@ bodiless fns never had a skeleton. The missing-handler error now names the
 template. (3) **Ascription by a place**, option (a) of four put to the user
 (type aliases, `name = e`, inference from the enclosing marker, per-arm
 helpers): `` `e : name` `` takes the type of a parameter, state field or
-declared name, `` `e : return` `` the fn's return type ([host-splice];
+declared name, `` `e : return` `` the fn's return type ([platform-host-splice];
 `Hole.place`, told apart from a type by case [name-casing]). The aws generator
 names its places (`answer`, `failed`, `success`, `result`); the four templates
 went from 60 spellings of an answer union to 22 — each operation's header and
@@ -10727,7 +10758,7 @@ handler reading its constructor). The user also set the **commit
 convention** now in AGENTS.md: one commit per piece of work, a short plain
 message.
 
-**Host code with Salvo splices — built (2026-09-30).** [host-splice]: the lexer
+**Host code with Salvo splices — built (2026-09-30).** [platform-host-splice]: the lexer
 reads a fenced block as one token (text and `@{…}` holes, a `` `…` `` inside a
 hole skipped whole so host braces do not close it) and a bare `` `…` `` as a
 host leaf; `FnDecl.host`, `HandlerDecl.{spliced, host}`, `Hole { expr, ty }`,
@@ -10792,12 +10823,12 @@ literals rendered one codec per literal ("no wire codec for `\"KmsDisabled\"`")
 — the codec path builds field types without the checker's alias expansion,
 so `literal::collapse_ty_with` expands aliases first; the literal-union run
 test gained an exported struct that fails without it. Also: a literal's
-protocol hash is the literal, not its base ([protocol-hash]), so `"A" | "B"`
+protocol hash is the literal, not its base ([actor-protocol-hash]), so `"A" | "B"`
 and `"A" | "C"` stay incompatible across nodes. The names `SqsFailure` and
 `SqsErrorCode` are the generator's.
 
 **Unions of literals — built (2026-09-30; ROADMAP §4c step 2).** [type-literal]
-[union-arm-identity]: `ast::Type::Literal` / `Ty::Lit` for `Str`, `Int`, `Long`
+[type-union-arm-identity]: `ast::Type::Literal` / `Ty::Lit` for `Str`, `Int`, `Long`
 and `Bool` literals (a float is a parse error; `Byte` has no literal syntax, so
 none yet); `is "A"` parses as a check whose one ref is named by the literal;
 `std.core.other` holds `Other` and `other`. The representation is one module,
@@ -11159,7 +11190,7 @@ members take a `Reply` and return at once, the host completing the reply from
 its coroutine/future the way `fire_after` does — which replaced the first
 proposal (a platform handler of an actor effect) after checking that
 [actor-effect-kind] admits only `send fn` members and refuses mixed kinds, and
-that [mixed-handler] is a different construct (a plain-effect handler with an
+that [actor-mixed-handler] is a different construct (a plain-effect handler with an
 internal servant), so the user's assumption that mixed handlers had opened
 actor effects to plain members did not hold; streaming as **one effect in
 scope reading any stream** — the user's shape, replacing an actor per body —
@@ -11288,7 +11319,7 @@ manifest. LSP: `analyze_for_document`, one analysis per project root among the
 open documents, `Analysis.root`/`project`, the fallback note. Tests: the LSP
 session test with two projects and a stray file; CLI tests for a flagless `run`,
 discovery from a subdirectory, a bad backend value, and the lock's refuse/relock
-cycle. Rules [manifest] [manifest-discovery] [protocol-lock]; Modules.md
+cycle. Rules [manifest] [manifest-discovery] [actor-protocol-lock]; Modules.md
 "Projects and the manifest"; README and examples/README.
 
 *What building it found:* `run`/`test` must **not** read the manifest's
@@ -11728,7 +11759,7 @@ the checker's deleted `UseKind`; the stub and façade raw; a `with` item or spaw
 dependency wrapped when stateful. **Deadlock graph**: `H's lock` nodes for
 stateful plain handlers only (a stateless handler's members run on the caller's
 thread with nothing held, so the caller's edges already price them). Specs:
-[rs-handle], [kt-handle], [effect-handle], [threadsafe-platform] rewritten;
+[rs-handle], [kt-handle], [effect-handle], [platform-threadsafe] rewritten;
 Backends.md and Effects-and-Handlers.md.
 
 *What fell out.* The two costs the morning recorded for a later pass are gone
@@ -11998,7 +12029,7 @@ trail, is deleted with this step as planned; it is in git history up to
 network round").
 
 **The network sequence, step ⑦ — `Pick<E>` and the generated `route(group)`
-stub (2026-09-27 — built).** One rule, [route-stub]. The kit in std `net`:
+stub (2026-09-27 — built).** One rule, [actor-route-stub]. The kit in std `net`:
 `ActorView<E>`, `ActorGroupView<E>`, `effect Pick<E> { choose }`, the
 policies `LeastLoaded<E>(prefer_local)`, `Sharded<E>()`, `Elected<E>()
 [Leader]`, `effect Leader`, `StaticLeader(node)`, the `Key` marker, and
@@ -12120,7 +12151,7 @@ An `Addr<E>` crosses the wire and comes back as a proxy; a message to it is a
 frame; a reply comes back as one; credits keep the far mailbox's `capacity`
 true; unguessable bits keep the addr a capability. **1578 tests** (+1: a
 two-node compile-and-run case per backend, identical output). Rules:
-[addr-routable], [addr-capability], [remote-backpressure], the `[rs-wire]` /
+[net-addr-routable], [net-addr-capability], [net-remote-backpressure], the `[rs-wire]` /
 `[kt-wire]` scheduler sections.
 
 *What landed.* Both runtimes: node identity per process plus hosted virtual
@@ -12182,7 +12213,7 @@ built).** Salvo owns its serialization; **1577 tests** (+12).
 shared predicate `wire_blocker` (with `WireBlock` reasons), `approx_ty`
 (moved out of the Kotlin emitter), `protocol_canonical` + `protocol_hash`
 (FNV-1a 64, sixteen hex digits). `noremote` as a contextual modifier before
-a `struct`/`type` declaration ([noremote]; `Pool`, `InStream`, `OutStream`
+a `struct`/`type` declaration ([net-noremote]; `Pool`, `InStream`, `OutStream`
 marked in std). The checker refuses `encode`/`decode` at the call by the
 predicate and records `Checked.protocol_hashes`. Runtimes: `wire.rs` (a
 `__Wire` trait, impls for scalars/`String`/`Vec`/`Option`/tuples) and
@@ -12194,7 +12225,7 @@ and `encode`/`decode` lowering. std `net` exports the two intrinsics.
 Verified by a compile-and-run case per backend whose **printed hex is
 identical** — the byte-for-byte parity assertion — plus seven checker tests
 (refusals by name; the hash follows shape, not names) and generated-text
-checks. Rules: [wire-format], [noremote], [protocol-hash], [rs-wire],
+checks. Rules: [net-wire-format], [net-noremote], [actor-protocol-hash], [rs-wire],
 [kt-wire].
 
 *What building it settled or found:*
@@ -12227,7 +12258,7 @@ checks. Rules: [wire-format], [noremote], [protocol-hash], [rs-wire],
 built).** The first step of ROADMAP.md section 2, on both backends with
 identical output; **1565 tests** (+14), fresh nextest 1m58.
 
-*`threadsafe platform handler`* [threadsafe-platform]: the contextual word
+*`threadsafe platform handler`* [platform-threadsafe]: the contextual word
 before `platform` (refused before `platform effect` with a diagnostic saying
 why), `HandlerDecl.threadsafe`. The checker classifies a platform handler
 **shareable either way** — a **monitor** without the word, **bare** with it —
@@ -12242,7 +12273,7 @@ divergence closed**: a silent host is serialized on both backends. `salvo
 platform generate` prints the contract into the skeleton in both shapes, and
 the threadsafe Rust skeleton's receivers are `&self`. `HostRawFs` reviewed:
 plain hash-map state, stays undeclared (comments in `lib/std/fs/host.sv` and the
-two host files say why). Rules: [threadsafe-platform] in LANGUAGE_SPEC,
+two host files say why). Rules: [platform-threadsafe] in LANGUAGE_SPEC,
 rewritten [rs-platform-handler]/[kt-platform-handler] bullets, a Backends.md
 section.
 
@@ -12538,7 +12569,7 @@ not solved yet. So `Box` could not match `Box<T>` on arity, let alone on `T`.
 **A task body's effects are inherited from the frame that mints it (2026-09-26,
 user decision — built).** ROADMAP step 2. A free `send fn` declares `[Console]`
 ordinarily and the **mint** supplies it, resolved against the minting scope the
-way a `spawn`'s synthesized dependency is [task-effects] [spawn-inherit]. The
+way a `spawn`'s synthesized dependency is [task-effects] [actor-spawn-inherit]. The
 restriction it replaces was written before there were thread-shareable handlers.
 
 - **The design the ROADMAP planned was not needed, and the reason is worth
@@ -12570,7 +12601,7 @@ restriction it replaces was written before there were thread-shareable handlers.
   scope, and a `local` binding), the two lowering assertions, and a
   compile-and-run pair over a program with both shapes — a task minted from a
   binding frame and a task minting a task on another pool — printing five
-  identical lines on both backends. The old `[free-send-fn]` effect-refusal test
+  identical lines on both backends. The old `[actor-free-send-fn]` effect-refusal test
   became the `use`/`local` pair.
 
 **`throw` leaves `std.core` (2026-09-26).** ROADMAP step 1(e), and the last of the
@@ -12727,7 +12758,7 @@ right now I would prefer a way to import less".
 **The filesystem answers with `Checked<FsError>` (2026-09-26 — built).** ROADMAP
 step 1(b). The bespoke `linear struct FsError { kind: FsErrorKind }` is gone: the
 union is now simply `FsError` and every fallible member answers
-`Ok T | Err Checked<FsError>` [fs-surface] [checked-type], so std has **one**
+`Ok T | Err Checked<FsError>` [fs-surface] [type-checked], so std has **one**
 implementation of "you must look at this" rather than two of the same idea.
 `ignore` and `detach` are the generic ones, and the sweep was mechanical —
 `checked(…)` where a struct literal used to be, `detach(e)` where a caller used
@@ -12860,12 +12891,12 @@ and still has something to say about an insert that keeps it.
 
 **Smaller items of the same sitting (2026-09-26).**
 
-- **`for _ in …`** binds nothing on both backends [placeholder]: Rust takes the
+- **`for _ in …`** binds nothing on both backends [expr-placeholder]: Rust takes the
   wildcard pattern (`mut _` is not a binding it accepts), Kotlin drops the `val`
   line for a pass loop and names an unreachable local for a native `for`, which
   has no wildcard form. Two such loops in one function are independent.
 - **`Checked<T>` moved into `std.core`** with `take` renamed to **`detach`**
-  [checked-type], and the fallible **`swap` answers one** [col-bounds]: the
+  [type-checked], and the fallible **`swap` answers one** [col-bounds]: the
   failure it reports is exactly the kind with no symptom at the call site. The
   total `swap` — both indices claimed — still answers `None` and discharges the
   inner obligation itself.
@@ -13521,7 +13552,7 @@ four e2e parity pairs. 1480 tests green.
 
 **`examples/borrowing/` — the group-borrowing ladder as a worked example
 (2026-09-25, user request).** The tenth example, and the first to cover
-[proj-mut] [elem-distinct] [col-noteq] [col-update] [col-locate]
+[proj-mut] [fate-elem-distinct] [col-noteq] [col-update] [col-locate]
 [canbe-entry] [deduce-field] in one program: a read projection and what it
 costs to move one (`add(names, copy(ada.name))`), a **view** struct with a
 `proj` field, `filter`'s `Mut List<proj T>`, the `Mut List<T>` versus
@@ -13769,8 +13800,8 @@ contents-versus-replacement, inference, and the field-qualifier follow-on),
 so per its charter the document's outcomes moved to this log and the specs
 and the file was deleted. What survived it, and where: the **decisions and
 their reasoning** are the log entries above; the **rules** are
-[proj-mut] [elem-distinct] [col-noteq] [col-update] [col-locate]
-[canbe-entry] [deduce-field] [qual-field-place] [param-const] in
+[proj-mut] [fate-elem-distinct] [col-noteq] [col-update] [col-locate]
+[canbe-entry] [deduce-field] [qual-field-place] [fn-param-const] in
 LANGUAGE_SPEC.md and [rs-loc] [rs-elem-mut] in BACKEND_SPEC.rust.md; the
 **deferred refinements** — opaque-anchor locator lifts, branch-dependent
 path enums, GhostCell as the declined-but-kept fallback, the bounds-check
@@ -13819,7 +13850,7 @@ a borrowed or `Mut` parameter failed on both. A checker/emitter
 disagreement, not a feature. Three fixes were on the table (refuse
 everything; make both work, which needs a decided meaning for replacing a
 borrowed parameter; or split by ambiguity and allow the scalar case with a
-Kotlin shadow). The user chose to **refuse all of it** [param-const], on
+Kotlin shadow). The user chose to **refuse all of it** [fn-param-const], on
 the reading that a parameter *is* `const` — and that a future `const` on
 struct fields will say the same for scalars and non-scalars alike, so one
 consistent rule beats a by-type split. Implemented as one checker refusal
@@ -14014,7 +14045,7 @@ are exactly the mints the proofs legalize. En route, three gaps found
 and fixed: **a parameter's declared dependent claim was a root-free
 template in its own body** ([qual-depend] — `fn f(es, i: Idx(es) Int)`
 could not use the total `get`; roots now fill at declaration,
-`root_declared_claims`), **the [elem-distinct] pair rule missed calls
+`root_declared_claims`), **the [fate-elem-distinct] pair rule missed calls
 through fn values and effect members** (extracted to
 `check_elem_handle_pairs`, hooked into `apply_call_contract` — before
 this, `f(get(es,i), get(es,j))` passed unproven and died at rustc), and
@@ -14035,7 +14066,7 @@ sketch approved by the user same day).** Two mutable element handles of one
 container, proven different elements, now coexist — the first refinement of
 [fate-field-disjoint]'s may-alias-all rule. std ships
 `qualifier NotEq(i: Int) of Int` beside `Idx` [col-noteq] (named `Distinct` when it landed; renamed same day, see the rename entry); the
-compiler work is [elem-distinct]: element links carry the **identity of
+compiler work is [fate-elem-distinct]: element links carry the **identity of
 their minting index** (`FateLink.elem_idx` — the index variable's ultimate
 fate-root id, stamped only for `std.core.list`'s `get`, nominal deliberately: a
 user fn with a derived return may lend any projection, so only the `get`
@@ -14176,7 +14207,7 @@ re-evaluated the subject).
 fall-through path** — the elvis right side was checked inline, so a
 leaving side's moves poisoned code it never shares a path with. All three
 `?:` forms (plain, arm pick, predicate pick) now snapshot before the right
-side and restore when it diverges [elvis-guard] — found the moment
+side and restore when it diverges [op-elvis-guard] — found the moment
 `std.heap`'s sift used the new form, since its `?: return elem` sat above
 the fn's own `return elem`.
 
@@ -16136,14 +16167,14 @@ worth a look when the obligation grammar next changes.
 
 **The arm-mapping re-wrap: sub-union values (2026-09-21).** The single lift the
 `?` family round left behind, and it unblocked two of the three shapes waiting on
-it. [rewrap].
+it. [type-rewrap].
 
 A union's runtime form is positional with qualifiers erased, so a value spanning
 *fewer* arms than its storage is not a payload read but a translation between two
 representations: `Err Str | Thrown Str` out of an `Ok Int | Err Str | Thrown Str`
 means mapping storage arm 1 to target arm 0, arm 2 to arm 1, and arm 0 to an
 unreachable. **Both backends already emitted exactly that** for an annotated slot
-([let-infer]'s `Rewrap`), so the work was reaching it from sites that have no
+([var-let-infer]'s `Rewrap`), so the work was reaching it from sites that have no
 slot: the mapping was factored out of the coercion handler (Kotlin needed the
 extraction; Rust already had `emit_rewrap`) and called from three places, with the
 source and target types recorded by the checker.
@@ -16164,7 +16195,7 @@ Three things it needed that the plan did not predict:
 - **`_`'s mapping never lifts**, so it needs its own source type: the unpicked
   arms keep their tags. Hence two side tables rather than one.
 - **The mapping consumes its input**, so it takes an owned copy — the subject is
-  still readable afterwards ([elvis-guard], and the arms the right side reads).
+  still readable afterwards ([op-elvis-guard], and the arms the right side reads).
   The coercion path had always cloned (`match a.clone() { … }`); passing the bare
   storage was an E0382.
 
@@ -16225,7 +16256,7 @@ type-less form, and the existing written-type parser test updated. 1233 → 1236
 
 **A guarding `?:` narrows its subject (user decision 2026-09-21).** OPTIONALS.md's
 `Q-6`, the one item in that document that had been neither decided nor built.
-`[elvis-guard]`.
+`[op-elvis-guard]`.
 
 `let v: Str = t ?: return` proves `t` was there, so `t` reads as `Str` below —
 the facts an `is` guard already left [is-narrow-guard], reached from an
@@ -16289,7 +16320,7 @@ Two things fell out of building it:
 
 **First slice: one matched arm, one left.** A pick spanning several arms on
 either side, and a *chain* of picks (`r ^Ok?: Err?: err(_)`), both wait on the
-arm-mapping re-wrap [let-infer]. That one lift now unblocks three deferred
+arm-mapping re-wrap [var-let-infer]. That one lift now unblocks three deferred
 shapes at once — the multi-arm lift from step 3, the multi-arm pick, and chains —
 which is the next thing to do here.
 
@@ -16341,7 +16372,7 @@ the receiver present and absent, plus a dot-notation call. 1222 → 1226.
 **`?:` and `_`, for `T?` (user decision 2026-09-21).** Step 4 of the `?` family
 sequence, and the first of the five that *adds* a form rather than renaming one.
 `subject ?: rhs` picks the non-`None` arms; `_` on the right is the `None` side.
-[elvis], [placeholder], [kt-elvis], [rs-elvis]. `?.` is the other half of step 4
+[op-elvis], [expr-placeholder], [kt-elvis], [rs-elvis]. `?.` is the other half of step 4
 and is not built yet.
 
 Cheaper than expected in two places and more expensive in one:
@@ -16405,7 +16436,7 @@ inside an `is` check**: one rule where there were two, and `^Q` now reads as
 - **Multi-arm lifts**: the user's reading (`Ok Int | Ok Str` with `^Ok` gives
   `Int | Str`) is right, and my carried-over refusal was wrong — the old rule is
   about *re-reading a place*, and a lift that produces a value is a re-wrap the
-  backends already do [let-infer]. The **checker** implements it (the arms lift,
+  backends already do [var-let-infer]. The **checker** implements it (the arms lift,
   nothing narrows, the binding takes their union); the **emission is deferred**
   and refused by name, because the bound value spans fewer arms than its storage
   and needs the arm mapping. Without a binding it stays refused for the original
@@ -16690,7 +16721,7 @@ the existing deadlock graph, cycle reported before it runs), and — the
 second sitting's question, answered at handoff — **generic monitors are
 supported**: `handler CyclicRandom of Random<Int>` shares by default, the
 per-effect wrappers generic exactly as the effect
-([use-local], [effect-local], [monitor-handler], [effect-handler-deps]).
+([use-local], [effect-local], [actor-monitor-handler], [effect-handler-deps]).
 
 - **The split of forms** lives in one shared predicate
   (`salvo_core::handler_handle_deps`, used verbatim by checker and both
@@ -16818,13 +16849,13 @@ continuation on another of the servant's own send members, end to end on
 both backends. **With it every SHAREABLE_HANDLERS.md item is built, and the
 document is retired per its delete-when-built charter** (the TIME.md /
 FREE_CONCURRENCY.md precedent): the decisions are in this log's 2026-09-19
-entries, the rules in the specs ([mixed-handler], [defer-deduction],
+entries, the rules in the specs ([actor-mixed-handler], [linear-defer],
 [actor-replyto], [actor-deadlock-cycle], [kt-mixed], [rs-mixed]).
 
 - **Checker**: the refusal in `check_replyto` deleted — everything after it
   was already generic over the handler's own members, so the mint resolves,
   records its target, marks the handler parking and its gates gated with no
-  mixed-specific code. The capture hook ([defer-deduction]'s four escape
+  mixed-specific code. The capture hook ([linear-defer]'s four escape
   sites) already required the received reply to be declared `defer`. The
   use-site parking error now yields to the mixed spawn-only refusal rather
   than doubling it.
@@ -16857,7 +16888,7 @@ and answers on resume).
 
 **Shareable handlers, slice 6: `defer`, first half (2026-09-19, SH-10 —
 the word, the contract point, and forwarding deferral end to end).** New rule
-**[defer-deduction]**; with it, SH-9's direct-answer default is carried by
+**[linear-defer]**; with it, SH-9's direct-answer default is carried by
 the declared opt-in instead of by a blanket cut.
 
 - **The word**: `DeductionKind::Deferred`, parsed as `defer name` in any
@@ -16994,7 +17025,7 @@ whose cursor lives behind its mailbox, its façade bound in `main` *and*
 supplied to a spawned actor's dependency clause, three draws sequenced by the
 `waitfor` (`main drew 12345` / `actor drew 95040` / `main drew 58585`), and
 `[waitfor]` written nowhere. New labels **[rs-mixed]** / **[kt-mixed]**; the
-[mixed-handler] rule is in LANGUAGE_SPEC.md and the narrative in docs/language/.
+[actor-mixed-handler] rule is in LANGUAGE_SPEC.md and the narrative in docs/language/.
 
 - **The handle rework the façade forced** (§7's finding 3): a façade must not
   sit behind the monitor's mutex — a second caller blocked on it serves
@@ -17033,7 +17064,7 @@ supplied to a spawned actor's dependency clause, three draws sequenced by the
 (2026-09-19, SH-1, first half).** The declaration, classification and every
 static rule of the mixed handler — with both emitters refusing a mixed spawn
 *loudly* until the emission half lands, so nothing silently wrong exists in
-the window. New rule label **[mixed-handler]** (spec text with the emission
+the window. New rule label **[actor-mixed-handler]** (spec text with the emission
 half). What is built and tested (8 new checker tests, `mixed_tests.rs`):
 
 - **Classification**: plain faces + `send fn` members = mixed; the plain-face
@@ -17052,7 +17083,7 @@ half). What is built and tested (8 new checker tests, `mixed_tests.rs`):
   a façade member may wait with no `[waitfor]` anywhere — the acceptance test
   is the design's own motivating program, `Random` backed by confined state,
   callable from a plain `[Random]` fn that declares nothing.
-- **Local send members carry the free send fn's obligations** ([free-send-fn]
+- **Local send members carry the free send fn's obligations** ([actor-free-send-fn]
   mirrored): explicit all-consumed clause when they have parameters, no
   `Mut`/unsendable/generic params, and — new — no overloading (the servant's
   dispatch is by member name). Scoped to *mixed* handlers only: actor
@@ -17086,7 +17117,7 @@ remove the patch's premise. The clause renames to `using`; the statement keeps
 The first build slice of the 2026-09-19 decision round, and the smallest
 end-to-end piece of the design: `CyclicRandom` as a monitor, shared between
 `main` and a spawned actor, identical output on both backends. New rule
-**[monitor-handler]**, plus **[rs-monitor]** / **[kt-monitor]**.
+**[actor-monitor-handler]**, plus **[rs-monitor]** / **[kt-monitor]**.
 
 - **The surface**: `spawn H(args)` where every face of `H` is a plain effect
   answers the same `Addr<E>` an actor spawn answers — one shared instance
@@ -17526,7 +17557,7 @@ each small and each user-directed:
   [kt-op-promote]. Rust already cast every promoted operand. std's suffixes came
   back out.
 - **Underscore separators work after the decimal point** (`1_000.500_5`).
-  [lit-numeric] had always claimed separators; the lexer only accepted them in
+  [type-lit-numeric] had always claimed separators; the lexer only accepted them in
   the integer part, so a reader-friendly fraction was an "invalid numeric
   literal".
 - **Every contextual word highlights, by *shape* rather than by name.** They
@@ -17630,7 +17661,7 @@ reach `advance`.
 
 Three defects and one design wart fell out of building it, all fixed here:
 
-- **[lit-adopt] did not hold for call arguments.** `millis(500)` was refused as
+- **[type-lit-adopt] did not hold for call arguments.** `millis(500)` was refused as
   `millis(Int)` although the rule names "a `Long` call argument" explicitly —
   only annotated `let`s and struct fields adopted. Fixed by reading the
   adoptable type off the *candidate pool* (`adoptable_numeric_param`), as a
@@ -17749,7 +17780,7 @@ right lifetime for a cut whose cost was two emitter changes.
 *silent*, and both are now the thing they should have been: a diagnostic, and a
 generated type.
 
-- **A tuple pattern must match a tuple of its arity** [let-destructure]. Until
+- **A tuple pattern must match a tuple of its arity** [var-let-destructure]. Until
   now `let (a, b) = 7` and `let (a, b) = (1, 2, 3)` bound `Unknown`s and said
   nothing, so the mistake reached the *target* compiler — `let (a, b) = 7`
   compiled to Kotlin that kotlinc rejected. The pattern's own span carries the
@@ -17966,8 +17997,8 @@ FC-3, with FC-5 and FC-6 riding).** The step that makes a plain function a full
 citizen of the concurrent world: the **send kind extends to free functions**, a
 `replyto` may target one from *any* frame, and the token it mints carries a
 detached closure instead of a mailbox address. Four new rule labels —
-**[free-send-fn]**, **[task-mint]**, **[task-pool-inherit]**,
-**[pool-fault-sink]** — plus **[rs-task]** / **[kt-task]**.
+**[actor-free-send-fn]**, **[task-mint]**, **[task-pool-inherit]**,
+**[actor-pool-fault-sink]** — plus **[rs-task]** / **[kt-task]**.
 
 - **The kernel is smaller than the member mint it sits beside**, and that is the
   finding: a task has no mailbox, so there is no capacity to reserve, no gate to
@@ -18032,7 +18063,7 @@ FC-4(a) + T-5(c)).** The first step of the second sequence, and the whole of
 its decided content: `waitfor` stops being a `main`-only special case and
 becomes a **capability validated by placement**, `main` becomes an ordinary
 pool with an unusual worker, and a wait *serves* its pool instead of merely
-blocking on it. Five new rule labels: **[main-pool]**, **[waitfor-pump]**,
+blocking on it. Five new rule labels: **[actor-main-pool]**, **[waitfor-pump]**,
 **[waitfor-effect]**, **[waitfor-dedicated]** (LANGUAGE_SPEC.md) plus the
 backend halves in both backend specs. What it took, in the order the ROADMAP
 said (runtime shape first, statics second):
@@ -19412,7 +19443,7 @@ had asked for and the ergonomic layer over them. Naming was theirs too:
 `read_to`, following `read_to_str`, with the *parameter type* picking the
 overload.
 
-**`std.core.bytes`** [bytes-type]: `intrinsic type Bytes canbe Mut`, and the pair
+**`std.core.bytes`** [type-bytes]: `intrinsic type Bytes canbe Mut`, and the pair
 is exactly `Str`/`Mut Str` — `Bytes` is read (`size`, `get`, `slice`,
 `index_of`, `to_str`, `to_hex`, `str_of_bytes`, `for b in data`), `Mut Bytes`
 is built (`add`, `append`, `set`, `clear`), and dropping the `Mut` reaches the
@@ -19480,7 +19511,7 @@ now declares four `close` overloads (the `Chunks` discharger) and two more
 
 `examples/files/` grew steps 5–9 around the new surface and still prints its two
 blocks — disk and `MemFs` — identically. Rules: LANGUAGE_SPEC.md gained
-[bytes-type] and [fs-read-to] ([fs-bytes], [fs-surface] and [type-basic]
+[type-bytes] and [fs-read-to] ([fs-bytes], [fs-surface] and [type-basic]
 rewritten around them); BACKEND_SPEC.kotlin.md gained [kt-bytes];
 BACKEND_SPEC.rust.md's [type-basic] states the `Vec<u8>` mapping; docs/language/
 carries the type in its basic-types list and the new reads in "Files".
@@ -19504,7 +19535,7 @@ continues exactly where a three-byte `read_bytes` stopped — which is only
 possible because both host handlers already buffer *bytes* below the decoder.
 Four std conversions came with it, and they are the whole of `Byte`'s
 surface: `to_byte(Int)`/`to_int(Byte)` and `to_bytes(Str)`/`str_of_bytes(List<Byte>) -> Str?`
-(strict UTF-8, `None` on invalid bytes) [byte-value].
+(strict UTF-8, `None` on invalid bytes) [type-byte].
 
 **`Byte` is now unsigned on both backends** ([kt-byte-unsigned]) — the other
 half of the decided deliverable, and a parity fix rather than a
@@ -19565,7 +19596,7 @@ examples were **regenerated** — their checked-in output predated the fs
 surface, so they were stale (the outputs still matched; the numbering of
 generated helpers had moved).
 
-Rules: LANGUAGE_SPEC.md gained [byte-value] and [fs-bytes], and [fs-double],
+Rules: LANGUAGE_SPEC.md gained [type-byte] and [fs-bytes], and [fs-double],
 [fs-v1-cuts] and [op-arith]'s `Byte` bullet were rewritten;
 BACKEND_SPEC.kotlin.md gained [kt-byte-unsigned] (with the `UByteArray`
 finding); BACKEND_SPEC.rust.md's [type-basic] gained the cast-parenthesization
@@ -20012,7 +20043,7 @@ the new surface with its generated code regenerated.
 **Effect interception, both backends (S-IO item 4, from the phase-4
 decisions — 2026-09-14).** A handler may now depend on **the effect it
 implements** [effect-intercept], and a `use` may **shadow** an earlier
-registration of the same effect instance [use-no-dup] — the two halves of
+registration of the same effect instance [effect-use-no-dup] — the two halves of
 FILE_SYSTEM.md's O-R2, and what makes `RestrictedFs(root, fs: Fs) of Fs`
 writable. The binding rule is the user's from §5.1: a self-dependency binds
 **strictly outward**, to the instance in scope *before* this `use`, which
@@ -20073,7 +20104,7 @@ stateful interceptors, an interceptor over an interceptor, a plain shadowing
 that was shadowed, and one instance of a generic effect intercepted while
 its sibling keeps its handler — to identical stdout. Tests: 876 passing
 (from 870), fresh. The rules are LANGUAGE_SPEC.md [effect-intercept] and the
-restated [use-no-dup]; docs/language/ gained a "Handlers with dependencies, and
+restated [effect-use-no-dup]; docs/language/ gained a "Handlers with dependencies, and
 interception" section, which is also where handler dependencies get their
 first narrative treatment outside the platform-interop section.
 
@@ -20097,7 +20128,7 @@ phase-4 decisions).** The two work items between the fusion milestone and the
 platform handler, closing both former due-before DECISIONs as *code*.
 
 **Operator typing** ([op-arith] [op-order] [op-bool] [op-promote]
-[op-convert] [lit-adopt]): arithmetic and unary `-` are numeric-only (`Int`,
+[op-convert] [type-lit-adopt]): arithmetic and unary `-` are numeric-only (`Int`,
 `Long`, `Float`, `Double` — `Byte` deliberately excluded until its `UByte`
 lowering lands, since it is signed on one backend and unsigned on the other
 today); `Str +` is refused pointing at `${}` interpolation; `&&`/`||`/`!`
@@ -20184,7 +20215,7 @@ BACKEND_SPEC.kotlin.md [kt-effect-fusion].
 rounds).** FILE_SYSTEM.md carries the complete option record and the decided
 architecture; the calls, in brief: **effects may intercept** — a handler may
 depend on the effect it implements, binding strictly outward, with shadowing
-allowed and [use-no-dup] reduced to the duplicate-instance error (O-R2);
+allowed and [effect-use-no-dup] reduced to the duplicate-instance error (O-R2);
 **stream ops are effect members** (O-P1, after two reversals — free fns lost
 to the `[Fs, RawFs]` double declaration their test seam required), with
 **bare member names disambiguated by `@Effect` syntax** (`read_line@Fs(s)`,
@@ -20532,7 +20563,7 @@ nine decisions (FS-1…FS-9) with recommendations, from a survey of Java
 classic/nio, Kotlin/Okio, Rust, Go, Python and the capability systems
 (WASI, cap-std, Deno). Notable findings: the user's restricted-handler
 sketch collides with [effect-handler-deps]'s self-dependency ban and
-[use-no-dup] (no effect shadowing), so the recommended shape is two-effect
+[effect-use-no-dup] (no effect shadowing), so the recommended shape is two-effect
 layering (`RawFs` + `Fs`, both public handlers depending on the raw seam);
 and the FS-3 recommendation (stream ops as free fns on linear stream
 values, object-capability style) mostly defuses the shared-member-name
@@ -20723,7 +20754,7 @@ behind a written-return-type gate that an instantiation-borne projection
 fallback linked the result to arguments the author had excluded — the fix
 is one reorder in `lends.rs::lends_of` (declared entries before the
 `holds_proj` gate), and the entry now narrows the link while still flowing
-through a temporary pass to its roots. (2) *[lambda-view]*: the user's
+through a temporary pass to its roots. (2) *[fate-lambda-view]*: the user's
 `pick_list` example — `indices.map(i -> list.get(i)!)` — disproved the
 claim that a callback's projections always derive from its arguments: a
 body can root a projection in a **capture**, which no fn type can name,
@@ -20886,7 +20917,7 @@ failure left" can hide others — check with `--no-fail-fast`.
 **Phase 2b "copies only by opt-in" — built, and the view model settled (user
 decisions 2026-09-11).** The five steps from ROADMAP landed: `[rs-opt-borrow]`
 (the `Option<&T>` local), `get → (proj(list) T)?` and std's `next →
-Emitted (proj(p) T) | Finished` [yield-proj], `filter → Mut List<proj
+Emitted (proj(p) T) | Finished` [iter-yield-proj], `filter → Mut List<proj
 T>` as a view, `?copy` as a general implicit on `filter_to` and on handler
 constructors [copy-implicit] (the former [implicit-fn-only] restriction on
 constructors lifted), and the std audit (no element-storing combinator clones
@@ -20951,7 +20982,7 @@ together; the two defects are the important part, because both were the class
 AGENTS.md calls worst — a Salvo program the checker accepted and the *target*
 compiler rejected.
 
-**[ident-resolve] — an undeclared name was not an error.** The `Expr::Ident`
+**[name-ident-resolve] — an undeclared name was not an error.** The `Expr::Ident`
 arm fell through to `Ty::Unknown` when a name was neither a local, a handler,
 nor a callable; the emitters then spelled it verbatim, so rustc reported
 `E0425` and kotlinc "unresolved reference". Now an error, which also covers
@@ -20987,7 +21018,7 @@ Rust's `Debug` prints `name: "ann"` and a Kotlin data class prints
 print two different things [backend-parity]. An explicit `to_str` wins; a field
 that itself needs one is not followed.
 
-**[unused-var] — a warning, with `_` to opt out.** Only *reads* count, so a
+**[var-unused] — a warning, with `_` to opt out.** Only *reads* count, so a
 write-only variable warns too; parameters, handler state and std are exempt.
 Its side effect was the instructive part: **~14 test helpers conflated errors
 and warnings**, because `Checked::errors` holds both severities and nothing had
@@ -20996,7 +21027,7 @@ previously warned routinely. They were filtered to `is_error()` — except
 warnings; filtering it broke a test and the filter was reverted. Worth knowing
 before the next warning is added.
 
-**[inc-dec] — all four step forms.** Only `i++` existed. Rather than add three
+**[op-inc-dec] — all four step forms.** Only `i++` existed. Rather than add three
 near-identical AST variants, `Expr::PostIncrement` became
 `Expr::IncDec { down, prefix }`: about twenty consumers treated the old node
 uniformly, so a mechanical rename covered them and only three sites needed real
@@ -21374,7 +21405,7 @@ since assigning to a narrowed *variable* writes its storage.
 
 - **The read and mutable unwraps share one classification** (`Narrowing`: arm
   index, whether an `Option` sits in front, whether the payload is `Copy`).
-  Duplicating the arm lookup would have put [union-arm-identity] in two places
+  Duplicating the arm lookup would have put [type-union-arm-identity] in two places
   in one file, which is the drift the checker/emitter invariant exists to
   prevent.
 - **The gate is the unwrap producing something, not the presence of a recorded
@@ -22739,7 +22770,7 @@ Landed so far (each step left the tree green):
 1. **`internal` → `intrinsic` everywhere.** `TokenKind::KwIntrinsic`,
    `BackingMod::Intrinsic`, `emit_intrinsic_call`,
    `Symbols::intrinsic_types`, rules `[backend-intrinsic]` and
-   `[intrinsic-fn]`. Incidentally deleted the dead duplicate keyword list
+   `[platform-intrinsic-fn]`. Incidentally deleted the dead duplicate keyword list
    in `TokenKind::symbol()` — the `KEYWORDS` lookup precedes it, so those
    arms were unreachable, and they are exactly the drift hazard the gotcha
    below records as having once panicked the compiler.
@@ -22854,7 +22885,7 @@ Landed so far (each step left the tree green):
      shape; without it there is nothing for them to mean, so the parser
      says so and names the surviving forms rather than reporting a bare
      "expected `{`".
-   - **[intrinsic-std-only]**: `intrinsic` is the compiler's, so only std
+   - **[platform-intrinsic-std-only]**: `intrinsic` is the compiler's, so only std
      may write it. It is checked in `check_intrinsic_is_std_only` rather
      than the parser, which sees one file's tokens and cannot know where
      the file came from; the checker has `is_std` at hand. Not cosmetic —
@@ -23121,7 +23152,7 @@ let label = when {
 **The mandatory `else` is the entire reason the form exists**, and it is
 worth being explicit about why, because the feature otherwise looks like
 `if`/`elif` with different punctuation. An `if` chain without an `else`
-folds `None` into its value [if-else-none], so "a chain of conditions that
+folds `None` into its value [expr-if-else-none], so "a chain of conditions that
 always produces a value" is a property the reader has to verify by
 inspection; this form is the one the grammar guarantees. That framing is
 also what kept the implementation small: `Expr::WhenCond` is checked by
@@ -23140,7 +23171,7 @@ everywhere, not just here.
 
 That last one closed a standing gap rather than adding strictness for this
 feature: `[if-bool]` had said "no truthiness" since M0 and *nothing
-enforced it*. It is now `[cond-bool]`, checked on `if`/`elif`, `while` and
+enforced it*. It is now `[expr-cond-bool]`, checked on `if`/`elif`, `while` and
 the new branch heads, per **leaf** of a `&&`/`||`/`!` condition so the
 diagnostic lands on the operand that is wrong, and lenient on `Unknown`
 and `Never` [type-unknown-lenient]. `Bool?` is rejected too — which way
@@ -23274,8 +23305,8 @@ constructors get theirs.
 **The checker no longer takes anything on trust (2026-09-03).** Members
 must be declared, not assumed: unresolved calls and dot-calls, calls on
 non-fn values, fields on non-structs, `[]` on non-arrays, and `for` over
-non-iterables are all errors ([call-resolve], [field-resolve],
-[index-resolve], [iter-resolve]). Target-language features are reached by
+non-iterables are all errors ([call-resolve], [struct-field-resolve],
+[col-index-resolve], [iter-resolve]). Target-language features are reached by
 declaring them; generics are opaque for want of bounds. The remaining
 leniency is inference alone ([type-unknown-lenient]).
 
@@ -23586,7 +23617,7 @@ body against the member's contract.
 **Salvo assumes it can see everything (user decision 2026-09-03).** The
 checker's interop leniency is gone: a call, field read, subscript or `for`
 subject that no declaration justifies is now an error
-([call-resolve], [field-resolve], [index-resolve], [iter-resolve]).
+([call-resolve], [struct-field-resolve], [col-index-resolve], [iter-resolve]).
 Target-language features are reached by *declaring* them — as of
 2026-09-05 that means a member of a `platform effect` [platform-effect]
 (then `external type` for the type and `external fn` + `define` for
@@ -23780,7 +23811,7 @@ Auto-qualifiers on struct and type declarations and the per-type-parameter
 linear opt-in are now spelled `canbe` (`struct Person canbe Mut`,
 `external type List<T> canbe Mut`, `struct FileHandle canbe linear`,
 `fn hold<T canbe linear>`), which states the optionality the clause
-actually carries [canbe-optin]. `with` keeps exactly one job: qualifier
+actually carries [qual-canbe-optin]. `with` keeps exactly one job: qualifier
 *compatibility* (`qualifier Old of Person with Surname` [qual-with]) —
 co-application of two qualifiers, which `canbe` would misdescribe; no
 better word was found, so the overload is gone but `with` stays. The two
@@ -23835,7 +23866,7 @@ that still shape the code, and where to look for the mechanics.
   narrowed twice since: to inferred types only, and finally to inference
   alone once members had to be declared [call-resolve]), and union arm
   identity is *positional over the declared type's non-`None` arms*
-  [union-arm-identity]. Kotlin unions lower to generated sealed wrappers
+  [type-union-arm-identity]. Kotlin unions lower to generated sealed wrappers
   (`UnionN`), `None` arms to outer nullability.
 - **M4 — Qualifiers.** User decision replacing the old spec: the `as`
   effect and value-level `as` expressions were removed; constructive
@@ -23854,7 +23885,7 @@ that still shape the code, and where to look for the mechanics.
   effect tables and fall back to string-keyed environments only in
   unchecked contexts (see "Current architectural facts").
 - **M6 — Deductions + loops-as-values.** Loops are expressions
-  [while-value] (body tail / `break value` / `else` join; no `else` means
+  [loop-while-value] (body tail / `break value` / `else` join; no `else` means
   optional). Deductions (`deduce.rs`): user decision — a deduction list
   is interpreted *relative to the callee's declared parameter qualifiers*
   (a call removes exactly `declared − kept`); inference is a
@@ -24035,7 +24066,7 @@ that still shape the code, and where to look for the mechanics.
     struct fields, type-alias targets, effect-member signatures, handler
     ctor params and state fields were never validated at all (the
     [qual-of] rule *claimed* struct fields were). `canbe` clauses now
-    reject user qualifiers, which is the `with` confusion [canbe-optin]
+    reject user qualifiers, which is the `with` confusion [qual-canbe-optin]
     already warns about.
   - Two real bugs fell out: `std.core.string`'s `char_at(index: Positive Int)`
     used an undeclared qualifier lifted from a docs/language/ example — no
@@ -24098,7 +24129,7 @@ that still shape the code, and where to look for the mechanics.
   (`DefaultRandom`), the first non-`std.core` module — and exposed
   [kt-handler-template-return]: value-returning handler-member templates
   emit `return run { … }`.
-- **Numeric literal suffixes [lit-numeric]**: `1` Int, `1L` Long, `1.2`
+- **Numeric literal suffixes [type-lit-numeric]**: `1` Int, `1L` Long, `1.2`
   Double, `1.2f` Float; decision: `f` requires a decimal point (`1f` is
   a lex error). Kotlin renders native suffixes; Rust renders explicit
   types (`1i64`, `1.2f32`).
@@ -24150,7 +24181,7 @@ The first stage of the shared-fate roadmap (see the L1 section below for
 the decided model). What landed:
 
 - **`intrinsic fn copy<T>(value: T) -> T`** in `lib/std/core/basic.sv` => value
-  [intrinsic-fn] [copy-fn]: parser already accepted `intrinsic fn`
+  [platform-intrinsic-fn] [copy-fn]: parser already accepted `intrinsic fn`
   (body-less like `external`); the declaration flows through
   Symbols/resolve/checker unchanged — the `[value]` deduction is the
   whole checker contract. Both emitters intercept
@@ -24403,7 +24434,7 @@ All five decisions (L6a–e) approved by the user as recommended; rules
   (`inferred.is_some()`), like the other contract-dependent checks.
 - **`intrinsic fn discard<T>(value: T) -> None`** in std; the `[]` => !value
   deduction makes the discharge just another move. Rust lowers to
-  `drop(value)`, Kotlin to `(value).let {}` [intrinsic-fn]. Both
+  `drop(value)`, Kotlin to `(value).let {}` [platform-intrinsic-fn]. Both
   verified end to end with identical stdout on the open/use/close
   resource demo.
 - **Generic ban** in `resolve_named_call` on the resolved substitution:
@@ -24428,7 +24459,7 @@ Syntax decision (user, 2026-09-02, option C of the explored set): the
 opt-in reuses the `canbe linear` phrase on *type parameters* — one
 qualifier per `canbe`, comma separates parameters; struct-side syntax
 deferred. (Both sites were spelled `with` until the 2026-09-03 rename
-[canbe-optin].) What landed (rule [linear-generics] rewritten):
+[qual-canbe-optin].) What landed (rule [linear-generics] rewritten):
 
 - **Parser**: `parse_generics_canbe` parses `<T canbe Q, U>` into
   `FnDecl.generic_canbe: Vec<(Ident, TypeRef)>` (fn declarations and
@@ -24462,7 +24493,7 @@ The call-multiplicity qualifier, landed as a *fn-type qualifier* rather
 than the originally-sketched deduction-list surface (user decision
 2026-09-02 — calling once is consuming, which contradicts a deduction
 entry's kept-ness; the type-qualifier form rides the existing
-machinery). Rule [once-fn]:
+machinery). Rule [fn-once]:
 
 - **Enforcement is consumption**: calling a `once` value consumes it —
   double calls, loop back-edge calls, and call-after-escape are the
@@ -24495,7 +24526,7 @@ machinery). Rule [once-fn]:
 ### L7c — derived returns `ReadOnly[from: p]` (completed 2026-09-02)
 
 The relaxation of S1a: zero-copy accessors across fn boundaries. Rule
-[readonly-return]; surface decided by the user (square brackets — angle
+[proj-readonly-return]; surface decided by the user (square brackets — angle
 reads as generics, round collides with qualified groups, square is
 where annotations already name parameters). What landed:
 
@@ -24553,7 +24584,7 @@ by faithful emission. Rule [fn-contract]:
   parameters `lambda_kept` (never consumable — guarded at all four
   consuming sites plus binding modes); named fns passed by value build
   their contract from written/inferred deductions; `contract_fits`
-  (keeps <: consumes, inverted like [once-fn] and flagged with it)
+  (keeps <: consumes, inverted like [fn-once] and flagged with it)
   joined `is_subtype` and `unify`. One enabling fix: single-candidate
   named calls now type *lambda literal* arguments against the callee's
   parameter types upfront, so expected fn-type contracts actually
@@ -24596,7 +24627,7 @@ by faithful emission. Rule [fn-contract]:
   command consumes them structured instead).
 - The checker assumes it can **see everything** (2026-09-03): calls,
   fields, subscripts and `for` subjects must be justified by declarations
-  ([call-resolve], [field-resolve], [index-resolve], [iter-resolve]).
+  ([call-resolve], [struct-field-resolve], [col-index-resolve], [iter-resolve]).
   What stays lenient is *inference*: a type it could not work out is
   `Ty::Unknown`, compatible with everything, so one mistake yields one
   diagnostic. Coercions/unwraps only fire where the tables say so — the
@@ -26019,7 +26050,7 @@ is still unexercised ground.
   qualified-group subject, but that is not a dead end — the droppable
   qualifier rule unwraps it; see "Nested qualification" below for the two
   alternatives that were rejected.
-- **Throw targets the innermost `try`.** ✅ [try-innermost]. Rust needs no
+- **Throw targets the innermost `try`.** ✅ [throw-try-innermost]. Rust needs no
   token at all (the block label decides where a `break` lands); Kotlin's
   catch-all is innermost by construction, and its `else -> throw` rethrow is
   what an escaped function value would hit.
@@ -26055,7 +26086,7 @@ Two alternatives were considered and rejected (user discussion
   meaning: a multi-qualifier type is a *set of claims* (`Mut NonEmpty
   List<T>`), so `Ok Err Str` reads as both applying — a contradiction, not
   nesting. It would also flatten the outcome union's arms, changing
-  [union-arm-identity] and the wrapper representation, and cost `try` its
+  [type-union-arm-identity] and the wrapper representation, and cost `try` its
   uniform two-arm shape.
 - **A dedicated "check and unwrap" keyword.** Two objections. It conflates
   a test with a *static* strip (inside `is Ok` the type is already known,
@@ -26110,7 +26141,7 @@ transformer if that reads better.
    **Done 2026-09-04** ([defer], [defer-no-escape], [kt-defer-finally],
    [rs-defer-splice]).
 2. ~~`throw` returning `Never` + intrinsic `try`, with `Thrown<M>` in
-   std.~~ **Done 2026-09-04** ([throw], [try], [try-innermost],
+   std.~~ **Done 2026-09-04** ([throw], [throw-try], [throw-try-innermost],
    [throw-not-main], [throw-linear], [rs-throw-controlflow],
    [rs-try-label], [kt-throw-signal]). What the design got right and wrong
    is in the decision-log entry at the top; the short version is that the
@@ -27863,7 +27894,7 @@ Why `once` fits with nothing invented:
 - The **conversion in the permitted direction is already a call**: the
   implicit `iter()` that `[iter-resolve]` inserts *is* factory → pass.
 - **Enforcement is the existing consumption machinery**
-  [deduce-consume] / [once-fn]; no new analysis.
+  [deduce-consume] / [fn-once]; no new analysis.
 - The backend mapping follows the existing pattern (`once` fn params
   already compile to `FnOnce`): `once Iter<T>` is the owned state struct,
   plain `Iter<T>` the argument bundle it re-mints from. Boxing at the
@@ -28158,7 +28189,7 @@ which would make a *type*'s legality depend on which functions are in
 scope). **User decision 2026-09-07: `canbe once`**, with the note that D6
 and D7 should be designed together rather than piecemeal.
 
-- **`canbe once`** joins `canbe Mut` and `canbe linear` [canbe-optin]: a
+- **`canbe once`** joins `canbe Mut` and `canbe linear` [qual-canbe-optin]: a
   type opts into being a pass the way it opts into mutability and
   linearity, and `once` stays inapplicable to types that never asked. The
   author declaring it is the same argument the "not a pass" error rests on
@@ -29650,7 +29681,7 @@ deadline wheel and the host stream table once in Salvo (2026-10-01 to
 the rules are LANGUAGE_SPEC.md's ([runtime-sched], [runtime-host],
 [runtime-layers], [mod-use], [mod-std-internal], [runtime-parker],
 [runtime-kept-fn], [platform-type], [platform-generic], [platform-fn-value],
-[stream-table], [pool-retire], [test-kind], [test-actor]) and the backend
+[stream-table], [actor-pool-retire], [test-kind], [test-actor]) and the backend
 specs' ([rs-runtime-host], [kt-runtime-host]). What it left open moved to
 ROADMAP.md item 0. This section keeps the decisions and the reasoning that is
 not in the specs; code cites them as "runtime Dn", "runtime En" and "runtime
@@ -29699,7 +29730,7 @@ boundary) and E5 (platform types); 7b E1 (generic platform types and fns).
 of linear elements, 11d the local scheduler core and the cutover, 11e routing
 (`runtime.routing`, frames as canonical-encoded values, D4). 12. Routes wait
 on their view (`route_any`, `RouteSelector`). 13. Pools retire
-([pool-retire]). 14. The stream table in Salvo (`runtime.streams`). 15. The
+([actor-pool-retire]). 14. The stream table in Salvo (`runtime.streams`). 15. The
 virtual runtime under `test actor` (D11). 16. Docs, and this retirement.
 17. Optional, open: the other collections onto generic platform types.
 
@@ -29792,7 +29823,7 @@ grow the language in ways that pay off outside the runtime too.
   changes the state in five places: a worker with nothing to run, a sender
   on a full mailbox, a `waitfor` frame, the timer thread (until the
   earliest deadline), and a remote send with no credits. A monitor
-  [monitor-handler] gives mutual exclusion but cannot sleep. The danger in
+  [actor-monitor-handler] gives mutual exclusion but cannot sleep. The danger in
   sleeping is the **lost wakeup**: if the state changes between "nothing to
   do" and going to sleep, the wakeup arrives before anyone sleeps.
   - **Chosen: a non-generic platform type**, needing no language change
@@ -30149,7 +30180,7 @@ buffer.
   - **`threadsafe`** (`threadsafe platform type Parker`): a plain handle
     that may be used from several threads *at the same time*. Rust adds
     `Sync`. The same word and the same trust as `threadsafe platform
-    handler` [threadsafe-platform].
+    handler` [platform-threadsafe].
   - **`linear`** (`linear platform type HostIn`): exactly-once, never
     copied, consumed by a platform fn that says `=> !s` [linear-obligation].
     Rust does not require `Clone`. Because a linear value has one owner,
@@ -30161,7 +30192,7 @@ buffer.
 - **P3. Every platform type is sendable and `noremote`.** Sendable, so it
   can sit in actor state, a message or a `Reply<T>` [actor-sendable]; Rust
   requires `Send`. `noremote` is implied, since a host object has no wire
-  form [noremote]; using one where a value crosses the wire is the existing
+  form [net-noremote]; using one where a value crosses the wire is the existing
   error.
 - **P4. Operations are platform fns and platform handler members.** No
   member syntax on the type: constructors and operations are ordinary
@@ -30240,7 +30271,7 @@ on the ROADMAP whether or not the port happens.
    it stays host-specific after a port, since only Rust has a drop.
 2. **Addr capability bits differ in strength.** Kotlin draws them from
    `SecureRandom`; Rust's `random_u64` hashes a counter under `RandomState`,
-   and its comment says "not a cryptographic RNG". [addr-capability] is the
+   and its comment says "not a cryptographic RNG". [net-addr-capability] is the
    same rule on both backends with different guarantees.
 3. **Lock reentrance differs.** Kotlin's `ReentrantLock` lets a thread that
    already holds the lock take it again; Rust's `Mutex` deadlocks. Today's code
@@ -30270,7 +30301,7 @@ on the ROADMAP whether or not the port happens.
 
 Status of the findings: items 2, 3, 5, 6 and 7 are fixed (OS entropy on both
 backends; monitor re-entry; one shared dead entry; `route_any` waits on its
-view; [pool-retire]). Item 1 stays by design. Item 4, the waiter table that
+view; [actor-pool-retire]). Item 1 stays by design. Item 4, the waiter table that
 never shrinks, is open: ROADMAP item 0.
 
 ## Design record: the platform ABI (the ABI record, retired 2026-10-03)
@@ -30288,7 +30319,7 @@ code cites as "ABI Dn". The build sequence (14 steps, all done on
 
 ### Why
 
-Platform templates (`<m>.sv.kt` / `.sv.rs`, [host-splice], built 2026-09-30)
+Platform templates (`<m>.sv.kt` / `.sv.rs`, [platform-host-splice], built 2026-09-30)
 put Salvo inside host code. Reading the aws glue written that way, the user
 found two problems:
 
@@ -30477,7 +30508,7 @@ Decided:
   ordinary Salvo fns.
 
 **The remaining cases — decided 2026-10-01.** A factory exists per runtime
-arm [union-arm-identity]:
+arm [type-union-arm-identity]:
 
 | Arm | Factory (Kotlin; Rust in snake case) |
 |---|---|
@@ -30594,7 +30625,7 @@ class HostCounter(start: Int) : CounterPlatform {
 }
 ```
 
-The `threadsafe` contract and `Reply` keep their rules ([threadsafe-platform],
+The `threadsafe` contract and `Reply` keep their rules ([platform-threadsafe],
 [platform-reply]), now visible in the generated interface: Rust's `&self` or
 `&mut self` trait, documentation on the Kotlin one. A Rust member's parameters
 follow [rs-borrows] (`&T`, `&mut T`, `T`).
@@ -30618,7 +30649,7 @@ against. Options:
   points into the dependency's code without saying why.
 - (b) (a) plus an **ABI version** in every generated file's header (the
   compiler's ABI revision, plus a hash of the module's platform signatures,
-  like [protocol-hash] for actor protocols). A mismatch with the dependency's
+  like [actor-protocol-hash] for actor protocols). A mismatch with the dependency's
   checked-in copy is reported first: "dependency `aws` was generated for ABI
   N, this compiler is M; regenerate it".
 - (c) Refuse to build a dependency whose checked-in files differ from what this
@@ -30715,7 +30746,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   lexer/parser, `check_host_blocks`, both emitters' `render_host`,
   `HandlerDecl.{spliced, host, host_fields}`, `FnDecl.host`, the template
   grammars and the language server's template support (built 2026-09-30),
-  place ascription, the `[host-splice]` rule, and the template parts of
+  place ascription, the `[platform-host-splice]` rule, and the template parts of
   `salvo platform generate`.
 - **The aws generator's template output.** It writes implementation files
   instead, so this cannot be removed before that port is done.
@@ -30775,7 +30806,7 @@ by span survives past the IR builder. An emitter that reaches a node it cannot
 render reports an error naming the node; it has no "plain output" fallback
 ([backend-never-wrong]).
 
-**The IR states Salvo facts; a backend reconstructs its idiom** ([core-layers]).
+**The IR states Salvo facts; a backend reconstructs its idiom** ([backend-core-layers]).
 The IR says "branch on subject `x`: arm `None` → …, else bind `v` → …";
 Kotlin recognizes the shape and writes `x ?: …`. The IR says "this read
 consumes the value"; Rust writes a move and Kotlin writes nothing. The IR never
@@ -31261,9 +31292,9 @@ What the port added to the IR, all backend-neutral:
   `use` is one `Static` for the instance and one per face.
 * `AddrInstance { addr }` [actor-use-addr]: the instance behind an addr —
   `use addr`, and a dependency given an addr. A plain effect's addr *is* its
-  handle [monitor-handler].
+  handle [actor-monitor-handler].
 * `Widen { value }` [op-promote]: a numeric operand widened within its class;
-  a literal is retyped instead (`0` against a `Long` is `0L`) [lit-adopt].
+  a literal is retyped instead (`0` against a `Long` is `0L`) [type-lit-adopt].
 * `Spread { value }` inside an `Array` literal [fn-variadic].
 * `ArmTest::Lit(Vec<LitArm>)`: per runtime arm, the literal values accepted
   on it [type-literal].
@@ -31313,7 +31344,7 @@ What the port added to the IR, all backend-neutral:
 * Consume marks for move-mode `for` subjects and assignments, through
   `drop_mut`, and for variadic tails only when the callee moves them (§5).
 * A loop body ending in an `else`-less `if` is a statement, not the loop's
-  value for that turn [while-value].
+  value for that turn [loop-while-value].
 
 #### Step 4 (done 2026-10-06)
 
@@ -31353,7 +31384,7 @@ the user allowed.
 
 The document that took mutable aliasing from two defects to `ref(c)`
 (2026-10-06 to 2026-10-10). What it decided is in LANGUAGE_SPEC.md
-([ref-handle], [ref-anchor], [ref-notsame], [elem-distinct],
+([ref-handle], [ref-anchor], [ref-notsame], [fate-elem-distinct],
 [proj-opt-slot]) and BACKEND_SPEC.rust.md ([rs-path], [rs-loc],
 [rs-opt-borrow]); what it built is the decision-log entries from "Group-
 borrowing plan, Step 0" to "Handles are storage paths, part three". This is
@@ -31415,7 +31446,7 @@ an accessor, so handles from different accessors compare and split.
 Container-chosen position types were rejected (two functions per
 container author). Paths are the Rust backend's own declarations, not IR
 enums: an IR enum is a Salvo union, a path is how one backend spells
-`ref(c)` [core-layers]. `NotSame` replaced `NotEq` (a proof about handles,
+`ref(c)` [backend-core-layers]. `NotSame` replaced `NotEq` (a proof about handles,
 independent of the accessor; `NotEq`'s only extra was a proof before any
 handle exists, which `NotSame` on two `ref(list)` parameters says equally
 well). Recursive containers need a recursive path and wait on item 17.
@@ -31476,7 +31507,7 @@ literal members `[for lit in t.literals]` [comptime-literals]; X4 `s is "a" |
 return-only member [obligation-return]; X7 comptime patterns over
 qualifiers [comptime-pattern]; X8 `FieldOf<T>` (not built); X9 `explain`
 [qual-whynot]; X10 `Process`/`Env` [cli-process] [cli-env]; X11 `from_str`
-per type and `FromStr<T>` [str-parse]; X12 `Errs` [result-errs]; X13
+per type and `FromStr<T>` [str-parse]; X12 `Errs` [type-result-errs]; X13
 attributes and X14 comptime-declared types (recorded, not recommended); X15
 marker aliases and X17 declared annotations (superseded by comptime
 qualifiers); X16 comparing binders' names [comptime-name].
@@ -31669,15 +31700,15 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   nothing bound under `||`/`!`, fresh and used binder names, unions arm by
   arm, the `[when field.type]` dispatch, and its `else`-less form covering
   a struct's fields and a union's arms, and a stamped fn's subject `[when]`
-  refused at the template) + a host-tool unit test (`src/manifest.rs` [host-tool]:
+  refused at the template) + a host-tool unit test (`src/manifest.rs` [backend-host-tool]:
   tool paths and PATH names, the defaults, the Gradle build listing each
   artifact) + a platform-root unit test (`src/source.rs`
   [platform-root]: files attributed by their root, a shared and a split root,
   the other language under a backend's own root refused) + the place-ascription
-  test (`tests/splice_tests.rs` [host-splice]: by a declared name across host
+  test (`tests/splice_tests.rs` [platform-host-splice]: by a declared name across host
   branches, by `return`, a declaration by a place, a parameter's type enforced,
   an unknown place and `: return` outside a fn refused) + 2 template unit tests (`src/template.rs`
-  [host-splice]: the marker spans the language server answers in are the
+  [platform-host-splice]: the marker spans the language server answers in are the
   scanner's markers, and declaring headers parse at template offsets) + 12 assertion tests (`tests/assert_tests.rs` [assert-op]
   [assert-fn] [assert-narrow]: `!` refused on a never-absent value and on a
   `None`-less union with the alternatives named, `!` on an optional still fine,
@@ -31722,7 +31753,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   unconstrained-generic refusal and its remedy; equality opt-in at a struct and
   at a generic; `canbe hashed`/`canbe ordered` naming their replacement; and the
   same-base-type rule) + 16 monitor/handle/with-clause tests (`tests/monitor_tests.rs`
-  [effect-handle] [monitor-handler]: the monitor-spawn six, the bare `use` of a
+  [effect-handle] [actor-monitor-handler]: the monitor-spawn six, the bare `use` of a
   stateful handler as a monitor, dependencies of every shape binding with a
   plain `use`, the generic-monitor acceptance, a stored function value shared,
   a platform effect captured through `main`'s signature, and the `Pinger's
@@ -31800,7 +31831,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   effect members, `of`, `with`), the wrong-namespace wording hint both
   ways, import suggestions on an unknown type [diag-import-suggest], the
   intrinsic qualifiers staying known names, and `canbe` refusing a user
-  qualifier [canbe-optin]) + 6
+  qualifier [qual-canbe-optin]) + 6
   subject tests (`tests/subject_tests.rs` [qual-subject]: a mutating call
   strips a state qualifier but not a provenance one, provenance composes
   without `with` while two state claims still need it, a provenance body
@@ -31829,7 +31860,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   mixed `if`, and assignment resetting on the surviving path but not in
   the exiting branch)
   + 21 member-resolution tests (`tests/member_tests.rs` [call-resolve]
-  [field-resolve] [index-resolve] [iter-resolve]: unresolved bare and
+  [struct-field-resolve] [col-index-resolve] [iter-resolve]: unresolved bare and
   dot-calls rejected — the latter naming `external fn` as the remedy, both
   carrying import suggestions — calling a non-fn value and a generic
   rejected, a *declared* external still callable by dot-notation, fields
@@ -31846,7 +31877,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   `use` scope — absent one, an error at the registration — and a mutual
   dependency unregisterable in *either* order, so cycles need no check
   [effect-handler-deps]; plus interception [effect-intercept]
-  [use-no-dup]: a handler depending on the effect it implements accepted at
+  [effect-use-no-dup]: a handler depending on the effect it implements accepted at
   the declaration, an intercepting `use` binding strictly outward — refused
   with nothing to wrap, accepted over an instance in scope, stacking over
   another interceptor — and a plain `use` shadowing an earlier registration
@@ -31974,7 +32005,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   a producer rejected for writing through a capture and for merely reading
   mutable data through one, with the control that an *immutable* capture is
   free and that the same lambda into a non-producer is untouched)
-  + 20 throw/`try` tests (`tests/throw_tests.rs` [throw] [try]: the
+  + 20 throw/`try` tests (`tests/throw_tests.rs` [throw] [throw-try]: the
   outcome type read off an annotation mismatch (`Ok Int | Thrown Str`),
   several message types unioning (`Thrown (Str | Int)`), an always-leaving
   body still carrying `Ok None`, a `try` that cannot throw rejected, an
@@ -31986,7 +32017,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   value across a may-throw call rejected with the `defer` remedy accepted
   [throw-linear], `throw` *and* a may-throw call inside a deferred block
   rejected [defer-no-escape], an inner delimiter taking only its own
-  throws [try-innermost]; plus the two nested-qualification shapes the
+  throws [throw-try-innermost]; plus the two nested-qualification shapes the
   design asked to test rather than assume — a nested result outcome and a
   union message, both taken apart through a binding at the inner type — and
   the diagnostic that names that remedy when a qualified union is matched
@@ -32007,9 +32038,9 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   written *inside* it keeps its own; and the body's own linear value owed
   inside the body).
   + 12 `when`-condition tests (`tests/when_tests.rs` [when-condition]
-  [cond-bool]: the subject-less chain accepted; the mandatory `else`
+  [expr-cond-bool]: the subject-less chain accepted; the mandatory `else`
   keeping `None` out of the value, with the `if`-without-`else` control
-  showing the `Str?` it replaces [if-else-none]; a missing `else`, an
+  showing the `Str?` it replaces [expr-if-else-none]; a missing `else`, an
   `else`-only `when`, and a branch after the `else` rejected; an `else` in
   the *subject* form rejected with the diagnostic naming the other form;
   `is` heads narrowing their branch *and* the `else`; a chain returning
@@ -32242,11 +32273,11 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   `T` linear, unopted forwarding rejected, non-`Linear` clauses
   rejected, variadic positions refusing linear values with their
   follow-on leak),
-  the L7b `once` matrix ([once-fn]: double call and loop back-edge
+  the L7b `once` matrix ([fn-once]: double call and loop back-edge
   call consumed, `once` lambdas rejected at plain-fn boundaries,
   escape-then-call rejected, `once` on non-fn types rejected, with
   maybe-call and both subtyping directions' positives clean),
-  the L7c derived-return matrix ([readonly-return]: independent
+  the L7c derived-return matrix ([proj-readonly-return]: independent
   returns rejected, moved/unknown parameters rejected, argument
   mutation poisoning the result, borrowed results immovable with the
   `copy` remedy clean, direct element returns and forwarded derived
@@ -32296,7 +32327,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one)
-  + 3 template-grammar tests (`src/lang.rs` [host-splice] [cli-lang]: the
+  + 3 template-grammar tests (`src/lang.rs` [platform-host-splice] [cli-lang]: the
   injection's selector and pattern order, the checked-in `salvo-kotlin` /
   `salvo-rust` grammars matching the generated ones, and `package.json` plus
   the client registering both languages under those scopes) + the template LSP
@@ -32351,7 +32382,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   generated file removed and a hand-written one kept; std's and aws's
   checked-in host projects equal a fresh generation, and aws's compiles with
   `cargo check` and Gradle against the SDKs, skipping when not cached)
-  + the missing-host-tool test (`tests/platform_tests.rs` [host-tool]: a
+  + the missing-host-tool test (`tests/platform_tests.rs` [backend-host-tool]: a
   named `cargo` and a named `gradle` that do not exist, reported with the key)
   + the split-roots `platform generate` test (`tests/platform_tests.rs`
   [platform-root] [cli-platform]: a template and a host file in each backend's
@@ -32411,13 +32442,13 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   docs/language/-corpus parse-clean assertions with
   insta AST snapshots (`tests/corpus/*.sv`, plus `lib/std/core/result.sv`),
   error-reporting tests,
-  lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
+  lexer unit tests for numeric literal suffixes [type-lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int),
   5 tuple-index tests ([expr-tuple-index]: `t.0` parses as a projection,
   `t.0.1` as *two* projections rather than a float, floats still lexing as
   floats where an index cannot appear, a tuple element as a dot-call
   receiver, and numeric suffixes rejected),
-  3 `canbe` opt-in tests ([canbe-optin]: `canbe Mut` on a struct and
+  3 `canbe` opt-in tests ([qual-canbe-optin]: `canbe Mut` on a struct and
   on an `external type`, `<T canbe linear>` on a fn, and `canbe` on a
   non-fn type parameter rejected [linear-generics]), and 5 name tests
   ([name-dot] [name-casing]: dot-names in declarations and type
@@ -32431,7 +32462,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   indentation kept after the marker), and 2
   subject tests ([qual-subject]: `provenance qualifier` parses with the
   provenance subject while a plain declaration defaults to state;
-  `provenance` must precede `qualifier`), and 2 `try` tests ([try]: `try { ... }`
+  `provenance` must precede `qualifier`), and 2 `try` tests ([throw-try]: `try { ... }`
   parses as a block *expression*; a bodyless `try` is a parse error naming
   the form), and 6 subject-less `when` tests ([when-condition]: the
   condition chain parsing into `Expr::WhenCond` with its branches and
@@ -32512,7 +32543,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   missing defines for used external fns/types, uncovered core externals,
   companion/generated-file collision); `copy` intrinsic lowering
   assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
-  [kt-copy] [intrinsic-fn]) and a negative test (`copy` of nested
+  [kt-copy] [platform-intrinsic-fn]) and a negative test (`copy` of nested
   mutability is a codegen error);
   general-sweep assertions (precedence-preserving binary rendering,
   iterator-body `return` retargeting through a value-position loop,
@@ -32548,7 +32579,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   resource demo, and the L7a–L7d linear-generics, `once`,
   derived-returns, and fn-contracts demos —
   emission aliases throughout, stdout identical to the Rust runs
-  [fate-move-mode] [fate-link] [linear-static] [once-fn];
+  [fate-move-mode] [fate-link] [linear-static] [fn-once];
   the last four are the handler-dependency programs the Rust fusion runs —
   the same sources, the same asserted stdout, which is what parity means
   here [effect-handler-deps] [rs-effect-fusion]);
@@ -32558,7 +32589,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   capture, a matching named fn passing as `::name` and a pure one wrapped in
   an adapter; plus the kotlinc run of the program the Rust fusion used to
   reject, with the same stdout);
-  and 2 throw tests ([throw] [try] [kt-throw-signal]:
+  and 2 throw tests ([throw] [throw-try] [kt-throw-signal]:
   `throw_lowers_to_a_signal_and_try_to_a_catch` asserting the generated
   stack-trace-less signal, a tagged `throw`, a *plain* call in the
   propagating frame (no colouring), the delimiter's tag dispatch with its
@@ -32608,7 +32639,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   run of the demo — value and statement position, `is` heads, a chain
   returning from every branch, and one nested in a subject `when`'s arm —
   whose stdout matches the Rust run byte for byte)
-  and 2 `try`-body tests ([try]: a variable assigned *only* inside a `try`
+  and 2 `try`-body tests ([throw-try]: a variable assigned *only* inside a `try`
   body declared `var` — the traversal gap that emitted `val` and had
   kotlinc reject the output — plus the kotlinc run of the same program).
   and 2 refinement tests ([qual-refn] [qual-erasure]
@@ -32693,7 +32724,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   [actor-watch]; the **`waitfor` package** compiled and run — a handler that
   declares `[waitfor]` and blocks on a timer actor's answer from its own
   `thread()`, plus an actor on `main`'s pool served by `main`'s wait
-  [waitfor-effect] [waitfor-dedicated] [main-pool]; the **deadlock report for an
+  [waitfor-effect] [waitfor-dedicated] [actor-main-pool]; the **deadlock report for an
   occupied waiter** as two scheduler driver cases — an actor parked in a wait
   nothing can fulfil reported by name and exit 1, and the converse, an actor
   parked while `main` works through ordinary code and fulfils its token
@@ -32702,7 +32733,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   **task kernel** compiled
   and run — a free `send fn` scheduled by a fulfilled token, inherited and
   written placements, with the closure-not-a-continuation-enum lowering asserted
-  [free-send-fn] [task-mint] [rs-task]; the **quiescence hook** compiled and run —
+  [actor-free-send-fn] [task-mint] [rs-task]; the **quiescence hook** compiled and run —
   a settled pool answering `gates 0, tokens 0` and a gated actor answering
   `gates 1, tokens 1`, with its `Idle`-builder lowering asserted
   [actor-on-idle]; **handlers of several effects** compiled and run —
@@ -32752,10 +32783,10 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   the S2 zero-clone move-mode demo, the S3 borrow demo, the L6 linear
   resource demo, the L7a linear-generics workflow demo, the L7b
   `once` demo — with `once_fn_params_emit_fnonce` asserting the
-  `impl FnOnce` rendering [once-fn] — the L7c derived-returns demo,
+  `impl FnOnce` rendering [fn-once] — the L7c derived-returns demo,
   with `derived_returns_emit_borrows` asserting the elided and
   generated-lifetime signatures and the borrow returns
-  [readonly-return], and the L7d contracts demo, with
+  [proj-readonly-return], and the L7d contracts demo, with
   `fn_type_contracts_emit_modes` asserting `&mut impl FnMut`
   signatures with contract-mode argument types and the named-fn
   adapter [fn-contract]);
@@ -32789,7 +32820,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   scaffolding, the hoisted `return` value, and the loop body's deferred
   code appearing at its `continue`, its `break` and the block end; plus the
   rustc run of the same demo Kotlin runs, with the same stdout); and 3
-  throw tests ([throw] [try] [rs-throw-controlflow] [rs-try-label]:
+  throw tests ([throw] [throw-try] [rs-throw-controlflow] [rs-try-label]:
   `throw_lowers_to_controlflow` asserting the `ControlFlow<M, T>` return
   shape, `throw` as a `Break` return, `Continue`-wrapped returns, no trait
   for the effect, and the deferred release on the throw path of a
@@ -32809,7 +32840,7 @@ forces them; `SALVO_SKIP_E2E` does not skip them.
   and no `unreachable!()` arm (the mandatory `else` makes it total), and
   the `is` binding declared inside its branch; plus the rustc run of the
   demo Kotlin also runs, with the same stdout); and 1 `try`-body test
-  ([try]: the rustc run of the program whose `try` body assigns an outer
+  ([throw-try]: the rustc run of the program whose `try` body assigns an outer
   variable and declares a local — the Rust half of the same traversal
   gap); and 2 generic-higher-order tests ([rs-fn-param-convention]
   [fn-contract]: `a_lambda_binds_a_generic_fn_parameter_by_reference`
@@ -32955,7 +32986,7 @@ snapshot diffs.
   Normalize before folding, or expect it.
 
 - **A call with no node needs a key, a location and a wording** (B3.3d,
-  2026-10-28, [for-iter]): `resolve_named_call` records under
+  2026-10-28, [iter-for]): `resolve_named_call` records under
   `self.key(span)` and reports at `span` all the way down, so a call a form
   makes without a node of its own (the `for` header's `next`/`iter`) is
   resolved at a span only it uses (the `for`'s) while a site
@@ -32994,7 +33025,7 @@ snapshot diffs.
   span, so hashing the text without them pairs each program with its base.
 
 - **A shape is on the type the checker would lower** (B3.3b, 2026-10-28,
-  [unique-shape]): a scope can hold a file's own alias *and* an imported
+  [op-unique-shape]): a scope can hold a file's own alias *and* an imported
   struct of one name (a whole-module import does not shadow a type of
   another kind), and `lower_base_ref` takes the alias first. Look types up
   in that order in any resolve-phase reading of a written type, or a stamped
@@ -33062,7 +33093,7 @@ snapshot diffs.
   worktree prefix.
 
 - **A copied node's position is its template's** (A2, 2026-10-27,
-  [origin]): `span.start` of a node with `span.expn != 0` is an offset of the
+  [node-origin]): `span.start` of a node with `span.expn != 0` is an offset of the
   code it was copied from, often another file. Compare positions only
   between spans of one expansion (`Span::order_key`, `Span::holds` for a
   cursor offset), and key a table by the whole `Span`, never by `(start,
@@ -33667,7 +33698,7 @@ snapshot diffs.
   the token its own flag and loop on it.
 
 - **An embedded language in a TextMate grammar is an injection, not a
-  pattern** (2026-09-30, [host-splice]). Including the host grammar and adding
+  pattern** (2026-09-30, [platform-host-splice]). Including the host grammar and adding
   a marker pattern beside it only highlights markers at the top level: once the
   host enters a nested begin/end rule (a class body, a lambda) only that rule's
   patterns are tried. A grammar-level `injections` entry whose selector names
@@ -34723,7 +34754,7 @@ snapshot diffs.
   is the case that proves it.** Both emitters and the checker had lookups
   that took the *first* matching entry, which was indistinguishable from
   the last while only one registration per instance existed. The moment
-  shadowing became legal ([use-no-dup], interception), the Kotlin emitter
+  shadowing became legal ([effect-use-no-dup], interception), the Kotlin emitter
   answered member calls with the **outer** handler — silently, and only on
   that backend (2026-09-14). Rust was already innermost-first, so the
   divergence was invisible until the same program was run on both. When a
@@ -35406,7 +35437,7 @@ snapshot diffs.
   `collect_mutated` / `collect_declared` in both emitters, and each
   emitter's `emit_operand` parenthesization list.
 - **A rule can sit in the spec for eight milestones without being
-  enforced.** `[if-bool]` (now `[cond-bool]`, renamed when the rule grew to
+  enforced.** `[if-bool]` (now `[expr-cond-bool]`, renamed when the rule grew to
   cover `while` and subject-less `when` heads) said "`if`/`elif` conditions
   must be boolean expressions; there is no truthiness" from M0 and was never
   checked: `analyze_cond`'s fallback arm typed the condition and threw the

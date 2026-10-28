@@ -11,14 +11,15 @@
 
 // Builds an array from [elems]. The variadic tail **is** the array, which is
 // what makes this the constructor rather than a copy: a `...spread` argument
-// arrives as the whole array already [fn-variadic]. Arrays exist for the
+// arrives as the whole array already. Arrays exist for the
 // variadic boundary, so a program that never spreads rarely needs one — a
-// `List` is the ordinary sequence [col-no-literal].
+// `List` is the ordinary sequence.
+// @compilerrules [fn-variadic, col-no-literal]
 export intrinsic fn array_of<T canbe linear>(...elems: T[]) [] -> T[]
 
 // Builds an array of [size] elements, each from its index: `array_by(3, i ->
-// i * 2)` is `[0, 2, 4]`. The generator is called once per index, in order
-// [col-by].
+// i * 2)` is `[0, 2, 4]`. The generator is called once per index, in order.
+// @compilerrules [col-by]
 export intrinsic fn array_by<T>(size: Int, init: (Int) -> T) [] -> T[] => size, init
 
 // Returns the number of elements in the array
@@ -29,17 +30,20 @@ export intrinsic fn get<T>(array: T[], index: Int) [] -> (proj(array) T)? => arr
 
 export intrinsic fn first<T>(array: T[]) [] -> proj(array) T? => array
 
-// [iter-mint] A fresh iterator over the array — a view of it with a position:
-// the array is borrowed, not moved [proj-field] [proj-infer].
+// A fresh iterator over the array — a view of it with a position:
+// the array is borrowed, not moved.
+// @compilerrules [iter-mint, proj-field, proj-infer]
 export fn iter<T>(array: T[]) [] -> Mut ArrayNext<T> => array {
     return Mut ArrayNext<T> { items: array, at: 0 }
 }
 
-// [iter-protocol] The pass an array is walked by — `std.core.list`'s [ListNext]
+// The pass an array is walked by — `std.core.list`'s [ListNext]
 // with an array inside. The backends keep their native loop for a `for` over
-// an array [iter-for-native]; this shape is what combinators see.
+// an array; this shape is what combinators see.
+// @compilerrules [iter-protocol, iter-for-native]
 export struct ArrayNext<T> : Next<self, proj T> canbe Mut {
-    // The array being walked — borrowed [proj-field].
+    // The array being walked — borrowed.
+    // @compilerrules [proj-field]
     items: proj (T[]),
     // The index of the next element to emit.
     at: Int

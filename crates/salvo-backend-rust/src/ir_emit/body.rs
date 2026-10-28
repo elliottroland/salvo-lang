@@ -190,7 +190,7 @@ pub(crate) fn rs_local(l: &str) -> String {
     if s.starts_with("__") { s } else { rs_ident(&s) }
 }
 
-/// [safe-nav] If `value` is a plain field read of the narrowed receiver `nav`
+/// [op-safe-nav] If `value` is a plain field read of the narrowed receiver `nav`
 /// (`Read(nav.field)`, possibly wrapped in `Present`), the field name; `None`
 /// for a call link or any other shape.
 fn safe_nav_field<'a>(value: &'a Expr, nav: &Local) -> Option<&'a str> {
@@ -458,7 +458,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         match self.s.program.files.iter().position(|f| f.module == self.module.path) {
             Some(i) => {
                 let file = &self.s.program.files[i];
-                // [origin] Copied code is named where it lands.
+                // [node-origin] Copied code is named where it lands.
                 let span = salvo_core::origin::landing(&self.s.program.modules[i], span);
                 let (line, col) = salvo_syntax::span::span_line_col(&file.content, span);
                 format!("{}:{line}:{col}", file.module)
@@ -1362,7 +1362,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::Spread { value } => self.value(value, indent),
             ExprKind::Concat(parts) => self.concat(parts, indent),
             ExprKind::Branch { id, arms, otherwise } => {
-                // [safe-nav] [rs-safe-nav] A `?.` whose links are all field
+                // [op-safe-nav] [rs-safe-nav] A `?.` whose links are all field
                 // reads renders as an `.as_ref().and_then(..).map(..)`
                 // combinator chain; anything else (a call link, or a shape the
                 // chain cannot express) falls back to the generic branch,
@@ -1605,7 +1605,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// keeping `None`, owning a borrowed arm, and the flat↔nested spread a
     /// union-spanning generic needs — is this one `match`, mapping each
     /// source arm to the target arm of the same **arm identity**
-    /// [union-arm-identity].
+    /// [type-union-arm-identity].
     ///
     /// `own` clones a borrowed payload into an owned target slot (the former
     /// `own_borrowed_union`); without it a payload passes through unchanged
@@ -1761,7 +1761,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         format!("{{\n{out}{pad}}}")
     }
 
-    /// [safe-nav] [rs-safe-nav] Render a `?.` lowering as an
+    /// [op-safe-nav] [rs-safe-nav] Render a `?.` lowering as an
     /// `.and_then(..)`/`.map(..)` combinator chain when every link is a field
     /// read. Returns `None` for a call link, a non-field link, or a non-`?.`
     /// branch, so the caller falls back to the generic (correct) block.

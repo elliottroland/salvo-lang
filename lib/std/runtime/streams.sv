@@ -50,25 +50,28 @@ platform fn host_close_out(h: Mut HostOut) [] -> Str? => !h
 // A host stream over [data]: what `raw_from_bytes` registers.
 platform fn host_bytes_in(data: Bytes) [] -> Mut HostIn => !data
 
-// [stream-provider] A handle this table never minted is another provider's
+// A handle this table never minted is another provider's
 // stream — a `MemFs` token handed to the host — which is a program bug, and
 // traps naming the rule.
+// @compilerrules [stream-provider]
 platform fn not_ours(handle: Long) [] -> Never => handle
 
 // ---- the entries
 
-// [stream-table] A failure recorded against a stream: strict decoding
+// A failure recorded against a stream: strict decoding
 // ([utf8]) or what the host reported. Once one is recorded, later reads
 // report the end and the close reports why; the same for writes at flush and
 // close.
+// @compilerrules [stream-table]
 export struct Fault {
     utf8: Bool,
     message: Str
 }
 
-// [stream-table] A readable stream. [position] counts bytes *handed to the
+// A readable stream. [position] counts bytes *handed to the
 // reader* — bytes read ahead for a line do not count until they are taken —
 // so a file's position is exactly the offset `open_read_at` takes.
+// @compilerrules [stream-table]
 export linear struct InEntry canbe Mut {
     source: Str,
     host: Mut HostIn,
@@ -77,7 +80,8 @@ export linear struct InEntry canbe Mut {
     failed: Fault?
 }
 
-// [stream-table] A writable stream. [position] counts bytes accepted.
+// A writable stream. [position] counts bytes accepted.
+// @compilerrules [stream-table]
 export linear struct OutEntry canbe Mut {
     source: Str,
     host: Mut HostOut,
@@ -101,8 +105,9 @@ fn drop_out_entry(e: Mut OutEntry) [] -> None => !e {
 struct Busy {}
 struct Unknown {}
 
-// [stream-receive] A receive in flight: the answer's token, until the reader
+// A receive in flight: the answer's token, until the reader
 // thread has read.
+// @compilerrules [stream-receive]
 linear struct Pending { handle: Long, done: Reply<Chunk> }
 
 fn drop_pending(p: Pending) [] -> None => !p {
@@ -229,9 +234,10 @@ fn unbusy(busy: Mut List<Long>, waiting: Mut List<Parker>, handle: Long) [] -> N
 
 // ---- registering [stream-table]
 
-// [stream-handle] A handle for a new stream, unique in the process: every
+// A handle for a new stream, unique in the process: every
 // stream table, host and in-memory, draws from this one counter, so a handle
 // reaching the wrong table is unknown there rather than another stream's.
+// @compilerrules [stream-handle]
 export fn fresh_handle() [] -> Long {
     return next_handle()
 }
@@ -258,7 +264,8 @@ export fn register_bytes(data: Bytes) [] -> Long => !data {
 // ---- checking out
 
 // The readable entry [handle], checked out: waits while another operation
-// has it; traps for a handle the table never minted [stream-provider].
+// has it; traps for a handle the table never minted.
+// @compilerrules [stream-provider]
 export fn checkout_in(handle: Long) [] -> Mut InEntry => handle {
     while true {
         let got = take_in(copy(handle), this_parker())
@@ -425,7 +432,8 @@ export fn read_up_to(e: Mut InEntry, max: Int) [] -> Read => e: Mut, max {
     return Read { data: copy(got.data), end: size(got.data) == 0, fault: None }
 }
 
-// [stream-table] Decodes [data] strictly, recording a failure against [e].
+// Decodes [data] strictly, recording a failure against [e].
+// @compilerrules [stream-table]
 export fn decode(e: Mut InEntry, data: Bytes) [] -> Str? => e: Mut, data {
     let text = str_of_bytes(data)
     if text is None {
@@ -481,8 +489,9 @@ export struct Chunk {
 // Reads the next bytes of [handle] on a thread of its own and answers
 // [done] from there: the caller's worker never waits. At the end, or on a
 // failure, the stream is closed before answering. Until it answers, the
-// program has an outside source of work [threadsafe-platform], so a frame
+// program has an outside source of work, so a frame
 // waiting on [done] is neither idle nor deadlocked.
+// @compilerrules [platform-threadsafe]
 export fn receive(handle: Long, done: Reply<Chunk>) [] -> None => !handle, !done {
     add_pending(Pending { handle: copy(handle), done: done })
     external_begin()

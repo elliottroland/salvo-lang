@@ -1,4 +1,4 @@
-//! [field-canbe-mut] `name: T canbe Mut` on a struct field: the field is
+//! [struct-field-canbe-mut] `name: T canbe Mut` on a struct field: the field is
 //! `Mut T` exactly when the struct value is `Mut`, so a plain struct is
 //! immutable all the way down. What the checker refuses, and what it types.
 
@@ -6,7 +6,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The declarations these sources rely on, loaded as a
+/// [platform-intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`).
 const STD_PRELUDE: &str = concat!(
     concat!(

@@ -246,7 +246,7 @@ amends R1's relative-span key), P3 (call resolution is the reference; every
 other spelling behaves like the call it lowers to), P4 case by case
 (effect members compete with fns; interpolation and operators per
 OPERATOR_OVERLOAD.md O1: an operator is the call it names, and each operator
-shape on a type is declared in the type's file, `[unique-shape]`), P5 (the
+shape on a type is declared in the type's file, `[op-unique-shape]`), P5 (the
 round trip on the corpus and examples), P6 (representation decided at D1),
 P7 (one `salvo dump --phase parse-ast|resolve|type-check|generate-ir`), P8
 (comptime's signature/body split only in C3); `by` at a call is not
@@ -406,7 +406,7 @@ handler's members (`fn record(k: Int) [state Tally]`); threading a cursor or
 a machine in an ordinary body (a parser's `parse_expr() [state Cursor]`), the
 classic state effect (Koka's `state<s>`, Haskell's `State s`). Only `iter fn`s
 and handlers *declare* a state struct; the general form uses ordinary structs.
-To decide: two states of one type in scope (refused, as [use-no-dup]); a
+To decide: two states of one type in scope (refused, as [effect-use-no-dup]); a
 lambda reaching a state (its type carries `[state S]`, as with effects);
 states and actors (not shareable); reading the final state after a `state`
 statement's block.
@@ -501,7 +501,7 @@ for programs that are in error anyway.
 **Recommendation** (no language change): an interface fact of the handler,
 computed syntactically. The spec already describes the gate as syntactic.
 
-### 4.6 `iter fn` state field types [state-infer] (decided R5: option b)
+### 4.6 `iter fn` state field types [handler-state-infer] (decided R5: option b)
 
 **What is left.** A state field writes its type (`at: Int = from`) or has it
 inferred from the initializer (`at = from`), as `let at = from` infers (user
@@ -697,7 +697,7 @@ proceed through the steps without stopping, commit per AGENTS.md, keep this
 log current so the work can resume after a context reset). Newest last.
 
 - **Step 1 (done, committed "Time the pipeline's phases, and reuse an
-  analysis between edits").** `SALVO_TIMINGS=1` [phase-timings]
+  analysis between edits").** `SALVO_TIMINGS=1` [cli-phase-timings]
   (`salvo_core::timing::phase`, wired in `analysis.rs::analyze_project` and
   `check.rs` rounds/`check_once`); the server's analysis cache
   [lsp-analysis-reuse] (`lsp.rs` `analysis_with`, cleared in
@@ -725,7 +725,7 @@ log current so the work can resume after a context reset). Newest last.
   parameter held (`Hold::Owned`/`Whole`); `iter T`, `hoist_iter_types`, the
   iter-return pre-pass and `Checked.iter_returns` gone; `Iter<C, It, T>`
   through std, examples, tests and docs. Handlers: `HandlerDecl.state_name`,
-  `check_handler_names` ([bare-names], [state-name]); 9d's initializer fix in
+  `check_handler_names` ([name-bare], [handler-state-name]); 9d's initializer fix in
   `ir::build::decls::fields`; 9c in `learn_from_implicits_once` (a written
   implicit teaches through the fn written). Still two walks per program
   (move-mode candidates; step 5). Full nextest after the std change took
@@ -867,7 +867,7 @@ log current so the work can resume after a context reset). Newest last.
      needed**: ownership errors only on type-clean programs — plus the
      deadlock router node (§7 note).
 - **Step 7, piece 2 (done, committed "Check that ownership never changes an
-  accepted program's typing").** [ownership-audit]:
+  accepted program's typing").** [deduce-ownership-audit]:
   `check_program_ownership_blind` (thread-local switch; `mark_consumed` at
   the 8 `narrowed = Never` sites; `check_moved_place` off) and
   `ownership_audit_tests.rs` over every example and std: no difference in
@@ -1527,7 +1527,7 @@ log current so the work can resume after a context reset). Newest last.
     audit found no false report from it.
 - **Step 7, piece 3 (02-resolve-03-interfaces as its own pass, with its own
   diagnostics): done** (committed "Check every declaration's interface
-  before any body"). [interface-pass]: `check_once` runs `walk_interfaces`
+  before any body"). [decl-interface-pass]: `check_once` runs `walk_interfaces`
   (step one `check_signature_facts` over every file, then `check_module` in
   `Pass::Interface` and the platform boundary over every file), then
   `walk_bodies` (`check_module` in `Pass::Body`). `walk_signatures` and its
@@ -2221,7 +2221,7 @@ narrowing as bindings, every operator a call.
 
 ## II.4. Origins
 
-Built for comptime copies in A2 (§II.12, [origin]): a copied node keeps
+Built for comptime copies in A2 (§II.12, [node-origin]): a copied node keeps
 its template's span and carries an expansion id the stamped fn's `Stamp`
 records. Before it, copies got synthetic spans past the end of the file, a
 `StampRegion` map, and `comptime::redirect_stamped` to move their errors
@@ -2536,7 +2536,7 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
     design** (OPERATOR_OVERLOAD.md; discussion and decisions O1–O6 recorded
     there; O1 decided 2026-10-27: an operator is the call it names, resolved by name like any call, and each operator on a type is declared once, in the type's module), its interaction with implicits and generics; interpolation is an operator on that model. Candidate direction (user):
     `"a ${x} b"` lowers to a call of a std **format fn**, which a backend may
-    emit as its native interpolation ([core-layers]: core states the call,
+    emit as its native interpolation ([backend-core-layers]: core states the call,
     the backend spells it). Open inside it: how each part becomes text (the
     operator question proper: a per-part `to_str` pick, an implicit, or the
     format fn's own parameter), and what becomes of `interp_union`'s
@@ -2593,7 +2593,7 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   lambda written there is refused. Recommendation (a). ROADMAP 0af.
 
 - **P10. DECISION (open, B3.3b, 2026-10-28): three readings of
-  [unique-shape].** D-1 to D-7 decide the rule; three cases they do not name
+  [op-unique-shape].** D-1 to D-7 decide the rule; three cases they do not name
   were built on the reading that follows from them: (1) a **non-union alias
   names its target** (`type Grid = List<Int>` puts `to_str(g: Grid)` on
   `List`, since aliases are structural [type-alias] and D-2 says "base type";
@@ -2638,7 +2638,7 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   type is driven and its `iter` never called by a `for`; the brief suggests
   an error, R10 did not decide, and only the obligation pair (`: Iter` beside
   `: Next`) is refused today. Built: **(a)** accept, `next` wins; (b) refuse
-  at the type, a per-declaration check beside [unique-shape]; (c) accept and
+  at the type, a per-declaration check beside [op-unique-shape]; (c) accept and
   drop the obligation-pair refusal too. Recommendation (b). ROADMAP 0am.
 - **P16. DECISION (open, B3.3e, 2026-10-28): names for `%`, unary `-` and
   `++`/`--`.** O1's table names `+ - * /` and `**` only. Built: **(a)** keep
@@ -2823,7 +2823,7 @@ this log current so the work can resume after a context reset). Newest last.
   R10.
 
 - **A2: done** (committed "Give every copied node its origin"). Built
-  ([origin]; COMPLETED.md "Every copied node keeps its origin"): `Span` is
+  ([node-origin]; COMPLETED.md "Every copied node keeps its origin"): `Span` is
   `{ start, end, expn }` — a copied node keeps the range of the code it was
   copied from and carries an expansion id, 0 for written code — and the
   stamped fn's `Stamp` holds the records (`ExpansionRecord { id, parent,
@@ -3014,7 +3014,7 @@ this log current so the work can resume after a context reset). Newest last.
   `next_spread_pairs`, `learn_next_elems`), and the iterator structs named
   after the group (`ListYield` → `ListNext`, `ArrayNext`, `StrNext`,
   `BytesNext`, `DequeNext`, `SetNext`, `MapKeyNext`). Kept: the concept name
-  "group" (`DeclKind::Group`, `[implicit-group]`), the labels `[yield-proj]`
+  "group" (`DeclKind::Group`, `[implicit-group]`), the labels `[iter-yield-proj]`
   and `[yield-fn-origin]`, the `yield` statement. Emitted code changed only
   in the structs' names and names derived from them; `expected.txt`
   unchanged. Tests 2,122. The census below is renamed with the rest (its
@@ -3025,7 +3025,7 @@ this log current so the work can resume after a context reset). Newest last.
   (O1) has both names in the group already.
 
 - **B3.3b: done** (committed "Declare each operator shape in its type's
-  file"). Built ([unique-shape]; COMPLETED.md "Each operator on a type is
+  file"). Built ([op-unique-shape]; COMPLETED.md "Each operator on a type is
   declared in the type's file"): `salvo_core::unique_shape`, a per-declaration
   check run by `resolve` once the scopes are built (an interface fact; no
   program-wide search): the class is `SHAPES` (D-3's table), "on `T`" the
@@ -3082,7 +3082,7 @@ this log current so the work can resume after a context reset). Newest last.
   no operator yet; `**` is not lexed.
 
 - **B3.3c: done** (committed "Resolve comparison operators as the calls they
-  name"). Built ([op-order], [op-equality], [op-promote], [unique-shape];
+  name"). Built ([op-order], [op-equality], [op-promote], [op-unique-shape];
   COMPLETED.md "Comparison operators are the calls they name"): `a == b`,
   `a != b`, `a < b`… lower to `eq(a, b)`, `!eq(a, b)`, `cmp(a, b) < 0`,
   resolved by `resolve_named_call` with the operands pre-typed, after the
@@ -3123,7 +3123,7 @@ this log current so the work can resume after a context reset). Newest last.
   operator's operand promotion is read in every argument list.
 
 - **B3.3d: done** (committed "Drive a for loop through the next and iter it
-  names"). Built ([for-iter], [iter-resolve], [iter-protocol],
+  names"). Built ([iter-for], [iter-resolve], [iter-protocol],
   [group-obligation], [fn-rename]; COMPLETED.md "A `for` is the `next` and
   `iter` it names"): `for x in e` is `next(e)` when a `next` takes `e`
   (`Checker::for_fits`, by shape: one parameter, `next`'s result shape),
@@ -3162,7 +3162,7 @@ this log current so the work can resume after a context reset). Newest last.
 
 - **B3.3e: done** (committed "Resolve arithmetic operators as calls and add
   the ** operator"). Built ([op-arith], [op-pow], [op-promote],
-  [unique-shape]; COMPLETED.md "Arithmetic operators are the calls they name,
+  [op-unique-shape]; COMPLETED.md "Arithmetic operators are the calls they name,
   and `**` is added"): `a + b`, `-`, `*`, `/` lower to `plus`, `minus`,
   `times`, `divide`, and the new `a ** b` (lexed `StarStar`, parsed at the
   unary level by `parse_power`) to `pow`, by `check_arith_call`: the enclosing
@@ -3394,7 +3394,7 @@ dissolves once D's placement check exists. **Decision:** none.
 
 Dissolved (commit "Declare each operator shape in its type's file", B3.3b):
 a module's `eq(Str, Str)` or `to_str(Int)` is refused at its declaration
-[unique-shape], naming `std.core.string`'s or `std.core.basic`'s file.
+[op-unique-shape], naming `std.core.string`'s or `std.core.basic`'s file.
 
 #### D3. Effect members never fill interpolation, operator or implicit positions
 
@@ -3455,7 +3455,7 @@ exception. Then the lowering would be `eq(strip(xs), strip(ys))`, which is
 not a plain call.
 
 Fixed (commit "Resolve comparison operators as the calls they name"): the operands are the call's arguments, qualifiers included. The
-probe is rebuilt with a user type, since [unique-shape] puts both overloads in
+probe is rebuilt with a user type, since [op-unique-shape] puts both overloads in
 the type's file: `Bag<T>` with `eq<T>(Bag<T>, Bag<T>, ?eq)` and `eq(Packed
 Bag<Int>, Packed Bag<Int>)` in `bag.sv`; `xs == ys` on two `Packed Bag<Int>`s
 prints `op:   true` on both backends, like the call.
@@ -3511,7 +3511,7 @@ first-match rule (not probed separately). **Decision:** none.
 Fixed (commit "Drive a for loop through the next and iter it names"): `for x in c` is the call `next(c)`, ranked as the call
 ranks; `for-first-next` prints `for:  100`, `for:  200` on both backends.
 Two same-signature `next`s cannot meet at a concrete type any more
-([unique-shape] puts both in the type's file, where [fn-overload-duplicate]
+([op-unique-shape] puts both in the type's file, where [fn-overload-duplicate]
 refuses the second); the probe's generic-beside-specific pair is ranked.
 
 #### D9. `for` ignores `rename fn`

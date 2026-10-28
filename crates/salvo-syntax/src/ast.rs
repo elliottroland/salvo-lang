@@ -30,13 +30,13 @@ pub struct Module {
     /// module without being declared. Allowed in std's runtime module only
     /// (user decision 2026-10-02, runtime E4); empty everywhere else.
     pub uses: Vec<ModuleUse>,
-    /// [namespace] The dotted paths of every `namespace` declared in this
+    /// [mod-namespace] The dotted paths of every `namespace` declared in this
     /// file (`AttributeValue`, `Outer`, `Outer.Inner`), recorded when the
     /// namespace bodies were flattened into dotted names. A namespace leaves
     /// no other trace after flattening, so this is how `check_dot_names`, the
     /// `.Thing` sugar and LSP know a dotted prefix was a namespace — a
     /// namespace may share its name with a type, so it is not enough to look
-    /// for a declaration [namespace].
+    /// for a declaration [mod-namespace].
     pub namespaces: Vec<String>,
     /// [node-id] Every declaration's run of node ordinals, in numbering
     /// order (`node_id::number`): the file's own nodes (its imports,
@@ -91,7 +91,7 @@ pub enum Item {
     /// [effect-alias] `effects IO = [Console, Fs, Streams]` — a named effect
     /// group, expanded to its members before resolution.
     EffectAlias(EffectAliasDecl),
-    /// [namespace] `namespace X { … }` — a nestable grouping of top-level
+    /// [mod-namespace] `namespace X { … }` — a nestable grouping of top-level
     /// declarations. Its body is itself a list of items (any declaration, and
     /// nested namespaces). Flattened to dotted names [name-dot] before
     /// resolution, so nothing downstream sees the block form.
@@ -297,8 +297,8 @@ pub struct ImportDecl {
     pub span: Span,
 }
 
-/// [namespace] `namespace X { items }`, or the terminal form `namespace X ...`
-/// whose body is the rest of the enclosing file [terminal-scope].
+/// [mod-namespace] `namespace X { items }`, or the terminal form `namespace X ...`
+/// whose body is the rest of the enclosing file [expr-terminal-scope].
 ///
 /// A nestable grouping: `items` may hold any top-level declaration, including
 /// further `Namespace`s. Before resolution the body is flattened — each inner
@@ -309,7 +309,7 @@ pub struct ImportDecl {
 pub struct NamespaceDecl {
     /// The `//` comment block directly above the declaration [doc-comment].
     pub docs: Vec<String>,
-    /// [namespace] `export namespace X`: exports *every* member (D6). An inner
+    /// [mod-namespace] `export namespace X`: exports *every* member (D6). An inner
     /// `export` still works and is redundant under this (D7).
     pub exported: bool,
     /// The namespace name — a single capitalized segment [name-casing].
@@ -317,7 +317,7 @@ pub struct NamespaceDecl {
     /// The declarations inside the namespace, in source order.
     pub items: Vec<Item>,
     /// True for the terminal form `namespace X ...` (body is the rest of the
-    /// file) rather than a braced `{ … }` block [terminal-scope].
+    /// file) rather than a braced `{ … }` block [expr-terminal-scope].
     pub terminal: bool,
     pub span: Span,
 }
@@ -336,7 +336,7 @@ pub struct TypeDecl {
     pub exported: bool,
     /// `intrinsic`: declared by the standard library and implemented inside
     /// the compiler — every backend must lower every one of them
-    /// [backend-intrinsic] [intrinsic-fn] [intrinsic-std-only]. A flag
+    /// [backend-intrinsic] [platform-intrinsic-fn] [platform-intrinsic-std-only]. A flag
     /// rather than an enum: it is the only backing modifier there is, now
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
@@ -348,7 +348,7 @@ pub struct TypeDecl {
     /// the declaring file must contain a discharger, and every value owes.
     /// Only an `intrinsic type` may carry it, never an alias.
     pub linear: bool,
-    /// [noremote] `noremote intrinsic type Pool`: no wire form — a value of
+    /// [net-noremote] `noremote intrinsic type Pool`: no wire form — a value of
     /// it cannot cross to another machine, and neither can anything holding
     /// one. The opt-out of serializable-by-default (user decision
     /// 2026-09-26); std marks its process-local handles with it.
@@ -452,7 +452,7 @@ pub struct StructDecl {
     /// its declaring module (and that module's test annex); elsewhere the
     /// type is usable but its fields are not.
     pub opaque: bool,
-    /// [noremote] `noremote struct Canvas { … }`: no wire form, and
+    /// [net-noremote] `noremote struct Canvas { … }`: no wire form, and
     /// transitive — a struct with a `noremote` field is `noremote` whether or
     /// not it says so. The opt-out of serializable-by-default (user decision
     /// 2026-09-26).
@@ -551,7 +551,7 @@ pub struct CompFn {
     pub span: Span,
 }
 
-/// [comptime-instantiate] [origin] Where a stamped fn came from, for the
+/// [comptime-instantiate] [node-origin] Where a stamped fn came from, for the
 /// diagnostics about it: an error inside an unrolled copy names the compfn,
 /// the scope it was taken from, and the type it was stamped at, so a failed
 /// resolution reads "in `cmp` from `auto` for `Point`: …" at the field it
@@ -564,7 +564,7 @@ pub struct Stamp {
     /// The `by` site: where a diagnostic lands when it is not about one
     /// field or arm in particular.
     pub site: Span,
-    /// [origin] The expansions the fn's copied nodes carry (`Span::expn`):
+    /// [node-origin] The expansions the fn's copied nodes carry (`Span::expn`):
     /// the template copied whole, each unrolled copy with the field or arm
     /// it was for, and what the expansion made up. A copied node keeps the
     /// range of the code it was copied from; its expansion says what it is a
@@ -586,7 +586,7 @@ pub struct Stamp {
 }
 
 impl Stamp {
-    /// [origin] The expansion `expn` (an id `Span::expn` carries).
+    /// [node-origin] The expansion `expn` (an id `Span::expn` carries).
     pub fn expansion(&self, expn: u32) -> Option<&ExpansionRecord> {
         self.expansions
             .binary_search_by_key(&expn, |e| e.id)
@@ -595,7 +595,7 @@ impl Stamp {
     }
 }
 
-/// [origin] One expansion step a stamped fn's nodes came from: the nodes
+/// [node-origin] One expansion step a stamped fn's nodes came from: the nodes
 /// that carry its `id` were copied (or made) by it. Ids are the file's,
 /// in the order the expansions were made, and a fn's are ascending.
 #[derive(Clone, Debug, PartialEq)]
@@ -913,12 +913,12 @@ pub struct FieldDecl {
     pub name: Ident,
     /// The written type. `None` only for an **inferred state field**
     /// (`name = value` in a handler's or `iter fn`'s `state { … }` block
-    /// [state-infer]): the field's type is the initializer's, filled in by
+    /// [handler-state-infer]): the field's type is the initializer's, filled in by
     /// the checker and read back by the IR via the field-name span. A struct
     /// field, a qualifier override, and an *annotated* state field all carry
     /// `Some`.
     pub ty: Option<Type>,
-    /// `name: T canbe Mut` [field-canbe-mut]: the field is `Mut T` exactly
+    /// `name: T canbe Mut` [struct-field-canbe-mut]: the field is `Mut T` exactly
     /// when the struct value is `Mut`, and `T` otherwise. `ty` is the plain
     /// `T`.
     pub canbe_mut: bool,
@@ -969,7 +969,7 @@ pub struct QualifierDecl {
     pub exported: bool,
     /// `intrinsic`: declared by the standard library and implemented inside
     /// the compiler — every backend must lower every one of them
-    /// [backend-intrinsic] [intrinsic-fn] [intrinsic-std-only]. A flag
+    /// [backend-intrinsic] [platform-intrinsic-fn] [platform-intrinsic-std-only]. A flag
     /// rather than an enum: it is the only backing modifier there is, now
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
@@ -1059,7 +1059,7 @@ pub struct HandlerDecl {
     pub exported: bool,
     /// `intrinsic`: declared by the standard library and implemented inside
     /// the compiler — every backend must lower every one of them
-    /// [backend-intrinsic] [intrinsic-fn] [intrinsic-std-only]. A flag
+    /// [backend-intrinsic] [platform-intrinsic-fn] [platform-intrinsic-std-only]. A flag
     /// rather than an enum: it is the only backing modifier there is, now
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
@@ -1075,7 +1075,7 @@ pub struct HandlerDecl {
     /// *the compiler* implements the members, `platform` means the *build*
     /// does — and the grammar admits only one of them.
     pub platform: bool,
-    /// [threadsafe-platform] `threadsafe platform handler H of E` (user
+    /// [platform-threadsafe] `threadsafe platform handler H of E` (user
     /// decision 2026-09-26): the host class may be entered concurrently from
     /// any thread — it synchronizes internally, or holds nothing that needs
     /// it. A shareable `use` of it then binds **bare** on both backends (Rust
@@ -1129,7 +1129,7 @@ pub struct HandlerDecl {
     pub mailbox: Option<Expr>,
     /// State fields with initializers, e.g. `i: Int = 0`.
     pub state: Vec<FieldDecl>,
-    /// [state-name] `state Tally { … }`: the state struct's name when written.
+    /// [handler-state-name] `state Tally { … }`: the state struct's name when written.
     /// Unwritten, the state is named by the handler; it must be written when
     /// the handler shares its name with a type.
     pub state_name: Option<Ident>,
@@ -1152,7 +1152,7 @@ pub struct FnDecl {
     pub exported: bool,
     /// `intrinsic`: declared by the standard library and implemented inside
     /// the compiler — every backend must lower every one of them
-    /// [backend-intrinsic] [intrinsic-fn] [intrinsic-std-only]. A flag
+    /// [backend-intrinsic] [platform-intrinsic-fn] [platform-intrinsic-std-only]. A flag
     /// rather than an enum: it is the only backing modifier there is, now
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
@@ -1233,7 +1233,7 @@ pub struct FnDecl {
     /// Per-type-parameter opt-ins: `<T canbe linear>` [linear-generics].
     pub generic_canbe: Vec<(Ident, TypeRef)>,
     /// `-> proj(param) T`: the returned value is derived from
-    /// (borrows) the named kept parameter [readonly-return].
+    /// (borrows) the named kept parameter [proj-readonly-return].
     pub derived_return: Option<Ident>,
     pub params: Vec<Param>,
     /// `?Field<T>` spreads [implicit-group]: a *declaration-side* shorthand
@@ -1410,12 +1410,12 @@ pub enum DeductionKind {
     Remove(Vec<TypeRef>),
     /// `=> !list` / `=> list: Never`: moved (the caller loses access).
     Moved,
-    /// [defer-deduction] `=> defer out`: consumed like `!out`, and the
+    /// [linear-defer] `=> defer out`: consumed like `!out`, and the
     /// obligation it carries **may outlive the frame** — parked, stored,
     /// forwarded or captured instead of discharged here (SH-10, user
     /// decision 2026-09-19). An upper bound: a declared `defer` need not be
     /// exercised. The load-bearing consequence is the mixed handler's
-    /// rung-4 opt-in [mixed-handler]; elsewhere it is checked documentation.
+    /// rung-4 opt-in [actor-mixed-handler]; elsewhere it is checked documentation.
     Deferred,
     /// `proj(a, b)`: a projection of the named parameters — of the
     /// entry's target (a result path, a parameter, a parameter's field) or,
@@ -1549,7 +1549,7 @@ pub enum Type {
     },
     /// `A | B | C`
     Union { arms: Vec<Type>, span: Span },
-    /// [union-spread] `...T` as a **union arm**: a generic type parameter that
+    /// [type-union-spread] `...T` as a **union arm**: a generic type parameter that
     /// captures one *or more* arms of the union it meets, rather than exactly
     /// one. A bare `T` arm captures exactly one arm; `...T` is the explicit
     /// spread that absorbs the rest. Only ever appears as an arm of a `Union`,
@@ -1559,7 +1559,7 @@ pub enum Type {
     /// [type-literal] A literal as a type — `"STANDARD"`, `3`, `-1`, `3L`,
     /// `true` — the type whose one value is that literal. Meant for unions
     /// (`"A" | "B" | Other Str`), which collapse a base type's literals into
-    /// one arm of that base [union-arm-identity].
+    /// one arm of that base [type-union-arm-identity].
     Literal { value: TypeLit, span: Span },
     /// `(A, B, C)`
     Tuple { elems: Vec<Type>, span: Span },
@@ -1730,7 +1730,7 @@ impl fmt::Display for TypeRef {
         if self.binder {
             write!(f, "?")?;
         }
-        // [eff-handle] The internal handle name `Addr` reads as its surface
+        // [effect-eff-handle] The internal handle name `Addr` reads as its surface
         // spelling `eff[A, B, …]` — never the old `Addr<…>`. (No binder, `@`,
         // or value-args ever attach to a handle type.)
         if self.name.name == "Addr" && !self.args.is_empty() && !self.binder && self.at.is_none() {
@@ -1860,13 +1860,13 @@ pub enum Stmt {
     /// `use HandlerExpr(...)` — register a handler for the current context.
     /// [effect-handle] The binding is a handle, shareable and capturable
     /// (user decision 2026-09-28: one shape; `use local` was removed).
-    /// [with-clause] `use H(...) with D(), addr` supplies `H`'s declared
+    /// [effect-with-clause] `use H(...) with D(), addr` supplies `H`'s declared
     /// dependencies from the clause instead of from the scope — private
     /// instances, the self-dependency included (user decision 2026-09-20).
     Use {
         handler: Expr,
         with_items: Vec<Expr>,
-        /// [route-stub] `use any group`: `handler` is a group handle
+        /// [actor-route-stub] `use any group`: `handler` is a group handle
         /// (`eff[ActorGroup<E>]`), bound as `any E` through a route the
         /// compiler derives (user decision R7, PIPELINE.md).
         any: bool,
@@ -1920,10 +1920,10 @@ pub struct StructPatternField {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
-    /// Integer literal [lit-numeric]: `Int`, or `Long` with the `L`
+    /// Integer literal [type-lit-numeric]: `Int`, or `Long` with the `L`
     /// suffix (`long: true`).
     Int { value: i64, long: bool, span: Span },
-    /// Floating-point literal [lit-numeric]: `Double`, or `Float` with
+    /// Floating-point literal [type-lit-numeric]: `Double`, or `Float` with
     /// the `f` suffix (`single: true`).
     Float { value: f64, single: bool, span: Span },
     /// Boolean literal.
@@ -2046,7 +2046,7 @@ pub enum Expr {
         binding: Option<Ident>,
         span: Span,
     },
-    /// `base?.field` or `base?.method(args)` — safe navigation [safe-nav].
+    /// `base?.field` or `base?.method(args)` — safe navigation [op-safe-nav].
     /// The whole expression is `None` when `base` is `None`; otherwise it is
     /// the `access` performed on the non-`None` `base`, wrapped back into an
     /// optional. One `?.` guards exactly **one** link: `a?.b.c` is a parse
@@ -2099,7 +2099,7 @@ pub enum Expr {
         span: Span,
     },
     /// `i++` — postfix increment.
-    /// [inc-dec] `i++`, `++i`, `i--`, `--i`: a step of one on a place, in
+    /// [op-inc-dec] `i++`, `++i`, `i--`, `--i`: a step of one on a place, in
     /// either fixity. One node rather than four variants — every consumer
     /// but the emitters treats them identically (a mutation of the operand),
     /// so the distinction belongs in fields.
@@ -2161,12 +2161,12 @@ pub enum Expr {
         body: LambdaBody,
         span: Span,
     },
-    /// `try { ... }` — the abort delimiter [try]. A compiler intrinsic
+    /// `try { ... }` — the abort delimiter [throw-try]. A compiler intrinsic
     /// rather than an effect: the block's value becomes the `Ok T` arm of
     /// the outcome `Ok T | Aborted M`, and an `abort` performed inside it
     /// becomes the `Aborted M` arm.
     Try { body: Block, span: Span },
-    /// [elvis] `subject ?: rhs` — the **first-arm pick** (user decision
+    /// [op-elvis] `subject ?: rhs` — the **first-arm pick** (user decision
     /// 2026-10-14, simplifying the earlier positional-pick form that also
     /// had `??:`/`:?`). The expression's value is the subject's **first arm**
     /// when the subject holds it; otherwise `rhs` runs, with `_` bound to the
@@ -2202,7 +2202,7 @@ pub enum Expr {
         rhs: Box<Expr>,
         span: Span,
     },
-    /// [placeholder] `_` — the value the enclosing construct left unnamed.
+    /// [expr-placeholder] `_` — the value the enclosing construct left unnamed.
     /// Legal only inside an `?:` right-hand side today, where it is the arms
     /// the pick did **not** claim.
     Placeholder { span: Span },
@@ -2251,10 +2251,10 @@ pub enum Expr {
         /// arguments, the shape `use` takes, because a handler is not a
         /// value and only `use`/`spawn` may construct one.
         handler: Box<Expr>,
-        /// [with-clause] The `with` clause, empty when it is absent: handler
+        /// [effect-with-clause] The `with` clause, empty when it is absent: handler
         /// constructions *or* `Addr` values, supplying the child's declared
         /// dependencies [effect-handler-deps] instead of the spawning
-        /// scope's resolution [spawn-inherit]. Arguments evaluate in the
+        /// scope's resolution [actor-spawn-inherit]. Arguments evaluate in the
         /// parent and cross the seam; construction happens on the child.
         /// Spelled `with` since 2026-09-20 (user decision, superseding the
         /// clause's original `use`, which shared a word with the statement).
@@ -2263,7 +2263,7 @@ pub enum Expr {
         /// `on POOL` — an ordinary expression. `pool(n)` is a function, not
         /// syntax.
         ///
-        /// [main-pool] **Optional**: omitted, the child runs on the pool
+        /// [actor-main-pool] **Optional**: omitted, the child runs on the pool
         /// current where the spawn is written (in `main`, the main pool; in a
         /// member, the actor's own pool) — FC-3's inheritance rule extended
         /// to `spawn`, which is also how a spawn site *names* the main pool
@@ -2276,7 +2276,7 @@ pub enum Expr {
         join: Option<Box<Expr>>,
         span: Span,
     },
-    /// [eff-handle] `e[A, B]` — **projection** of an effect handle: a
+    /// [effect-eff-handle] `e[A, B]` — **projection** of an effect handle: a
     /// non-consuming copy of the sub-handle carrying the named effects (a
     /// subset of what `e` carries), `eff[A, B]`. An alias among the names
     /// expands. The `[…]` holds effect/alias **names** (capitalised), which
@@ -2286,7 +2286,7 @@ pub enum Expr {
         effects: Vec<TypeRef>,
         span: Span,
     },
-    /// [eff-handle] `eff[a, b]` — **merge**: combine already-bound handle
+    /// [effect-eff-handle] `eff[a, b]` — **merge**: combine already-bound handle
     /// values into one handle carrying the union of their effects (a tuple of
     /// the single handles). `eff[*]` (`all`) is every effect handle in scope.
     /// The value-position twin of the `eff[…]` type former.
@@ -2295,7 +2295,7 @@ pub enum Expr {
         all: bool,
         span: Span,
     },
-    /// [eff-handle] `use H(args)` as an **expression**: registers the handler
+    /// [effect-eff-handle] `use H(args)` as an **expression**: registers the handler
     /// in the current scope and *yields its handle* — one `eff[E]` for a
     /// single-face handler, one flat `eff[F1, F2]` for several. `let x = use
     /// H()` binds the handle to `x`; a bare statement `use H()` is the
@@ -2308,9 +2308,9 @@ pub enum Expr {
         /// lowered here to a `spawn` handler exactly as the statement form
         /// does, so `handler` already carries the placement.
         handler: Box<Expr>,
-        /// [with-clause] The `with` clause, as on a `spawn`.
+        /// [effect-with-clause] The `with` clause, as on a `spawn`.
         with_items: Vec<Expr>,
-        /// [route-stub] `use any group`, as on the statement.
+        /// [actor-route-stub] `use any group`, as on the statement.
         any: bool,
         span: Span,
     },
@@ -2329,7 +2329,7 @@ pub enum Expr {
         /// Written `replyto!`: the gated mint.
         gated: bool,
         /// [task-pool-inherit] `on POOL` — where the continuation runs, for a
-        /// mint that targets a free `send fn` [free-send-fn]. Optional: omitted
+        /// mint that targets a free `send fn` [actor-free-send-fn]. Optional: omitted
         /// means the pool current at the mint site, so whoever creates work
         /// pays for it. A mint at a *member* target ignores it — the answer
         /// arrives on the actor's own mailbox — so writing one there is an
@@ -2375,7 +2375,7 @@ pub enum StrExprPart {
 /// A call argument (possibly spread).
 pub type Arg = Expr;
 
-/// [safe-nav] The single link a `?.` performs on its non-`None` receiver:
+/// [op-safe-nav] The single link a `?.` performs on its non-`None` receiver:
 /// a field read, or a method/dot call. The receiver is held by the
 /// enclosing [`Expr::SafeNav`]; it is spliced in as the call's first
 /// argument at lowering, exactly as a plain `a.m(args)` dot call is.
@@ -2450,7 +2450,7 @@ pub enum LambdaBody {
     Expr(Box<Expr>),
     /// `i -> { return "${i}" }` — a full block; requires `return`.
     Block(Block),
-    /// [terminal-lambda] `map(xs, (e) -> ...)` — the lambda's body is the
+    /// [expr-terminal-lambda] `map(xs, (e) -> ...)` — the lambda's body is the
     /// **rest of the enclosing block**, captured after the call and statement
     /// close. A transient placeholder: the parser rewrites it to `Block` once
     /// it has read the rest of the block, so it never reaches the checker or
@@ -2484,7 +2484,7 @@ pub enum BinaryOp {
 }
 
 impl Expr {
-    /// [assert-op] [elvis] `subject ?: unreachable!(…)` — or another escape on
+    /// [assert-op] [op-elvis] `subject ?: unreachable!(…)` — or another escape on
     /// the right (`todo!()`, `return`, `break`, `continue`): the subject's
     /// first arm, or nothing at all. What `subject!` was until the postfix `!`
     /// was removed (user decision 2026-10-20), so an analysis that follows a

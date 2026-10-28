@@ -1,4 +1,4 @@
-// [buffer-type] `std.core.buffer`: fixed-length runs of `Int` and `Long` (user
+// [col-buffer] `std.core.buffer`: fixed-length runs of `Int` and `Long` (user
 // decisions 2026-10-05, ROADMAP §0j 6g), the index tables a hash structure
 // written in Salvo probes. A `List<Int>` would box every slot on the JVM; a
 // buffer is a Kotlin `IntArray`/`LongArray` and a Rust `Vec<i32>`/`Vec<i64>`.
@@ -7,7 +7,7 @@
 // growing one builds a new one. So a write moves no boundary, and every `Idx`
 // claim on a buffer survives `replace` and `clear` (`std.core.index`). A plain
 // buffer is immutable, and `copy` copies the array. A host array has no wire
-// form, so a buffer stays on its node [noremote].
+// form, so a buffer stays on its node [net-noremote].
 
 // A run of `Int`s, all written when it is made.
 export iterable platform type IntBuffer canbe Mut : Iter<self, IntBufferIter, Int>
@@ -15,13 +15,15 @@ export iterable platform type IntBuffer canbe Mut : Iter<self, IntBufferIter, In
 // A run of `Long`s, the same over `Long`.
 export iterable platform type LongBuffer canbe Mut : Iter<self, LongBufferIter, Long>
 
-// [buffer-type] A buffer of [size] slots, every one holding [fill]. A
+// A buffer of [size] slots, every one holding [fill]. A
 // negative size is an empty buffer.
+// @compilerrules [col-buffer]
 export fn int_buffer(size: Int, fill: Int) [] -> Mut IntBuffer => size, fill {
     return new_int(size, fill)
 }
 
-// [buffer-type] The `Long` form of [int_buffer].
+// The `Long` form of [int_buffer].
+// @compilerrules [col-buffer]
 export fn long_buffer(size: Int, fill: Long) [] -> Mut LongBuffer => size, fill {
     return new_long(size, fill)
 }
@@ -50,9 +52,10 @@ export fn get(buf: LongBuffer, index: Int) [] -> Long? => buf, index {
     return None
 }
 
-// [col-idx] The **total** read, the hot path of a hash probe: the index is
+// The **total** read, the hot path of a hash probe: the index is
 // proven in range, and the answer is the value itself — no boxed `Int?` on
 // the JVM.
+// @compilerrules [col-idx]
 export fn get(buf: IntBuffer, index: Idx(buf) Int) [] -> Int => buf, index {
     return int_get(buf, index + 0)
 }
@@ -61,8 +64,9 @@ export fn get(buf: LongBuffer, index: Idx(buf) Int) [] -> Long => buf, index {
     return long_get(buf, index + 0)
 }
 
-// [col-replace] Writes [value] into slot [index] and answers what it held. The
+// Writes [value] into slot [index] and answers what it held. The
 // index is proven, so nothing can be out of range; `Idx` claims survive it.
+// @compilerrules [col-replace]
 export fn replace(buf: Mut IntBuffer, index: Idx(buf) Int, value: Int) [] -> Int
 => buf: Mut, index, value {
     return int_replace(buf, index + 0, value)
@@ -83,8 +87,9 @@ export fn clear(buf: Mut LongBuffer, fill: Long) [] -> None => buf: Mut, fill {
     long_clear(buf, fill)
 }
 
-// [platform-iterable] The slots in order, for a generic fn over `Iter`; a
+// The slots in order, for a generic fn over `Iter`; a
 // `for` over a buffer is the host's own loop.
+// @compilerrules [platform-iterable]
 export iter fn iter(buf: IntBuffer) -> Emitted Int | Finished {
     state IntBufferIter {
         at: Int = 0

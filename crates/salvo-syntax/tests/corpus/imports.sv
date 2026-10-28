@@ -3,7 +3,7 @@ import list.add
 import list.ext.add as ext_add
 import std.core.Str
 
-// [intrinsic-fn] A compiler-intrinsic fn: declared for its signature and
+// [platform-intrinsic-fn] A compiler-intrinsic fn: declared for its signature and
 // deduction; each backend lowers calls to it directly from a table keyed by
 // name.
 intrinsic fn copy<T>(value: T) [] -> T => value

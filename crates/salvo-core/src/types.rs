@@ -321,11 +321,11 @@ pub enum Ty {
     /// [type-literal] A literal type — the type whose one value is the
     /// literal. A subtype of its base (`"A"` of `Str`); at run time it *is*
     /// the base, and a union collapses a base's literals into one arm
-    /// [union-arm-identity].
+    /// [type-union-arm-identity].
     Lit(salvo_syntax::ast::TypeLit),
     /// A union: at least two arms, no arm is itself a union, arms are
     /// deduplicated [type-union], declaration order preserved (arm order
-    /// is the wrapper arm identity for codegen [union-arm-identity]).
+    /// is the wrapper arm identity for codegen [type-union-arm-identity]).
     Union(Vec<Ty>),
     Tuple(Vec<Ty>),
     Array(Box<Ty>),
@@ -355,7 +355,7 @@ pub enum Ty {
     Unknown,
 }
 
-/// [union-spread] The name a `...T` union-arm spread lowers under:
+/// [type-union-spread] The name a `...T` union-arm spread lowers under:
 /// `Ty::Named { name: SPREAD_MARKER, args: [T] }`, where `T` is the spread's
 /// generic variable. It is never the type of a value a backend sees: it marks, inside a union *parameter* or *return* type, the
 /// one arm that captures **one or more** argument arms rather than exactly
@@ -365,7 +365,7 @@ pub enum Ty {
 pub const SPREAD_MARKER: &str = "...";
 
 impl Ty {
-    /// [union-spread] `...T`, as lowered: the spread marker over its variable.
+    /// [type-union-spread] `...T`, as lowered: the spread marker over its variable.
     pub fn spread_marker(inner: Ty) -> Ty {
         Ty::Named {
             name: SPREAD_MARKER.to_string(),
@@ -373,7 +373,7 @@ impl Ty {
         }
     }
 
-    /// [union-spread] The inner type if this is a spread marker (`...T`).
+    /// [type-union-spread] The inner type if this is a spread marker (`...T`).
     pub fn as_spread_marker(&self) -> Option<&Ty> {
         match self {
             Ty::Named { name, args } if name == SPREAD_MARKER && args.len() == 1 => Some(&args[0]),
@@ -381,7 +381,7 @@ impl Ty {
         }
     }
 
-    /// [union-spread] Every spread marker replaced by its inner type — the
+    /// [type-union-spread] Every spread marker replaced by its inner type — the
     /// reading every position *except* call-site union unification needs: a
     /// `...T` arm is just `T` to the body, the backends, and the IR. Applied
     /// at the body-binding and `erase` boundaries so the marker survives only
@@ -436,7 +436,7 @@ impl Ty {
     }
 
     /// Whether this is `Bool` — qualifiers ignored, since a claim about a
-    /// boolean is still a boolean [cond-bool].
+    /// boolean is still a boolean [expr-cond-bool].
     pub fn is_bool(&self) -> bool {
         matches!(self.strip_quals(), Ty::Named { name, args } if name == "Bool" && args.is_empty())
     }
@@ -724,7 +724,7 @@ pub fn has_borrowed_arm(t: &Ty) -> bool {
 /// for each value arm of `to`, in order, the arm of `from` that lands there
 /// (`None` when no arm of `from` does). An arm lands where its type, with
 /// `proj`/`ref` and `Mut` dropped, is the target arm's with `Mut` dropped —
-/// the arm identity of [union-arm-identity], which erases qualifiers, except
+/// the arm identity of [type-union-arm-identity], which erases qualifiers, except
 /// that a wrapper tag (`Ok`, `Err`) is kept, since it is what tells two arms
 /// of one base apart. `None` when some value arm of `from` lands nowhere.
 pub fn read_arm_map(from: &Ty, to: &Ty) -> Option<Vec<(Option<Ty>, Ty)>> {
@@ -879,7 +879,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                     .filter(|q| q.effect)
                     .all(|q| qb.contains(q))
         }
-        // [once-fn] INVERTED subtyping, flagged for future review
+        // [fn-once] INVERTED subtyping, flagged for future review
         // (user decision 2026-09-02): `once` *restricts* (usable at
         // most once) instead of refining, so a plain value may be used
         // where a `once` one is expected — the opposite direction of
@@ -915,7 +915,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                 .all(|q| {
                     q.drop_block().is_none()
                         || (is_proj_name(&q.name) && is_copy_scalar(base))
-                        // [once-fn] D6 (user decision 2026-09-12): on a
+                        // [fn-once] D6 (user decision 2026-09-12): on a
                         // *data* type, `once T <: T` — a plain-typed holder
                         // can consume at most once anyway (a move is a
                         // move), so the bound survives the drop. On a fn
@@ -1077,7 +1077,7 @@ pub fn nested_group_arm(value: &Ty, group: &Ty) -> Option<(Ty, usize)> {
 }
 
 /// Whether a fn value with contract `a` may be used where contract `b`
-/// is expected [fn-contract]. INVERTED direction like `once` [once-fn]:
+/// is expected [fn-contract]. INVERTED direction like `once` [fn-once]:
 /// a fn that *keeps* its argument fits where a *consuming* one is
 /// expected (the caller merely over-estimates the damage), never the
 /// reverse. `None` = keeps everything.
@@ -1116,7 +1116,7 @@ pub fn contract_fits(
 /// permission (`Mut`, and `Cell` when it arrives).
 pub fn qual_drop_block(name: &str) -> Option<&'static str> {
     match name {
-        // [once-fn] A once-callable fn is not a many-callable fn.
+        // [fn-once] A once-callable fn is not a many-callable fn.
         "once" => Some(
             "`once` restricts rather than refines: dropping it would make a \
              once-callable value callable again",
@@ -1128,7 +1128,7 @@ pub fn qual_drop_block(name: &str) -> Option<&'static str> {
             "linearity is declared on the type, not applied at a use site, \
              and it carries a use obligation that cannot be dropped",
         ),
-        // [readonly-return] [ref-handle] The value is borrowed from
+        // [proj-readonly-return] [ref-handle] The value is borrowed from
         // somewhere else — `proj` a read-only view, `ref` a handle into a
         // named container. Either way, dropping it would claim ownership
         // the value does not have.
@@ -1177,7 +1177,7 @@ pub fn compatible(a: &Ty, b: &Ty) -> bool {
 /// What counts as erased is [`is_erased_qual`]; the relaxation is at the
 /// parameter's top level, on a non-union base: inside type arguments
 /// variance is a separate question (ROADMAP §7), and a union's qualifiers can
-/// be the wrapper tags its runtime arms are told apart by [union-arm-identity].
+/// be the wrapper tags its runtime arms are told apart by [type-union-arm-identity].
 pub fn fn_param_fits(have: &Ty, want: &Ty) -> bool {
     compatible(have, want)
         || (is_subtype(want, have) && compatible(&strip_erased_quals(want), &strip_erased_quals(have)))
@@ -1467,7 +1467,7 @@ impl fmt::Display for Ty {
             Ty::ValueRef { path, .. } => write!(f, "{path}"),
             // [qual-const] A constant reads as it is written: `InRange(0, 65535)`.
             Ty::Const(c) => write!(f, "{c}"),
-            // [eff-handle] The internal handle type `Addr` reads as its
+            // [effect-eff-handle] The internal handle type `Addr` reads as its
             // surface spelling `eff[A, B, …]` — a flat effect set in square
             // brackets, never the old `Addr<…>`.
             Ty::Named { name, args } if name == "Addr" && !args.is_empty() => {

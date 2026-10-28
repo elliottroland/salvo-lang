@@ -1,4 +1,4 @@
-//! [monitor-handler] The monitor spawn (SH-3, user decision 2026-09-19):
+//! [actor-monitor-handler] The monitor spawn (SH-3, user decision 2026-09-19):
 //! `spawn H(args)` where every face of `H` is a **plain** effect shares one
 //! instance behind a lock, answers the same `eff[E]` type an actor spawn
 //! answers, and is bound with `use addr` like any handle. The restriction is
@@ -136,7 +136,7 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "got {errs:?}");
 }
 
-/// [monitor-handler] Naming `eff[E]` of a plain effect is legal since SH-3:
+/// [actor-monitor-handler] Naming `eff[E]` of a plain effect is legal since SH-3:
 /// it is the shared monitor's handle — in a parameter, a return, a `let`.
 /// (Until 2026-09-19 this was [actor-effect-kind]'s refusal.)
 #[test]
@@ -174,7 +174,7 @@ fn main() [use, spawn] {
     );
 }
 
-/// [monitor-handler] The dependency restriction was lifted 2026-09-20 (user
+/// [actor-monitor-handler] The dependency restriction was lifted 2026-09-20 (user
 /// decision): a monitor may declare deps, captured as owned
 /// handles from the **enclosing scope** at the spawn. With no binding in
 /// scope the resolution fails by name; with one, the spawn is legal.
@@ -376,7 +376,7 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [effect-handle] [monitor-handler] The generic monitor (user decision
+/// [effect-handle] [actor-monitor-handler] The generic monitor (user decision
 /// 2026-09-20): a stateful handler of a generic effect *instance* shares by
 /// default like any other — `handler Keeping of Store<Int>`.
 #[test]
@@ -411,7 +411,7 @@ fn main() [use] {
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [spawn-inherit] The v1 lexical cut is **lifted** (user decision
+/// [actor-spawn-inherit] The v1 lexical cut is **lifted** (user decision
 /// 2026-09-20): a shareable construction may capture a handle for an effect
 /// that arrived through the enclosing *signature* — the handle threads in
 /// from the caller (one hidden fused bundle parameter on Rust; a JVM
@@ -446,7 +446,7 @@ fn main() [use] {
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [monitor-handler] [actor-deadlock-cycle] Waits under a monitor's lock are
+/// [actor-monitor-handler] [actor-deadlock-cycle] Waits under a monitor's lock are
 /// priced, not refused — option (b), user decision 2026-09-20: dep-bearing
 /// shareable handlers get graph nodes, and a cycle through held locks is
 /// reported before it runs, naming the locks.
@@ -556,7 +556,7 @@ fn main() [use] {
 
 // ===== spawn-inheritance and the `with` clause (2026-09-20) =====
 
-/// [spawn-inherit] [with-clause] A **partial** clause (user decision
+/// [actor-spawn-inherit] [effect-with-clause] A **partial** clause (user decision
 /// 2026-09-20): a written item satisfies the dependency it matches, and the
 /// rest still inherit from the scope. One child, two dependencies, one of
 /// each.
@@ -593,7 +593,7 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [spawn-inherit] Two compatible instances in scope is an **ambiguity**, not
+/// [actor-spawn-inherit] Two compatible instances in scope is an **ambiguity**, not
 /// a guess: the clause is how the program says which one.
 #[test]
 fn an_ambiguous_inherited_dependency_is_refused() {
@@ -633,7 +633,7 @@ fn main() [use, spawn] {
     );
 }
 
-/// [with-clause] A `with` item is a **private instance** (user decision
+/// [effect-with-clause] A `with` item is a **private instance** (user decision
 /// 2026-09-20), and it may supply the **self-dependency**: an interceptor
 /// then wraps the instance the clause names instead of the one in scope.
 #[test]
@@ -669,7 +669,7 @@ fn main() [use] {
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [with-clause] An item the handler does not depend on is a mistake, and a
+/// [effect-with-clause] An item the handler does not depend on is a mistake, and a
 /// clause item with dependencies *of its own* has no scope to resolve them —
 /// both named where they are written.
 #[test]

@@ -108,7 +108,7 @@ fn errors(src: &str) -> Vec<String> {
     parse_errors
         .into_iter()
         .chain(resolution.errors.iter().map(|d| d.message.clone()))
-        // Errors only: an unused-variable *warning* [unused-var] is a
+        // Errors only: an unused-variable *warning* [var-unused] is a
         // different severity, and these tests are about legality.
         .chain(
             checked
@@ -188,7 +188,7 @@ fn a_state_field_is_type_checked() {
     );
 }
 
-/// [state-infer] [interface-pass] An inferred state field's type is the
+/// [handler-state-infer] [decl-interface-pass] An inferred state field's type is the
 /// iterator struct's, an interface: a fn declared *above* the `iter fn`
 /// reads it as one declared below does. It was read off the minter's body
 /// walk, so the fn above saw `Unknown` and returned an `Int` field from a

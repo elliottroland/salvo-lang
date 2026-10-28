@@ -3,7 +3,7 @@
 use std::fmt;
 
 /// A half-open byte range into a source file, and the expansion that copied
-/// the node there, if one did [origin].
+/// the node there, if one did [node-origin].
 ///
 /// A node as written has `expn` 0, and its range is in its own file. A node
 /// an expansion copied (a comptime stamp's body, an unrolled `[for]` copy)
@@ -25,7 +25,7 @@ use std::fmt;
 pub struct Span {
     pub start: u32,
     pub end: u32,
-    /// [origin] The expansion this node was copied by: an id among its
+    /// [node-origin] The expansion this node was copied by: an id among its
     /// file's expansions, 0 for written code.
     pub expn: u32,
     /// [node-id] The node's ordinal in its file ([`NO_NODE`] for a span no
@@ -80,37 +80,37 @@ impl Span {
         Span { start, end, expn: self.expn, node: NO_NODE }
     }
 
-    /// [origin] The same range, copied by expansion `expn` (0: as written).
+    /// [node-origin] The same range, copied by expansion `expn` (0: as written).
     pub fn in_expansion(self, expn: u32) -> Span {
         Span { expn, ..self }
     }
 
-    /// [origin] Whether this is a node as written in its own file.
+    /// [node-origin] Whether this is a node as written in its own file.
     pub fn is_written(self) -> bool {
         self.expn == 0
     }
 
-    /// [origin] Whether an expansion copied this node ([`Span::is_written`]'s
+    /// [node-origin] Whether an expansion copied this node ([`Span::is_written`]'s
     /// negation).
     pub fn is_expanded(self) -> bool {
         self.expn != 0
     }
 
-    /// [origin] The order of spans in one file: the written ones by
+    /// [node-origin] The order of spans in one file: the written ones by
     /// position, then each expansion's in the order the expansions were
     /// made, by position within it.
     pub fn order_key(self) -> (u32, u32, u32) {
         (self.expn, self.start, self.end)
     }
 
-    /// [origin] Whether this written span covers `offset` of its file
+    /// [node-origin] Whether this written span covers `offset` of its file
     /// (half-open). A copied node is never at an offset of the file it was
     /// copied into: its range is the template's.
     pub fn holds(self, offset: u32) -> bool {
         self.is_written() && self.start <= offset && offset < self.end
     }
 
-    /// [origin] [`Span::holds`], with the end included.
+    /// [node-origin] [`Span::holds`], with the end included.
     pub fn reaches(self, offset: u32) -> bool {
         self.is_written() && self.start <= offset && offset <= self.end
     }
@@ -124,7 +124,7 @@ impl Span {
     }
 }
 
-/// [origin] Spans order as [`Span::order_key`] does.
+/// [node-origin] Spans order as [`Span::order_key`] does.
 impl PartialOrd for Span {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
@@ -147,7 +147,7 @@ impl fmt::Debug for Span {
     }
 }
 
-/// [origin] [`line_col`] of a span's start in `source`, the file the node is
+/// [node-origin] [`line_col`] of a span's start in `source`, the file the node is
 /// in. A copied node's range is its template's, not a position of that
 /// file, so it is placed at the end of the file — where a copy's synthetic
 /// span past the end of the file landed before origins (ROADMAP 0ac: such a

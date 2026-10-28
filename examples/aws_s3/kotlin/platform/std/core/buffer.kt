@@ -1,4 +1,4 @@
-// [buffer-type] std's fixed-length runs, for `std.core.buffer`'s `IntBuffer` and
+// [col-buffer] std's fixed-length runs, for `std.core.buffer`'s `IntBuffer` and
 // `LongBuffer` (ROADMAP §0j 6g): Kotlin's `IntArray` and `LongArray`, one
 // class for both kinds. Callers prove every index (`Idx`), so the reads and
 // writes index directly.

@@ -1,4 +1,4 @@
-//! [type-literal] [union-arm-identity] Unions of literals in the checker: which
+//! [type-literal] [type-union-arm-identity] Unions of literals in the checker: which
 //! values they accept, how `is` narrows them, what is refused, and the runtime
 //! tables a backend reads (user decisions 2026-09-30).
 

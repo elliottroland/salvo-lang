@@ -1,4 +1,4 @@
-//! Parameter modes [param-mode]: how a callee holds each parameter.
+//! Parameter modes [fn-param-mode]: how a callee holds each parameter.
 //!
 //! A parameter is *moved in* (the callee consumes it), *lent* (the callee
 //! reads it and the caller keeps it) or *lent mutably* (the callee may change
@@ -103,7 +103,7 @@ impl<'a, 'p> Modes<'a, 'p> {
         }
         let moved = member.deductions.iter().flatten().any(|d| {
             d.param_name().is_some_and(|n| n.name == p.name.name)
-                // [defer-deduction] A deferral is consumed like a move.
+                // [linear-defer] A deferral is consumed like a move.
                 && matches!(d.kind, DeductionKind::Moved | DeductionKind::Deferred)
         });
         if moved {

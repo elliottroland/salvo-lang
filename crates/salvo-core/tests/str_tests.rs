@@ -13,7 +13,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Coercion, FileDiagnostic, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The declarations these sources rely on, loaded as a
+/// [platform-intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`). Module `std.core.prelude`:
 /// `std.core.*` is implicitly imported, so the test source sees these names.
 const STD_PRELUDE: &str = concat!(
@@ -70,7 +70,7 @@ fn checked(src: &str) -> (Program, salvo_core::Checked) {
 }
 
 fn errors(src: &str) -> Vec<FileDiagnostic> {
-    // Errors only: an unused-variable *warning* [unused-var] is a different
+    // Errors only: an unused-variable *warning* [var-unused] is a different
     // severity, and these tests are about legality.
     let mut diags = checked(src).1.errors;
     diags.retain(|d| d.is_error());

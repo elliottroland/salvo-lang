@@ -26,7 +26,7 @@
             {
               "comment": "[doc-tags] a doc tag opening its line: `// @param name  text`",
               "name": "storage.type.class.doc.salvo",
-              "match": "\\G\\s*@(?:param|returns|throws|see|todo|whynot)\\b"
+              "match": "\\G\\s*@(?:param|returns|throws|see|todo|whynot|compilerrules)\\b"
             },
             {
               "comment": "[symbol] doc references to parameters, fields and types, and the [rule-label] references the compiler's own comments carry",

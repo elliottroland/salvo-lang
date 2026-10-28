@@ -1,4 +1,4 @@
-//! [phase-timings] Per-phase wall-clock timings, printed to stderr when the
+//! [cli-phase-timings] Per-phase wall-clock timings, printed to stderr when the
 //! environment variable `SALVO_TIMINGS` is set (PIPELINE.md §7 step 1: the
 //! case for each pipeline change rests on numbers). Off by default, and then
 //! a phase costs one cached environment check.

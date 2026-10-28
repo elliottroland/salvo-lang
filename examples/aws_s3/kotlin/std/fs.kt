@@ -125,7 +125,7 @@ fun toStr(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory,
             return salvo.std.stream.toStr(kind_7.error)
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs:66:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs:69:5"))
         }
     }
 }
@@ -165,52 +165,52 @@ class __Mon_Fs(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Fs {
     override fun openRead(path: salvo.std.fs.path.Path): Union2<salvo.std.stream.InStream, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.openRead(path) } finally { lock.unlock() }
     }
     override fun openReadAt(path: salvo.std.fs.path.Path, offset: Long): Union2<salvo.std.stream.InStream, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.openReadAt(path, offset) } finally { lock.unlock() }
     }
     override fun openWrite(path: salvo.std.fs.path.Path): Union2<salvo.std.stream.OutStream, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.openWrite(path) } finally { lock.unlock() }
     }
     override fun openAppend(path: salvo.std.fs.path.Path): Union2<salvo.std.stream.OutStream, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.openAppend(path) } finally { lock.unlock() }
     }
     override fun exists(path: salvo.std.fs.path.Path): Boolean {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.exists(path) } finally { lock.unlock() }
     }
     override fun metadata(path: salvo.std.fs.path.Path): Union2<FileInfo, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.metadata(path) } finally { lock.unlock() }
     }
     override fun listDir(path: salvo.std.fs.path.Path): Union2<List<String>, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.listDir(path) } finally { lock.unlock() }
     }
     override fun createDirs(path: salvo.std.fs.path.Path): Union2<Unit, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.createDirs(path) } finally { lock.unlock() }
     }
     override fun delete(path: salvo.std.fs.path.Path): Union2<Unit, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.delete(path) } finally { lock.unlock() }
     }
     override fun renamePath(from: salvo.std.fs.path.Path, to: salvo.std.fs.path.Path): Union2<Unit, salvo.std.core.checked.Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.renamePath(from, to) } finally { lock.unlock() }
     }

@@ -174,7 +174,7 @@ impl Walk<'_, '_> {
 /// checks of one value crossing from host to Salvo (user decisions
 /// 2026-10-01, ABI D7, D10 C3): exactly what the Salvo type promises and
 /// the host type cannot say. Computed by the checker over the *runtime*
-/// shape ([union-arm-identity]: a base's literals are one arm), so both
+/// shape ([type-union-arm-identity]: a base's literals are one arm), so both
 /// backends render the same plan; a value that needs no check has no plan.
 #[derive(Clone, Debug, PartialEq)]
 pub enum BoundaryCheck {

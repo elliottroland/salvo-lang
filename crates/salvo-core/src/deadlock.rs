@@ -79,7 +79,7 @@ enum EdgeKind {
     /// [waitfor-effect] A declared `[waitfor]`: the actor may occupy its
     /// thread until an answer arrives, and serves no message meanwhile.
     Block,
-    /// [mixed-handler] [actor-deadlock-cycle] An **occupancy** edge (SH-4,
+    /// [actor-mixed-handler] [actor-deadlock-cycle] An **occupancy** edge (SH-4,
     /// user decision 2026-09-19): a caller of a mixed handler's sync member
     /// parks until the servant answers, and a parked *activation* stalls its
     /// own mailbox while it waits. Inferred from declarations — an actor
@@ -118,7 +118,7 @@ struct Edge {
 pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked) {
     let before = out.errors.len();
     check_graph(program, symbols, out);
-    // [origin] An edge in copied code is reported where its origin says,
+    // [node-origin] An edge in copied code is reported where its origin says,
     // attributed to the stamped fn, as the checker's diagnostics are.
     let decls = out.decls.clone();
     for e in &mut out.errors[before..] {
@@ -161,7 +161,7 @@ fn check_graph(program: &Program, symbols: &Symbols<'_>, out: &mut Checked) {
     // Then the whole graph. A cycle containing an **occupancy** edge is an
     // error even when back-pressure closes it — the ungated-side downgrade
     // does not apply, because an occupied activation serves *nothing* of its
-    // mailbox [mixed-handler]. A cycle that only closes through sends is the
+    // mailbox [actor-mixed-handler]. A cycle that only closes through sends is the
     // load-conditioned class, and a warning.
     let seen_nodes: BTreeSet<String> = reported.iter().flatten().cloned().collect();
     for cycle in cycles(&graph) {
@@ -186,7 +186,7 @@ fn check_graph(program: &Program, symbols: &Symbols<'_>, out: &mut Checked) {
 
 /// [actor-deadlock-cycle] For tests: the graph's edges as `from → to (Kind,
 /// handler)` lines, sorted, so a test can pin a node's edges (a route's,
-/// [route-stub]) where no diagnostic would show them.
+/// [actor-route-stub]) where no diagnostic would show them.
 pub fn edges(program: &Program, symbols: &Symbols<'_>, out: &Checked) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for (from, tos) in build(program, symbols, out) {
@@ -218,12 +218,12 @@ fn build(
             .get(name)
             .is_some_and(|decl| !decl.is_actor)
     };
-    // [mixed-handler] The mixed handlers of each plain effect: what an
+    // [actor-mixed-handler] The mixed handlers of each plain effect: what an
     // occupancy edge can point at. Over types, not instances — a program
     // that binds `SystemRandom` everywhere still gets the edge if a mixed
     // `CyclicRandom` exists, the same trade the whole graph makes.
     //
-    // [effect-handle] [monitor-handler] And, since shareable-by-default (user
+    // [effect-handle] [actor-monitor-handler] And, since shareable-by-default (user
     // decision 2026-09-20, option (b): waits under a lock are priced, not
     // refused), the **stateful plain handlers worth a node of their own**:
     // a plain-face, no-send-member, *stateful* handler
@@ -307,7 +307,7 @@ fn build(
             break;
         }
     }
-    // [actor-deadlock-cycle] [effect-any] [route-stub] The routers of each
+    // [actor-deadlock-cycle] [effect-any] [actor-route-stub] The routers of each
     // actor effect — every written `of any E` face, and the route a `use
     // any` derives for a routed protocol — which is where an edge into
     // `any E` lands besides `E` (a binding of `any E` may be any of them).
@@ -316,7 +316,7 @@ fn build(
     // keeps the view version it last saw) and there for as long as it waits
     // (a member's `waitfor`; the route waits for a member to exist), and a
     // caller doing either occupies, as in a priced shareable handler
-    // [monitor-handler]. A bare router's member is the caller's own code, so
+    // [actor-monitor-handler]. A bare router's member is the caller's own code, so
     // the edge into it is the caller's edge, of the kind its edge to `E` has.
     let mut routed: BTreeMap<&str, crate::check::Key> = BTreeMap::new();
     for (k, effect) in &out.route_uses {
@@ -364,10 +364,10 @@ fn build(
                 .filter_map(|of| face_key(symbols, of))
                 .filter(|name| is_actor(name))
                 .collect();
-            // [mixed-handler] A mixed handler's servant is a node of its
+            // [actor-mixed-handler] A mixed handler's servant is a node of its
             // own: it serves no actor effect, but its send members can send
             // through the `Addr` values it holds, and those are the edges
-            // that close an occupancy cycle. [defer-deduction] Since parking
+            // that close an occupancy cycle. [linear-defer] Since parking
             // landed, a servant can gate too (`replyto!` in a send member)
             // and can wait (`waitfor` in one), so its edge kinds mirror an
             // actor's: a gate makes its sends waits, a wait makes them
@@ -457,7 +457,7 @@ fn build(
             // declares `Q` too — so the declaration covers the whole call
             // graph without walking it.
             let mut targets: Vec<(String, usize, Span)> = Vec::new();
-            // [mixed-handler] Occupancy edges, inferred from the same
+            // [actor-mixed-handler] Occupancy edges, inferred from the same
             // declarations: a dependency on a plain effect that has mixed
             // handlers means a member may call a façade — and park until the
             // servant answers, stalling its own mailbox meanwhile. One edge
@@ -472,7 +472,7 @@ fn build(
                             occupancies.push((servant_node(mh), file_idx, dep_span));
                         }
                     }
-                    // [effect-handle] [monitor-handler] A dep on a plain effect
+                    // [effect-handle] [actor-monitor-handler] A dep on a plain effect
                     // with wait-capable shareable handlers may park inside
                     // one — through its lock when it is stateful — so the
                     // edge points at the handler's own node (option (b),
@@ -560,7 +560,7 @@ fn build(
             }
         }
     }
-    // [route-stub] [effect-any] Every protocol a `use any` routes has a
+    // [actor-route-stub] [effect-any] Every protocol a `use any` routes has a
     // route the IR derives (`ir::build::actors`, `__Route_X`), which is no
     // AST handler — so its node is built here, as the one an `of any X`
     // router gets above: a servant of its own, depending on the
@@ -595,7 +595,7 @@ fn build(
         };
         servant.add_to(&mut graph, &is_actor, &mixed_of, &monitor_of, &routers_of);
     }
-    // [effect-handle] [monitor-handler] The shareable plain handlers worth a
+    // [effect-handle] [actor-monitor-handler] The shareable plain handlers worth a
     // node (option (b), user decision 2026-09-20): occupancy edges out to
     // whatever their members can park in — the mixed servants and priced
     // monitors of their dependency effects — plus actor-dep sends and task
@@ -775,7 +775,7 @@ fn report(
     let handlers: BTreeSet<&str> = edges.iter().map(|e| e.handler.as_str()).collect();
     let handlers: Vec<String> = handlers.iter().map(|h| format!("`{h}`")).collect();
     let handlers = handlers.join(", ");
-    // [mixed-handler] An occupancy cycle gets its own report, anchored at the
+    // [actor-mixed-handler] An occupancy cycle gets its own report, anchored at the
     // occupancy edge — the seam where a caller parks on a servant — with the
     // three ways out §3.3 of the design named.
     if let Some(occ) = edges.iter().find(|e| e.kind == EdgeKind::Occupancy) {
@@ -840,7 +840,7 @@ fn report(
     }
 }
 
-/// [mixed-handler] [effect-any] [route-stub] A servant node's inputs: a mixed
+/// [actor-mixed-handler] [effect-any] [actor-route-stub] A servant node's inputs: a mixed
 /// handler's servant, an `of any X` router, or a derived route. One shape,
 /// so the three cannot drift apart.
 struct Servant<'a> {
@@ -932,14 +932,14 @@ impl Servant<'_> {
     }
 }
 
-/// [mixed-handler] The graph node of a mixed handler's servant. Handlers are
+/// [actor-mixed-handler] The graph node of a mixed handler's servant. Handlers are
 /// not effects, so the node needs a name of its own — one that reads in a
 /// printed path and cannot collide with a protocol's.
 fn servant_node(handler: &str) -> String {
     format!("{handler}'s servant")
 }
 
-/// [effect-handle] [monitor-handler] The graph node of a shareable plain
+/// [effect-handle] [actor-monitor-handler] The graph node of a shareable plain
 /// handler worth pricing (deps or waits — option (b), user decision
 /// 2026-09-20): its members run on the callers' threads, under the lock
 /// when it is stateful, so a wait inside stalls every caller behind it.

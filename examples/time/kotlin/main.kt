@@ -32,12 +32,12 @@ class __Mon_Session(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Session {
     override fun open(started: salvo.std.time.Tick, budget: salvo.std.time.Duration, out: salvo.SalvoReply) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.open(started, budget, out) } finally { lock.unlock() }
     }
     override fun expire(started: salvo.std.time.Tick, budget: salvo.std.time.Duration, out: salvo.SalvoReply, f: salvo.std.time.Fired) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.expire(started, budget, out, f) } finally { lock.unlock() }
     }
@@ -113,12 +113,12 @@ class __Mon_Sleeper(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Sleeper {
     override fun nap(wait: salvo.std.time.Duration, out: salvo.SalvoReply) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.nap(wait, out) } finally { lock.unlock() }
     }
     override fun woke(started: salvo.std.time.Tick, out: salvo.SalvoReply, f: salvo.std.time.Fired) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.woke(started, out, f) } finally { lock.unlock() }
     }

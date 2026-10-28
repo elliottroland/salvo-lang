@@ -8,7 +8,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
-/// The base types the checker needs, as a std file [intrinsic-std-only].
+/// The base types the checker needs, as a std file [platform-intrinsic-std-only].
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
                            export intrinsic type Long\nexport intrinsic type Any\nexport intrinsic type Never\n\
@@ -269,7 +269,7 @@ fn any_on_an_alias_is_refused() {
     );
 }
 
-// [eff-handle] An alias flattens inside an `eff[…]` handle type too, not only
+// [effect-eff-handle] An alias flattens inside an `eff[…]` handle type too, not only
 // in an effect list: `eff[App]` is `eff[Console, Clock]`, so a fn taking
 // `eff[App]` accepts a handle carrying those effects.
 #[test]

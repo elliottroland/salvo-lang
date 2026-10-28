@@ -81,7 +81,7 @@ fn ty_own_linear_guarded(symbols: &Symbols, own: &HashSet<String>, ty: &Ty, dept
     }
 }
 
-/// [linear-union-arm] The runtime arm indices [union-arm-identity] of a union
+/// [linear-union-arm] The runtime arm indices [type-union-arm-identity] of a union
 /// `ty` whose arms carry a linear obligation. For a non-union linear type this
 /// is `None` (the value is linear as a whole); for a union with linear arms it
 /// is `Some(indices into the runtime arm layout)`; for a non-linear type,
@@ -91,7 +91,7 @@ pub fn linear_arms(symbols: &Symbols, own: &HashSet<String>, ty: &Ty) -> Option<
     let Ty::Union(_) = stripped else { return None };
     // Runtime arm layout collapses a base's literals into one arm
     // [type-literal] and is positional over the non-`None` value arms
-    // [union-arm-identity]; `literal::layout` is the one definition.
+    // [type-union-arm-identity]; `literal::layout` is the one definition.
     let collapsed = crate::literal::collapse_ty(stripped);
     let Ty::Union(arms) = collapsed.strip_quals() else { return None };
     let value_arms: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();

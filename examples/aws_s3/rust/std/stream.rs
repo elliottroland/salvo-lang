@@ -73,7 +73,7 @@ pub fn to_str(mut kind: crate::unions::Union2<&crate::std_stream::InvalidUtf8, &
         let mut kind_2 = match kind { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         return format!("stream failed: {}: {}", kind_2.source, kind_2.message);
     } else {
-        panic!("salvo: unhandled union arm at std.stream:51:5");
+        panic!("salvo: unhandled union arm at std.stream:54:5");
     };
 }
 
@@ -302,7 +302,7 @@ pub fn pipe_step(streams: &crate::std_stream::Streams, mut to: crate::std_stream
             let mut closed_5 = match closed { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::scheduler::salvo_reply_wire::<crate::unions::Union2<i64, crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>>>(done, crate::unions::Union2::U2(closed_5));
         } else {
-            panic!("salvo: unhandled union arm at std.stream:185:13");
+            panic!("salvo: unhandled union arm at std.stream:194:13");
         };
     } else if matches!(got, crate::unions::Union3::U3(_)) {
         let mut got_6 = match got { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
@@ -313,11 +313,11 @@ pub fn pipe_step(streams: &crate::std_stream::Streams, mut to: crate::std_stream
             let mut closed_8 = match closed { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::std_core_checked::ignore::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(closed_8);
         } else {
-            panic!("salvo: unhandled union arm at std.stream:192:13");
+            panic!("salvo: unhandled union arm at std.stream:201:13");
         };
         crate::scheduler::salvo_reply_wire::<crate::unions::Union2<i64, crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>>>(done, crate::unions::Union2::U2(got_6));
     } else {
-        panic!("salvo: unhandled union arm at std.stream:177:5");
+        panic!("salvo: unhandled union arm at std.stream:186:5");
     };
 }
 
@@ -338,7 +338,7 @@ pub fn next__Lines(streams: &crate::std_stream::Streams, p: &mut crate::std_stre
     } else if line.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     } else {
-        panic!("salvo: unhandled union arm at std.stream:221:5");
+        panic!("salvo: unhandled union arm at std.stream:231:5");
     };
 }
 
@@ -452,7 +452,7 @@ pub fn read_int(streams: &crate::std_stream::Streams, s: &crate::std_stream::InS
         let mut r_3 = match r { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
         return crate::unions::Union3::U3(r_3);
     } else {
-        panic!("salvo: unhandled union arm at std.stream:362:5");
+        panic!("salvo: unhandled union arm at std.stream:380:5");
     };
 }
 
@@ -518,7 +518,7 @@ pub fn fixed_bytes(mut v: i64, mut width: i32) -> crate::std_core_bytes::Bytes {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.stream:421:34")
+                panic!("salvo: unreachable at std.stream:441:34")
             }
         });
         j = i32::wrapping_sub(j, 1i32);
@@ -546,7 +546,7 @@ pub fn read_fixed(streams: &crate::std_stream::Streams, s: &crate::std_stream::I
             let mut __picked_4 = __pick_3.unwrap();
             __picked_4
         } else {
-            panic!("salvo: unreachable at std.stream:440:48")
+            panic!("salvo: unreachable at std.stream:460:48")
         }
     }) as i32)) as i64);
     if (first >= 128i64) {
@@ -564,7 +564,7 @@ pub fn read_fixed(streams: &crate::std_stream::Streams, s: &crate::std_stream::I
                 let mut __picked_7 = __pick_6.unwrap();
                 __picked_7
             } else {
-                panic!("salvo: unreachable at std.stream:447:55")
+                panic!("salvo: unreachable at std.stream:467:55")
             }
         }) as i32)) as i64));
         i = i32::wrapping_add(i, 1i32);

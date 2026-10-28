@@ -424,7 +424,7 @@ pub(crate) fn from_written(
                         written: false,
                     };
                 }
-                // [defer-deduction] Consumed either way: a deferred
+                // [linear-defer] Consumed either way: a deferred
                 // obligation leaves the caller's hands exactly as a moved
                 // one does — what differs is only what the *body* may do
                 // with it, which is the checker's business, not the
@@ -556,7 +556,7 @@ pub(crate) fn from_written(
         .collect()
 }
 
-/// [deduce-default] [comptime-instantiate] [origin] A stamped fn's contract
+/// [deduce-default] [comptime-instantiate] [node-origin] A stamped fn's contract
 /// errors at a copied node — a clause member's parameter [obligation-by] —
 /// land where its origin says, as its body's errors do, attributed to the
 /// fn.
@@ -1051,7 +1051,7 @@ impl<'p> Walk<'_, 'p> {
 
     /// Whether `e`, returned, is a projection the signature declares: its
     /// provenance root is a `from` source of a wholesale `proj` in the
-    /// return type [readonly-return].
+    /// return type [proj-readonly-return].
     fn returns_projection_of(&self, e: &Expr) -> bool {
         let Some(rt) = &self.decl.return_type else { return false };
         let sources: Vec<String> = proj_sources_of(rt);
@@ -1099,7 +1099,7 @@ impl<'p> Walk<'_, 'p> {
                 }
             }
             Expr::WhyNot { test, .. } => self.expr(test),
-            // [elvis] The picked value leaves through the expression, so the
+            // [op-elvis] The picked value leaves through the expression, so the
             // subject is used the way a returned value is; the right side is
             // an ordinary expression.
             Expr::Elvis { subject, rhs, .. } => {
@@ -1111,7 +1111,7 @@ impl<'p> Walk<'_, 'p> {
                 self.expr(rhs);
             }
             Expr::Placeholder { .. } => {}
-            // [safe-nav] The receiver is read (navigated), and any call
+            // [op-safe-nav] The receiver is read (navigated), and any call
             // arguments are evaluated; mirror a dot read/call's effects.
             Expr::SafeNav { base, access, .. } => {
                 self.expr(base);
@@ -1260,7 +1260,7 @@ impl<'p> Walk<'_, 'p> {
             },
             // [qual-lift] The check reads its subject.
             Expr::Widen { subject, .. } => self.expr(subject),
-            // [try] The delimiter's body is ordinary code: the calls in it
+            // [throw-try] The delimiter's body is ordinary code: the calls in it
             // contribute to the enclosing fn's inferred contract. A throw
             // can leave it early, so an addition inside one does not reach
             // the contract [qual-refn-infer].
@@ -1268,7 +1268,7 @@ impl<'p> Walk<'_, 'p> {
             // [expr-escape] Returning or breaking with a value **moves** it
             // (2026-09-21: the same rule, now reached as an expression).
             Expr::Return { value: Some(v), .. } => {
-                // [readonly-return] A fn returning `proj(p, …) T` hands
+                // [proj-readonly-return] A fn returning `proj(p, …) T` hands
                 // its result out *borrowed*: returning a source (or a
                 // projection of one) keeps it. Everything else returned is
                 // moved.

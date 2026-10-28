@@ -1,4 +1,4 @@
-//! [terminal-lambda] `map(xs, (e) -> ...)` — the last argument's lambda body
+//! [expr-terminal-lambda] `map(xs, (e) -> ...)` — the last argument's lambda body
 //! written `...` becomes the rest of the enclosing block, so a call that takes
 //! a lambda can read as a block without nesting.
 
@@ -28,7 +28,7 @@ fn find_lambda(e: &Expr) -> Option<&LambdaBody> {
     }
 }
 
-// [terminal-lambda] The trailing `(e) -> ...` lambda's body is filled with the
+// [expr-terminal-lambda] The trailing `(e) -> ...` lambda's body is filled with the
 // statements that follow the call — a `Block`, not the transient `Terminal`
 // placeholder, by the time parsing is done.
 #[test]
@@ -60,7 +60,7 @@ fn a_trailing_lambda_captures_the_rest_of_the_block() {
     assert_eq!(stmts.len(), 1, "the trailing statements moved into the lambda");
 }
 
-// [terminal-lambda] Only one terminal lambda per statement — a second `...`
+// [expr-terminal-lambda] Only one terminal lambda per statement — a second `...`
 // body is refused.
 #[test]
 fn two_terminal_lambdas_in_one_statement_are_refused() {

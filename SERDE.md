@@ -26,14 +26,14 @@ erasure, refinements), Implicit-Parameters.md (`fns`, obligations, slots),
 Comparison-and-Hashing.md (`auto fn`, the derivation mechanism), Modules.md,
 Linear-Types.md. LANGUAGE_SPEC.md rules relied on, each verified present:
 [struct-decl] [struct-defaults] [struct-spread] [struct-lit-infer]
-[let-destructure] [placeholder] [type-no-cycle] [type-union] [type-nullable]
-[union-arm-identity] [when-exhaustive] [qual-erasure] [qual-union-arm]
+[var-let-destructure] [expr-placeholder] [type-no-cycle] [type-union] [type-nullable]
+[type-union-arm-identity] [when-exhaustive] [qual-erasure] [qual-union-arm]
 [qual-constructive] [qual-ctor-fn] [qual-field-override] [cmp-auto] [cmp-groups]
 [fn-attached] [group-obligation] [implicit-group] [implicit-resolve]
-[implicit-fn-only] [interp-struct] [interp-to-str] [checked-type]
-[linear-obligation] [linear-discard] [throw] [try] [effect-not-data]
-[platform-effect] [platform-handler] [intrinsic-std-only] [wire-format]
-[noremote] [protocol-hash] [backend-never-wrong] [mod-export] [name-casing]
+[implicit-fn-only] [interp-struct] [interp-to-str] [type-checked]
+[linear-obligation] [linear-discard] [throw] [throw-try] [effect-not-data]
+[platform-effect] [platform-handler] [platform-intrinsic-std-only] [net-wire-format]
+[net-noremote] [actor-protocol-hash] [backend-never-wrong] [mod-export] [name-casing]
 [col-hashed-ordered]. Backend labels cited as representational facts only:
 [rs-wire] [kt-wire]. COMPLETED.md: "The network sequence, step ② — codecs and
 the protocol hash" and decision 1 and 9 of "Actors across machines — the network
@@ -72,7 +72,7 @@ it is used here to guide the options and price them, not to fix answers.
 
 How these meet the record: (1), (2) and (3) fit the language as it stands and
 are mostly a question of *what std provides* (SD-1, SD-3, SD-4). (5) collides
-with two present rules, [let-destructure] (a struct pattern may list a subset)
+with two present rules, [var-let-destructure] (a struct pattern may list a subset)
 and [struct-defaults] (a literal may omit a defaulted field), and is the
 load-bearing language change (SD-2). (4) is not a language problem the compiler
 can solve for binaries already deployed, but there are two mechanisms that make
@@ -82,11 +82,11 @@ needs stating (SD-6).
 
 ## 1. Fixed points — already decided, inherited here
 
-- **Salvo owns its wire format, and it is positional.** [wire-format] is a
+- **Salvo owns its wire format, and it is positional.** [net-wire-format] is a
   compiler-defined binary encoding: struct fields in declaration order, union
-  arms by index over the declared arms [union-arm-identity], qualifiers erased
-  [qual-erasure]. It is generated for every type unless `noremote` [noremote],
-  compatibility is a hash compared at the handshake [protocol-hash], and
+  arms by index over the declared arms [type-union-arm-identity], qualifiers erased
+  [qual-erasure]. It is generated for every type unless `noremote` [net-noremote],
+  compatibility is a hash compared at the handshake [actor-protocol-hash], and
   **decode never runs against a different schema than encode**. This is the
   right design for messages between nodes of one build and the wrong one for a
   persisted item: an item outlives the build that wrote it, is read by a
@@ -95,7 +95,7 @@ needs stating (SD-6).
   where §0.1 and §0.4 collide with the record**: the network round recorded
   schema evolution as "recorded, not built: unions cannot evolve, and a
   protocol gains a message as a new arm". A persisted format has to evolve.
-- **One predicate, two consumers** [backend-never-wrong] [wire-format]: "it
+- **One predicate, two consumers** [backend-never-wrong] [net-wire-format]: "it
   encodes" and "it has a codec on both backends" are one predicate in
   `salvo-core`, so the two backends cannot disagree. Any derived codec here
   inherits that shape.
@@ -106,7 +106,7 @@ needs stating (SD-6).
   the explicit `to_str` winning. So "the compiler writes a structural function
   from the fields" is an accepted mechanism with a known shape; what SD-3 asks
   is whether two more members join the list.
-- **Struct patterns list a subset** [let-destructure]: `let {name, age: a} = p`
+- **Struct patterns list a subset** [var-let-destructure]: `let {name, age: a} = p`
   binds two fields of a three-field struct today. Used **once** in the whole
   repository (`crates/salvo-syntax/tests/corpus/structs.sv:17`), so changing
   its rule costs one rewrite. **§0.5 collides here.**
@@ -117,13 +117,13 @@ needs stating (SD-6).
 - **Defaults are the language's answer to §0.3 already**: a field `= expr` is
   optional at construction. What is missing is not the mechanism but the
   *check* that a codec chose to rely on it.
-- **Unions are positional and exhaustive** [union-arm-identity]
+- **Unions are positional and exhaustive** [type-union-arm-identity]
   [when-exhaustive]: an old binary has no value to construct for an arm it does
   not know. Any external representation of a union has to be by *name*, and a
   decoder meeting an unknown name has to fail as an ordinary result, never a
   trap (SD-4).
-- **`Checked<T>` is "you must look at this"** [checked-type] and `throw`/`try`
-  is the non-resuming exit [throw] [try]. A decode failure is a value in one of
+- **`Checked<T>` is "you must look at this"** [type-checked] and `throw`/`try`
+  is the non-resuming exit [throw] [throw-try]. A decode failure is a value in one of
   those two shapes; this document does not propose a third.
 - **Generics are opaque** ("with no bounds, nothing about a `T` is knowable",
   AGENTS.md) and a generic `T` is refused at `encode` (recorded cut, step ②).
@@ -132,7 +132,7 @@ needs stating (SD-6).
   that itself needs implicits (ROADMAP §6). Nested containers in a derived
   codec are the compiler's to write, not std's, until §6 lands.
 - **Host capabilities are declared as `platform effect`s** [platform-effect]
-  [platform-handler]; std's primitives are `intrinsic` [intrinsic-std-only].
+  [platform-handler]; std's primitives are `intrinsic` [platform-intrinsic-std-only].
   A DynamoDB client is the host's capability; a JSON text parser can be either
   a runtime companion (as `wire.rs`/`wire.kt` are) or a platform effect, and
   SD-1 prices both.
@@ -246,7 +246,7 @@ steal for §0.4: **preservation is what makes the mixed fleet safe**, and it
 has to be present in *every* running version before it helps, so the cost of
 introducing it is paid once; and a **schema fingerprint in a lock file** is the
 mechanism that turns "did I break compatibility" into a build error, which
-Salvo already does for protocols [protocol-hash]. Informs SD-5.
+Salvo already does for protocols [actor-protocol-hash]. Informs SD-5.
 
 ### DynamoDB in practice
 
@@ -366,7 +366,7 @@ section ordinary Salvo.
 **Question.** §0.5: can the compiler check that a codec has considered every
 field? The two halves are the *pattern* side (reading a struct field by field
 to serialize it) and the *literal* side (building a struct field by field when
-deserializing). Folds §0.5, §0.6; collides with [let-destructure] and
+deserializing). Folds §0.5, §0.6; collides with [var-let-destructure] and
 [struct-defaults].
 
 The observation that makes this small: **a serializer that destructures its
@@ -416,11 +416,11 @@ is nothing to ignore, since every field must be given.
 
 **Option A1 — exhaustive by default, `..` opts out.** `let {name, age} = p`
 is an error when `p` has other fields; `let {name, age, ..} = p` is today's
-meaning. Same rule for `for {name, score} in rows` [let-destructure].
+meaning. Same rule for `for {name, score} in rows` [var-let-destructure].
 
 - *Cost.* One rewrite in the repository. A new token in patterns (`..`; or
   `...` to match spread, at the price of reading like a spread; or `_` as a
-  bare trailing element, which [placeholder] currently reserves for "the
+  bare trailing element, which [expr-placeholder] currently reserves for "the
   value the construct left unnamed" and would then mean "the fields left
   unnamed", a defensible reading).
 - *Trade-offs.* Matches Rust and the OCaml warning teams enable. A pattern
@@ -606,7 +606,7 @@ closed list the compiler owns, grown by two groups (`Json<T>`, `Attr<T>`).
 language rules here, since one program prints one output. Each is small; they
 are gathered so they are decided once. Folds §0.2, §0.3.
 
-**Unions.** Positional arms [union-arm-identity] cannot be persisted: reorder
+**Unions.** Positional arms [type-union-arm-identity] cannot be persisted: reorder
 the declaration and every stored item changes meaning. Options: (i) **by arm
 name**: a union of structs encodes as an object with the struct's name as a
 tag key (`{"type": "Imported", "feed": "…"}` in JSON, an `M` with a `type` `S`
@@ -733,7 +733,7 @@ touches `age` and never mentions `created`, so `created` survives.
   does not. It does not apply to a JSON blob stored whole. Both A and B can be
   adopted; they answer different write paths.
 
-**Option C — a version lock for persisted shapes.** Reuse [protocol-hash]:
+**Option C — a version lock for persisted shapes.** Reuse [actor-protocol-hash]:
 each struct with a `Json<self>`/`Attr<self>` obligation gets a canonical form
 (field names and types, sorted by name, since this format is by name) and the
 manifest's lock file records it per struct. The check is not equality but
@@ -802,7 +802,7 @@ the same effect) is the test double, as `MemFs` is for `Fs`.
 - *Cost.* One effect, two host skeletons the customer fills (or std ships a
   reference host under `lib/platform/std/`, as it does for `net`), one double.
 - *Trade-offs.* The codec never touches the SDK; the program is testable
-  without a table; the errors are `Checked` [checked-type] so a failed write
+  without a table; the errors are `Checked` [type-checked] so a failed write
   cannot be dropped in silence. Conditional expressions and transactions are
   members added when a program needs them.
 
@@ -841,7 +841,7 @@ waits on ROADMAP §4's manifest DECISION and should be folded into it.
 | Label | Question | Answers | Recommendation |
 |---|---|---|---|
 | SD-1 | What a serializer produces | §0.1, §0.2, §0.6 | std unions `Json` and `Attr`/`Item`, a JSON text runtime per backend, codecs to and from the values, never straight to text |
-| SD-2 | Exhaustiveness over fields | §0.5, §0.6; collides with [let-destructure] [struct-defaults] | Struct patterns exhaustive by default with a one-token opt-out (`..`); `exact Name { … }` literals refuse to fill defaults; optional `exact struct` sugar for the record layer |
+| SD-2 | Exhaustiveness over fields | §0.5, §0.6; collides with [var-let-destructure] [struct-defaults] | Struct patterns exhaustive by default with a one-token opt-out (`..`); `exact Name { … }` literals refuse to fill defaults; optional `exact struct` sugar for the record layer |
 | SD-3 | Derived codec and customization | §0.1, §0.2, §0.3 | `auto` grows `Json<T>` and `Attr<T>` (`to_json`/`of_json`, `to_attr`/`of_attr`); the record layer (a second struct plus two exhaustive conversions) is the documented customization; no attributes, no partial-auto |
 | SD-4 | Representation rules | §0.2, §0.3 | Unions tagged by arm name under `type`; `None` omitted; defaults always written; unknown keys ignored unless collected; declared field names with a per-struct casing convention; erased qualifiers re-tested on read |
 | SD-5 | Evolution and the mixed fleet | §0.3, §0.4 | `Extra<V>` bag per persisted struct (preservation); derived `changes(old, new)` for partial `UpdateItem` writes; compatibility lock in the manifest when it lands. Two-stage paid once, to deploy the first preserving version |

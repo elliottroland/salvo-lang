@@ -271,7 +271,7 @@ pub fn run_tool(program: &str, args: &[&std::ffi::OsStr]) -> Result<i32, Backend
     }
 }
 
-/// [host-tool] Runs a host build tool — `cargo`, Gradle — the same way for
+/// [backend-host-tool] Runs a host build tool — `cargo`, Gradle — the same way for
 /// both backends: `program` is the manifest's setting or the default command,
 /// and a missing one is reported naming the setting (`key`, like
 /// `[rust] cargo`) that points somewhere else. `Ok(code)` is the tool's own
@@ -294,7 +294,7 @@ pub fn run_host_tool(
             };
             Err(BackendError::Unsupported(format!(
                 "{place}: it builds the declared host libraries — install it, or name the \
-                 one to use with `{key} = \"…\"` in `salvo.toml` [host-tool]"
+                 one to use with `{key} = \"…\"` in `salvo.toml` [backend-host-tool]"
             )))
         }
         Err(err) => Err(BackendError::Io(err)),

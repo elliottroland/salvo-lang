@@ -47,7 +47,8 @@ export comptime fn eq<T is Struct>(a: T, b: T) [] -> Bool => a, b {
 
 // A `canbe Mut` struct is refused: a key that can change while a container
 // holds it corrupts the container's lookup, so only an immutable struct may
-// be one [col-hashed-ordered].
+// be one.
+// @compilerrules [col-hashed-ordered]
 export comptime fn hash<T is Struct>(value: T) [] -> Long => value {
     [if T.mutable] {
         refuse!("a `Mut`-capable struct can change while a collection holds it, so it cannot be a key: drop `canbe Mut`, or hash by hand")
@@ -61,7 +62,8 @@ export comptime fn hash<T is Struct>(value: T) [] -> Long => value {
 
 // The literal's own shape, `Point { x: 1, y: 2 }` — identical on both
 // backends, which is the whole reason the language fixes it rather than
-// deferring to `Debug` or `toString` [interp-to-str].
+// deferring to `Debug` or `toString`.
+// @compilerrules [interp-to-str]
 export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
     let out: Mut Str = Mut Str("${T.name} {")
     [for field in T.fields] {
@@ -81,8 +83,9 @@ export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
 
 // ===== unions =====
 
-// Arms order by their declared position [union-arm-identity]; two values in
+// Arms order by their declared position; two values in
 // the same arm order by the arm's own `cmp`.
+// @compilerrules [type-union-arm-identity]
 export comptime fn cmp<T is Union>(a: T, b: T) [] -> Int => a, b {
     [when a] {
         [x] {

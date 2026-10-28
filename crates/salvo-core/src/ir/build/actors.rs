@@ -23,7 +23,7 @@ pub fn enum_key(name: &str, module: &crate::ModulePath) -> String {
     format!("{name}{}{}", crate::typekey::SEP, module.0.join("."))
 }
 
-/// [route-stub] The derived route over protocol `effect` (a type key): its
+/// [actor-route-stub] The derived route over protocol `effect` (a type key): its
 /// name, after the written name like every derived name (it is placed in the
 /// protocol's module, where no other protocol has that name), and its key —
 /// keyed by the protocol's module.
@@ -35,7 +35,7 @@ pub fn route_key(effect: &str, module: &crate::ModulePath) -> String {
     enum_key(&route_name(effect), module)
 }
 
-/// [route-stub] A `std.net` fn by name and arity, for the derived routes.
+/// [actor-route-stub] A `std.net` fn by name and arity, for the derived routes.
 fn net_fn(ctx: &Ctx<'_>, name: &str, arity: usize) -> Option<DeclId> {
     for (file_idx, (file, module)) in ctx.program.files.iter().zip(&ctx.program.modules).enumerate() {
         if file.module != crate::ModulePath::std(&["net"]) {
@@ -63,7 +63,7 @@ struct Iface {
 pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     // The interface a face names, wherever it is declared.
     let key_of = |id: &DeclId, name: &str| -> String {
-        // [route-stub] A generated declaration is keyed by its module.
+        // [actor-route-stub] A generated declaration is keyed by its module.
         if id.kind() == crate::decl_id::DeclKind::Generated {
             return enum_key(name, id.module());
         }
@@ -168,7 +168,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
             ));
         }
     }
-    // [route-stub] Phase 1b: the route over every protocol a `use any`
+    // [actor-route-stub] Phase 1b: the route over every protocol a `use any`
     // routes (user decision R7), one per protocol, in the protocol's module
     // — an ordinary actor-faced impl from here on, so Phase 2 gives it its
     // dispatch. Each member asks the selector for a member and forwards:

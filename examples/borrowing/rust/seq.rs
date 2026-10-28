@@ -3,7 +3,7 @@
 
 /// [rs-elem-mut] Two `&mut` elements of one `Vec` at once — the rendering
 /// of a call taking two mutable element handles the checker proved apart
-/// (`Distinct`, [elem-distinct]): one `split_at_mut` at the higher index,
+/// (`Distinct`, [fate-elem-distinct]): one `split_at_mut` at the higher index,
 /// one element out of each half. `i != j` is checker-guaranteed; `None`
 /// when either index is out of range, so the caller's `.expect` carries
 /// the same message and timing as a single handle's `!`.

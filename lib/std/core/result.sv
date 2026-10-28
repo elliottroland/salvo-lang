@@ -7,33 +7,36 @@
 // Own module rather than part of `std.core.basic` so a program that never
 // mentions these names emits no code for them [mod-used-only].
 
-// [qual-constructive] Both tags are constructive: a plain value never
+// Both tags are constructive: a plain value never
 // subtypes `Ok T`, it gains the tag by going through the constructor
-// below — which must live in this file [qual-ctor-same-file]. Erased in
-// generated code [qual-erasure]: the union wrapper carries the arm, the
+// below — which must live in this file. Erased in
+// generated code: the union wrapper carries the arm, the
 // qualifier only decides which one.
+// @compilerrules [qual-constructive, qual-ctor-same-file, qual-erasure]
 export provenance qualifier Ok<T> of T
 export provenance qualifier Err<T> of T
 
-// [qual-ctor-fn] Tags a value as the success arm of a result union. The
+// Tags a value as the success arm of a result union. The
 // value is moved into the result, so nothing is kept ([] deductions);
-// linear values may be tagged, since the obligation travels with them
-// [linear-generics].
+// linear values may be tagged, since the obligation travels with them.
+// @compilerrules [qual-ctor-fn, linear-generics]
 export fn ok<T canbe linear>(value: T) [] -> +Ok T => !value {
     return value
 }
 
-// [qual-ctor-fn] Tags a value as the failure arm of a result union.
+// Tags a value as the failure arm of a result union.
+// @compilerrules [qual-ctor-fn]
 export fn err<T canbe linear>(value: T) [] -> +Err T => !value {
     return value
 }
 
-// [fn-type-named] The same constructors, named after the provenance
+// The same constructors, named after the provenance
 // qualifier they establish: `Ok(value)` reads as "the `Ok` arm of this
 // value". A type-named function whose name *is* a provenance qualifier
-// (no base type) is the provenance form of [fn-type-named] — it carries no
+// (no base type) is the provenance form of — it carries no
 // base, only the tag — and is a constructor like the lowercase `ok`/`err`
-// above, subject to the same same-file rule [qual-ctor-same-file].
+// above, subject to the same same-file rule.
+// @compilerrules [fn-type-named, qual-ctor-same-file]
 export fn Ok<T canbe linear>(value: T) [] -> +Ok T => !value {
     return value
 }
@@ -42,27 +45,31 @@ export fn Err<T canbe linear>(value: T) [] -> +Err T => !value {
     return value
 }
 
-// [result-errs] The accumulating outcome: `Ok T | Errs NonEmpty List<E>` —
+// The accumulating outcome: `Ok T | Errs NonEmpty List<E>` —
 // every error, not the first (the CLI design record X12, Q11). Where `throw` and
 // `Err E` stop at the first failure, a validation that wants the user to fix
 // all problems at once (bad flags, a config file, a batch of rows) collects
 // them; `both`, `map2` and `all` keep collecting after a failure. A
 // provenance tag like `Err`, minted by its constructor below.
+// @compilerrules [type-result-errs]
 export provenance qualifier Errs<T> of T
 
-// [result-errs] The failure arm of an accumulating outcome, from one error.
+// The failure arm of an accumulating outcome, from one error.
+// @compilerrules [type-result-errs]
 export fn errs<E>(first: E) [] -> +Errs NonEmpty List<E> => !first {
     return List(first)
 }
 
-// [result-errs] The same, named after the tag, from a non-empty list of
+// The same, named after the tag, from a non-empty list of
 // errors: `Errs(List(a, b))`.
+// @compilerrules [type-result-errs]
 export fn Errs<T canbe linear>(value: T) [] -> +Errs T => !value {
     return value
 }
 
-// [result-errs] Both outcomes' values, or every error either holds — `a`'s
+// Both outcomes' values, or every error either holds — `a`'s
 // first, then `b`'s (copied into one list, as `partition` copies).
+// @compilerrules [type-result-errs]
 export fn both<A, B, E>(a: Ok A | Errs NonEmpty List<E>, b: Ok B | Errs NonEmpty List<E>, ?copy: (v: E) -> E) [] -> Ok (A, B) | Errs NonEmpty List<E>
 => !a, !b {
     when a {
@@ -81,8 +88,9 @@ export fn both<A, B, E>(a: Ok A | Errs NonEmpty List<E>, b: Ok B | Errs NonEmpty
     }
 }
 
-// [result-errs] `f` of both values, or every error either holds — `a`'s
+// `f` of both values, or every error either holds — `a`'s
 // first, then `b`'s.
+// @compilerrules [type-result-errs]
 export fn map2<A, B, C, E>(a: Ok A | Errs NonEmpty List<E>, b: Ok B | Errs NonEmpty List<E>, f: (x: A, y: B) -> C, ?copy: (v: E) -> E) [] -> Ok C | Errs NonEmpty List<E>
 =>[f] !x, !y => !a, !b, f {
     when a {

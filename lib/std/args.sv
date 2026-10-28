@@ -8,7 +8,7 @@
 // A function that reads argv is a function whose answer depends on how the
 // process was launched, so — like reading a clock or the console — it is an
 // effect, not a global. `Args` is bound once in `main` and threaded to
-// whoever needs it [addr-capability]; nothing reads argv behind the back of
+// whoever needs it [net-addr-capability]; nothing reads argv behind the back of
 // the signature.
 //
 //     import std.args
@@ -33,10 +33,11 @@ export effect Args {
     fn args() -> List<Str>
 }
 
-// [cli-args] The host's argv, read from the process the one way each backend
+// The host's argv, read from the process the one way each backend
 // offers: the JVM `main`'s array (captured as the program starts), and
 // Rust's `std::env::args`. Stateless, so sharing it across threads needs no
-// synchronization [threadsafe-platform].
+// synchronization.
+// @compilerrules [cli-args, platform-threadsafe]
 export threadsafe platform handler HostArgs() of Args
 
 // ===== parsing a command line =====
@@ -51,9 +52,10 @@ export threadsafe platform handler HostArgs() of Args
 
 // ----- what can go wrong -----
 
-// [args-errors] Every way a command line can fail to parse, and the request
+// Every way a command line can fail to parse, and the request
 // for help, which is an outcome rather than a side effect so parsing stays
 // pure (Q17). A parse reports all of its errors at once.
+// @compilerrules [args-errors]
 export type ArgError = UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested
 
 // An option the command does not have: `--prot`, `-x`.
@@ -88,26 +90,30 @@ export struct Repeated {
     option: Str
 }
 
-// [args-groups] An option of a group given without one the group requires:
+// An option of a group given without one the group requires:
 // `--cert` without `--key`, for `tls: Tls?`.
+// @compilerrules [args-groups]
 export struct Requires {
     option: Str,
     needs: Str
 }
 
-// [args-groups] Options of two arms of an exclusive group: `--file` with
+// Options of two arms of an exclusive group: `--file` with
 // `--url`, for `source: FromUrl | FromFile`.
+// @compilerrules [args-groups]
 export struct Conflict {
     option: Str,
     other: Str
 }
 
-// [args-groups] None of an exclusive group's arms, when one is required.
+// None of an exclusive group's arms, when one is required.
+// @compilerrules [args-groups]
 export struct MissingOne {
     options: List<Str>
 }
 
-// [args-commands] A word where a sub-command goes that names none.
+// A word where a sub-command goes that names none.
+// @compilerrules [args-commands]
 export struct UnknownCommand {
     name: Str
 }
@@ -117,7 +123,8 @@ export struct HelpRequested {
     text: Str
 }
 
-// [args-errors] An error as one line, in the user's terms.
+// An error as one line, in the user's terms.
+// @compilerrules [args-errors]
 export fn message(e: ArgError) [] -> Str => e {
     when e {
         is UnknownOption { return "unknown option '${e.option}'" }
@@ -136,7 +143,8 @@ export fn message(e: ArgError) [] -> Str => e {
 
 // ----- what a command accepts -----
 
-// [args-runtime] One option of a command.
+// One option of a command.
+// @compilerrules [args-runtime]
 export struct OptSpec {
     // The field it fills, which is its key in a `Found`: `max_workers`.
     field: Str,
@@ -154,12 +162,14 @@ export struct OptSpec {
     default_text: Str? = None,
     // The values it accepts, when they are a fixed set.
     choices: List<Str> = List<Str>(),
-    // [args-groups] The group it belongs to, by key (`tls`, `source/FromUrl`,
+    // The group it belongs to, by key (`tls`, `source/FromUrl`,
     // `outer/tls`), or `None` for the command's own.
+    // @compilerrules [args-groups]
     group: Str? = None
 }
 
-// [args-groups] A group of options: a struct-typed field and what it adds.
+// A group of options: a struct-typed field and what it adds.
+// @compilerrules [args-groups]
 export struct GroupSpec {
     // `tls`, `source`, `source/FromUrl`: the field's name, an arm's after its
     // union's, each nested group after its parent's.
@@ -174,7 +184,8 @@ export struct GroupSpec {
     heading: Str? = None
 }
 
-// [args-runtime] One positional argument of a command, taken in order.
+// One positional argument of a command, taken in order.
+// @compilerrules [args-runtime]
 export struct ArgSpec {
     field: Str,
     help: Str? = None,
@@ -184,7 +195,8 @@ export struct ArgSpec {
     many: Bool = false
 }
 
-// [args-runtime] What a command accepts, for the type it parses into.
+// What a command accepts, for the type it parses into.
+// @compilerrules [args-runtime]
 export struct Spec<T> {
     // The command's name, as usage shows it: `serve`.
     name: Str,
@@ -193,7 +205,8 @@ export struct Spec<T> {
     opts: List<OptSpec>,
     args: List<ArgSpec>,
     groups: List<GroupSpec> = List<GroupSpec>(),
-    // [args-commands] The sub-commands, when a field takes one.
+    // The sub-commands, when a field takes one.
+    // @compilerrules [args-commands]
     commands: List<CmdSpec> = List<CmdSpec>(),
     // Whether one must be given (the field's union has no `None`).
     command_required: Bool = false,
@@ -201,17 +214,19 @@ export struct Spec<T> {
     command_fields: Int = 0
 }
 
-// [args-commands] A sub-command: its name (`clone`, or `Named`'s) and what
+// A sub-command: its name (`clone`, or `Named`'s) and what
 // it does.
+// @compilerrules [args-commands]
 export struct CmdSpec {
     name: Str,
     about: Str? = None
 }
 
-// [args-groups] Adds a group's options to a command's: `child`, the spec of
+// Adds a group's options to a command's: `child`, the spec of
 // the struct a field of kind `kind` holds, under `key`. Its own groups nest
 // under `key`; an empty arm (`struct FromStdin {}`) is chosen by a switch
 // named after it, `--from-stdin`.
+// @compilerrules [args-groups]
 fn merge_group<C>(opts: Mut List<OptSpec>, groups: Mut List<GroupSpec>, child: Spec<C>, key: Str, kind: Str, heading: Str?) [] -> None
 => opts: Mut, groups: Mut, child, key, kind, !heading {
     if !is_empty(child.args) {
@@ -240,14 +255,16 @@ fn merge_group<C>(opts: Mut List<OptSpec>, groups: Mut List<GroupSpec>, child: S
     }
 }
 
-// [args-groups] The exclusive group for a union-typed field: its key, and
+// The exclusive group for a union-typed field: its key, and
 // whether an arm is required (no `None` arm).
+// @compilerrules [args-groups]
 fn add_one(groups: Mut List<GroupSpec>, key: Str, required: Bool, heading: Str?) [] -> None => groups: Mut, key, !heading {
     add(groups, GroupSpec { key: copy(key), kind: "one", required: required, heading: heading })
 }
 
-// [args-groups] Whether the scan found any of `spec`'s options: whether a
+// Whether the scan found any of `spec`'s options: whether a
 // group (`tls: Tls?`) or an exclusive arm was given.
+// @compilerrules [args-groups]
 fn any_given<C>(found: Found, spec: Spec<C>) [] -> Bool => found, spec {
     if is_empty(spec.opts) {
         return given(found, replace(command_name(spec.name), "-", "_"))
@@ -294,32 +311,37 @@ fn command_name(type_name: Str) [] -> Str => type_name {
 
 // ----- scanning -----
 
-// [args-runtime] One value a scan found, under the field it fills. A switch
+// One value a scan found, under the field it fills. A switch
 // found is a hit whose value is `""`.
+// @compilerrules [args-runtime]
 export struct Hit {
     field: Str,
     value: Str
 }
 
-// [args-runtime] What a scan of a command line found: the values by field,
+// What a scan of a command line found: the values by field,
 // the errors in order, and whether help was asked for.
+// @compilerrules [args-runtime]
 export struct Found {
     hits: List<Hit>,
     errors: List<ArgError>,
     help: Bool,
-    // [args-commands] The sub-command named, and the arguments after its
+    // The sub-command named, and the arguments after its
     // name, which are its own.
+    // @compilerrules [args-commands]
     command: Str? = None,
     rest: List<Str> = List<Str>(),
-    // [args-commands] How usage names this command: `git remote`.
+    // How usage names this command: `git remote`.
+    // @compilerrules [args-commands]
     path: Str = ""
 }
 
-// [args-runtime] Reads `args` against `spec`. Every problem the scan can
+// Reads `args` against `spec`. Every problem the scan can
 // see is collected: an unknown option, a missing or unwanted value, an
 // option repeated that takes one value, a value outside its choices, a
 // required option or argument absent, a word with nowhere to go. Whether a
 // value parses as its field's type is the derived code's check, after.
+// @compilerrules [args-runtime]
 fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
     let tokens = lex(args)
     let hits: Mut List<Hit> = Mut List<Hit>()
@@ -511,7 +533,8 @@ fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
     return Found { hits: hits, errors: errors, help: help, command: command, rest: rest, path: copy(spec.name) }
 }
 
-// [args-groups] The group a key nests in: `source` for `source/FromUrl`.
+// The group a key nests in: `source` for `source/FromUrl`.
+// @compilerrules [args-groups]
 fn parent_key(key: Str) [] -> Str? => key {
     let cut = split_last(key, "/")
     if cut is None {
@@ -521,7 +544,8 @@ fn parent_key(key: Str) [] -> Str? => key {
     return parent
 }
 
-// [args-groups] Whether `key` is `parent`'s direct member.
+// Whether `key` is `parent`'s direct member.
+// @compilerrules [args-groups]
 fn parent_is(key: Str, parent: Str) [] -> Bool => key, parent {
     let p = parent_key(key)
     if p is None {
@@ -538,8 +562,9 @@ fn in_group(group: Str?, key: Str) [] -> Bool => group, key {
     return group == key
 }
 
-// [args-groups] The first option given in the group `key` (or nested in
+// The first option given in the group `key` (or nested in
 // it), as it was spelled long.
+// @compilerrules [args-groups]
 fn given_in<T>(spec: Spec<T>, hits: List<Hit>, key: Str) [] -> Str? => spec, hits, key {
     for h in hits {
         for o in spec.opts {
@@ -554,8 +579,9 @@ fn given_in<T>(spec: Spec<T>, hits: List<Hit>, key: Str) [] -> Str? => spec, hit
     return None
 }
 
-// [args-groups] How an arm is named when none was given: its first
+// How an arm is named when none was given: its first
 // required option, or its first.
+// @compilerrules [args-groups]
 fn first_option<T>(spec: Spec<T>, key: Str) [] -> Str => spec, key {
     for o in spec.opts {
         if o.required && in_group(o.group, key) {
@@ -570,8 +596,9 @@ fn first_option<T>(spec: Spec<T>, key: Str) [] -> Str => spec, key {
     return copy(key)
 }
 
-// [args-groups] Whether options in group `key` count: every all-or-none
+// Whether options in group `key` count: every all-or-none
 // group and exclusive arm it is in was used. The command's own always do.
+// @compilerrules [args-groups]
 fn live<T>(spec: Spec<T>, hits: List<Hit>, key: Str?) [] -> Bool => spec, hits, key {
     let k = key
     while k !is None {
@@ -586,9 +613,10 @@ fn live<T>(spec: Spec<T>, hits: List<Hit>, key: Str?) [] -> Bool => spec, hits, 
     return true
 }
 
-// [args-groups] For a required option of group `key` that is missing: the
+// For a required option of group `key` that is missing: the
 // option given in its innermost conditional group, which is what requires
 // it, when that group is used and every group around it counts.
+// @compilerrules [args-groups]
 fn unmet_group<T>(spec: Spec<T>, hits: List<Hit>, key: Str?) [] -> Str? => spec, hits, key {
     let k = key
     while k !is None {
@@ -607,7 +635,8 @@ fn unmet_group<T>(spec: Spec<T>, hits: List<Hit>, key: Str?) [] -> Str? => spec,
     return None
 }
 
-// [args-commands] Whether `spec` has a sub-command named `name`.
+// Whether `spec` has a sub-command named `name`.
+// @compilerrules [args-commands]
 fn has_command<T>(spec: Spec<T>, name: Str) [] -> Bool => spec, name {
     for c in spec.commands {
         if c.name == name {
@@ -617,7 +646,8 @@ fn has_command<T>(spec: Spec<T>, name: Str) [] -> Bool => spec, name {
     return false
 }
 
-// [args-commands] Whether the scan found the sub-command `name`.
+// Whether the scan found the sub-command `name`.
+// @compilerrules [args-commands]
 fn is_command(found: Found, name: Str) [] -> Bool => found, name {
     let c = found.command
     if c is None {
@@ -662,7 +692,8 @@ fn word_at(tokens: List<Token>, i: Int) [] -> Str? => tokens {
 
 // ----- reading what a scan found -----
 
-// [args-runtime] Whether the scan found `field` at all.
+// Whether the scan found `field` at all.
+// @compilerrules [args-runtime]
 fn given(found: Found, field: Str) [] -> Bool => found, field {
     for h in found.hits {
         if h.field == field {
@@ -672,7 +703,8 @@ fn given(found: Found, field: Str) [] -> Bool => found, field {
     return false
 }
 
-// [args-runtime] The value found for `field`, when there was one.
+// The value found for `field`, when there was one.
+// @compilerrules [args-runtime]
 fn value_of(found: Found, field: Str) [] -> Str? => found, field {
     for h in found.hits {
         if h.field == field {
@@ -682,7 +714,8 @@ fn value_of(found: Found, field: Str) [] -> Str? => found, field {
     return None
 }
 
-// [args-runtime] Every value found for `field`, in order.
+// Every value found for `field`, in order.
+// @compilerrules [args-runtime]
 fn values_of(found: Found, field: Str) [] -> List<Str> => found, field {
     let out: Mut List<Str> = Mut List<Str>()
     for h in found.hits {
@@ -695,7 +728,8 @@ fn values_of(found: Found, field: Str) [] -> List<Str> => found, field {
 
 // ----- help -----
 
-// [args-help] The usage line: `Usage: serve [OPTIONS] <files>...`.
+// The usage line: `Usage: serve [OPTIONS] <files>...`.
+// @compilerrules [args-help]
 export fn usage<T>(spec: Spec<T>) [] -> Str => spec {
     let out: Mut Str = Mut Str("Usage: ${spec.name}")
     if !is_empty(spec.opts) {
@@ -725,9 +759,10 @@ fn value_name(field: Str) [] -> Str => field {
     return to_upper(replace(field, "_", "-"))
 }
 
-// [args-help] The help text: what the command does, its usage, its
+// The help text: what the command does, its usage, its
 // arguments and its options, each with its doc comment, choices and
 // default, in two aligned columns.
+// @compilerrules [args-help]
 export fn help_text<T>(spec: Spec<T>) [] -> Str => spec {
     let out: Mut Str = Mut Str("")
     if spec.about !is None {
@@ -830,7 +865,8 @@ export fn help_text<T>(spec: Spec<T>) [] -> Str => spec {
     return out
 }
 
-// [args-help] A doc comment as one row of help: its lines joined by spaces.
+// A doc comment as one row of help: its lines joined by spaces.
+// @compilerrules [args-help]
 fn one_line(text: Str?) [] -> Str => text {
     if text is None {
         return ""
@@ -851,9 +887,10 @@ fn help_rows(out: Mut Str, lefts: List<Str>, rights: List<Str>, rows: List<Int>,
     }
 }
 
-// [args-groups] The heading an option's group is shown under: its
+// The heading an option's group is shown under: its
 // outermost group's doc comment, its last `.` dropped, or `""` for the
 // command's own options.
+// @compilerrules [args-groups]
 fn section<T>(spec: Spec<T>, group: Str?) [] -> Str => spec, group {
     if group is None {
         return ""
@@ -913,24 +950,29 @@ fn section<T>(spec: Spec<T>, group: Str?) [] -> Str => spec, group {
 import std.process
 import std.throw
 
-// [args-derive] A field's short name: `Short('p') port: Int` is `-p` too.
+// A field's short name: `Short('p') port: Int` is `-p` too.
+// @compilerrules [args-derive]
 export comptime qualifier Short(c: Char) of Field
 
-// [args-derive] A field taken by position rather than by name.
+// A field taken by position rather than by name.
+// @compilerrules [args-derive]
 export comptime qualifier Positional of Field
 
-// [args-commands] A field whose union of command structs is chosen by the
+// A field whose union of command structs is chosen by the
 // first word: `Subcommand command: Clone | Remote`.
+// @compilerrules [args-commands]
 export comptime qualifier Subcommand of Field
 
-// [args-derive] A command's name, when its type's will not do:
+// A command's name, when its type's will not do:
 // `Named("rm") struct Remove`. Otherwise a command is named after its type
-// [args-runtime] (`command_name`).
+// (`command_name`).
+// @compilerrules [args-derive, args-runtime]
 export comptime qualifier Named(name: Str) of Struct
 
-// [args-derive] What makes `T` parseable from a command line; stamped with
+// What makes `T` parseable from a command line; stamped with
 // `: FromArgs<self> by args`. Both members name `T` only in their return
-// type, so the expected type picks a struct's [fn-overload-return].
+// type, so the expected type picks a struct's.
+// @compilerrules [args-derive, fn-overload-return]
 export fns FromArgs<T> {
     // What `T`'s command line accepts.
     fn arg_spec() -> Spec<T>
@@ -938,15 +980,17 @@ export fns FromArgs<T> {
     fn from_found(found: Found) -> Ok T | Errs NonEmpty List<ArgError>
 }
 
-// [args-derive] Parses `args` into a `T`: every error at once, or the help
+// Parses `args` into a `T`: every error at once, or the help
 // text when `--help` or `-h` was given (an `Errs` holding one
 // `HelpRequested`, whatever else is wrong).
+// @compilerrules [args-derive]
 export fn parse_args<T>(args: List<Str>, ?FromArgs<T>) [] -> Ok T | Errs NonEmpty List<ArgError> => args {
     return parse_named(args, None)
 }
 
-// [args-commands] `parse_args`, for a command whose usage names it after
+// `parse_args`, for a command whose usage names it after
 // `prefix`: a sub-command `clone` of `git` is `git clone`.
+// @compilerrules [args-commands]
 export fn parse_named<T>(args: List<Str>, prefix: Str?, ?FromArgs<T>) [] -> Ok T | Errs NonEmpty List<ArgError> => args, !prefix {
     let base: Spec<T> = arg_spec()
     check_spec(base)
@@ -970,9 +1014,10 @@ export fn parse_named<T>(args: List<Str>, prefix: Str?, ?FromArgs<T>) [] -> Ok T
     return r
 }
 
-// [args-derive] Parses `args` into a `T`, or ends the process: help is
+// Parses `args` into a `T`, or ends the process: help is
 // printed to standard output with status 0, and errors to standard error,
 // with the usage line, with status 2 (AP-9).
+// @compilerrules [args-derive]
 export fn args_or_exit<T>(args: List<Str>, ?FromArgs<T>) [Console, Process] -> T => args {
     let parsed: Ok T | Errs NonEmpty List<ArgError> = parse_args(args)
     when parsed {
@@ -981,7 +1026,7 @@ export fn args_or_exit<T>(args: List<Str>, ?FromArgs<T>) [Console, Process] -> T
     }
 }
 
-// [args-validate] Parses `args` into a `T` and validates it with the
+// Parses `args` into a `T` and validates it with the
 // `validate` in scope, so the answer is the validated type (the CLI design record
 // §5.2, Q16): with
 //
@@ -998,6 +1043,7 @@ export fn args_or_exit<T>(args: List<Str>, ?FromArgs<T>) [Console, Process] -> T
 // `let r: Ok Valid Serve | Errs … = parse_valid(args)` is every parse
 // error, or the one `validate` threw, or a `Valid Serve`. `validate` runs
 // only on a command line that parsed; `T` comes from it.
+// @compilerrules [args-validate]
 export fn parse_valid<T, V>(args: List<Str>, ?FromArgs<T>, ?validate: (o: T) [Throw<ArgError>] -> V) [] -> Ok V | Errs NonEmpty List<ArgError>
 =>[validate] !o => args {
     let parsed: Ok T | Errs NonEmpty List<ArgError> = parse_args(args)
@@ -1018,8 +1064,9 @@ export fn parse_valid<T, V>(args: List<Str>, ?FromArgs<T>, ?validate: (o: T) [Th
     }
 }
 
-// [args-validate] `parse_valid`, ending the process on help or errors as
+// `parse_valid`, ending the process on help or errors as
 // `args_or_exit` does: `let opts: Valid Serve = valid_args_or_exit(args())`.
+// @compilerrules [args-validate]
 export fn valid_args_or_exit<T, V>(args: List<Str>, ?FromArgs<T>, ?validate: (o: T) [Throw<ArgError>] -> V) [Console, Process] -> V
 =>[validate] !o => args {
     let parsed: Ok V | Errs NonEmpty List<ArgError> = parse_valid<T, V>(args)
@@ -1029,9 +1076,10 @@ export fn valid_args_or_exit<T, V>(args: List<Str>, ?FromArgs<T>, ?validate: (o:
     }
 }
 
-// [args-derive] Ends the process for a parse that did not answer a value:
+// Ends the process for a parse that did not answer a value:
 // help to standard output with status 0, or every error to standard error,
 // then the usage line, with status 2 (AP-9).
+// @compilerrules [args-derive]
 fn exit_with<T>(errors: NonEmpty List<ArgError>, ?FromArgs<T>) [Console, Process] -> Never => errors {
     for e in errors {
         let one = copy(e)
@@ -1048,10 +1096,11 @@ fn exit_with<T>(errors: NonEmpty List<ArgError>, ?FromArgs<T>) [Console, Process
     exit(2)
 }
 
-// [args-derive] What the derive cannot see at compile time, checked as the
+// What the derive cannot see at compile time, checked as the
 // parser starts, so a program's first run fails instead: two options with
 // one short name, `-h` or `--help` (help's), a required positional after an optional
 // one, and a positional after one that takes every word.
+// @compilerrules [args-derive]
 fn check_spec<T>(spec: Spec<T>) [] -> None => spec {
     let shorts: Mut List<Char> = Mut List<Char>()
     let fields: Mut List<Str> = Mut List<Str>()
@@ -1132,16 +1181,18 @@ fn opt_takes_value<T>(spec: Spec<T>, key: Str) [] -> Bool => spec, key {
     return true
 }
 
-// [args-derive] Runs `f`: a block in a place that takes an expression, which
+// Runs `f`: a block in a place that takes an expression, which
 // is how the derive reads a field with statements inside a struct literal.
+// @compilerrules [args-derive]
 fn eval<Q>(f: once () -> Q) [] -> Q => !f {
     return f()
 }
 
-// [args-derive] The value found for `field`, parsed, refined by `refine` to
+// The value found for `field`, parsed, refined by `refine` to
 // the field's own type (its qualifiers tested), or `default`. The derive's
 // check pass has already reported a value that fails, so a failure here is
 // a bug in the derive.
+// @compilerrules [args-derive]
 fn read_value<B, Q>(found: Found, field: Str, default: Q?, refine: (v: B) -> Q?, ?from_str: (s: Str) -> B?) [] -> Q
 =>[refine] !v => found, field, !default, refine {
     let s = value_of(found, field)
@@ -1161,7 +1212,8 @@ fn read_value<B, Q>(found: Found, field: Str, default: Q?, refine: (v: B) -> Q?,
     unreachable!("`${field}` was checked as required")
 }
 
-// [args-derive] The value found for `field`, parsed, or `None`.
+// The value found for `field`, parsed, or `None`.
+// @compilerrules [args-derive]
 fn read_optional<E>(found: Found, field: Str, ?from_str: (s: Str) -> E?) [] -> E? => found, field {
     let s = value_of(found, field)
     if s is None {
@@ -1170,7 +1222,8 @@ fn read_optional<E>(found: Found, field: Str, ?from_str: (s: Str) -> E?) [] -> E
     return from_str(s)
 }
 
-// [args-derive] Every value found for `field`, parsed.
+// Every value found for `field`, parsed.
+// @compilerrules [args-derive]
 fn read_all<E>(found: Found, field: Str, ?from_str: (s: Str) -> E?) [] -> List<E> => found, field {
     let out: Mut List<E> = Mut List<E>()
     for s in values_of(found, field) {
@@ -1182,10 +1235,11 @@ fn read_all<E>(found: Found, field: Str, ?from_str: (s: Str) -> E?) [] -> List<E
     return out
 }
 
-// [args-derive] [args-explain] Reports the value found for `field` that does
+// Reports the value found for `field` that does
 // not parse as a `B` (`what` says what one is: "an integer"), or that fails
 // `test`, the field type's qualifiers, which answers why (`None` when the
 // value is accepted).
+// @compilerrules [args-derive, args-explain]
 fn check_value<B>(errors: Mut List<ArgError>, found: Found, field: Str, shown: Str, what: Str, test: (v: B) -> Str?, ?from_str: (s: Str) -> B?) [] -> None
 =>[test] v => errors: Mut, found, field, shown, what, test {
     for s in values_of(found, field) {
@@ -1201,7 +1255,8 @@ fn check_value<B>(errors: Mut List<ArgError>, found: Found, field: Str, shown: S
     }
 }
 
-// [args-derive] How errors name a field: `--max-workers`, or `<files>`.
+// How errors name a field: `--max-workers`, or `<files>`.
+// @compilerrules [args-derive]
 fn shown_name(field: Str, positional: Bool) [] -> Str => field {
     if positional {
         return arg_name(field)
@@ -1209,14 +1264,16 @@ fn shown_name(field: Str, positional: Bool) [] -> Str => field {
     return long_name(field)
 }
 
-// [args-derive] The text of a literal arm's name: `json` for `"json"`.
+// The text of a literal arm's name: `json` for `"json"`.
+// @compilerrules [args-derive]
 fn literal_text(name: Str) [] -> Str => name {
     return trim_suffix(trim_prefix(name, "\""), "\"")
 }
 
-// [args-groups] A group's value from its own `from_found`, adding the
+// A group's value from its own `from_found`, adding the
 // errors it found beyond the scan's (the first `skip`, which the caller
 // already has).
+// @compilerrules [args-groups]
 fn group_errors<C>(errors: Mut List<ArgError>, r: Ok C | Errs NonEmpty List<ArgError>, skip: Int) [] -> None
 => errors: Mut, !r {
     if r is Errs {
@@ -1230,7 +1287,8 @@ fn group_errors<C>(errors: Mut List<ArgError>, r: Ok C | Errs NonEmpty List<ArgE
     }
 }
 
-// [args-groups] A group's value, once every check has passed.
+// A group's value, once every check has passed.
+// @compilerrules [args-groups]
 fn built<C>(r: Ok C | Errs NonEmpty List<ArgError>) [] -> C => !r {
     when r {
         is Ok { return r }
@@ -1238,9 +1296,10 @@ fn built<C>(r: Ok C | Errs NonEmpty List<ArgError>) [] -> C => !r {
     }
 }
 
-// [args-derive] `T`'s command line, from its fields: one option or
-// positional per field, as [args-derive]'s mapping says, and a group's
-// options for a struct-typed field [args-groups].
+// `T`'s command line, from its fields: one option or
+// positional per field, as the derived parser maps them, and a group's
+// options for a struct-typed field.
+// @compilerrules [args-derive, args-groups]
 export comptime fn arg_spec<T is Struct>() [] -> Spec<T> {
     let opts: Mut List<OptSpec> = Mut List<OptSpec>()
     let args: Mut List<ArgSpec> = Mut List<ArgSpec>()
@@ -1400,10 +1459,11 @@ export comptime fn arg_spec<T is Struct>() [] -> Spec<T> {
     }
 }
 
-// [args-derive] `T` from a scan: first every value checked against its
+// `T` from a scan: first every value checked against its
 // field's type (each failure an error, after the scan's own), then, when
 // there are none, `T` built from the values and the defaults. A group's
-// value comes from its own struct's `from_found` [args-groups].
+// value comes from its own struct's `from_found`.
+// @compilerrules [args-derive, args-groups]
 export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEmpty List<ArgError> => found {
     let errors: Mut List<ArgError> = Mut List<ArgError>()
     for e in found.errors {

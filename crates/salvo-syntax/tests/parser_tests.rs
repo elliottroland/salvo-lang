@@ -66,7 +66,7 @@ fn snapshot_std_string() {
     insta::assert_debug_snapshot!(parse_clean(&std_core("string.sv")));
 }
 
-/// [bytes-type] The byte buffer's surface: an `intrinsic type` that opts into
+/// [type-bytes] The byte buffer's surface: an `intrinsic type` that opts into
 /// `Mut`, its two constructors, and the one pass declared over it.
 #[test]
 fn snapshot_std_bytes() {
@@ -308,9 +308,9 @@ fn a_fns_groups_clause_takes_only_with_entries() {
     );
 }
 
-// --- `canbe` opt-ins [canbe-optin] ---
+// --- `canbe` opt-ins [qual-canbe-optin] ---
 
-// [canbe-optin] [struct-mut] [type-canbe-mut] `canbe` opts declarations
+// [qual-canbe-optin] [struct-mut] [type-canbe-mut] `canbe` opts declarations
 // into an auto-qualifier; `with` at those sites is a rename error that
 // still parses the declaration.
 #[test]
@@ -388,7 +388,7 @@ fn obligations_parse_without_canbe() {
     assert!(s.auto_qualifiers.is_empty());
 }
 
-// [canbe-optin] [linear-generics] Per-type-parameter opt-in on fns.
+// [qual-canbe-optin] [linear-generics] Per-type-parameter opt-in on fns.
 #[test]
 fn canbe_opts_a_type_parameter_in() {
     let source = "fn hold<T canbe linear>(value: T) -> T {\n    return value\n}\n";
@@ -406,7 +406,7 @@ fn canbe_opts_a_type_parameter_in() {
     assert_eq!(f.generic_canbe[0].1.name.name, "linear");
 }
 
-// [canbe-optin] [linear-generics] The clause is fn-only for now.
+// [qual-canbe-optin] [linear-generics] The clause is fn-only for now.
 #[test]
 fn canbe_linear_parses_on_a_struct_type_parameter() {
     // [linear-generics] The conditional-container declaration (user
@@ -941,7 +941,7 @@ fn only_the_first_comment_run_can_document_the_module() {
 }
 
 
-// [try] `try` takes a block and is an *expression* — the throw delimiter.
+// [throw-try] `try` takes a block and is an *expression* — the throw delimiter.
 #[test]
 fn try_parses_as_a_block_expression() {
     let source = "fn f() {\n    let outcome = try {\n        parse(line)\n    }\n}\n";
@@ -964,7 +964,7 @@ fn try_parses_as_a_block_expression() {
     assert_eq!(inner.stmts.len(), 1);
 }
 
-// [try] A bodyless `try` is a parse error naming the form.
+// [throw-try] A bodyless `try` is a parse error naming the form.
 #[test]
 fn try_without_a_block_is_an_error() {
     let source = "fn f() {\n    let outcome = try parse(line)\n}\n";
@@ -1125,9 +1125,9 @@ fn platform_handler_takes_constructor_parameters() {
     assert_eq!(h.params[0].name.name, "bucket");
 }
 
-// --- the thread-safety contract [threadsafe-platform] ---
+// --- the thread-safety contract [platform-threadsafe] ---
 
-/// [threadsafe-platform] `threadsafe platform handler H of E` parses as a
+/// [platform-threadsafe] `threadsafe platform handler H of E` parses as a
 /// platform handler carrying the contract flag; without the word the flag is
 /// off. `export` precedes it as it precedes every modifier.
 #[test]
@@ -1152,7 +1152,7 @@ fn threadsafe_platform_handler_parses_with_the_flag() {
     assert_eq!(flags, vec![(true, true, false), (true, true, true), (true, false, false)]);
 }
 
-/// [threadsafe-platform] The contract is a claim about a host *class*, so it
+/// [platform-threadsafe] The contract is a claim about a host *class*, so it
 /// belongs on a `platform handler` only: before anything else it is an
 /// error naming the reason.
 #[test]
@@ -1162,7 +1162,7 @@ fn threadsafe_on_a_non_handler_is_an_error_naming_the_form() {
     assert!(
         diagnostics.iter().any(|d| d.is_error()
             && d.message.contains("expected `handler` or `type` after `threadsafe platform`")
-            && d.message.contains("[threadsafe-platform]")),
+            && d.message.contains("[platform-threadsafe]")),
         "expected the misplaced-`threadsafe` error, got: {:?}",
         diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
@@ -1186,7 +1186,7 @@ fn iterable_belongs_on_a_platform_type() {
     assert!(module.items.iter().any(|i| matches!(i, salvo_syntax::ast::Item::Type(t) if t.iterable && t.platform && t.exported)));
 }
 
-/// [threadsafe-platform] Contextual, like `actor` and `send`: `threadsafe`
+/// [platform-threadsafe] Contextual, like `actor` and `send`: `threadsafe`
 /// stays an ordinary identifier everywhere but directly before `platform`.
 #[test]
 fn threadsafe_is_an_ordinary_identifier_elsewhere() {
@@ -1236,7 +1236,7 @@ fn platform_fn_parses_and_a_bare_bodiless_fn_is_refused() {
     let errors = errors_of("platform fn chars(s: Str) [] -> Str => s {\n    return s\n}\n");
     assert!(errors.iter().any(|m| m.contains("`platform fn chars` has a body")), "{errors:?}");
     let errors = errors_of("threadsafe platform fn chars(s: Str) [] -> Str => s\n");
-    assert!(errors.iter().any(|m| m.contains("[threadsafe-platform]")), "{errors:?}");
+    assert!(errors.iter().any(|m| m.contains("[platform-threadsafe]")), "{errors:?}");
 }
 
 /// [decl-body] A `type` with no `= ...` alias (and not `intrinsic`) was only
@@ -2242,7 +2242,7 @@ fn collect_replyto(
     }
 }
 
-/// [free-send-fn] [task-pool-inherit] The task kernel's two bits of grammar: a
+/// [actor-free-send-fn] [task-pool-inherit] The task kernel's two bits of grammar: a
 /// top-level `send fn`, and a mint's optional `on POOL` clause. Both words stay
 /// **contextual** — `send` is a function and a method name, `on` an ordinary
 /// identifier — which is what the last assertion checks.
@@ -2309,7 +2309,7 @@ fn on(n: Int) -> Int {
     );
 }
 
-/// [actor-spawn-expr] [actor-mailbox] [main-pool] The clause words are
+/// [actor-spawn-expr] [actor-mailbox] [actor-main-pool] The clause words are
 /// **contextual**, and both clauses are optional: an omitted `on` parses to no
 /// pool expression at all, which means the pool current where the spawn was
 /// written (user decision 2026-09-17, FC-4(a) — that is how a spawn names the
@@ -2367,7 +2367,7 @@ fn main() [use] -> Int {
 /// A spawn's `with` clause is same-line, like its `on` clause: without the
 /// guard, a bare spawn followed by a `use` **statement** swallowed the next
 /// line as its dependency clause (defect found and closed 2026-09-19 — the
-/// pair is the monitor spawn's natural shape [monitor-handler]).
+/// pair is the monitor spawn's natural shape [actor-monitor-handler]).
 #[test]
 fn a_spawn_does_not_swallow_a_use_statement_on_the_next_line() {
     let source = "\
@@ -2629,7 +2629,7 @@ handler Working() of Work {
     );
 }
 
-/// [defer-deduction] `=> !d, defer out` — the deferral entry (SH-10, user
+/// [linear-defer] `=> !d, defer out` — the deferral entry (SH-10, user
 /// decision 2026-09-19): consumed like `!out`, and the obligation may
 /// outlive the frame. Contextual: a parameter named `defer` stays writable
 /// as a bare keep.
@@ -2813,7 +2813,7 @@ fn compound_assignment_desugars_to_assignment() {
 }
 
 /// `++` keeps its own node: the two forms mean the same thing for `+= 1` in
-/// statement position, but `++` is also an *expression* [inc-dec], so it could
+/// statement position, but `++` is also an *expression* [op-inc-dec], so it could
 /// not be desugared the same way.
 #[test]
 fn the_step_operators_are_untouched() {
@@ -3067,9 +3067,9 @@ fn an_unterminated_nested_string_is_reported() {
     );
 }
 
-// --- the wire opt-out [noremote] ---
+// --- the wire opt-out [net-noremote] ---
 
-/// [noremote] `noremote` before a `struct` or a `type` sets the flag, with
+/// [net-noremote] `noremote` before a `struct` or a `type` sets the flag, with
 /// `export`, `linear` and `intrinsic` composing as usual.
 #[test]
 fn noremote_parses_on_structs_and_types() {
@@ -3095,14 +3095,14 @@ fn noremote_parses_on_structs_and_types() {
     assert_eq!(flags, vec![(true, false), (true, true), (true, true), (false, false)]);
 }
 
-/// [noremote] Before anything but a type declaration it is an error naming
+/// [net-noremote] Before anything but a type declaration it is an error naming
 /// what the word is for.
 #[test]
 fn noremote_on_a_fn_is_an_error() {
     let source = "noremote fn go() -> None {\n}\n";
     let (_, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
-        diagnostics.iter().any(|d| d.is_error() && d.message.contains("[noremote]")),
+        diagnostics.iter().any(|d| d.is_error() && d.message.contains("[net-noremote]")),
         "expected the misplaced-`noremote` error, got: {:?}",
         diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
@@ -3229,7 +3229,7 @@ fn literal_types_parse() {
     assert!(errs.iter().any(|e| e.contains("a float cannot be a literal type")), "{errs:?}");
 }
 
-// [union-spread] A `...T` union arm parses to `Type::Spread` wrapping its
+// [type-union-spread] A `...T` union arm parses to `Type::Spread` wrapping its
 // inner bare generic; ordinary arms beside it are unchanged.
 #[test]
 fn union_arm_spread_parses() {
@@ -3329,9 +3329,9 @@ fn a_struct_literal_field_may_be_named_type() {
     );
 }
 
-// --- Terminal `...` scopes [terminal-scope] ---
+// --- Terminal `...` scopes [expr-terminal-scope] ---
 
-/// [terminal-scope] A trailing `...` where a body `{` would go makes the rest
+/// [expr-terminal-scope] A trailing `...` where a body `{` would go makes the rest
 /// of the enclosing block the construct's body — for `if`, loops, `try` and
 /// `waitfor`. The `if` form takes an optional inline braced `else`.
 #[test]
@@ -3359,7 +3359,7 @@ fn whl(i: Int) {\n\
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
 
-/// [terminal-scope] It is statement-only: a `...` in a value position (a `let`
+/// [expr-terminal-scope] It is statement-only: a `...` in a value position (a `let`
 /// value, a call argument, an operand) is a parse error naming the braced form.
 #[test]
 fn a_terminal_scope_in_value_position_is_an_error() {
@@ -3376,7 +3376,7 @@ fn a_terminal_scope_in_value_position_is_an_error() {
     }
 }
 
-/// [terminal-scope] A terminal `if` takes only an optional braced `else` — no
+/// [expr-terminal-scope] A terminal `if` takes only an optional braced `else` — no
 /// `elif`, no `else ...`.
 #[test]
 fn a_terminal_if_refuses_elif_and_else_dots() {
@@ -3392,7 +3392,7 @@ fn a_terminal_if_refuses_elif_and_else_dots() {
     );
 }
 
-/// [terminal-scope] [comptime-inline] A comptime `[for …]` or `[if …]` takes a
+/// [expr-terminal-scope] [comptime-inline] A comptime `[for …]` or `[if …]` takes a
 /// terminal `...` body; the `[if]` an inline braced `else`, never `else ...`.
 #[test]
 fn comptime_for_and_if_take_terminal_scopes() {
@@ -3826,7 +3826,7 @@ fn flattened_replyto_after_a_non_call_is_an_error() {
     );
 }
 
-// --- [state-infer] Handler state blocks and inferred field types ---
+// --- [handler-state-infer] Handler state blocks and inferred field types ---
 
 /// A handler's state goes in a `state { … }` block; a field may infer its type
 /// (`name = value`) or write it (`name: Type = value`).
@@ -3938,7 +3938,7 @@ fn a_subject_comptime_when_takes_no_else() {
     }
 }
 
-/// [field-canbe-mut] A field's `canbe Mut` is written after its type, before a
+/// [struct-field-canbe-mut] A field's `canbe Mut` is written after its type, before a
 /// default (user decision 2026-10-20); the old prefix spelling `name: canbe Mut
 /// T` is a plain parse error, and only `Mut` may follow `canbe`.
 #[test]

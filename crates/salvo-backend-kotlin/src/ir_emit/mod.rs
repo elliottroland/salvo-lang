@@ -306,7 +306,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let kept = |d: &Decl| -> bool {
             let Some(keep) = keep else { return true };
             match d {
-                // [namespace] A dotted-name struct (a namespace arm) is kept
+                // [mod-namespace] A dotted-name struct (a namespace arm) is kept
                 // when the closure reaches it: the namespace it belongs to has
                 // to be emitted as a whole for `Ns.Arm` to resolve, even in an
                 // ABI file. The `emit_struct_namespace` path below emits the
@@ -325,11 +325,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         };
         let mut body = String::new();
-        // [kt-nested-dot-name] [namespace] Dot-named structs nest in their
+        // [kt-nested-dot-name] [mod-namespace] Dot-named structs nest in their
         // namespace, to any depth (`Outer.Inner.Thing`). A namespace segment
         // is either a struct of that exact path (its `data class` reopens with
         // a body) or a pure `namespace`/`type` namespace (an `object`). The
-        // set of namespaces is authoritative from the AST [namespace]; a
+        // set of namespaces is authoritative from the AST [mod-namespace]; a
         // dotted struct whose prefix is not a declared namespace still nests
         // under that prefix as an `object` (the legacy enum-arm `type`
         // namespace, whose `type` left no struct).
@@ -417,7 +417,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// The unqualified Kotlin identifier of a declared fn, as its declaration
     /// spells it.
     ///
-    /// [namespace] A namespaced free fn has a dotted key (`Outer.Inner.make`).
+    /// [mod-namespace] A namespaced free fn has a dotted key (`Outer.Inner.make`).
     /// Kotlin nests *types* in objects so their dotted path is valid, but a
     /// function is flattened to an underscore-joined identifier
     /// (`Outer_Inner_make`) at both its declaration and every call — the
@@ -451,7 +451,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    /// [route-stub] The module of a handler the IR generated (a route), by
+    /// [actor-route-stub] The module of a handler the IR generated (a route), by
     /// its key, which names its module like a generated enum's.
     fn generated_impl_module(&self, key: &str) -> Option<salvo_core::ModulePath> {
         let module = salvo_core::typekey::module_of(key)?;
@@ -485,7 +485,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         self.s.needs_bytes = true;
                     }
                     if name == "Addr" && args.len() == 1 {
-                        // [monitor-handler] [kt-monitor] a plain effect's addr
+                        // [actor-monitor-handler] [kt-monitor] a plain effect's addr
                         // is the effect's handle, not a scheduler index.
                         if let Ty::Named { name: eff, .. } = args[0].strip_quals() {
                             if self.interface_by_key(eff).is_some_and(|i| !i.actor) {
@@ -673,7 +673,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    /// [kt-nested-dot-name] [namespace] Emits the namespace rooted at `path`
+    /// [kt-nested-dot-name] [mod-namespace] Emits the namespace rooted at `path`
     /// (a dotted prefix) recursively into `body`: the class or object for
     /// `path`, with its direct child structs and child namespaces nested
     /// inside, to any depth. Codecs cannot nest, so every nested struct's
@@ -984,7 +984,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if is_actor && faces.len() != h.faces.len() {
             self.error(format!("handler `{}` mixes actor and plain effects, which the IR emitter does not render yet", h.name));
         }
-        // [mixed-handler] [kt-mixed] plain faces with `send fn` members: the
+        // [actor-mixed-handler] [kt-mixed] plain faces with `send fn` members: the
         // class is the servant alone; the faces are worn by `__Fac_H`.
         let mixed = self.is_mixed(h);
         let face_tys: Vec<String> = h.faces.iter().map(|f| self.ty(f)).collect();
@@ -1055,7 +1055,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    /// [mixed-handler] Every face a plain effect, and a `send fn` member.
+    /// [actor-mixed-handler] Every face a plain effect, and a `send fn` member.
     pub(crate) fn is_mixed(&self, h: &ImplDecl) -> bool {
         !h.faces.is_empty() && h.members.iter().any(|m| m.send) && self.actor_faces(h).is_empty()
     }
@@ -1552,7 +1552,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 out
             }
             ExprKind::Branch { arms, otherwise, .. } => {
-                // [safe-nav] A `?.` whose links are all field reads renders as
+                // [op-safe-nav] A `?.` whose links are all field reads renders as
                 // a native Kotlin optional chain (`a?.b?.c`); anything else
                 // (a call link) falls back to the generic branch, which is
                 // correct if less idiomatic.
@@ -1700,7 +1700,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let plain = salvo_core::typekey::plain(name).to_string();
                 match self.interface_by_key(name) {
                     Some(iface) if iface.actor => format!("{}__Stub_{plain}({a})", self.pkg_prefix(iface.id.module())),
-                    // [monitor-handler] a plain effect's addr is its handle already.
+                    // [actor-monitor-handler] a plain effect's addr is its handle already.
                     Some(_) => a,
                     None => {
                         self.error(format!("`{plain}` is not an effect, so an addr is not an instance of it"));
@@ -1716,7 +1716,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    /// [try] `try { … }`: the body's value in the `Ok` arm of the outcome, a
+    /// [throw-try] `try { … }`: the body's value in the `Ok` arm of the outcome, a
     /// thrown message in the `Thrown` arm; a union message is told apart by
     /// the signal's tag.
     fn try_expr(&mut self, e: &Expr, body: &Block, indent: usize) -> String {
@@ -2003,7 +2003,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if name == "cmp" && recv == Some("Str") {
             self.s.needs_compare = true;
         }
-        // [addr-routable] [kt-wire] The routing intrinsics of std `net`.
+        // [net-addr-routable] [kt-wire] The routing intrinsics of std `net`.
         if name == "watch_control" && args.len() == 2 {
             // [node-group] [actor-group] [actor-private-send] The control
             // frames of the channel arrive as the handler's private
@@ -2028,7 +2028,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return format!("salvo.SalvoSched.watchControl({channel}, {sink}) {{ __n, __d -> __Priv_{hname}.Control({nid}(__n), salvo.SalvoBytes(__d)) }}");
         }
         if name == "protocol" && args.is_empty() {
-            // [protocol-hash] [actor-group] the literal of the effect the
+            // [actor-protocol-hash] [actor-group] the literal of the effect the
             // result type names — the written type argument or the implicit
             // position's type, both of which the call's type carries.
             let effect = match e.ty.strip_quals() {
@@ -2437,7 +2437,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if value { format!("({out})") } else { out }
     }
 
-    /// [safe-nav] Render a `?.` lowering as a native Kotlin optional chain
+    /// [op-safe-nav] Render a `?.` lowering as a native Kotlin optional chain
     /// when every link is a field read: `receiver?.f?.g`. Returns `None` for a
     /// call link (resolved to a free function, which a native `?.` cannot
     /// spell) or a non-`?.` branch, so the caller falls back to the generic
@@ -2521,7 +2521,7 @@ fn subst_ty_raw(t: &Ty, s: &std::collections::HashMap<String, Ty>) -> Ty {
     }
 }
 
-/// [safe-nav] If `value` is a plain field read of the narrowed receiver
+/// [op-safe-nav] If `value` is a plain field read of the narrowed receiver
 /// `nav` (`Read(nav.field)`), the field name and its type. `None` for a call
 /// link or any read that is not exactly `nav.field`.
 fn field_link<'a>(value: &'a Expr, nav: &Local) -> Option<(&'a str, &'a Ty)> {

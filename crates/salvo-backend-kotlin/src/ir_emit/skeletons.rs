@@ -153,7 +153,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let ps: Vec<String> = h.ctor_params.iter().map(|p| format!("private val {}: {}", kt_local(&p.local), self.ty(&p.ty))).collect();
                 format!("({})", ps.join(", "))
             };
-            // [threadsafe-platform] [kt-platform-handler] The contract, printed
+            // [platform-threadsafe] [kt-platform-handler] The contract, printed
             // where the implementer signs it.
             let contract = if h.threadsafe {
                 format!(
@@ -164,7 +164,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                      // (`ConcurrentHashMap`, atomics, `synchronized` blocks of your own). If\n\
                      // the host cannot promise that, delete `threadsafe` from the Salvo\n\
                      // declaration: the compiler then serializes the instance for you\n\
-                     // [threadsafe-platform].\n",
+                     // [platform-threadsafe].\n",
                     h.name
                 )
             } else {
@@ -173,7 +173,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                      // member runs under one `synchronized` monitor on both backends, so\n\
                      // plain fields are fine. If the host synchronizes internally and wants\n\
                      // to run concurrently, declare it `threadsafe platform handler` in\n\
-                     // Salvo and regenerate [threadsafe-platform].\n",
+                     // Salvo and regenerate [platform-threadsafe].\n",
                     h.name
                 )
             };

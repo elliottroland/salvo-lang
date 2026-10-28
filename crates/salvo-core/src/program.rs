@@ -279,7 +279,7 @@ impl<'p> Symbols<'p> {
                     // scope-local name for one that already exists, and it is
                     // erased before emission.
                     Item::Rename(_) => {}
-                    // [namespace] Flattened away before symbol collection.
+                    // [mod-namespace] Flattened away before symbol collection.
                     Item::Namespace(_) => {}
                     Item::Struct(s) => {
                         symbols.structs.insert(key(s as *const StructDecl as usize, &s.name.name), s);

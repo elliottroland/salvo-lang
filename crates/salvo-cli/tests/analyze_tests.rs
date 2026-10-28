@@ -1604,7 +1604,7 @@ fn l4_lambda_captures() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     // A capture-consuming lambda is legal since L7b but `once`-typed
-    // [once-fn]: passing it where a plain fn is expected fails at the
+    // [fn-once]: passing it where a plain fn is expected fails at the
     // boundary.
     assert!(
         stderr.contains("no matching overload for `run(once () -> "),
@@ -1863,7 +1863,7 @@ fn close(x: FileHandle) -> None => !x { discard(x) }
     assert!(stderr.contains("5 errors"), "stderr: {stderr}");
 }
 
-// [once-fn] L7b: `once` on fn types means callable at most once,
+// [fn-once] L7b: `once` on fn types means callable at most once,
 // enforced by consumption — a second call, a call in a loop, and a
 // call after passing the value on all error; a maybe-call is fine
 // ("at most once"). Subtyping is inverted (plain fns fit `once`
@@ -1900,7 +1900,7 @@ fn l7b_once_fns() {
             "line {line}, stderr: {stderr}"
         );
     }
-    // [once-fn] D6 (user decision 2026-09-12): `once` is valid on any
+    // [fn-once] D6 (user decision 2026-09-12): `once` is valid on any
     // type now, so `not_a_fn(x: once Int)` draws no error.
     assert!(
         !stderr.contains("`once` applies to function types"),
@@ -1929,7 +1929,7 @@ fn l7b_once_fns() {
     assert!(!stderr.contains("cannot be used here"), "stderr: {stderr}");
 }
 
-// [readonly-return] L7c: `-> proj(p) T?` marks a derived
+// [proj-readonly-return] L7c: `-> proj(p) T?` marks a derived
 // return — the callee may return projections/elements of the kept
 // parameter `p` without `copy`, and the caller's result fate-links to
 // the argument. Violations: returning an independent value, annotating
@@ -2270,7 +2270,7 @@ fn deduction_entry_forms_are_validated() {
 // there [effect-member-no-effects]). The declaration is then a real
 // contract — a member that takes ownership consumes its argument at the
 // call site. (The other bodyless form, `intrinsic`, is the compiler's and
-// only std may write it [intrinsic-std-only], so it never appears in a
+// only std may write it [platform-intrinsic-std-only], so it never appears in a
 // user source like these.)
 #[test]
 fn bodyless_declarations_must_be_explicit() {
@@ -2348,7 +2348,7 @@ fn std_add_consumes_its_element() {
     );
 }
 
-// [intrinsic-std-only] `intrinsic` marks a declaration the *compiler*
+// [platform-intrinsic-std-only] `intrinsic` marks a declaration the *compiler*
 // implements, so only the standard library may write it. A user source
 // analyzed here is not std, so an `intrinsic` declaration in it is an
 // error naming the one interop path customer code does have — a
@@ -2578,7 +2578,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
     assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }
 
-// [lambda-view] A capturing lambda is a *view*: it holds borrows of its
+// [fate-lambda-view] A capturing lambda is a *view*: it holds borrows of its
 // non-Copy read captures, so binding it links it to the captured roots,
 // a call result linked to the lambda reaches them transitively, and
 // consuming a capture while the closure lives poisons it. A capture-free
@@ -2670,7 +2670,7 @@ fn a_written_proj_entry_narrows_the_instantiation_link() {
     assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }
 
-// [fs-surface] [checked-type] The filesystem's failures carry the library's one
+// [fs-surface] [type-checked] The filesystem's failures carry the library's one
 // obligation: a member answers `Err Checked<FsError>`, so a result that is never
 // looked at does not compile, and the ways out are the generic ones — `ignore`,
 // `detach`, or narrowing to `Ok`. Against *real* std, because what is being
@@ -2785,7 +2785,7 @@ fn a_spare_lend_on_an_opaque_slot_warns_once() {
     );
 }
 
-/// [route-stub] `use any g` (user decision R7): binds `any E` for the `E`
+/// [actor-route-stub] `use any g` (user decision R7): binds `any E` for the `E`
 /// the group handle names, through a route the IR derives — so the policy it
 /// depends on (`RouteSelector<E>`) has to be in scope, and the face is `any`.
 /// A policy's waits are its own `config` parameter.
@@ -2825,7 +2825,7 @@ fn route_binds_any_and_needs_a_selector() {
     );
 }
 
-/// [route-stub] The refusals, and what is no longer one (user decision R7):
+/// [actor-route-stub] The refusals, and what is no longer one (user decision R7):
 /// `use any` of something that is not a group handle; a protocol member
 /// marking two `Key` parameters, refused at the effect whether or not
 /// anything routes it; and a `use any h` in a module that never spells the
@@ -3037,7 +3037,7 @@ fn src_lib_std_is_refused_promptly() {
     );
 }
 
-/// [unique-shape] A module's own `to_str(List<T>)` beside std's is refused
+/// [op-unique-shape] A module's own `to_str(List<T>)` beside std's is refused
 /// where it is declared (user decision O1-D, 2026-10-27): `to_str` on `List` is
 /// interpolation's function, declared only in `List`'s file, so no module can
 /// put a second one beside it — whether or not anything uses it. Before, it
@@ -3063,10 +3063,10 @@ fn a_same_signature_overload_beside_std_is_refused_at_its_declaration() {
         stderr.contains("`to_str(List<T>)` has the shape of `to_str` on `List`")
             && stderr.contains("(module `std.core.list`)")
             && stderr.contains("Give this one another name and pass it explicitly")
-            && stderr.contains("[unique-shape] --> main.sv:1:4"),
+            && stderr.contains("[op-unique-shape] --> main.sv:1:4"),
         "{stderr}"
     );
-    // [unique-shape] The refused declaration is a candidate nowhere, so its
+    // [op-unique-shape] The refused declaration is a candidate nowhere, so its
     // uses report nothing more: one mistake, one diagnostic (ROADMAP 0ag,
     // closed in B3.3c). Before, the interpolation and `render`'s implicit
     // each reported the ambiguity it caused.
@@ -3079,11 +3079,11 @@ fn a_same_signature_overload_beside_std_is_refused_at_its_declaration() {
 /// depth cap is that error: std's `List` overload wins at every level, and the
 /// cap is the error. (Before 2026-10-14 a module's catch-all `to_str<T>` made
 /// the top fall back and print `?`; a catch-all is now refused where it is
-/// declared, [unique-shape], so it cannot stand in either.) The plain chain
+/// declared, [op-unique-shape], so it cannot stand in either.) The plain chain
 /// names each link down to the type with no text form.
 #[test]
 fn an_unfillable_winner_is_an_error_naming_the_chain() {
-    // [unique-shape] The catch-all itself: a `to_str` on a type parameter has
+    // [op-unique-shape] The catch-all itself: a `to_str` on a type parameter has
     // no type's file to live in, so it is refused at its declaration.
     let dir = src_dir("implicit_unfillable_catch_all");
     fs::write(
@@ -3098,7 +3098,7 @@ fn an_unfillable_winner_is_an_error_naming_the_chain() {
     assert!(!out.status.success(), "{stderr}");
     assert!(
         stderr.contains("`to_str(T)` has the shape of `to_str` on the type parameter `T`, which has no declaring file")
-            && stderr.contains("[unique-shape] --> main.sv:1:4"),
+            && stderr.contains("[op-unique-shape] --> main.sv:1:4"),
         "{stderr}"
     );
 
@@ -3183,7 +3183,7 @@ fn an_unfillable_winner_is_an_error_naming_the_chain() {
 /// case reached the depth cap in a 3 KB line. Now the position written and
 /// the one that failed are named once, and the chain between is elided in the
 /// middle: at most four of its types are printed. (The program had a
-/// catch-all `to_str<T>` beside it, refused since [unique-shape]; the cap
+/// catch-all `to_str<T>` beside it, refused since [op-unique-shape]; the cap
 /// needs none.)
 #[test]
 fn an_unfillable_chain_error_stays_short_at_the_depth_cap() {

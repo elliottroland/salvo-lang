@@ -32,8 +32,9 @@ effect DeadlineTable {
     fn take_due(now: Long) -> Mut List<Reply<Fired>> => now
     // The earliest deadline left, or `None` having marked the wheel stopped.
     fn next_deadline() -> Long?
-    // [test-actor] Forgets every deadline, for a fresh virtual runtime: the
+    // Forgets every deadline, for a fresh virtual runtime: the
     // tokens are kept, never answered, since what they answer is gone.
+    // @compilerrules [test-actor]
     fn clear() -> None
 }
 
@@ -139,10 +140,11 @@ handler Wheeling() of Wheel {
 use Deadlines()
 use Wheeling() on thread()
 
-// [time-timer] Answers [done] with the monotonic reading it fired at once at
+// Answers [done] with the monotonic reading it fired at once at
 // least [delay] nanoseconds have passed — a later activation, never a call inside
 // this one, even for a delay of zero or less. `time.DefaultTimer` is the
 // surface programs use.
+// @compilerrules [time-timer]
 export fn after_nanos(delay: Long, done: Reply<Fired>) [] -> None => delay, !done {
     let wait = delay
     if wait < 0 {
@@ -166,7 +168,8 @@ export fn after_nanos(delay: Long, done: Reply<Fired>) [] -> None => delay, !don
     }
 }
 
-// [test-actor] Asks the scheduler to run [advance] once nothing can run.
+// Asks the scheduler to run [advance] once nothing can run.
+// @compilerrules [test-actor]
 fn arm_clock() [] -> None {
     on_clock(mint_task_on(main_pool(), body_of((kind, slot, value) -> {
         drop_dyn(value)
@@ -174,8 +177,9 @@ fn arm_clock() [] -> None {
     })))
 }
 
-// [test-actor] Moves the virtual clock to the earliest deadline and fires
+// Moves the virtual clock to the earliest deadline and fires
 // what is due there, arming the clock again while any deadline is left.
+// @compilerrules [test-actor]
 fn advance() [] -> None {
     let until = next_deadline()
     if until is Long at {
@@ -189,7 +193,8 @@ fn advance() [] -> None {
     }
 }
 
-// [test-actor] Forgets every pending deadline, for a fresh virtual runtime.
+// Forgets every pending deadline, for a fresh virtual runtime.
+// @compilerrules [test-actor]
 export fn reset_timers() [] -> None {
     clear()
 }

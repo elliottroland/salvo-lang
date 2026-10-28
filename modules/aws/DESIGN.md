@@ -255,7 +255,7 @@ with `new` and the struct laid out by the compiler.
 
 The host implementation of each service is no longer a pair of generated
 `platform/aws/<svc>/host.{rs,kt}` files. It is `aws/<svc>/host.sv`: one
-`threadsafe platform handler` written in place [host-splice], its members and
+`threadsafe platform handler` written in place [platform-host-splice], its members and
 handler-level blocks fenced Kotlin and Rust, and every Salvo-side spelling a
 hole the compiler renders — a field read (`@{input.queue_name}`), a struct
 built from SDK values (`` @{ Message { body: `…` } } ``), an answer wrapped
@@ -383,7 +383,7 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs
 export handler FakeSqs() of Sqs { … }
 ```
 
-`threadsafe` [threadsafe-platform]: calls arrive from every pool at once and
+`threadsafe` [platform-threadsafe]: calls arrive from every pool at once and
 the host synchronizes its own client. The calling idiom is the actor one —
 `send_message(input, replyto on_sent(...))` parks a continuation and returns;
 a caller that means to wait writes `waitfor` and pays for it visibly. A test

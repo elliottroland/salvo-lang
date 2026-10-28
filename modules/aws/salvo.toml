@@ -15,7 +15,7 @@ platform = "salvo/platform"
 crates = { aws-config = { version = "1", features = ["behavior-version-latest"] }, aws-sdk-s3 = "1", aws-sdk-sqs = "1", aws-sdk-dynamodb = "1", bytes = "1", http-body = "1", tokio = { version = "1", features = ["rt-multi-thread", "sync"] } }
 
 [kotlin]
-# [host-tool] Resolved by Gradle when the glue is reached. A program building
+# [backend-host-tool] Resolved by Gradle when the glue is reached. A program building
 # over this module names its Gradle (`[kotlin] gradle`, default `gradle` on
 # PATH); this one's is the generator's wrapper.
 artifacts = ["aws.sdk.kotlin:s3:1.9.11", "aws.sdk.kotlin:sqs:1.9.11", "aws.sdk.kotlin:dynamodb:1.9.11"]

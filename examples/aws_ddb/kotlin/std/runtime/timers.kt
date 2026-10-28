@@ -32,32 +32,32 @@ class __Mon_DeadlineTable(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : DeadlineTable {
     override fun register(at: Long, done: salvo.SalvoReply): Boolean {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.register(at, done) } finally { lock.unlock() }
     }
     override fun wheelParker(p: salvo.platform.std.runtime.Parker) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.wheelParker(p) } finally { lock.unlock() }
     }
     override fun waker(): salvo.platform.std.runtime.Parker? {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.waker() } finally { lock.unlock() }
     }
     override fun takeDue(now: Long): salvo.platform.std.core.list.MutList<salvo.SalvoReply> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.takeDue(now) } finally { lock.unlock() }
     }
     override fun nextDeadline(): Long? {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.nextDeadline() } finally { lock.unlock() }
     }
     override fun clear() {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.clear() } finally { lock.unlock() }
     }
@@ -100,7 +100,7 @@ class Deadlines : DeadlineTable {
                     val __picked_2: Long = __pick_1!!
                     __picked_2
                 } else {
-                    throw AssertionError("salvo: unreachable at std.runtime.timers:74:32")
+                    throw AssertionError("salvo: unreachable at std.runtime.timers:75:32")
                 })
             } <= now)) {
                 val _at: Long? = salvo.std.core.list.removeAtPlatform(ats, i)
@@ -165,7 +165,7 @@ class __Mon_Wheel(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Wheel {
     override fun run() {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.run() } finally { lock.unlock() }
     }
@@ -191,7 +191,7 @@ class Wheeling : Wheel {
                 salvo.std.runtime.parkNanosPlatform(salvo.std.runtime.thisParkerPlatform(), wait)
             }
         }
-        throw AssertionError("salvo: unreachable at std.runtime.timers:123:9")
+        throw AssertionError("salvo: unreachable at std.runtime.timers:124:9")
     }
 }
 

@@ -171,7 +171,7 @@ class __Mon_Ticker(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Ticker {
     override fun tick(): Tick {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.tick() } finally { lock.unlock() }
     }
@@ -188,17 +188,17 @@ class __Mon_Clock(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Clock {
     override fun now(): Instant {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.now() } finally { lock.unlock() }
     }
     override fun toInstant(at: Tick): Instant {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.toInstant(at) } finally { lock.unlock() }
     }
     override fun toTick(at: Instant): Tick {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.toTick(at) } finally { lock.unlock() }
     }
@@ -254,7 +254,7 @@ class __Mon_Timer(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Timer {
     override fun after(wait: Duration, done: salvo.SalvoReply) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.after(wait, done) } finally { lock.unlock() }
     }
@@ -311,7 +311,7 @@ class __Mon_TimerCtl(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : TimerCtl {
     override fun advance(by: Duration) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.advance(by) } finally { lock.unlock() }
     }
@@ -346,7 +346,7 @@ class ManualTime : Timer, TimerCtl {
                     val __picked_3: Long = __pick_2!!
                     __picked_3
                 } else {
-                    throw AssertionError("salvo: unreachable at std.time:481:55")
+                    throw AssertionError("salvo: unreachable at std.time:494:55")
                 })
             }
             salvo.std.core.list.removeAtPlatform(deadlines, at)
@@ -415,7 +415,7 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
                 val __picked_2: Long = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.time:505:44")
+                throw AssertionError("salvo: unreachable at std.time:519:44")
             })
         }
         if (((at <= target) && ((best < 0) || (at < bestAt)))) {

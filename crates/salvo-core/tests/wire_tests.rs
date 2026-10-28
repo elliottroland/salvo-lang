@@ -1,4 +1,4 @@
-//! [wire-format] [noremote] [protocol-hash] What may cross a machine, as the
+//! [net-wire-format] [net-noremote] [actor-protocol-hash] What may cross a machine, as the
 //! checker sees it — step ② of the network sequence (user decisions
 //! 2026-09-26). Every type is serializable unless it is, or holds, something
 //! `noremote`; `encode`/`decode` are refused at the call, naming what stops
@@ -9,7 +9,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] A std-shaped prelude: the scalars, the containers the
+/// [platform-intrinsic-std-only] A std-shaped prelude: the scalars, the containers the
 /// predicate names, and `net`'s two intrinsics in a module of their own.
 const STD_PRELUDE: &str = concat!(
     concat!(
@@ -52,7 +52,7 @@ const STD_NET: &str = concat!(
     // the intrinsic that fills it is where a noremote `E` is refused.
     "export fn actor_group<E>(nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [spawn] -> Int => !nodes {\n",
     "    let _p = protocol()\n    return 0\n}\n",
-    // The pick kit's shape, enough for the erased-sibling rule [route-stub].
+    // The pick kit's shape, enough for the erased-sibling rule [actor-route-stub].
     "export struct RouteView<E> { size: Int = 0 }\n",
     "export effect RouteSelector<E> { fn changed(view: RouteView<E>) -> None => view\n    fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key }\n",
     "export handler LeastLoaded<E>(prefer_local: Bool) of RouteSelector<E> {\n",
@@ -119,7 +119,7 @@ fn messages(src: &str) -> Vec<String> {
 
 const IMPORT: &str = "import std.net\n\n";
 
-/// [wire-format] The default: a struct of scalars, strings, lists, options
+/// [net-wire-format] The default: a struct of scalars, strings, lists, options
 /// and unions has a wire form, and so do `encode` and `decode` of it.
 #[test]
 fn ordinary_data_encodes() {
@@ -133,7 +133,7 @@ fn ordinary_data_encodes() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [noremote] A `noremote` struct is refused at the `encode`, by name.
+/// [net-noremote] A `noremote` struct is refused at the `encode`, by name.
 #[test]
 fn a_noremote_struct_is_refused_at_encode() {
     let errs = messages(&format!(
@@ -143,12 +143,12 @@ fn a_noremote_struct_is_refused_at_encode() {
     assert!(
         errs.iter().any(|e| e.contains("`encode` needs a type with a wire form")
             && e.contains("`Canvas` is declared `noremote`")
-            && e.contains("[noremote]")),
+            && e.contains("[net-noremote]")),
         "expected the noremote refusal, got {errs:?}"
     );
 }
 
-/// [noremote] Transitive: a struct holding a `noremote` field is refused, and
+/// [net-noremote] Transitive: a struct holding a `noremote` field is refused, and
 /// the message names the field that stops it.
 #[test]
 fn noremote_is_transitive_through_fields() {
@@ -163,7 +163,7 @@ fn noremote_is_transitive_through_fields() {
     );
 }
 
-/// [noremote] std's process-local handles are `noremote` by declaration
+/// [net-noremote] std's process-local handles are `noremote` by declaration
 /// (`Pool` here), so a struct holding one has no wire form.
 #[test]
 fn a_pool_has_no_wire_form() {
@@ -177,7 +177,7 @@ fn a_pool_has_no_wire_form() {
     );
 }
 
-/// [noremote] A function value has no wire form, by construction.
+/// [net-noremote] A function value has no wire form, by construction.
 #[test]
 fn a_function_value_has_no_wire_form() {
     let errs = messages(&format!(
@@ -190,7 +190,7 @@ fn a_function_value_has_no_wire_form() {
     );
 }
 
-/// [wire-format] Step ②'s recorded cuts, each refused with its reason: a keyed
+/// [net-wire-format] Step ②'s recorded cuts, each refused with its reason: a keyed
 /// container (identity capabilities not yet carried), and a generic `T`
 /// (the form is the instantiation's).
 #[test]
@@ -209,7 +209,7 @@ fn keyed_containers_and_generic_parameters_are_refused_for_now() {
     );
 }
 
-/// [protocol-hash] [decl-id] A protocol's hash does not depend on an unrelated
+/// [actor-protocol-hash] [decl-id] A protocol's hash does not depend on an unrelated
 /// type named like its type parameter: std's `ActorGroup<E>`'s `E` is the
 /// parameter whether or not the program declares a `struct E` (found by the
 /// A1 differential, which saw `ActorGroup`'s hash change with one).
@@ -226,7 +226,7 @@ fn a_type_named_like_a_type_parameter_leaves_the_hash_alone() {
     assert_eq!(hash_of(""), hash_of("struct E { hp: Int }\n"), "the parameter, not the struct");
 }
 
-/// [protocol-hash] The hash is over the protocol's *shape*: a struct renamed
+/// [actor-protocol-hash] The hash is over the protocol's *shape*: a struct renamed
 /// hashes the same (names are not in the canonical form), a field reordered
 /// does not (the encoding is positional), and a member added does not.
 #[test]
@@ -269,7 +269,7 @@ fn protocol_hash_follows_shape_not_names() {
     );
 }
 
-/// [actor-group] [noremote] The **crossing site**: naming a protocol with a
+/// [actor-group] [net-noremote] The **crossing site**: naming a protocol with a
 /// `noremote` payload for a group is refused at `protocol<E>()`, by member and
 /// type — the protocol itself stays a legal local one (user decision
 /// 2026-09-26: the check lands at the binding, not the declaration).
@@ -285,7 +285,7 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
     assert!(
         errs[0].contains("a group of `Painter` cannot span nodes")
             && errs[0].contains("`Painter.paint` takes `Canvas`")
-            && errs[0].contains("[noremote]"),
+            && errs[0].contains("[net-noremote]"),
         "expected the crossing-site refusal, got {errs:?}"
     );
     // [actor-group] [implicit-resolve] The same site one level up:

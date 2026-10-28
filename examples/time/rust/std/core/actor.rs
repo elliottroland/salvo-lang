@@ -165,7 +165,7 @@ impl crate::wire::__Wire for __Msg_Faults {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Faults`.
+/// [actor-protocol-hash] The canonical hash of `Faults`.
 pub const __PROTO_Faults: &str = "b2ab28f759af3855";
 
 #[derive(Clone)]

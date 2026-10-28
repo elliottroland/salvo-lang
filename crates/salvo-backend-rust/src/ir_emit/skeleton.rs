@@ -134,7 +134,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let prefix = self.type_prefix(&face);
         let effect_path = prefix.trim_end_matches("::").to_string();
         let name = rs_ident(&h.name);
-        // [threadsafe-platform] The contract, printed where the implementer
+        // [platform-threadsafe] The contract, printed where the implementer
         // signs it.
         out.push_str(&if h.threadsafe {
             format!(
@@ -144,7 +144,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                  // atomics). Today the compiler still serializes the instance behind\n\
                  // the effect's handle, so the receivers are `&mut self` and the\n\
                  // struct must be `Send`; the contract is what lets a later emission\n\
-                 // drop the lock [threadsafe-platform].\n\
+                 // drop the lock [platform-threadsafe].\n\
                  pub struct {name} {{\n",
                 h.name
             )
@@ -154,7 +154,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                  // member runs under one lock on both backends, so the receivers are\n\
                  // `&mut self` and plain fields are fine; the struct must be `Send`.\n\
                  // If the host synchronizes internally, declare it `threadsafe platform\n\
-                 // handler` in Salvo to say so [threadsafe-platform].\n\
+                 // handler` in Salvo to say so [platform-threadsafe].\n\
                  pub struct {name} {{\n",
                 h.name
             )
@@ -175,7 +175,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             out.push_str("        }\n    }\n}\n");
         }
-        // [threadsafe-platform] [rs-handle] Which trait, and which receiver.
+        // [platform-threadsafe] [rs-handle] Which trait, and which receiver.
         let (trait_name, receiver) = if h.threadsafe { (platform_trait_name(&rs_ident(&iface.name), true), "&self") } else { (platform_trait_name(&rs_ident(&iface.name), false), "&mut self") };
         out.push_str(&format!("\nimpl {prefix}{trait_name} for {name} {{\n"));
         let ast = self.s.symbols.effects.get(face.as_str()).copied();

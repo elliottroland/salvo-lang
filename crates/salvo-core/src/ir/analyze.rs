@@ -81,7 +81,7 @@ pub fn analyze_full(
             if !checkable.check(decl) {
                 continue;
             }
-            // [origin] A diagnostic at a node a stamp copied lands where its
+            // [node-origin] A diagnostic at a node a stamp copied lands where its
             // origin says, as the checker's do, attributed to the stamped fn.
             let stamped = stamp_of(program, resolution, decl);
             let report = |span: Span, message: String| match stamped {
@@ -93,7 +93,7 @@ pub fn analyze_full(
             };
             // [flow-use-after-move] A use of a moved value, naming the move.
             for mut d in super::flow::check_one(decl) {
-                // [origin] A move in copied code is named where it lands.
+                // [node-origin] A move in copied code is named where it lands.
                 if let Some(m) = program.modules.get(file) {
                     d.moved_at = crate::origin::landing(m, d.moved_at);
                 }
@@ -126,7 +126,7 @@ pub fn analyze_full(
     (out, ir.decision)
 }
 
-/// [origin] The stamp of the fn an IR declaration was built from, when a
+/// [node-origin] The stamp of the fn an IR declaration was built from, when a
 /// stamp copied its body: with it, a diagnostic at a copied node renders
 /// where its origin says.
 fn stamp_of<'p>(program: &'p Program, resolution: &Resolution, decl: &super::Decl) -> Option<(crate::DeclId, &'p salvo_syntax::ast::Stamp)> {

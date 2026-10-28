@@ -99,7 +99,9 @@ pub fn render(docs: &[String], scope: &DocScope) -> Option<String> {
             .collect();
         add(title, items);
     }
-    for t in parts.tags.iter().filter(|t| !sections.iter().any(|(s, _)| *s == t.name)) {
+    // [doc-compilerrules] The compiler rules a declaration cites are for
+    // its source's readers, not its users: hover leaves them out.
+    for t in parts.tags.iter().filter(|t| t.name != "compilerrules" && !sections.iter().any(|(s, _)| *s == t.name)) {
         add(&format!("@{}", t.name), vec![format!("- {}", resolve_refs(&t.text, scope))]);
     }
     if body.iter().all(|l| l.trim().is_empty()) {
@@ -218,7 +220,7 @@ pub fn field_section(fields: &[FieldDecl], scope: &DocScope) -> Option<String> {
         out.push_str(&format!(
             "\n- `{}: {}{}{}`",
             field.name.name,
-            // [state-infer] An inferred state field shows `_` where the type
+            // [handler-state-infer] An inferred state field shows `_` where the type
             // would be — the type is whatever the initializer resolves to.
             match &field.ty {
                 Some(t) => t.to_string(),
@@ -310,6 +312,7 @@ mod tests {
 
     /// [doc-tags] The tags follow the prose as sections, `[name]`s resolved
     /// as anywhere in a doc block, and an unknown tag under its own name.
+    /// [doc-compilerrules] `@compilerrules` is not shown.
     #[test]
     fn tags_render_as_sections_after_the_prose() {
         let link = |_: usize, _: Span| -> Option<String> { None };
@@ -322,6 +325,7 @@ mod tests {
             "@returns the words of [line]",
             "@frob something",
             "@todo the empty case",
+            "@compilerrules [doc-tags, doc-compilerrules] how they apply",
         ]
         .iter()
         .map(|l| l.to_string())

@@ -58,7 +58,7 @@
 //! the emitted file); with none, the bare `rustc` path is unchanged. `libs`
 //! names a directory whose `*.jar` files go on the Kotlin classpath;
 //! `artifacts` are Maven coordinates the Kotlin backend has Gradle resolve
-//! (`HostDeps::gradle_build_script`). [host-tool] `cargo` and `gradle` name
+//! (`HostDeps::gradle_build_script`). [backend-host-tool] `cargo` and `gradle` name
 //! the tools, PATH by default. A dependency's [manifest-deps] declarations merge into the
 //! build; the same crate or artifact declared at two versions is refused,
 //! naming both projects.
@@ -89,7 +89,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 pub const MANIFEST_FILE: &str = "salvo.toml";
-/// [protocol-lock] The lock file beside the manifest.
+/// [actor-protocol-lock] The lock file beside the manifest.
 pub const LOCK_FILE: &str = "salvo.lock";
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -175,7 +175,7 @@ pub struct RustSection {
     /// writes them: `name = "1.0"` or `name = { path = "…", features = […] }`.
     #[serde(default)]
     pub crates: BTreeMap<String, toml::Value>,
-    /// [host-tool] The `cargo` to build with when crates are declared: a path
+    /// [backend-host-tool] The `cargo` to build with when crates are declared: a path
     /// (relative to the manifest) or a command name; default `cargo` on PATH.
     pub cargo: Option<String>,
 }
@@ -189,10 +189,10 @@ pub struct KotlinSection {
     /// [platform-root] This backend's platform root, over `[build] platform`.
     pub platform: Option<String>,
     /// [platform-host-deps] Maven coordinates (`group:artifact:version`) the
-    /// platform companions need, resolved by Gradle [host-tool].
+    /// platform companions need, resolved by Gradle [backend-host-tool].
     #[serde(default)]
     pub artifacts: Vec<String>,
-    /// [host-tool] The Gradle to resolve `artifacts` with: a path (relative to
+    /// [backend-host-tool] The Gradle to resolve `artifacts` with: a path (relative to
     /// the manifest — a `gradlew` wrapper works as well as an installed
     /// `gradle`) or a command name; default `gradle` on PATH.
     pub gradle: Option<String>,
@@ -211,14 +211,14 @@ pub struct HostDeps {
     pub kotlin_artifacts: Vec<String>,
     /// Absolute directories of jars.
     pub kotlin_libs: Vec<PathBuf>,
-    /// [host-tool] The build tools, from the project being built — never
+    /// [backend-host-tool] The build tools, from the project being built — never
     /// from a dependency, since which `cargo` or Gradle a machine runs is the
     /// building project's call. `None` is the command on PATH.
     pub cargo: Option<PathBuf>,
     pub gradle: Option<PathBuf>,
 }
 
-/// [host-tool] A tool setting: a value with a path separator is a path,
+/// [backend-host-tool] A tool setting: a value with a path separator is a path,
 /// relative to the manifest's directory; anything else a command name, looked
 /// up on PATH like the default.
 fn tool_path(value: &str, dir: &Path) -> PathBuf {
@@ -236,17 +236,17 @@ impl HostDeps {
         !self.rust_crates.is_empty()
     }
 
-    /// [host-tool] Whether Gradle resolves artifacts for the Kotlin build.
+    /// [backend-host-tool] Whether Gradle resolves artifacts for the Kotlin build.
     pub fn has_kotlin_artifacts(&self) -> bool {
         !self.kotlin_artifacts.is_empty()
     }
 
-    /// [host-tool] The `cargo` to run: `[rust] cargo`, else `cargo`.
+    /// [backend-host-tool] The `cargo` to run: `[rust] cargo`, else `cargo`.
     pub fn cargo_program(&self) -> PathBuf {
         self.cargo.clone().unwrap_or_else(|| PathBuf::from("cargo"))
     }
 
-    /// [host-tool] The Gradle to run: `[kotlin] gradle`, else `gradle`.
+    /// [backend-host-tool] The Gradle to run: `[kotlin] gradle`, else `gradle`.
     pub fn gradle_program(&self) -> PathBuf {
         self.gradle.clone().unwrap_or_else(|| PathBuf::from("gradle"))
     }
@@ -324,7 +324,7 @@ impl HostDeps {
         jars
     }
 
-    /// [host-tool] The Gradle build that resolves the declared artifacts: one
+    /// [backend-host-tool] The Gradle build that resolves the declared artifacts: one
     /// configuration holding them, and a task writing the resolved jars'
     /// absolute paths to `classpath` (one per line). Gradle's own rules
     /// apply — its module metadata, so a multiplatform coordinate
@@ -669,7 +669,7 @@ pub fn is_nested_project(root: &Path, dir: &Path) -> bool {
 mod tests {
     use super::*;
 
-    // [host-tool] A tool setting with a separator is a path relative to the
+    // [backend-host-tool] A tool setting with a separator is a path relative to the
     // manifest, a bare name a PATH command; the project's own setting is
     // used, and the Gradle build lists each artifact in its configuration.
     #[test]

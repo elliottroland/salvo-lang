@@ -1,4 +1,5 @@
-// [console] The console: standard output, standard error and standard input.
+// The console: standard output, standard error and standard input.
+// @compilerrules [std-console]
 export effect Console {
     // Prints to standard output without emitting a newline.
     fn print(message: Str) -> None => message
@@ -10,7 +11,8 @@ export effect Console {
     fn readln() -> Str?
 }
 
-// [console] The host's standard streams.
+// The host's standard streams.
+// @compilerrules [std-console]
 export threadsafe platform handler StdConsole() of Console
 
 export fn println(message: Str) [Console] -> None => message {

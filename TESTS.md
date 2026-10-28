@@ -1,8 +1,9 @@
 # Reorganizing the tests (working document)
 
-**Status:** rounds 1 and 2 decided (§6, 2026-10-28): TD1–TD9; TD10 and
-TD11 open (§5). Sequence steps 1 (T6) and 2 (T3 with C2) are done (§7); step
-3 (T2, ids) is next. Started at
+**Status:** rounds 1–3 decided (§6, 2026-10-28): TD1–TD12, nothing open.
+Sequence steps 1 (T6) and 2 (T3 with C2) are done (§7); step 3 (T2: the
+label rename with `@compilerrules`, then diagnostic ids) is in progress.
+Started at
 the user's request while PIPELINE.md Part II was paused (its §II.12 "Where it
 stands"): this run spent about half its logged time on tests (since Part II's
 A1: 6.3 of 13.1 hours).
@@ -93,7 +94,7 @@ from every block, so a block that does not compile breaks the module).
 **Diagnostics.** `Diagnostic` (salvo-syntax) and `FileDiagnostic`
 (salvo-core) carry severity, message, span, import suggestions and the
 declaration; the IR and flow passes have their own diagnostic types. **None
-carries a code.** Rule labels appear in some messages (`[unique-shape]`) but
+carries a code.** Rule labels appear in some messages (`[op-unique-shape]`) but
 not consistently; about 1,000–1,300 test assertions match message text
 (about 2,500 `contains`/`starts_with` calls in all, many on emitted code), and
 only 57 match a label.
@@ -153,7 +154,7 @@ Checker tests become `.sv` files under a test-data tree (say
 diagnostic written at its line:
 
 ```
-fn f(a: Pt, b: Pt) [] -> Bool => a, b { return true }   //~ error[unique-shape]
+fn f(a: Pt, b: Pt) [] -> Bool => a, b { return true }   //~ error[op-unique-shape]
 fn g() -> Int { return h(1) }                           //~ error[call-resolve]
 ```
 
@@ -191,10 +192,10 @@ file.
 ```
 // tests/check/operators/shape.sv
 
-//~v error[operators-unique-shape:bare-type-param]
+//~v error[op-unique-shape:bare-type-param]
 fn eq<T>(a: T, b: T) [] -> Bool => a, b { return true }
 
-//~v error[calls-resolve:no-callee]
+//~v error[call-resolve:no-callee]
 fn g() -> Int { return h(1) }
 
 fn fine(a: Int) -> Int { return a + 1 }
@@ -205,10 +206,10 @@ it holds the full rendered output, written by a `--bless` run and reviewed
 as a diff:
 
 ```
-error[operators-unique-shape:bare-type-param]: `eq` declares `==` over a
+error[op-unique-shape:bare-type-param]: `eq` declares `==` over a
   bare type parameter `T`; a shape needs a concrete type
   --> shape.sv:4:1
-error[calls-resolve:no-callee]: no fn `h` is visible here
+error[call-resolve:no-callee]: no fn `h` is visible here
   --> shape.sv:7:24
 ```
 
@@ -235,7 +236,7 @@ code, and greppable. Tests (T1's annotations) assert the id and the line,
 optionally a message fragment where the text itself is the point.
 
 - **User-visible?** rustc prints `error[E0308]`; Salvo could print
-  `error[unique-shape]`, and many messages already end with the label. Or the
+  `error[op-unique-shape]`, and many messages already end with the label. Or the
   id could be internal, for tests and the language server only.
 - **Granularity**: one label covers several messages (a rule has several
   ways to fail). Either a sub-id (`unique-shape/bare-type-param`) or "the
@@ -244,16 +245,16 @@ optionally a message fragment where the text itself is the point.
   the IR passes; mechanical, and checkable (a test that every diagnostic has
   an id whose label exists in LANGUAGE_SPEC.md).
 - **Decided (TD1)**: the id is `<label>:<diagnostic-name>`, the label
-  renamed to `<feature>-<rule>` (`operators-unique-shape`), the name one per
-  message (`operators-unique-shape:bare-type-param`). Today LANGUAGE_SPEC.md
+  renamed to `<feature>-<rule>` (`op-unique-shape`), the name one per
+  message (`op-unique-shape:bare-type-param`). Today LANGUAGE_SPEC.md
   defines ~665 distinct labels, and the code cites 679 distinct ones in
   ~10,600 places; the rename is a mapping table and a scripted sweep
   (TD7 asks how far it goes).
 - **Decided (round 2): one messages file.** Every diagnostic's text comes
   from a function in a single file, named deterministically after its id:
-  `operators-unique-shape:bare-type-param` is
-  `operators_unique_shape_bare_type_param(…)`, so
-  `grep operators.unique.shape.bare.type.param` finds the id in specs and
+  `op-unique-shape:bare-type-param` is
+  `op_unique_shape_bare_type_param(…)`, so
+  `grep op.unique.shape.bare.type.param` finds the id in specs and
   tests and the function together. Rewording a message touches that file
   only. Engineering under the decision:
   * Each function returns the id with the text (a `Message { id, text }`),
@@ -272,7 +273,7 @@ optionally a message fragment where the text itself is the point.
   * Messages lose the `[label]` suffix many carry today.
 - **Decided (TD7, round 2): ids are hidden by default.** Users should not
   see compiler rules unless they look for them: the CLI prints the message
-  only, and `error[operators-unique-shape:bare-type-param]: …` under a new
+  only, and `error[op-unique-shape:bare-type-param]: …` under a new
   `-v`/`--verbose` flag. (Today `verbose` is an internal argument —
   `salvo compile` passes `true`, `run` and `test` `false` — with no flag; the
   flag would gate those notes too.)
@@ -441,7 +442,7 @@ case that replaces it.
 
 ## 5. Decisions needed
 
-TD1–TD9 are decided (§6, rounds 1 and 2).
+TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
 
 - **TD10 (T2).** The rename sweep rewrites every label cited in std's
   comments (1,124 citations in `lib/std`) anyway. Fold the user's planned
@@ -453,8 +454,58 @@ TD1–TD9 are decided (§6, rounds 1 and 2).
   `code` (editors show it dimmed after the message, in the problems list),
   or leave it out to match the CLI's default? Recommendation: leave it out;
   hover or a setting can show it later.
+- **TD12 (T2).** The feature words of the rename. Today 726 labels are
+  defined; 640 already start with a feature-ish prefix, but abbreviated or
+  overlapping (`op-`, `cmp-`, `col-`, `qual-`, `kt-`), and 86 start with a
+  word used once or twice (`unique-shape`, `elvis-guard`, `dead-code`). The
+  proposal: one word per area, mostly docs/language's pages, every label
+  renamed `<feature>-<rest>`, the old prefix dropped where it was the
+  feature:
+
+  | feature | today's prefixes |
+  |---|---|
+  | `operators` | op, cmp, elvis, inc, unique (`unique-shape`) |
+  | `qualifiers` | qual, canbe, arm |
+  | `types` | type, union, lit, narrow, is, rewrap, mixed, byte, bytes, buffer, checked, result, str, interp |
+  | `structs` | struct, field, state |
+  | `collections` | col, seq, elem, index |
+  | `functions` | fn, call, param, default, lambda, free, main, bare, ident, name |
+  | `implicits` | implicit |
+  | `effects` | effect, handler, use, eff |
+  | `actors` | actor, spawn, task, waitfor, remote, noremote, pool, route, monitor, protocol, wire, threadsafe, defer |
+  | `deductions` | deduce, fate, copy, mut, readonly, ref, proj, flow, ownership |
+  | `linear` | linear, obligation |
+  | `control` | expr, if, when, loop, while, try, throw, terminal, cond, dead, unused, placeholder, var, let |
+  | `iteration` | iter, for, yield |
+  | `comptime` | comptime |
+  | `modules` | mod, namespace, manifest, std, core |
+  | `platform` | platform, host, intrinsic |
+  | `testing` | test, assert, console |
+  | `ir` | ir, node, origin, phase, facts |
+  | `cli` | cli, args |
+  | `lsp`, `docs`, `diagnostics`, `backends` | lsp, doc, diag, backend |
+  | `files`, `time`, `network`, `streams`, `random`, `runtime` | fs, time, net + addr, stream, random, runtime |
+  | `kotlin`, `rust` | kt, rs |
+
+  So `[op-arith]` → `operators-arith`, `[op-unique-shape]` →
+  `operators-unique-shape`, `[qual-erasure]` → `qualifiers-erasure`,
+  `[kt-std-library]` → `kotlin-std-library`. The script writes the full
+  726-row table for review before the sweep, and refuses a rename that
+  collides. Open within it: `kt-`/`rs-` spelled out or kept short.
 
 ## 6. Rounds
+
+**Round 3 (user, 2026-10-28).**
+
+- **TD10.** Rolled in. The tag is `@compilerrules [<rule1>, <rule2>, ...]
+  <comment>`, the comment optional (how the group of rules is implemented
+  here); most uses only list rules. Hover hides it; go-to-definition shows the
+  source, where it is.
+- **TD11.** The language server does not send the id.
+- **TD12.** Short feature words are fine (`op-arith`, `op-unique-shape`,
+  `kt`, `rs`, `qual`); what matters is that every label **starts with its
+  feature**. So the rename touches only the labels whose first word is not a
+  feature (§7, the rename table), not the 640 that already lead with one.
 
 **Round 2 (user, 2026-10-28).**
 
@@ -520,3 +571,102 @@ TD1–TD9 are decided (§6, rounds 1 and 2).
   test (~0.3s); it pays under nextest only where one test checks many
   programs. T1's grouping is what turns it into nextest time; the prelude
   files were not moved (T1 replaces them).
+- **Step 3a: the rename and `@compilerrules` (2026-10-28).** Every rule
+  label now leads with its feature (TD12): the 82 below were renamed
+  (4,119 references, one scripted sweep over every tracked file except the
+  user's `demo/`, OPERATOR_OVERLOAD.md and SLICES.md); the rest already did.
+  `@compilerrules` is a doc tag (TD10, [doc-compilerrules]): hover leaves it
+  out, a malformed one warns, and std's 644 documentation blocks that cited
+  rules in their prose now cite them there (881 citations; two used a label
+  as a noun and were reworded by hand). `docs_tests` checks that std's
+  documentation cites rules only in the tag, and only rules a spec defines.
+  Comments that document nothing (section headers, body comments, the
+  platform host files) keep their inline citations: no user sees them. Six
+  of those cite labels no spec defines (`backend-parity`, `cmp-canonical`,
+  `col-duplicate-keys`, `col-insertion-order`, `mod-private`,
+  `wire-encoding`), as before.
+
+  | old | new |
+  |---|---|
+  | `arm-infer` | `qual-arm-infer` |
+  | `bare-names` | `name-bare` |
+  | `buffer-type` | `col-buffer` |
+  | `byte-value` | `type-byte` |
+  | `bytes-type` | `type-bytes` |
+  | `canbe-optin` | `qual-canbe-optin` |
+  | `checked-type` | `type-checked` |
+  | `cond-bool` | `expr-cond-bool` |
+  | `console` | `std-console` |
+  | `core-layers` | `backend-core-layers` |
+  | `dead-code` | `expr-dead-code` |
+  | `defer-deduction` | `linear-defer` |
+  | `eff-handle` | `effect-eff-handle` |
+  | `elem-distinct` | `fate-elem-distinct` |
+  | `facts-dump` | `cli-facts` |
+  | `free-send-fn` | `actor-free-send-fn` |
+  | `ident-resolve` | `name-ident-resolve` |
+  | `if-else-none` | `expr-if-else-none` |
+  | `inc-dec` | `op-inc-dec` |
+  | `interface-pass` | `decl-interface-pass` |
+  | `lambda-view` | `fate-lambda-view` |
+  | `main-pool` | `actor-main-pool` |
+  | `mixed-handler` | `actor-mixed-handler` |
+  | `monitor-handler` | `actor-monitor-handler` |
+  | `mut-lends` | `fate-mut-lends` |
+  | `namespace` | `mod-namespace` |
+  | `narrow-assign-reset` | `is-narrow-assign-reset` |
+  | `noremote` | `net-noremote` |
+  | `once-fn` | `fn-once` |
+  | `origin` | `node-origin` |
+  | `ownership-audit` | `deduce-ownership-audit` |
+  | `path-type` | `fs-path-type` |
+  | `phase-timings` | `cli-phase-timings` |
+  | `placeholder` | `expr-placeholder` |
+  | `random-default` | `std-random-default` |
+  | `readonly-return` | `proj-readonly-return` |
+  | `remote-backpressure` | `net-remote-backpressure` |
+  | `result-errs` | `type-result-errs` |
+  | `rewrap` | `type-rewrap` |
+  | `route-stub` | `actor-route-stub` |
+  | `safe-nav` | `op-safe-nav` |
+  | `spawn-inherit` | `actor-spawn-inherit` |
+  | `threadsafe-platform` | `platform-threadsafe` |
+  | `unique-shape` | `op-unique-shape` |
+  | `unused-var` | `var-unused` |
+  | `while-value` | `loop-while-value` |
+  | `wire-format` | `net-wire-format` |
+  | `with-clause` | `effect-with-clause` |
+  | `yield-proj` | `iter-yield-proj` |
+  | `addr-capability` | `net-addr-capability` |
+  | `addr-routable` | `net-addr-routable` |
+  | `elvis` | `op-elvis` |
+  | `elvis-guard` | `op-elvis-guard` |
+  | `field-canbe-mut` | `struct-field-canbe-mut` |
+  | `field-resolve` | `struct-field-resolve` |
+  | `index-resolve` | `col-index-resolve` |
+  | `for-elem-write` | `iter-for-elem-write` |
+  | `for-iter` | `iter-for` |
+  | `host-splice` | `platform-host-splice` |
+  | `host-tool` | `backend-host-tool` |
+  | `intrinsic-fn` | `platform-intrinsic-fn` |
+  | `intrinsic-std-only` | `platform-intrinsic-std-only` |
+  | `let-destructure` | `var-let-destructure` |
+  | `let-infer` | `var-let-infer` |
+  | `lit-adopt` | `type-lit-adopt` |
+  | `lit-numeric` | `type-lit-numeric` |
+  | `param-const` | `fn-param-const` |
+  | `param-mode` | `fn-param-mode` |
+  | `pool-fault-sink` | `actor-pool-fault-sink` |
+  | `pool-retire` | `actor-pool-retire` |
+  | `protocol-hash` | `actor-protocol-hash` |
+  | `protocol-lock` | `actor-protocol-lock` |
+  | `state-infer` | `handler-state-infer` |
+  | `state-name` | `handler-state-name` |
+  | `terminal-lambda` | `expr-terminal-lambda` |
+  | `terminal-scope` | `expr-terminal-scope` |
+  | `try` | `throw-try` |
+  | `try-innermost` | `throw-try-innermost` |
+  | `union-arm-identity` | `type-union-arm-identity` |
+  | `union-spread` | `type-union-spread` |
+  | `use-no-dup` | `effect-use-no-dup` |
+  | `use-requires-use` | `effect-use-requires-use` |

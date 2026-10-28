@@ -158,7 +158,7 @@ the handle as a storable value, so emission is identical by construction
 2. **`spawn` must be `on` a pool** — ✅ DONE (this commit). An *actor* spawn
    requires `on POOL`; the implicit main-pool default is retired. A **monitor**
    spawn (plain-effect faces) still omits a pool — it runs on no thread — and is
-   retired in favour of `use H()` in stage 3. `[main-pool]` kept for task-mint
+   retired in favour of `use H()` in stage 3. `[actor-main-pool]` kept for task-mint
    inheritance (`replyto` with no `on`) and for `main`'s own execution context.
 3. **`use` as an expression** — ✅ DONE (this commit). `Expr::Use` added;
    `let x = use H()` registers and yields `eff[E]`; fns return/accept handles;
@@ -286,7 +286,7 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
 6. **The language the Salvo collections need.**
    - a. ✅ **Fn slots on struct declarations** [struct-slot] (2026-10-05,
      COMPLETED.md).
-   - b. ✅ **`canbe Mut` on a field type** [field-canbe-mut] (2026-10-05,
+   - b. ✅ **`canbe Mut` on a field type** [struct-field-canbe-mut] (2026-10-05,
      COMPLETED.md). Left: Kotlin refuses a `Str canbe Mut` field (a
      `StringBuilder` is not a `String`, so one property cannot hold both
      shapes without `Any` and identity equality) [kt-field-canbe-mut].
@@ -308,7 +308,7 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      build 2026-10-05, COMPLETED.md): `std.core.index`, `qualifies` taking
      `?size` at the tested container. `Str` stays excluded until the
      recorded `size(Str)` DECISION.
-   - g. ✅ **`IntBuffer` and `LongBuffer`** [buffer-type] (user decisions and
+   - g. ✅ **`IntBuffer` and `LongBuffer`** [col-buffer] (user decisions and
      build 2026-10-05, COMPLETED.md). A hash probe tests `i is Idx(index)`
      per probe (accepted). Specializing `Int[]` to `IntArray` (M7) stays a
      later, separate question; left out until needed: a fallible `set`, a
@@ -363,7 +363,7 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      hold them. Removing those needs every host-side comparison to go
      through a Salvo fn first.
    - Waiting on it and now unblocked: `Checked<T>`'s `to_str`
-     [checked-type], `expect_eq` on a generic container, property testing's
+     [type-checked], `expect_eq` on a generic container, property testing's
      `?generate`, `json` over container fields.
 9. **Wire codecs in Salvo.** `encode`/`decode` (`lib/std/codec.sv`,
    `runtime/routing.sv`) as comptime fns over fields and arms, the `by auto`
@@ -381,7 +381,7 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     (`salvo_core::param_mode`), the mutable-lend sets (`mut_lends`), the
     borrowed-result classification (`borrows`), and the unifications (effect
     members count element `Mut`; one ABI module rule). Examined and *not*
-    built, by the core/backend rule (AGENTS.md, [core-layers]): a per-local
+    built, by the core/backend rule (AGENTS.md, [backend-core-layers]): a per-local
     `BindKind` table and the borrow-`let` are Rust's state about its own
     output types, not Salvo facts. **Open, for discussion in TOUR.md §9–10:**
     one new core table, the *demand* on each expression (moved / lent / lent
@@ -670,8 +670,8 @@ The fix is in the builder: a statically true test with a binding still binds
 
 ### 0r — Open defect: an inferred state field read by another inferred one declared earlier (found 2026-10-20)
 
-An `iter fn`'s inferred state field types are interfaces [state-infer]
-[interface-pass]: the minter whose state infers one is checked with the
+An `iter fn`'s inferred state field types are interfaces [handler-state-infer]
+[decl-interface-pass]: the minter whose state infers one is checked with the
 interfaces, before any body, so any *body* reads the type wherever it is
 declared (PIPELINE.md step 7 piece 3). The minters themselves are checked
 in declaration order, though, so an inferred initializer that reads another
@@ -856,10 +856,10 @@ while a bare *call* still refuses them (D15, piece 5).
 ### 0ag — Closed 2026-10-28: a refused unique shape is a candidate nowhere
 
 Fixed in B3 piece 3c (COMPLETED.md "Comparison operators are the calls they
-name"): resolution leaves a declaration [unique-shape] refused out of every
+name"): resolution leaves a declaration [op-unique-shape] refused out of every
 scope's fns and members, so its uses report nothing beyond the refusal.
 
-### 0ah — DECISION: three readings of [unique-shape] built for confirmation (B3.3b, 2026-10-28)
+### 0ah — DECISION: three readings of [op-unique-shape] built for confirmation (B3.3b, 2026-10-28)
 
 OPERATOR_OVERLOAD.md D-1 to D-7 decide the rule; three cases it does not name
 were built on the reading that follows from it, and are yours to confirm
@@ -889,7 +889,7 @@ not name, is `std.core.basic` (with tuples and fn types).
 `i < l` with an `Int` and a `Long` compares at `Long` [op-promote], but the
 call it names, `cmp(i, l)`, is refused when written out: a call does not widen
 a variable (`f(i)` into a `Long` parameter is refused too; only literals adopt
-[lit-adopt]). The call rule cannot express the widening, so B3.3c kept it as a
+[type-lit-adopt]). The call rule cannot express the widening, so B3.3c kept it as a
 **lowering before the call**, as [op-arm-eq] is (R10 D7): the narrower operand
 is widened, then `cmp(Long, Long)` is called; an integer and a float operand
 are refused before any call. Options (PIPELINE.md §II.10 P11):
@@ -977,12 +977,12 @@ runs it. Present at f1c17831 (the census probe `op-arm-compare` used this
 line; it was rebuilt with `let n = -1L; let x: Long? = n`). A
 checker-clean program the target compiler refuses [backend-never-wrong]; the
 expected type should not flow through unary `-` into the literal as an
-optional, only its numeric width ([lit-adopt]).
+optional, only its numeric width ([type-lit-adopt]).
 
 ### 0am — DECISION: a type with both a `next` and an `iter` (B3.3d, 2026-10-28)
 
 `for x in e` is `next(e)` when a `next` takes `e`, otherwise `next(iter(e))`
-[for-iter] (R10 D10). A type some `next` takes *and* some `iter` takes is
+[iter-for] (R10 D10). A type some `next` takes *and* some `iter` takes is
 therefore driven by its `next`, and its `iter` is never called by a `for`.
 OPERATOR_OVERLOAD.md's brief: "I suppose it should be an error for _both_ next
 and iter to be defined on the same type"; R10 did not decide it. What the code
@@ -993,7 +993,7 @@ one struct, [iter-group]); the fns alone are accepted. Options (PIPELINE.md
 - **(a) Accept, `next` wins** (built): a value some `next` takes is already a
   position in a sequence, so minting a second one would be wrong (the old
   [iter-resolve] reasoning); the obligation pair stays refused.
-- **(b) Refuse at the type**: a per-declaration check beside [unique-shape]
+- **(b) Refuse at the type**: a per-declaration check beside [op-unique-shape]
   (both shapes are declared in the type's file, so it needs no program-wide
   search) — "`T` has both a `next` (an iterator) and an `iter` (a source)";
   the brief's rule, and the obligation-pair refusal becomes its special case.
@@ -1010,7 +1010,7 @@ Recorded, not a decision: the `next`/`iter` a `for` names are resolved,
 ranked, filled and recorded as calls, but what a call does to its argument
 places (consumption, the `Mut` mutation of a root, removal sets, derived
 links, temporary-view checks) is not applied at them — driving keeps its own
-rules for the subject ([iter-drive-in-place], [proj-type], [for-elem-write]).
+rules for the subject ([iter-drive-in-place], [proj-type], [iter-for-elem-write]).
 They agree on every program the suite checks (the differential); folding the
 loop's rules into the call's contract would make the header a written
 `let it = Mut e; loop { when next(it) … }` (PIPELINE.md §II.6), and belongs to
@@ -1022,8 +1022,8 @@ O1's name table (OPERATOR_OVERLOAD.md) gives `+ - * /` and `**` their names
 (`plus`, `minus`, `times`, `divide`, `pow`) and says nothing of `%`, unary
 `-`, `++`/`--`. B3.3e kept those **the host's operators on the numeric
 scalars only**, as they were ([op-arith]): `%` with [op-promote]'s widening,
-unary `-` on a number, `++`/`--` on an `Int` place [inc-dec]; a struct gets
-none of them, and no name for them is a shape [unique-shape]. Compound
+unary `-` on a number, `++`/`--` on an `Int` place [op-inc-dec]; a struct gets
+none of them, and no name for them is a shape [op-unique-shape]. Compound
 assignment needs nothing: `v += w` is `v = v + w` [op-compound], which is
 `plus`. Options (PIPELINE.md §II.10 P16):
 
@@ -1128,10 +1128,10 @@ and each remaining step is mechanical but wide — the sweeps are the cost, not 
 design.
 
 - **(a) ✅ `Checked<T>` in `std.core`, and a list write answers one** — built
-  2026-09-26 [checked-type] [col-bounds] (COMPLETED.md's log). `take` is
+  2026-09-26 [type-checked] [col-bounds] (COMPLETED.md's log). `take` is
   `detach`; the fallible `swap` hands back a `Checked<Bool>`.
 - **(b) ✅ The filesystem on `Checked<T>`** — built 2026-09-26 [fs-surface]
-  [checked-type] (COMPLETED.md's log). `Err Checked<FsError>` throughout; the
+  [type-checked] (COMPLETED.md's log). `Err Checked<FsError>` throughout; the
   bespoke wrapper, its `ignore`/`detach` and its `to_str` are gone.
 - **(c) ✅ The filesystem out of `std.core`** — built 2026-09-26 [fs-module]
   [fs-host-split] (COMPLETED.md's log). Modules `fs`, `fs.host`, `fs.mem`,
@@ -1199,7 +1199,7 @@ sequence left behind, by step — each a leftover, none a blocker:
   and messages between virtual nodes run on other threads). N-10's user-facing
   half — the manifest's `version` plus a lock file, so a protocol change
   without a bump fails the build — **built 2026-09-29** with the manifest
-  (`salvo.lock`, [protocol-lock]).
+  (`salvo.lock`, [actor-protocol-lock]).
 
 Both groups stay **actors until the sugar pass** (section 13), which thereby
 gains two concrete targets: `members()` as a plain read (the answering stub)
@@ -1287,7 +1287,7 @@ in build order:
 
 - ✅ **Implicits on stamped fns for generic structs** (built 2026-10-05 as
   §0j step 6i, COMPLETED.md). `Checked<T>`'s `to_str` could now be `by auto`
-  [checked-type].
+  [type-checked].
 - **Obligation clauses on platform types** (decided for `intrinsic type`
   2026-09-28; the collections became platform types and, per §0j, `Set`/`Map`/
   the sorted pair become Salvo structs, whose clauses are ordinary). For
@@ -1444,10 +1444,10 @@ reproduced in a scratch project; the repros are below.
 
 6. **`?:` on an optional literal union picks one literal (DECISION).** Found
    2026-10-20 building 1.7. The positional pick keeps the subject's first
-   *declared* arm [elvis], so `parse_output(s) ?: "text"` with
+   *declared* arm [op-elvis], so `parse_output(s) ?: "text"` with
    `parse_output: (Str) -> ("json" | "text")?` picks `"json"` alone and leaves
    `"text" | None` to the right side. But the literals are one runtime arm
-   [union-arm-identity], so no runtime test can tell `"json"` from `"text"`
+   [type-union-arm-identity], so no runtime test can tell `"json"` from `"text"`
    without comparing values, and the right side's `"text"` is typed `Str`
    (the expected type is not passed to it), so the join is `"json" | Str`:
    `let o = Opts { output: parse_output("json") ?: "text" }` is refused with
@@ -1512,7 +1512,7 @@ reproduced in a scratch project; the repros are below.
 
 9d. ✅ **A handler's state initializer reads a constructor parameter, and its
     names may not clash** — done 2026-10-20 with PIPELINE.md step 4
-    ([bare-names], [state-name], COMPLETED.md).
+    ([name-bare], [handler-state-name], COMPLETED.md).
 
 9e. **A general `state` effect (DECISION, to design).** Found 2026-10-20 while
    designing named iterator state (PIPELINE.md 4.1, "The general form"): a
@@ -1522,10 +1522,10 @@ reproduced in a scratch project; the repros are below.
    Uses: helpers of an `iter fn`'s step, helpers of a handler's members, and
    threading a cursor or machine (a parser), the classic state effect (Koka's
    `state<s>`, Haskell's `State s`). Open: two states of one type in scope
-   (refused, as [use-no-dup]); a lambda reaching a state (its type carries
+   (refused, as [effect-use-no-dup]); a lambda reaching a state (its type carries
    `[state S]`); states and actors (not shareable); reading the final state
    after the block. The named `iter fn` and handler states (built 2026-10-20,
-   [iter-fn] [state-name]; `HandlerDecl.state_name` is recorded and unread)
+   [iter-fn] [handler-state-name]; `HandlerDecl.state_name` is recorded and unread)
    are written so that this can extend them.
 
 10. ✅ **A stamped body falls back to its template's names** — done
@@ -1669,7 +1669,7 @@ made in the design sitting — but each has a shape to settle at implementation.
 1. ✅ **Host dependencies of platform code** — built 2026-09-29
    ([platform-host-deps] [rs-cargo] [kt-classpath]; COMPLETED.md has the entry).
    Maven coordinates are now resolved by Gradle (2026-09-30, [kt-gradle]
-   [host-tool]); left: a lock for host versions, repositories besides Maven
+   [backend-host-tool]); left: a lock for host versions, repositories besides Maven
    Central.
 2. ✅ **Host-completed continuations** — built 2026-09-29 ([platform-reply];
    COMPLETED.md has the entry). Left: a host reply to a remote-minted token (the
@@ -1745,7 +1745,7 @@ The user's order: (1) ✅ a drift test for the aws glue; (2) ✅ **unions of
 literals** (built 2026-09-30, [type-literal]; left: `Byte` literals, which
 need literal syntax first); (3) ✅ `aws.sqs`/`aws.s3` regenerated with
 literal-union enums and one error struct per service; (4) ✅ the host ABI
-written down ([platform-abi], [rs-host-abi], [kt-host-abi]), then ✅ **host code with Salvo splices** (built 2026-09-30, [host-splice]).
+written down ([platform-abi], [rs-host-abi], [kt-host-abi]), then ✅ **host code with Salvo splices** (built 2026-09-30, [platform-host-splice]).
 ✅ the aws glue moved onto splices, then onto **platform templates**
 (`platform/<m>.sv.kt`/`.sv.rs`, 2026-09-30), ✅ with editor support for them
 (highlighting and the language server, 2026-09-30; left: a template whose
@@ -1835,7 +1835,7 @@ COMPLETED.md's comptime entry holds the argument):
 6. Recursion applies **everywhere resolution runs**: calls, picks,
    interpolation's `to_str` lookup, and the copies inside a comptime fn.
 
-Waiting on it: `Checked<T>`'s `to_str` [checked-type], `expect_eq` on a generic
+Waiting on it: `Checked<T>`'s `to_str` [type-checked], `expect_eq` on a generic
 container [interp-to-str], property testing's `?generate`, section 2c's
 `intrinsic type` clauses, typed overrides and `json` over container fields.
 
@@ -1980,7 +1980,7 @@ deliberately cut, in the order the decisions put it:
   is not *checked*; the report has no `--format json` for editors; a test's stderr
   is attributed by arrival [test-output], so a line written just before a
   verdict can land under the next test; `Console` has no unbuffered `read` (a
-  chunk, or the rest of standard input) beside `readln` [console] — asked
+  chunk, or the rest of standard input) beside `readln` [std-console] — asked
   2026-10-20, not decided; nothing
   migrates the compiler's own e2e suite onto `salvo test` (user decision: leave
   it).
@@ -2109,7 +2109,7 @@ The `ref(c)` handle design is built through to element containers and
 unions of borrows (2026-10-10, COMPLETED.md's "Handles are storage paths"
 entries and its "Design record: group borrowing", which retired
 GROUP_BORROWING.md; [rs-path], [ref-anchor], [ref-notsame],
-[elem-distinct], [proj-opt-slot], [rs-opt-borrow]). What is left:
+[fate-elem-distinct], [proj-opt-slot], [rs-opt-borrow]). What is left:
 
 0. **Follow-ups to "positions are preserved, never recovered"** (landed
    2026-10-10, COMPLETED.md's entry of that name; to discuss, not scheduled):
@@ -2243,7 +2243,7 @@ the typed one section 2c lists (`to_str: (Person) -> Str = f`), with two of the
 same name *and* type being one binding [cmp-binder]; what is left to decide is
 the **interpolation lowering** — `${it}` with `it: T | S` becomes a `when` over
 the union's arms choosing the implicit per arm, which a union value's runtime arm
-index permits [union-arm-identity] — and whether [interp-to-str] extends to one
+index permits [type-union-arm-identity] — and whether [interp-to-str] extends to one
 `to_str` per arm.
 
 ### 17 — Recursive types (DECISION, end of the queue)
@@ -2457,9 +2457,9 @@ several are "revisit only if a customer appears".
 - **Whether the monitor spawn of a plain-effect handler stays** (user
   decision 2026-09-28: keep the split as is for now). `spawn H()` where every
   face of `H` is a plain effect answers an `Addr<E>` and shares one locked
-  instance [monitor-handler]; it was the only way to share a stateful plain
+  instance [actor-monitor-handler]; it was the only way to share a stateful plain
   handler between spawns until [effect-handle] made every `use` a handle and
-  [spawn-inherit] hands the scope's bindings to a child. What it still buys
+  [actor-spawn-inherit] hands the scope's bindings to a child. What it still buys
   is a plain-effect instance as a **first-class value** (storable, sendable
   in a message, passable in `with`); nothing in std or the examples uses it
   that way. Options if it is revisited: keep as the addr-producing form (two

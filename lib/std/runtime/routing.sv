@@ -4,7 +4,7 @@
 // whose addr has left its node, the proxies standing for actors elsewhere and
 // the credits each holds — and turns a send to a proxy, an answer to a token
 // minted elsewhere, a credit and a handshake into **frames**: Salvo values in
-// the canonical encoding [wire-format] (D4), the same bytes on both backends.
+// the canonical encoding [net-wire-format] (D4), the same bytes on both backends.
 //
 // What stays with the host is what only the generated code knows: how to
 // encode a message of a given protocol, how to decode one for a given actor
@@ -19,38 +19,45 @@
 
 import std.runtime
 
-// [wire-format] The codec intrinsics, as `net` declares them: private here,
+// The codec intrinsics, as `net` declares them: private here,
 // since this module sits below `net`.
+// @compilerrules [net-wire-format]
 intrinsic fn encode<T>(value: T) [] -> Bytes => !value
 intrinsic fn decode<T>(data: Bytes) [] -> T? => data
 
 // ---- what only the host knows
 
-// [wire-format] Decodes a message of protocol [proto] for hosted actor
+// Decodes a message of protocol [proto] for hosted actor
 // [addr], with the decoder its spawn registered: `None` when it has none or
 // the bytes are malformed.
+// @compilerrules [net-wire-format]
 platform fn decode_message(addr: Int, proto: Str, payload: Bytes) [] -> Dyn? => addr, proto, payload
 
-// [wire-format] Decodes an answer for waiting frame [wid] with the decoder
+// Decodes an answer for waiting frame [wid] with the decoder
 // its `waitfor` registered.
+// @compilerrules [net-wire-format]
 platform fn decode_waiter_answer(wid: Int, payload: Bytes) [] -> Dyn? => wid, payload
 
-// [wire-format] Decodes an answer for the task exported under [key].
+// Decodes an answer for the task exported under [key].
+// @compilerrules [net-wire-format]
 platform fn decode_task_answer(key: Long, payload: Bytes) [] -> Dyn? => key, payload
 
-// [wire-format] An answer for an actor's continuation, still as bytes: the
+// An answer for an actor's continuation, still as bytes: the
 // actor decodes it in its activation, since only it knows the type.
+// @compilerrules [net-wire-format]
 platform fn raw_answer(payload: Bytes) [] -> Dyn => !payload
 
-// [node-group] [actor-group] The message a control frame's payload arrives
+// The message a control frame's payload arrives
 // as at [sink]: its handler's private `control(from, data)` member.
+// @compilerrules [node-group, actor-group]
 platform fn control_message(sink: Int, from: Long, payload: Bytes) [] -> Dyn? => sink, from, payload
 
-// [addr-routable] Hands [frame] to node [from]'s outbound hook, for endpoint
+// Hands [frame] to node [from]'s outbound hook, for endpoint
 // [to]: the transport moves it.
+// @compilerrules [net-addr-routable]
 platform fn wire_out(from: Long, to: Bytes, frame: Bytes) [] -> None => from, !to, !frame
 
-// ---- the frames [wire-format] (D4)
+// ---- the frames [net-wire-format] (D4)
 
 // 0: a message for a hosted actor, encoded with its protocol's hash.
 struct MsgFrame { to: Long, actor: Long, bits: Long, from: Long, proto: Str, payload: Bytes }
@@ -66,14 +73,16 @@ struct OpenFrame { to: Long, actor: Long, bits: Long, from: Long }
 struct ControlFrame { to: Long, from: Long, channel: Str, payload: Bytes }
 type Frame = MsgFrame | AnswerFrame | GrantFrame | OpenFrame | ControlFrame
 
-// [addr-routable] The routable identity of an actor.
+// The routable identity of an actor.
+// @compilerrules [net-addr-routable]
 export struct RemoteRef : Hashed<self> by auto {
     node: Long,
     actor: Long,
     bits: Long
 }
 
-// [addr-routable] A reply token's wire form.
+// A reply token's wire form.
+// @compilerrules [net-addr-routable]
 export struct ReplyParts {
     node: Long,
     kind: Int,
@@ -92,8 +101,9 @@ struct Parked { from: Long, to: Long, frame: Bytes }
 // A frame ready to go, sent by [flush].
 struct Staged { from: Long, to: Bytes, frame: Bytes }
 
-// [addr-routable] A task whose token crossed the wire: its body waits here
+// A task whose token crossed the wire: its body waits here
 // for the answer.
+// @compilerrules [net-addr-routable]
 linear struct ExportedTask { pool: Int, body: Body }
 
 fn drop_exported_task(t: ExportedTask) [] -> None => !t {
@@ -140,7 +150,8 @@ effect RouteTable {
     fn peer_hash(node: Long, protocol: Str) -> Str? => node, protocol
     fn forget_node(node: Long) -> List<Int> => node
     fn credits_of(addr: Int) -> Int? => addr
-    // [route-stub] The views route stubs read.
+    // The views route stubs read.
+    // @compilerrules [actor-route-stub]
     fn set_view(group: Int, members: List<Int>) -> None => !group, !members
     fn view_of(group: Int) -> List<Int> => group
     fn version_of(group: Int) -> Long => group
@@ -151,9 +162,10 @@ effect RouteTable {
     fn drop_view_waiter(id: Long) -> None => !id
 }
 
-// [route-stub] [group]'s view version. (A member calling a sibling goes
+// [group]'s view version. (A member calling a sibling goes
 // through the module's binding, which would take the table's lock again: the
 // members share these instead.)
+// @compilerrules [actor-route-stub]
 fn version_in(versions: Map<Int, Long>, group: Int) [] -> Long => versions, group {
     let v = get(versions, group)
     if v is Long n {
@@ -162,7 +174,8 @@ fn version_in(versions: Map<Int, Long>, group: Int) [] -> Long => versions, grou
     return 0
 }
 
-// [route-stub] Moves [group]'s version and wakes its waiters.
+// Moves [group]'s version and wakes its waiters.
+// @compilerrules [actor-route-stub]
 fn bump_in(versions: Mut Map<Int, Long>, waiters: Mut List<ViewWaiter>, group: Int) [] -> None
 => versions: Mut, waiters: Mut, !group {
     put(versions, copy(group), version_in(versions, copy(group)) + 1)
@@ -177,7 +190,8 @@ fn bump_in(versions: Mut Map<Int, Long>, waiters: Mut List<ViewWaiter>, group: I
     }
 }
 
-// [route-stub] A sender waiting for a view to change.
+// A sender waiting for a view to change.
+// @compilerrules [actor-route-stub]
 struct ViewWaiter {
     group: Int,
     id: Long,
@@ -209,8 +223,9 @@ handler Routes() of RouteTable {
         peers: Mut Map<Long, List<(Str, Str)>> = Mut Map()
         dead_entry: Int = -1
         credit_waiters: Mut List<Parker> = Mut List()
-        // [route-stub] Per group: the member list its replica mirrors, and a
+        // Per group: the member list its replica mirrors, and a
         // version moved by every change and every `refresh`.
+        // @compilerrules [actor-route-stub]
         views: Mut Map<Int, List<Int>> = Mut Map()
         versions: Mut Map<Int, Long> = Mut Map()
         view_waiters: Mut List<ViewWaiter> = Mut List()
@@ -531,9 +546,10 @@ fn held_in(held_n: Map<Int, Int>, idx: Int) [] -> Int => held_n, idx {
     return 0
 }
 
-// [addr-routable] The identity of local index [addr] on [pool]: its bits
+// The identity of local index [addr] on [pool]: its bits
 // minted the first time it is asked for, which is the first time the addr
 // leaves its node.
+// @compilerrules [net-addr-routable]
 fn identity_in(remote: Map<Int, RemoteRef>, bits: Mut Map<Int, Long>, pool_node: Map<Int, Long>, node_id: Long, addr: Int, pool: Int) [] -> RemoteRef
 => remote, bits: Mut, pool_node, node_id, addr, pool {
     let r = get(remote, addr)
@@ -585,8 +601,9 @@ fn restage(routes: Map<Long, Bytes>, outbound: Set<Long>, outbox: Mut List<Stage
 
 use Routes()
 
-// [addr-routable] A fresh node identity: random and non-negative, since the
+// A fresh node identity: random and non-negative, since the
 // core marks a local sender as -1.
+// @compilerrules [net-addr-routable]
 fn fresh_node() [] -> Long {
     let b = identity_bits()
     if b < 0 {
@@ -597,35 +614,41 @@ fn fresh_node() [] -> Long {
 
 // ---- for the host's shims
 
-// [addr-routable] The node the calling thread's pool belongs to.
+// The node the calling thread's pool belongs to.
+// @compilerrules [net-addr-routable]
 export fn here_node() [] -> Long {
     return node_of_pool(current_pool())
 }
 
-// [addr-routable] A pool made by the calling thread belongs to its node.
+// A pool made by the calling thread belongs to its node.
+// @compilerrules [net-addr-routable]
 export fn adopt(pool: Int) [] -> None => !pool {
     adopt_pool(pool, here_node())
 }
 
-// [addr-routable] Hosts a fresh virtual node in this process.
+// Hosts a fresh virtual node in this process.
+// @compilerrules [net-addr-routable]
 export fn new_node() [] -> Long {
     return add_node()
 }
 
-// [addr-routable] A pool of [n] workers belonging to [node].
+// A pool of [n] workers belonging to [node].
+// @compilerrules [net-addr-routable]
 export fn pool_at(node: Long, n: Int) [] -> Int => !node, n {
     let p = new_pool_of(n, -1)
     adopt_pool(copy(p), node)
     return p
 }
 
-// [addr-routable] The routable identity of local index [addr].
+// The routable identity of local index [addr].
+// @compilerrules [net-addr-routable]
 export fn identity(addr: Int) [] -> RemoteRef => addr {
     return identity_of(copy(addr), actor_pool(copy(addr)))
 }
 
-// [addr-routable] Whether two addrs name one actor: the same index, or the
+// Whether two addrs name one actor: the same index, or the
 // same identity (an actor of a virtual node and its proxy on another).
+// @compilerrules [net-addr-routable]
 export fn same_actor(a: Int, b: Int) [] -> Bool => a, b {
     if a == b {
         return true
@@ -636,10 +659,11 @@ export fn same_actor(a: Int, b: Int) [] -> Bool => a, b {
     return identity(a) == identity(b)
 }
 
-// [addr-routable] [addr-capability] A decoded identity as a local index:
+// A decoded identity as a local index:
 // the actor itself when it is this node's and the bits match (a forged one
 // answers the one shared dead entry), a proxy otherwise — made once, with an
 // OPEN frame asking the host for credits.
+// @compilerrules [net-addr-routable, net-addr-capability]
 export fn import_addr(node: Long, actor: Long, bits: Long) [] -> Int => !node, !actor, !bits {
     let r = RemoteRef { node: node, actor: actor, bits: bits }
     let here = here_node()
@@ -660,14 +684,16 @@ export fn import_addr(node: Long, actor: Long, bits: Long) [] -> Int => !node, !
     return got
 }
 
-// [addr-routable] Whether [addr] is a proxy of an actor elsewhere.
+// Whether [addr] is a proxy of an actor elsewhere.
+// @compilerrules [net-addr-routable]
 export fn remote(addr: Int) [] -> Bool => addr {
     return is_proxy(addr)
 }
 
-// [addr-routable] [remote-backpressure] Sends a message already encoded
+// Sends a message already encoded
 // under protocol [proto] to proxy [addr], waiting for a credit first; to a
 // proxy that died (its node left), the silent no-op.
+// @compilerrules [net-addr-routable, net-remote-backpressure]
 export fn send_remote(addr: Int, proto: Str, payload: Bytes) [] -> None => !addr, !proto, !payload {
     let r = proxy_ref(copy(addr))
     if r is None {
@@ -692,8 +718,9 @@ export fn send_remote(addr: Int, proto: Str, payload: Bytes) [] -> None => !addr
     }
 }
 
-// [addr-routable] [wire-format] Answers a token minted elsewhere: a REPLY
+// Answers a token minted elsewhere: a REPLY
 // frame back to its node.
+// @compilerrules [net-addr-routable, net-wire-format]
 export fn answer_remote(t: ReplyParts, payload: Bytes) [] -> None => !t, !payload {
     let from = here_node()
     let frame = encode<Frame>(AnswerFrame { to: copy(t.node), kind: copy(t.kind), id: copy(t.id), slot: copy(t.slot), bits: copy(t.bits), payload: payload })
@@ -701,8 +728,9 @@ export fn answer_remote(t: ReplyParts, payload: Bytes) [] -> None => !t, !payloa
     flush()
 }
 
-// [addr-routable] A reply token's wire form. Exporting a task moves its body
+// A reply token's wire form. Exporting a task moves its body
 // here until its answer returns, keyed by its slot.
+// @compilerrules [net-addr-routable]
 export fn export_reply(e: Exported) [] -> ReplyParts => !e {
     let {kind, id, slot, body} = e
     if kind == 2 {
@@ -721,9 +749,10 @@ export fn export_reply(e: Exported) [] -> ReplyParts => !e {
     return ReplyParts { node: copy(me.node), kind: 0, id: copy(me.actor), slot: slot, bits: copy(me.bits) }
 }
 
-// [remote-backpressure] The core's call when a message that came from node
+// The core's call when a message that came from node
 // [from] leaves actor [addr]'s mailbox: a credit goes back. Staged, since
 // the core's lock is held; [flush] sends it.
+// @compilerrules [net-remote-backpressure]
 export fn credit_back(addr: Int, pool: Int, from: Long) [] -> None => !addr, !pool, !from {
     grant(addr, pool, from, 1)
 }
@@ -736,32 +765,37 @@ export fn flush() [] -> None {
     }
 }
 
-// [addr-routable] Records where node [node]'s frames go: its encoded
+// Records where node [node]'s frames go: its encoded
 // endpoint.
+// @compilerrules [net-addr-routable]
 export fn route(node: Long, at: Bytes) [] -> None => !node, !at {
     add_route(node, at)
     flush()
 }
 
-// [addr-routable] The current node's outbound hook is bound.
+// The current node's outbound hook is bound.
+// @compilerrules [net-addr-routable]
 export fn outbound_bound() [] -> None {
     set_outbound(here_node())
     flush()
 }
 
-// [net-connect] Whether the current node's outbound hook is bound.
+// Whether the current node's outbound hook is bound.
+// @compilerrules [net-connect]
 export fn connected() [] -> Bool {
     return has_outbound(here_node())
 }
 
-// [remote-backpressure] A proxy's credit balance, or `None` for a local
+// A proxy's credit balance, or `None` for a local
 // actor.
+// @compilerrules [net-remote-backpressure]
 export fn credits(addr: Int) [] -> Int? => addr {
     return credits_of(addr)
 }
 
-// [actor-group] [remote-backpressure] `pending(addr)`: messages in flight to
+// `pending(addr)`: messages in flight to
 // a proxy, the queue's depth for a local actor.
+// @compilerrules [actor-group, net-remote-backpressure]
 export fn pending(addr: Int) [] -> Int => addr {
     if is_proxy(copy(addr)) {
         return held(addr)
@@ -769,14 +803,16 @@ export fn pending(addr: Int) [] -> Int => addr {
     return mailbox_queued(addr)
 }
 
-// [node-group] [actor-group] The current node's control frames on
+// The current node's control frames on
 // [channel] go to [sink].
+// @compilerrules [node-group, actor-group]
 export fn watch_control(channel: Str, sink: Int) [] -> None => !channel, !sink {
     watch_channel(here_node(), channel, sink)
 }
 
-// [node-group] [actor-group] A CONTROL frame on [channel] from the current
+// A CONTROL frame on [channel] from the current
 // node to node [to].
+// @compilerrules [node-group, actor-group]
 export fn send_control(to: Long, channel: Str, payload: Bytes) [] -> None => !to, !channel, !payload {
     let from = here_node()
     let frame = encode<Frame>(ControlFrame { to: copy(to), from: copy(from), channel: channel, payload: payload })
@@ -784,21 +820,24 @@ export fn send_control(to: Long, channel: Str, payload: Bytes) [] -> None => !to
     flush()
 }
 
-// [node-group] A CONTROL frame for whichever node receives it: a HELLO's,
+// A CONTROL frame for whichever node receives it: a HELLO's,
 // handed to the transport directly, since the peer has no route yet.
+// @compilerrules [node-group]
 export fn control_frame(channel: Str, payload: Bytes) [] -> Bytes => !channel, !payload {
     return encode<Frame>(ControlFrame { to: 0, from: here_node(), channel: channel, payload: payload })
 }
 
-// [node-group] [node-exit] Node [node] has left: its route and protocol
+// Node [node] has left: its route and protocol
 // table are forgotten, and every proxy of an actor on it dies.
+// @compilerrules [node-group, node-exit]
 export fn node_left(node: Long) [] -> None => !node {
     for idx in forget_node(node) {
         kill_actor(copy(idx), "node left")
     }
 }
 
-// [protocol-hash] This program's protocol table, registered at start-up.
+// This program's protocol table, registered at start-up.
+// @compilerrules [actor-protocol-hash]
 export fn register_protocols(table: List<(Str, Str)>) [] -> None => !table {
     set_protocols(table)
 }
@@ -807,23 +846,26 @@ export fn local_protocols() [] -> List<(Str, Str)> {
     return protocols()
 }
 
-// [protocol-hash] Peer [node]'s table, as its handshake carried it.
+// Peer [node]'s table, as its handshake carried it.
+// @compilerrules [actor-protocol-hash]
 export fn set_peer_protocols(node: Long, table: List<(Str, Str)>) [] -> None => !node, !table {
     set_peer(node, table)
 }
 
-// [protocol-hash] A peer's hash for a protocol: `None` for an unknown peer
+// A peer's hash for a protocol: `None` for an unknown peer
 // or a protocol it does not have.
+// @compilerrules [actor-protocol-hash]
 export fn peer_protocol(node: Long, protocol: Str) [] -> Str? => node, protocol {
     return peer_hash(node, protocol)
 }
 
-// [addr-routable] [wire-format] Delivers one frame that arrived on the wire.
+// Delivers one frame that arrived on the wire.
 // A frame for a node not hosted here, a target that does not exist, a bits
-// mismatch or a malformed payload is dropped, never delivered wrong
-// [backend-never-wrong]. Answers whether it was delivered. Payloads are
+// mismatch or a malformed payload is dropped, never delivered wrong.
+// Answers whether it was delivered. Payloads are
 // decoded with no lock held: an `Addr` or a `Reply` in one asks this module
 // for its identity.
+// @compilerrules [net-addr-routable, net-wire-format, backend-never-wrong]
 export fn deliver(data: Bytes) [] -> Bool => data {
     let f = decode<Frame>(data)
     if f is MsgFrame m {
@@ -849,7 +891,7 @@ export fn deliver(data: Bytes) [] -> Bool => data {
         if !accepts(copy(o.to), copy(o.actor), copy(o.bits)) {
             return false
         }
-        // [remote-backpressure] The first grant: the room left after what is
+        // [net-remote-backpressure] The first grant: the room left after what is
         // queued and what other senders hold, and at least one, so a starved
         // sender is never stuck.
         let idx = to_int(o.actor)
@@ -916,16 +958,18 @@ fn deliver_answer(a: AnswerFrame) [] -> Bool => a {
     return false
 }
 
-// ---- the route stubs' views [route-stub]
+// ---- the route stubs' views [actor-route-stub]
 
-// [route-stub] The replica of [group] mirrors its member set here, after
+// The replica of [group] mirrors its member set here, after
 // every change; waiting senders wake.
+// @compilerrules [actor-route-stub]
 export fn view_set(group: Int, members: List<Int>) [] -> None => !group, !members {
     set_view(group, members)
 }
 
-// [route-stub] The mirrored members of [group], by (node, actor id): the same
+// The mirrored members of [group], by (node, actor id): the same
 // order on every node and both backends.
+// @compilerrules [actor-route-stub]
 export fn view_members(group: Int) [] -> List<Int> => group {
     let left: Mut List<Int> = Mut List()
     for m in view_of(group) {
@@ -953,21 +997,24 @@ fn before(a: RemoteRef, b: RemoteRef) [] -> Bool => a, b {
     return a.actor <= b.actor
 }
 
-// [route-stub] [group]'s view version: moved by every change of its members
+// [group]'s view version: moved by every change of its members
 // and by every `refresh`.
+// @compilerrules [actor-route-stub]
 export fn view_version(group: Int) [] -> Long => group {
     return version_of(group)
 }
 
-// [route-stub] Moves [group]'s view version without changing its members:
+// Moves [group]'s view version without changing its members:
 // what something a selector reads outside the view (an election) calls when
 // its answer changes.
+// @compilerrules [actor-route-stub]
 export fn view_refresh(group: Int) [] -> None => !group {
     bump(group)
 }
 
-// [route-stub] Waits until [group]'s version moves past [seen], or [nanos]
+// Waits until [group]'s version moves past [seen], or [nanos]
 // pass, whichever is first.
+// @compilerrules [actor-route-stub]
 export fn view_wait(group: Int, seen: Long, nanos: Long) [] -> None => !group, !seen, !nanos {
     let me = this_parker()
     let id = add_view_waiter(group, seen, copy(me))

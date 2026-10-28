@@ -17,7 +17,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] Loaded as a *std* file, since only std writes
+/// [platform-intrinsic-std-only] Loaded as a *std* file, since only std writes
 /// `intrinsic` — and `std.core.*` is implicitly visible, which is how a canonical
 /// `cmp` is in scope without an import.
 const STD_PRELUDE: &str = concat!(
@@ -611,7 +611,7 @@ fn cmp(a: Point, b: Point) [] -> Int => a, b {
     assert!(private_type.is_empty(), "unexpected errors: {private_type:?}");
 }
 
-/// [unique-shape] A second `cmp` for `Person` in another module is refused
+/// [op-unique-shape] A second `cmp` for `Person` in another module is refused
 /// where it is declared (user decision O1-D, 2026-10-27): `cmp` is what `<`
 /// means on `Person`, and a function of that shape is declared only in
 /// `Person`'s own file. Until 2026-10-27 it was an ordinary overload beside the
@@ -652,12 +652,12 @@ fn cmp(a: Person, b: Person) [] -> Int => a, b {
         errs.iter().any(|e| e.contains("`cmp(Person, Person)` has the shape of `cmp` on `Person`")
             && e.contains("`people.sv` (module `people`)")
             && e.contains("give it another name and pass it explicitly")
-            && e.contains("[unique-shape]")),
+            && e.contains("[op-unique-shape]")),
         "expected the refusal naming `Person`'s file, got: {errs:?}"
     );
 }
 
-/// [unique-shape] [implicit-override] The remedy the refusal names: a second
+/// [op-unique-shape] [implicit-override] The remedy the refusal names: a second
 /// ordering is named for what it does and passed explicitly, and `cmp@Person`
 /// still names the one declared on the type [fn-attached].
 #[test]
@@ -1119,7 +1119,7 @@ struct A : Hashed<self> by auto {
 fn an_auto_fn_is_checked_at_its_declaration() {
     // Not at a struct or union: there are no fields or arms to walk. (`hash`,
     // not `cmp`: a `cmp` on `Int` outside `Int`'s file is refused for its
-    // placement first [unique-shape].)
+    // placement first [op-unique-shape].)
     let errs = errors("fn hash(value: Int) [] -> Long => value by auto\n");
     assert!(
         errs.iter().any(|e| e.contains("not a struct or a declared union type")),
@@ -1464,7 +1464,7 @@ fn an_optional_operand_is_refused_once() {
 }
 
 /// [op-equality] The operator reads what its call returns: an `eq` returning
-/// anything but `Bool` is not of `==`'s shape [unique-shape], and a call that
+/// anything but `Bool` is not of `==`'s shape [op-unique-shape], and a call that
 /// reaches one is refused at the operator.
 #[test]
 fn an_eq_returning_no_bool_is_refused_at_the_operator() {
@@ -1964,7 +1964,7 @@ fn a_clause_stamps_the_group_its_file_sees() {
     assert!(errs.is_empty(), "{errs:?}");
 }
 
-// ===== [origin] a stamped body keeps its template's spans =====
+// ===== [node-origin] a stamped body keeps its template's spans =====
 
 /// Every span a stamped fn's body holds, with the stamped fn's stamp.
 fn stamped_spans(program: &Program, file: usize, name: &str) -> (Vec<salvo_syntax::Span>, salvo_syntax::ast::Stamp) {
@@ -1990,7 +1990,7 @@ fn stamped_spans(program: &Program, file: usize, name: &str) -> (Vec<salvo_synta
     (spans.0, f.stamped.clone().unwrap())
 }
 
-/// [origin] [comptime-instantiate] A stamp copies the template's nodes with
+/// [node-origin] [comptime-instantiate] A stamp copies the template's nodes with
 /// their template spans — inside the template's file, never past the end of
 /// the stamping file — under expansions the `Stamp` records: the template's
 /// whole copy, and one copy per field, each for its field's declaration and
@@ -2031,7 +2031,7 @@ fn a_stamped_body_keeps_the_template_spans() {
     });
 }
 
-/// [origin] [ir-analyze] An error at a copied node renders at the field its
+/// [node-origin] [ir-analyze] An error at a copied node renders at the field its
 /// copy was for, prefixed with the stamp, and names the stamped fn — the
 /// declaration it breaks (`ir::gate`), whatever its span says.
 #[test]

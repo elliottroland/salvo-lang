@@ -1285,7 +1285,7 @@ impl Server<'_> {
     /// manifest was found.
     fn site_location(&self, analysis: &Analysis, file: usize, span: Span) -> Option<(Url, Range)> {
         let target = analysis.program.files.get(file)?;
-        // [origin] A copied node is where it lands (`origin::landing`).
+        // [node-origin] A copied node is where it lands (`origin::landing`).
         let span = analysis.program.modules.get(file).map_or(span, |m| salvo_core::origin::landing(m, span));
         if target.is_std && !target.is_shadow {
             let path = embedded_std_copy(&target.name, &target.content)?;
@@ -1496,7 +1496,7 @@ impl Server<'_> {
                 // The owner note, then the referenced struct's fields when
                 // there is one — one section, so both reach the hover.
                 let mut extra = format!("Field of {owner}.");
-                // [state-infer] A nested-field section needs the written type
+                // [handler-state-infer] A nested-field section needs the written type
                 // to resolve the referenced struct; an inferred field has none.
                 if let Some(fty) = &decl.ty {
                     if let Some(fields) = struct_field_section(analysis, file_idx, fty, link) {
@@ -2305,7 +2305,7 @@ impl Server<'_> {
     }
 }
 
-/// [state-infer] A field type for display: the written type, or `_` for an
+/// [handler-state-infer] A field type for display: the written type, or `_` for an
 /// inferred state field whose type is whatever its initializer resolves to.
 fn field_ty_display(ty: &Option<salvo_syntax::ast::Type>) -> String {
     match ty {
@@ -2412,7 +2412,7 @@ fn when_missing_arms(analysis: &Analysis, checked: &salvo_core::Checked, file_id
     }
     impl Finder {
         fn consider(&mut self, span: Span, bodies: &[Span], comptime: bool) {
-            // [origin] Only written code is at an offset of the file.
+            // [node-origin] Only written code is at an offset of the file.
             let inside = span.is_written() && span.start < self.offset && self.offset < span.end;
             let in_body = bodies.iter().any(|b| b.start < self.offset && self.offset < b.end);
             if inside && !in_body && self.best.is_none_or(|(b, _)| span.len() < b.len()) {
@@ -2882,7 +2882,7 @@ fn import_insert_position(content: &str) -> Position {
 /// lives in and the span of its *name*.
 fn fn_def_site(program: &Program, checked: &Checked, key: DeclId) -> Option<DefSite> {
     let decl = checked.decls.fn_decl(&program.modules, key)?;
-    // [origin] A stamped member's name may be one the stamp made (at a
+    // [node-origin] A stamped member's name may be one the stamp made (at a
     // generic target): it is defined where its origin says, the `by` site.
     let span = match &decl.stamped {
         Some(stamp) if decl.name.span.is_expanded() => salvo_core::origin::render(stamp, decl.name.span, String::new()).0,
@@ -2983,7 +2983,7 @@ fn rename_occurrences(
         RenameTarget::Fn(key) => {
             let decl_site = fn_def_site(&analysis.program, checked, key)?;
             sites.push((decl_site.file, decl_site.span));
-            // [origin] A copied node is not text of the file it is in.
+            // [node-origin] A copied node is not text of the file it is in.
             for (at, k) in &checked.fn_refs {
                 let (file, span) = (&at.file(), &at.span);
                 if *k == key && span.is_written() {
@@ -3998,7 +3998,7 @@ fn file_path(uri: &Url) -> Option<PathBuf> {
 struct DocView<'a> {
     file: usize,
     content: &'a str,
-    /// [origin] The file's module, where a copied node's stamp is.
+    /// [node-origin] The file's module, where a copied node's stamp is.
     module: Option<&'a salvo_syntax::ast::Module>,
 }
 
@@ -4008,7 +4008,7 @@ impl DocView<'_> {
         position_to_offset(self.content, position)
     }
 
-    /// A span of the file as a range of this document: [origin] a copied
+    /// A span of the file as a range of this document: [node-origin] a copied
     /// node's where it lands (`origin::landing`).
     fn range(&self, span: Span) -> Range {
         let span = self.module.map_or(span, |m| salvo_core::origin::landing(m, span));
@@ -4068,7 +4068,7 @@ fn to_lsp_diagnostic(diag: &FileDiagnostic, content: &str, span: Span) -> Diagno
 }
 
 fn span_to_range(content: &str, span: Span) -> Range {
-    // [origin] A copied node no stamp places (`origin::landing` found
+    // [node-origin] A copied node no stamp places (`origin::landing` found
     // none) has its template's range, not text of this document: placed at
     // its end, where nothing is.
     if span.is_expanded() {

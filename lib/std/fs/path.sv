@@ -1,36 +1,41 @@
 // `path`: a filesystem path as a value of its own, so its operations —
 // parent, file name, extension, joining — are a `Path`'s and stay out of
-// `Str`'s surface (user decision 2026-10-04) [path-type].
+// `Str`'s surface (user decision 2026-10-04) [fs-path-type].
 //
 // A path is text with `/` between its segments, on every backend: Salvo's
 // filesystem speaks `/` whatever the host does, as the JVM and Rust's own
 // `Path` both accept it. Nothing here touches a disk, so a `Path` needs no
 // effect; `fs` takes one wherever it takes a path's text.
 
-// [path-type] A path. Build one with [path] and read it back with [to_str];
+// A path. Build one with [path] and read it back with [to_str];
 // two paths are equal when their text is (`a/b` and `a/b/` are different
 // paths, as on the host).
+// @compilerrules [fs-path-type]
 export struct Path : Hashed<self> by auto {
     value: Str
 }
 
-// [path-type] The path [value] spells.
+// The path [value] spells.
+// @compilerrules [fs-path-type]
 export fn path(text: Str) [] -> Path => text {
     return Path { value: copy(text) }
 }
 
-// [path-type] The path's text.
+// The path's text.
+// @compilerrules [fs-path-type]
 export fn to_str(p: Path) [] -> Str => p {
     return copy(p.value)
 }
 
-// [path-type] Whether the path starts at the root.
+// Whether the path starts at the root.
+// @compilerrules [fs-path-type]
 export fn is_absolute(p: Path) [] -> Bool => p {
     return starts_with(p.value, "/")
 }
 
-// [path-type] [p] with [child] beneath it. An absolute [child] replaces [p],
+// [p] with [child] beneath it. An absolute [child] replaces [p],
 // as the hosts' own joins do; a trailing `/` on [p] is not doubled.
+// @compilerrules [fs-path-type]
 export fn join(p: Path, child: Str) [] -> Path => p, child {
     if starts_with(child, "/") || is_empty(p.value) {
         return path(child)
@@ -41,13 +46,15 @@ export fn join(p: Path, child: Str) [] -> Path => p, child {
     return path("${p.value}/${child}")
 }
 
-// [path-type] [p] with [child]'s segments beneath it.
+// [p] with [child]'s segments beneath it.
+// @compilerrules [fs-path-type]
 export fn join(p: Path, child: Path) [] -> Path => p, child {
     return join(p, child.value)
 }
 
-// [path-type] The path without its last segment, or `None` when there is
+// The path without its last segment, or `None` when there is
 // nothing above it (`a`, `/`, the empty path). `parent(/a)` is `/`.
+// @compilerrules [fs-path-type]
 export fn parent(p: Path) [] -> Path? => p {
     let text = trim_trailing_slashes(p.value)
     let cut = split_last(text, "/")
@@ -64,7 +71,8 @@ export fn parent(p: Path) [] -> Path? => p {
     return path(dir)
 }
 
-// [path-type] The last segment, or `None` for the root and the empty path.
+// The last segment, or `None` for the root and the empty path.
+// @compilerrules [fs-path-type]
 export fn file_name(p: Path) [] -> Str? => p {
     let text = trim_trailing_slashes(p.value)
     let cut = split_last(text, "/")
@@ -81,9 +89,10 @@ export fn file_name(p: Path) [] -> Str? => p {
     return name
 }
 
-// [path-type] The file name's extension, without its dot: `gz` for
+// The file name's extension, without its dot: `gz` for
 // `a.tar.gz`. `None` when there is no dot, or the only one leads the name
 // (`.profile`).
+// @compilerrules [fs-path-type]
 export fn extension(p: Path) [] -> Str? => p {
     let name = file_name(p)
     if name is Str n {
@@ -100,7 +109,8 @@ export fn extension(p: Path) [] -> Str? => p {
     return None
 }
 
-// [path-type] The file name without its extension: `a.tar` for `a.tar.gz`.
+// The file name without its extension: `a.tar` for `a.tar.gz`.
+// @compilerrules [fs-path-type]
 export fn stem(p: Path) [] -> Str? => p {
     let name = file_name(p)
     if name is Str n {
@@ -117,8 +127,9 @@ export fn stem(p: Path) [] -> Str? => p {
     return None
 }
 
-// [path-type] [p] with its extension replaced by [ext] (added when it has
+// [p] with its extension replaced by [ext] (added when it has
 // none); an empty [ext] removes it.
+// @compilerrules [fs-path-type]
 export fn with_extension(p: Path, ext: Str) [] -> Path => p, ext {
     let s = stem(p)
     if s is Str base {
@@ -132,8 +143,9 @@ export fn with_extension(p: Path, ext: Str) [] -> Path => p, ext {
     return path(copy(p.value))
 }
 
-// [path-type] The path's segments, in order, without empty ones: `/a//b/` is
-// `[a, b]`. A list of your own [str-mut-results].
+// The path's segments, in order, without empty ones: `/a//b/` is
+// `[a, b]`. A list of your own.
+// @compilerrules [fs-path-type, str-mut-results]
 export fn segments(p: Path) [] -> Mut List<Str> => p {
     let out = Mut List<Str>()
     for part in split(p.value, "/") {

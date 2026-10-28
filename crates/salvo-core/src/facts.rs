@@ -1,4 +1,4 @@
-//! [facts-dump] The pre-IR dumper (PIPELINE.md D1): the checker's facts,
+//! [cli-facts] The pre-IR dumper (PIPELINE.md D1): the checker's facts,
 //! declaration by declaration — each expression's type, the declaration a
 //! call or a name resolved to, and the coercions, moves and dot-calls the
 //! checker recorded. It is the readable form of what the walks hand the IR
@@ -75,7 +75,7 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
     for key in keys {
         let ty = &part.expr_ty[key];
         let span = key.span;
-        // [origin] A copied node is listed where a diagnostic about it would
+        // [node-origin] A copied node is listed where a diagnostic about it would
         // land (`origin::landing`): its field or arm, the `by` site, or the
         // written code an in-place copy stands for.
         let at = crate::origin::landing(&program.modules[file], span);

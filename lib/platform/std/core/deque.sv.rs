@@ -149,7 +149,7 @@ pub fn drain<T>(mut d: std::collections::VecDeque<T>, each: &mut dyn FnMut(T)) {
                 let mut __picked_2 = __pick_1.unwrap();
                 __picked_2
             } else {
-                panic!("salvo: unreachable at std.core.deque:132:33")
+                panic!("salvo: unreachable at std.core.deque:144:33")
             }
         }; each(__arg1) };
     }

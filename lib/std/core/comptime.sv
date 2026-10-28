@@ -25,21 +25,25 @@ export comptime struct Struct {
     // The fields, in declaration order — what `[for field in T.fields]` unrolls.
     fields: List<Field>,
     // Whether the declaration says `canbe Mut`. A structural `hash` refuses a
-    // mutable struct [col-hashed-ordered].
+    // mutable struct.
+    // @compilerrules [col-hashed-ordered]
     mutable: Bool,
     // The doc comment above the declaration, as text, or `None` (`T.docs`,
-    // tested with `[if T.docs is None]`) [comptime-docs].
+    // tested with `[if T.docs is None]`).
+    // @compilerrules [comptime-docs]
     docs: Str?
 }
 
 // A named union (`type Source = A | B | None`): its declared arms, `None`
-// included, in declaration order [union-arm-identity].
+// included, in declaration order.
+// @compilerrules [type-union-arm-identity]
 export comptime struct Union {
     name: Str,
     // The arms — what `[for arm in T.arms]` unrolls, and what a
     // `[when value] { [arm] { … } }` dispatches over.
     arms: List<Arm>,
-    // The doc comment above the declaration, or `None` [comptime-docs].
+    // The doc comment above the declaration, or `None`.
+    // @compilerrules [comptime-docs]
     docs: Str?
 }
 
@@ -67,19 +71,22 @@ export comptime struct Generic {
 export comptime type Opaque = Basic | Generic
 
 // Every kind — what `.kind` is. A `[when field.kind] { is Struct { … } … }` is
-// exhaustive over these arms, with no `else` [when-exhaustive], so
+// exhaustive over these arms, with no `else`, so
 // a kind added to the language is an error in every comptime fn that did not
 // consider it.
+// @compilerrules [when-exhaustive]
 export comptime type Kind = Struct | Union | Tuple | FnType | Opaque
 
 // A type itself, as a binder's `.type` holds it: usable as a type inside the
 // body, compared with `is <Type>`; its description is the binder's `.kind`.
 // A literal union's members are `.literals`, a `List<Literal>` a `[for lit in
-// field.type.literals]` walks [comptime-literals].
+// field.type.literals]` walks.
+// @compilerrules [comptime-literals]
 export comptime struct Type {}
 
 // One member of a literal union (`"json"` of `"json" | "text"`), in
-// declaration order [comptime-literals].
+// declaration order.
+// @compilerrules [comptime-literals]
 export comptime struct Literal {
     // The member itself, a literal of the union in each copy.
     value: Value,
@@ -91,17 +98,19 @@ export comptime struct Literal {
 }
 
 // A value a declaration writes, as a field's `.default` holds it: in a copy it
-// is that expression, evaluated where it was declared [comptime-default].
+// is that expression, evaluated where it was declared.
+// @compilerrules [comptime-default]
 export comptime struct Value {}
 
 // One field of a `Struct`.
 export comptime struct Field {
     // The declared name: a literal of the union of the struct's field names
     // (`"x" | "y"` for `Point`), tested with `field.name is "x"` or an
-    // exhaustive `[when field.name]`, and a `Str` literal in each copy
-    // [comptime-name].
+    // exhaustive `[when field.name]`, and a `Str` literal in each copy.
+    // @compilerrules [comptime-name]
     name: Str,
-    // The declared type's kind [comptime-kind].
+    // The declared type's kind.
+    // @compilerrules [comptime-kind]
     kind: Kind,
     // The declared type; usable as a type inside the body.
     type: Type,
@@ -112,11 +121,12 @@ export comptime struct Field {
     // The declared default (`port: Int = 8080`), or `None` when the field has
     // none: read as an expression in a copy (`field.default`), evaluated
     // where the struct is declared, and tested with `[if field.default is
-    // None]` [comptime-default]. A declared `= None` is a default.
+    // None]`. A declared `= None` is a default.
+    // @compilerrules [comptime-default]
     default: Value?,
     // The doc comment above the field, its lines joined, or `None`: a `Str`
-    // literal in a copy that has one, tested with `[if field.docs is None]`
-    // [comptime-docs].
+    // literal in a copy that has one, tested with `[if field.docs is None]`.
+    // @compilerrules [comptime-docs]
     docs: Str?
 }
 
@@ -130,6 +140,7 @@ export comptime struct Arm {
     first: Bool,
     last: Bool,
     // The doc comment of the declaration the arm names (a struct, or a
-    // `type`), or `None` [comptime-docs].
+    // `type`), or `None`.
+    // @compilerrules [comptime-docs]
     docs: Str?
 }

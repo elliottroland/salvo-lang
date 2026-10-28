@@ -1,4 +1,4 @@
-//! [mixed-handler] The mixed handler (SH-1, user decision 2026-09-19): a
+//! [actor-mixed-handler] The mixed handler (SH-1, user decision 2026-09-19): a
 //! plain-effect handler whose `send fn` members own the state (the servant)
 //! and whose sync members run on the caller's thread (the façade), sending to
 //! the servant and waiting on its answers. This file tests the **checker
@@ -174,7 +174,7 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "got {errs:?}");
 }
 
-/// [mixed-handler] Confinement: a sync member touching a state field gets the
+/// [actor-mixed-handler] Confinement: a sync member touching a state field gets the
 /// rule by name, not an "unknown variable" — reads and writes both.
 #[test]
 fn a_facade_member_cannot_touch_state() {
@@ -208,7 +208,7 @@ handler Peeking() of Peek {
     );
 }
 
-/// [mixed-handler] Spawn-only: `use` of a mixed handler is refused where the
+/// [actor-mixed-handler] Spawn-only: `use` of a mixed handler is refused where the
 /// binding is chosen, naming the reason and the spelling that works.
 #[test]
 fn a_mixed_handler_cannot_be_use_bound() {
@@ -228,7 +228,7 @@ fn main() [use] {
     );
 }
 
-/// [mixed-handler] [actor-mailbox] Send members are delivered through a
+/// [actor-mixed-handler] [actor-mailbox] Send members are delivered through a
 /// mailbox, so a mixed handler without the slot is told to add one.
 #[test]
 fn a_mixed_handler_needs_a_mailbox() {
@@ -266,7 +266,7 @@ handler NoBox() of Peek {
     );
 }
 
-/// [mixed-handler] [free-send-fn] A handler-local send member carries the
+/// [actor-mixed-handler] [actor-free-send-fn] A handler-local send member carries the
 /// free send fn's obligations: the clause must be written out (a scheduled
 /// body consumes what it is given), and a kept parameter is refused.
 #[test]
@@ -302,7 +302,7 @@ handler Sloppy() of Peek {
     );
 }
 
-/// [mixed-handler] The servant's dispatch is by member name, so overloading a
+/// [actor-mixed-handler] The servant's dispatch is by member name, so overloading a
 /// local send member is refused for now.
 #[test]
 fn overloaded_local_send_members_are_refused() {
@@ -339,10 +339,10 @@ handler Twice() of Peek {
     );
 }
 
-/// [mixed-handler] [effect-handler-deps] A mixed handler's dependencies are
+/// [actor-mixed-handler] [effect-handler-deps] A mixed handler's dependencies are
 /// the **servant's** (the cut lifted 2026-10-20, user decision R6): a send
 /// member calls them, and the spawn resolves them like any actor spawn's —
-/// from the spawning scope here [spawn-inherit].
+/// from the spawning scope here [actor-spawn-inherit].
 #[test]
 fn a_mixed_handlers_dependencies_belong_to_the_servant() {
     let errs = errors(
@@ -376,7 +376,7 @@ fn main() [Console, use, spawn] {
     assert!(errs.is_empty(), "{errs:?}");
 }
 
-/// [mixed-handler] The confinement half: a sync member runs on the caller's
+/// [actor-mixed-handler] The confinement half: a sync member runs on the caller's
 /// thread over the façade value, which carries no dependency, so it cannot
 /// call one.
 #[test]
@@ -408,7 +408,7 @@ handler Noisy() [Console] of Peek {
     );
 }
 
-/// [mixed-handler] [effect-at] The ambiguity arm, live now that a send
+/// [actor-mixed-handler] [effect-at] The ambiguity arm, live now that a send
 /// member sees dependencies: a bare name that is both a sibling `send fn`
 /// and a dependency's member must say which it means, and each `@` form
 /// resolves.
@@ -453,7 +453,7 @@ handler Noisy() [Tick] of Peek {{
     assert!(errors(&program("poke@Tick()")).is_empty());
 }
 
-/// [actor-deadlock-cycle] [mixed-handler] A servant's dependency is an edge
+/// [actor-deadlock-cycle] [actor-mixed-handler] A servant's dependency is an edge
 /// out of the servant's node: the occupancy cycle of
 /// `an_occupancy_cycle_is_an_error_even_through_back_pressure`, with the
 /// servant reaching `Drawer` through its dependency list instead of a held
@@ -503,7 +503,7 @@ handler Drawing() [Random] of Drawer {
     assert_eq!(errs.len(), 1, "the cycle is the only error: {errs:?}");
 }
 
-/// [mixed-handler] One face for now: the façade value behind several effect
+/// [actor-mixed-handler] One face for now: the façade value behind several effect
 /// types has no representation yet.
 #[test]
 fn a_multi_face_mixed_spawn_is_refused() {
@@ -548,7 +548,7 @@ fn main() [use, spawn] {
 }
 
 
-/// [actor-deadlock-cycle] [mixed-handler] SH-4: the occupancy edge, inferred
+/// [actor-deadlock-cycle] [actor-mixed-handler] SH-4: the occupancy edge, inferred
 /// from declarations. An actor handler depending on a plain effect with a
 /// mixed handler in the program may park on that servant, and the servant
 /// here sends back to the actor's own protocol -- the design's upcall shape,
@@ -634,7 +634,7 @@ fn main() [use, spawn] {
     );
 }
 
-/// [defer-deduction] The rung-4 contract point: a reply that leaves the
+/// [linear-defer] The rung-4 contract point: a reply that leaves the
 /// activation any way but the discharge must be declared `defer` — here by
 /// forwarding to another actor, and by storing into state. The diagnostic
 /// names the declaration.
@@ -761,7 +761,7 @@ handler Prompt() of Random {
     );
 }
 
-/// [mixed-handler] [actor-self-send] A servant member reaches a sibling
+/// [actor-mixed-handler] [actor-self-send] A servant member reaches a sibling
 /// `send fn` by bare call (user decision 2026-09-19) — a self-enqueue — and
 /// `@self` is the explicit spelling, in send members and in sync members
 /// alike. The whole chain checks clean.
@@ -802,7 +802,7 @@ handler Chain() of Random {
     );
 }
 
-/// [defer-deduction] A reply riding a bare sibling call's payload leaves the
+/// [linear-defer] A reply riding a bare sibling call's payload leaves the
 /// activation, so the escape hook fires exactly as it does for an addr send:
 /// the member must declare `defer`.
 #[test]
@@ -875,7 +875,7 @@ handler Chain() of Random {
     );
 }
 
-/// [defer-deduction] [actor-replyto] Parking inside a mixed handler — the
+/// [linear-defer] [actor-replyto] Parking inside a mixed handler — the
 /// lift of the staged refusal: a servant member may mint a continuation on
 /// another of its own send members, provided the captured reply is declared
 /// `defer`. The whole rung-4 shape checks clean.
@@ -928,7 +928,7 @@ handler Parking(oracle: eff[Oracle]) of Random {
     );
 }
 
-/// [defer-deduction] The capture hook still holds: parking a received reply
+/// [linear-defer] The capture hook still holds: parking a received reply
 /// in a continuation lets its answer outlive the activation, so it must be
 /// declared `defer` — the diagnostic names the declaration.
 #[test]
@@ -981,7 +981,7 @@ handler Parking(oracle: eff[Oracle]) of Random {
     );
 }
 
-/// [actor-deadlock-cycle] [defer-deduction] A gated park in a mixed servant
+/// [actor-deadlock-cycle] [linear-defer] A gated park in a mixed servant
 /// makes its sends Wait-kind, mirroring the actor logic: the servant serves
 /// nothing but its answer while the gate holds, so a peer whose handler
 /// occupies the servant's effect closes a reported cycle.

@@ -1,5 +1,6 @@
 //! [doc-tags] Tags in doc comments: `@param`, `@returns`, `@throws`, `@see`,
-//! `@todo` and `@whynot`, read out of a declaration's doc block
+//! `@todo`, `@whynot` and `@compilerrules`, read out of a declaration's doc
+//! block
 //! [doc-comment] (user decisions 2026-10-20).
 //!
 //! A tag is a line of the block that starts with `@name`. Its text runs over
@@ -22,7 +23,7 @@
 
 /// The tags this version knows. Any other `@name` at the start of a line is
 /// a warning naming these.
-pub const KNOWN_TAGS: &[&str] = &["param", "returns", "throws", "see", "todo", "whynot"];
+pub const KNOWN_TAGS: &[&str] = &["param", "returns", "throws", "see", "todo", "whynot", "compilerrules"];
 
 /// One tag of a doc block.
 #[derive(Clone, Debug, PartialEq)]
@@ -105,6 +106,24 @@ pub fn split(docs: &[String]) -> DocParts {
         out.prose.pop();
     }
     out
+}
+
+/// [doc-compilerrules] An `@compilerrules` tag's text, `[rule-a, rule-b]
+/// how they apply here`: the rule labels, and the comment after them (empty
+/// when there is none). `None` when the text does not open with a bracketed,
+/// non-empty list of labels (lowercase words joined by `-`).
+pub fn compiler_rules(text: &str) -> Option<(Vec<String>, String)> {
+    let rest = text.trim_start().strip_prefix('[')?;
+    let close = rest.find(']')?;
+    let rules: Vec<String> = rest[..close].split(',').map(|r| r.trim().to_string()).collect();
+    let well_formed = |r: &String| {
+        !r.is_empty()
+            && r.split('-').all(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
+    };
+    if !rules.iter().all(well_formed) {
+        return None;
+    }
+    Some((rules, rest[close + 1..].trim().to_string()))
 }
 
 /// One piece of a `@whynot` template: text, or a `[name]` reference.
@@ -202,4 +221,16 @@ mod tests {
         );
         assert_eq!(template("a [[b] c"), vec![TemplatePart::Text("a [b] c".into())]);
     }
+
+    /// [doc-compilerrules] The rules, and the comment after them; a list that
+    /// is missing, empty or holds a word that is not a label is no list.
+    #[test]
+    fn compiler_rules_are_a_bracketed_list_then_a_comment() {
+        assert_eq!(compiler_rules("[op-arith, kt-pow] lowered inline"), Some((vec!["op-arith".into(), "kt-pow".into()], "lowered inline".into())));
+        assert_eq!(compiler_rules("[op-arith]"), Some((vec!["op-arith".into()], String::new())));
+        for bad in ["op-arith", "[]", "[op-arith,]", "[Op-Arith]", "[op arith]", "[op-arith"] {
+            assert_eq!(compiler_rules(bad), None, "{bad}");
+        }
+    }
+
 }

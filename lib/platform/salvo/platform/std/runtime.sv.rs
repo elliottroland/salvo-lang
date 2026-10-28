@@ -100,7 +100,7 @@ pub fn drop_body(b: Body) {
     drop(b);
 }
 
-// [remote-backpressure] The routing layer's: a GRANT staged for the next
+// [net-remote-backpressure] The routing layer's: a GRANT staged for the next
 // flush, and the flush.
 pub fn granted(addr: i32, pool: i32, from: i64) {
     crate::std_runtime_routing::credit_back(addr, pool, from);
@@ -168,7 +168,7 @@ impl HostRuntime {
 }
 
 impl crate::std_runtime::RuntimeHostPlatformSync for HostRuntime {
-    // [addr-capability] OS entropy: `/dev/urandom` where there is one, and
+    // [net-addr-capability] OS entropy: `/dev/urandom` where there is one, and
     // the standard library's per-process random hasher keys otherwise.
     fn secure_bits(&self) -> i64 {
         use std::io::Read;

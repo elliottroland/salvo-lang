@@ -1,4 +1,4 @@
-//! [once-fn] `once` as the *use*-multiplicity qualifier, and specifically its
+//! [fn-once] `once` as the *use*-multiplicity qualifier, and specifically its
 //! generalization beyond function types (user decision 2026-09-07).
 //!
 //! What is left of that generalization after the reduction to `next` (R5): the
@@ -12,7 +12,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on,
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on,
 /// loaded as a *std* file since only std may write `intrinsic`.
 /// [decl-id] `Finished` too: the step protocol's is std's, and only std's
 /// first declaration of a name is that name.
@@ -85,14 +85,14 @@ fn errors(src: &str) -> Vec<String> {
 
 #[test]
 fn once_is_valid_on_any_type() {
-    // [once-fn] D6 (user decision 2026-09-12): the fn-only/`canbe once`
+    // [fn-once] D6 (user decision 2026-09-12): the fn-only/`canbe once`
     // position gate is gone — `once` is an upper bound the holder imposes
     // on itself, valid on any type.
     let errs = errors("fn f(x: once Int) -> None => !x {}\n");
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [canbe-optin] A type of one's own reaches the same place by opting in, the
+/// [qual-canbe-optin] A type of one's own reaches the same place by opting in, the
 /// way it opts into mutability and linearity — the author declares that using
 /// the value uses it up, rather than the compiler inferring an obligation
 /// (user decision 2026-09-07).
@@ -149,9 +149,9 @@ fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {
 }
 "#;
 
-/// [iter-protocol] [once-fn] A type with a `next` is driven directly rather
+/// [iter-protocol] [fn-once] A type with a `next` is driven directly rather
 /// than through `iter`: `for x in c` is `next(c)` when a `next` takes `c`
-/// [for-iter] (R10 D10; the `: Next<self, T>` clause is a promise checked at
+/// [iter-for] (R10 D10; the `: Next<self, T>` clause is a promise checked at
 /// the struct [group-obligation], not the loop's gate).
 /// [iter-protocol] The whole point: a hand-written pass drives a `for` loop,
 /// which is what makes `zip`/`merge` — the iterators `yield` cannot express —
@@ -205,7 +205,7 @@ const BARE_PROTOCOL: &str = "qualifier Emitted<T> of T\n\
      fn finished() [] -> Finished { return Finished {} }\n\
      fns Next<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
 
-/// [for-iter] [iter-protocol] R10 D10 (B1 census D10): `for x in c` is the
+/// [iter-for] [iter-protocol] R10 D10 (B1 census D10): `for x in c` is the
 /// call `next(c)` when a `next` takes `c`, so a type declaring no `: Next<self,
 /// T>` is driven as the call reaches it — the declaration is a promise checked
 /// where it is written [group-obligation], not the loop's gate.
@@ -223,7 +223,7 @@ fn a_next_without_a_next_obligation_drives_the_loop() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [for-iter] [fn-rename] R10 / B1 census D9: a renamed `next` answers to its
+/// [iter-for] [fn-rename] R10 / B1 census D9: a renamed `next` answers to its
 /// new name only — in a call, so in the `for` that names one, and in the
 /// `: Next` obligation it used to satisfy.
 #[test]
@@ -257,7 +257,7 @@ fn a_renamed_next_does_not_drive_the_loop() {
     assert_eq!(declared.len(), 1, "the step call through the new name drives: {declared:?}");
 }
 
-/// [for-iter] [effect-member-overload] [fn-overload-ambiguous] R10 D3: an
+/// [iter-for] [effect-member-overload] [fn-overload-ambiguous] R10 D3: an
 /// available effect's member `next` competes with the fn as at the call, and
 /// a tie is the call's ambiguity, said of the `for`.
 #[test]
@@ -279,7 +279,7 @@ fn a_member_and_a_fn_next_tie_at_the_loop_as_at_the_call() {
     );
 }
 
-/// [for-iter] [implicit-resolve-body] [implicit-same-name] R10 D11: the
+/// [iter-for] [implicit-resolve-body] [implicit-same-name] R10 D11: the
 /// enclosing fn's own implicit `?next` drives the loop when it takes the
 /// subject, as it takes the call `next(c)` — and two that both fit with none
 /// more specific are the call's tie.
@@ -306,7 +306,7 @@ fn the_enclosing_implicit_next_drives_the_loop() {
     );
 }
 
-/// [for-iter] [iter-protocol] A `next` of another result shape is an ordinary
+/// [iter-for] [iter-protocol] A `next` of another result shape is an ordinary
 /// fn (D-3) and does not make its argument an iterator; with no `iter` either,
 /// the value is not iterable, and the error says which calls `for` names.
 #[test]
@@ -324,7 +324,7 @@ fn a_next_of_another_shape_is_not_a_driver() {
     );
 }
 
-/// [for-iter] [iter-group] A type with both a `next` and an `iter` and no
+/// [iter-for] [iter-group] A type with both a `next` and an `iter` and no
 /// obligations is driven by its `next` — "a `next` fits" decides (DECISION
 /// P15: whether to refuse such a type); declaring both obligations stays
 /// refused at the type.
@@ -346,7 +346,7 @@ fn a_type_with_both_a_next_and_an_iter_is_driven() {
     assert!(errs.is_empty(), "the loop drives `next` (an `Int`), got {errs:?}");
 }
 
-// [once-fn] D6 (user decision 2026-09-12): `once` on a *data* type — the
+// [fn-once] D6 (user decision 2026-09-12): `once` on a *data* type — the
 // upper bound is the holder's self-restriction, enforcement is ordinary
 // consumption, and `once T` drops to `T` at a call (a plain-typed holder
 // consumes at most once anyway). On fn types nothing changes: dropping

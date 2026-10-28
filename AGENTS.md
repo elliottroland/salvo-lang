@@ -320,7 +320,7 @@ Salvo source.
   precedent — see the decision log). Analysis engineering under decisions
   already made does not need re-approval.
 - **Core states what Salvo means; a backend spells it** (user decision
-  2026-10-06, [core-layers]). Three layers: `salvo-core` holds Salvo
+  2026-10-06, [backend-core-layers]). Three layers: `salvo-core` holds Salvo
   facts (ownership, evaluation order, what `copy` duplicates, what a call
   resolves to) and never a target's convention; `salvo-backend` holds opt-in
   helpers a backend may call; each backend decides how to spell a fact in its
@@ -366,10 +366,10 @@ Salvo source.
   Every call, field read, subscript, and `for` subject must be justified
   by a declaration: an unresolved callee, a field on a non-struct, a
   subscript on a non-array, a non-iterable `for` subject — all errors
-  ([call-resolve], [field-resolve], [index-resolve], [iter-resolve]).
+  ([call-resolve], [struct-field-resolve], [col-index-resolve], [iter-resolve]).
   Target-language features are reached by *declaring* them — a member of a
   `platform effect` for customer code [platform-effect], an `intrinsic` for
-  std [intrinsic-std-only] — never by writing an undeclared member and
+  std [platform-intrinsic-std-only] — never by writing an undeclared member and
   hoping the backend understands it. Generics are opaque under this rule
   too: with no bounds, nothing about a `T` is knowable.
 - **What leniency remains is about inference, not visibility**: a type
@@ -383,7 +383,7 @@ Salvo source.
   one side, change the other and the tests.
 - Union arm identity is positional over the *runtime* union's non-`None`
   arms, in order of first appearance — the declared arms, except that a base
-  type's literals collapse into one arm [union-arm-identity] [type-literal];
+  type's literals collapse into one arm [type-union-arm-identity] [type-literal];
   `salvo_core::literal` is the one definition both sides use. Do not reorder
   or dedupe in ways that change arm indices.
 - When changing std (`lib/std/`), the parser AST, checker lowering, or emitter

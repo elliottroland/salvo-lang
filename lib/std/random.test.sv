@@ -1,4 +1,4 @@
-// [test-file] The tests of module `random` [random-default].
+// [test-file] The tests of module `random` [std-random-default].
 
 import std.runtime
 

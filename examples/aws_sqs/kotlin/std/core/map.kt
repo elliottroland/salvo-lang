@@ -74,7 +74,7 @@ fun<K, V> toStr(map: salvo.platform.std.core.map.Map<K, V>, toStr: (K) -> String
                 val __picked_2: V = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.map:186:43")
+                throw AssertionError("salvo: unreachable at std.core.map:201:43")
             })
         }))
         i = (i + 1)
@@ -99,7 +99,7 @@ fun<K, V> eq(a: salvo.platform.std.core.map.Map<K, V>, b: salvo.platform.std.cor
                 val __picked_2: V = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.core.map:208:29")
+                throw AssertionError("salvo: unreachable at std.core.map:224:29")
             })
         }, theirs_4))) {
             return false

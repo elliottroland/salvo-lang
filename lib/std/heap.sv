@@ -12,12 +12,14 @@
 
 // Indicates that the list is organized like a succinct binary heap, ordered by
 // the `cmp` the heap was built with: `Heap(min_by_age)` and `Heap(max_by_age)`
-// are different types that refuse to mix [cmp-carry].
+// are different types that refuse to mix.
+// @compilerrules [cmp-carry]
 export qualifier Heap<T>(?Ordered<T>) of List<T>
 
 // Returns an empty List which trivially supports the heap property. The
 // ordering arrives as an ordinary implicit parameter, and the return type
-// publishes the one resolution chose [cmp-binder].
+// publishes the one resolution chose.
+// @compilerrules [cmp-binder]
 export fn heap_of<T>(?Ordered<T>) -> +Heap<T>(?cmp) Mut List<T> {
     return Mut List()
 }
@@ -29,11 +31,12 @@ export fn heap_of<T>(first: T, ...elems: T[], ?Ordered<T>) -> Heap<T>(?cmp) NonE
 }
 
 // Makes an arbitrary list into a heap. `+Heap<T>(?cmp)` **establishes** the
-// claim rather than keeping one [deduce-reapply]: the list arrives with nothing
+// claim rather than keeping one: the list arrives with nothing
 // claimed about it, and this file declares `Heap`, so it is the party trusted to
 // say what a call leaves behind. The ordering the claim carries is the one the
 // *call* resolved, so `heapify(xs)` and `heapify(xs, cmp = by_name)` hand back
 // two types that refuse to mix.
+// @compilerrules [deduce-reapply]
 export fn heapify<T>(list: Mut List<T>, ?Ordered<T>)
 => list: +Heap<T>(?cmp) Mut {
     // An empty list is already a heap, so the work only exists for the
@@ -50,8 +53,9 @@ export fn heapify<T>(list: Mut List<T>, ?Ordered<T>)
 // claim: arranging a list cannot change *how many* elements it has, so the
 // claim is *kept*, never established. It survives the body because `swap`
 // strips it (a mutating callee must) and `std.core.list`'s refinement puts it back
-// [qual-refn] — remove that refinement and this signature stops checking,
+// — remove that refinement and this signature stops checking,
 // which is the whole mechanism in one line.
+// @compilerrules [qual-refn]
 export fn heapify<T>(list: NonEmpty Mut List<T>, ?Ordered<T>)
 => list: +Heap<T>(?cmp) NonEmpty Mut {
     // Floyd's construction: sift down from the last parent to the root.
@@ -70,7 +74,7 @@ export fn heapify<T>(list: NonEmpty Mut List<T>, ?Ordered<T>)
 // a claim this module does not own cannot be re-established here. Taking it and
 // naming it keeps it, and the exchange preserves it because `std.core.list` says a
 // swap of an *already* non-empty list leaves it non-empty
-// [qual-refn-narrow] — a claim kept, not established, which is why it also
+// — a claim kept, not established, which is why it also
 // survives the `if` below.
 // One sift-down, used by [heapify]: pushes the element at [i] down until both
 // children are no smaller than it.
@@ -80,7 +84,7 @@ export fn heapify<T>(list: NonEmpty Mut List<T>, ?Ordered<T>)
 // clause is inferred hands back an exhaustive `Mut`, which would swallow it, and
 // a claim this module does not own cannot be re-established here. Taking it and
 // naming it keeps it, and the exchange preserves it because `std.core.list` says
-// `swap` does [qual-refn].
+// `swap` does.
 // One sift-down, used by [heapify]: pushes the element at [i] down until both
 // children are no smaller than it.
 //
@@ -89,7 +93,7 @@ export fn heapify<T>(list: NonEmpty Mut List<T>, ?Ordered<T>)
 // clause is inferred hands back an exhaustive `Mut`, which would swallow it, and
 // a claim this module does not own cannot be re-established here. Taking it and
 // naming it keeps it, and the exchange preserves it because `std.core.list` says
-// `swap` does [qual-refn].
+// `swap` does.
 // One sift-down, used by [heapify]: pushes the element at [i] down until both
 // children are no smaller than it.
 //
@@ -98,7 +102,8 @@ export fn heapify<T>(list: NonEmpty Mut List<T>, ?Ordered<T>)
 // clause is inferred hands back an exhaustive `Mut`, which would swallow it, and
 // a claim this module does not own cannot be re-established here. Taking it and
 // naming it keeps it, and the exchange preserves it because `std.core.list` says
-// `swap` does [qual-refn].
+// `swap` does.
+// @compilerrules [qual-refn-narrow, qual-refn]
 fn heapify_part<T>(list: NonEmpty Mut List<T>, n: Int, i: Int, ?Ordered<T>)
 => list: NonEmpty Mut, n, i {
     let smallest = i
@@ -134,10 +139,11 @@ export fn peek<T>(heap: NonEmpty Heap List<T>) -> proj(heap) T => heap {
 // Pushes the [elem] into the [heap], preserving the heap property.
 //
 // An ordinary mutator: the claim is **re-established** by this function, which
-// `+Heap<T>(?cmp)` is how a deduction says so [deduce-reapply]. `add`'s own
+// `+Heap<T>(?cmp)` is how a deduction says so. `add`'s own
 // clause strips the claim — a mutating callee must — and nothing but this
 // function knows the sift below puts it back. Trusted because this is the file
 // that declares `Heap`, the same party a constructor fn and a refinement trust.
+// @compilerrules [deduce-reapply]
 export fn push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) -> None
 => heap: +Heap NonEmpty Mut, !elem {
     add(heap, elem)
@@ -175,7 +181,8 @@ export fn pop<T>(heap: Heap<T>(?cmp) Mut List<T>) -> T? => heap: Mut Heap {
 
 // A deduction entry names qualifiers, not their arguments: keeping `Heap` keeps
 // the ordering too, since the identity lives in the type and this fn could not
-// have changed it [cmp-binder].
+// have changed it.
+// @compilerrules [cmp-binder]
 export fn pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) -> T
 => heap: +Heap<T>(?cmp) Mut {
     if heap.size() == 1 {

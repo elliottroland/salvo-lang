@@ -12,7 +12,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The capability groups and the intrinsic canonicals, as
+/// [platform-intrinsic-std-only] The capability groups and the intrinsic canonicals, as
 /// `lib/std/core/compare.sv` declares them, plus the list surface a heap is built
 /// on.
 const STD_PRELUDE: &str = concat!(
@@ -640,7 +640,7 @@ fn run() [] -> None {
         errs.iter()
             // [fn-attached] std's `cmp(Int, Int)` is declared beside `Int` and
             // fulfils its `Ordered<self>`, so it is shown as declared on it
-            // (since [unique-shape] put it in `Int`'s file, 2026-10-27).
+            // (since [op-unique-shape] put it in `Int`'s file, 2026-10-27).
             .any(|e| e.contains("Sorted<Int>(by_size)") && e.contains("Sorted<Int>(cmp@Int)")),
         "expected both orderings named: {errs:?}"
     );
@@ -1062,7 +1062,7 @@ fn provenance_type_named_fn_is_checked() {
 
 #[test]
 fn provenance_arm_is_inferred_from_a_bare_value() {
-    // [arm-infer] A bare value that is the payload of exactly one
+    // [qual-arm-infer] A bare value that is the payload of exactly one
     // provenance-tagged arm is wrapped into it: `return n` for an
     // `Ok Int | Err Str` return is implicitly `Ok(n)`.
     let prelude = "provenance qualifier Ok<T> of T\n\
@@ -1086,7 +1086,7 @@ fn provenance_arm_is_inferred_from_a_bare_value() {
         "a bare value matching two provenance arms is refused: {ambig:?}"
     );
 
-    // [arm-infer] Not for a literal union with an open provenance arm: a
+    // [qual-arm-infer] Not for a literal union with an open provenance arm: a
     // plain value must be wrapped explicitly with the open constructor.
     let open = errors(
         "provenance qualifier Other<T> of T\n\

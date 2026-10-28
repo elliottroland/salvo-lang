@@ -128,14 +128,14 @@ Conventions:
 
 ## Type mappings
 
-* [elvis] [kt-elvis] `subject ?: rhs` lowers to a Kotlin
+* [op-elvis] [kt-elvis] `subject ?: rhs` lowers to a Kotlin
   `if` testing whether the subject holds its **first** arm — the picked
   value in the then branch, `rhs` in the else. For a `?:` on a `T?`
   the `T?` representation is a Kotlin nullable, so the test is a plain null
   check. A `return` on the right is legal there for the same reason it is in
   Salvo [expr-escape].
-* [safe-nav] [kt-safe-nav] A field-only `?.` chain renders as a **native Kotlin
-  optional chain**: the reconstruction `Switch` ([safe-nav], [ir-switch]) is
+* [op-safe-nav] [kt-safe-nav] A field-only `?.` chain renders as a **native Kotlin
+  optional chain**: the reconstruction `Switch` ([op-safe-nav], [ir-switch]) is
   recognized by its present arm's `Justification::SafeNav` and emitted as
   `receiver?.field?.field` — Kotlin's `?.` is already the whole short-circuit,
   so the `None` arm needs nothing. A `?.` **call** link does not fold into a
@@ -152,7 +152,7 @@ Conventions:
   `Bool`→`Boolean`, `Int`/`Long`/`Float`/`Double`/`Char` keep
   their names, `Any`→`Any`, `Never`→**`Nothing`** — the JVM's bottom type keeps
   its own name (`emit_named_parts`).
-* [kt-byte-unsigned] [byte-value] `Byte`→**`UByte`**, not the JVM's signed
+* [kt-byte-unsigned] [type-byte] `Byte`→**`UByte`**, not the JVM's signed
   `Byte`. A Salvo `Byte` is an unsigned octet, and the JVM's is signed, so
   the naive mapping printed `-1` where Rust's `u8` printed `255` — a
   [backend-parity] break in the *text* a program produces. `UByte` is a
@@ -173,7 +173,7 @@ Conventions:
   `copy` of either is `ArrayDeque(d)` [kt-copy]; the surface is
   `addFirst`/`addLast`, `removeFirstOrNull`/`removeLastOrNull`, a bounds-
   checked `removeAt`, `getOrNull`/`firstOrNull`/`lastOrNull`.
-* [kt-bytes] [bytes-type] (Since 2026-10-04 through std's host file
+* [kt-bytes] [type-bytes] (Since 2026-10-04 through std's host file
   `platform/core/bytes.kt`, whose `Bytes` and `MutBytes` alias the class
   below [platform-value-type]. In a host project a platform companion keeps
   its module path under `salvo/` — `salvo/core/bytes.sv.kt` — so it cannot
@@ -207,7 +207,7 @@ Conventions:
   (`Long.plus(Int)`, `Int.compareTo(Long)`, `Float.times(Double)`), so
   checker-recorded promotions emit **nothing** here — the table exists
   for Rust (mechanism differs, behaviour agrees).
-* [lit-adopt] An adopted literal renders at its **checked** type — `1L`,
+* [type-lit-adopt] An adopted literal renders at its **checked** type — `1L`,
   `3.0`, `0.5f` — because Kotlin adopts less than Salvo does (a bare `1`
   initializes a `Long` `val` but does not conform to a `Long`
   *parameter*). [op-convert] lowers to `toInt()`/`toLong()`/`toFloat()`/
@@ -361,7 +361,7 @@ Conventions:
   when something needs it): `cmp(Str, Str)` reaches it, since `String.compareTo`
   is the wrong order (UTF-16 code units; Salvo's is code points). A `List`'s and
   a tuple's `cmp` are Salvo (2026-10-06; beside their types, `std.core.list` and
-  `std.core.basic`, since 2026-10-27 [unique-shape]), and the generated
+  `std.core.basic`, since 2026-10-27 [op-unique-shape]), and the generated
   `TupleN` classes carry nothing for ordering.
   * [op-order] [op-equality] A comparison operator is Kotlin's own (`a < b`,
     `a == b`) exactly when the checker resolved it to std's intrinsic
@@ -392,7 +392,7 @@ Conventions:
   `Mut List<T>` emits `MutableList<T>` and `Mut Str` a `StringBuilder`
   via `intrinsics::mut_type_name` [type-canbe-mut] [kt-mut-str]; `Mut`
   struct fields emit `var`.
-* [let-destructure] Tuple `let` uses native Kotlin destructuring; struct
+* [var-let-destructure] Tuple `let` uses native Kotlin destructuring; struct
   `let` lowers through a per-fn-unique `__destructuredN` temp.
   * **A loop pattern** lowers through an `__elemN` temporary instead — the
     header binds the element, the body opens with one `val` per name (a
@@ -418,7 +418,7 @@ Conventions:
   (user decision 2026-10-01, ABI D5; until then arms were top-level
   `UN_i`). Each arm keeps the union's full parameter list, so a site that
   spelled the arguments out still does.
-* [union-arm-identity] Arm indices from the checker map 1:1 onto the
+* [type-union-arm-identity] Arm indices from the checker map 1:1 onto the
   `UnionN.Ui` wrapper variants (positional over the runtime union's non-`None`
   arms, qualifiers erased; literals collapse [type-literal]).
   * Wrap at boundaries: `Union2.U1<Int, String>(expr)`; re-wrap between union
@@ -436,10 +436,10 @@ Conventions:
     still-union value appends `.value`.
 * [kt-union-convert] The union re-wrap (`ModuleEmitter::rewrap`) maps each
   source arm to the target arm of the same **arm identity**
-  [union-arm-identity] — exact type, then `erase_eq` — as a `let { when (it)
+  [type-union-arm-identity] — exact type, then `erase_eq` — as a `let { when (it)
   { is UnionN.Ui<*…> -> … } }` chain. Besides the plain one-to-one map it
   handles the flat↔nested spread of a union-spanning generic
-  [generic-union-span] (the `...T` surface is [union-spread]): a source arm that is itself a bare union the target
+  [generic-union-span] (the `...T` surface is [type-union-spread]): a source arm that is itself a bare union the target
   *spreads* (recurse into the inner value), and a target arm that is a bare
   union the source *collapses into* (re-wrap into the inner union, then the
   outer arm). An identity reshape — both sides render to the same Kotlin type
@@ -461,7 +461,7 @@ Conventions:
   mutated concurrently"). The `!!` can never fire: the checker proved
   non-nullness, and an assignment through the name writes the storage and
   ends the narrowing ([flow-place-invalidate]).
-* [kt-field-canbe-mut] A `T canbe Mut` field [field-canbe-mut] is one
+* [kt-field-canbe-mut] A `T canbe Mut` field [struct-field-canbe-mut] is one
   property for both shapes of its struct, declared at the **plain** `T`'s
   rendering (`var items: List<Int>`): a `Mut` struct stores a
   `MutList`/`MutableList` there, which is a `List`. A read the checker typed
@@ -488,10 +488,10 @@ Conventions:
   `else -> { … }`. The source shape survives, and since the `else` is
   mandatory the result is a Kotlin *expression* in value position with no
   `else null` filler — unlike a value-position `if` chain without an
-  `else` ([if-else-none]). `is`-binding declarations and `^` shadowing
+  `else` ([expr-if-else-none]). `is`-binding declarations and `^` shadowing
   locals go at the top of their arm exactly as in an `if` branch.
 * [kt-inc-dec] Kotlin has `++`/`--` in both fixities with the same value
-  semantics as Salvo's [inc-dec], so they render directly (`i++`, `++i`,
+  semantics as Salvo's [op-inc-dec], so they render directly (`i++`, `++i`,
   `i--`, `--i`) in both statement and value position.
 * [kt-interp-to-str] A non-native interpolated value [interp-to-str] is
   wrapped in the `to_str` the checker resolved (std's `List` renderer lowers
@@ -519,7 +519,7 @@ Conventions:
 
 ## Control flow
 
-* [while-value] [kt-loop-value] Kotlin loops are never expressions, so a
+* [loop-while-value] [kt-loop-value] Kotlin loops are never expressions, so a
   value-position loop lowers to a `run {}` block: a `var __loopN` result
   local is assigned by the body's tail expression and by each
   `break value` (assign-then-`break`); with an `else`, a `__loopN_ran`
@@ -616,7 +616,7 @@ Conventions:
   * `try { ... }` is Kotlin's own `try`/`catch`, which is an **expression**,
     so the outcome falls out of it: the body's tail wrapped in the `Ok` arm,
     or the caught payload wrapped in the `Thrown` arm. Catching the
-    innermost signal *is* [try-innermost].
+    innermost signal *is* [throw-try-innermost].
   * **The arm is chosen at the `catch`, not at the throw** — the divergence
     from [rs-throw-controlflow], and a forced one: Rust wraps a message into
     the delimiter's arm at the *propagation* site, which the JVM does not
@@ -679,14 +679,14 @@ Conventions:
   * Because the member is a plain nested class, the namespace struct must
     not be generic (enforced in `resolve`): a nested class cannot use the
     outer class's type parameters.
-  * **Any depth** [namespace]: `Outer.Inner.Thing` nests an `object`/class
+  * **Any depth** [mod-namespace]: `Outer.Inner.Thing` nests an `object`/class
     tree (`object Outer { object Inner { data class Thing … } }`), and the
     reference keeps the full dotted spelling. A `namespace X { … }` block is
     an `object X`; a struct that is itself a namespace reopens its `data
     class` with the nested members. The recursive emitter (`emit_struct_namespace`)
     reads the authoritative namespace set from `ir::Module.namespaces` — a
     flattened dotted name alone cannot say whether a prefix was a `namespace`
-    or a dot-named struct (they may share a name [namespace]).
+    or a dot-named struct (they may share a name [mod-namespace]).
   * A **`type` namespace** [name-dot] has no class of its own — Kotlin expands
     a Salvo `type` structurally — so its members nest in an `object` of the
     type's name (`object StorageClass { class Standard … }`), and references
@@ -696,7 +696,7 @@ Conventions:
     dotted-path requirement, so its name is **flattened** to underscores
     (`Outer.Inner.make` → `fun Outer_Inner_make`, and every call the same) —
     mirroring the Rust backend. The namespace still keeps the name unique, and
-    no `object` has to hold the fn [namespace].
+    no `object` has to hold the fn [mod-namespace].
   * Dot-named *qualifiers* emit nothing (qualifiers erase
     [qual-erasure]); they only reach output through mangling, where the
     dot canonicalizes to the flat spelling
@@ -785,7 +785,7 @@ nothing but the monitor.
   each face gets its own monitor over it — `val __h = H(…); val a: A =
   __Mon_A(__h); val b: B = __Mon_B(__h)` — so a stateful multi-face handler
   is one lock behind several interfaces (the faces' wrappers are handed one
-  `ReentrantLock`), the shape [monitor-handler] used to refuse; a stateless one
+  `ReentrantLock`), the shape [actor-monitor-handler] used to refuse; a stateless one
   binds the local raw under each face.
 * **A dependent handler** ([effect-handler-deps]) takes **one trailing
   constructor parameter per dependency**, typed by the effect's interface
@@ -815,7 +815,7 @@ nothing but the monitor.
   bindings in scope.
 * A `threadsafe platform handler` is
   the declared statefulness of a host the compiler cannot see
-  [threadsafe-platform]: `threadsafe` binds the host raw, undeclared binds it
+  [platform-threadsafe]: `threadsafe` binds the host raw, undeclared binds it
   behind `__Mon_E`.
 * **`fx.kt` is no longer emitted**: a program's Kotlin output is its modules
   plus the runtime files it needs (`unions.kt`, `tuples.kt`, `throwsignal.kt`,
@@ -860,7 +860,7 @@ nothing but the monitor.
   * A `for` over a **container** calls its `iter` once before the loop and drives
     the result [iter-mint]; a list, an array or a `String` keeps Kotlin's own
     `for` instead [iter-for-native].
-  * [for-iter] The driving `next` and the minting `iter` are the calls `for`
+  * [iter-for] The driving `next` and the minting `iter` are the calls `for`
     names, lowered from the checker's call facts at the subject (B3.3d): to the
     declaration (package-qualified [kt-decl-call-qualified]), through the fn's
     own `?next` parameter, or to an effect's member on its handler. No type
@@ -887,7 +887,7 @@ nothing but the monitor.
   inconsistency, since the checker already rejects undeclared dot-calls
   ([call-resolve]). Emitted Kotlin is never a guess
   ([backend-never-wrong]).
-* [intrinsic-fn] Every std lowering lives in this crate's `intrinsics.rs`
+* [platform-intrinsic-fn] Every std lowering lives in this crate's `intrinsics.rs`
   (`fn_call`), keyed by the checker-resolved declaration (name + first
   parameter's base type name, so `size(Str)` / `size(List<T>)` /
   `size(T[])` are three entries). `copy` [kt-copy] and `discard` are the
@@ -915,7 +915,7 @@ nothing but the monitor.
   prepended to the `kotlin -cp` of the run after the classes directory. With
   no `libs` and no `artifacts` declared both invocations are exactly what they
   were. The jars Gradle resolves [kt-gradle] come first, then the `libs` ones.
-* [kt-gradle] [platform-host-deps] [host-tool] **With artifacts declared,
+* [kt-gradle] [platform-host-deps] [backend-host-tool] **With artifacts declared,
   Gradle resolves them** (user decisions 2026-09-30: Kotlin → Gradle as Rust →
   Cargo; resolve only, `kotlinc` still compiles). `write_host_manifest`
   writes `settings.gradle.kts` (the target is its own Gradle root, so no
@@ -931,7 +931,7 @@ nothing but the monitor.
   build used to copy into `lib/kotlin`. Both files start with `GRADLE_HEADER`;
   with no artifacts, ones this backend wrote are removed, hand-written ones
   left alone. The script uses no API newer than Gradle 7.
-* [kt-monitor-reentry] [monitor-handler] Every `__Mon_E` member checks
+* [kt-monitor-reentry] [actor-monitor-handler] Every `__Mon_E` member checks
   `lock.isHeldByCurrentThread` before taking its `ReentrantLock` and traps
   when the thread is already inside (a `synchronized` monitor with
   `Thread.holdsLock` until 2026-10-03, when the runtime's scheduler became a
@@ -970,7 +970,7 @@ nothing but the monitor.
   the host skeletons and the call sites agree — and so the Rust backend, which
   has no choice in the matter, picks the same names. A call site emits the
   overload the *checker* resolved (`Checked::effect_member_calls`).
-* [kt-wire] [wire-format] The wire runtime is `runtime/wire.kt`, copied when
+* [kt-wire] [net-wire-format] The wire runtime is `runtime/wire.kt`, copied when
   a codec is generated or `encode`/`decode` lowered. Kotlin has no
   type-directed decode, so a codec is a **value** — `WireCodec<T>` with
   `enc(v, WireOut)` / `dec(WireIn): T` — composed for compound types:
@@ -989,7 +989,7 @@ nothing but the monitor.
   `salvoDecode(b, codec)` from the type argument. Decoding throws `WireError`
   inside and answers `null` outside. Tuples past `Triple` have no codec yet
   (reported, not guessed).
-* [kt-wire] [addr-routable] The scheduler's wire section mirrors Rust's:
+* [kt-wire] [net-addr-routable] The scheduler's wire section mirrors Rust's:
   `SalvoActorState(node, bits, remote, decode)`, `SalvoTargetRemote`,
   `SalvoEntry.ReplyRaw`, `SalvoRemoteRef`, per-node `wires`, a thread-local
   outbox flushed after the lock is released. Decoders are lambdas answering
@@ -1019,7 +1019,7 @@ nothing but the monitor.
   (`__Mon_E(inner)`, locking forwards) only when the program declares
   a handler `of any E`; the forwards then cover its send members too, since a
   `use`-bound router runs them inline. Without a router, nothing is emitted.
-* [kt-wire] [route-stub] Runtime: `viewSet`, `viewMembers` forward to the
+* [kt-wire] [actor-route-stub] Runtime: `viewSet`, `viewMembers` forward to the
   routing service, which keeps the views; `keyHash` (FNV-1a 64, identical
   to Rust's). Intrinsics as in Rust; `key_hash` encodes with the
   argument's codec and hashes `toByteArray()`. An erased struct's codec is
@@ -1053,7 +1053,7 @@ nothing but the monitor.
   | `SortedSet<T>`, `SortedMap<K, V>` (canonical ordering) | `java.util.SortedSet` / `SortedMap` whose `comparator()` is `salvo.SalvoCanonicalOrder`; build one with `salvo.salvoSortedSetOf(…)` / `salvoSortedMapOf(…)` [platform-check] |
   | a union, to build | its factories: `FsErrors.notFound(…)`, `ReadToStr.ok(…)` [platform-factory] |
   | `T?` | `T?` [kt-union-nullable] |
-  | a union of *n* ≥ 2 runtime arms | `salvo.UnionN<A, …>`, arms `UnionN.Uk(value)` in runtime-arm order, tested `is UnionN.Uk<*, …>` [kt-union-wrappers] [union-arm-identity]; nullable when it has a `None` arm |
+  | a union of *n* ≥ 2 runtime arms | `salvo.UnionN<A, …>`, arms `UnionN.Uk(value)` in runtime-arm order, tested `is UnionN.Uk<*, …>` [kt-union-wrappers] [type-union-arm-identity]; nullable when it has a `None` arm |
   | `struct S { f: T }` | `data class S(val f: T)` with the field names in camel case [kt-camel]; a dot-name `A.B` is `A.B`, nested in an `object` [kt-nested-dot-name]; a keyword is back-quoted |
   | `Checked<T>` | `salvo.std.core.checked.Checked(value)` |
   | `Reply<T>` parameter | `salvo.SalvoReply`; `.hosted()` answers the host reply whose `send(v)` may run on any thread, exactly once [platform-reply] |
@@ -1122,7 +1122,7 @@ nothing but the monitor.
     `HostRawFs` (2026-09-14), whose members return `Union2<Long, Union8<…>>`
     — a skeleton that does not compile is a skeleton that fails at its one
     job.
-  * **Sharing follows the declared contract** [threadsafe-platform]
+  * **Sharing follows the declared contract** [platform-threadsafe]
     [kt-handle]: an undeclared platform handler's `use` wraps the host in
     the effect's monitor — `__Mon_E(salvo.platform.M.H(args))` — so a host
     that did not claim safety cannot race on this backend; a `threadsafe`
@@ -1155,7 +1155,7 @@ nothing but the monitor.
     replaced by its own copy, `s.let { __s1 -> __s1.copy(items =
     __s1.items.toMutableList()) }`, which is what Rust's derived `clone`
     does; a `canbe Mut` field is typed as the value has it (`Mut` in a `Mut`
-    struct) [field-canbe-mut]. With no such field it is the shallow
+    struct) [struct-field-canbe-mut]. With no such field it is the shallow
     `.copy()`. A struct reached again inside its own copy (a list of itself)
     is refused rather than recursed on;
   * `T[]` with immutable `T` → `.copyOf()` (arrays are index-assignable
@@ -1173,18 +1173,18 @@ nothing but the monitor.
   * An `iter fn` over a *generic* subject no longer needs a copy of a `T`:
     the generated pass borrows its subject [iter-fn] [proj-field], so the
     former refusal here is gone (2026-09-11).
-* [readonly-return] Derived returns erase: the result already is the
+* [proj-readonly-return] Derived returns erase: the result already is the
   alias on the JVM, and the checker's caller-side links keep it aligned
   with Rust's borrows.
 * [fn-contract] Contracts erase (Kotlin lambdas alias; the checker's
   contract application keeps the semantics aligned with Rust's modes);
   a named fn passed by value emits the function-reference syntax
   (`::name`).
-* [once-fn] `Once` erases: the parameter emits the ordinary Kotlin
+* [fn-once] `Once` erases: the parameter emits the ordinary Kotlin
   function type, and the at-most-once protocol is enforced by the
   checker alone.
 * [linear-discard] `discard(x)` lowers to `(x).let {}` — evaluate and
-  ignore [intrinsic-fn]; linearity is purely static [linear-static], with
+  ignore [platform-intrinsic-fn]; linearity is purely static [linear-static], with
   no runtime component on the JVM.
 * [fate-lambda] Kotlin lambdas capture lexically (aliases), unchanged
   by L4: the checker's capture contract (mutated captures consumed at
@@ -1363,7 +1363,7 @@ nothing but the monitor.
   (2026-10-04): Kotlin refuses a bare `return` in a lambda, so a lambda with a
   `return` anywhere but last is emitted `__lN@{ … }` and each of its returns
   is `return@__lN`. A final `return v` stays the lambda's value.
-* [kt-mixed] **The mixed lowering** [mixed-handler] (SH-1, built
+* [kt-mixed] **The mixed lowering** [actor-mixed-handler] (SH-1, built
   2026-09-19). The JVM half of [rs-mixed], simpler because references share:
 
   * **The handler class is the servant alone** — no supertype (the sync
@@ -1375,7 +1375,7 @@ nothing but the monitor.
     with parameters), and the actor body dispatching them through the
     generated `__dispatch_H_E` — `resume` removes
     the parked continuation and calls the member with the cast answer as its
-    trailing argument [defer-deduction].
+    trailing argument [linear-defer].
   * **`__Fac_H(private val __addr: Int, ctor params) : E`** with the sync
     member bodies; a façade send lowers to
     `salvo.SalvoSched.send(__addr, __Msg_H.Variant(args))`.
@@ -1396,7 +1396,7 @@ nothing but the monitor.
     hoists their values with the ctor args and passes them to the servant
     only (`Counted(__c0, __c1, __c2)`, then `__Fac_Counted(__a, __c0)`).
 
-* [kt-monitor] **The monitor lowering** [monitor-handler] (SH-3, built
+* [kt-monitor] **The monitor lowering** [actor-monitor-handler] (SH-3, built
   2026-09-19). A plain effect `E` gets a per-effect lock wrapper emitted
   beside its interface:
 
@@ -1531,7 +1531,7 @@ nothing but the monitor.
     → `r.send(v)`; `pool(n)` → `SalvoSched.pool(n)`; `thread()` →
     `SalvoSched.thread()`; `watch` and `on_idle` are Salvo over
     `reply_token(r)` → `r.takeLocal()` [runtime-handles].
-  * **[main-pool] An omitted `on` clause is `SalvoSched.currentPool()`** — a
+  * **[actor-main-pool] An omitted `on` clause is `SalvoSched.currentPool()`** — a
     `ThreadLocal` read, so the placement a spawn inherits costs nothing and
     needs no signature. Main's thread answers pool 0, the pool it is the single
     worker of; a worker thread answers its own; and an activation answers the
@@ -1545,14 +1545,14 @@ nothing but the monitor.
     `SalvoSched.thread()` is `pool(1)`: `Dedicated` is erased like every
     qualifier [qual-erasure], and what it buys is static.
   * **[kt-task] A task mint is a scheduled lambda, and nothing else.**
-    `replyto k(caps) on P` where `k` is a free `send fn` [free-send-fn] →
+    `replyto k(caps) on P` where `k` is a free `send fn` [actor-free-send-fn] →
     `kotlin.run { val __c0 = …; SalvoSched.mintTask(P) { __v -> k(__c0, …, __v as
     Payload) } }`, with `SalvoSched.currentPool()` for an omitted `on`
     [task-pool-inherit]. No continuation class, no slot, no `__parked` entry:
     the lambda *is* the continuation. The captures are bound to `val`s
     **outside** the lambda so they are the values as they were at the mint.
     A free `send fn` itself is an ordinary top-level function returning `Unit`.
-  * **[pool-fault-sink] `pool(n, sink)`** → `SalvoSched.poolWithSink(n, sink,
+  * **[actor-pool-fault-sink] `pool(n, sink)`** → `SalvoSched.poolWithSink(n, sink,
     { __reason -> __Msg_Faults.Faulted(Fault(__reason)) })`. The runtime
     holds a `String` and cannot construct the `Faults` *message* (a generated
     class no Salvo fn can name), so the *pool creation site* hands over the

@@ -1,4 +1,4 @@
-// [test-file] The tests of module `fs`, which takes paths as `Path`s [path-type].
+// [test-file] The tests of module `fs`, which takes paths as `Path`s [fs-path-type].
 
 import std.fs.mem
 import std.fs.path

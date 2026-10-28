@@ -77,7 +77,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the iterator-fn modifier",
     ),
-    // [eff-handle] `eff[A, B, …]`: the first-class effect-handle type former,
+    // [effect-eff-handle] `eff[A, B, …]`: the first-class effect-handle type former,
     // recognised only before `[` so `eff` stays an ordinary name elsewhere
     // (it is not a declared type). The bracket contents highlight as the
     // effect names they are.
@@ -93,7 +93,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the compile-time modifier",
     ),
-    // [namespace] `namespace X { … }` / `namespace X ...`: a contextual
+    // [mod-namespace] `namespace X { … }` / `namespace X ...`: a contextual
     // keyword, recognised only before a capitalized name — so `namespace`
     // stays an ordinary identifier (a variable, a call) everywhere else,
     // mirroring the parser's own lookahead.
@@ -110,7 +110,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the effect-alias grouping",
     ),
-    // [threadsafe-platform] `threadsafe platform handler H of E`: only
+    // [platform-threadsafe] `threadsafe platform handler H of E`: only
     // `platform` may follow it, mirroring the parser's own lookahead.
     (
         "\\\\bthreadsafe(?=\\\\s+platform\\\\b)",
@@ -124,7 +124,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the iterable-platform modifier",
     ),
-    // [noremote] `noremote struct S`, `noremote intrinsic type T`, and the
+    // [net-noremote] `noremote struct S`, `noremote intrinsic type T`, and the
     // rest of the declarations it may precede — mirroring the parser's own
     // lookahead, including `noremote opaque struct S`.
     (
@@ -243,7 +243,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.other.salvo",
         "the preserve entry",
     ),
-    // `=> defer out` [defer-deduction]: the deferred-consumption entry — a
+    // `=> defer out` [linear-defer]: the deferred-consumption entry — a
     // parameter name follows, which is the parser's own test.
     (
         "\\\\bdefer(?=\\\\s+[a-z_])",
@@ -314,7 +314,7 @@ pub fn tm_grammar() -> String {
             {{
               "comment": "[doc-tags] a doc tag opening its line: `// @param name  text`",
               "name": "storage.type.class.doc.salvo",
-              "match": "\\G\\s*@(?:param|returns|throws|see|todo|whynot)\\b"
+              "match": "\\G\\s*@(?:param|returns|throws|see|todo|whynot|compilerrules)\\b"
             }},
             {{
               "comment": "[symbol] doc references to parameters, fields and types, and the [rule-label] references the compiler's own comments carry",

@@ -16,7 +16,7 @@
 //! spelled out for the list constructors, which kotlinc cannot infer from
 //! an empty argument list.
 
-/// The Kotlin lowering of a call to an `intrinsic fn` [intrinsic-fn].
+/// The Kotlin lowering of a call to an `intrinsic fn` [platform-intrinsic-fn].
 ///
 /// `name` is the declaration's name and `recv` the base type name of its
 /// first parameter ([`crate::emit::type_base_name`] conventions, so an
@@ -48,7 +48,7 @@ pub fn fn_call(
         ("to_long", Some("Int" | "Double" | "Float")) => format!("({}).toLong()", a(0)),
         ("to_double", Some("Int" | "Long" | "Float")) => format!("({}).toDouble()", a(0)),
         ("to_float", Some("Int" | "Long" | "Double")) => format!("({}).toFloat()", a(0)),
-        // [kt-byte-unsigned] [byte-value] A `Byte` is a `UByte` here, so the
+        // [kt-byte-unsigned] [type-byte] A `Byte` is a `UByte` here, so the
         // pair round-trips through the unsigned type: `toUByte()` keeps the
         // low 8 bits exactly as Rust's `as u8` does, and `toInt()` widens
         // into 0..255 exactly as `as i32` does.
@@ -57,7 +57,7 @@ pub fn fn_call(
         // std.core.basic and std.core.string (`cmp`, `eq`), std.core.compare
         // (`hash`) ------------------------------------------------------------
         // [cmp-groups] The canonical `cmp`/`eq`/`hash` at each intrinsic type;
-        // `cmp` and `eq` are declared beside their types [unique-shape], and
+        // `cmp` and `eq` are declared beside their types [op-unique-shape], and
         // the table keys on name and receiver, not module.
         //
         // Every one of these is `Comparable` on the JVM *except* `Str`, whose
@@ -154,7 +154,7 @@ pub fn fn_call(
         ("send", Some("Reply")) => format!("{}.send({})", a(0), a(1)),
         // [actor-spawn-expr] A pool is a scheduler id; `pool(n)` starts its
         // daemon worker threads.
-        // [pool-fault-sink] The two-argument overload: the sink's addr plus the
+        // [actor-pool-fault-sink] The two-argument overload: the sink's addr plus the
         // builder that turns the host's reason into the language's `Fault`
         // message — the runtime cannot construct one, exactly as with `Exit`
         // [actor-watch]. Dispatched on **arity**, since both overloads take an

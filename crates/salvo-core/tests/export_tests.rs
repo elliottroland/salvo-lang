@@ -12,7 +12,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// The base types the checker needs, as a std file [intrinsic-std-only] — and
+/// The base types the checker needs, as a std file [platform-intrinsic-std-only] — and
 /// exported, since std obeys this rule like anything else.
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\nexport intrinsic type Str\n\
@@ -213,7 +213,7 @@ fn an_exported_iter_fn_exports_its_pass_type() {
     );
 }
 
-/// [for-iter] [fn-attached] [backend-never-wrong] A `for` over an `iter fn`'s
+/// [iter-for] [fn-attached] [backend-never-wrong] A `for` over an `iter fn`'s
 /// pass from another module calls the pass's `next`, which travels with the
 /// pass *type* (B3.3d): without the type imported no `next` takes the value,
 /// and the loop says which import brings it. Until B3.3d the loop answered the

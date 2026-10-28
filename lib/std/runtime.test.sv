@@ -46,10 +46,11 @@ test "a fault inside the boundary is answered, not raised" {
     expect(!(why is None), "a faulting body answers its fault")
 }
 
-// [runtime-sched] A counter actor on the Salvo scheduler: messages are
+// A counter actor on the Salvo scheduler: messages are
 // erased `Int`s, the body checks they arrive in order, and unparks the test
 // with what it saw once the last one is in. The mailbox (4) is smaller than
 // the burst, so the sender is held back and nothing is lost.
+// @compilerrules [runtime-sched]
 test "the scheduler runs an actor's messages in order on its pool" {
     let me = this_parker()
     let waker = copy(me)
@@ -78,8 +79,9 @@ test "the scheduler runs an actor's messages in order on its pool" {
     expect(true, "the last message reached the actor")
 }
 
-// [runtime-sched] A faulting activation is the actor's death: a send to it
+// A faulting activation is the actor's death: a send to it
 // afterwards is the silent no-op, and the pool's workers live on.
+// @compilerrules [runtime-sched]
 test "an actor that faults dies and later sends are dropped" {
     let me = this_parker()
     let waker = copy(me)
@@ -107,8 +109,9 @@ test "an actor that faults dies and later sends are dropped" {
     expect(true, "the pool kept working after a death")
 }
 
-// [actor-replyto] [actor-waitfor] Request and response: the message carries
+// Request and response: the message carries
 // a token, the actor answers it, and the waiting frame gets the answer.
+// @compilerrules [actor-replyto, actor-waitfor]
 test "an actor answers a token, and a waiting frame receives it" {
     let pool = new_pool_of(1, -1)
     let sum = 0
@@ -129,8 +132,9 @@ test "an actor answers a token, and a waiting frame receives it" {
     expect_eq(second, 20)
 }
 
-// [main-pool] [waitfor-pump] An actor on `main`'s pool has no thread of its
+// An actor on `main`'s pool has no thread of its
 // own: it runs while `main` waits, on `main`'s thread.
+// @compilerrules [actor-main-pool, waitfor-pump]
 test "an actor on the main pool runs while main waits" {
     let echo = spawn_body(main_pool(), 2, body_of((kind, slot, msg) -> {
         let t: Token = unerase(msg)
@@ -143,9 +147,10 @@ test "an actor on the main pool runs while main waits" {
     expect_eq(got, 7)
 }
 
-// [task-mint] A task's answer schedules its body on the pool it was minted
+// A task's answer schedules its body on the pool it was minted
 // for — here `main`'s, served by the wait. The answer carries the token the
 // task answers in turn.
+// @compilerrules [task-mint]
 linear struct Req { n: Int, out: Token }
 
 fn finish_req(r: Req) [] -> None => !r {
@@ -165,8 +170,9 @@ test "a task runs when its token is answered" {
     expect_eq(got, 10)
 }
 
-// [actor-replyto] The gate: while a gated continuation is outstanding, the
+// The gate: while a gated continuation is outstanding, the
 // actor serves only the awaited answer — a message that arrived first waits.
+// @compilerrules [actor-replyto]
 linear struct GateMsg { code: Int, me: Int, peer: Int, out: Token? }
 
 fn gate_msg(code: Int, me: Int, peer: Int) [] -> GateMsg => !code, !me, !peer {
@@ -217,7 +223,8 @@ test "a gated actor serves its awaited answer before older messages" {
     expect_eq(order, "[reply, late]")
 }
 
-// [actor-watch] A watch is answered with the `Exit` of the actor's death.
+// A watch is answered with the `Exit` of the actor's death.
+// @compilerrules [actor-watch]
 test "a watch is answered when the actor dies" {
     let pool = new_pool_of(1, -1)
     let fragile = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
@@ -233,8 +240,9 @@ test "a watch is answered when the actor dies" {
     expect(size(exit.reason) > 0, "the exit carries a reason")
 }
 
-// [pool-fault-sink] A death nobody watches reaches the pool's sink, as a
+// A death nobody watches reaches the pool's sink, as a
 // report the sink's body receives as kind 2.
+// @compilerrules [actor-pool-fault-sink]
 test "an unwatched death reaches the pool's sink" {
     let w = waiter()
     let {token, wid} = w
@@ -254,8 +262,9 @@ test "an unwatched death reaches the pool's sink" {
     expect_eq(idle.parked_gates, 0)
 }
 
-// [actor-on-idle] The hook fires when nothing anywhere can run, reporting
+// The hook fires when nothing anywhere can run, reporting
 // what its pool is owed: here one token `main` is still holding.
+// @compilerrules [actor-on-idle]
 test "an idle hook reports the tokens still owed" {
     let held = waiter()
     let {token: kept, wid: kept_wid} = held
@@ -268,8 +277,9 @@ test "an idle hook reports the tokens still owed" {
     expect_eq(idle.parked_tokens, 1)
 }
 
-// [pool-retire] A dedicated pool's thread returns once its one actor has
+// A dedicated pool's thread returns once its one actor has
 // died and nothing is left to run there; an ordinary pool's stay.
+// @compilerrules [actor-pool-retire]
 test "a dedicated pool retires when its actor dies" {
     let before = retired_worker_count()
     let pool = new_dedicated_pool()
@@ -292,7 +302,8 @@ test "a dedicated pool retires when its actor dies" {
     expect_eq(retired_worker_count(), before + 1)
 }
 
-// [test-actor] The virtual runtime's randomness repeats from its seed.
+// The virtual runtime's randomness repeats from its seed.
+// @compilerrules [test-actor]
 test actor(seed: 7) "the seed decides the identity bits" {
     enter_virtual(7L)
     let a = identity_bits()
@@ -303,8 +314,9 @@ test actor(seed: 7) "the seed decides the identity bits" {
     expect(a != b, "two draws differ")
 }
 
-// [waitfor-pump] A wait's record is reused once the wait has ended, so a loop
+// A wait's record is reused once the wait has ended, so a loop
 // of waits does not grow the table (ROADMAP 0.1).
+// @compilerrules [waitfor-pump]
 test "a loop of waits reuses one waiter record" {
     let echo = spawn_body(main_pool(), 4, body_of((kind, slot, msg) -> {
         let t: Token = unerase(msg)

@@ -77,7 +77,7 @@ impl<'p> Ctx<'p> {
         self.resolution.decls.fn_decl(&self.program.modules, key)
     }
 
-    /// [op-equality] [op-order] [op-arith] [core-layers] Whether `key` is
+    /// [op-equality] [op-order] [op-arith] [backend-core-layers] Whether `key` is
     /// std's intrinsic `eq`, `cmp`, `plus`, `minus`, `times` or `divide` at a
     /// basic type [type-basic]: the primitive operation itself, so an
     /// operator resolved to it is the IR's own operator (which every backend
@@ -273,7 +273,7 @@ impl Program {
 /// [ir-types] Qualifiers are erased from every type the IR carries, except
 /// `Mut`, the one a backend may represent as a different type.
 pub fn erase(ty: &Ty) -> Ty {
-    // [union-spread] The `...T` marker is a signature-only fact for call-site
+    // [type-union-spread] The `...T` marker is a signature-only fact for call-site
     // union matching; the IR and backends never see it.
     if ty.as_spread_marker().is_some() {
         return erase(&ty.strip_spread());
@@ -306,7 +306,7 @@ pub fn erase(ty: &Ty) -> Ty {
             base.qualify(kept)
         }
         Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(erase).collect() },
-        // [union-arm-identity] Arms are positional over the runtime union:
+        // [type-union-arm-identity] Arms are positional over the runtime union:
         // two arms that erase alike (`Err Str | Thrown Str`) keep their tag,
         // so a rewrap or a narrowing can still tell them apart.
         Ty::Union(arms) => {

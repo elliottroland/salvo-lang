@@ -11,7 +11,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `std.core.prelude`: `std.core.*` is implicitly imported, so the test source
@@ -276,9 +276,9 @@ fn a_lift_takes_a_binding_and_a_multi_arm_lift_needs_one() {
          }}\n\
          }}\n"
     ));
-    // [rewrap] A multi-arm lift is built end to end since 2026-09-21: the bound
+    // [type-rewrap] A multi-arm lift is built end to end since 2026-09-21: the bound
     // value spans fewer arms than the storage, so it is produced by mapping arm
-    // to arm — the same mapping an annotated `let` gets [let-infer].
+    // to arm — the same mapping an annotated `let` gets [var-let-infer].
     assert!(bound.is_empty(), "expected a clean multi-arm lift, got: {bound:?}");
 
     let unbound = errors(&format!(

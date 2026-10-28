@@ -148,7 +148,7 @@ Two more rules keep union arms apart once qualifiers are gone:
 * **Literal types become their base type.** `"a" | "b"` is a `Str`.
 
 A union's arms are numbered in order, skipping the `None` arm
-[union-arm-identity]. `make_union[Int | Str | None]#0(4)` puts `4` into arm 0.
+[type-union-arm-identity]. `make_union[Int | Str | None]#0(4)` puts `4` into arm 0.
 An optional `T?` is the union `T | None`.
 
 ## Declarations

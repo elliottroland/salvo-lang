@@ -52,17 +52,17 @@ class __Mon_RuntimeHost(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : RuntimeHost {
     override fun secureBits(): Long {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.secureBits() } finally { lock.unlock() }
     }
     override fun report(line: String) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.report(line) } finally { lock.unlock() }
     }
     override fun monoNanos(): Long {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.monoNanos() } finally { lock.unlock() }
     }
@@ -534,162 +534,162 @@ class __Mon_SchedTable(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : SchedTable {
     override fun newPool(sink: Int, dedicated: Boolean): Int {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.newPool(sink, dedicated) } finally { lock.unlock() }
     }
     override fun newActor(pool: Int, bound: Int, body: salvo.platform.std.runtime.Body): Int {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.newActor(pool, bound, body) } finally { lock.unlock() }
     }
     override fun enqueue(addr: Int, msg: salvo.platform.std.runtime.Dyn, waiter: salvo.platform.std.runtime.Parker): Union4<Sent, Dead, Full, Remote> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.enqueue(addr, msg, waiter) } finally { lock.unlock() }
     }
     override fun setProxy(addr: Int) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.setProxy(addr) } finally { lock.unlock() }
     }
     override fun enqueueRemote(addr: Int, msg: salvo.platform.std.runtime.Dyn, from: Long): Boolean {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.enqueueRemote(addr, msg, from) } finally { lock.unlock() }
     }
     override fun kill(addr: Int, reason: String) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.kill(addr, reason) } finally { lock.unlock() }
     }
     override fun mintActor(addr: Int, gated: Boolean): Token {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.mintActor(addr, gated) } finally { lock.unlock() }
     }
     override fun mintTask(pool: Int, body: salvo.platform.std.runtime.Body): Token {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.mintTask(pool, body) } finally { lock.unlock() }
     }
     override fun mintWaiter(pool: Int): WaiterMint {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.mintWaiter(pool) } finally { lock.unlock() }
     }
     override fun deliver(t: Token, value: salvo.platform.std.runtime.Dyn) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.deliver(t, value) } finally { lock.unlock() }
     }
     override fun watchActor(addr: Int, t: Token) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.watchActor(addr, t) } finally { lock.unlock() }
     }
     override fun idleHook(pool: Int, t: Token) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.idleHook(pool, t) } finally { lock.unlock() }
     }
     override fun nextWork(pool: Int, idle: salvo.platform.std.runtime.Parker): Union3<RunActor, RunTask, Retire>? {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.nextWork(pool, idle) } finally { lock.unlock() }
     }
     override fun retiredWorkers(): Int {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.retiredWorkers() } finally { lock.unlock() }
     }
     override fun waiterRecords(): Int {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.waiterRecords() } finally { lock.unlock() }
     }
     override fun waitStep(wid: Int, pool: Int, own: Int, frame: Int, me: salvo.platform.std.runtime.Parker): Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.waitStep(wid, pool, own, frame, me) } finally { lock.unlock() }
     }
     override fun finish(addr: Int, body: salvo.platform.std.runtime.Body, fault: String?) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.finish(addr, body, fault) } finally { lock.unlock() }
     }
     override fun taskDone(pool: Int, fault: String?) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.taskDone(pool, fault) } finally { lock.unlock() }
     }
     override fun poolOfActor(addr: Int): Int {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.poolOfActor(addr) } finally { lock.unlock() }
     }
     override fun poolOfWaiter(wid: Int): Int {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.poolOfWaiter(wid) } finally { lock.unlock() }
     }
     override fun external(delta: Int) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.external(delta) } finally { lock.unlock() }
     }
     override fun room(addr: Int): Int {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.room(addr) } finally { lock.unlock() }
     }
     override fun isDead(addr: Int): Boolean {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.isDead(addr) } finally { lock.unlock() }
     }
     override fun queued(addr: Int): Int {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.queued(addr) } finally { lock.unlock() }
     }
     override fun goVirtual(seed: Long) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.goVirtual(seed) } finally { lock.unlock() }
     }
     override fun isVirtual(): Boolean {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.isVirtual() } finally { lock.unlock() }
     }
     override fun virtualNow(): Long {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.virtualNow() } finally { lock.unlock() }
     }
     override fun advanceTo(at: Long) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.advanceTo(at) } finally { lock.unlock() }
     }
     override fun randomBits(): Long {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.randomBits() } finally { lock.unlock() }
     }
     override fun randomUnit(): Double {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.randomUnit() } finally { lock.unlock() }
     }
     override fun clockHook(t: Token) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { inner.clockHook(t) } finally { lock.unlock() }
     }
     override fun virtualWork(own: Int): Union2<RunActor, RunTask>? {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.virtualWork(own) } finally { lock.unlock() }
     }
@@ -735,7 +735,7 @@ class Scheduler : SchedTable {
                 val __picked_2: ActorRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:520:37")
+                throw AssertionError("salvo: unreachable at std.runtime:560:37")
             })
         }
         if (a.dead) {
@@ -771,7 +771,7 @@ class Scheduler : SchedTable {
                 val __picked_2: ActorRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:548:37")
+                throw AssertionError("salvo: unreachable at std.runtime:588:37")
             })
         }
         if (a.dead) {
@@ -796,7 +796,7 @@ class Scheduler : SchedTable {
                 val __picked_2: ActorRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:565:37")
+                throw AssertionError("salvo: unreachable at std.runtime:605:37")
             })
         }
         if (a.dead) {
@@ -842,7 +842,7 @@ class Scheduler : SchedTable {
                 val __picked_2: ActorRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:587:37")
+                throw AssertionError("salvo: unreachable at std.runtime:627:37")
             })
         }
         if (gated) {
@@ -859,7 +859,7 @@ class Scheduler : SchedTable {
                 val __picked_2: PoolRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:597:36")
+                throw AssertionError("salvo: unreachable at std.runtime:637:36")
             })
         }
         p.owed = (p.owed + 1)
@@ -872,7 +872,7 @@ class Scheduler : SchedTable {
                 val __picked_2: PoolRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:603:36")
+                throw AssertionError("salvo: unreachable at std.runtime:643:36")
             })
         }
         p.owed = (p.owed + 1)
@@ -893,7 +893,7 @@ class Scheduler : SchedTable {
                 val __picked_2: ActorRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:617:37")
+                throw AssertionError("salvo: unreachable at std.runtime:657:37")
             })
         }
         if (a.dead) {
@@ -920,7 +920,7 @@ class Scheduler : SchedTable {
                     val __picked_2: PoolRec = __pick_1!!
                     __picked_2
                 } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:637:33")
+                    throw AssertionError("salvo: unreachable at std.runtime:677:33")
                 })
             }
             __proj_4.retired
@@ -945,7 +945,7 @@ class Scheduler : SchedTable {
                 val __picked_6: PoolRec = __pick_5!!
                 __picked_6
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:650:36")
+                throw AssertionError("salvo: unreachable at std.runtime:690:36")
             })
         }
         salvo.std.core.list.addPlatform((p.idle as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>), idle)
@@ -968,7 +968,7 @@ class Scheduler : SchedTable {
                 val __picked_2: WaiterRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:671:37")
+                throw AssertionError("salvo: unreachable at std.runtime:711:37")
             })
         }
         if ((w.waiting == 0)) {
@@ -1025,7 +1025,7 @@ class Scheduler : SchedTable {
                 val __picked_5: WaiterRec = __pick_4!!
                 __picked_5
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:730:42")
+                throw AssertionError("salvo: unreachable at std.runtime:770:42")
             })
         }
         parked.parker = me
@@ -1035,7 +1035,7 @@ class Scheduler : SchedTable {
                 val __picked_8: PoolRec = __pick_7!!
                 __picked_8
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:732:36")
+                throw AssertionError("salvo: unreachable at std.runtime:772:36")
             })
         }
         salvo.std.core.list.addPlatform((p.idle as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>), me)
@@ -1050,7 +1050,7 @@ class Scheduler : SchedTable {
                 val __picked_2: ActorRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:739:37")
+                throw AssertionError("salvo: unreachable at std.runtime:779:37")
             })
         }
         a.running = false
@@ -1071,7 +1071,7 @@ class Scheduler : SchedTable {
                 break
             }
             val entry: Union3<Delivered, Answered, Reported>? = salvo.std.core.deque.removeFirstPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
-            (if (!(!((entry == null)))) throw AssertionError("salvo: assertion failed at std.runtime:756:13") else Unit)
+            (if (!(!((entry == null)))) throw AssertionError("salvo: assertion failed at std.runtime:796:13") else Unit)
             val entry_5: Union3<Delivered, Answered, Reported> = entry!!
             salvo.std.runtime.dropEntry(entry_5)
         }
@@ -1132,7 +1132,7 @@ class Scheduler : SchedTable {
                     val __picked_2: ActorRec = __pick_1!!
                     __picked_2
                 } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:792:43")
+                    throw AssertionError("salvo: unreachable at std.runtime:832:43")
                 })
             }
             __proj_4.pool
@@ -1145,7 +1145,7 @@ class Scheduler : SchedTable {
                 val __picked_2: ActorRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:796:37")
+                throw AssertionError("salvo: unreachable at std.runtime:836:37")
             })
         }
         a.proxy = true
@@ -1158,7 +1158,7 @@ class Scheduler : SchedTable {
                     val __picked_2: WaiterRec = __pick_1!!
                     __picked_2
                 } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:801:43")
+                    throw AssertionError("salvo: unreachable at std.runtime:841:43")
                 })
             }
             __proj_4.pool
@@ -1171,7 +1171,7 @@ class Scheduler : SchedTable {
                 val __picked_2: ActorRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:805:38")
+                throw AssertionError("salvo: unreachable at std.runtime:845:38")
             })
         }
         return (a.bound - a.userLen)
@@ -1184,7 +1184,7 @@ class Scheduler : SchedTable {
                     val __picked_2: ActorRec = __pick_1!!
                     __picked_2
                 } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:810:43")
+                    throw AssertionError("salvo: unreachable at std.runtime:850:43")
                 })
             }
             __proj_4.dead
@@ -1198,7 +1198,7 @@ class Scheduler : SchedTable {
                     val __picked_2: ActorRec = __pick_1!!
                     __picked_2
                 } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:814:43")
+                    throw AssertionError("salvo: unreachable at std.runtime:854:43")
                 })
             }
             __proj_4.userLen
@@ -1295,7 +1295,7 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 val __picked_2: ActorRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:913:34")
+                throw AssertionError("salvo: unreachable at std.runtime:956:34")
             })
         }
         k = (k + 1)
@@ -1310,7 +1310,7 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 break
             }
             val entry: Union3<Delivered, Answered, Reported>? = salvo.std.core.deque.removeFirstPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
-            (if (!(!((entry == null)))) throw AssertionError("salvo: assertion failed at std.runtime:923:13") else Unit)
+            (if (!(!((entry == null)))) throw AssertionError("salvo: assertion failed at std.runtime:966:13") else Unit)
             val entry_4: Union3<Delivered, Answered, Reported> = entry!!
             salvo.std.runtime.dropEntry(entry_4)
         }
@@ -1349,7 +1349,7 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 val __picked_8: PoolRec = __pick_7!!
                 __picked_8
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:939:33")
+                throw AssertionError("salvo: unreachable at std.runtime:982:33")
             })
         }
         while (true) {
@@ -1442,7 +1442,7 @@ fun release(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sal
                 val __picked_2: ActorRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1003:40")
+                throw AssertionError("salvo: unreachable at std.runtime:1050:40")
             })
         }
         if ((a.owed > 0)) {
@@ -1457,7 +1457,7 @@ fun release(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sal
                     val __picked_5: WaiterRec = __pick_4!!
                     __picked_5
                 } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:1008:50")
+                    throw AssertionError("salvo: unreachable at std.runtime:1055:50")
                 })
             }
             __proj_7.pool
@@ -1468,7 +1468,7 @@ fun release(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sal
                 val __picked_9: PoolRec = __pick_8!!
                 __picked_9
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1009:36")
+                throw AssertionError("salvo: unreachable at std.runtime:1056:36")
             })
         }
         if ((p.owed > 0)) {
@@ -1482,7 +1482,7 @@ fun release(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sal
                 val __picked_13: PoolRec = __pick_12!!
                 __picked_13
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1014:43")
+                throw AssertionError("salvo: unreachable at std.runtime:1061:43")
             })
         }
         if ((p.owed > 0)) {
@@ -1501,7 +1501,7 @@ fun reuseWaiter(waiters: salvo.platform.std.core.list.MutList<WaiterRec>, free: 
                 val __picked_3: WaiterRec = __pick_2!!
                 __picked_3
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1027:37")
+                throw AssertionError("salvo: unreachable at std.runtime:1075:37")
             })
         }
         w.pool = pool
@@ -1533,7 +1533,7 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
                 val __picked_3: ActorRec = __pick_2!!
                 __picked_3
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1050:40")
+                throw AssertionError("salvo: unreachable at std.runtime:1098:40")
             })
         }
         if (a.dead) {
@@ -1555,7 +1555,7 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
                 val __picked_6: WaiterRec = __pick_5!!
                 __picked_6
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1063:40")
+                throw AssertionError("salvo: unreachable at std.runtime:1111:40")
             })
         }
         if (((w.slot != slot) || w.filled)) {
@@ -1579,7 +1579,7 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
                 val __picked_11: PoolRec = __pick_10!!
                 __picked_11
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1075:36")
+                throw AssertionError("salvo: unreachable at std.runtime:1123:36")
             })
         }
         salvo.std.core.deque.addLastPlatform((p.tasks as salvo.platform.std.core.deque.MutDeque<TaskRun>), TaskRun(body = body, value = value))
@@ -1596,7 +1596,7 @@ fun reportFault(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: s
                 val __picked_2: PoolRec = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1086:42")
+                throw AssertionError("salvo: unreachable at std.runtime:1135:42")
             })
         }
         __proj_4.sink
@@ -1608,7 +1608,7 @@ fun reportFault(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: s
                 val __picked_6: ActorRec = __pick_5!!
                 __picked_6
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1088:37")
+                throw AssertionError("salvo: unreachable at std.runtime:1137:37")
             })
         }
         if (!(s.dead)) {
@@ -1666,7 +1666,7 @@ fun fireIdle(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sa
                     val __picked_4: PoolRec = __pick_3!!
                     __picked_4
                 } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:1138:48")
+                    throw AssertionError("salvo: unreachable at std.runtime:1189:48")
                 })
             }
             __proj_6.owed
@@ -1726,7 +1726,7 @@ fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
             val __picked_2: PoolRec = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.runtime:1187:32")
+            throw AssertionError("salvo: unreachable at std.runtime:1240:32")
         })
     }
     val task: TaskRun? = salvo.std.core.deque.removeFirstPlatform((p.tasks as salvo.platform.std.core.deque.MutDeque<TaskRun>))
@@ -1749,7 +1749,7 @@ fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 val __picked_7: ActorRec = __pick_6!!
                 __picked_7
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1194:34")
+                throw AssertionError("salvo: unreachable at std.runtime:1247:34")
             })
         }
         a.ready = false
@@ -1759,7 +1759,7 @@ fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 val k: Int = at!!
                 val _slot: Long? = salvo.std.core.deque.removeAtPlatform((a.slots as salvo.platform.std.core.deque.MutDeque<Long>), k)
                 val e: Union3<Delivered, Answered, Reported>? = salvo.std.core.deque.removeAtPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), k)
-                (if (!(!((e == null)))) throw AssertionError("salvo: assertion failed at std.runtime:1201:17") else Unit)
+                (if (!(!((e == null)))) throw AssertionError("salvo: assertion failed at std.runtime:1254:17") else Unit)
                 a.running = true
                 val body: salvo.platform.std.runtime.Body = kotlin.run {
                     val __pick_9: salvo.platform.std.runtime.Body? = salvo.std.runtime.slotTakePlatform(a.body)
@@ -1767,7 +1767,7 @@ fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                         val __picked_10: salvo.platform.std.runtime.Body = __pick_9!!
                         __picked_10
                     } else {
-                        throw AssertionError("salvo: unreachable at std.runtime:1203:49")
+                        throw AssertionError("salvo: unreachable at std.runtime:1256:49")
                     })
                 }
                 val e_12: Union3<Delivered, Answered, Reported> = e!!
@@ -1793,7 +1793,7 @@ fun markReady(a: ActorRec, pools: salvo.platform.std.core.list.MutList<PoolRec>,
             val __picked_2: PoolRec = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.runtime:1222:40")
+            throw AssertionError("salvo: unreachable at std.runtime:1275:40")
         })
     }
     salvo.std.core.deque.addLastPlatform((p.ready as salvo.platform.std.core.deque.MutDeque<Int>), addr)
@@ -1856,7 +1856,7 @@ fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
                 val __picked_2: Long = __pick_1!!
                 __picked_2
             } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1270:30")
+                throw AssertionError("salvo: unreachable at std.runtime:1323:30")
             })
         } == gate_4)) {
             return i
@@ -1874,7 +1874,7 @@ fun wakePool(pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int) {
             val __picked_2: PoolRec = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.runtime:1285:32")
+            throw AssertionError("salvo: unreachable at std.runtime:1338:32")
         })
     }
     val __subject_4: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeFirstPlatform((p.idle as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>))
@@ -1892,7 +1892,7 @@ fun wakeEvery(pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int) {
             val __picked_2: PoolRec = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.runtime:1293:32")
+            throw AssertionError("salvo: unreachable at std.runtime:1346:32")
         })
     }
     while (true) {
@@ -1922,7 +1922,7 @@ fun retireIfDone(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: 
             val __picked_2: PoolRec = __pick_1!!
             __picked_2
         } else {
-            throw AssertionError("salvo: unreachable at std.runtime:1315:32")
+            throw AssertionError("salvo: unreachable at std.runtime:1370:32")
         })
     }
     if ((((!(p.dedicated) || p.retired) || (salvo.std.core.deque.sizePlatform((p.tasks as salvo.platform.std.core.deque.MutDeque<TaskRun>)) > 0)) || (p.owed > 0))) {
@@ -2141,7 +2141,7 @@ fun awaitAnswer(wid: Int): salvo.platform.std.runtime.Dyn {
             salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
         }
     }
-    throw AssertionError("salvo: unreachable at std.runtime:1550:5")
+    throw AssertionError("salvo: unreachable at std.runtime:1629:5")
     return salvo.std.runtime.unerasePlatform(salvo.std.runtime.erasePlatform(0))
 }
 
@@ -2200,7 +2200,7 @@ fun servePool(pool: Int) {
             salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
         }
     }
-    throw AssertionError("salvo: unreachable at std.runtime:1598:5")
+    throw AssertionError("salvo: unreachable at std.runtime:1677:5")
 }
 
 fun tokenToActor(addr: Int, slot: Long): Token {

@@ -699,7 +699,7 @@ impl crate::wire::__Wire for __Msg_Counter {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Counter`.
+/// [actor-protocol-hash] The canonical hash of `Counter`.
 pub const __PROTO_Counter: &str = "f39d50f9ee8f9923";
 
 pub enum __Msg_Ledger {
@@ -732,7 +732,7 @@ impl crate::wire::__Wire for __Msg_Ledger {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Ledger`.
+/// [actor-protocol-hash] The canonical hash of `Ledger`.
 pub const __PROTO_Ledger: &str = "4a99401c8b66babf";
 
 pub enum __Msg_Desk {
@@ -768,7 +768,7 @@ impl crate::wire::__Wire for __Msg_Desk {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Desk`.
+/// [actor-protocol-hash] The canonical hash of `Desk`.
 pub const __PROTO_Desk: &str = "cb180ef2d1bfd753";
 
 pub enum __Msg_Fragile {
@@ -789,7 +789,7 @@ impl crate::wire::__Wire for __Msg_Fragile {
     }
 }
 
-/// [protocol-hash] The canonical hash of `Fragile`.
+/// [actor-protocol-hash] The canonical hash of `Fragile`.
 pub const __PROTO_Fragile: &str = "a8c912bc262644a0";
 
 pub enum __Cont_Counting {

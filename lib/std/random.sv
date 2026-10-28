@@ -8,9 +8,10 @@ export effect Random {
     fn random() -> Double
 }
 
-// [random-default] The default generator: the runtime's, seeded by OS
-// entropy — and by the test's seed in an actor test, so a run repeats
-// [test-actor]. Not cryptographic.
+// The default generator: the runtime's, seeded by OS
+// entropy — and by the test's seed in an actor test, so a run repeats.
+// Not cryptographic.
+// @compilerrules [std-random-default, test-actor]
 export handler DefaultRandom() of Random {
     fn random() -> Double {
         return random_double()

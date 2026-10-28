@@ -6,7 +6,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Checked, Program, SourceSet, Symbols};
 
-/// [intrinsic-std-only] Base types the checker needs, loaded as a std file
+/// [platform-intrinsic-std-only] Base types the checker needs, loaded as a std file
 /// (module `std.core.prelude`, implicitly imported) rather than pasted into the
 /// sources under test. Added *after* the user files so their file indices —
 /// which these tests assert on — stay stable.
@@ -266,7 +266,7 @@ fn check_errors(src: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
-    // Errors only: an unused-variable *warning* [unused-var] is a different
+    // Errors only: an unused-variable *warning* [var-unused] is a different
     // severity, and these tests are about which programs are rejected.
     checked
         .errors

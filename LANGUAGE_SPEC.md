@@ -38,7 +38,7 @@ Conventions:
     them is a call of the function it resolves to — intrinsic or not, which
     is the backend's business — never an operator in the IR.
   * Each backend maps all of them natively.
-* [byte-value] A `Byte` is an **unsigned octet** (0..255) on every backend:
+* [type-byte] A `Byte` is an **unsigned octet** (0..255) on every backend:
   `u8` on Rust, `UByte` on Kotlin ([kt-byte-unsigned]) — *not* the JVM's
   signed `Byte`, which would render the same octet as `-1` where Rust
   renders `255` [backend-parity].
@@ -50,8 +50,8 @@ Conventions:
     `==` like any other primitive.
   * The text bridge is `to_bytes(str) -> Bytes` (UTF-8) and
     `str_of_bytes(data) -> Str?` (strict UTF-8: invalid bytes are `None`,
-    never a replacement character) [bytes-type].
-* [bytes-type] (Since 2026-10-04 a value platform type
+    never a replacement character) [type-bytes].
+* [type-bytes] (Since 2026-10-04 a value platform type
   [platform-value-type]: `lib/platform/std/core/bytes.{rs,kt}` implements it,
   Rust as `Vec<u8>`, Kotlin as the shipped `salvo.SalvoBytes`; `bytes_of` and
   `mut_bytes` are Salvo over `empty_bytes`, and a `for` over a buffer goes
@@ -80,7 +80,7 @@ Conventions:
   * `for b in data` iterates the bytes natively on both backends
     [iter-for-native] [platform-iterable]; `BytesNext` is the iterator the combinators drive
     [iter-protocol].
-* [lit-numeric] Numeric literals: `1` is `Int`; `1L` is `Long`; `1.2` is
+* [type-lit-numeric] Numeric literals: `1` is `Int`; `1L` is `Long`; `1.2` is
   `Double`; `1.2f` is `Float`. Underscore separators are allowed anywhere
   inside the digits, before *and* after the decimal point (`1_000L`,
   `1_000.500_5`; the fractional half was added 2026-09-18 at the user's
@@ -93,7 +93,7 @@ Conventions:
   * Backends: Kotlin renders the suffixes as its own (`1L`, `1.2f`);
     Rust renders explicit types (`1i64`, `1.2f32`) and leaves unsuffixed
     literals bare for inference.
-* [lit-adopt] An **unsuffixed** numeric literal adopts the numeric type
+* [type-lit-adopt] An **unsuffixed** numeric literal adopts the numeric type
   its position expects (user decision 2026-09-14, replacing the earlier
   "no implicit widenings — write `1L`" rule): `let x: Long = 1`,
   `let d: Double = 3`, a `Long` call argument, and `T?` positions through
@@ -151,7 +151,7 @@ Conventions:
   * Nothing downstream knows the spelling exists: the operand rules come from
     [op-arith] (so `+=` on a `Str` is refused naming interpolation, and an
     int-float mix is the same explicit-conversion error), and the place rules,
-    the narrowing reset [narrow-assign-reset] and the fate analysis all come
+    the narrowing reset [is-narrow-assign-reset] and the fate analysis all come
     from the assignment it becomes.
   * **The target is duplicated** in the AST — once as the target, once as the
     left operand — which is sound because a Salvo place is an identifier, a
@@ -162,7 +162,7 @@ Conventions:
     their spelling. `/=` cannot collide with a comment: `//` and `/*` are
     consumed earlier.
   * `++` is **not** re-expressed as `+= 1`: it is also an *expression*, where
-    the fixity decides the value [inc-dec], so it keeps its own node.
+    the fixity decides the value [op-inc-dec], so it keeps its own node.
 * [op-assign] An assignment's target must be a **place**: a variable, a field
   path (`p.name`), or a subscript (`xs[i]`, whose *index* is an ordinary
   expression). Anything else — a call above all — is an error naming the three
@@ -174,7 +174,7 @@ Conventions:
   * A **tuple element** is refused by its own rule instead
     ([expr-tuple-index]: `Mut` cannot apply to a tuple, so its elements are
     read-only), so one mistake stays one diagnostic.
-* [inc-dec] `i++`, `++i`, `i--`, `--i`: a step of one on an `Int` place, in
+* [op-inc-dec] `i++`, `++i`, `i--`, `--i`: a step of one on an `Int` place, in
   either fixity (user request 2026-09-11 added all but `i++`). The operand
   must be a place; all four forms do the same thing to it — which is why the
   checker treats them identically — and the fixity decides only the
@@ -224,7 +224,7 @@ Conventions:
   * **Otherwise a `to_str`**, resolved *at the interpolation site* like an
     implicit parameter (user decision 2026-09-11): a `to_str` in scope
     whose parameter accepts the type and which returns `Str`. A type's
-    `to_str` is declared in the type's own file [unique-shape], so a
+    `to_str` is declared in the type's own file [op-unique-shape], so a
     module's `to_str(List<T>)` beside std's, or a catch-all `to_str<T>(x: T)`,
     is refused where it is written (the 2026-10-14 hazard of PIPELINE.md
     §II.10 P5). The winner is
@@ -306,13 +306,13 @@ Conventions:
   * **A union never nests observably** (user decision 2026-10-12): a *bare*
     union written inside a union flattens — `(A | B) | C` ≡ `A | B | C`, and
     a type parameter bound to a union flattens the same way
-    [union-spread] — so there is one canonical flat shape. A union
+    [type-union-spread] — so there is one canonical flat shape. A union
     that is the **payload of a type constructor or tag** does *not* flatten:
     `List<A | B>`, `Ok (A | B)`, and `Err Str` are each one arm, since the
     constructor is what the arm's identity is. So `List<A|B> | B` has two
     arms and `Ok (Str|Int) | Err Str` has two arms — the parentheses there
     are a payload, not grouping.
-* [union-arm-identity] Union arm identity is *positional over the runtime
+* [type-union-arm-identity] Union arm identity is *positional over the runtime
   union's non-`None` arms, in order of first appearance* (qualifiers
   erased). For a union without literals the runtime union is the declared
   one, so this is the declared arms in declaration order.
@@ -368,7 +368,7 @@ Conventions:
 * [type-literal-qualified] **A qualified literal is its literal** (user
   decision 2026-10-20, the CLI design record round 2 Q1): `Short "port" | Short
   "verbose" | "host"` collapses into one `Str` at run time like any literal
-  union [union-arm-identity], because the qualifier erases [qual-erasure];
+  union [type-union-arm-identity], because the qualifier erases [qual-erasure];
   `is Short` is a value test against the literals carrying `Short`
   (`literal_union_test`), and a `when` over the arms is exhaustive as over
   any. `literal::arm_lit` is the one predicate both the checker and the
@@ -391,7 +391,7 @@ Conventions:
   assertions are dangerous and should therefore not be 'easy' to do"). Until
   then `expr!` asserted presence and answered the value without its `None`
   arms. Its replacements are the forms that say so out loud:
-  * `e ?: unreachable!("why")` for a value — the first-arm pick [elvis] with
+  * `e ?: unreachable!("why")` for a value — the first-arm pick [op-elvis] with
     a trapping right side, which on a `T?` is exactly the old `e!`. On a
     union with more than one value arm (`A | B | None`) it keeps only `A`, so
     there the remedy is a test.
@@ -421,7 +421,7 @@ Conventions:
     surfaces unfinished code (std is exempt, like other smells). It takes an
     optional message like `unreachable!`, and lowers to the same trap, so no
     backend distinguishes the two.
-  * The condition is a `Bool` [cond-bool] and the message a `Str`.
+  * The condition is a `Bool` [expr-cond-bool] and the message a `Str`.
   * **Contextual**: `assert`, `unreachable`, and `todo` stay ordinary
     identifiers, and only `assert!(` / `unreachable!(` / `todo!(` are the
     forms.
@@ -476,7 +476,7 @@ Conventions:
     build modes, and every language surveyed that made assertions optional
     (Java's `-ea`, Kotlin's inherited `assert`) ended up with a vocabulary nobody
     trusts.
-* [elvis] `subject ?: rhs` is the **first-arm pick** (user decision
+* [op-elvis] `subject ?: rhs` is the **first-arm pick** (user decision
   2026-10-14, simplifying the earlier positional-pick form that also had
   `??:`/`:?`). The expression's value is the subject union's **first arm**
   when the subject holds it; otherwise `rhs` runs, with `_` bound to the arms
@@ -484,17 +484,17 @@ Conventions:
   and leaves `None`; `(Ok Int | Err Str) ?: f(_)` keeps `Ok Int` and `_` is
   `Err Str`.
   * **First arm, by position.** The pick keeps `declared[0]` over the
-    subject's declared arm order [union-arm-identity]. There is no multi-arm
+    subject's declared arm order [type-union-arm-identity]. There is no multi-arm
     or back-to-front form — the `??:` (keep two) and `:?` (keep the last)
     spellings were retired because the code they produced did not read well;
     chain `?:` left-associatively to peel arms one at a time instead.
   * **`_` carries the arms left behind, tags and all** — a sub-union of the
-    storage, by `[rewrap]`. `err(_)` on a `Thrown Str` honestly gives
+    storage, by `[type-rewrap]`. `err(_)` on a `Thrown Str` honestly gives
     `Err Thrown Str`.
   * **Widening is allowed**: a `rhs` whose type is outside the subject's arms
     joins into the result, so `Int? ?: "none"` is `Int | Str`. Both sides are
     coerced into the join — the right side at its own span, the picked value
-    at the operator's span [rewrap].
+    at the operator's span [type-rewrap].
   * **Precedence is Kotlin's** for binding tightness: tighter than
     `is`/comparison/equality, looser than additive. `m[k] ?: 0 > 3` is
     `(m[k] ?: 0) > 3`; `a ?: b + 1` is `a ?: (b + 1)`. It is
@@ -532,21 +532,21 @@ Conventions:
     `maybe_t() ?: return None` has the picked type exactly.
   * A `?:` on a subject with **only one arm** (a non-union, or a union after
     narrowing) leaves nothing for the right side — an error, the same "dead
-    scaffolding" a throw-free `try` gets [try].
+    scaffolding" a throw-free `try` gets [throw-try].
   * **The placeholder `_`** reads only in a pick's right-hand side, where it is
-    the arms left behind; reading it anywhere else is an error [placeholder].
+    the arms left behind; reading it anywhere else is an error [expr-placeholder].
   * Backends: the pick lowers to a conditional (`if`/`when`) testing whether
     the subject holds one of the picked arms — the picked value in the then
     branch, `rhs` in the else — on both backends [kt-elvis] [rs-elvis]. The
     `T?` representation *is* a Kotlin nullable, so a `?:` on a `T?`
     is a plain null test there.
-* [elvis-guard] **A leaving right side takes its flow effects with it**: a
+* [op-elvis-guard] **A leaving right side takes its flow effects with it**: a
   `return elem` there moves `elem` on a path the fall-through never shares,
   so its consumptions are restored at the join (found on `std.heap`'s
   sift, 2026-09-24 — the pick's `?: return elem` poisoned the fn's own
   final `return elem`). A value-yielding right side merges its effects as
   ever, since both paths continue.
-* [elvis-guard] A pick whose right side **leaves** narrows its subject on the
+* [op-elvis-guard] A pick whose right side **leaves** narrows its subject on the
   path below (user decision 2026-09-21): the subject was one of the picked
   arms, or the code would not be running. The same facts an `is` guard leaves
   [is-narrow-guard], reached from an expression rather than a condition, and
@@ -557,10 +557,10 @@ Conventions:
     leaves `r` an `Ok Int` below.
   * Consequence for the lowering: the picked value is **read** out of the
     subject, not moved out of it, since the subject is still live below.
-* [rewrap] A value spanning **fewer arms than its storage** is produced by
+* [type-rewrap] A value spanning **fewer arms than its storage** is produced by
   mapping arm to arm: each source arm to the target arm of the same type, and a
   source arm the target does not have to an unreachable. This is what
-  [let-infer]'s `Rewrap` coercion has always emitted for an annotated slot
+  [var-let-infer]'s `Rewrap` coercion has always emitted for an annotated slot
   (`let b: Str | Int = a` out of a `Str | Int | Bool`); the sites that produce
   such a value **with no slot** reach the same mapping:
   * a **multi-arm lift binding** [qual-lift], whose source arms are recorded
@@ -571,7 +571,7 @@ Conventions:
     larger union, same treatment;
   * a **pick's unpicked side** (`_`), whose source arms keep their tags.
   * The mapping **consumes** its input, so it takes an owned copy: the subject is
-    still readable after the form ([elvis-guard], and the arms the right side
+    still readable after the form ([op-elvis-guard], and the arms the right side
     reads). Kotlin needs no copy, its values being references.
 
   * **A union narrowed to some of its arms is read as the narrower union**
@@ -580,9 +580,9 @@ Conventions:
     Bool` narrowed by `!is Bool` and passed to an `Int | Str` parameter, and
     a `("json" | "text")?` narrowed by `!is None` into a `"json" | "text"`
     field, were rewrapped twice, which rustc and kotlinc refused.
-* [placeholder] `_` reads as **the arms a pick left behind** — the sub-union of
+* [expr-placeholder] `_` reads as **the arms a pick left behind** — the sub-union of
   the subject after its first arm (the arm `?:`/`?>` did not pick)
-  [elvis]. It reads only inside a pick's right-hand side; reading it anywhere
+  [op-elvis]. It reads only inside a pick's right-hand side; reading it anywhere
   else is an error, not a silent `Unknown`.
   * It is not a name: it cannot be declared, shadowed or captured. The word is
     reserved, and appeared in no `.sv` source when it was.
@@ -596,7 +596,7 @@ Conventions:
     independent, since neither introduces a name to collide.
   * Reading it outside a pick's right-hand side is an **error**, not a silent
     `Unknown`.
-* [safe-nav] `base?.field` / `base?.m(args)` is **safe navigation** (user
+* [op-safe-nav] `base?.field` / `base?.m(args)` is **safe navigation** (user
   decision 2026-10-14, generalized from `T?`-only to any union): it picks the
   receiver's **first arm**, performs the link on it, and **replaces that arm
   with the link's result** in the union — the other arms pass through
@@ -670,7 +670,7 @@ Conventions:
     mutation (arrays are fixed-size): `array_of`, `size`, `get`, `first`,
     `iter` (user decision 2026-09-02). `for x in xs` over an array is
     `next(iter(xs))` with std's `iter`, which the backends spell as their native
-    loop [for-iter] [iter-for-native]; the element is the array's `T`.
+    loop [iter-for] [iter-for-native]; the element is the array's `T`.
 * [col-by] Every collection has a **generated constructor**: `*_by(size,
   init)` builds `size` elements by calling `init` once per index, in order —
   `array_by`, `list_by`/`mut_list_by`, `set_by`/`mut_set_by` (duplicates
@@ -680,7 +680,7 @@ Conventions:
     `MutableList(n, init)`) or to `.map(init)` rather than being invoked
     inline: an immediately applied lambda literal has no expected type, and
     kotlinc then demands an explicit parameter type.
-* [checked-type] **`Checked<T>` is std's "you must look at this"**: a
+* [type-checked] **`Checked<T>` is std's "you must look at this"**: a
   `linear struct` in `std.core.checked` wrapping a value whose obligation is
   discharged by `detach` (read it) or `ignore` (say you meant not to). Dropping
   one is the ordinary linear error [linear-group], which is the whole mechanism —
@@ -859,7 +859,7 @@ Conventions:
   `to_list` over a `SortedSet` lives in `std.core.sorted` and so cannot mint it.
 * [col-reversed] `reversed(list)` walks a list back to front — an **iterator**
   [iter-protocol], not a copy: `: Next<self, proj T>`, so `for x in
-  reversed(xs)` borrows each element [yield-proj] and `xs` stays usable.
+  reversed(xs)` borrows each element [iter-yield-proj] and `xs` stays usable.
   Kotlin's own `reversed()` answers a fresh list; a Salvo caller wanting the
   reversed *list* writes `to_list(reversed(xs))`. Step 0 of the
   refinement-types sequence (user decisions 2026-09-23; ROADMAP.md).
@@ -886,7 +886,7 @@ Conventions:
   2026-10-10), `swap(list, i: Idx(list)
   Int, j: Idx(list) Int) -> None` (no `Bool` — the claims did the checking
   [col-bounds]), `replace` [col-replace], and the same `get`/`replace` on a
-  `Deque` and the buffers [buffer-type]. Ranked above their plain siblings
+  `Deque` and the buffers [col-buffer]. Ranked above their plain siblings
   [fn-overload-rank].
   * **Any container with a `size`** (user decision 2026-10-05, ROADMAP §0j
     6g0; built 2026-10-05): `qualifies(index: Int, c: C, ?size: (c: C) ->
@@ -920,7 +920,7 @@ Conventions:
   refinement-types design, total end to end — and `binary_search`'s found
   arm is `(+Idx(list) Int)?`, so narrowing the optional is the last check
   the result ever needs.
-* [buffer-type] **`std.core.buffer`'s `IntBuffer` and `LongBuffer`** (user
+* [col-buffer] **`std.core.buffer`'s `IntBuffer` and `LongBuffer`** (user
   decisions 2026-10-05, ROADMAP §0j 6g; built 2026-10-05): `iterable platform
   type IntBuffer canbe Mut : Iter<self, Int>`, a fixed-length run (Kotlin
   `IntArray`, Rust `Vec<i32>`; `LongBuffer` over `Long`, `LongArray`,
@@ -934,7 +934,7 @@ Conventions:
   platform fns of one module may not overload.
 * [ref-notsame] `std.core.ref` declares `qualifier NotSame<T>(a: T) of T`
   [qual-depend] — `b` is a different element from `a` — the proof that two
-  bound mutable handles cannot alias [elem-distinct] (user decision
+  bound mutable handles cannot alias [fate-elem-distinct] (user decision
   2026-10-10, retiring `std.core.index`'s `NotEq` on indices: a proof about the
   *handles* holds whatever their container's `at` does, where `i != j` only
   meant distinct elements for list indexing). Its predicate is the private
@@ -1005,7 +1005,7 @@ Conventions:
   `lines(str)` (split at `\n`, a `\r` before it dropped, no empty last line
   for a trailing newline), and `split_once(str, sep)` / `split_last(str, sep)`
   (`(before, after)?`, at the first or last `sep`).
-* [path-type] **`fs.path.Path` is a path as a value** (user decisions
+* [fs-path-type] **`fs.path.Path` is a path as a value** (user decisions
   2026-10-04, and 2026-10-05 for the module, which moved from `path` to `fs.path`: a struct rather than functions over `Str`, so `Str`'s surface
   and its completion stay free of path operations): `struct Path : Hashed<self>
   by auto { text: Str }`, built with `path(text)`, read with `to_str`. Its
@@ -1037,7 +1037,7 @@ Conventions:
   a `DequeNext` pass and `reversed`. Out-of-range is `None` [col-bounds].
   * **Not included, by decision**: a literal (`[…]` stays a `List`),
     `NonEmpty`/`Sorted` claims, `eq`/`hash`/`cmp` (not a key), and — for now
-    — a wire form: declared `noremote` [noremote], since neither runtime has
+    — a wire form: declared `noremote` [net-noremote], since neither runtime has
     a codec, so a crossing is refused by the checker rather than by the host
     compiler.
   * Lowering: `VecDeque<T>` ([rs-deque]) and `kotlin.collections.ArrayDeque`
@@ -1132,7 +1132,7 @@ Conventions:
   * **A tuple or a list is a key** since recursive implicit resolution
     (2026-10-06) [implicit-recursive]: std declares `hash`/`eq`/`cmp`
     in Salvo for `List<T>` and for pairs and triples (`eq`/`cmp` beside the
-    types, in `std.core.list` and `std.core.basic` [unique-shape]; the hashes
+    types, in `std.core.list` and `std.core.basic` [op-unique-shape]; the hashes
     in `std.core.compare`), each taking its parts'
     own by implicit, so `Mut Set<(Int, Str)>` carries `(hash, eq)` like any
     other key. (Until then this was a deliberate, diagnosed limitation of
@@ -1166,7 +1166,7 @@ Conventions:
   `Box<Str> { value: 7 }` is still reported. Each field's declared type is
   unified against its value's type, in field order, so a later field may widen
   an earlier binding exactly as a later argument does.
-* [union-spread] **A `...T` spread arm binds a type parameter to a *span* of
+* [type-union-spread] **A `...T` spread arm binds a type parameter to a *span* of
   union arms** (user decision 2026-10-20, superseding the implicit
   2026-10-12 grouping). In a union parameter or return type, an arm written
   `...T` (`T` a generic in scope) captures **one or more** of the argument
@@ -1193,7 +1193,7 @@ Conventions:
     (two parameter arms, three argument arms), the error directing to a `...`.
     An explicit type argument (`detach<Str | Int, Bool>(…)`) names the split
     and always applies.
-  * **Lowering** is representation-only (`[core-layers]`: a backend's spelling
+  * **Lowering** is representation-only (`[backend-core-layers]`: a backend's spelling
     of a flat fact). The callee is one generic body over the *nested* slot
     (`Union2<T, Box2<C>>`, `T` one arm); the caller rewraps the flat argument
     to that nested shape and the nested result back to flat, through the one
@@ -1373,8 +1373,8 @@ Conventions:
   * Leniency is about **inference, not visibility** (user decision
     2026-09-03). It does not excuse anything the author *wrote*: names in
     type positions must resolve [name-resolve], and members must be
-    justified by a declaration ([call-resolve], [field-resolve],
-    [index-resolve], [iter-resolve]). Reaching a target-language feature
+    justified by a declaration ([call-resolve], [struct-field-resolve],
+    [col-index-resolve], [iter-resolve]). Reaching a target-language feature
     means declaring it — an `intrinsic` in std [backend-intrinsic], or a
     `platform handler` [platform-handler] in customer code.
   * The emitters keep syntactic fallbacks where a checker table may
@@ -1392,18 +1392,18 @@ Conventions:
   it).
 * [var-block-scope] Every block (`if`, `while`, `for`, `when` branches) is
   its own scope; declarations do not escape.
-* [let-infer] `let` without an annotation takes the value's logical type
+* [var-let-infer] `let` without an annotation takes the value's logical type
   as the declared type.
   * A narrowed union value is physically re-wrapped to its own logical
     type at the `let` boundary (coercion recorded by the checker).
-* [for-elem-write] **A `for` body may write a field of its element** (user
+* [iter-for-elem-write] **A `for` body may write a field of its element** (user
   decision 2026-10-04): `for a in xs { a.dead = true }` over a `Mut List<Mut
   T>` changes the list's elements. Since the `ref(c)` rework the element of
   an in-place walk over `Mut` elements is a handle, `ref(xs) Mut T`
   [ref-handle], where the read-only `proj(xs) Mut T` would refuse the write.
   Rust iterates `iter_mut()` when the body assigns through the element;
   Kotlin needed nothing.
-* [let-destructure] `let (a, b) = ...` and `let {field, field: name} = ...`
+* [var-let-destructure] `let (a, b) = ...` and `let {field, field: name} = ...`
   destructure tuples and structs.
   * Struct destructuring binds the *declared* field types, deliberately
     ignoring predicate-qualifier field overrides (see
@@ -1561,7 +1561,7 @@ Conventions:
     values really being immutable [copy-fn]). Arrays remain
     index-assignable without `Mut` (status quo; `copy` performs a real
     array copy).
-* [field-canbe-mut] **`name: T canbe Mut` on a struct field**: the field is
+* [struct-field-canbe-mut] **`name: T canbe Mut` on a struct field**: the field is
   `Mut T` exactly when the struct value is `Mut`, and `T` otherwise, so a
   plain struct is immutable all the way down (user decision 2026-10-05,
   ROADMAP §0j step 6b; built 2026-10-05). A field written `Mut T` stays
@@ -1647,7 +1647,7 @@ Conventions:
     — not during type lowering, which runs repeatedly.
 * [qual-no-dup] The same qualifier cannot be applied twice to one type
   (`Old Old Person` is invalid).
-* [canbe-optin] `canbe` declares an *opt-in*: the declaration it follows
+* [qual-canbe-optin] `canbe` declares an *opt-in*: the declaration it follows
   may carry the named qualifier. Two sites use it — auto-qualifiers on
   struct and type declarations (`struct Person canbe Mut` [struct-mut],
   `intrinsic type List<T> canbe Mut` [type-canbe-mut], `struct FileHandle
@@ -1665,7 +1665,7 @@ Conventions:
     rejected as such.
   * `once` joined the list 2026-09-07 (user decision) so a hand-written
     **iterator struct** can declare that driving it uses it up
-    ([iter-protocol], [once-fn]) — the alternative, inferring it from the
+    ([iter-protocol], [fn-once]) — the alternative, inferring it from the
     presence of a `next`, would attach an obligation to someone's type on
     the strength of a method name.
 * [qual-overload] **A qualifier name may be declared over several subject
@@ -1933,7 +1933,7 @@ Conventions:
     for one concept was the cost that settled it).
   * The compiler's own capability qualifiers stay intrinsic and are *not*
     user-declarable: `Mut` [type-canbe-mut], `Linear` [linear-group],
-    `once` [once-fn], `proj` [readonly-return] each need a
+    `once` [fn-once], `proj` [proj-readonly-return] each need a
     representation choice, a flow rule, a non-standard subtyping
     direction, or a restricted position. Vocabulary: users declare
     *state* or *provenance*; the compiler owns *permissions* (droppable,
@@ -2014,7 +2014,7 @@ Conventions:
     (`fn ok<T>(value: T) -> +Ok T`).
 * [qual-ctor-same-file] Constructor functions must be declared in the same
   file as their qualifier.
-* [arm-infer] **Provenance-arm inference** (user decision 2026-10-12): at a
+* [qual-arm-infer] **Provenance-arm inference** (user decision 2026-10-12): at a
   position whose expected type is a wrapper union, a bare value that no arm
   accepts by subtyping is wrapped into the one *provenance-tagged* arm whose
   payload it fits — `return name.size()` for `-> Ok Int | Err Str` is
@@ -2044,7 +2044,7 @@ Conventions:
     mention its names.
   * There is no `Result` type: the union *is* the result. A `type
     Result<T, E> = Ok T | Err E` alias would only hide the arms.
-* [result-errs] **The accumulating outcome, `Ok T | Errs NonEmpty List<E>`**
+* [type-result-errs] **The accumulating outcome, `Ok T | Errs NonEmpty List<E>`**
   (the CLI design record X12, Q11, the arm's name `Errs`; built 2026-10-20), in
   `std.core.result`: every error, not the first. `provenance qualifier Errs<T> of
   T`, its constructors `errs(e)` (one error) and `Errs(list)`, and
@@ -2303,7 +2303,7 @@ Conventions:
   `list.add(the age)`; it exists to flatten a nest of calls into a left-to-
   right pipeline.
   * **`_` is mandatory** in the right side and reads as the piped value —
-    the same `_` an elvis right side binds [placeholder], extended to the
+    the same `_` an elvis right side binds [expr-placeholder], extended to the
     pipe. A right side that never reads `_` is refused (dead scaffolding, as
     a `?:` on a one-arm subject is). It may read `_` **more than once** exactly
     when an ordinary local could — a copyable value, a `ref`/`proj` borrow —
@@ -2323,7 +2323,7 @@ Conventions:
     Kotlin — fixed 2026-10-14).
 * [expr-safe-pipe] **`value ?> expr` is the null-safe pipe** (user decision
   2026-10-14, generalized to any union alongside `?.`): the pipe analogue of
-  `?.` ([safe-nav]). It picks the left side's **first arm**, binds `_` to it,
+  `?.` ([op-safe-nav]). It picks the left side's **first arm**, binds `_` to it,
   runs the right side, and **replaces that arm with the result** in the union;
   the other arms pass through unchanged. `(A | B | C) ?> f(_)` where `f: A ->
   X` is `X | B | C` (arms collapse). A `T?` recovers the familiar shape: `_`
@@ -2335,7 +2335,7 @@ Conventions:
     `|>` — the mirror of `?.`.
   * **Arms collapse, no double-wrap.** When the right side's result equals a
     pass-through arm (or is itself optional against a `None` arm) it is not
-    added twice — the generalized `Option<Option<T>>` guard [safe-nav].
+    added twice — the generalized `Option<Option<T>>` guard [op-safe-nav].
   * **`_` is mandatory** and reads as the present (first-arm) value, the same
     `_` a plain pipe binds [expr-pipe]; a non-diverging right side that never
     reads it is refused.
@@ -2362,7 +2362,7 @@ Conventions:
   * **The rules are the ones they always had**, only reached through the
     expression checker: the return type check, the bare-`return`-in-a-
     value-returning-fn error, `break`'s contribution to a loop's value
-    [while-value], "`break`/`continue` outside a loop", and the move of a
+    [loop-while-value], "`break`/`continue` outside a loop", and the move of a
     returned or broken value [deduce-consume]. (The linear exit checks
     [linear-obligation] and the state-whole check [linear-state] are the
     IR's, at the `Return` and `Break` statements the escapes lower to.)
@@ -2379,7 +2379,7 @@ Conventions:
     escape nested in an expression where the enclosing block owes cleanup
     ([rs-exit-splice] runs at statement position), reported rather than
     emitted wrong [backend-never-wrong].
-* [dead-code] A statement reached only after a **diverging** statement in the
+* [expr-dead-code] A statement reached only after a **diverging** statement in the
   same block — one typed `Never` (`return`, `break`, `continue`, `throw`,
   `unreachable!()`, `todo!()`) — is unreachable, and the checker **warns** on
   the first such statement (user decision 2026-10-12). A warning, not an
@@ -2422,19 +2422,19 @@ Conventions:
     (PIPELINE.md §II.10 P14, as for `==`).
   * **Then the visible declarations and the available effects' members**
     (R10 D3), ranked as the call ranks them; a tie is the call's ambiguity
-    (`m@E` its remedy for a member). Under [unique-shape] a concrete type has
+    (`m@E` its remedy for a member). Under [op-unique-shape] a concrete type has
     one candidate, declared in its own file: **a type of your own gets `+`
     by declaring `plus` there** (any right operand, any return type, D-3:
     `times(v: V, k: Int) -> V`), and no import changes what `+` means.
   * **std declares the numbers' operations** beside the types, in
     `std.core.basic`: intrinsic `plus`, `minus`, `times`, `divide` for
     `Int`, `Long`, `Float` and `Double`, each at one width (`(Int, Int) ->
-    Int`, …). `Byte` has none [byte-value]; `Str` has none, since `+` does
+    Int`, …). `Byte` has none [type-byte]; `Str` has none, since `+` does
     not concatenate (interpolation does).
   * **The result is the call's return type.** At a number that is the
     (promoted) operand type, as before.
   * **What the backends spell natively is the selected declaration's
-    business** [core-layers]: an operator resolved to std's intrinsic at a
+    business** [backend-core-layers]: an operator resolved to std's intrinsic at a
     basic type *is* the primitive operation, so the IR writes its own
     operator, which every backend spells as the host's — wrapping integer
     arithmetic [op-wrap], `Int / Int` dividing toward zero, a zero divisor
@@ -2462,7 +2462,7 @@ Conventions:
     compilers (rustc E0369/E0600), and are now the ordinary operand errors.
   * **`%`, unary `-` and `++`/`--` name no function** (O1's table has none):
     they stay the host's operators on the numeric scalars (`%` with the
-    same widening; `++`/`--` on an `Int` place [inc-dec]), and a struct gets
+    same widening; `++`/`--` on an `Int` place [op-inc-dec]), and a struct gets
     none of them. Their names, if any, are PIPELINE.md §II.10 P16 (open).
     Compound assignment is the binary operator it desugars to
     [op-compound], so `v += w` is `v = plus(v, w)`.
@@ -2475,7 +2475,7 @@ Conventions:
 * [op-pow] **`a ** b` is `pow(a, b)`** (B3.3e; the brief's `**`,
   OPERATOR_OVERLOAD.md O1's name table), resolved as [op-arith]'s operators
   are — the enclosing `?pow`, then the visible `pow`s and members, one per
-  concrete base type [unique-shape]. A type of your own gets `**` by
+  concrete base type [op-unique-shape]. A type of your own gets `**` by
   declaring `pow` in its file (`fn pow(p: Person, power: Int) -> Person`).
   * **Precedence**: tighter than `*` and than a prefix operator on its left,
     **right-associative**, its exponent possibly unary: `-a ** b` is `-(a **
@@ -2540,7 +2540,7 @@ Conventions:
   `mix_hash` is ordinary Salvo over [op-wrap] since.
 * [op-convert] `std.core.basic` declares the explicit conversions the
   operators point at: `to_int`, `to_long`, `to_float`, `to_double`, one
-  overload per source width [intrinsic-fn]. Truncating conversions
+  overload per source width [platform-intrinsic-fn]. Truncating conversions
   truncate toward zero and **saturate** at the target's bounds
   identically on both backends; `to_int(Long)` keeps the low 32 bits
   (Kotlin `toX()` ≡ Rust `as`, verified pairwise).
@@ -2564,7 +2564,7 @@ Conventions:
     arguments: **qualifiers included** (R10 D5: a `Packed Bag<Int>` overload
     beats `eq<T>(Bag<T>, …)`), and **no same-type rule** (R10 D6: the
     operands meet whatever `cmp` takes them, a mixed one declared with its
-    left type [unique-shape]). Under [unique-shape] a concrete type has one
+    left type [op-unique-shape]). Under [op-unique-shape] a concrete type has one
     candidate, so no import changes what `<` means.
   * **Two lowerings run before the call**, as [op-arm-eq] does (R10 D7):
     mixed numeric widths widen first [op-promote], since the call rule has no
@@ -2575,7 +2575,7 @@ Conventions:
     order, so `<` on floats is a call only when something in reach — an
     implicit — answers it (§II.10 P12, open).
   * **What the backends spell natively is the selected declaration's
-    business, not the operand types'** [core-layers]: a comparison resolved
+    business, not the operand types'** [backend-core-layers]: a comparison resolved
     to std's intrinsic `cmp`/`eq` at a basic type [type-basic] *is* the
     primitive comparison, so the IR writes its own operator, which every
     backend spells as the host's; resolved to anything else — an enclosing
@@ -2584,7 +2584,7 @@ Conventions:
   * **`Str` orders by code point** on both backends (`cmp(Str, Str)`, which
     the JVM's `<` does not deliver [kt-ordered]); a struct orders when it has
     a `cmp`, and a tuple, a container or a fn value when its home declares one
-    — std, for the built-in and structural types [unique-shape]. With none in
+    — std, for the built-in and structural types [op-unique-shape]. With none in
     scope the operator is an error **naming the operator** ("no `cmp` for
     `<` on `P`: `<` is `cmp(P, P)`, and no `cmp` in scope takes `(P, P)`")
     and the remedy — a `cmp` inside the type's body, or `: Ordered<self> by
@@ -2614,13 +2614,13 @@ Conventions:
     widths still mix by widening first [op-promote], and a union compared
     with a value matching one arm is a test before the call [op-arm-eq].
   * **Each type has one**: an `eq` (or `cmp`) on a type is declared only in
-    the type's own file [unique-shape], so for a concrete type the call has
+    the type's own file [op-unique-shape], so for a concrete type the call has
     one candidate and no import changes what `==` means.
 * [op-bool] `&&`, `||` and unary `!` take `Bool` operands only — the
-  value-position twin of [cond-bool], with the same no-truthiness
+  value-position twin of [expr-cond-bool], with the same no-truthiness
   reasoning and remedy text. Condition position reports once, through
-  [cond-bool].
-* [cond-bool] Conditions are boolean expressions: `if`/`elif`, `while`,
+  [expr-cond-bool].
+* [expr-cond-bool] Conditions are boolean expressions: `if`/`elif`, `while`,
   and a subject-less `when`'s branch heads [when-condition] accept `Bool`
   and nothing else. There is no truthiness — no rule could turn an `Int`,
   a `Str` or a possibly-absent `Bool?` into a decision, and guessing one
@@ -2637,13 +2637,13 @@ Conventions:
     parenthesized expression) it is enabled again, since a `{` there cannot
     open the block: `for n in notices(Path { text: t }, s) { … }` (fixed
     2026-10-05).
-* [if-else-none] A missing `else` contributes `None` to an
+* [expr-if-else-none] A missing `else` contributes `None` to an
   if-expression's type (`Str` + no else → `Str?`).
-* [terminal-scope] A body-taking construct — `if`, `while`, `for`, `try`,
+* [expr-terminal-scope] A body-taking construct — `if`, `while`, `for`, `try`,
   `waitfor` — may write its body as a trailing `...` where the `{` would go
   (user decision 2026-10-11): the **rest of the enclosing block** becomes the
   body. It removes a level of nesting for the guard-then-continue shape, the
-  structural companion to the elvis guard [elvis-guard].
+  structural companion to the elvis guard [op-elvis-guard].
   * **Statement-only.** A `...` body is legal only when the construct is itself
     a statement — the whole statement, not a sub-expression. In a value
     position (a `let` value, a call argument, an operator operand, inside
@@ -2672,11 +2672,11 @@ Conventions:
     `[when]` already runs after whichever arm was taken).
   * It is purely syntactic: a terminal body is the same `Block` a braced body
     is, so the checker, narrowing and both emitters treat it identically.
-* [terminal-lambda] **A call's last argument may be a lambda with a terminal
+* [expr-terminal-lambda] **A call's last argument may be a lambda with a terminal
   `...` body** — `map(xs, (e) -> ...)` is `map(xs, (e) -> { <rest of block> })`
   (user decision 2026-10-18): the rest of the enclosing block becomes the
   lambda body, so a call taking a function reads as a block without a nested
-  brace. The trailing-lambda companion to `[terminal-scope]`.
+  brace. The trailing-lambda companion to `[expr-terminal-scope]`.
   * The lambda's parameters are in scope for the rest of the block, which runs
     as the body; the call's own value is unaffected (`return map(xs, (e) ->
     ...)` returns the mapped list, while the rest is the mapper).
@@ -2688,7 +2688,7 @@ Conventions:
   * Purely syntactic, in two phases: the parser records the `(params) -> ...`
     as a transient `LambdaBody::Terminal`, lets the call and statement close,
     then captures the rest of the block (`parse_terminal_rest`, reused from
-    `[terminal-scope]`) and rewrites the placeholder to an ordinary
+    `[expr-terminal-scope]`) and rewrites the placeholder to an ordinary
     `LambdaBody::Block` — so the checker, IR and both emitters never see it.
 
 * [is-narrowing] `is` checks flow-narrow their subject *place*
@@ -2699,7 +2699,7 @@ Conventions:
     expression; narrowing needs a narrowable place, so an element read
     (`arr[i]`) is tested and bound but never narrowed.
   * Narrowing resets to the declared type for any variable assigned
-    inside a branch ([narrow-assign-reset]); place facts fall on the
+    inside a branch ([is-narrow-assign-reset]); place facts fall on the
     events in [flow-place-invalidate].
   * **A borrowed optional narrows like the optional** (2026-10-06): the
     total `get` over a `List<P?>` answers `proj(xs) P?`, a view of the whole
@@ -2769,7 +2769,7 @@ Conventions:
     narrowed.
   * An `elif` chain accumulates, so `if v is Int { return } elif v is Str
     { return }` leaves the third arm.
-  * [narrow-assign-reset] still applies on the *surviving* path only: an
+  * [is-narrow-assign-reset] still applies on the *surviving* path only: an
     assignment inside a branch that exits cannot be observed after the
     `if`, so it resets nothing there (the same reason the fall-through
     merge ignores that branch).
@@ -2813,7 +2813,7 @@ Conventions:
     and with a binding nothing narrows — the subject keeps its declared type
     and the lifted union lives in the name. Built end to end (2026-09-21): the
     bound value spans fewer arms than its storage, so it is produced by the
-    arm mapping [rewrap] rather than by a payload read. **Without** a binding
+    arm mapping [type-rewrap] rather than by a payload read. **Without** a binding
     it stays refused for the original reason: one re-read cannot stand for two
     wrapper positions.
   * A `when` **branch head** takes the same form: `is ^Qual...` alongside
@@ -2851,7 +2851,7 @@ Conventions:
   subjects stay rejected even though
   they now narrow (user decision 2026-09-03): `if … is` covers them.
   * A **qualified union** (`Ok (A | B)`, a `Thrown (Str | Int)` message
-    [try]) is a claim *about* a union, so its arms belong to the inner
+    [throw-try]) is a claim *about* a union, so its arms belong to the inner
     type. Reach them with a `^` branch head ([qual-lift]:
     `when v { is ^Ok { when v { … } } }`), or bind at the inner type
     (`let inner: A | B = value`). The droppable-qualifier rule does the
@@ -2891,12 +2891,12 @@ Conventions:
   2026-09-05). `when {` is unambiguous — a subject is always a plain
   variable, so a brace after `when` cannot be one.
   * Semantics are `if`/`elif`/`else`'s, and the checker takes the same
-    path: bare boolean branch heads [cond-bool], narrowing per branch with
+    path: bare boolean branch heads [expr-cond-bool], narrowing per branch with
     the earlier conditions accumulated as exclusions [is-narrowing],
     branch values unioning into the result [when-value], and
     definitely-returning when every branch returns [fn-must-return].
   * **The mandatory `else` is the whole point.** An `if` chain without one
-    folds `None` into its value [if-else-none], so a total chain of
+    folds `None` into its value [expr-if-else-none], so a total chain of
     conditions is a shape the reader has to verify; this form is the shape
     the grammar guarantees. Nothing else is new — which is why it reuses
     `check_if` rather than getting its own checking.
@@ -2915,7 +2915,7 @@ Conventions:
     [rs-when-cond].
 * [when-value] `when` is an expression; branches ending in `Never`
   (e.g. `return`) drop out of the value type.
-* [while-value] `while` evaluates to the last evaluated body expression,
+* [loop-while-value] `while` evaluates to the last evaluated body expression,
   or a `break value`; `else` runs (and provides the value) only if the
   loop never ran. Same for `for`.
   * The value type joins: the body's tail type, every `break value` type,
@@ -2930,7 +2930,7 @@ Conventions:
   terminates and never falls through, so it is typed **`Never`** (user
   decision 2026-10-12): like `return`/`throw`/`unreachable!()` it ends the
   path, so a fn whose tail is one needs no return [fn-must-return], and code
-  after it is unreachable [dead-code].
+  after it is unreachable [expr-dead-code].
   * **Only the literal `true`** triggers this — no constant folding, so
     `while 1 == 1` is an ordinary loop. **Only a `break` of *this* loop**
     lets control out: a `break` in a nested loop targets the inner one, and
@@ -2938,7 +2938,7 @@ Conventions:
     statically unreachable under `while true` and does not matter.
   * The predicate is the ordinary one [type-any-never]: once the loop's
     recorded type is `Never`, `block_exits`/`block_returns` and the
-    `[dead-code]` pass see it with no special case.
+    `[expr-dead-code]` pass see it with no special case.
   * **Lowering**: a literal-`true` condition emits a bare infinite loop (no
     exit test), so a host that types its own infinite loop as bottom does so
     — Rust's `loop {}` is `!`. A `Never` one additionally gets a trailing
@@ -2968,7 +2968,7 @@ Conventions:
     without a binding is read once by the test and so needs nothing.
   * `when` needs no rule of its own: its subject must already be a plain
     variable [when-union-subject].
-* [for-iter] **`for x in e` is the calls it names** (OPERATOR_OVERLOAD.md O1,
+* [iter-for] **`for x in e` is the calls it names** (OPERATOR_OVERLOAD.md O1,
   R10 D10, B3.3d): `next(e)` when a `next` takes `e` — `e` is an **iterator**
   [iter-protocol], driven where it lives — and otherwise `next(iter(e))` — `e`
   is a **source**, and the loop mints an iterator from it once [iter-mint].
@@ -2982,7 +2982,7 @@ Conventions:
   ordinary parameter named `next` does not take it, as for an operator (P14).
   * **"A `next` takes `e`"** is asked of every candidate by shape — one explicit
     parameter `e` unifies with, and `next`'s result shape `Emitted T | Finished`
-    (D-3 [unique-shape]): a `next` of another shape is an ordinary fn and does
+    (D-3 [op-unique-shape]): a `next` of another shape is an ordinary fn and does
     not make its argument an iterator. The call that follows ranks, fills and
     reports.
   * `next` is handed the iterator in the loop's mutable place (the place it
@@ -3004,11 +3004,11 @@ Conventions:
     keeps what the loop needs beyond them (the `Emitted` arm, whether the
     iterator is driven in place, the type `iter` mints, a step call). What a
     call does to its argument places is not applied there: driving has its own
-    rules for the subject [iter-drive-in-place] [proj-type] [for-elem-write].
+    rules for the subject [iter-drive-in-place] [proj-type] [iter-for-elem-write].
   * **The native loop is the backends' spelling** [iter-for-native]
-    [core-layers]: a `for` over an array or an `iterable platform type` whose
+    [backend-core-layers]: a `for` over an array or an `iterable platform type` whose
     `iter` and `next` both went to declarations — the type's own, by
-    [unique-shape] — is walked natively and records neither call (it makes
+    [op-unique-shape] — is walked natively and records neither call (it makes
     none, so it reaches neither). An enclosing `?iter`/`?next` or a member that
     takes it is called instead.
 
@@ -3089,7 +3089,7 @@ Conventions:
   the type a definition (`type N = ...`), or declare it `intrinsic`.
   `intrinsic` and `platform` declarations parse through their own modifier
   branches, so they are the only bodiless `fn`/`type` forms left; only std
-  may write `intrinsic` [intrinsic-std-only].
+  may write `intrinsic` [platform-intrinsic-std-only].
 * [platform-fn] **`platform fn name(…) -> T`** declares a top-level fn the
   host implements in the target language (user decision 2026-10-01, the ABI decisions
   D1; the modifier replaced "a bodiless fn" as the marker, so every interop
@@ -3291,7 +3291,7 @@ Conventions:
   * **Not an alias**: from that point the overload answers *only* to the new
     name — it leaves the old name's candidate set, in calls, in fn values
     and in implicit resolution, and so in the `next`/`iter` a `for` names
-    [for-iter] and the member an obligation is satisfied by
+    [iter-for] and the member an obligation is satisfied by
     [group-obligation] (B1 census D9, B3.3d: both read the raw scope until
     then). That is what makes the old name unambiguous again.
   * The parameter list repeats one overload's parameters exactly (same
@@ -3454,7 +3454,7 @@ Conventions:
   to reach a target-language method. The checker records each call it read
   this way (`Checked::dot_calls`); a backend normalizes exactly those and
   never guesses from the name (built 2026-10-06).
-* [ident-resolve] Every **identifier reference** must resolve to something
+* [name-ident-resolve] Every **identifier reference** must resolve to something
   declared — a local, a parameter, a handler, or a fn passed by name.
   Nothing else is a value, so the reference is an error (user request
   2026-09-11; it used to be typed `Ty::Unknown` and reach the emitters,
@@ -3465,7 +3465,7 @@ Conventions:
     a struct type, an effect, a qualifier, a `fns` group, a type — the
     same courtesy [effect-not-a-type] already extends.
   * The unresolved case carries import suggestions [diag-import-suggest].
-* [unused-var] A local that is never **read** is a *warning* (user request
+* [var-unused] A local that is never **read** is a *warning* (user request
   2026-09-11). Assignment is not a read: a variable only ever written to has
   no reader, which is the mistake worth reporting. A leading `_` opts out
   (`_spare`). Parameters are exempt — a signature often dictates them, and
@@ -3495,18 +3495,18 @@ Conventions:
     A computed callee used to be typed against its parameters and nothing
     else, so rustc and kotlinc found its mistakes; a claim through a local
     was dropped, and an empty list reached a `NonEmpty` parameter.
-* [field-resolve] Only structs have fields, and only the ones they declare
+* [struct-field-resolve] Only structs have fields, and only the ones they declare
   (predicate-qualifier overrides refine them [qual-field-override]).
   A field on any other known type — an `intrinsic type`, an array, a fn
   value, a generic `T` — is an error; a target-language member is reached
   through a declared accessor (an `intrinsic fn`, or an effect member a
   `platform handler` implements, in customer code).
-* [index-resolve] `[]` subscripts arrays only. Other collections expose
+* [col-index-resolve] `[]` subscripts arrays only. Other collections expose
   element access as declared functions (std's `get(list, index)`), and
   tuples use constant positions ([expr-tuple-index]).
 * [iter-resolve] A `for` subject must be a **step call** [iter-step-call], or a
   value some `next` takes (an **iterator**) or some `iter` takes (a
-  **source**), the calls [for-iter] names; anything else is an error saying
+  **source**), the calls [iter-for] names; anything else is an error saying
   which calls `for x in e` is and that none takes the subject, with the remedy
   of declaring a `next` or an `iter` beside a struct of one's own. No
   declaration is asked for (R10 D10, B3.3d): until then the subject had to be
@@ -3528,7 +3528,7 @@ Conventions:
 * [iter-generic-drive] A `for` over a **type parameter** is driven by the
   enclosing fn's protocol-shaped `?Next<It, T>` spread [implicit-group] (user
   decision 2026-09-09): its `next` is an implicit of this body, so it takes
-  `next(it)` as it takes the call [for-iter] [implicit-resolve-body] — there is
+  `next(it)` as it takes the call [iter-for] [implicit-resolve-body] — there is
   no path of its own (since B3.3d) — and the element type is its result's. This
   is what lets std's own combinators be written with `for`, and any combinator
   of one's own with them. A type parameter that is a **source** under a
@@ -3586,21 +3586,21 @@ Conventions:
     same container twice is `iter(xs)` twice, and mutating `xs` while an iterator
     over it lives is refused [proj-infer].
   * A `for` over a container is lowered as *mint then drive*: the checker
-    records the `iter` call (at `Key::FOR_ITER`, [for-iter]) beside the `next`
+    records the `iter` call (at `Key::FOR_ITER`, [iter-for]) beside the `next`
     to drive, and **the IR calls it** once before the loop — until 2026-09-09 the record was read by nobody, so a `for` over a
     container of one's own emitted a drive of the container itself, which the
     target compiler rejected (found while building [iter-fn], whose generated
     `iter` walks the same path).
   * **`for` over a *generic* source** mints through the `iter` implicit a
     `?Iter<C, It, T>` spread brought in: the call `iter(c)` goes through it
-    [for-iter] [iter-group].
+    [iter-for] [iter-group].
 * [iter-for-native] A `for` over an **array** or an **`iterable platform
   type`** [platform-iterable] (`List`, `Str`, `Bytes`, `Deque`, `Set`, `Map`,
   the sorted pair) records no driver at all when the `iter` and `next` it
-  names [for-iter] are declarations: the backends iterate natively, which
+  names [iter-for] are declarations: the backends iterate natively, which
   neither allocates a Salvo iterator nor consumes the subject. The language
   gets no special case (the rule is a declaration, not a name list); the fast
-  path is the backends' spelling of `next(iter(xs))` [core-layers], and its
+  path is the backends' spelling of `next(iter(xs))` [backend-core-layers], and its
   element type is the call's (an array's: its `T`). A native loop makes no
   call, so what a call to std's `iter<T>` would refuse — a linear `T`
   [linear-generics] — it does not.
@@ -3622,7 +3622,7 @@ Conventions:
     "the sequence ended".
   * `fns Next<It, T> { fn next(it: Mut It) -> Emitted T | => it: Mut
     Finished }` [group-obligation] [group-self]: a type of your own becomes
-    drivable by supplying the `next` [for-iter]; declaring `: Next<self, T>`
+    drivable by supplying the `next` [iter-for]; declaring `: Next<self, T>`
     (the group was `Yield` until 2026-10-27, OPERATOR_OVERLOAD.md O1) checks it
     at the struct, where a misspelled member is caught (roadmap R2, user
     decisions 2026-09-08; this replaced `fns Iterator<St, T>` and the `once`
@@ -3631,7 +3631,7 @@ Conventions:
   * Only the exact `Emitted T | Finished` shape is a driver; a `next` of
     any other shape is an ordinary function.
   * **`for` reads no declaration** (R10 D10, B3.3d): `for x in it` is the call
-    `next(it)` [for-iter], and the element type is that call's `Emitted` arm.
+    `next(it)` [iter-for], and the element type is that call's `Emitted` arm.
     Until then the `: Next<self, T>` clause was the one fact that made a value
     an iterator (roadmap R2): a matching `next` without it was not one, and
     the loop drove the first `next` in scope order whose state unified (B1
@@ -3648,7 +3648,7 @@ Conventions:
     *result* shape and a non-`Mut` state is an error saying so, rather than
     a puzzling "not iterable".
   * **What the checker hands over**: the `next` (and `iter`) as call facts at
-    `Key::FOR_NEXT` (`Key::FOR_ITER`) of the subject's node [for-iter], and
+    `Key::FOR_NEXT` (`Key::FOR_ITER`) of the subject's node [iter-for], and
     `Checked::for_drivers`, keyed by the subject's span: the arm identity, in
     place or not, the minted iterator's type (`PassDriver`). The driving loop
     is synthesized, so there is no call node for the IR to resolve, and having
@@ -3913,7 +3913,7 @@ Conventions:
     built 2026-10-28 for implicits) [effect-member-overload]
     [effect-available]. One candidate per member and instance in scope
     (`visible_effects`), ranked with the fns as one set; a `send` member is
-    not a value [free-send-fn]. The member is passed as **a closure over the
+    not a value [actor-free-send-fn]. The member is passed as **a closure over the
     instance** (`ImplicitArg::Member`; the IR builder's `member_value`: a
     `Lambda` whose body is the `MemberCall` through the captured instance),
     so it carries its handler: its type is the position's, effects and all,
@@ -4005,7 +4005,7 @@ Conventions:
     `?eq: …` needs itself, a cycle ``); both name `eq = …` as the remedy.
   * std's `List` and tuple `eq`/`cmp`/`hash`/`to_str` are Salvo on it
     (`eq`/`cmp`/`to_str` beside the types in `std.core.list` and
-    `std.core.basic` [unique-shape], `hash` in `std.core.compare`); the host's structural comparisons are
+    `std.core.basic` [op-unique-shape], `hash` in `std.core.compare`); the host's structural comparisons are
     gone. A tuple takes one implicit per part, of one name at different types
     [implicit-same-name].
   * Not yet: the carried identity is still a flat name [cmp-carry] — a
@@ -4110,7 +4110,7 @@ Conventions:
     ordinary overload, and calls to it resolve as ever [fn-overload]. The
     clause moves the *check* to the declaration; nothing is designated in
     the mechanism itself. `for` reads no obligation either (R10 D10,
-    B3.3d): it is the calls `next`/`iter` [for-iter], so `: Next<self, T>`
+    B3.3d): it is the calls `next`/`iter` [iter-for], so `: Next<self, T>`
     and `: Iter<self, It, T>` are promises checked here — and `: Next<self,
     T>` the element type a `?Next<It, T>` spread learns from the iterator's
     type [implicit-group], and a refused `for` the remedy it names.
@@ -4119,7 +4119,7 @@ Conventions:
   * **`by` is rejected on an `intrinsic type`** [obligation-by]: `by X`
     stamps a generated body over a struct's fields or a union's arms, and
     an intrinsic type has neither — its implementation is always a
-    hand-written `intrinsic fn` [intrinsic-std-only]. So an intrinsic
+    hand-written `intrinsic fn` [platform-intrinsic-std-only]. So an intrinsic
     type's obligation is always the bare, checked-promise form (`intrinsic
     type Int : Ordered<self>, Hashed<self>, ToStr<self>` in
     `lib/std/core/basic.sv`), satisfied by the hand-written `cmp`/`hash`/
@@ -4293,7 +4293,7 @@ Conventions:
   * At the parameter's **top level, on a non-union base** only: inside a
     type argument it is the variance question (ROADMAP §7), and a union's
     qualifiers can be the wrapper tags its runtime arms are told apart by
-    [union-arm-identity]. Everything else stays invariant but for
+    [type-union-arm-identity]. Everything else stays invariant but for
     [fn-kept-borrow] (a kept owned parameter reads a `proj`): a `count(xs:
     List<Int>)` does not fill `(xs: Mut List<Int>) -> Int` — `&Vec` is not
     `&mut Vec` on Rust — and is refused as before ("`measure` does not fit
@@ -4351,7 +4351,7 @@ Conventions:
     the checker records the position's type with the call's arguments
     substituted (`ImplicitArg::Resolved.want`), and for `protocol<E>` filling
     `?protocol: () -> Protocol<Ping>` that names `Ping` — so the adapter's
-    body is the `Protocol` literal for it [protocol-hash]. `copy` reads the
+    body is the `Protocol` literal for it [actor-protocol-hash]. `copy` reads the
     same field for its argument's shape [copy-implicit]. Any other intrinsic
     whose lowering needs a type argument is a codegen error as a value
     [backend-never-wrong], not a guess.
@@ -4413,7 +4413,7 @@ Conventions:
     (it lends every kept non-Copy parameter [proj-infer]), and the author's body
     as `fn next(__p: Mut Name) -> Emitted T | Finished => __p: Mut` with the
     parameters and the state fields written out as field reads (a `proj(xs)`
-    in the written return is redirected to `__p` [yield-proj]; a dependent
+    in the written return is redirected to `__p` [iter-yield-proj]; a dependent
     claim `Idx(xs)` becomes `Idx(__p.xs)` in the `next` and `Idx(self.xs)` in
     the obligation [qual-depend]). Both generated fns carry the state's name
     (`FnDecl.iter_state_name`), which is how the language server presents them
@@ -4427,9 +4427,9 @@ Conventions:
     (`state Ones {}`), and the struct then holds the parameters only.
   * **The `state` block is declarations only**, each with an initializer,
     evaluated **once per iterator, at the mint**; the type may be written or
-    inferred [state-infer]. An inferred type is part of the struct's
+    inferred [handler-state-infer]. An inferred type is part of the struct's
     interface: the minter is checked with the interfaces, before any body
-    [interface-pass], so a fn declared above the `iter fn` reads it too
+    [decl-interface-pass], so a fn declared above the `iter fn` reads it too
     (R5 option b). The initializers become the body of the generated
     minter, which is declared `[]` — so "no effects in an initializer" is not a
     rule of its own but an ordinary effect error at the offending call.
@@ -4455,7 +4455,7 @@ Conventions:
     never writes through it), a structural parameter type (array, tuple,
     union), a result other than `Emitted T | Finished` (the element type is
     read out of it), a `state` field without an initializer, and the bare-name
-    clashes [bare-names]. A `state` field of linear type is
+    clashes [name-bare]. A `state` field of linear type is
     [linear-composite]'s ordinary refusal at the struct: **no discharger is
     generated** (user decision 2026-09-27), so an iterator that owns a
     resource is written by hand.
@@ -4469,7 +4469,7 @@ Conventions:
     parameter is a generic with its spread (`fn first<It>(it: Mut It,
     ?Next<It, Int>)`), and `Iter`'s iterator is a group parameter
     [iter-group].
-* [bare-names] **One namespace of bare names per declaration** (user decision
+* [name-bare] **One namespace of bare names per declaration** (user decision
   2026-10-20, R4): a handler's constructor parameters and state fields, and an
   `iter fn`'s parameters and state fields, all differ, and a member's (or the
   step's) parameters and locals reuse none of them. A member body reads all of
@@ -4481,7 +4481,7 @@ Conventions:
   (Before this a member parameter named like a state field bound the field in
   the checker and the parameter in both emitters, and a constructor parameter
   named like a state field was a target-compiler error: ROADMAP §2d item 9d.)
-* [state-name] **A handler's state is named by the handler** (`state { … }`
+* [handler-state-name] **A handler's state is named by the handler** (`state { … }`
   in `handler Counting` is the state `Counting`), and **must be named
   explicitly** — `state Tally { … }` — when the handler shares its name with a
   type in scope (user decision 2026-10-20, R4). An explicit name may not be one
@@ -4505,7 +4505,7 @@ Conventions:
     ordinary member match. `Iter`'s `next` is over the iterator, not `self`, so
     its element is matched modulo `proj` (a walking iterator's `Emitted (proj(p)
     T)` fills `Emitted T`) and its borrowness is the iterator's own `: Next`'s
-    to state [yield-proj]. `It` is not inferred from the `iter` that fulfils it
+    to state [iter-yield-proj]. `It` is not inferred from the `iter` that fulfils it
     (user decision 2026-10-20, R3). A struct declaring both `: Iter` and `:
     Next` is refused: `for x in s` would have two answers (drive `s`, or mint
     from it).
@@ -4516,7 +4516,7 @@ Conventions:
     parameter, as a fn type with an opaque return does [proj-infer-fn-type].
     Inside the body, `for x in c` over the generic source mints with the `iter`
     implicit and drives with the `next` beside it (the calls `iter(c)` and
-    `next(…)` through the implicits [for-iter]); `iter(c)` is a
+    `next(…)` through the implicits [iter-for]); `iter(c)` is a
     `Mut It` a `?Next` combinator accepts with the paired `next` forwarded
     [implicit-forward]. At a call, `It` is learned from the `iter` that fills
     the pair [implicit-infer] — the one *written* there when the call overrides
@@ -4577,7 +4577,7 @@ Conventions:
     `held: Mut List<Int> = "no"` was accepted and the emitters never saw
     the expression's types, which the backends' intrinsic lowerings rely
     on [backend-intrinsic].)
-* [state-infer] **A handler's state lives in a `state { … }` block**, the
+* [handler-state-infer] **A handler's state lives in a `state { … }` block**, the
   same shape an `iter fn` uses (user decision 2026-10-20, replacing the free
   field declarations that used to sit directly in the handler body — a bare
   field in the body is now an error naming the block). Each field is written
@@ -4586,7 +4586,7 @@ Conventions:
     value** (`label: Str? = "none"`, `values: Map<K,V> = Mut Map<K,V>(…)`),
     checked as a `let x: T = value` is.
   * `name = value` — **the type is inferred from the initializer**, exactly
-    as `let x = value` infers [let-infer]: `seen = Mut Map<Str, Int>()` makes
+    as `let x = value` infers [var-let-infer]: `seen = Mut Map<Str, Int>()` makes
     the field `Mut Map<Str, Int>`, `sum = 0` makes it `Int`. The inferred
     type is whatever the value resolves to, qualifiers (`Mut`, `Heap`, …) and
     all.
@@ -4623,7 +4623,7 @@ Conventions:
     the tuple gets the value without importing intersection types.
   * **A `use` binds every face**, so the synchronous form of the pattern is
     one registration and two effect lists that reach it; per-effect shadowing
-    is unchanged ([use-no-dup]), since each face is registered on its own.
+    is unchanged ([effect-use-no-dup]), since each face is registered on its own.
   * **Conformance is checked here, face by face**: every member of every face
     needs an implementation, named as
     ``handler `H` does not implement `E.m(T)` `` — the diagnostic the target
@@ -4640,7 +4640,7 @@ Conventions:
   * **The faces are all of one kind.** An `actor effect` beside a plain one is
     refused: a handler is bound one way or the other (`spawn` or `use`), and a
     handler whose plain members run on the caller's thread while its send
-    members run on the actor's is the mixed handler [mixed-handler] — a
+    members run on the actor's is the mixed handler [actor-mixed-handler] — a
     different construct, classified by shape.
   * **Each face is named once** — a repeated face would make a `spawn` answer
     the same addr twice and say nothing new.
@@ -4707,7 +4707,7 @@ Conventions:
     became an effect list on the declaration ([effect-handler-deps]) in
     2026-09-14; a bare effect name in a data position is always this error, and
     `eff[E]` is how you name its handle instead.
-* [eff-handle] **A first-class effect handle is `eff[A, B, …]`** (user decision
+* [effect-eff-handle] **A first-class effect handle is `eff[A, B, …]`** (user decision
   2026-10-18): the type of a value that carries handles to a flat set of
   effects. A lowercase bracketed type former, like `proj`/`iter`/`ref` and
   reusing the effect-list bracket; `eff` is contextual (a type former only
@@ -4821,7 +4821,7 @@ Conventions:
     construction; the emitters read only those). The handle comes from a
     binding in the same function or from an effect the function received
     through its own signature — a fn's effect parameter *is* a handle
-    ([spawn-inherit]). A **generic** dependent handler works (its dep is a
+    ([actor-spawn-inherit]). A **generic** dependent handler works (its dep is a
     handle field, so nothing generated has to name the handler's generics).
     Rust: [rs-handle]; Kotlin: [kt-handle] (an object reference is the
     handle, `__Mon_E` where a stateful one is shared). The two forms this
@@ -4900,7 +4900,7 @@ Conventions:
   dependencies. Calling a fn requires each of its effects to be available
   in the caller (declared or `use`d) — validated by the checker at every
   call site, recorded per-call (`call_effects`) in declaration order.
-* [with-clause] **`with` supplies specific dependency instances** to a `use`
+* [effect-with-clause] **`with` supplies specific dependency instances** to a `use`
   or a `spawn` (user decision 2026-09-20, superseding the never-built `using`
   rename of 2026-09-19 — and the clause's original `use` spelling, which
   shared a word with the statement and let a bare spawn swallow a following
@@ -4912,7 +4912,7 @@ Conventions:
     "give *this* one its own" writable without a second scope.
   * **Partial clauses are the rule**: an item wins for the dependency it
     matches, and every dependency the clause does not cover resolves from the
-    scope ([spawn-inherit] for a spawn, the ordinary availability rule for a
+    scope ([actor-spawn-inherit] for a spawn, the ordinary availability rule for a
     `use`). Matching is by effect instance, exact before unifying, so the
     *written* order and the handler's *declaration* order may differ freely
     (recorded in `use_with_items` / `spawn_dep_items` for the emitters).
@@ -4934,7 +4934,7 @@ Conventions:
     (`use H() with Dep()`); the qualifier-compatibility clause that once
     also used it is retired [qual-no-with]. Same-line, like every trailing
     clause.
-* [spawn-inherit] **A spawned handler inherits the spawning scope's
+* [actor-spawn-inherit] **A spawned handler inherits the spawning scope's
   dependencies** (user decision 2026-09-20; the arc the shareable-by-default
   round was built for). A declared dependency the `with` clause does not
   cover is resolved from the scope's availabilities and captured as an owned
@@ -4942,7 +4942,7 @@ Conventions:
   whole-program analysis and no runtime check, exactly because every binding
   is a handle [effect-handle]. The old rule ("dependencies come from the
   clause, never from the spawning scope") is gone; the clause is for
-  overriding [with-clause].
+  overriding [effect-with-clause].
   * Transitional (ROADMAP §2b): a binding the emitters still bind *inline*
     (an actor-face handler's `use H()`, a handler with an actor-effect or
     generic-instance dep) has no handle yet, and the refusal names the
@@ -4970,12 +4970,12 @@ Conventions:
   instance — and everything downstream is that value or a copy of it: a
   fn's `[E]` parameter, a dependent handler's captured dependency
   ([effect-handler-deps]), a spawn's or task's inherited effect
-  ([spawn-inherit], [task-effects]), a fn value's effect. A `use` of an addr
+  ([actor-spawn-inherit], [task-effects]), a fn value's effect. A `use` of an addr
   or of a spawn expression is already a handle.
   * **Stateless or stateful is the one distinction the handle keys on**,
     on both backends (user decision 2026-09-28, the afternoon's refinement):
     a *stateful* handler's members run under a lock through its handle — the
-    monitor, [monitor-handler] — so two spawns capturing one stateful
+    monitor, [actor-monitor-handler] — so two spawns capturing one stateful
     binding share its state (accepted as a consequence of the shape); a
     *stateless* handler's members run on the shared instance with nothing
     held, so a send through an actor's bound addr, a mixed handler's façade
@@ -4984,7 +4984,7 @@ Conventions:
     a `state` field; a member that mints a `replyto` (the parked table is
     state); a **fn-typed constructor parameter** (a stored callback may
     mutate its captures); a **platform handler without `threadsafe`**
-    ([threadsafe-platform] is the declared statefulness of a host the
+    ([platform-threadsafe] is the declared statefulness of a host the
     compiler cannot see). An `intrinsic` handler is trusted stateless, and
     an actor handler's generated address and parked table do not count (the
     actor body owns the instance). The deadlock graph's `H's lock` nodes
@@ -5033,7 +5033,7 @@ Conventions:
     give an actor effect the lock adapter exactly when a router of it
     exists. It is also a servant node of its own in the deadlock graph, so
     its forwards do not read as `E → E` — a written router from its AST
-    handler, a route `use any` binds [route-stub] from the checker's
+    handler, a route `use any` binds [actor-route-stub] from the checker's
     `route_uses` (2026-10-20), with the same edges — and every dependency
     on `any E` points at it (router in-edges, [actor-deadlock-cycle]).
   * **A fn type carries no strength** (it cannot say `any`): an inherited
@@ -5058,9 +5058,9 @@ Conventions:
     overload set, so nothing else was reporting this: a parameter demanding a
     claim (`numbers: NE List<Double>`) used to accept a value without it, and
     the disagreement surfaced later or not at all.
-* [use-requires-use] `use` is only legal in functions declaring the
+* [effect-use-requires-use] `use` is only legal in functions declaring the
   special `use` effect (`main() [use]` is the conventional entry point).
-* [use-no-dup] A `use` may **shadow** an earlier registration for the same
+* [effect-use-no-dup] A `use` may **shadow** an earlier registration for the same
   effect instance: the innermost wins for the rest of the scope, and the
   shadowed handler comes back when the shadowing `use`'s block ends
   [effect-scope]. Later-in-block over earlier-in-block is shadowing too
@@ -5095,7 +5095,7 @@ Conventions:
     intercepts `E` … an intercepting handler wraps the instance already in
     scope, or the one you name with `with`"), which is the self-dependency
     case of [effect-handler-deps]'s "register one before it".
-  * **`with` may aim the interception** [with-clause]: `use Loud with
+  * **`with` may aim the interception** [effect-with-clause]: `use Loud with
     Formal()` wraps that private instance instead of the scope's
     registration — the one written exception to "binds strictly outward",
     and acyclicity is untouched since a fresh construction cannot point
@@ -5173,7 +5173,7 @@ Conventions:
   (`let i: Int = next_random()`). Still >1 → "ambiguous effect call"
   error; 0 → "no handler" error.
   * Repeats of *one* instance are not ambiguity: they are shadowing, and
-    the innermost answers [use-no-dup]. Only *different* instances of a
+    the innermost answers [effect-use-no-dup]. Only *different* instances of a
     generic effect can be ambiguous.
   * The resolved instance is recorded per call site (`effect_calls`).
   * Emitter effect environments are keyed by the *checker's* effect types
@@ -5185,7 +5185,7 @@ Conventions:
     scope.
 * [effect-scope] `use` registrations are block-scoped: they expire at the
   end of the enclosing block — a shadowing one included, so the handler it
-  shadowed answers again afterwards [use-no-dup].
+  shadowed answers again afterwards [effect-use-no-dup].
   * Checker `effect_env` and emitter environments end the block with the
     same entries they began it with. The checker truncates (a `use` only
     pushes); an emitter whose `use` *rewrites* the entries already in scope
@@ -5207,8 +5207,8 @@ Conventions:
     ([cmp-hash-values]). What *is* checked is the ordinary thing — a call
     resolves to exactly one visible overload, or says so.
   * **The canonical implementations for the intrinsic types are `intrinsic`
-    overloads** [intrinsic-fn], one per type, `cmp` and `eq` declared beside
-    the type [unique-shape] (the scalars' in `std.core.basic`, `Str`'s in
+    overloads** [platform-intrinsic-fn], one per type, `cmp` and `eq` declared beside
+    the type [op-unique-shape] (the scalars' in `std.core.basic`, `Str`'s in
     `std.core.string`; `List`'s and the tuples', in Salvo, in `std.core.list`
     and `std.core.basic`) and `hash` in `std.core.compare`: `cmp` for `Int`, `Long`, `Byte`,
     `Char`, `Bool` and `Str`; `eq` for those plus `Double` and `Float`; `hash`
@@ -5289,12 +5289,12 @@ Conventions:
   * The selector is **erased**: the checker records which declaration a
     selected name means, and both backends emit an ordinary call of it.
   * For the intrinsic types the canonicals are std overloads declared beside
-    the types [unique-shape]: `Int : Ordered<self>` and `cmp(Int, Int)` are both
+    the types [op-unique-shape]: `Int : Ordered<self>` and `cmp(Int, Int)` are both
     in `std.core.basic`, so the second route attaches it (`cmp@Int` names it,
     and a carried identity prints so, `Sorted<Int>(cmp@Int)`); `std.core.*` is
     implicitly visible everywhere anyway. (Until 2026-10-27 the canonicals were
     in `std.core.compare`, so neither route was available.)
-* [unique-shape] **A function of a unique shape on a type is declared in the
+* [op-unique-shape] **A function of a unique shape on a type is declared in the
   type's own file** (user decision O1-D, 2026-10-27; OPERATOR_OVERLOAD.md
   "D's details", D-1 to D-7). An operator is the call it names (O1-B: `a == b`
   is `eq(a, b)`, `a < b` is `cmp(a, b) < 0`, `"${x}"` is `to_str(x)`, `for x
@@ -5457,7 +5457,7 @@ Conventions:
     beside a generic one reaches its own member [implicit-resolve-body].
     * Each stamped member gets a name span of its own (the group member's
       name under an expansion of its own, `ExpansionKind::Member`, whose
-      diagnostics land at the `by` site [origin]), since one site stamps
+      diagnostics land at the `by` site [node-origin]), since one site stamps
       several (a concrete target's members share the site's span, which
       node keys tell apart [node-id]).
     * The obligation's match ignores the trailing implicits
@@ -5502,7 +5502,7 @@ Conventions:
     attached, so `eq(Int, Int) -> Bool` in a file declaring both `Int :
     Eq<self>` and `Bool : Eq<self>` was attached to whichever was looked at
     last, found when std's scalar `eq`s moved beside their types
-    [unique-shape]).
+    [op-unique-shape]).
 * [fn-by] **`by X` on a fn declaration stamps that one member**, keeping the
   full written signature [decl-explicit]:
 
@@ -5646,7 +5646,7 @@ Conventions:
 
   Inside a body the bound `T` is a `Struct` or `Union` by its bound, `T.fields`
   / `T.arms` the sequence a `[for …]` walks (arms in declaration order, `None`
-  included [union-arm-identity]), `T.name` and `T.mutable` its projections; a
+  included [type-union-arm-identity]), `T.name` and `T.mutable` its projections; a
   binder is a `Field` or `Arm` with its six projections; `field.type` is
   spliced **as a type** wherever one is written inside the body, in brackets
   (`[field.type]`, [comptime-inline]), `field.kind`
@@ -5719,7 +5719,7 @@ Conventions:
   (`field.type`), the bound `T`, or a named alias (`Level`). The members are
   the union's literal arms in declaration order — `None` and any non-literal
   arm skipped, a qualified literal (`Short "port"`) read as its literal —
-  though at run time they are one arm [union-arm-identity]; a type with
+  though at run time they are one arm [type-union-arm-identity]; a type with
   none is an error. A binder has `lit.value`, the member itself as a literal
   in each copy (so `return lit.value` fits a slot of the union), `lit.name`
   (its text, a literal of the union of the members' texts, testable with
@@ -5833,7 +5833,7 @@ Conventions:
     completion.
   * Assigning to a local declared outside the body is unaffected, and a
     terminal `[if …] ...` renames the rest of the block, which holds every use
-    [terminal-scope].
+    [expr-terminal-scope].
   * A name ending in `__c` and digits is the rename's, so an identifier
     written that way reads as its prefix in diagnostics.
 * [comptime-logic] **Comptime conditions combine with `&&`, `||`, `!` and
@@ -5962,14 +5962,14 @@ Conventions:
     every construct is the author's own text, so a mistake in it (a field name
     no field has, a binder that is not one) is reported **once, where it is
     written** — the expansion follows each unrolled copy back to the code it
-    copied [origin] to find it, and drops the identical reports the other
+    copied [node-origin] to find it, and drops the identical reports the other
     copies would make. In a
     stamp the template is another file's text, so the `by` site stays where
     it lands.
   * **So do the checker's errors in its copies** (2026-10-20, a TODO in
     lib/std/args/parse.sv): a copy of an expanded-in-place fn that does not
     type-check is reported on the failing code as written, through every
-    copy it was copied from (the chain of its origin [origin]), prefixed with
+    copy it was copied from (the chain of its origin [node-origin]), prefixed with
     which copy it was in the code's own terms — "when `field` is `groups`
     (`Map<Str, ArgGroup>`): no matching overload …" at
     `print_help(args.[field])`, and "when `arm` is `Manual` and `field` is
@@ -5980,7 +5980,7 @@ Conventions:
     still does [comptime-instantiate].
 * [comptime-copy-warn] **A warning inside a comptime copy is reported
   once, where an error there would land** (ROADMAP §2d item 5, done
-  2026-10-20): rendered through the same origin as errors [origin] (to the
+  2026-10-20): rendered through the same origin as errors [node-origin] (to the
   written code in an expanded-in-place fn, to the field or `by` site in a
   stamp), and held until the fn is checked. An **unused local** declared in
   a copy is reported only when every copy that declared it left it unused,
@@ -6034,7 +6034,7 @@ Conventions:
     roots are.) With [std-root] nothing is left for a project to reach std
     through: a project cannot declare a module under `std`, so nothing it
     writes is implicitly visible to std.
-  * **Spans are origins** [origin]: every node of a stamped body keeps its
+  * **Spans are origins** [node-origin]: every node of a stamped body keeps its
     span in the template and carries a fresh expansion id, one per unrolled
     copy; the checker's facts are keyed by node [node-id], so two copies are
     two nodes whatever their spans. The `Stamp` on the fn records the expansions; a diagnostic at a
@@ -6051,7 +6051,7 @@ Conventions:
   * A stamped fn is an ordinary `FnDecl` for everything downstream:
     resolution, the duplicate check, mangling, export, both emitters. Its
     signature is the declaration's, never the template's [fn-by].
-* [origin] **Every copied node keeps its origin; nothing invents a source
+* [node-origin] **Every copied node keeps its origin; nothing invents a source
   position** (PIPELINE.md §II.4, A2, 2026-10-27). A node an expansion copied
   keeps the span it has in the code it was copied from (a template's, which
   may be another file's) and carries the expansion's id (`Span::expn`; 0 for
@@ -6299,7 +6299,7 @@ Conventions:
 * [stream-values] **Numbers and values on a stream** (user decision
   2026-10-04): `write_int`/`write_long` and `read_int`/`read_long` (4 and 8
   bytes, big-endian, two's complement), and `write_value(out, v)` /
-  `read_value<T>(in)`: the canonical encoding [wire-format] behind a 4-byte
+  `read_value<T>(in)`: the canonical encoding [net-wire-format] behind a 4-byte
   length. Ordinary Salvo over `write_bytes` and `read_bytes`, so a fake
   `Streams` serves them. A read answers `Ok …`, `End` when the stream ends
   before the first byte, or `Err Checked<StreamError>` when it ends inside a
@@ -6307,7 +6307,7 @@ Conventions:
   codec is an implicit (`?encode: (v: T) -> Bytes`, `?decode: (data: Bytes)
   -> T?`), filled at the caller's concrete type by `codec`'s `encode`/`decode`
   — which the caller imports — since a wire form is the instantiation's and a
-  generic body may not name it [noremote]. Both backends lower `encode`/
+  generic body may not name it [net-noremote]. Both backends lower `encode`/
   `decode` as a value at the type of the position they fill, as they do for
   `protocol`.
 * [stream-receive] **`Streams.receive(s, reply: Reply<Received>)` reads
@@ -6350,7 +6350,7 @@ Conventions:
 * [fs-surface] Module **`fs`** declares the **path surface**: an `FsError`
   union — `NotFound | PermissionDenied | AlreadyExists | NotADirectory |
   PathEscapes | IoError | Streaming` — carried by `Checked<FsError>`
-  [checked-type], `FileInfo`, **`effect Fs [Streams]`** (the path operations;
+  [type-checked], `FileInfo`, **`effect Fs [Streams]`** (the path operations;
   the opens mint into the `Streams` in scope [effect-prereq]), `open_lines`,
   `open_chunks`, and the one-shots (`read_to_str`, `read_lines`, `write_str`,
   `read_to_bytes`, `write_bytes_to`, `copy_file`). Application code declares
@@ -6405,7 +6405,7 @@ Conventions:
     is bytes, and bytes have no characters. The strict decode afterwards is
     what fails (`Err InvalidUtf8`), and the failure is recorded, so `close`
     reports it a second time [fs-errors-at-close].
-  * The payload type is **`Bytes`** [bytes-type] — `Vec<u8>` on Rust, the
+  * The payload type is **`Bytes`** [type-bytes] — `Vec<u8>` on Rust, the
     shipped buffer class on Kotlin [kt-bytes].
 * [fs-read-to] Every read has a **fill-a-buffer** form, for the loop where a
   payload per step is the cost (user decision 2026-09-15): `read_to(s, buf:
@@ -6502,7 +6502,7 @@ Conventions:
 * [fs-v1-cuts] Not in v1, and each an error rather than a surprise: seek
   (a ranged `open_read_at` replaces it, so streams stay forward-only),
   recursive walk or delete, temp files, watching, permissions, symlink
-  creation, and stdin (Console's `readln` [console], not Fs's). `rename_path` is spelled with
+  creation, and stdin (Console's `readln` [std-console], not Fs's). `rename_path` is spelled with
   the suffix because `rename` is a keyword [fn-rename].
 
 ### Non-resumption: `throw` and `try`
@@ -6536,7 +6536,7 @@ Conventions:
 * [throw-not-main] `main` may not declare `[Throw<M>]`: there is no caller
   to receive it, Rust cannot express a `main` returning `ControlFlow`, and
   Kotlin would die on an uncaught signal. The delimiter goes inside.
-* [try] `try { block }` is the delimiter: a **compiler intrinsic**, not an
+* [throw-try] `try { block }` is the delimiter: a **compiler intrinsic**, not an
   effect (user decision 2026-09-04 — "there's not much value in a function
   declaring the `Try` effect in its signature any more than there is in
   declaring that it uses loops or if-expressions"). So no `Try` handler, no
@@ -6561,7 +6561,7 @@ Conventions:
     handle an arm nothing can make.
   * A `return` inside a `try` body returns from the enclosing *fn*: the
     delimiter catches throws, not returns.
-* [try-innermost] A throw lands in the **innermost** enclosing `try`.
+* [throw-try-innermost] A throw lands in the **innermost** enclosing `try`.
   There are no labelled throws; a nested delimiter takes its own body's
   throws and lets an outer one pass through.
 * [throw-linear] Nothing linear may be live across a site that may throw
@@ -6607,7 +6607,7 @@ docs/language/ remains the source of truth for everything that does.
     carried named question ("may an ordinary member be actor-backed?")
     closes: *forbid*, with the actor kind as the sanctioned spelling. Since
     SH-3 (user decision 2026-09-19) `spawn`, `use addr` and naming `eff[E]`
-    *accept* a plain effect — as the **monitor** kind [monitor-handler], one
+    *accept* a plain effect — as the **monitor** kind [actor-monitor-handler], one
     shared instance behind a lock — which does not reopen the question: a
     monitor has no mailbox and no messages, its members run synchronously on
     the callers' threads, and an ordinary member still cannot be answered by
@@ -6635,7 +6635,7 @@ docs/language/ remains the source of truth for everything that does.
     because the old spelling kept implying it. `async effect` is a parse error
     naming this form — worth its own diagnostic, since `async` is what an
     author arriving from another language will reach for.
-* [monitor-handler] **A monitor is a plain-effect handler shared behind a
+* [actor-monitor-handler] **A monitor is a plain-effect handler shared behind a
   lock** (SH-3, user decision 2026-09-19 — the first piece of the
   shareable-handler design; the decision round is in COMPLETED.md's log).
   `spawn H(args)` where every face of `H` is a **plain** effect answers the
@@ -6687,7 +6687,7 @@ docs/language/ remains the source of truth for everything that does.
     effect is** (`__Mon_Random<T>` for `Random<T>`, 2026-09-20), so a
     stateful handler of a generic effect instance shares like any other.
 
-* [mixed-handler] **A mixed handler is a servant and a façade in one
+* [actor-mixed-handler] **A mixed handler is a servant and a façade in one
   declaration** (SH-1, user decision 2026-09-19; built the same day). Every
   face a plain effect, plus `send fn` members: the send members and the state
   form the **servant** — an ordinary actor over a handler-local protocol,
@@ -6714,7 +6714,7 @@ docs/language/ remains the source of truth for everything that does.
     is a **self-enqueue** on the servant's own mailbox [actor-self-send]
     (user decision 2026-09-19 — sync-only at SH-1, extended the same day),
     and a reply riding the payload must be declared `defer`
-    [defer-deduction], exactly as on an addr send. This is the one place
+    [linear-defer], exactly as on an addr send. This is the one place
     sibling members resolve — `send fn` siblings only; sync siblings stay
     unresolved as they always were.
     * **Ambiguity is refused, not resolved**: a name that is *also* a
@@ -6728,8 +6728,8 @@ docs/language/ remains the source of truth for everything that does.
     handler). `handler H [Clock] of E` with send members declares what its
     `send fn` members may call, written or implied by a face's
     prerequisite [effect-prereq]; the spawn resolves them exactly as an
-    actor spawn does — a `with` item [with-clause] or synthesized from the
-    spawning scope [spawn-inherit] — and the servant is constructed with
+    actor spawn does — a `with` item [effect-with-clause] or synthesized from the
+    spawning scope [actor-spawn-inherit] — and the servant is constructed with
     them. The façade value carries none. In the deadlock graph they leave
     from the servant's node: an actor dependency is a target like a held
     addr, a plain one with mixed or wait-capable shareable handlers an
@@ -6749,10 +6749,10 @@ docs/language/ remains the source of truth for everything that does.
     between servant and façade on the JVM and *cloned apart* on Rust, an
     observable divergence refused rather than emitted [backend-never-wrong].
   * **A servant `send fn` carries the free send fn's obligations**
-    [free-send-fn], because no effect declaration mirrors it: an explicit
+    [actor-free-send-fn], because no effect declaration mirrors it: an explicit
     all-consumed clause when it has parameters, no `Mut`/unsendable/generic
     parameters — and no overloading (dispatch is by member name).
-  * **A servant parks like an actor** [defer-deduction] [actor-replyto]:
+  * **A servant parks like an actor** [linear-defer] [actor-replyto]:
     `replyto k(captures)` inside a `send fn` member targets another of the
     handler's own send members, parks the continuation in the servant's
     table, and resumes on its own mailbox — the received reply it captures
@@ -6768,7 +6768,7 @@ docs/language/ remains the source of truth for everything that does.
     Constructor arguments are evaluated once and shared between handler and
     façade.
 
-* [defer-deduction] **`defer p` is the escaped disposition of a linear
+* [linear-defer] **`defer p` is the escaped disposition of a linear
   parameter** (SH-10, user decisions 2026-09-19; built the same day, first
   half). A linear parameter's obligation has three fates relative to a call:
   discharged in-frame, returned, or **escaped** — parked, stored, forwarded,
@@ -6778,7 +6778,7 @@ docs/language/ remains the source of truth for everything that does.
   the same contract shape); what differs is what the body may do with the
   obligation.
   * **The load-bearing consequence is the mixed handler's rung-4 opt-in**
-    [mixed-handler]: inside a mixed handler's `send fn` member, a `Reply`
+    [actor-mixed-handler]: inside a mixed handler's `send fn` member, a `Reply`
     parameter that leaves the activation any way but the discharge (std's
     `send`, its first argument) **must be declared `defer`** — inference
     alone is not accepted at the contract point, so an edit that starts
@@ -6816,7 +6816,7 @@ docs/language/ remains the source of truth for everything that does.
     a diagnostic naming the field.
 * [actor-send-fn] An **asynchronous member** is declared `send fn`, in an
   effect and in the handlers implementing it — and, since 2026-09-17, on a
-  **free function** too [free-send-fn], where the kind means the same thing
+  **free function** too [actor-free-send-fn], where the kind means the same thing
   without an effect to belong to. Sending it *enqueues* an
   invocation, so it **answers nothing**: a written return type is an error
   naming the shape that does carry an answer — an `out: Reply<T>` parameter
@@ -6856,13 +6856,13 @@ docs/language/ remains the source of truth for everything that does.
   [actor-replyto], both aimed at **this instance**. A private member with at
   least one parameter may be a continuation target, its trailing parameter
   being the answer. Private members are not part of the protocol hash
-  [protocol-hash] and never cross the wire as messages; their continuations
+  [actor-protocol-hash] and never cross the wire as messages; their continuations
   are still answered from another node, since a reply travels by slot.
-  * **It carries the free send fn's obligations** [free-send-fn], because no
+  * **It carries the free send fn's obligations** [actor-free-send-fn], because no
     effect declaration mirrors it: a written, all-consumed deduction clause
     (`=> !label, !out, !total`), no `Mut` parameter, no generics, sendable
     payloads — the same rule a mixed handler's servant members have always
-    had [mixed-handler], which are this rule's oldest case. Its own clause is
+    had [actor-mixed-handler], which are this rule's oldest case. Its own clause is
     its linear-discharge context [linear-group].
   * A **bare call** to a private member resolves to nothing (it is a message,
     not a function); the diagnostic names the selector: "`k` is a send member
@@ -6955,13 +6955,13 @@ docs/language/ remains the source of truth for everything that does.
   right: what to run, what it depends on, where it runs — the queue depth is
   the handler's [actor-mailbox].
   * The **`with` clause is optional** and supplies the child's declared
-    dependencies [with-clause]; each item is a handler *construction* (a
+    dependencies [effect-with-clause]; each item is a handler *construction* (a
     private instance, built on the child) or an `Addr` (the same effect
     backed by an actor or a shared handler), which is what lets an actor and
     a local handler swap without touching the consuming code. Arguments
     evaluate in the parent and cross the seam; construction happens on the
     child. What the clause does *not* cover is **inherited from the
-    spawning scope** [spawn-inherit], so the clause is for overriding.
+    spawning scope** [actor-spawn-inherit], so the clause is for overriding.
   * **The mailbox is not a clause here.** It was `capacity N` until
     2026-09-16, on the argument that a bound is a property of *this instance*;
     the counter-argument won (user decision): the author who knows the
@@ -6987,7 +6987,7 @@ docs/language/ remains the source of truth for everything that does.
     moves; generics inferred from the arguments and any written type list;
     the constructor's implicits filled), and since 2026-09-20 its
     dependencies resolve the same way too — from the clause where one is
-    written, from the scope otherwise [spawn-inherit]. What still differs is
+    written, from the scope otherwise [actor-spawn-inherit]. What still differs is
     that the instance runs on the other side of a seam, which is what
     "handlers never cross, construction does" means in practice.
     Consequences, each an error: supplying a dependency the handler does not
@@ -7027,7 +7027,7 @@ docs/language/ remains the source of truth for everything that does.
   `waitfor out { counter.total(out) }` reads it off the send the block makes, and
   `waitfor out: Reply<Int> { … }` writes it out. The binder is always named —
   there is no placeholder here (the `_` this started as was withdrawn; see
-  [placeholder]).
+  [expr-placeholder]).
   * **Read from the declared parameter**, not from overload resolution: the
     binder's type is what resolution would need as an *input*, so inference takes
     the declared type at the position the binder occupies, across every overload
@@ -7068,7 +7068,7 @@ docs/language/ remains the source of truth for everything that does.
   * The graph's block edge, **site-inferred** [actor-deadlock-cycle]: from
     `Checked`'s recorded `waitfor` sites and handler constructions, with the
     same severity it always had.
-* [pool-retire] **A `Dedicated` pool's thread ends with its actor** (2026-10-03,
+* [actor-pool-retire] **A `Dedicated` pool's thread ends with its actor** (2026-10-03,
   runtime step 13): `thread()` makes a pool nobody else can hold —
   the `on` clause consumes it — so once every actor on it is dead, no task is
   queued there and no token is owed to work there, nothing can run on it
@@ -7092,7 +7092,7 @@ docs/language/ remains the source of truth for everything that does.
     its own business, like a gate. What placement does *not* remove is a wait
     whose fulfilment routes back through the waiter's own stalled mailbox —
     that is the edge the graph prices [actor-deadlock-cycle].
-* [main-pool] **`main` is the single worker of its own pool** (user decision
+* [actor-main-pool] **`main` is the single worker of its own pool** (user decision
   2026-09-17, FC-4(a); the argument trail is in COMPLETED.md's log). The pool
   exists from the start
   and is never given a thread of its own: `main`'s thread is its worker.
@@ -7161,7 +7161,7 @@ docs/language/ remains the source of truth for everything that does.
   * The rule is stated in terms of *work* because the task kernel is what
     fills a pool with things that are not activations; until it lands, what a
     wait can serve is main-pool actors.
-* [free-send-fn] **`send fn` on a free function** — the send kind extended
+* [actor-free-send-fn] **`send fn` on a free function** — the send kind extended
   beyond an effect's members (user decision 2026-09-17,
   FC-1(a)). It is a unit of work that runs by being
   **scheduled**, never called:
@@ -7191,7 +7191,7 @@ docs/language/ remains the source of truth for everything that does.
     Both are errors naming the mint.
   * **No mailbox, no addr, no identity** — so no gate (a gate is a mailbox
     policy), no capacity to reserve, and no death to watch: what a task's
-    fault reaches instead is the pool's sink [pool-fault-sink].
+    fault reaches instead is the pool's sink [actor-pool-fault-sink].
   * `send` stays **contextual** at item level for the reasons it is contextual
     in a member list: `send` is an ordinary name and `r.send(v)` is how a token
     is discharged.
@@ -7204,7 +7204,7 @@ docs/language/ remains the source of truth for everything that does.
   scope and hands the task a handle. The first-pass cut was "no effects but
   `[waitfor]`", written before there were thread-shareable handlers; there are
   now, and this is the same inheritance `spawn` carries into a child
-  [spawn-inherit].
+  [actor-spawn-inherit].
   * **Resolution is the mint's, and it is the checker's** — one implementation,
     reused: the exact instance if the scope has it, otherwise the single
     compatible one, with an ambiguity refused rather than guessed. Three
@@ -7272,7 +7272,7 @@ docs/language/ remains the source of truth for everything that does.
     actor's own mailbox, so there is no placement to choose. Writing one is an
     error saying where a placement belongs.
   * **A task inherits its pool's serving rules, and the main pool's are
-    unusual** [main-pool] [waitfor-pump]: work placed there runs only while
+    unusual** [actor-main-pool] [waitfor-pump]: work placed there runs only while
     `main` waits. So a mint from `main` (or from anything `main` calls) whose
     answer arrives after `main`'s last `waitfor` **never runs**, and dies with
     `main`'s return — the same fate as an actor message still queued there, and
@@ -7286,7 +7286,7 @@ docs/language/ remains the source of truth for everything that does.
     inherited from a frame that itself declares `[waitfor]`, whose ambient pool
     is thereby provably a `Dedicated Pool`. The proof travels in the effect
     lists, so this stays a binding-site check rather than an ambient one.
-* [pool-fault-sink] **A pool may name an actor to report its faults to**
+* [actor-pool-fault-sink] **A pool may name an actor to report its faults to**
   (user decision 2026-09-17, FC-5(a)): `pool(n, sink)` where `sink` is an
   `eff[Faults]`, and every uncaught fault on that pool arrives as an ordinary
   message.
@@ -7365,13 +7365,13 @@ docs/language/ remains the source of truth for everything that does.
       address, absent exactly when the instance was bound synchronously
       ([rs-actor], [kt-actor]). One field, two rules, no second
       compilation.
-  * **Inside a mixed handler** [mixed-handler] the form works in both member
+  * **Inside a mixed handler** [actor-mixed-handler] the form works in both member
     kinds (user decision 2026-09-19): in a send member it enqueues on the
     servant's own mailbox unconditionally (a mixed handler is spawn-only, so
     there is no inline reading to discriminate), and in a sync member it is
     the explicit spelling of the façade send. It is also the
     **disambiguator** where a bare call would be ambiguous — see the servant
-    send rule under [mixed-handler].
+    send rule under [actor-mixed-handler].
   * `k` must be a member of the enclosing handler and a **`send fn`**: a
     member that answers would have to wait for itself. Arguments are typed
     against its parameters and *consumed* — the message outlives this
@@ -7635,7 +7635,7 @@ docs/language/ remains the source of truth for everything that does.
     ways out (make one side's continuation ungated, or have the answer come
     from a third actor). A bare `replyto` leaves the mailbox open and
     contributes **no** edge — which is why one ungated side is enough.
-  * An **occupancy** edge [mixed-handler] (SH-4, user decision 2026-09-19;
+  * An **occupancy** edge [actor-mixed-handler] (SH-4, user decision 2026-09-19;
     built the same day) is *inferred, never written*: an actor handler that
     declares a dependency on a plain effect with **mixed handlers** in the
     program may call a façade member, which parks its activation until the
@@ -7682,7 +7682,7 @@ docs/language/ remains the source of truth for everything that does.
     An edge from a handler's **own-effect dependency** is therefore dropped,
     while an `Addr` of its own protocol (a genuine peer mesh) still counts.
   * **A router is a servant node** [effect-any]: a handler `of any E`, and
-    the route a `use any` binds [route-stub] (derived in the IR, so its node
+    the route a `use any` binds [actor-route-stub] (derived in the IR, so its node
     is built from the checker's `route_uses`, 2026-10-20), is `H's servant`,
     not `E`, with its dependencies' edges as a mixed servant's.
   * **Router in-edges** [effect-any] (2026-10-26): a dependency declared
@@ -7696,7 +7696,7 @@ docs/language/ remains the source of truth for everything that does.
       stateful, [effect-handle]) or waits (a member's `waitfor`) — a caller
       inside it serves nothing of its mailbox until the lock is free and
       the member returns, as in a priced shareable handler
-      [monitor-handler]. The derived route always is one: it keeps the view
+      [actor-monitor-handler]. The derived route always is one: it keeps the view
       version it last saw, and it waits while its selector picks no member;
     * the **caller's own edge** — the kind its edge into `E` has — into a
       bare router (stateless, no wait): its member is the caller's code.
@@ -7937,7 +7937,7 @@ surface is imported — `import std.args` brings `Args`, `args()` and `HostArgs`
   signatures. There is **no global accessor** — the alternative (a hidden
   process-wide `args()`) was rejected as antithetical to Salvo's locality. The
   effect is bound once in `main` with `use HostArgs()` and threaded to whoever
-  needs it, like `Console` [addr-capability].
+  needs it, like `Console` [net-addr-capability].
   * **`args()` answers the arguments after the program name**, in order — the
     one form both backends produce identically. The reconciliation of the two
     hosts' argv conventions lives inside the `HostArgs` handler, not in the
@@ -7947,7 +7947,7 @@ surface is imported — `import std.args` brings `Args`, `args()` and `HostArgs`
     here [backend-parity].
   * **`threadsafe platform handler HostArgs() of Args`** is the host's argv,
     read the one way each backend offers. Stateless, so sharing it across
-    threads needs no synchronization [threadsafe-platform]. Std ships both
+    threads needs no synchronization [platform-threadsafe]. Std ships both
     host implementations (`lib/platform/std/args.{rs,kt}`).
   * **The Salvo `main` signature is unchanged** by this effect (user decision:
     a `main(args)` entry form was considered and rejected). On the JVM, argv
@@ -8164,7 +8164,7 @@ between endpoints and delivers what arrives into the scheduler.
     sorts in a membership list. Distinct from the `Node` step ④ mints *after*
     a handshake.
 * [net-host] `threadsafe platform handler HostTcpTransport(bind: NodeEndpoint)
-  of Transport` is std's first `threadsafe` host [threadsafe-platform] — a
+  of Transport` is std's first `threadsafe` host [platform-threadsafe] — a
   transport is reached from every pool at once — with one class per backend
   in `lib/platform/std/net.{rs,kt}`, both signing the contract. The wire is
   identical on both: one TCP connection per peer, opened lazily by the first
@@ -8204,7 +8204,7 @@ between endpoints and delivers what arrives into the scheduler.
   * Test bodies have no `spawn` [test-body], so `net` is covered by a
     compile-and-run case per backend (identical output) rather than a
     `.test.sv` annex until the actor-testing slice lands.
-* [wire-format] **The canonical encoding** (step ②, user decision 2026-09-26:
+* [net-wire-format] **The canonical encoding** (step ②, user decision 2026-09-26:
   Salvo owns serialization, so a Kotlin node and a Rust node share a group).
   Stated once, in `salvo-core`'s `wire.rs`, and implemented twice, in each
   backend's `wire` runtime, byte for byte; struct, union and message codecs
@@ -8234,7 +8234,7 @@ between endpoints and delivers what arrives into the scheduler.
     resolved by the checker per type and would have to travel into the
     decoder; send a `List` of the entries. Recorded cut. `eff[E]` and
     `Reply<T>` wait for step ③'s routable identity.
-* [noremote] **Serializable by default, `noremote` the opt-out** (user
+* [net-noremote] **Serializable by default, `noremote` the opt-out** (user
   decision 2026-09-26, refusing the opt-in marker as the Akka experience —
   forgotten at the leaf, reported at the root). `noremote struct S { … }`,
   `noremote intrinsic type T`, `noremote type A = …`: the type has no wire
@@ -8252,7 +8252,7 @@ between endpoints and delivers what arrives into the scheduler.
     [backend-never-wrong]. From step ⑤ the same predicate refuses
     `actor_group<E>` of a protocol with a blocked payload — the crossing site the
     user chose over the declaration.
-* [protocol-hash] **The canonical hash of an actor protocol**: FNV-1a 64
+* [actor-protocol-hash] **The canonical hash of an actor protocol**: FNV-1a 64
   over the canonical form — every `send fn` in declaration order as
   `name(types);`, each struct **expanded to its field types** (so a renamed
   struct is the same protocol and a reordered field is not, matching the
@@ -8276,7 +8276,7 @@ between endpoints and delivers what arrives into the scheduler.
     constants as a value it was handed [actor-group]. The name and the hash
     are the struct's fields; there are no separate accessors (the private
     `protocol_name`/`protocol_hash` were deleted 2026-09-28, unused).
-* [addr-routable] **An `eff[E]` is a routable identity** (step ③, user
+* [net-addr-routable] **An `eff[E]` is a routable identity** (step ③, user
   decisions 2026-09-26): in generated code still a scheduler index, but every
   entry carries the **node** it lives on and its **bits**, so its wire form is
   `(node, actor, bits)` — 24 bytes — and a `Reply<T>` crosses as `(node,
@@ -8291,7 +8291,7 @@ between endpoints and delivers what arrives into the scheduler.
     (2026-10-03, runtime step 11): identities, proxies, credits,
     routes and the frames, written once in Salvo. Frames are one union,
     `RtMsgFrame | RtAnswerFrame | RtGrantFrame | RtOpenFrame |
-    RtControlFrame`, in the canonical encoding [wire-format] (D4), so no
+    RtControlFrame`, in the canonical encoding [net-wire-format] (D4), so no
     hand-written frame code is left in either host. An actor's capability
     bits are minted the first time its identity is asked for, which is the
     first time its addr leaves its node; an identity claiming bits for an
@@ -8368,7 +8368,7 @@ between endpoints and delivers what arrives into the scheduler.
     Found the first time a `total(out)` crossed: a deadlock inside
     `salvo_send_wire`, then another inside frame delivery; both runtimes now
     do every codec call in a lock-free phase.
-* [addr-capability] **The bits are what make a wire addr a capability.**
+* [net-addr-capability] **The bits are what make a wire addr a capability.**
   Minted unguessably at every spawn (OS-seeded hashing on Rust,
   `SecureRandom` on Kotlin), carried in every crossing identity, and checked
   on delivery — a frame whose bits do not match the actor at that index is
@@ -8376,7 +8376,7 @@ between endpoints and delivers what arrives into the scheduler.
   so sends to it are the silent no-op every send to the dead is. This is what
   keeps "who holds which face decides what they may do" true across a
   machine: the second face's addr has bits the first's does not.
-* [remote-backpressure] **A remote mailbox's `capacity` stays true through
+* [net-remote-backpressure] **A remote mailbox's `capacity` stays true through
   credits.** A proxy is born with none and sends an OPEN; the host answers a
   GRANT of the room left (`bound − queued − already granted`, at least one);
   each send spends a credit and **blocks at zero**, exactly as a local send
@@ -8421,7 +8421,7 @@ between endpoints and delivers what arrives into the scheduler.
     that node (sends become the silent no-op, watches fire with `node
     left`). The runtime only carries **control frames**: a channel and a
     payload — here the canonical encoding of `Handshake = Hello | Ack |
-    Leaving | Intro` [wire-format] — handed to the actor listening on the
+    Leaving | Intro` [net-wire-format] — handed to the actor listening on the
     channel at that node as its **private** `control(from, data)` member
     [actor-private-send], registered from its `init` with
     `watch_control("", self@NodeGroup)`. (Until 2026-10-02 the runtime ran
@@ -8494,7 +8494,7 @@ between endpoints and delivers what arrives into the scheduler.
   group never sends the protocol it serves [actor-deadlock-cycle]; a replica
   hearing from a new peer whose hash matches its own shares back, so the two
   converge whichever opened first, and one whose hash differs is invisible
-  [protocol-hash]. Replicas merge
+  [actor-protocol-hash]. Replicas merge
   their member sets, admit a remote member once, and withdraw every member
   hosted on a node that leaves. `join<E>(group, member)` is the ordinary
   send; `members` answers the union as seen locally.
@@ -8532,7 +8532,7 @@ between endpoints and delivers what arrives into the scheduler.
     connects the node if nothing has [net-connect]; `actor_group<E>(nodes)` is about *the actors of one
     protocol across them* — a program opens one per protocol it routes to or
     lists the members of, on every node that hosts or reaches them.
-  * **The crossing site for `noremote`** [noremote] is wherever
+  * **The crossing site for `noremote`** [net-noremote] is wherever
     `protocol<E>` is resolved for a concrete `E`: written directly as
     `protocol<Ping>()`, or filling an implicit `?protocol: () -> Protocol<E>`
     at a call such as `actor_group<Ping>(nodes)` (or a program's own generic
@@ -8544,14 +8544,14 @@ between endpoints and delivers what arrives into the scheduler.
     call, which is where the program named the protocol.
   * `pending(addr) -> Int` answers the mailbox depth of a local actor and the
     in-flight (granted, unacknowledged) count on a proxy
-    [remote-backpressure] — what a load-aware picker reads (step ⑦).
+    [net-remote-backpressure] — what a load-aware picker reads (step ⑦).
   * `eq(a: eff[E], b: eff[E])` is identity on both backends, so members can
     be compared and deduplicated; `node_of(addr) -> NodeId` answers the host.
   * **Naming**: node groups and actor groups stay visibly distinct —
     `NodeGroup`/`Node`/`NodeGroupWatcher`/`NodeEndpoint` for the machines,
     `ActorGroup<E>`/`ActorGroupWatcher<E>` (and `RouteView<E>`/`RouteMember<E>`
     for routes) for the actors; `eff[E]` keeps its name.
-* [route-stub] **`use any group` binds `any E` to whichever member a
+* [actor-route-stub] **`use any group` binds `any E` to whichever member a
   selector chooses, per send** (names user decision 2026-10-03: the route,
   `RouteSelector`; respelled 2026-10-20, user decision R7 of PIPELINE.md,
   from `use route_any(group)`, so the statement reads like the availability
@@ -8724,7 +8724,7 @@ between endpoints and delivers what arrives into the scheduler.
     and until 2026-09-13 the scoping refused it — which had locked the
     contract out of exactly the parameter that most wants one, since a
     callback that *consumes* what it is given can only be called once
-    ([once-fn]; `hand_over` in `examples/linearity/` is the shape).
+    ([fn-once]; `hand_over` in `examples/linearity/` is the shape).
 
   * [deduce-default] **Unmentioned means defaulted.** A parameter the clause
     does not mention takes its **default** (user decision 2026-10-11, replacing
@@ -8872,7 +8872,7 @@ between endpoints and delivers what arrives into the scheduler.
     may be *stricter* than the body (drop qualifiers, or move a parameter the
     body gives back), but a **kept** parameter the body *moves* — returned
     *owned* (a return under a wholesale `proj(p)` is a borrow, not a move
-    [readonly-return]), `break`-ed, stored in a struct/array/tuple literal,
+    [proj-readonly-return]), `break`-ed, stored in a struct/array/tuple literal,
     spread, or passed to a consuming call or a `use` handler constructor — is
     an error naming the `=> !p` remedy, and a kept qualifier the body may remove
     is an error. Copy scalars are exempt (a move of one is free). Binding a
@@ -8885,7 +8885,7 @@ between endpoints and delivers what arrives into the scheduler.
   * A move is therefore always **declared**: a body edit that starts moving a
     kept parameter is a compile error at that function, never a silent change to
     what callers depend on.
-* [ownership-audit] **Ownership never changes what an accepted program
+* [deduce-ownership-audit] **Ownership never changes what an accepted program
   means** (the user's expectation, PIPELINE.md R5; made evidence 2026-10-20,
   step 7 piece 2). Where ownership feeds typing it is the *callee's
   signature* speaking — a contract dropping `NonEmpty`, a `Mut` argument
@@ -8973,11 +8973,11 @@ between endpoints and delivers what arrives into the scheduler.
   * **The IR's `moved` flag** (R8 piece 3a) carries the checker's moves
     that emission does not make, from `Checked::flow_moves`: on a `Read`, an
     identifier a call's contract consumed — a **fn value**, which
-    [param-mode] lends whatever the contract, or a `once` value passed on
-    [once-fn] — and a projection whose move took its root wholly (an unwrap
+    [fn-param-mode] lends whatever the contract, or a `once` value passed on
+    [fn-once] — and a projection whose move took its root wholly (an unwrap
     the analysis could not place [fate-partial-move]; the builder marks the
     first read of the root inside the lowered projection,
-    `mark_root_move`); on a `Call` of a local, a `once` fn's call [once-fn].
+    `mark_root_move`); on a `Call` of a local, a `once` fn's call [fn-once].
     It is flow-only: no emitter reads it, and `salvo ir` does not show it.
   * **Partial moves** (R8 piece 3b) [fate-partial-move]: per path the pass
     also keeps, per local (its storage, through whole narrowings), the
@@ -9020,7 +9020,7 @@ between endpoints and delivers what arrives into the scheduler.
     (`record_mutation`; by the call, applied after it; by an assignment
     through a projection, applied before its value), with the acting handle
     it spares [ref-handle], the contents-mutation spare [deduce-field] and
-    the handles proven apart [elem-distinct]. A move-mode binding takes
+    the handles proven apart [fate-elem-distinct]. A move-mode binding takes
     ownership through its links (`FateFacts::bound`; the IR does not always
     read its root as a move: `let m = o ?: unreachable!()`): what was
     derived from each root at that projection is poisoned, and a root taken
@@ -9148,7 +9148,7 @@ between endpoints and delivers what arrives into the scheduler.
   them, which dropped those files' rows and diagnostics first; the
   `rewalk_files` / `Checked::drop_files` / `ErrorMarks` machinery and its
   four-walk cap went with it.)
-* [interface-pass] **Every declaration's interface is checked before any
+* [decl-interface-pass] **Every declaration's interface is checked before any
   body** (2026-10-20, PIPELINE.md step 7 piece 3; 02-resolve-03-interfaces).
   The checker walks each file three times, each declaration's text read
   once per walk for its own half:
@@ -9176,7 +9176,7 @@ between endpoints and delivers what arrives into the scheduler.
   `use` bindings [mod-use], and the check that a written lend list covers
   what the body visibly lends (it reads the body). The one minter whose body
   *is* an interface — an `iter fn` whose state infers a field's type
-  [state-infer] — is checked, body and all, in walk 2. A once-per-file
+  [handler-state-infer] — is checked, body and all, in walk 2. A once-per-file
   diagnostic memory (an ineligible key reported at a written type
   [col-key-eligible], a spare `holds proj`) passes from the interface walks
   to the body walk, so a mistake reported at the header is not reported
@@ -9209,7 +9209,7 @@ between endpoints and delivers what arrives into the scheduler.
   ([fate-field-disjoint]). Reads never consume and
   never poison, on any member, at any time. Function results are
   independent — unless the fn declares a derived return
-  (`proj(p)` [readonly-return]), in which case the result
+  (`proj(p)` [proj-readonly-return]), in which case the result
   links to the argument; a fn returning a projection of a kept
   parameter *without* the annotation must `copy` internally.
   `copy(...)` produces an unlinked value [copy-fn].
@@ -9272,8 +9272,8 @@ between endpoints and delivers what arrives into the scheduler.
     the stamp the flow pass and its `Decision` know the binding by; the span
     is only its origin; the IR cannot see them all — an
     `is` binding is the same storage as its subject there, a derived return
-    [readonly-return], a held view [proj-infer], an element identity
-    [elem-distinct] are typing facts), whether it *may* take ownership (the
+    [proj-readonly-return], a held view [proj-infer], an element identity
+    [fate-elem-distinct] are typing facts), whether it *may* take ownership (the
     conditions above, judged where the binding is: nothing borrowed through
     a derived return, every live ancestor owned, none outside an enclosing
     lambda — `may_take_ownership`, a typing and scope fact), the loops whose
@@ -9446,13 +9446,13 @@ between endpoints and delivers what arrives into the scheduler.
   *creation* (a closure may run zero or more times, unlike a named fn
   whose deductions fire per call).
   * A capture that is only *read* makes the lambda a **view** of it
-    [lambda-view]: the closure holds a borrow of every non-Copy read
+    [fate-lambda-view]: the closure holds a borrow of every non-Copy read
     capture (a Copy scalar is the value itself [copy-scalar-free]) — the
     variable stays readable, mutating or moving it poisons the closure,
     and binding/moving the closure follows the ordinary view rules.
     (Until 2026-09-12 only *transitively-mutable* read captures linked,
     alias-style — which let a named lambda smuggle a capture-rooted
-    projection past the discipline; see [lambda-view].)
+    projection past the discipline; see [fate-lambda-view].)
   * A capture the body *mutates* is consumed at creation — the closure
     takes ownership (each call mutates it; an original observing those
     mutations on one backend but not the other would break parity). A
@@ -9460,10 +9460,10 @@ between endpoints and delivers what arrives into the scheduler.
     remedy capture `copy(x)`); an inferable parameter is *claimed* as
     moved [deduce-infer].
   * A lambda that *consumes* a capture (a call that moves it, a store,
-    spread, `return`/`break`) is `once`-typed [once-fn]: the
+    spread, `return`/`break`) is `once`-typed [fn-once]: the
     capture is consumed at creation and the closure is callable at most
     once — the closure *owns* that value, so it is **not** a view of it
-    [lambda-view]. Consuming a *linear* capture remains an error
+    [fate-lambda-view]. Consuming a *linear* capture remains an error
     [linear-lambda].
   * Effects do not yet cross the lambda boundary as a contract: fn
     types parse an effect list (`(S) [E] -> T`) but the checker drops
@@ -9491,7 +9491,7 @@ between endpoints and delivers what arrives into the scheduler.
   * A *named fn* passed by value carries its declaration's contract
     (written list, else inferred), so boundaries are checked with real
     modes.
-  * Boundary variance is inverted like [once-fn], flagged for the same
+  * Boundary variance is inverted like [fn-once], flagged for the same
     future review: a fn that *keeps* its argument fits where a
     *consuming* one is expected (the caller merely over-estimates the
     damage), never the reverse; mutation permission must be granted by
@@ -9543,7 +9543,7 @@ between endpoints and delivers what arrives into the scheduler.
     expected (a pure lambda iterators to a `[Logger]` position and simply
     ignores what it is given); never the reverse, which would reach a call
     site that cannot supply it. Same direction as [fn-contract] and
-    [once-fn].
+    [fn-once].
   * **Inference**: an un-annotated lambda's effect set is inferred from its
     body (inference from a *visible* body is what [decl-explicit] permits),
     so it cannot silently fit a pure position. Where a fn type is written,
@@ -9572,7 +9572,7 @@ between endpoints and delivers what arrives into the scheduler.
     parameter bindings/annotations per contract, and named fns wrap in
     mechanical adapter closures bridging the contract's calling
     convention to the declaration's actual modes.
-* [once-fn] `once` is the language-level **use**-multiplicity qualifier
+* [fn-once] `once` is the language-level **use**-multiplicity qualifier
   (decision L7b, 2026-09-02; generalized from calls to uses by a user
   decision 2026-09-07): it means the value may be used **at most once**.
   Enforcement is consumption [deduce-consume], and what counts as a use
@@ -9678,7 +9678,7 @@ between endpoints and delivers what arrives into the scheduler.
     (a projection may arrive) but the body treats `T` uniformly; which
     instantiations actually borrow is the call sites' fact
     [rs-proj-arm].
-* [readonly-return] `-> proj(p) T` marks a **projected return** (L7c,
+* [proj-readonly-return] `-> proj(p) T` marks a **projected return** (L7c,
   2026-09-02; `proj(p)` as a qualifier on the type, user decision
   2026-09-11): the fn returns a *borrow* of the kept parameter `p` instead
   of an independent value — the relaxation of S1a's "results are always
@@ -9707,7 +9707,7 @@ between endpoints and delivers what arrives into the scheduler.
   type argument (`List<proj T>`) and a struct field. Where it sits decides
   what it means:
   * On the value itself (result, arm, tuple element): a **wholesale**
-    projection [readonly-return] — `[from: …]` is required and names kept
+    projection [proj-readonly-return] — `[from: …]` is required and names kept
     parameters; several sources are one projection of all of them (a
     projection joined across branches is "from both").
   * Inside a type argument (`List<proj T>`) or on a struct field: a borrow
@@ -9767,7 +9767,7 @@ between endpoints and delivers what arrives into the scheduler.
     (`return get(list, i)`), directly or through a local, is an error naming
     `-> ref(…)` on the reader as the remedy. std's `at` for `List`, `Deque`
     and `Map` are host primitives, not readers plus a conversion. A `ref`
-    return is a derived return like `proj(c)` [readonly-return]: its source
+    return is a derived return like `proj(c)` [proj-readonly-return]: its source
     is `c`, which is lent mutably.
   * **A mint may delegate** (user decision 2026-10-10): its body may return
     another mint's handle of `c` (`return at(t.members, i)`, `return
@@ -9797,7 +9797,7 @@ between endpoints and delivers what arrives into the scheduler.
     handle's *roots* at the linked paths [fate-poison]: sibling derivations
     of the container fall (a computed index may-aliases every element
     [fate-field-disjoint] — unless a live `NotSame` claim proves the two
-    apart [elem-distinct]), the acting handle itself survives (its storage
+    apart [fate-elem-distinct]), the acting handle itself survives (its storage
     did not move), and a parameter root is recorded as mutated so its
     inferred contract takes the exhaustive form [deduce-syntax].
   * **Mode is inferred per binding** (P-9, the [fate-move-mode] pattern):
@@ -9827,7 +9827,7 @@ between endpoints and delivers what arrives into the scheduler.
   `describe(x: A | B)` takes `if c { get(xs, 0) ?: unreachable!() } else { b }`.
   * **Where an arm lands**: on the target arm whose type, with `proj`/`ref`
     and `Mut` dropped, is its own — the arm identity of
-    [union-arm-identity], wrapper tags (`Ok`, `Err`) kept.
+    [type-union-arm-identity], wrapper tags (`Ok`, `Err`) kept.
     `salvo_core::types::read_arm_map` is the one definition.
   * **A `Mut` position** takes, per arm, a `ref … Mut` handle or an owned
     `Mut` value: `heal(e: Mut Entity?)` takes `at(es, i)` and a bound
@@ -9860,7 +9860,7 @@ between endpoints and delivers what arrives into the scheduler.
   `c` names another parameter, is a handle into the container passed as
   `c` — `fn strike(c: List<Mut T>, a: ref(c) Mut T, d: ref(c) Mut T)`.
   * **Two handles anchored at one container may alias**: the same-call
-    pair rule [elem-distinct] stands down for them, self-strike (`i == j`)
+    pair rule [fate-elem-distinct] stands down for them, self-strike (`i == j`)
     included — no proof needed, because both are positions in one
     container. Any number of parameters may name one container.
   * **The caller must hand in a handle into that container**: each
@@ -9889,7 +9889,7 @@ between endpoints and delivers what arrives into the scheduler.
   * Implementation: `check_elem_handle_pairs`'s `anchors`, `ref_anchor_of`;
     IR `FnDecl::ref_anchors` (dumped as `anchors a in c`); the Rust
     rendering is the container once plus a position per handle [rs-loc].
-* [param-const] **A parameter is a constant binding** (user decision
+* [fn-param-const] **A parameter is a constant binding** (user decision
   2026-09-25): assigning one — `n = n + 1`, `n++`, `h = Holder {…}` — is an
   error, whatever its type. The reading is that a parameter is `const`, and
   a future `const` on **struct fields** will say the same thing for scalars
@@ -9976,7 +9976,7 @@ between endpoints and delivers what arrives into the scheduler.
     (`h: Mut Holder` cannot say `.tags: NonEmpty`), so such claims are
     established and consumed *within* a function. Carrying one across a call
     boundary would need type-level syntax, which nothing yet asks for.
-* [elem-distinct] **Distinct awareness** (user decisions 2026-09-24 —
+* [fate-elem-distinct] **Distinct awareness** (user decisions 2026-09-24 —
   step ② of COMPLETED.md's log, the group-borrowing ladder — re-based on
   handle identity 2026-10-10): two bound mutable handles of one container
   a live `NotSame` claim proves apart [ref-notsame] name **disjoint
@@ -10056,7 +10056,7 @@ between endpoints and delivers what arrives into the scheduler.
     (`struct Pair<T, U, a, b> { first: proj(a) T, … }`) as the
     per-field explicit form, should the conservative fallback ever bite;
     `[name-casing]` already makes it parse (ROADMAP).
-* [lambda-view] **A capturing lambda is a view** (user decision
+* [fate-lambda-view] **A capturing lambda is a view** (user decision
   2026-09-12): the closure holds a borrow of every non-Copy capture its
   body only reads, exactly as a struct holds its `proj` fields
   [proj-field] — because a body can return projections rooted in a
@@ -10076,7 +10076,7 @@ between endpoints and delivers what arrives into the scheduler.
   * Rust: a capture-rooted projection in a lambda tail stays the borrow
     (`|i| all.get((*i) as usize).unwrap()` returning `&String` into a
     `Vec<&String>`) — no clone [copy-opt-in].
-* [yield-proj] An iterator that walks data declares `: Next<self, proj T>` and
+* [iter-yield-proj] An iterator that walks data declares `: Next<self, proj T>` and
   its `next` returns `Emitted (proj(p) T) | Finished` — the element is
   a projection of the iterator, which projects the source; a generator declares
   `: Next<self, T>` and emits owned values (user decision 2026-09-11: one
@@ -10118,7 +10118,7 @@ between endpoints and delivers what arrives into the scheduler.
   * A written `!v` on a parameter typed as a Copy scalar says nothing and
     **warns**, naming the entry; a generic `!elem` is silent, since whether
     its argument moves is the call's question. std is exempt. Where a clause
-    must be written out (a handler-local `send fn` [mixed-handler]) it need
+    must be written out (a handler-local `send fn` [actor-mixed-handler]) it need
     not mention a Copy scalar, and a `send fn` or an actor effect member may
     keep one: keeping and moving a scalar are the same thing.
   * Which passes ask: the syntax passes by written name
@@ -10132,7 +10132,7 @@ between endpoints and delivers what arrives into the scheduler.
     stored, sent). Without this, `return get(numbers, i)` on a `List<Double>`
     was refused as a view of `numbers` and asked for a `copy` that neither
     backend would emit. A non-scalar element read is unaffected.
-* [core-layers] **Core states what Salvo means; a backend spells it**
+* [backend-core-layers] **Core states what Salvo means; a backend spells it**
   (user decision 2026-10-06). `salvo-core` holds Salvo facts: ownership
   (how a callee holds a parameter, what a read does to a value), evaluation
   order, what `copy` duplicates, which calls resolve to which declarations.
@@ -10143,7 +10143,7 @@ between endpoints and delivers what arrives into the scheduler.
   be hoisted ahead of a mutable borrow (rustc's E0502), that a block in
   expression position needs `run {}`. None of those is a Salvo fact, so none
   belongs in core.
-* [param-mode] **How a callee holds a parameter** (`salvo_core::param_mode`,
+* [fn-param-mode] **How a callee holds a parameter** (`salvo_core::param_mode`,
   built 2026-10-06): *moved in* (consumed: `=> !p`, or inferred so), *lent*
   (kept, read by the callee), or *lent mutably* (kept, and the declared type
   carries `Mut`, or its elements do: `List<Mut T>` lends mutable handles
@@ -10155,10 +10155,10 @@ between endpoints and delivers what arrives into the scheduler.
   on it; everything else is kept. Element `Mut` counts the same in all three
   (unified 2026-10-06). A position in a fn *type* follows the same rule from
   the type's own clause, which is how a lambda binds its parameters. What a
-  target makes of the mode is its own ([core-layers]): Rust passes a scalar by
+  target makes of the mode is its own ([backend-core-layers]): Rust passes a scalar by
   value whatever the mode, spells a lent fn value `&mut impl FnMut`
   ([rs-borrows]).
-* [mut-lends] **Which fns hand back a result a `Mut` position reads**
+* [fate-mut-lends] **Which fns hand back a result a `Mut` position reads**
   (`salvo_core::mut_lends`, built 2026-10-06): the fns whose lent result
   serves a `Mut` position (the checker's `mut_lend_calls` and bound mints
   resolved through `call_fn`, followed along return paths) and the call
@@ -10200,7 +10200,7 @@ between endpoints and delivers what arrives into the scheduler.
   binding un-projects one level and keeps the rest: `copy` of a
   `proj Mut Str` is a `Mut Str`. It is the one-word remedy in every fate
   diagnostic.
-  * Lowered type-directedly by each backend [intrinsic-fn]; identity
+  * Lowered type-directedly by each backend [platform-intrinsic-fn]; identity
     where no Salvo operation can mutate the value, a real copy where
     one can, and a codegen error where no correct copy exists yet
     [backend-never-wrong].
@@ -10271,7 +10271,7 @@ between endpoints and delivers what arrives into the scheduler.
     drops it is the ordinary leak diagnostic).
   * Only an `intrinsic type` may carry it, never an **alias**: an alias is a
     second name for a type that has already decided whether it owes.
-    `intrinsic` is std-only [intrinsic-std-only], so a linear opaque type is
+    `intrinsic` is std-only [platform-intrinsic-std-only], so a linear opaque type is
     std's to declare — which is the point, the user's reason being that
     unifying the synchronous and asynchronous effect surfaces will want this
     control in the compiler's hands.
@@ -10315,7 +10315,7 @@ between endpoints and delivers what arrives into the scheduler.
   for consuming-callback positions — deliberately without `canbe linear`,
   so a linear argument is refused by the instantiation ban
   [linear-generics]. Lowered per
-  backend [intrinsic-fn]: Rust `drop(value)`; Kotlin evaluates and
+  backend [platform-intrinsic-fn]: Rust `drop(value)`; Kotlin evaluates and
   ignores (`(value).let {}`). Failure/panic paths are out of scope
   until Salvo has such semantics.
 * [linear-union-arm] **A union arm may be linear** (O-C2, user decision
@@ -10487,7 +10487,7 @@ between endpoints and delivers what arrives into the scheduler.
   `<T canbe linear>` (decision L7a-syntax, 2026-09-02 — the same
   `canbe linear` phrase as on type declarations, one qualifier per
   `canbe`, the comma separates parameters; spelled `with` until the
-  2026-09-03 rename [canbe-optin]). The ban reaches everywhere a generic
+  2026-09-03 rename [qual-canbe-optin]). The ban reaches everywhere a generic
   binds (extended 2026-09-12): ordinary calls, **effect members' own
   generics** (`swallow<T>(x: T)` cannot bind a linear `T` — handlers
   never promised to honor it), and **fn values** (a generic fn passed by
@@ -10779,7 +10779,7 @@ between endpoints and delivers what arrives into the scheduler.
   * **The cutover** (2026-10-03): generated code runs on this scheduler.
     Each backend's `scheduler.*` keeps the entry points generated code calls,
     as shims onto the core; the routing layer (proxies, credits, frames)
-    moved to the service `runtime.routing` the same day [addr-routable].
+    moved to the service `runtime.routing` the same day [net-addr-routable].
     The core calls back `granted(addr, from)` when
     a message that came over the wire leaves a mailbox and `flush_frames()`
     before an activation. A watch is answered with `std.core.actor`'s `Exit` and
@@ -10815,7 +10815,7 @@ between endpoints and delivers what arrives into the scheduler.
   with a `threadsafe platform handler HostRuntime` per backend in std's
   platform root, bound by the runtime module's `use HostRuntime()`
   [mod-use] (the runtime record). Its members: `secure_bits` (OS entropy:
-  `/dev/urandom` on Rust, `SecureRandom` on Kotlin [addr-capability]),
+  `/dev/urandom` on Rust, `SecureRandom` on Kotlin [net-addr-capability]),
   `report` (a line on stderr) and `mono_nanos` (the monotonic clock). Waiter
   records are reused once their wait has ended, checked by the token's slot,
   so the table holds as many as the most waits ever open at once. What
@@ -10967,7 +10967,7 @@ between endpoints and delivers what arrives into the scheduler.
   * Positions covered: fn params and return types, `let` annotations,
     struct fields, handler ctor params and state fields, effect-member
     signatures, type-alias targets, qualifier `of` types and field
-    overrides, `with` [qual-with] and `canbe` [canbe-optin] clauses,
+    overrides, `with` [qual-with] and `canbe` [qual-canbe-optin] clauses,
     array-init element types, and `is` / `when` checks. Reported from
     `validate_type` / `validate_quals` / `parse_check` at *declaration
     sites*, not during type lowering, which runs repeatedly (same
@@ -10988,13 +10988,13 @@ between endpoints and delivers what arrives into the scheduler.
   Dot-names are legal in every type position: annotations, `of` types,
   `is` checks, `+Q` constructors, `canbe` clauses, deduction clauses,
   struct literals.
-  * `Ns` must be a **namespace** — a `namespace X { … }` block [namespace],
+  * `Ns` must be a **namespace** — a `namespace X { … }` block [mod-namespace],
     or (the legacy spelling) a struct or defined `type` declared in the
     **same file**. A struct/`type` used as a namespace must not be generic —
     Kotlin emits the member as a *nested* class, which cannot reference the
     outer class's type parameters [kt-nested-dot-name].
   * Any nesting depth: `A.B.C.Thing` is a member of nested namespaces
-    [namespace] (the old exactly-two-segment cap is lifted — it survives only
+    [mod-namespace] (the old exactly-two-segment cap is lifted — it survives only
     as the shape of a *hand-written* legacy dot-name, `Ns.Name`).
   * **Collision ban:** nothing visible in the file may carry the
     *concatenated* spelling (`EnvironmentId` beside `Environment.Id`).
@@ -11020,7 +11020,7 @@ between endpoints and delivers what arrives into the scheduler.
     [name-dot-import]. Kotlin nests the members in an `object StorageClass`
     [kt-nested-dot-name] (the type itself is expanded structurally, so the
     name is free); Rust concatenates as for a struct.
-* [namespace] A **`namespace X { … }`** groups any top-level declarations —
+* [mod-namespace] A **`namespace X { … }`** groups any top-level declarations —
   functions, types, structs, qualifiers, effects, handlers, and nested
   namespaces — under a capitalized name (user decision 2026-10-16). `namespace`
   is a **contextual** keyword, recognised only at item position when a
@@ -11043,7 +11043,7 @@ between endpoints and delivers what arrives into the scheduler.
     members are.
   * **Terminal form `namespace X ...`** (literal `...` where the `{` would go)
     puts the rest of the file's items in `X`, extending the body-less
-    `[terminal-scope]` form to item level; nothing may follow it at that level.
+    `[expr-terminal-scope]` form to item level; nothing may follow it at that level.
   * Only *named declarations* live in a namespace: an `import`, `refn`,
     `rename` or `test` inside one is an error (they are file- or module-scoped).
   * **The leading-dot shorthand `.Thing`** names a namespaced type by a
@@ -11083,7 +11083,7 @@ between endpoints and delivers what arrives into the scheduler.
     the precedent that importing an effect brings its members. Members
     ride along only on an *unaliased* import: an alias renames exactly
     one name, and a partial rename would have no sensible spelling.
-  * **A whole namespace is importable** [namespace]: `import mod.X` brings
+  * **A whole namespace is importable** [mod-namespace]: `import mod.X` brings
     every exported member under the `X.` prefix (kept written `X.member` — not
     a flat dump like a whole-module import), and `import mod.X as Y` rewrites
     the `X.` prefix to `Y.` for references in this file.
@@ -11147,7 +11147,7 @@ between endpoints and delivers what arrives into the scheduler.
     and anything else is looked up in the program's resolved references
     (`resolve::written_keys`), resolved once on first need. `wire::approx_ty`
     lowers through it, so every predicate over declared shapes — the wire
-    form [wire-format], the protocol hash [protocol-hash], linearity
+    form [net-wire-format], the protocol hash [actor-protocol-hash], linearity
     [linear-group], the copy plan, an emitter expanding an alias — judges
     runtime's field `token: Token` by runtime's own `Token`. A protocol's
     canonical form spells a name plain, so its hash does not depend on which
@@ -11200,7 +11200,7 @@ between endpoints and delivers what arrives into the scheduler.
   NodeId)` — the declaration the node is in [decl-id] (a member its own; a
   file's own nodes, its imports, renames, refinements and module-level
   `use`s, its `DeclKind::File` id) and the node's ordinal within it, in walk
-  order. The span is not the key: it is the node's origin [origin], carried
+  order. The span is not the key: it is the node's origin [node-origin], carried
   in the key for a reader that places a fact (the language server,
   `salvo facts`, a diagnostic), and takes no part in its equality.
   * **Numbered on the tree, once, after its last rewrite**
@@ -11240,7 +11240,7 @@ between endpoints and delivers what arrives into the scheduler.
   program-wide.
   * One router, an exhaustive destructure of `Checked`, partitions the rows
     into a sink: by declaration (`Checked::split_decls`, which `salvo facts`
-    prints [facts-dump]) or by the file the index places each declaration
+    prints [cli-facts]) or by the file the index places each declaration
     in (`Checked::split_files`, the check cache's [lsp-check-cache]);
     `Checked::insert_rows` puts a part back. A new table is a compile error
     there until it says where its rows go.
@@ -11301,7 +11301,7 @@ replaced the working document TESTING.md).
     anything.
   * [test-unique] Two tests in one file may not share a name — the name is the
     test's identity to the runner.
-* [random-default] **`random.DefaultRandom` is Salvo over the runtime**
+* [std-random-default] **`random.DefaultRandom` is Salvo over the runtime**
   (2026-10-04, ROADMAP 0.5): a handler whose `random()` is
   `runtime.random_double()`, two draws of the scheduler's Lehmer generator
   as one double in [0, 1). Seeded by OS entropy on first use, and by the test's
@@ -11309,7 +11309,7 @@ replaced the working document TESTING.md).
   cryptographic. `std.core.console`'s `StdConsole` is a `threadsafe platform
   handler` with its host files in `lib/platform/std/core/console.{rs,kt}`; std
   declares no `intrinsic handler` any more.
-* [console] **`Console` is the program's standard streams** (user request
+* [std-console] **`Console` is the program's standard streams** (user request
   2026-10-20): `print(message)` writes standard output and `printerr(message)`
   standard error, neither adding a newline (`println` is the free fn adding
   one); `readln() -> Str?` reads the next line of standard input without its
@@ -11364,7 +11364,7 @@ replaced the working document TESTING.md).
     so is `heap.test.sv` beside a `heap/test.sv`, since the two spell one
     module path.
   * An annex is **never `is_std`**, whatever tree it lives in, so a test cannot
-    declare an `intrinsic` [intrinsic-std-only] (user decision 2026-09-23).
+    declare an `intrinsic` [platform-intrinsic-std-only] (user decision 2026-09-23).
 * [test-visibility] An annex sees the module it tests **whole**, private
   declarations included, at the same rung as the module's own declarations
   (`Level::Own`, so overload ranking in a test matches the module's
@@ -11386,7 +11386,7 @@ replaced the working document TESTING.md).
   * `spawn` is *not* in the MVP's implicit powers; actor testing is the slice
     after it (ROADMAP.md).
 * [test-fail] Failure travels on the existing non-resumption channel
-  [throw] [try] (user decision 2026-09-23, TF-3(i) — no second channel, and no
+  [throw] [throw-try] (user decision 2026-09-23, TF-3(i) — no second channel, and no
   `Test` effect to intercept): an assertion declares `[Throw<Failure>]`, and
   `Failure` is a std struct with a `message: Str` and a `to_str`.
   * A test therefore **stops at its first failing assertion**. Several
@@ -11481,7 +11481,7 @@ replaced the working document TESTING.md).
     or `failed`, the **default**: held until the verdict and shown only for a
     failure or a death.
   * `streams` (`--streams`): `both`, the default, or `stderr` — only what the
-    test wrote to stderr (`printerr` [console], and whatever the host wrote
+    test wrote to stderr (`printerr` [std-console], and whatever the host wrote
     there).
   * A test's output goes under its header, indented (stderr lines marked
     `[stderr]`), and the verdict re-states the test: `test m :: t ...`, the
@@ -11575,7 +11575,7 @@ replaced the working document TESTING.md).
     [manifest-discovery] and never has a `--src`.
   * Narrowing to one module is `--module` on `ir`/`facts` [cli-ir] and the
     id `FILTER` on `test` [test-filter]; `analyze` has none yet.
-* [protocol-lock] **`salvo.lock` beside the manifest locks the protocol hash of
+* [actor-protocol-lock] **`salvo.lock` beside the manifest locks the protocol hash of
   every actor effect the project declares** (the network round's N-9, 2026-09-26,
   shaped 2026-09-29): `version = "…"` and `[protocols] Effect = "hash"`, for the
   project's own `actor effect`s with a wire form (never std's). Every build
@@ -11585,7 +11585,7 @@ replaced the working document TESTING.md).
   — there is no `--relock`, since a silent protocol change is what the file
   exists to stop. A protocol added or removed relocks without error. Std
   shares the predicate (`effect_has_wire_form`) with both emitters, so what is
-  locked is exactly what carries a `__PROTO_E` constant [protocol-hash].
+  locked is exactly what carries a `__PROTO_E` constant [actor-protocol-hash].
 * [std-shadow] (`lib/salvo.toml` says `std = true` [manifest], which marks the
   whole tree std — a new module the embedded copy lacks included — and is what
   makes the repository root openable in an editor. Its source root is `lib/`
@@ -11625,7 +11625,7 @@ replaced the working document TESTING.md).
     named by **absolute path** (they sit outside the source root, so a
     root-relative name would lie), and loaded with tests off. Its `main` is
     never an entry point [cli-run]; its actor protocols are not the project's
-    to lock [protocol-lock]; `salvo platform generate` writes no skeleton for
+    to lock [actor-protocol-lock]; `salvo platform generate` writes no skeleton for
     its platform handlers — but its **companions are loaded** (host files under
     its platform root, user decision 2026-09-29): a dependency's platform handlers
     need their implementations as much as the project's do.
@@ -11654,7 +11654,7 @@ replaced the working document TESTING.md).
   (Kotlin `MutableList<T>`; Rust erases it, since mutability lives in the
   binding) [type-canbe-mut].
   * `intrinsic` is the *compiler's* modifier and std-only
-    [intrinsic-std-only]. An intrinsic the backend has no lowering for is
+    [platform-intrinsic-std-only]. An intrinsic the backend has no lowering for is
     a codegen error naming it, so the restriction is largely
     self-enforcing.
   * Dispatch is on the **checker-resolved declaration** — the declaration
@@ -11662,7 +11662,7 @@ replaced the working document TESTING.md).
     separates std's overloads (`size(Str)`, `size(List<T>)`, `size(T[])`)
     without the arity guessing the older per-backend template scheme
     needed.
-* [intrinsic-std-only] `intrinsic` is the compiler's own modifier, so only
+* [platform-intrinsic-std-only] `intrinsic` is the compiler's own modifier, so only
   the standard library may write it (user decision 2026-09-05): a customer
   declaring `intrinsic` names an implementation the compiler does not have.
   Enforced in the checker (`check_intrinsic_is_std_only`), not the parser,
@@ -11674,7 +11674,7 @@ replaced the working document TESTING.md).
   `platform handler` [platform-handler]. Applies to
   `intrinsic fn`, `intrinsic type`, `intrinsic handler`, and
   `intrinsic qualifier` alike.
-* [intrinsic-fn] `intrinsic fn` declares a compiler-intrinsic function:
+* [platform-intrinsic-fn] `intrinsic fn` declares a compiler-intrinsic function:
   the declaration carries the signature and deduction clause the checker
   uses (body-less), and each backend lowers calls to it directly, seeing
   the checker's resolved argument type at every call site — type-directed
@@ -11713,7 +11713,7 @@ replaced the working document TESTING.md).
     parameters are passed through to the host class
     (`use HostS3("bucket")`).
   * Under [effect-handle] a platform handler binds as a handle — a
-    monitor unless it declares `threadsafe` [threadsafe-platform], bare when
+    monitor unless it declares `threadsafe` [platform-threadsafe], bare when
     it does — so handlers depending on its effect are written the same
     whichever the host declared.
   * **The host implements a host-facing interface, and the program reaches
@@ -11766,7 +11766,7 @@ replaced the working document TESTING.md).
     generated code calls wherever Salvo copies one. Rust asserts `Clone`
     (deep), `Debug`, `PartialEq`, `Eq` and `Hash`, so a struct holding one
     still derives. A value type keeps its canonical wire form where the
-    encoding defines one [wire-format] (`Bytes`); otherwise it is `noremote`.
+    encoding defines one [net-wire-format] (`Bytes`); otherwise it is `noremote`.
     Every collection is built: `Bytes`, `Str`, `Deque`, `List`, `Set`, `Map`,
     `SortedSet` and `SortedMap`. A `Map` iterates its keys through its host's `each`
     [col-map-iter], and its `to_str` stays intrinsic: rendering keys *and*
@@ -11805,7 +11805,7 @@ replaced the working document TESTING.md).
     `&T` for a type with parameters and over whatever clones to the element
     otherwise (`Str`'s `chars()`), and for a type with parameters also
     **`each_mut(&mut x)`** over `&mut T` (a loop writing a field of its
-    element, [for-elem-write]) and **`into_each(x)`** over owned elements (a
+    element, [iter-for-elem-write]) and **`into_each(x)`** over owned elements (a
     loop that consumes the container). Rust asserts all three against the
     obligation's element type beside the re-export, and `salvo platform
     generate` writes their stubs. When a module declares more than one
@@ -11814,7 +11814,7 @@ replaced the working document TESTING.md).
     `eachSortedSet`), since one Rust host file holds one `each`
     (`salvo_core::naming::each_suffix`). Every std collection is iterable; a
     by-value loop over an elementless one clones out of `each`.
-  * **Always `noremote`** [noremote] — a host object has no wire form, and
+  * **Always `noremote`** [net-noremote] — a host object has no wire form, and
     the wire predicate says so for a struct holding one — and
     sendable [actor-sendable] (Rust: `Send + 'static`), so a handle may sit
     in actor state or travel in a local message.
@@ -11904,7 +11904,7 @@ replaced the working document TESTING.md).
   delivery. A failed check **panics** (Rust) or **throws**
   `IllegalStateException` (Kotlin), naming the declaration and the value.
   * What is checked is what the Salvo type promises and the host type cannot
-    say, over the runtime shape [union-arm-identity]: a **closed** literal
+    say, over the runtime shape [type-union-arm-identity]: a **closed** literal
     arm (`"gold" | "silver"`; an open one, `| Other Str`, admits any value of
     its base); a **state** qualifier, by running its `qualifies`; and these
     inside lists, sets, arrays, maps, struct fields, tuple elements,
@@ -11968,7 +11968,7 @@ replaced the working document TESTING.md).
     no host project, another ABI revision, or signatures changed since it was
     generated — and `salvo platform generate` in that directory as the fix.
     A build that does not reach the dependency's platform code does not look.
-* [threadsafe-platform] `threadsafe platform handler H of E` states the host
+* [platform-threadsafe] `threadsafe platform handler H of E` states the host
   class's **thread-safety contract** (user decision 2026-09-26, closing the
   2026-09-20 "assumed thread-safe" stance): the instance may be entered
   concurrently from any thread, because the host synchronizes internally or
@@ -12069,7 +12069,7 @@ replaced the working document TESTING.md).
   Counter { at: Int = start * 2 }`. The state is built once, at construction,
   so the parameters are in scope read-only. Kotlin initialises the field from
   the constructor's `val`; Rust inside `new`.
-* [host-splice] **Removed 2026-10-01** (user decision; the ABI decisions). Platform
+* [platform-host-splice] **Removed 2026-10-01** (user decision; the ABI decisions). Platform
   templates — `<m>.sv.kt` / `.sv.rs` files of host code with Salvo in
   `` `…` `` markers — made the reader keep two languages in mind at once and
   left the host's own tooling unusable. A platform handler or `platform fn`
@@ -12127,7 +12127,7 @@ replaced the working document TESTING.md).
   * `reply.hosted()` — `SalvoReply::hosted` on Rust, `SalvoReply.hosted()` on
     Kotlin — hands the token to host code: it stops counting as an obligation
     the program owes [actor-on-idle], and the scheduler counts **one outside
-    source of work** [threadsafe-platform] until it is sent, so the waiter is
+    source of work** [platform-threadsafe] until it is sent, so the waiter is
     neither idle nor deadlocked. `send(value)` on the host reply delivers
     (enqueue only; the continuation runs as a later activation, never inside
     the call) and closes the source. The same mechanism a host thread's
@@ -12185,7 +12185,7 @@ replaced the working document TESTING.md).
     declarations always join.
   * Not done: a lock for host versions; repositories other than Maven
     Central; per-companion (as opposed to per-project) declarations.
-* [host-tool] **Both backends' build tools are found the same way** (user
+* [backend-host-tool] **Both backends' build tools are found the same way** (user
   decision 2026-09-30): `cargo` and `gradle` on PATH by default, and `[rust]
   cargo = "…"` / `[kotlin] gradle = "…"` to name another — a value with a path
   separator is a path relative to the manifest (a `gradlew` wrapper works as
@@ -12295,7 +12295,7 @@ replaced the working document TESTING.md).
   checker's errors, then the IR's on the clean declarations).
   * **Which declarations broke**, from the errors' spans. An error raised at
     a node a stamp copied — rendered by its origin at the stamp's `by` site,
-    a field or an arm [origin] [comptime-instantiate] — carries the stamped
+    a field or an arm [node-origin] [comptime-instantiate] — carries the stamped
     fn's id (`FileDiagnostic::decl`) and breaks that fn's body only (it was
     recognized by its "in `f` from `x` for `…`" prefix and span until
     2026-10-27). Otherwise every item
@@ -12334,7 +12334,7 @@ replaced the working document TESTING.md).
   place's root here though the read does not move it for emission (a fn
   value given to a consuming parameter, a projection taking its root) —
   the IR flow pass's move [flow-use-after-move]. A `Call` carries the same
-  flag for a call that consumes its local target (a `once` fn [once-fn]).
+  flag for a call that consumes its local target (a `once` fn [fn-once]).
 * [ir-op] `Op` is the host's operator on basic types [type-basic]:
   arithmetic, logic, ordering (`Lt`, `Gt`, `LtEq`, `GtEq`) and equality
   (`Eq`, `NotEq`). An operator on any other type is a `Call` of the
@@ -12617,13 +12617,13 @@ replaced the working document TESTING.md).
     `{file, line, col, start, end, severity, message}` objects to
     stdout (line/col 1-based, start/end byte offsets); text mode
     renders to stderr with a summary line.
-  * [phase-timings] With `SALVO_TIMINGS` set, each pipeline phase prints its
+  * [cli-phase-timings] With `SALVO_TIMINGS` set, each pipeline phase prints its
     wall-clock time to stderr (`timing: resolve  16.0ms`): parse, expand
     (with comptime's own resolution and its stamping), resolve (symbols,
     scopes, the language server's indexes), the checking walk with its
     sub-steps (the std seed, written keys, visible keys, protocol hashes,
     the platform closure, `check: interfaces`, with its two steps
-    `interfaces: facts` and `interfaces: headers` [interface-pass], then
+    `interfaces: facts` and `interfaces: headers` [decl-interface-pass], then
     `check: bodies`) and the deduction pass, and the IR analysis
     (`salvo_core::timing`; 2026-10-20, PIPELINE.md step 1).
     `tools/lsp-timing.py` drives the language server through a few edits
@@ -12807,7 +12807,8 @@ replaced the working document TESTING.md).
     `` `[a, b]` `` stays literal.
 * [doc-tags] **A doc line that starts with `@name` opens a tag** (user
   decisions 2026-10-20): `@param name  text`, `@returns`, `@throws`, `@see`,
-  `@todo`, and `@whynot` [qual-whynot]. Prose comes first; a tag's text runs
+  `@todo`, `@whynot` [qual-whynot] and `@compilerrules`
+  [doc-compilerrules]. Prose comes first; a tag's text runs
   over the lines below it until the next tag, a bare `//` line, or the end
   of the block, its lines joined by spaces (so it wraps freely,
   [lsp-comment-continuation] lining up the continuation). An `@` inside a
@@ -12825,6 +12826,18 @@ replaced the working document TESTING.md).
     is [qual-whynot]'s error.
   * The TextMate grammar colours a tag opening a comment line
     (`storage.type.class.doc.salvo`) [cli-lang].
+* [doc-compilerrules] **`@compilerrules [rule-a, rule-b] comment` cites the
+  compiler rules a declaration implements** (user decision 2026-10-28,
+  TESTS.md TD10): a bracketed list of rule labels (lowercase words joined by
+  `-`, as LANGUAGE_SPEC.md and the backend specs define them), then an
+  optional comment on how the group applies here. It is for the source's
+  readers, not the declaration's users: **hover leaves it out**, and
+  go-to-definition shows it where it is written. A tag whose text does not
+  open with a well-formed list is a warning [doc-tags]. std's doc comments
+  cite rules this way, never inline in their prose; a rule cited in prose
+  would be shown to every user hovering the name. Whether a cited label
+  exists is the repository's test to check (`docs_tests`), not the
+  compiler's: the compiler does not read the specs.
 * [lsp-comment-continuation] **Enter in a `//` comment continues it aligned**
   (`textDocument/onTypeFormatting` on `\n`): under the text after a
   `LABEL: ` (`// TODO: text`), after a doc tag (`// @returns text`;
@@ -13153,7 +13166,7 @@ replaced the working document TESTING.md).
   [ir-dump] of every user module, of one module, or (`--all`) of every
   module the program reaches, std included. It builds the IR exactly as the
   backends do, so it is the point to bisect when they disagree.
-* [facts-dump] `salvo facts [--src DIR] [--module PATH]` prints the
+* [cli-facts] `salvo facts [--src DIR] [--module PATH]` prints the
   checker's facts before the IR is built (PIPELINE.md D1, the pre-IR), by
   declaration [decl-rows]: each declaration of a file in declaration order,
   under its id [decl-id] (`total(#0) -> Int@main`; a file's own nodes under

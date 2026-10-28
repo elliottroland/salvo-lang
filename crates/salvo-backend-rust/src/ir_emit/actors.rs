@@ -44,7 +44,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             .collect()
     }
 
-    /// [mixed-handler] Every face a plain effect, and a `send fn` member.
+    /// [actor-mixed-handler] Every face a plain effect, and a `send fn` member.
     pub fn is_mixed(&self, h: &ImplDecl) -> bool {
         !h.faces.is_empty() && h.members.iter().any(|m| m.send) && self.actor_faces(h).is_empty()
     }
@@ -130,7 +130,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 "\nimpl crate::wire::__Wire for {msg} {{\n    fn __enc(&self, out: &mut Vec<u8>) {{\n        match self {{\n{enc}        }}\n    }}\n    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {{\n        match r.u8()? {{\n{dec}            _ => None,\n        }}\n    }}\n}}\n"
             ));
             let iname = self.iface_by_id(interface).map(|i| i.name.clone()).unwrap_or_default();
-            out.push_str(&format!("\n/// [protocol-hash] The canonical hash of `{iname}`.\npub const __PROTO_{}: &str = \"{hash}\";\n", rs_ident(&iname)));
+            out.push_str(&format!("\n/// [actor-protocol-hash] The canonical hash of `{iname}`.\npub const __PROTO_{}: &str = \"{hash}\";\n", rs_ident(&iname)));
         }
         self.out.push_str(&out);
     }
@@ -149,7 +149,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    /// [addr-routable] A send: the typed wire path when the protocol has a
+    /// [net-addr-routable] A send: the typed wire path when the protocol has a
     /// wire form, the plain enqueue otherwise.
     pub fn send_call(&mut self, i: &InterfaceDecl, target: &str, built: &str) -> String {
         if i.protocol_hash.is_some() {
@@ -260,7 +260,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ));
         }
         out.push_str("}\n");
-        // [addr-routable] The frame decoder, by protocol hash.
+        // [net-addr-routable] The frame decoder, by protocol hash.
         let mut arms = String::new();
         for face in faces {
             if face.protocol_hash.is_some() {
@@ -279,7 +279,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         out
     }
 
-    /// [addr-routable] The `ReplyDecoder` for an answer of type `t`.
+    /// [net-addr-routable] The `ReplyDecoder` for an answer of type `t`.
     pub fn reply_decoder(&mut self, t: &Ty) -> String {
         let t = t.strip_quals().clone();
         if salvo_core::wire_blocker(self.s.symbols, &t).is_some() || super::body::foreign_var(&t, &self.f.generics) {
@@ -302,7 +302,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         };
         let faces = self.actor_faces(decl);
         if faces.is_empty() && self.is_mixed(decl) {
-            // [mixed-handler] [rs-mixed] constructor arguments evaluated once,
+            // [actor-mixed-handler] [rs-mixed] constructor arguments evaluated once,
             // cloned into the servant and moved into the façade.
             let ExprKind::Construct { fields } = &handler.kind else {
                 self.error("`spawn` of a mixed handler needs its construction");
@@ -348,7 +348,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             );
         }
         if faces.is_empty() {
-            // [monitor-handler] the instance shared behind its face's handle.
+            // [actor-monitor-handler] the instance shared behind its face's handle.
             if decl.faces.len() != 1 {
                 self.error(format!("handler `{}` implements several plain effects, and a shared instance behind several faces is not supported yet", decl.name));
                 return "()".to_string();
@@ -548,7 +548,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         format!("{{ {lets}match self.__addr {{ Some(__a) => crate::scheduler::salvo_send(__a, std::boxed::Box::new({built})), None => self.{}({}) }} }}", rs_ident(member), names.join(", "))
     }
 
-    /// [protocol-hash] `salvo_set_protocols` at the top of `main`.
+    /// [actor-protocol-hash] `salvo_set_protocols` at the top of `main`.
     pub fn protocol_prelude(&mut self) -> String {
         let mut ifaces: Vec<&InterfaceDecl> = self
             .s

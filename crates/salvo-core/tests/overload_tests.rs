@@ -21,7 +21,7 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 use salvo_syntax::diag::Severity;
 
-/// [intrinsic-std-only] The intrinsic declarations these sources rely on,
+/// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on,
 /// loaded as *std* files (only std may write `intrinsic`), one per `std.core`
 /// module so the tests can name them with `@`.
 const STD_LIST: &str = concat!(

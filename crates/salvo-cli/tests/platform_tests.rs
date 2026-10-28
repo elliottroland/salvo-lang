@@ -452,7 +452,7 @@ fun close(c: Cursor) {}
             assert!(!out.status.success() && stderr.contains("__contract"), "{stderr}");
         }
     }
-    // [noremote] A host handle has no wire form.
+    // [net-noremote] A host handle has no wire form.
     let dir = work_dir("ptype_wire");
     project(&dir);
     fs::write(dir.join("host.sv"), HOST_SV).unwrap();
@@ -531,7 +531,7 @@ pub fn run_guarded(body: impl FnOnce()) -> Option<String> {
 // member runs under one lock on both backends, so the receivers are
 // `&mut self` and plain fields are fine; the struct must be `Send`.
 // If the host synchronizes internally, declare it `threadsafe platform
-// handler` in Salvo to say so [threadsafe-platform].
+// handler` in Salvo to say so [platform-threadsafe].
 pub struct HostApply {
 }
 
@@ -970,7 +970,7 @@ fn the_platform_tree_mirrors_the_source_tree() {
     __stamp.verified();
 }
 
-/// [platform-host-deps] [rs-cargo] [kt-classpath] [kt-gradle] [host-tool] A platform companion that
+/// [platform-host-deps] [rs-cargo] [kt-classpath] [kt-gradle] [backend-host-tool] A platform companion that
 /// uses a host library: the manifest declares it — a `path` crate under
 /// `[rust] crates`, a jar directory under `[kotlin] libs` — and `salvo run`
 /// builds with it: Rust through an emitted `Cargo.toml` and `cargo build`,
@@ -1017,7 +1017,7 @@ fn main() [use] {
                 "[project]\nname = \"hd\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\nplatform = \"salvo/platform\"\n\n[rust]\n{crates}"
             )
         };
-        // [host-tool] `[rust] cargo` names the cargo to run: here a wrapper
+        // [backend-host-tool] `[rust] cargo` names the cargo to run: here a wrapper
         // announcing itself on stdout, which must not reach the program's.
         fake_tool(&dir.join("tools/cargo"), "echo 'wrapped cargo'\nexec cargo \"$@\"\n");
         fs::write(
@@ -1106,7 +1106,7 @@ fn main() [use] {
         assert!(out.status.success(), "kotlin run failed: {stderr}");
         assert_eq!(String::from_utf8_lossy(&out.stdout), "hello #7\n");
 
-        // [kt-gradle] [host-tool] `artifacts` are resolved by the Gradle
+        // [kt-gradle] [backend-host-tool] `artifacts` are resolved by the Gradle
         // `[kotlin] gradle` names — here a stand-in speaking the same
         // protocol (the real one runs in the aws glue test): it is given the
         // target as `--project-dir`, finds the coordinate in the build salvo
@@ -1157,7 +1157,7 @@ fn fake_tool(path: &Path, body: &str) {
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-/// [host-tool] A build tool the manifest names that is not there is reported
+/// [backend-host-tool] A build tool the manifest names that is not there is reported
 /// naming the file and the key, for both backends alike — and a program that
 /// declares no host libraries never runs either tool. No toolchain is
 /// needed: the tool is looked for before anything is compiled.

@@ -1,4 +1,4 @@
-//! [namespace] Smoke test: `namespace X { … }` flattens to dotted names.
+//! [mod-namespace] Smoke test: `namespace X { … }` flattens to dotted names.
 
 use salvo_syntax::ast::Item;
 use salvo_syntax::parse_module;

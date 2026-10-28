@@ -210,7 +210,7 @@ enum Command {
         #[arg(long)]
         module: Option<String>,
     },
-    /// Print the checker's facts about each body [facts-dump]: every
+    /// Print the checker's facts about each body [cli-facts]: every
     /// expression's type and the declaration each call resolved to, before
     /// the IR is built. Every user module, or only `--module`.
     Facts {
@@ -968,7 +968,7 @@ fn build(
     else {
         return Ok(None);
     };
-    // [protocol-lock] Before emission: a protocol that changed under a
+    // [actor-protocol-lock] Before emission: a protocol that changed under a
     // deployed version is refused whether or not the code compiles.
     if let Some(p) = project {
         if let Err(msg) = reconcile_lock(p, &program) {
@@ -1766,7 +1766,7 @@ fn run_test_pass(
     // test that was running [test-recover].
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
-    // [console] A test reads no terminal: `readln` in a test answers `None`
+    // [std-console] A test reads no terminal: `readln` in a test answers `None`
     // at once rather than waiting for a person who is not there.
     command.stdin(std::process::Stdio::null());
     let mut child = match command.spawn() {
@@ -2340,7 +2340,7 @@ fn target_for(
     }
 }
 
-/// [protocol-lock] Reconciles the project's lock file with the protocols this
+/// [actor-protocol-lock] Reconciles the project's lock file with the protocols this
 /// build declares. Std's protocols are not the project's; a protocol with no
 /// wire form has no hash and is not listed.
 fn reconcile_lock(project: &salvo_core::Project, program: &Program) -> Result<(), String> {

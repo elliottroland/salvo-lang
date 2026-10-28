@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicReference
 // (`ConcurrentHashMap`, atomics, `synchronized` blocks of your own). If
 // the host cannot promise that, delete `threadsafe` from the Salvo
 // declaration: the compiler then serializes the instance for you
-// [threadsafe-platform].
+// [platform-threadsafe].
 //
 // Signed 2026-09-26: both tables are `ConcurrentHashMap`s, a listener's sink
 // is an `AtomicReference`, and a connection is written inside `synchronized`
@@ -113,7 +113,7 @@ class HostTcpTransport(private val bind: NodeEndpoint) : TransportPlatform {
         listening[at] = slot
         // An open listener is a source of work the scheduler cannot see, so it
         // must not declare the program idle or deadlocked while one is open:
-        // tell it [threadsafe-platform] [actor-on-idle].
+        // tell it [platform-threadsafe] [actor-on-idle].
         salvo.SalvoSched.externalBegin()
         Thread {
             try {

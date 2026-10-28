@@ -4,39 +4,42 @@
 // (Kotlin's `LinkedHashSet`; a runtime helper on Rust, whose own `HashSet`
 // has no order to speak of).
 //
-// `canbe Mut` opts Set into the language-level `Mut` auto-qualifier
-// [type-canbe-mut]: a backend may map `Mut Set<T>` to a different native
+// `canbe Mut` opts Set into the language-level `Mut` auto-qualifier:
+// a backend may map `Mut Set<T>` to a different native
 // type (Kotlin's `MutableSet<T>`) or to the same one.
 //
-// [col-key-eligible] An element type must be **hashable**: the intrinsic
+// An element type must be **hashable**: the intrinsic
 // key types (`Int`, `Long`, `Str`, `Char`, `Bool`) in this version. `Double`
 // and `Float` are deliberately excluded — Rust's `f64` is neither `Eq` nor
 // `Hash`, so a float-keyed set is not representable on both backends
 // [backend-parity]. A struct joins in by having a `hash` and an `eq` — one
 // token with `: Hashed<self> by auto`, or hand-written and `@`-scoped
-// [obligation-by] [cmp-canonical].
+// [cmp-canonical].
 //
 // Own module rather than part of `std.core.list` so a program that never uses a
-// set emits no code for it [mod-used-only].
+// set emits no code for it.
+// @compilerrules [type-canbe-mut, col-key-eligible, obligation-by, mod-used-only]
 export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut : Iter<self, SetNext<T>, T>
 
 // Constructor. The elements are stored in the new set, so they are moved: a
-// variadic tail is owned, and needs no entry in the clause [deduce-syntax].
+// variadic tail is owned, and needs no entry in the clause.
 // A duplicate element is dropped — the last one wins, as it does in a set
 // literal [col-duplicate-keys], so the result may be smaller than the
 // argument list.
 //
-// [fn-type-named] The constructor **is** the type-named function: `Set(...)`
+// The constructor **is** the type-named function: `Set(...)`
 // resolves to this declaration (canonical key `Set`; `Mut_Set` for the
 // mutable pair), the key carried verbatim to the platform shim's
 // `<Key>_platform` wrapper.
+// @compilerrules [deduce-syntax, fn-type-named]
 export platform fn Set<T>(...elems: T[], ?Hashed<T>) [] -> Set<T>(?hash, ?eq)
 
 // Mutable constructor
 export platform fn Mut Set<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)
 
-// [col-by] Builds a set from [size] generated elements. Duplicates collapse,
+// Builds a set from [size] generated elements. Duplicates collapse,
 // so the result may hold fewer than [size].
+// @compilerrules [col-by]
 export platform fn set_by<T>(size: Int, init: (Int) -> T, ?Hashed<T>) [] -> Set<T>(?hash, ?eq)
 => size, init
 
@@ -44,15 +47,16 @@ export platform fn set_by<T>(size: Int, init: (Int) -> T, ?Hashed<T>) [] -> Set<
 export platform fn mut_set_by<T>(size: Int, init: (Int) -> T, ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)
 => size, init
 
-// [col-convert] The elements of [list] as a set, in first-appearance order;
+// The elements of [list] as a set, in first-appearance order;
 // duplicates collapse.
+// @compilerrules [col-convert]
 export platform fn to_set<T>(list: List<T>, ?Hashed<T>) [] -> Set<T>(?hash, ?eq) => list
 
 // Adds an element to the set, reporting whether it was *new*: `false` means
 // an equal element was already there and the set is unchanged. The set
 // takes ownership of [elem], so it is moved; the set itself is mutated,
-// which is why its surviving qualifiers are listed exhaustively
-// [deduce-syntax].
+// which is why its surviving qualifiers are listed exhaustively.
+// @compilerrules [deduce-syntax]
 export platform fn add<T>(set: Mut Set<T>(?hash, ?eq), elem: T) [] -> Bool => set: Mut, !elem
 
 // Removes an element, reporting whether it was there. [elem] is only read —
@@ -67,10 +71,11 @@ export platform fn contains<T>(set: Set<T>(?hash, ?eq), elem: T) [] -> Bool => s
 // Returns the number of elements in the set
 export platform fn size<T>(set: Set<T>) [] -> Int => set
 
-// The text form of a set, for string interpolation [interp-to-str]:
+// The text form of a set, for string interpolation:
 // `{1, 2, 3}` in insertion order — the set *literal* that would build it,
-// which is the same shape `to_str` of a list follows [col-to-str]. Each
-// element renders by its own `to_str` [platform-value-type].
+// which is the same shape `to_str` of a list follows. Each
+// element renders by its own `to_str`.
+// @compilerrules [interp-to-str, col-to-str, platform-value-type]
 export fn to_str<T>(set: Set<T>, ?to_str: (x: T) -> Str) [] -> Str => set {
     let out = Mut Str("{")
     let i = 0
@@ -86,9 +91,10 @@ export fn to_str<T>(set: Set<T>, ?to_str: (x: T) -> Str) [] -> Str => set {
 }
 
 
-// [op-equality] Two sets are equal when they hold the same elements, in any
+// Two sets are equal when they hold the same elements, in any
 // order: what `a == b` resolves to. The identity is the type's, so both sides
 // are looked up the same way.
+// @compilerrules [op-equality]
 export fn eq<T>(a: Set<T>(?hash, ?eq), b: Set<T>(?hash, ?eq)) [] -> Bool => a, b {
     if size(a) != size(b) {
         return false
@@ -101,21 +107,23 @@ export fn eq<T>(a: Set<T>(?hash, ?eq), b: Set<T>(?hash, ?eq)) [] -> Bool => a, b
     return true
 }
 
-// [col-distinct] The claim that a list holds no duplicates. Mint-only: there
+// The claim that a list holds no duplicates. Mint-only: there
 // is no `qualifies`, because deciding it needs the elements compared, which
 // only a backend can do over an unconstrained `T` — so it is established by
 // construction and never tested.
 //
 // It lives here, in `std.core.set`, rather than beside `List`: a constructor must
-// be declared in the same file as the qualifier it claims
-// [qual-ctor-same-file], and a *set* is the thing that can honestly promise
+// be declared in the same file as the qualifier it claims,
+// and a *set* is the thing that can honestly promise
 // it. (`to_list` over a `SortedSet` is in `std.core.sorted` and so cannot mint
 // it, which is why that one returns a plain list.)
+// @compilerrules [col-distinct, qual-ctor-same-file]
 export qualifier Distinct<T> of List<T>
 
 // [col-insertion-order] The elements as a list, in insertion order — which
 // is also what makes a set iterable, below. A set holds no duplicates, so
-// neither does the list [col-distinct].
+// neither does the list.
+// @compilerrules [col-distinct]
 export platform fn to_list<T>(set: Set<T>) [] -> +Distinct List<T> => set
 
 // Reads an element **owned** out of a snapshot the iterator owns.
@@ -123,16 +131,17 @@ export platform fn to_list<T>(set: Set<T>) [] -> +Distinct List<T> => set
 // Not `copy(get(items, i))`: copying a value of an unconstrained generic
 // type is unsupported on the Kotlin backend by construction — with erased
 // generics it cannot tell an immutable `Str` from a `Mut List` at runtime,
-// so it refuses rather than aliasing [kt-copy]. This read is sound where
+// so it refuses rather than aliasing. This read is sound where
 // `copy` cannot be: an element of a set is a **key**, and keys are the
-// immutable intrinsic types [col-key-eligible], for which sharing the
+// immutable intrinsic types, for which sharing the
 // reference *is* the copy. Kept out of `std.core.list` deliberately — as a
 // general `List` accessor the same lowering would alias a mutable element.
+// @compilerrules [kt-copy, col-key-eligible]
 export intrinsic fn snapshot_at<T>(items: List<T>, index: Int) [] -> T? => items, index
 
-// [iter-mint] A fresh iterator over the set's elements, in insertion order.
+// A fresh iterator over the set's elements, in insertion order.
 //
-// Unlike a list's iterator, which is a *position in* the data [proj-field], this
+// Unlike a list's iterator, which is a *position in* the data, this
 // one walks a **snapshot**: a hash set has no index to walk, and the
 // alternative — holding the target's native iterator in an intrinsic iterator —
 // needs a borrowing intrinsic type neither backend has machinery for
@@ -141,16 +150,18 @@ export intrinsic fn snapshot_at<T>(items: List<T>, index: Int) [] -> T? => items
 // iterator over it is live keeps yielding what it held at the mint — on both
 // backends alike, rather than being a race on one and a refusal on the
 // other.
+// @compilerrules [iter-mint, proj-field]
 export fn iter<T>(set: Set<T>) [] -> Mut SetNext<T> => set {
     return Mut SetNext<T> { items: to_list(set), at: 0 }
 }
 
-// [iter-protocol] The pass a set is walked by: a snapshot of its elements
+// The pass a set is walked by: a snapshot of its elements
 // plus a position in it. The snapshot is **owned** by the iterator — the
 // structural difference from `ListNext`, whose `items` is a projection of
 // someone else's list — and so are the elements it emits: an iterator that
 // *computes* its elements owns them, where one that *walks* data borrows
-// them [iter-protocol].
+// them.
+// @compilerrules [iter-protocol]
 export struct SetNext<T> : Next<self, T> canbe Mut {
     // The elements, in insertion order, owned by this iterator.
     items: List<T>,
@@ -169,15 +180,15 @@ export fn next<T>(p: Mut SetNext<T>) [] -> Emitted T | Finished => p: Mut {
     return emitted(elem)
 }
 
-// [qual-overload] The claim over an unordered set, beside `std.core.list`'s
+// The claim over an unordered set, beside `std.core.list`'s
 // `NonEmpty of List<T>`. One qualifier name, five subject types: which one a
 // use means is decided by the subject, the way a function overload is decided
 // by its arguments — which is what makes `NonEmpty` mean what it says about
 // whatever it qualifies rather than needing a `NonEmptySet`.
 //
 // `add` cannot promise it — a mutating function may not hand back a qualifier
-// it has never heard of — so the qualifier says it on `add`'s behalf
-// [qual-refn].
+// it has never heard of — so the qualifier says it on `add`'s behalf.
+// @compilerrules [qual-overload, qual-refn]
 export qualifier NonEmpty<T> of Set<T> {
     fn qualifies(set: Set<T>) [] -> Bool {
         return size(set) > 0

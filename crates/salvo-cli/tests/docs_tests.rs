@@ -81,3 +81,97 @@ fn the_wiki_is_current_when_present() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+/// The rule labels the specs define: LANGUAGE_SPEC.md and the backend specs,
+/// one `* [label]` (or `- [label]`) opening a rule.
+fn defined_labels() -> std::collections::HashSet<String> {
+    let root = repo_root();
+    let mut out = std::collections::HashSet::new();
+    for spec in ["LANGUAGE_SPEC.md", "BACKEND_SPEC.kotlin.md", "BACKEND_SPEC.rust.md"] {
+        let text = std::fs::read_to_string(root.join(spec)).expect(spec);
+        for line in text.lines() {
+            let t = line.trim_start();
+            let Some(rest) = t.strip_prefix("* [").or_else(|| t.strip_prefix("- [")) else { continue };
+            let Some(end) = rest.find(']') else { continue };
+            let label = &rest[..end];
+            if !label.is_empty() && label.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+                out.insert(label.to_string());
+            }
+        }
+    }
+    out
+}
+
+fn std_sources(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).expect("lib/").filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            std_sources(&path, out);
+        } else if path.extension().is_some_and(|e| e == "sv") {
+            out.push(path);
+        }
+    }
+}
+
+/// [doc-compilerrules] std's documentation cites compiler rules only in an
+/// `@compilerrules` tag, which hover leaves out, and every rule it cites
+/// exists. A documentation block is the run of comment lines directly above
+/// a declaration [doc-comment]; a cited rule is a bracketed label the specs
+/// define (`[symbol]` references are not labels, so they are left alone).
+#[test]
+fn std_docs_cite_rules_only_in_compilerrules() {
+    let labels = defined_labels();
+    assert!(labels.len() > 500, "found only {} rule labels", labels.len());
+    let declaration = |line: &str| {
+        let t = line.trim_start();
+        let word: String = t.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        const STARTS: &[&str] = &[
+            "export", "fn", "struct", "effect", "handler", "qualifier", "type", "platform", "intrinsic", "linear", "iter",
+            "comptime", "send", "actor", "fns", "namespace", "rename", "opaque", "threadsafe", "state", "test", "init",
+            "monitor", "mixed", "alias", "any",
+        ];
+        !word.is_empty()
+            && (STARTS.contains(&word.as_str())
+                || (word.starts_with(|c: char| c.is_ascii_lowercase()) && t[word.len()..].trim_start().starts_with(':')))
+    };
+    let mut files = Vec::new();
+    std_sources(&repo_root().join("lib"), &mut files);
+    files.sort();
+    let mut inline = Vec::new();
+    let mut unknown = Vec::new();
+    for file in &files {
+        let text = std::fs::read_to_string(file).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        let mut i = 0;
+        while i < lines.len() {
+            if !lines[i].trim_start().starts_with("//") {
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < lines.len() && lines[i].trim_start().starts_with("//") {
+                i += 1;
+            }
+            let documents = i < lines.len() && declaration(lines[i]);
+            for (n, line) in lines[start..i].iter().enumerate() {
+                let comment = line.trim_start().trim_start_matches('/').trim_start();
+                let tag = comment.starts_with("@compilerrules");
+                let mut rest = comment;
+                while let Some(open) = rest.find('[') {
+                    let Some(close) = rest[open..].find(']') else { break };
+                    for label in rest[open + 1..open + close].split(',').map(str::trim) {
+                        let at = format!("{}:{}", file.strip_prefix(repo_root()).unwrap().display(), start + n + 1);
+                        if tag && !labels.contains(label) {
+                            unknown.push(format!("{at}: `{label}`"));
+                        } else if !tag && documents && labels.contains(label) {
+                            inline.push(format!("{at}: [{label}]"));
+                        }
+                    }
+                    rest = &rest[open + close + 1..];
+                }
+            }
+        }
+    }
+    assert!(inline.is_empty(), "std documentation cites rules in its prose, where hover shows them; move them to `@compilerrules`:\n{}", inline.join("\n"));
+    assert!(unknown.is_empty(), "`@compilerrules` cites rules no spec defines:\n{}", unknown.join("\n"));
+}

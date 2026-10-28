@@ -27,7 +27,7 @@ use salvo_syntax::ast::{EffectDecl, FnDecl, HandlerDecl};
 /// * a **fn-typed constructor parameter**: the stored callback is a
 ///   `FnMut`, and a lambda may mutate what it captured;
 /// * a **platform handler without `threadsafe`**: the host's state is
-///   invisible, so the undeclared case is the safe one [threadsafe-platform].
+///   invisible, so the undeclared case is the safe one [platform-threadsafe].
 ///
 /// An `intrinsic` handler is trusted at its declared (stateless) shape. The
 /// generated actor fields (`__addr`, `__parked`) do not count: the actor body

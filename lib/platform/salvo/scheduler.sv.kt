@@ -25,7 +25,7 @@ interface SalvoActor {
     fun resume(ctx: SalvoCtx, slot: Long, value: Any?)
 
     /**
-     * [addr-routable] [wire-format] Decodes a reply that arrived over the
+     * [net-addr-routable] [net-wire-format] Decodes a reply that arrived over the
      * wire for the continuation parked at [slot]: only the actor knows the
      * answer's type. `null` when nothing is parked there or the bytes are
      * malformed. The `Boolean` half says whether a value was decoded at all,
@@ -35,24 +35,24 @@ interface SalvoActor {
 }
 
 /**
- * [addr-routable] The routable identity of an actor: the node hosting it, its
- * index there, and the unguessable bits minted at its spawn [addr-capability].
+ * [net-addr-routable] The routable identity of an actor: the node hosting it, its
+ * index there, and the unguessable bits minted at its spawn [net-addr-capability].
  */
 data class SalvoRemoteRef(val node: Long, val actor: Long, val bits: Long)
 
 /** Passed to every activation: the actor's own identity. */
 class SalvoCtx(val addr: Int)
 
-/** [addr-routable] A reply that arrived over the wire, still as bytes. */
+/** [net-addr-routable] A reply that arrived over the wire, still as bytes. */
 private class SalvoRawReply(val bytes: ByteArray)
 
 object SalvoSched {
-    /** [main-pool] The pool main is the single worker of. */
+    /** [actor-main-pool] The pool main is the single worker of. */
     const val MAIN_POOL = 0
 
     // ---- the local surface: shims onto the core
 
-    /** [threadsafe-platform] A host thread that may inject work is open… */
+    /** [platform-threadsafe] A host thread that may inject work is open… */
     fun externalBegin() = salvo.std.runtime.externalBegin()
 
     /** …and is gone. */
@@ -63,7 +63,7 @@ object SalvoSched {
     /** A pool of [n] workers, for host code (generated code calls `core.actor`'s Salvo `pool`). */
     fun pool(n: Int): Int = poolWithSink(n, null, null)
 
-    /** [pool-fault-sink] A pool whose uncaught faults go to [sinkAddr], as the message [sinkBuild] makes. */
+    /** [actor-pool-fault-sink] A pool whose uncaught faults go to [sinkAddr], as the message [sinkBuild] makes. */
     fun poolWithSink(n: Int, sinkAddr: Int?, sinkBuild: ((String) -> Any?)?): Int {
         if (sinkAddr != null && sinkBuild != null) sinks[sinkAddr] = sinkBuild
         val pool = salvo.std.runtime.newPoolOf(n, sinkAddr ?: -1)
@@ -73,7 +73,7 @@ object SalvoSched {
 
     /** [waitfor-dedicated] A pool of exactly one thread. */
     fun thread(): Int {
-        // [pool-retire] Its thread returns once its actor is dead.
+        // [actor-pool-retire] Its thread returns once its actor is dead.
         val pool = salvo.std.runtime.newDedicatedPool()
         salvo.std.runtime.routing.adopt(pool)
         return pool
@@ -183,7 +183,7 @@ object SalvoSched {
 
     fun isRemote(addr: Int): Boolean = salvo.std.runtime.routing.remote(addr)
 
-    /** [addr-routable] [wire-format] The typed send; for a proxy, encoded here and routed. */
+    /** [net-addr-routable] [net-wire-format] The typed send; for a proxy, encoded here and routed. */
     fun <M> sendWire(addr: Int, msg: M, proto: String, codec: WireCodec<M>) {
         // The core hands the message back when the addr is a proxy.
         val back = salvo.std.runtime.sendOrBack(addr, Dyn(msg)) ?: return
@@ -194,7 +194,7 @@ object SalvoSched {
         salvo.std.runtime.routing.sendRemote(addr, proto, out.toBytes())
     }
 
-    /** [addr-routable] [wire-format] The typed reply. */
+    /** [net-addr-routable] [net-wire-format] The typed reply. */
     fun <T> replyWire(reply: SalvoReply, value: T, codec: WireCodec<T>) {
         val parts = reply.remote
         if (parts == null) {
@@ -206,7 +206,7 @@ object SalvoSched {
         salvo.std.runtime.routing.answerRemote(parts, out.toBytes())
     }
 
-    /** [addr-routable] The wire form of a reply token. Exporting a task moves its body aside. */
+    /** [net-addr-routable] The wire form of a reply token. Exporting a task moves its body aside. */
     fun replyExport(reply: SalvoReply): salvo.std.runtime.routing.ReplyParts {
         reply.remote?.let { return it }
         val tok = reply.takeLocal() ?: return salvo.std.runtime.routing.ReplyParts(0, 0, 0, 0, 0)
@@ -215,7 +215,7 @@ object SalvoSched {
         return parts
     }
 
-    /** [addr-routable] A reply token decoded from the wire. */
+    /** [net-addr-routable] A reply token decoded from the wire. */
     fun replyImport(parts: salvo.std.runtime.routing.ReplyParts): SalvoReply {
         val here = hereNode()
         return when {
@@ -236,7 +236,7 @@ object SalvoSched {
         salvo.std.runtime.routing.watchControl(channel, sink)
     }
 
-    /** [route-stub] FNV-1a over the key's canonical bytes, identical to Rust's `salvo_key_hash`. */
+    /** [actor-route-stub] FNV-1a over the key's canonical bytes, identical to Rust's `salvo_key_hash`. */
     fun keyHash(bytes: ByteArray): Long {
         var h = -3750763034362895579L // 0xcbf29ce484222325
         for (b in bytes) {
@@ -246,7 +246,7 @@ object SalvoSched {
         return h
     }
 
-    /** [addr-routable] An answer that arrived over the wire for an actor, still as bytes. */
+    /** [net-addr-routable] An answer that arrived over the wire for an actor, still as bytes. */
     fun rawAnswer(payload: ByteArray): Dyn = Dyn(SalvoRawReply(payload))
 }
 
@@ -256,10 +256,10 @@ object SalvoSched {
  * is the checker's; the runtime only enqueues.
  */
 class SalvoReply internal constructor(private var token: salvo.std.runtime.Token?) {
-    /** [addr-routable] For a token minted elsewhere: (node, kind, id, slot, bits). */
+    /** [net-addr-routable] For a token minted elsewhere: (node, kind, id, slot, bits). */
     var remote: salvo.std.runtime.routing.ReplyParts? = null
 
-    /** [wire-format] How a task's answer is decoded should it return over the wire. */
+    /** [net-wire-format] How a task's answer is decoded should it return over the wire. */
     var decode: (ByteArray) -> Pair<Boolean, Any?> = { _ -> Pair(false, null) }
 
     /** [platform-check] What a platform adapter checks of the value the host sends. */
@@ -310,9 +310,9 @@ class SalvoHostReply internal constructor(private val reply: SalvoReply) {
     }
 }
 
-// [addr-routable] The codecs of the two scheduler handles live here, beside
+// [net-addr-routable] The codecs of the two scheduler handles live here, beside
 // what they ask, so the wire stands alone in a program with no actors.
-/** [addr-routable] An `Addr<E>` is a scheduler index; on the wire its routable identity, 24 bytes. */
+/** [net-addr-routable] An `Addr<E>` is a scheduler index; on the wire its routable identity, 24 bytes. */
 object AddrCodec : WireCodec<Int> {
     override fun enc(v: Int, out: WireOut) {
         val r = SalvoSched.addrIdentity(v)
@@ -321,7 +321,7 @@ object AddrCodec : WireCodec<Int> {
     override fun dec(inp: WireIn): Int = SalvoSched.importAddr(SalvoRemoteRef(inp.i64(), inp.i64(), inp.i64()))
 }
 
-/** [addr-routable] A `Reply<T>` on the wire: `(node, kind, id, slot, bits)`, 33 bytes. */
+/** [net-addr-routable] A `Reply<T>` on the wire: `(node, kind, id, slot, bits)`, 33 bytes. */
 object ReplyCodec : WireCodec<SalvoReply> {
     override fun enc(v: SalvoReply, out: WireOut) {
         val e = SalvoSched.replyExport(v)

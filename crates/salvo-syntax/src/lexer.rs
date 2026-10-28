@@ -172,7 +172,7 @@ impl<'s> Lexer<'s> {
         self.push_here(kind, start);
     }
 
-    /// Scans a numeric literal [lit-numeric]: `1` (`Int`), `1L` (`Long`),
+    /// Scans a numeric literal [type-lit-numeric]: `1` (`Int`), `1L` (`Long`),
     /// `1.2` (`Double`), `1.2f` (`Float`). The `f` suffix requires a
     /// decimal point; `L` forbids one.
     fn number(&mut self, start: u32) {
@@ -209,7 +209,7 @@ impl<'s> Lexer<'s> {
             is_float = true;
             text.push('.');
             self.bump();
-            // [lit-numeric] Separators are allowed after the point too
+            // [type-lit-numeric] Separators are allowed after the point too
             // (`0.500_5`), for the same readability reason they are allowed
             // before it — a rule that used to stop at the decimal point, so
             // `1_000.500_5` was an "invalid numeric literal" while
@@ -226,7 +226,7 @@ impl<'s> Lexer<'s> {
             }
         }
         // Optional suffix: `f` (Float, fractional literals only) or `L`
-        // (Long, integer literals only) [lit-numeric].
+        // (Long, integer literals only) [type-lit-numeric].
         let suffix = match self.peek() {
             Some(c @ ('f' | 'L')) => {
                 self.bump();
@@ -512,7 +512,7 @@ impl<'s> Lexer<'s> {
                 self.bump();
                 TokenKind::PlusPlus
             }
-            // [inc-dec] Before the `-` cases below, so `--` is one token.
+            // [op-inc-dec] Before the `-` cases below, so `--` is one token.
             ('-', Some('-')) => {
                 self.bump();
                 TokenKind::MinusMinus
@@ -543,10 +543,10 @@ impl<'s> Lexer<'s> {
                 self.bump();
                 TokenKind::SlashEq
             }
-            // [elvis] `?` and `:` are separate tokens (`Question`, `Colon`):
+            // [op-elvis] `?` and `:` are separate tokens (`Question`, `Colon`):
             // the elvis family counts a *run* of `?`s (`??:`, `:??`), which the
             // parser recognises by looking ahead over plain `Question` tokens
-            // rather than any glued pair. [safe-nav] `?.` is likewise not a
+            // rather than any glued pair. [op-safe-nav] `?.` is likewise not a
             // glued token: the postfix parser takes a `Question` immediately
             // followed by a `Dot`. (The safe-call operator was removed on
             // 2026-10-11 and re-added 2026-10-12 as reconstruction-lowered
@@ -608,7 +608,7 @@ mod tests {
         (kinds, result.diagnostics)
     }
 
-    // [lit-numeric] `1` Int, `1L` Long, `1.2` Double, `1.2f` Float;
+    // [type-lit-numeric] `1` Int, `1L` Long, `1.2` Double, `1.2f` Float;
     // underscores allowed.
     #[test]
     fn numeric_literal_suffixes() {
@@ -627,7 +627,7 @@ mod tests {
         );
     }
 
-    // [lit-numeric] `f` requires a decimal point; `L` forbids one; and a
+    // [type-lit-numeric] `f` requires a decimal point; `L` forbids one; and a
     // literal must not run into identifier characters.
     #[test]
     fn invalid_numeric_suffixes() {

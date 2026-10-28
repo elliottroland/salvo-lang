@@ -542,7 +542,7 @@ fn main() {
     );
 }
 
-/// [main-pool] [waitfor-pump] `main` is the single worker of its own pool,
+/// [actor-main-pool] [waitfor-pump] `main` is the single worker of its own pool,
 /// and a wait *serves* that pool: an actor spawned on the main pool runs on
 /// `main`'s own thread, while `main` waits — including while it waits for an
 /// answer from somewhere else entirely. `salvo_thread()`, the dedicated
@@ -610,7 +610,7 @@ fn main() {
     );
 }
 
-/// [main-pool] The full-main-pool-mailbox report: `main` fills a main-pool
+/// [actor-main-pool] The full-main-pool-mailbox report: `main` fills a main-pool
 /// actor's queue past its bound, and the only thread that could drain it is
 /// the one blocked on it. A named error, not a hang.
 #[test]
@@ -702,7 +702,7 @@ ran on pool 0, n=21
     );
 }
 
-/// [pool-fault-sink] A task that faults has no addr to `watch`, so the fault
+/// [actor-pool-fault-sink] A task that faults has no addr to `watch`, so the fault
 /// goes to the **pool's sink**: an ordinary actor, sent an ordinary message
 /// the *pool creation site* built (the runtime cannot construct a Salvo
 /// value). Without a sink it is the named report on stderr instead.
@@ -1016,7 +1016,7 @@ fn main() {
     );
 }
 
-/// [addr-capability] Every forged identity of this node imports as the same
+/// [net-addr-capability] Every forged identity of this node imports as the same
 /// dead entry, so forging addrs cannot grow the actor table; a genuine one
 /// still imports as the actor itself.
 #[test]

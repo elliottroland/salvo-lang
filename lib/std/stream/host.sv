@@ -19,7 +19,8 @@ import std.runtime.streams
 // Read errors are *recorded* by the host rather than returned: a failed
 // `raw_read_line` reports the end of the stream and `raw_close_read` reports
 // why. Write errors behave the same way, surfacing at `raw_flush` /
-// `raw_close_write`. A handle the table never minted traps [stream-provider].
+// `raw_close_write`. A handle the table never minted traps.
+// @compilerrules [stream-provider]
 export effect RawStreams {
     // The next line, without its terminator; absent at the end of the stream
     // *or* after a recorded failure.
@@ -52,20 +53,23 @@ export effect RawStreams {
     // Flushes and releases the write handle.
     fn raw_close_write(handle: Long) -> Ok None | Err StreamError
 
-    // [stream-receive] Reads the next bytes on a thread of the host's own and
-    // answers on [reply] [platform-reply]: the bytes (never empty), or `End`,
+    // Reads the next bytes on a thread of the host's own and
+    // answers on [reply]: the bytes (never empty), or `End`,
     // or a failure. At `End` or a failure the host has already released the
     // handle, so there is nothing left to close.
+    // @compilerrules [stream-receive, platform-reply]
     fn raw_receive(handle: Long, reply: Reply<Ok Bytes | End | Err StreamError>) -> None => !reply
-    // [stream-from-bytes] Registers a readable stream over [data] in the
+    // Registers a readable stream over [data] in the
     // process's table, answering its handle.
+    // @compilerrules [stream-from-bytes]
     fn raw_from_bytes(data: Bytes) -> Long => !data
 }
 
-// [stream-receive] The host's answer, turned into a `Received`: the token the
+// The host's answer, turned into a `Received`: the token the
 // request gave up is minted again around the same handle, so it travels back
 // to the caller inside the packet. At `End` or a failure the host released the
 // handle, so no token is minted and nothing is owed.
+// @compilerrules [stream-receive]
 send fn host_received(reply: Reply<Received>, handle: Long, got: Ok Bytes | End | Err StreamError)
 => !reply, !handle, !got {
     when got {
@@ -76,9 +80,10 @@ send fn host_received(reply: Reply<Received>, handle: Long, got: Ok Bytes | End 
 }
 
 // The one implementation of `RawStreams`, in Salvo over the runtime's
-// stream table (`runtime.streams`, [stream-table]): each member checks the
+// stream table (`runtime.streams`,): each member checks the
 // stream out, works on it with no lock held, and checks it back in. Stateless,
 // so the compiler shares it with no lock.
+// @compilerrules [stream-table]
 export handler HostRawStreams() of RawStreams {
     fn raw_read_line(handle: Long) -> Str | None {
         return next_line(handle)
@@ -209,8 +214,9 @@ export handler HostRawStreams() of RawStreams {
         return ok(None)
     }
 
-    // [stream-receive] The read runs on a thread of the runtime's, and its
+    // The read runs on a thread of the runtime's, and its
     // chunk comes back as a task that turns it into this protocol's answer.
+    // @compilerrules [stream-receive]
     fn raw_receive(handle: Long, reply: Reply<Ok Bytes | End | Err StreamError>) -> None => !reply {
         receive(handle, replyto chunk_received(reply))
     }
@@ -220,8 +226,9 @@ export handler HostRawStreams() of RawStreams {
     }
 }
 
-// [stream-receive] A chunk from the runtime's reader, as `raw_receive`'s
+// A chunk from the runtime's reader, as `raw_receive`'s
 // answer.
+// @compilerrules [stream-receive]
 send fn chunk_received(reply: Reply<Ok Bytes | End | Err StreamError>, c: Chunk) => !reply, !c {
     if c.fault is Fault f {
         send(reply, err(kind(copy(c.source), f)))
@@ -308,9 +315,10 @@ export handler DefaultStreams [RawStreams] of Streams {
         }
     }
 
-    // [stream-receive] The token is given up here — `receive` consumes it, so
-    // this is a discharge context [linear-group] — and the handle alone goes
+    // The token is given up here — `receive` consumes it, so
+    // this is a discharge context — and the handle alone goes
     // to the host, which completes the continuation from its own thread.
+    // @compilerrules [stream-receive, linear-group]
     fn receive(s: InStream, reply: Reply<Received>) -> None => !s, !reply {
         let handle = copy(s.handle)
         discard(s)

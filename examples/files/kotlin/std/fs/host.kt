@@ -20,52 +20,52 @@ class __Mon_RawFs(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : RawFs {
     override fun rawOpenRead(path: String): Union2<Long, Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawOpenRead(path) } finally { lock.unlock() }
     }
     override fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawOpenReadAt(path, offset) } finally { lock.unlock() }
     }
     override fun rawOpenWrite(path: String): Union2<Long, Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawOpenWrite(path) } finally { lock.unlock() }
     }
     override fun rawOpenAppend(path: String): Union2<Long, Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawOpenAppend(path) } finally { lock.unlock() }
     }
     override fun rawExists(path: String): Boolean {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawExists(path) } finally { lock.unlock() }
     }
     override fun rawMetadata(path: String): Union2<salvo.std.fs.FileInfo, Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawMetadata(path) } finally { lock.unlock() }
     }
     override fun rawListDir(path: String): Union2<List<String>, Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawListDir(path) } finally { lock.unlock() }
     }
     override fun rawCreateDirs(path: String): Union2<Unit, Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawCreateDirs(path) } finally { lock.unlock() }
     }
     override fun rawDelete(path: String): Union2<Unit, Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawDelete(path) } finally { lock.unlock() }
     }
     override fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
         lock.lock()
         try { return inner.rawRenamePath(from, to) } finally { lock.unlock() }
     }
@@ -169,7 +169,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<salvo.std.stream.InStream, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:62:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:63:9"))
             }
         }
     }
@@ -187,7 +187,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<salvo.std.stream.InStream, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:71:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:72:9"))
             }
         }
     }
@@ -205,7 +205,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<salvo.std.stream.OutStream, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:80:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:81:9"))
             }
         }
     }
@@ -223,7 +223,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<salvo.std.stream.OutStream, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:89:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:90:9"))
             }
         }
     }
@@ -245,7 +245,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<salvo.std.fs.FileInfo, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:103:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:104:9"))
             }
         }
     }
@@ -263,7 +263,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<List<String>, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:112:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:113:9"))
             }
         }
     }
@@ -281,7 +281,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:121:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:122:9"))
             }
         }
     }
@@ -299,7 +299,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:130:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:131:9"))
             }
         }
     }
@@ -318,7 +318,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:140:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:141:9"))
             }
         }
     }

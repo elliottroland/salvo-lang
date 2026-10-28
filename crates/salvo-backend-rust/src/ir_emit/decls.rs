@@ -89,7 +89,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Ty::Named { name, args } => {
                 let args: Vec<Ty> = args.iter().filter(|a| !matches!(a, Ty::FnName(_))).map(|a| super::strip_nested_var_proj_in(a, true, &self.f.generics, &self.f.held_vars)).collect();
                 if name == "Addr" && args.len() == 1 {
-                    // [monitor-handler] a plain effect's addr is its handle.
+                    // [actor-monitor-handler] a plain effect's addr is its handle.
                     if let Ty::Named { name: eff, .. } = args[0].strip_quals() {
                         if self.s.symbols.effects.get(eff.as_str()).is_some_and(|e| !e.is_actor) {
                             return self.ty(&args[0]);
@@ -369,7 +369,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             body.push_str("            .finish()\n    }\n}\n");
             self.out.push_str(&body);
         }
-        // [wire-format] [rs-wire] The struct's codec.
+        // [net-wire-format] [rs-wire] The struct's codec.
         if s.has_wire_form && !borrowing {
             let args = if tp_names.is_empty() { String::new() } else { format!("<{}>", tp_names.join(", ")) };
             let g = if tp_names.is_empty() {
@@ -804,7 +804,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.error(format!("handler `{}` mixes actor and plain effects, which the rust backend does not render", h.name));
             return;
         }
-        // [mixed-handler] [rs-mixed] The servant is an actor of its send
+        // [actor-mixed-handler] [rs-mixed] The servant is an actor of its send
         // members; the faces are worn by the façade.
         let mixed = self.is_mixed(h);
         let is_actor = is_actor || mixed;
@@ -992,7 +992,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.out.push_str(&out);
     }
 
-    /// [mixed-handler] [rs-mixed] `__Fac_H`: the servant's addr and the
+    /// [actor-mixed-handler] [rs-mixed] `__Fac_H`: the servant's addr and the
     /// constructor parameters, wearing every face with the sync members.
     fn facade(&mut self, h: &ImplDecl) -> String {
         let hn = rs_ident(&h.name);

@@ -92,7 +92,7 @@ pub fn module_features(
         }
     }
     let named = |n: &str| refs.contains(n) || tys.contains(n);
-    // [eff-handle] An `Addr` (the internal handle type) needs the scheduler
+    // [effect-eff-handle] An `Addr` (the internal handle type) needs the scheduler
     // only when it wraps an **actor** effect — an actor address is a scheduler
     // index. A plain-effect handle (`eff[Clock]`, a monitor) is just an
     // `Arc<Mutex>` and needs no scheduler, so a program that only hands plain
@@ -135,7 +135,7 @@ pub fn module_features(
     f
 }
 
-/// [eff-handle] Whether a type contains an `Addr<E>` handle whose effect `E`
+/// [effect-eff-handle] Whether a type contains an `Addr<E>` handle whose effect `E`
 /// is an **actor** effect — the handle that is a scheduler index and needs the
 /// runtime. A plain-effect handle (a monitor) does not.
 fn ty_has_actor_addr(t: &crate::types::Ty, symbols: &crate::Symbols) -> bool {
