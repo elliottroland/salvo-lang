@@ -144,6 +144,31 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — CLI tests that emit the same code skip their toolchain run (TESTS.md C1, C7)
+
+**`salvo_testkit::cli::cli_stamp`** ([test-cli-stamp]) keys a CLI test twice:
+on the binary, as before, and on what the binary produces — the code `salvo
+compile` emits for the test's projects on each backend it runs, the
+projects' input files, the sources of what the binary does after emitting
+(salvo-cli, the backends and their runtimes, salvo-test, the manifest), the
+test file and the toolchains. A rebuild that emits the same code (a checker
+change, say) hits, and writes the binary key for the next re-run. Eleven
+run_tests tests use it, each restructured to write its projects before
+asking: after `touch salvo-core/src/lib.rs` they take 0.3–2.3s where they
+took 5–21s. The rest stay on the binary key, each with a comment: `salvo
+test` and `build`-with-annex tests (`compile` does not emit annexes),
+`platform generate` tests (host files are not compile output), tests that
+rewrite files between commands, and one asserting a driver warning (a lost
+warning would change no emitted file).
+
+- **std's own tests run on both backends**: `std_tests_pass_on_rust` and
+  `_on_kotlin`, each gated on its own toolchain. Kotlin passes all 151, as
+  Rust does (23s and 11s after a rebuild). Before, only Rust ran them.
+- **No duplicate CLI test was found to delete**: every candidate asserts
+  something its look-alike does not.
+- Suite: 777 tests; warm under nextest 66s (this morning 82s for 1,219
+  tests, and 208s for 2,156 at the start of the day).
+
 ### 2026-10-28 — The language server's tests run in-process; analyze's program tests are data (TESTS.md C6)
 
 **salvo-cli is a library as well as a binary** (`src/lib.rs`: `analysis`,
@@ -33308,6 +33333,19 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A content-keyed CLI stamp sees only emitted files** (TESTS.md C1,
+  2026-10-28): `salvo_testkit::cli` hashes what `salvo compile` writes, and
+  its stderr only when it fails, so a test asserting a *warning* the driver
+  prints must stay keyed on the binary — a lost warning changes no emitted
+  file. Nor does `compile` emit test annexes or `platform generate`'s host
+  files: `salvo test` and `generate` tests stay on the binary key too. And a
+  stamp's tool list must name every toolchain the test runs (two listed
+  kotlinc only and ran rustc as well).
+- **A test that runs a program writing relative paths needs a working
+  directory of its own** (2026-10-28): the run data's stream-pipe program
+  wrote `piped.txt` into `crates/salvo-cli`, and the two backends' runs
+  raced on it; `run_data.rs` now gives every run a fresh empty directory.
 
 - **A program whose leading files are std is not thereby a program over
   the std cache** (TESTS.md C2, 2026-10-28): `cache_applies` compares flags,

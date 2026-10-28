@@ -188,6 +188,7 @@ fn duplicate_names_are_refused() {
 /// normalized away, since those are the one part that cannot be identical.
 #[test]
 fn the_report_reads_the_same_on_both_backends() {
+    // Keyed on the binary: `salvo test` builds annexes, which `compile` does not emit.
     let Some(stamp) = e2e_stamp("report_parity", &["rustc", "kotlinc"]) else {
         return;
     };
@@ -245,6 +246,7 @@ test "a loud failure" {
 /// same, and its `backend` wins over `[build]`'s.
 #[test]
 fn a_tests_output_is_shown_as_configured() {
+    // Keyed on the binary: `salvo test` builds annexes, which `compile` does not emit.
     let Some(stamp) = e2e_stamp("test_output", &["rustc", "kotlinc"]) else {
         return;
     };
@@ -320,14 +322,24 @@ fn a_green_run_succeeds() {
 
 /// [std-shadow] std's own suite, run the way a session runs it: the checkout's
 /// `lib/` replaces the copy compiled into the binary, so these tests exercise
-/// the working tree.
+/// the working tree. Once per backend, each gated on its own toolchain.
 #[test]
-fn std_tests_pass() {
-    let Some(stamp) = e2e_stamp("std_tests", &["rustc"]) else {
+fn std_tests_pass_on_rust() {
+    std_tests_pass_on("rust", "rustc");
+}
+
+#[test]
+fn std_tests_pass_on_kotlin() {
+    std_tests_pass_on("kotlin", "kotlinc");
+}
+
+fn std_tests_pass_on(backend: &str, tool: &str) {
+    // Keyed on the binary: `salvo test` builds annexes, which `compile` does not emit.
+    let Some(stamp) = e2e_stamp(&format!("std_tests_{backend}"), &[tool]) else {
         return;
     };
-    if !have("rustc") {
-        eprintln!("skipping: rustc not found on PATH");
+    if !have(tool) {
+        eprintln!("skipping: {tool} not found on PATH");
         return;
     }
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -336,7 +348,7 @@ fn std_tests_pass() {
         .parent()
         .unwrap()
         .to_path_buf();
-    let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("std_suite");
+    let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("std_suite_{backend}"));
     // A wall-clock limit: std's tests now drive the runtime's own scheduler,
     // and a scheduler bug is a hang — which has to fail the suite rather than
     // stall it (AGENTS.md: watch the clock).
@@ -344,7 +356,7 @@ fn std_tests_pass() {
         // [kt-std-library] The compiled std is cached in the test target.
         .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
         .current_dir(&repo)
-        .args(["test", "--src", "lib", "--target"])
+        .args(["test", "--backend", backend, "--src", "lib", "--target"])
         .arg(&target)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -353,11 +365,11 @@ fn std_tests_pass() {
     let out = wait_with_limit(child, 240);
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(out.status.success(), "stdout: {stdout}\nstderr: {stderr}");
-    assert!(stdout.contains("std.heap :: "), "no heap tests ran: {stdout}");
+    assert!(out.status.success(), "{backend}: stdout: {stdout}\nstderr: {stderr}");
+    assert!(stdout.contains("std.heap :: "), "{backend}: no heap tests ran: {stdout}");
     assert!(
         !stdout.contains("FAILED") && !stdout.contains("failed"),
-        "{stdout}"
+        "{backend}: {stdout}"
     );
     stamp.verified();
 }
@@ -384,6 +396,7 @@ fn normalize_ms(text: &str) -> String {
 /// harness rather than restart the process).
 #[test]
 fn a_trapping_test_fails_and_the_run_continues() {
+    // Keyed on the binary: `salvo test` builds annexes, which `compile` does not emit.
     let Some(stamp) = e2e_stamp("trap_recovery", &["rustc"]) else {
         return;
     };
@@ -428,6 +441,7 @@ fn a_trapping_test_fails_and_the_run_continues() {
 /// 2026-09-26). The default stays `before`, so a failure can be read.
 #[test]
 fn test_honours_clean_target() {
+    // Keyed on the binary: `salvo test` builds annexes, which `compile` does not emit.
     let Some(__stamp) = e2e_stamp("test_clean_target", &["rustc"]) else {
         return;
     };
@@ -508,6 +522,7 @@ fn wait_with_limit(mut child: std::process::Child, secs: u64) -> std::process::O
 /// rest re-run in a fresh process), and the seed is what the declaration says.
 #[test]
 fn actor_tests_run_on_the_virtual_runtime() {
+    // Keyed on the binary: `salvo test` builds annexes, which `compile` does not emit.
     let Some(stamp) = e2e_stamp("actor_tests", &["rustc"]) else {
         return;
     };

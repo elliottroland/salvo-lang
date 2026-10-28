@@ -11316,6 +11316,13 @@ replaced the working document TESTING.md).
   `//~ refused[id]` annotations must be exactly the ids emission fails with.
   An annotation sits by the construct it is about; only its program, not its
   line, is checked. The format is `salvo_testkit::data`.
+* [test-cli-stamp] **A test of the `salvo` binary is stamped on the binary
+  and on what it produces** (TESTS.md C1): the code `salvo compile` emits for
+  the test's projects, their inputs, the post-emission driver sources, the
+  test file and the toolchains (`salvo_testkit::cli`). Only a test whose
+  projects are written before the stamp, and whose outcome the emitted code
+  decides, is keyed on content; `salvo test`, `platform generate` and
+  warning tests stay on the binary.
 * [test-decl] `test "an empty heap pops nothing" { … }` declares a **test**: a
   top-level declaration with a string-literal name and a block body. No
   parameters, no effect list, no return type, and `export test` is refused — a

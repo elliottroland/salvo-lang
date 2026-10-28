@@ -178,6 +178,7 @@ fn a_program_without_platform_declarations_generates_nothing() {
 /// nothing arrives from outside here. Identical stdout on both backends.
 #[test]
 fn generate_then_run_works_for_a_platform_handler() {
+    // Keyed on the binary: `platform generate` writes host files mid-test.
     let Some(__stamp) =
         e2e_stamp("generate_then_run_works_for_a_platform_handler", &["kotlinc", "rustc"])
     else {
@@ -299,6 +300,7 @@ fn main() [use] {
 /// run data (`tests/run/platform/boundary.sv#platform_types`).
 #[test]
 fn platform_types_keep_their_contracts() {
+    // Keyed on the binary: the host files come from `platform generate`.
     let Some(__stamp) = e2e_stamp("platform_types_keep_their_contracts", &["rustc"]) else {
         return;
     };
@@ -624,6 +626,7 @@ fn tickets() [Console] -> None {
 /// rather than anything Salvo would notice.
 #[test]
 fn the_platform_tree_mirrors_the_source_tree() {
+    // Keyed on the binary: `platform generate` writes host files mid-test.
     let Some(__stamp) = e2e_stamp("the_platform_tree_mirrors_the_source_tree", &["kotlinc", "rustc"]) else {
         return;
     };
@@ -707,6 +710,8 @@ fn the_platform_tree_mirrors_the_source_tree() {
 /// names cargo, and that dropping the crates removes the stale manifest.
 #[test]
 fn a_companion_can_use_a_declared_host_library() {
+    // Keyed on the binary: `platform generate` writes host files, and the
+    // manifest is rewritten between commands.
     let Some(__stamp) =
         e2e_stamp("a_companion_can_use_a_declared_host_library", &["kotlinc", "rustc", "cargo"])
     else {
@@ -1265,6 +1270,7 @@ fn main() [use] {
     };
     edit(dir.join("kt/main.kt"), &[("TODO(\"implement shout\")", "return s.uppercase()"), ("TODO(\"implement Greeter.greet\")", "return g.text")]);
     edit(dir.join("rs/main.rs"), &[("todo!(\"implement shout\")", "s.to_uppercase()"), ("todo!(\"implement Greeter.greet\")", "g.text.clone()")]);
+    // Keyed on the binary: the host project is `platform generate`'s output.
     let Some(stamp) = e2e_stamp("host project compiles alone", &["kotlinc", "rustc"]) else { return };
     if have("kotlinc") {
         let mut sources = Vec::new();

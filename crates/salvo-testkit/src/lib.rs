@@ -43,6 +43,7 @@
 //! check a program over the real std, checked once per process (TESTS.md
 //! T3).
 
+pub mod cli;
 pub mod data;
 pub mod front;
 pub mod run;

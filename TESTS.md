@@ -365,8 +365,8 @@ them, so they get their own steps (investigated 2026-10-28).
   215 run tests share name stems across them: each is generated, compiled
   and stamped twice, once per file.
 - **Repeated subprocesses.** 48 run_tests cases run both backends (~13s
-  each); `std_tests_pass` (58s) runs `salvo test --src lib` on both backends
-  but gates on rustc only; `a_tests_output_is_shown_as_configured` (50s)
+  each); `std_tests_pass` (58s) runs `salvo test --src lib` on rust only (the
+  default backend; corrected 2026-10-28 — it read "both backends"); `a_tests_output_is_shown_as_configured` (50s)
   runs `salvo test` seven times; analyze_tests and lsp_tests spawn a
   process per test (~0.85s each in analyze).
 
@@ -784,3 +784,10 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   std front (2s under `cargo test`, was ~29s); analyze_tests 72 → 25, the
   program-diagnostic tests now checker data. Next: C7 (trim the CLI tests,
   `std_tests_pass` per backend, content-keyed CLI stamps = C1).
+- **C1 with C7 (2026-10-28).** `salvo_testkit::cli::cli_stamp`: eleven
+  run_tests tests keyed on what the binary emits, so a rebuild that emits
+  the same code skips their toolchain runs (5–21s → 0.3–2.3s each).
+  `std_tests_pass` split per backend; Kotlin passes std's 151 tests. No
+  duplicates found to trim. The remaining binary-keyed cost is the `salvo
+  test` and `platform generate` tests: keying them on content would need
+  `compile` to emit annexes and host files. Next: the second wave.

@@ -69,6 +69,24 @@ fn e2e_stamp(test: &str, tools: &[&str]) -> Option<salvo_testkit::Stamp> {
     salvo_testkit::cached(env!("CARGO_TARGET_TMPDIR"), &format!("cli {test}"), &refs)
 }
 
+/// [test-cli-stamp] A stamp keyed on the binary, then on what it emits for
+/// `projects` (`salvo_testkit::cli`): write the projects first.
+fn cli_stamp(test: &str, tools: &[&str], projects: &[salvo_testkit::cli::CliProject]) -> Option<salvo_testkit::cli::CliStamp> {
+    let t = salvo_testkit::cli::CliTest {
+        salvo: env!("CARGO_BIN_EXE_salvo"),
+        tmpdir: env!("CARGO_TARGET_TMPDIR"),
+        name: test,
+        source: include_str!("run_tests.rs"),
+        tools,
+    };
+    salvo_testkit::cli::cli_stamp(&t, projects)
+}
+
+/// A project of a CLI test, for [`cli_stamp`].
+fn project<'a>(dir: &'a Path, args: &'a [&'a str], backends: &'a [&'a str]) -> salvo_testkit::cli::CliProject<'a> {
+    salvo_testkit::cli::CliProject { dir, args, backends }
+}
+
 /// Prints three lines, one per branch of a subject-less `when`
 /// [when-condition] — enough to prove the program really ran.
 const HELLO: &str = r#"
@@ -97,16 +115,22 @@ const HELLO_STDOUT: &str = "negative\nzero\npositive\n";
 /// here.
 #[test]
 fn run_compiles_and_runs_with_each_backend() {
-    let Some(__stamp) = e2e_stamp("run_compiles_and_runs_with_each_backend", &["kotlinc", "rustc"]) else {
+    let dirs: Vec<PathBuf> = ["kotlin", "rust"].iter().map(|b| work_dir(&format!("hello_{b}"))).collect();
+    for dir in &dirs {
+        fs::write(dir.join("main.sv"), HELLO).unwrap();
+    }
+    let Some(__stamp) = cli_stamp(
+        "run_compiles_and_runs_with_each_backend",
+        &["kotlinc", "rustc"],
+        &[project(&dirs[0], &["--src", "."], &["kotlin"]), project(&dirs[1], &["--src", "."], &["rust"])],
+    ) else {
         return;
     };
-    for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
+    for ((backend, tool), dir) in [("kotlin", "kotlinc"), ("rust", "rustc")].into_iter().zip(&dirs) {
         if !have(tool) {
             eprintln!("skipping {backend}: {tool} not found on PATH");
             continue;
         }
-        let dir = work_dir(&format!("hello_{backend}"));
-        fs::write(dir.join("main.sv"), HELLO).unwrap();
         let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "{backend} failed, stderr: {stderr}");
@@ -139,18 +163,24 @@ fn main() [use] -> None {
 
 #[test]
 fn run_forwards_command_line_arguments_to_both_backends() {
-    let Some(__stamp) = e2e_stamp("run_forwards_command_line_arguments_to_both_backends", &["kotlinc", "rustc"]) else {
+    let dirs: Vec<PathBuf> = ["kotlin", "rust"].iter().map(|b| work_dir(&format!("args_{b}"))).collect();
+    for dir in &dirs {
+        fs::write(dir.join("main.sv"), ARGS_PROGRAM).unwrap();
+    }
+    let Some(__stamp) = cli_stamp(
+        "run_forwards_command_line_arguments_to_both_backends",
+        &["kotlinc", "rustc"],
+        &[project(&dirs[0], &["--src", "."], &["kotlin"]), project(&dirs[1], &["--src", "."], &["rust"])],
+    ) else {
         return;
     };
     // program name excluded, order kept, a value with a space preserved.
     let expected = "count: 3\nalpha\nbeta gamma\ndelta\n";
-    for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
+    for ((backend, tool), dir) in [("kotlin", "kotlinc"), ("rust", "rustc")].into_iter().zip(&dirs) {
         if !have(tool) {
             eprintln!("skipping {backend}: {tool} not found on PATH");
             continue;
         }
-        let dir = work_dir(&format!("args_{backend}"));
-        fs::write(dir.join("main.sv"), ARGS_PROGRAM).unwrap();
         let out = salvo_in(
             &dir,
             &["run", "--backend", backend, "--src", ".", "--", "alpha", "beta gamma", "delta"],
@@ -175,16 +205,24 @@ fn run_forwards_command_line_arguments_to_both_backends() {
 /// works from any directory.
 #[test]
 fn build_produces_a_runnable_artifact_on_both_backends() {
-    let Some(__stamp) = e2e_stamp("build_produces_a_runnable_artifact_on_both_backends", &["kotlinc", "rustc"]) else {
+    // No annex, so the tests `build` runs first are an empty suite: nothing
+    // `compile` leaves out.
+    let dirs: Vec<PathBuf> = ["kotlin", "rust"].iter().map(|b| work_dir(&format!("build_{b}"))).collect();
+    for dir in &dirs {
+        fs::write(dir.join("main.sv"), ARGS_PROGRAM).unwrap();
+    }
+    let Some(__stamp) = cli_stamp(
+        "build_produces_a_runnable_artifact_on_both_backends",
+        &["kotlinc", "rustc"],
+        &[project(&dirs[0], &["--src", "."], &["kotlin"]), project(&dirs[1], &["--src", "."], &["rust"])],
+    ) else {
         return;
     };
-    for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
+    for ((backend, tool), dir) in [("kotlin", "kotlinc"), ("rust", "rustc")].into_iter().zip(&dirs) {
         if !have(tool) {
             eprintln!("skipping {backend}: {tool} not found on PATH");
             continue;
         }
-        let dir = work_dir(&format!("build_{backend}"));
-        fs::write(dir.join("main.sv"), ARGS_PROGRAM).unwrap();
         let out = salvo_in(&dir, &["build", "--backend", backend, "--src", ".", "--out", "out"]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "{backend} build failed, stderr: {stderr}");
@@ -211,6 +249,7 @@ fn build_produces_a_runnable_artifact_on_both_backends() {
 /// (decision 3). `--skip-tests` builds anyway.
 #[test]
 fn build_runs_tests_first_and_a_failure_blocks_the_artifact() {
+    // Keyed on the binary: the build runs an annex, which `compile` does not emit.
     let Some(__stamp) = e2e_stamp("build_runs_tests_first_and_a_failure_blocks_the_artifact", &["rustc"]) else {
         return;
     };
@@ -303,7 +342,11 @@ fn init_refuses_to_overwrite_an_existing_manifest() {
 /// starter program's output, reading the generated manifest with no flags.
 #[test]
 fn init_then_run_works_with_no_flags() {
-    let Some(__stamp) = e2e_stamp("init_then_run_works_with_no_flags", &["rustc"]) else {
+    let dir = work_dir("init_run");
+    let out = salvo_in(&dir, &["init", "."]);
+    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
+    // The scaffold is the project: written before the stamp, which keys on it.
+    let Some(__stamp) = cli_stamp("init_then_run_works_with_no_flags", &["rustc"], &[project(&dir, &[], &["rust"])]) else {
         return;
     };
     if !have("rustc") {
@@ -311,9 +354,6 @@ fn init_then_run_works_with_no_flags() {
         __stamp.verified();
         return;
     }
-    let dir = work_dir("init_run");
-    let out = salvo_in(&dir, &["init", "."]);
-    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
     // No flags: the manifest supplies the backend (rust) and src.
     let out = salvo_in(&dir, &["run"]);
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -346,9 +386,6 @@ fn main_flag_implies_the_source_directory() {
 /// without the `mod` declarations and rustc rejected it.
 #[test]
 fn main_flag_selects_among_several_entry_points() {
-    let Some(__stamp) = e2e_stamp("main_flag_selects_among_several_entry_points", &["kotlinc"]) else {
-        return;
-    };
     let dir = work_dir("several_mains");
     for (file, text) in [("main.sv", "from main.sv"), ("other.sv", "from other.sv")] {
         fs::write(
@@ -360,6 +397,13 @@ fn main_flag_selects_among_several_entry_points() {
         )
         .unwrap();
     }
+    let Some(__stamp) = cli_stamp(
+        "main_flag_selects_among_several_entry_points",
+        &["kotlinc", "rustc"],
+        &[project(&dir, &["--main", "main.sv"], &[]), project(&dir, &["--main", "other.sv"], &[])],
+    ) else {
+        return;
+    };
     for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
         if !have(tool) {
             eprintln!("skipping {backend}: {tool} not found on PATH");
@@ -391,13 +435,6 @@ fn main_flag_selects_among_several_entry_points() {
 /// (rustc panics with 101, the JVM exits 1), so only "nonzero" is asserted.
 #[test]
 fn the_programs_exit_code_is_the_commands() {
-    let Some(__stamp) = e2e_stamp("the_programs_exit_code_is_the_commands", &["rustc"]) else {
-        return;
-    };
-    if !have("rustc") {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
     let dir = work_dir("exit_code");
     fs::write(
         dir.join("main.sv"),
@@ -406,6 +443,13 @@ fn the_programs_exit_code_is_the_commands() {
          println(\"value ${numbers[i]}\")\n}\n",
     )
     .unwrap();
+    let Some(__stamp) = cli_stamp("the_programs_exit_code_is_the_commands", &["rustc"], &[project(&dir, &["--src", "."], &[])]) else {
+        return;
+    };
+    if !have("rustc") {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
     let out = salvo_in(&dir, &["run", "--backend", "rust", "--src", "."]);
     assert!(
         !out.status.success(),
@@ -427,9 +471,6 @@ fn the_programs_exit_code_is_the_commands() {
 /// environments, one per exit path.
 #[test]
 fn process_exit_and_env_run_on_both_backends() {
-    let Some(__stamp) = e2e_stamp("process_exit_and_env_run_on_both_backends", &["rustc", "kotlinc"]) else {
-        return;
-    };
     const SRC: &str = r#"import std.process
 import std.env
 
@@ -458,13 +499,23 @@ fn main() [use] -> None {
     exit(5)
 }
 "#;
-    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+    // No annex, so the tests `build` runs first are an empty suite.
+    let dirs: Vec<PathBuf> = ["rust", "kotlin"].iter().map(|b| work_dir(&format!("process_env_{b}"))).collect();
+    for dir in &dirs {
+        fs::write(dir.join("main.sv"), SRC).unwrap();
+    }
+    let Some(__stamp) = cli_stamp(
+        "process_exit_and_env_run_on_both_backends",
+        &["rustc", "kotlinc"],
+        &[project(&dirs[0], &["--src", "."], &["rust"]), project(&dirs[1], &["--src", "."], &["kotlin"])],
+    ) else {
+        return;
+    };
+    for ((backend, tool), dir) in [("rust", "rustc"), ("kotlin", "kotlinc")].into_iter().zip(&dirs) {
         if !have(tool) {
             eprintln!("skipping {backend}: {tool} not found on PATH");
             continue;
         }
-        let dir = work_dir(&format!("process_env_{backend}"));
-        fs::write(dir.join("main.sv"), SRC).unwrap();
         let out = salvo_in(&dir, &["build", "--backend", backend, "--src", ".", "--out", "out"]);
         assert!(out.status.success(), "{backend} build failed: {}", String::from_utf8_lossy(&out.stderr));
         for (probe, code) in [("plain", 5), ("value", 9), ("tail", 7)] {
@@ -488,6 +539,8 @@ fn main() [use] -> None {
 /// run's files.
 #[test]
 fn clean_target_decides_what_survives_the_run() {
+    // Keyed on the binary: the point is what `run` does with its target, and
+    // the test writes into it between runs.
     let Some(__stamp) = e2e_stamp("clean_target_decides_what_survives_the_run", &["rustc"]) else {
         return;
     };
@@ -570,6 +623,8 @@ fn a_target_equal_to_the_source_directory_is_rejected() {
 /// [mod-ignore], which is why the default target is `.salvo_tmp_run`.
 #[test]
 fn a_visible_target_inside_the_sources_is_rejected() {
+    // Keyed on the binary: the point is which targets `run` accepts, which
+    // `compile` into a scratch target would not show.
     let Some(__stamp) = e2e_stamp("a_visible_target_inside_the_sources_is_rejected", &["rustc"]) else {
         return;
     };
@@ -600,9 +655,6 @@ fn a_visible_target_inside_the_sources_is_rejected() {
 /// one level up is out of reach for `--main` alone.
 #[test]
 fn src_and_main_together_allow_a_nested_entry_point() {
-    let Some(__stamp) = e2e_stamp("src_and_main_together_allow_a_nested_entry_point", &["kotlinc"]) else {
-        return;
-    };
     let dir = work_dir("src_and_main");
     let bin = dir.join("bin");
     fs::create_dir_all(&bin).unwrap();
@@ -618,6 +670,13 @@ fn src_and_main_together_allow_a_nested_entry_point() {
          use StdConsole\n    println(\"nested ${label(3)}\")\n}\n",
     )
     .unwrap();
+    let Some(__stamp) = cli_stamp(
+        "src_and_main_together_allow_a_nested_entry_point",
+        &["kotlinc", "rustc"],
+        &[project(&dir, &["--src", ".", "--main", "bin/tool.sv"], &[]), project(&dir, &["--main", "bin/tool.sv"], &["rust"])],
+    ) else {
+        return;
+    };
 
     for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
         if !have(tool) {
@@ -834,6 +893,8 @@ fn main() [use] {
 /// Per backend: the gate and the channel are duplicated in each emitter.
 #[test]
 fn a_warning_reaches_the_builder_without_failing_the_run() {
+    // Keyed on the binary: the warning is the checker's, and `compile`'s
+    // emitted files would not change if it went missing.
     let Some(__stamp) =
         e2e_stamp("a_warning_reaches_the_builder", &["kotlinc", "rustc"])
     else {
@@ -871,19 +932,19 @@ fn a_warning_reaches_the_builder_without_failing_the_run() {
 /// toolchain to start is the one you get without saying so.
 #[test]
 fn run_defaults_to_the_rust_backend() {
-    let Some(__stamp) = e2e_stamp("run_defaults_to_rust", &["rustc"]) else {
-        return;
-    };
-    if !have("rustc") {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
     let dir = work_dir("default_backend");
     fs::write(
         dir.join("main.sv"),
         "fn main() [use] {\n    use StdConsole()\n    println(\"defaulted\")\n}\n",
     )
     .unwrap();
+    let Some(__stamp) = cli_stamp("run_defaults_to_rust", &["rustc"], &[project(&dir, &["--src", "."], &[])]) else {
+        return;
+    };
+    if !have("rustc") {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
     let out = salvo_in(&dir, &["run", "--src", "."]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "stderr: {stderr}");
@@ -991,7 +1052,7 @@ fn a_dependency_is_loaded_from_the_modules_directory() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let Some(__stamp) = e2e_stamp("dependency", &["rustc"]) else { return };
+    let Some(__stamp) = e2e_stamp("dependency", &["rustc"]) else { return }; // the test rewrites the manifest and adds files
     let dir = work_dir("dependency");
     let sources = dir.join("salvo");
     let aws = dir.join("salvo_modules/aws/salvo");
@@ -1082,7 +1143,7 @@ fn a_dependency_is_loaded_from_the_modules_directory() {
 /// `compile` shows by writing the `Cargo.toml`.
 #[test]
 fn a_dependency_brings_its_host_libraries_only_when_reached() {
-    let Some(__stamp) = e2e_stamp("host_deps_reached", &["rustc"]) else { return };
+    let Some(__stamp) = e2e_stamp("host_deps_reached", &["rustc"]) else { return }; // runs `platform generate` and rewrites main.sv
     let dir = work_dir("host_deps_reached");
     let lib = dir.join("salvo_modules/lib");
     fs::create_dir_all(lib.join("salvo/lib")).unwrap();
@@ -1132,11 +1193,11 @@ fn a_dependency_brings_its_host_libraries_only_when_reached() {
 /// (`tests/run/platform/boundary.sv#platform_fns_and_handlers`).
 #[test]
 fn a_missing_implementation_file_names_the_generate_command() {
-    let Some(__stamp) = e2e_stamp("platform_impls", &["rustc", "kotlinc"]) else { return };
     let dir = work_dir("platform_impls");
     fs::create_dir_all(dir.join("salvo/platform")).unwrap();
     fs::write(dir.join("salvo.toml"), "[project]\nname = \"impls\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\nplatform = \"salvo/platform\"\n").unwrap();
     fs::write(dir.join("salvo/main.sv"), IMPL_SV).unwrap();
+    let Some(__stamp) = cli_stamp("platform_impls", &["rustc", "kotlinc"], &[project(&dir, &[], &[])]) else { return };
     for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
         if !have(tool) {
             continue;
@@ -1239,9 +1300,6 @@ fn a_projection_local_assigned_an_owned_value_is_refused() {
 /// cannot be written there.
 #[test]
 fn console_reads_a_crlf_line_on_each_backend() {
-    let Some(stamp) = e2e_stamp("console_streams", &["kotlinc", "rustc"]) else {
-        return;
-    };
     const SRC: &str = r#"
 fn main() [use] -> None {
     use StdConsole()
@@ -1256,16 +1314,25 @@ fn main() [use] -> None {
     printerr("second: ${second ?: "<eof>"}\n")
 }
 "#;
-    for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
+    let dirs: Vec<PathBuf> = ["kotlin", "rust"].iter().map(|b| work_dir(&format!("console_streams_{b}"))).collect();
+    for dir in &dirs {
+        fs::write(dir.join("main.sv"), SRC).unwrap();
+    }
+    let Some(stamp) = cli_stamp(
+        "console_streams",
+        &["kotlinc", "rustc"],
+        &[project(&dirs[0], &["--src", "."], &["kotlin"]), project(&dirs[1], &["--src", "."], &["rust"])],
+    ) else {
+        return;
+    };
+    for ((backend, tool), dir) in [("kotlin", "kotlinc"), ("rust", "rustc")].into_iter().zip(&dirs) {
         if !have(tool) {
             eprintln!("skipping {backend}: {tool} not found on PATH");
             continue;
         }
-        let dir = work_dir(&format!("console_streams_{backend}"));
-        fs::write(dir.join("main.sv"), SRC).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_salvo"))
             .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
-            .current_dir(&dir)
+            .current_dir(dir)
             .args(["run", "--backend", backend, "--src", "."])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
