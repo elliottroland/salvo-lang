@@ -86,6 +86,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use salvo_syntax::messages::{self, rendered};
 use serde::Deserialize;
 
 pub const MANIFEST_FILE: &str = "salvo.toml";
@@ -260,12 +261,12 @@ impl HostDeps {
             let spec = absolutize_path(spec, &project.dir);
             match self.rust_crates.get(name) {
                 Some(existing) if *existing != spec => {
-                    return Err(format!(
-                        "crate `{name}` is declared twice at different versions: `{}` by {declared_by} \
-                         and `{}` earlier in the build — one version per crate [platform-host-deps]",
-                        render_spec(&spec),
-                        render_spec(existing)
-                    ));
+                    return Err(rendered(&messages::platform_host_deps_crate_twice(
+                        name,
+                        &render_spec(&spec),
+                        declared_by,
+                        &render_spec(existing),
+                    )));
                 }
                 Some(_) => {}
                 None => {
@@ -275,21 +276,17 @@ impl HostDeps {
         }
         for coord in &project.manifest.kotlin.artifacts {
             let (ga, version) = split_coordinate(coord).ok_or_else(|| {
-                format!(
-                    "`{}`: artifact `{coord}` is not `group:artifact:version` [platform-host-deps]",
-                    project.dir.join(MANIFEST_FILE).display()
-                )
+                rendered(&messages::platform_host_deps_bad_coordinate(
+                    &project.dir.join(MANIFEST_FILE).display(),
+                    coord,
+                ))
             })?;
             if let Some(other) = self
                 .kotlin_artifacts
                 .iter()
                 .find(|c| split_coordinate(c).is_some_and(|(g, v)| g == ga && v != version))
             {
-                return Err(format!(
-                    "artifact `{ga}` is declared twice at different versions: `{coord}` by \
-                     {declared_by} and `{other}` earlier in the build — one version per artifact \
-                     [platform-host-deps]"
-                ));
+                return Err(rendered(&messages::platform_host_deps_artifact_twice(ga, coord, declared_by, other)));
             }
             if !self.kotlin_artifacts.contains(coord) {
                 self.kotlin_artifacts.push(coord.clone());
@@ -441,17 +438,12 @@ impl Project {
     /// A manifest's text, as if read from `path` (its directory is the
     /// project's); used for the standard library embedded in the compiler.
     pub fn parse(path: &Path, text: &str) -> Result<Project, String> {
-        let manifest: Manifest = toml::from_str(&text).map_err(|e| {
-            format!("`{}`: {} [manifest]", path.display(), e.message())
-        })?;
+        let manifest: Manifest = toml::from_str(&text)
+            .map_err(|e| rendered(&messages::manifest_invalid_toml(&path.display(), &e.message())))?;
         for (section, b) in [("build", &manifest.build.backend), ("test", &manifest.test.backend)] {
             if let Some(b) = b {
                 if !matches!(b.as_str(), "rust" | "kotlin" | "*") {
-                    return Err(format!(
-                        "`{}`: `[{section}] backend` is `{b}`; it names a backend (`rust`, \
-                         `kotlin`) or `*` for every backend [manifest]",
-                        path.display()
-                    ));
+                    return Err(rendered(&messages::manifest_unknown_backend(&path.display(), section, b)));
                 }
             }
         }
@@ -462,23 +454,19 @@ impl Project {
         ] {
             if let Some(v) = value {
                 if !allowed.contains(&v.as_str()) {
-                    return Err(format!(
-                        "`{}`: `[test] {key}` is `{v}`; it is one of {} [test-output]",
-                        path.display(),
-                        allowed.iter().map(|a| format!("`{a}`")).collect::<Vec<_>>().join(", ")
-                    ));
+                    return Err(rendered(&messages::test_output_unknown_value(
+                        &path.display(),
+                        key,
+                        v,
+                        &allowed.iter().map(|a| format!("`{a}`")).collect::<Vec<_>>().join(", "),
+                    )));
                 }
             }
         }
         // [manifest-deps] A dependency has to be found somewhere.
         if manifest.build.modules.is_none() {
             if let Some(name) = manifest.dependencies.keys().next() {
-                return Err(format!(
-                    "`{}`: `[dependencies]` names `{name}`, but nothing says where dependencies \
-                     live — add `[build] modules = \"salvo_modules\"` (the directory holding \
-                     `{name}/{MANIFEST_FILE}`) [manifest-deps]",
-                    path.display()
-                ));
+                return Err(rendered(&messages::manifest_deps_no_modules(&path.display(), name, MANIFEST_FILE)));
             }
         }
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -503,30 +491,29 @@ impl Project {
         }
         let Some(modules) = self.modules_dir() else {
             // `load` refuses this shape; a hand-built manifest may still have it.
-            return Err(format!(
-                "`{}`: `[dependencies]` without `[build] modules` [manifest-deps]",
-                self.dir.join(MANIFEST_FILE).display()
-            ));
+            return Err(rendered(&messages::manifest_deps_without_modules(
+                &self.dir.join(MANIFEST_FILE).display(),
+            )));
         };
         for (name, version) in &self.manifest.dependencies {
             let manifest_path = modules.join(name).join(MANIFEST_FILE);
             if !manifest_path.is_file() {
-                return Err(format!(
-                    "`{}`: dependency `{name}` is declared, but `{}` does not exist \
-                     [manifest-deps]",
-                    self.dir.join(MANIFEST_FILE).display(),
-                    manifest_path.display()
-                ));
+                return Err(rendered(&messages::manifest_deps_missing_manifest(
+                    &self.dir.join(MANIFEST_FILE).display(),
+                    name,
+                    &manifest_path.display(),
+                )));
             }
             let project = Project::load(&manifest_path)?;
             let found = project.manifest.project.version.as_deref().unwrap_or("(none)");
             if found != version {
-                return Err(format!(
-                    "`{}`: dependency `{name}` is declared at version `{version}`, but `{}` \
-                     says `{found}` [manifest-deps]",
-                    self.dir.join(MANIFEST_FILE).display(),
-                    manifest_path.display()
-                ));
+                return Err(rendered(&messages::manifest_deps_version_mismatch(
+                    &self.dir.join(MANIFEST_FILE).display(),
+                    name,
+                    version,
+                    &manifest_path.display(),
+                    found,
+                )));
             }
             out.push(Dependency {
                 name: name.clone(),

@@ -85,21 +85,7 @@ fn the_wiki_is_current_when_present() {
 /// The rule labels the specs define: LANGUAGE_SPEC.md and the backend specs,
 /// one `* [label]` (or `- [label]`) opening a rule.
 fn defined_labels() -> std::collections::HashSet<String> {
-    let root = repo_root();
-    let mut out = std::collections::HashSet::new();
-    for spec in ["LANGUAGE_SPEC.md", "BACKEND_SPEC.kotlin.md", "BACKEND_SPEC.rust.md"] {
-        let text = std::fs::read_to_string(root.join(spec)).expect(spec);
-        for line in text.lines() {
-            let t = line.trim_start();
-            let Some(rest) = t.strip_prefix("* [").or_else(|| t.strip_prefix("- [")) else { continue };
-            let Some(end) = rest.find(']') else { continue };
-            let label = &rest[..end];
-            if !label.is_empty() && label.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
-                out.insert(label.to_string());
-            }
-        }
-    }
-    out
+    ["LANGUAGE_SPEC.md", "BACKEND_SPEC.kotlin.md", "BACKEND_SPEC.rust.md"].into_iter().flat_map(labels_of).collect()
 }
 
 fn std_sources(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -190,4 +176,52 @@ fn every_diagnostic_id_names_a_defined_rule() {
         }
     }
     assert!(unknown.is_empty(), "ids naming rules no spec defines:\n{}", unknown.join("\n"));
+}
+
+/// The rule labels one spec file defines, one `* [label]` (or `- [label]`)
+/// opening a rule.
+fn labels_of(spec: &str) -> std::collections::HashSet<String> {
+    let text = std::fs::read_to_string(repo_root().join(spec)).expect(spec);
+    let mut out = std::collections::HashSet::new();
+    for line in text.lines() {
+        let t = line.trim_start();
+        let Some(rest) = t.strip_prefix("* [").or_else(|| t.strip_prefix("- [")) else { continue };
+        let Some(end) = rest.find(']') else { continue };
+        let label = &rest[..end];
+        if !label.is_empty() && label.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+            out.insert(label.to_string());
+        }
+    }
+    out
+}
+
+/// [diag-id] [backend-core-layers] A backend's diagnostic ids name rules
+/// LANGUAGE_SPEC.md or that backend's own spec defines, never the other
+/// backend's prefix; and no id is two diagnostics, across the core's list
+/// and both backends'.
+#[test]
+fn every_backend_diagnostic_id_names_a_rule_of_its_backend() {
+    let core = labels_of("LANGUAGE_SPEC.md");
+    let backends: [(&str, &str, &str, &[(&str, &str)]); 2] = [
+        ("kotlin", "BACKEND_SPEC.kotlin.md", "rs-", salvo_backend_kotlin::messages::ALL),
+        ("rust", "BACKEND_SPEC.rust.md", "kt-", salvo_backend_rust::messages::ALL),
+    ];
+    let mut seen: std::collections::HashSet<&str> = salvo_syntax::messages::ALL.iter().map(|(_, id)| *id).collect();
+    let mut problems = Vec::new();
+    for (backend, spec, foreign, all) in backends {
+        let own = labels_of(spec);
+        for (name, id) in all {
+            let label = salvo_syntax::messages::label_of(id);
+            if !core.contains(label) && !own.contains(label) {
+                problems.push(format!("{backend} {name}: `{id}` names a rule neither LANGUAGE_SPEC.md nor {spec} defines"));
+            }
+            if label.starts_with(foreign) {
+                problems.push(format!("{backend} {name}: `{id}` names the other backend's rule"));
+            }
+            if !seen.insert(id) {
+                problems.push(format!("{backend} {name}: `{id}` is already another message's id"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }

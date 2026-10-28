@@ -10,6 +10,7 @@ use salvo_core::ir::{Decl, FnKind, ImplDecl, PlatformTypeDecl};
 
 use super::{decls::subst_ty, ModuleEmitter};
 use crate::emit::{platform_trait_name, rs_ident};
+use crate::messages;
 
 impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// The skeleton file's body and the module paths its signatures need in
@@ -128,7 +129,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn host_handler_skeleton(&mut self, h: &ImplDecl, out: &mut String) -> Option<String> {
         let Some(Ty::Named { name: face, .. }) = h.faces.first().map(|f| f.strip_quals().clone()) else { return None };
         let Some(iface) = self.s.interface(&face) else {
-            self.error(format!("platform handler `{}` implements `{face}`, which is not a declared effect", h.name));
+            self.error(messages::rs_platform_handler_effect_not_declared(&h.name, &face));
             return None;
         };
         let prefix = self.type_prefix(&face);

@@ -111,10 +111,11 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.errors
     }
 
-    /// [ir-build] What the builder could not lower. [diag-id] Its text only:
-    /// the builder's errors are strings, as the backends report them.
+    /// [ir-build] What the builder could not lower. [diag-id] Its text, led
+    /// by its id under `-v`: the builder's errors are strings, as the
+    /// backends report them.
     pub(crate) fn error(&mut self, span: Span, msg: Message) {
-        self.errors.push(format!("{}: {}", span.start, msg.text));
+        self.errors.push(format!("{}: {}", span.start, messages::rendered(&msg)));
     }
 
     pub(crate) fn id(&mut self) -> NodeId {

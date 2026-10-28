@@ -10,12 +10,14 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use salvo_core::types::Ty;
 use salvo_core::{ModulePath, Program};
+use salvo_syntax::messages::Message;
 use salvo_core::ir::{
     ArmTest, Block, Decl, DeclId, Expr, ExprKind, FnDecl, FnKind, FnRef, ImplDecl, InterfaceDecl, Lit,
     Local, Module as IrModule, Op, Place, Program as IrProgram, Stmt, Step, StructDecl,
 };
 
 use crate::emit::{escape_string, host_package, kotlin_package, kt_ident};
+use crate::messages;
 use crate::EmittedFile;
 
 mod actors;
@@ -103,7 +105,7 @@ pub fn emit_program_ir_over(program: &Program, abi: bool, std: Option<&salvo_cor
         if declares && salvo_core::host_file(&program.companions, &m.path).is_none() {
             let what: String = program.units().filter(|u| u.file.module == m.path).map(|u| salvo_core::platform_declarations(u.ast)).collect::<Vec<_>>().join(", ");
             let rel = salvo_core::host_rel_path(&m.path, "kt");
-            shared.errors.push(salvo_core::missing_handler_host_error(&what, &m.path, &rel).text);
+            shared.errors.push(salvo_syntax::messages::rendered(&salvo_core::missing_handler_host_error(&what, &m.path, &rel)));
         }
     }
     let mut files = Vec::new();
@@ -193,7 +195,7 @@ pub fn emit_program_ir_over(program: &Program, abi: bool, std: Option<&salvo_cor
             continue;
         }
         if files.iter().any(|f| f.rel_path == comp.rel_path) {
-            shared.errors.push(format!("companion file `{}` collides with a generated file", comp.rel_path.display()));
+            shared.errors.push(salvo_syntax::messages::rendered(&messages::backend_companion_collides_with_generated(&comp.rel_path.display())));
             continue;
         }
         files.push(EmittedFile { rel_path: comp.rel_path.clone(), content: comp.content.clone() });
@@ -288,8 +290,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         ModuleEmitter { s, module, out: String::new(), aliases: HashMap::new(), in_fn_params: HashSet::new(), narrowing_subject: None, ret_is_unit: false, current_impl: None, handle_locks: HashMap::new(), in_facade: false, test_arms: HashMap::new(), assigned: HashSet::new() }
     }
 
-    fn error(&mut self, msg: impl Into<String>) {
-        self.s.errors.push(format!("{}: {}", self.module.file_name, msg.into()));
+    fn error(&mut self, msg: Message) {
+        self.s.errors.push(format!("{}: {}", self.module.file_name, salvo_syntax::messages::rendered(&msg)));
     }
 
     #[cfg(test)]
@@ -831,7 +833,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 if f.canbe_mut {
                     if let Ty::Named { name, .. } = f.ty.strip_quals() {
                         if crate::intrinsics::drop_mut_suffix(name).is_some() {
-                            self.error(format!("the kotlin backend cannot store `canbe Mut` field `{}` yet: its type's `Mut` form is not a subtype of the plain one [kt-field-canbe-mut]", f.name));
+                            self.error(messages::kt_field_canbe_mut_mut_not_subtype(&f.name));
                         }
                     }
                 }
@@ -943,7 +945,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if h.intrinsic {
             // [backend-intrinsic] [backend-never-wrong] no intrinsic handler
             // has a Kotlin lowering.
-            self.error(format!("intrinsic handler `{}` is not supported by the kotlin backend", h.name));
+            self.error(messages::kt_intrinsic_handler_unsupported(&h.name));
             return;
         }
         if h.platform {
@@ -953,7 +955,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let Some(Ty::Named { name: face, .. }) = h.faces.first().map(|f| f.strip_quals().clone()) else { return };
             let plain = salvo_core::typekey::plain(&face).to_string();
             let Some(iface) = self.interface_by_key(&face) else {
-                self.error(format!("platform handler `{}` implements `{plain}`, whose declaration could not be located", h.name));
+                self.error(messages::kt_platform_handler_effect_not_located(&h.name, &plain));
                 return;
             };
             let ps = self.params(&h.ctor_params);
@@ -982,7 +984,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let faces = self.actor_faces(h);
         let is_actor = !faces.is_empty();
         if is_actor && faces.len() != h.faces.len() {
-            self.error(format!("handler `{}` mixes actor and plain effects, which the IR emitter does not render yet", h.name));
+            self.error(messages::kt_mixed_unrendered(&h.name));
         }
         // [actor-mixed-handler] [kt-mixed] plain faces with `send fn` members: the
         // class is the servant alone; the faces are worn by `__Fac_H`.
@@ -1694,7 +1696,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 // [actor-use-addr] the send stub of the effect.
                 let a = self.expr(addr, indent);
                 let Ty::Named { name, .. } = e.ty.strip_quals() else {
-                    self.error("an addr instance of a non-effect type");
+                    self.error(messages::kt_actor_addr_non_effect_type());
                     return a;
                 };
                 let plain = salvo_core::typekey::plain(name).to_string();
@@ -1703,14 +1705,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     // [actor-monitor-handler] a plain effect's addr is its handle already.
                     Some(_) => a,
                     None => {
-                        self.error(format!("`{plain}` is not an effect, so an addr is not an instance of it"));
+                        self.error(messages::kt_actor_addr_not_an_effect(&plain));
                         a
                     }
                 }
             }
             ExprKind::SelfSend { member, args } => self.self_send(member, args, indent),
             ExprKind::Unsupported(what) => {
-                self.error(format!("unsupported IR node: {what}"));
+                self.error(messages::kt_ir_unsupported_node(&what));
                 "kotlin.TODO()".to_string()
             }
         }
@@ -1926,7 +1928,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     let mut identity = true;
                     for (i, a) in values.iter().enumerate() {
                         let Some(plan) = salvo_core::copyplan::copy_plan(self.s.symbols, a) else {
-                            self.error(format!("cannot `copy` a value of type `{}`", args[0].ty));
+                            self.error(messages::kt_copy_no_plan(&args[0].ty));
                             return v;
                         };
                         if !matches!(plan, salvo_core::copyplan::CopyPlan::Identity) {
@@ -1959,7 +1961,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                             format!("({v})?.let {{ __c -> {inner} }}")
                         }
                         None => {
-                            self.error(format!("cannot `copy` a value of type `{}`", args[0].ty));
+                            self.error(messages::kt_copy_no_plan(&args[0].ty));
                             v
                         }
                     };
@@ -1968,7 +1970,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return match salvo_core::copyplan::copy_plan(self.s.symbols, &args[0].ty) {
                 Some(plan) => self.render_copy(&plan, &v),
                 None => {
-                    self.error(format!("cannot `copy` a value of type `{}`", args[0].ty));
+                    self.error(messages::kt_copy_no_plan(&args[0].ty));
                     v
                 }
             };
@@ -2012,7 +2014,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let channel = self.expr(&args[0], indent);
             let sink = self.expr(&args[1], indent);
             let Some(hname) = self.current_impl.clone() else {
-                self.error("`watch_control` is called from a handler's `init`");
+                self.error(messages::kt_wire_watch_control_no_handler());
                 return "kotlin.TODO()".to_string();
             };
             let control = self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
@@ -2020,7 +2022,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 _ => None,
             });
             let Some(control) = control else {
-                self.error(format!("`watch_control`: handler `{hname}` has no private `control(from, data)` member"));
+                self.error(messages::kt_wire_watch_control_no_control(&hname));
                 return "kotlin.TODO()".to_string();
             };
             let from_ty = control.params.get(control.effect_params).map(|p| p.ty.clone()).unwrap_or(Ty::Unknown);
@@ -2039,12 +2041,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 _ => None,
             };
             let Some(effect) = effect else {
-                self.error("`protocol` needs an effect as its type argument");
+                self.error(messages::kt_wire_protocol_not_effect());
                 return "kotlin.TODO()".to_string();
             };
             let Some(iface) = self.interface_by_key(&effect).filter(|i| i.protocol_hash.is_some()) else {
                 let effect = salvo_core::typekey::plain(&effect);
-                self.error(format!("`protocol<{effect}>`: `{effect}` has no wire form, so it cannot be a group's protocol"));
+                self.error(messages::kt_wire_protocol_no_wire_form(&effect));
                 return "kotlin.TODO()".to_string();
             };
             let st = self.ty(&e.ty);
@@ -2081,7 +2083,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         match crate::intrinsics::fn_call(name, recv, &a, &tas) {
             Some(code) => code,
             None => {
-                self.error(format!("intrinsic fn `{name}` is not supported by the kotlin backend"));
+                self.error(messages::platform_intrinsic_fn_unsupported_by_kotlin(&name));
                 let _ = e;
                 "kotlin.TODO()".to_string()
             }

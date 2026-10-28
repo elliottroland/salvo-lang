@@ -30,12 +30,10 @@ pub fn no_duplicate_paths(files: &[EmittedFile]) -> Result<(), Vec<String>> {
         .into_iter()
         .filter(|(_, n)| *n > 1)
         .map(|(path, n)| {
-            format!(
-                "two emitted files claim `{}` ({n} of them): a module's path and a \
-                 runtime file collide, so one would silently overwrite the other — \
-                 rename the runtime file [backend-companion]",
-                path.display()
-            )
+            salvo_syntax::messages::rendered(&salvo_syntax::messages::backend_companion_duplicate_path(
+                &path.display(),
+                n,
+            ))
         })
         .collect();
     if clashes.is_empty() {

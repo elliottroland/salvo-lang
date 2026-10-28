@@ -9,6 +9,8 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use salvo_syntax::messages::{self, rendered};
+
 /// Dotted module path, e.g. `std.core.string`.
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModulePath(pub Vec<String>);
@@ -203,14 +205,11 @@ impl PlatformRoots {
             None => {
                 let other = if backend == "kotlin" { "rust" } else { "kotlin" };
                 if self.get(other).is_some_and(|root| path.starts_with(root)) {
-                    return Err(format!(
-                        "`{}` is a {} file under the {} platform root, which is not where {} \
-                         platform files are read from [platform-root]",
-                        path.display(),
+                    return Err(rendered(&messages::platform_root_other_backend_root(
+                        &path.display(),
                         if backend == "kotlin" { "Kotlin" } else { "Rust" },
                         if other == "kotlin" { "Kotlin" } else { "Rust" },
-                        if backend == "kotlin" { "Kotlin" } else { "Rust" },
-                    ));
+                    )));
                 }
                 Ok(None)
             }
@@ -302,11 +301,7 @@ impl SourceSet {
             ));
         }
         if stem.is_empty() {
-            return Err(format!(
-                "`{}`: a test annex is named after the module it tests, so there \
-                 has to be a name in front of `.test.sv` [test-file]",
-                rel_path.display()
-            ));
+            return Err(rendered(&messages::test_file_nameless_annex(&rel_path.display())));
         }
         let mut components: Vec<String> = rel_path
             .parent()
@@ -543,17 +538,8 @@ impl SourceSet {
             {
                 let backend = if ext == "kt" { "kotlin" } else { "rust" };
                 errors.push(match roots.get(backend) {
-                    None => format!(
-                        "`{}` is a platform file, but no platform root is set for {backend}: name it in \
-                         `salvo.toml` — `[build] platform = \"…\"` for every backend, or `[{backend}] \
-                         platform` for this one [platform-root]",
-                        rel.display()
-                    ),
-                    Some(r) => format!(
-                        "`{}` is outside the {backend} platform root `{}`, so it is not read [platform-root]",
-                        rel.display(),
-                        r.display()
-                    ),
+                    None => rendered(&messages::platform_root_file_without_root(&rel.display(), backend)),
+                    Some(r) => rendered(&messages::platform_root_outside_root(&rel.display(), backend, &r.display())),
                 });
                 continue;
             }
@@ -692,11 +678,7 @@ impl SourceSet {
     pub fn add_dependency(&mut self, dep: &crate::manifest::Dependency, native_ext: &str) -> Vec<String> {
         let src = dep.project.src();
         if !src.is_dir() {
-            return vec![format!(
-                "dependency `{}`: source directory `{}` does not exist [manifest-deps]",
-                dep.name,
-                src.display()
-            )];
+            return vec![rendered(&messages::manifest_deps_missing_source_dir(&dep.name, &src.display()))];
         }
         let root = src.canonicalize().unwrap_or(src);
         let mut loaded = SourceSet { platform: dep.project.platform_roots(), ..SourceSet::default() };
@@ -722,12 +704,7 @@ impl SourceSet {
                     self.files.remove(i);
                 }
             } else {
-                errors.push(format!(
-                    "`{}`: dependency `{}` declares module `{}`, which is the standard \
-                     library's — a dependency may replace std modules only if its own \
-                     manifest says `[project] std = true` [manifest-deps]",
-                    file.name, dep.name, file.module
-                ));
+                errors.push(rendered(&messages::manifest_deps_std_module(&file.name, &dep.name, &file.module)));
             }
         }
         self.files.extend(loaded.files);
@@ -757,13 +734,11 @@ impl SourceSet {
                 .iter()
                 .any(|f| !f.is_test && f.module == tested)
             {
-                errors.push(format!(
-                    "`{}`: no module `{tested}` to test — a test annex is named after \
-                     the module it belongs to, so this one is looking for a \
-                     `{}.sv` beside it [test-file]",
-                    annex.name,
-                    tested.0.last().map(String::as_str).unwrap_or_default()
-                ));
+                errors.push(rendered(&messages::test_file_no_tested_module(
+                    &annex.name,
+                    &tested,
+                    tested.0.last().map(String::as_str).unwrap_or_default(),
+                )));
             }
             if let Some(other) = self
                 .files
@@ -772,12 +747,7 @@ impl SourceSet {
                 .find(|(i, f)| *i != idx && f.module == annex.module)
                 .map(|(_, f)| f)
             {
-                errors.push(format!(
-                    "`{}` and `{}` are both module `{}`: a test annex takes the \
-                     module path of the file it is named after plus `test`, so the \
-                     two spellings collide — rename one [test-file]",
-                    annex.name, other.name, annex.module
-                ));
+                errors.push(rendered(&messages::test_file_module_collision(&annex.name, &other.name, &annex.module)));
             }
         }
         errors
@@ -891,7 +861,7 @@ mod tests {
     fn the_annex_carve_out_stays_narrow() {
         assert!(SourceSet::classify(Path::new("list.kotlin.test.sv")).is_err());
         let err = SourceSet::classify(Path::new(".test.sv")).unwrap_err();
-        assert!(err.contains("[test-file]"), "unexpected message: {err}");
+        assert!(err.ends_with("has to be a name in front of `.test.sv`"), "unexpected message: {err}");
     }
 
     /// [test-file] An annex is never `is_std`, whatever tree it came from, so a

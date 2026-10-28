@@ -805,12 +805,12 @@ impl Server<'_> {
                     by_uri.entry(uri.clone()).or_default().push(Diagnostic {
                         range: Range::new(Position::new(0, 0), Position::new(0, 0)),
                         severity: Some(DiagnosticSeverity::INFORMATION),
-                        message: format!(
-                            "no `{}` above this file: analysed under the workspace root `{}` \
-                             [manifest-discovery]",
+                        // [diag-id] The text alone: the language server sends no ids.
+                        message: salvo_syntax::messages::manifest_discovery_workspace_fallback(
                             salvo_core::MANIFEST_FILE,
-                            self.root.display()
-                        ),
+                            &self.root.display(),
+                        )
+                        .text,
                         source: Some("salvo".to_string()),
                         ..Diagnostic::default()
                     });
@@ -824,9 +824,8 @@ impl Server<'_> {
                     by_uri.entry(uri.clone()).or_default().push(Diagnostic {
                         range: Range::new(Position::new(0, 0), Position::new(0, 0)),
                         severity: Some(DiagnosticSeverity::ERROR),
-                        message: salvo_core::diag::std_errors_line(analysis.std_errors)
-                            .trim_start_matches("error: ")
-                            .to_string(),
+                        // [diag-id] The text alone: the language server sends no ids.
+                        message: salvo_syntax::messages::diag_std_hidden_std_errors(analysis.std_errors).text,
                         source: Some("salvo".to_string()),
                         ..Diagnostic::default()
                     });

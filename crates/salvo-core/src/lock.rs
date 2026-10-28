@@ -22,6 +22,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use salvo_syntax::messages::{self, rendered};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -40,7 +41,7 @@ impl Lock {
             .map_err(|e| format!("failed to read `{}`: {e}", path.display()))?;
         toml::from_str(&text)
             .map(Some)
-            .map_err(|e| format!("`{}`: {} [actor-protocol-lock]", path.display(), e.message()))
+            .map_err(|e| rendered(&messages::actor_protocol_lock_invalid_toml(&path.display(), &e.message())))
     }
 
     pub fn write(&self, path: &Path) -> Result<(), String> {
@@ -102,15 +103,11 @@ pub fn reconcile(
         }
     }
     if !changed.is_empty() {
-        return Err(format!(
-            "protocol changed without a version bump: {} — at version {}, `{}` locks the \
-             protocols a deployed peer was built against, so a rolling fleet would meet \
-             two shapes under one name. Bump `[project] version` in salvo.toml, and the \
-             lock is rewritten [actor-protocol-lock]",
-            changed.join("; "),
+        return Err(rendered(&messages::actor_protocol_lock_changed_without_bump(
+            &changed.join("; "),
             fresh.version.as_deref().unwrap_or("(none)"),
-            path.display()
-        ));
+            &path.display(),
+        )));
     }
     if existing.protocols != fresh.protocols {
         // Only additions or removals: a new protocol, or one deleted. Neither

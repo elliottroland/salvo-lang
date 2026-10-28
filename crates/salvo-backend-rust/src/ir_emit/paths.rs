@@ -20,6 +20,8 @@ use salvo_core::ir::build::refs::{ref_container, storage};
 
 use super::body::Kind;
 use super::{rs_ident, ModuleEmitter, Shared};
+use crate::messages;
+use salvo_syntax::messages::Message;
 
 /// One step of a path *shape*: what the type definitions say, positions not
 /// filled in.
@@ -85,7 +87,7 @@ pub fn path_key(c: &Ty, e: &Ty) -> (String, String) {
 
 impl<'p> Shared<'p> {
     /// Every way from `c` to `e` through the type definitions.
-    fn shapes(&self, c: &Ty, e: &Ty, prefix: &mut Vec<PStep>, stack: &mut Vec<String>, out: &mut Vec<Vec<PStep>>) -> Result<(), String> {
+    fn shapes(&self, c: &Ty, e: &Ty, prefix: &mut Vec<PStep>, stack: &mut Vec<String>, out: &mut Vec<Vec<PStep>>) -> Result<(), Message> {
         let c = storage(&self.unalias(c));
         let e = storage(e);
         if c == e {
@@ -94,7 +96,7 @@ impl<'p> Shared<'p> {
             // unbounded (a recursive type).
             let key = format!("{c}");
             if stack.contains(&key) {
-                return Err(format!("`{c}` contains itself, so its handles have no finite path yet [rs-path]"));
+                return Err(messages::rs_path_recursive_container(&c));
             }
             stack.push(key);
             let mut deeper = Vec::new();
@@ -102,7 +104,7 @@ impl<'p> Shared<'p> {
             stack.pop();
             r?;
             if !deeper.is_empty() {
-                return Err(format!("`{c}` contains itself, so its handles have no finite path yet [rs-path]"));
+                return Err(messages::rs_path_recursive_container(&c));
             }
             return Ok(());
         }
@@ -116,8 +118,8 @@ impl<'p> Shared<'p> {
         r
     }
 
-    fn shapes_inner(&self, c: &Ty, e: &Ty, prefix: &mut Vec<PStep>, stack: &mut Vec<String>, out: &mut Vec<Vec<PStep>>) -> Result<(), String> {
-        let via = |step: PStep, t: &Ty, prefix: &mut Vec<PStep>, stack: &mut Vec<String>, out: &mut Vec<Vec<PStep>>| -> Result<(), String> {
+    fn shapes_inner(&self, c: &Ty, e: &Ty, prefix: &mut Vec<PStep>, stack: &mut Vec<String>, out: &mut Vec<Vec<PStep>>) -> Result<(), Message> {
+        let via = |step: PStep, t: &Ty, prefix: &mut Vec<PStep>, stack: &mut Vec<String>, out: &mut Vec<Vec<PStep>>| -> Result<(), Message> {
             prefix.push(step);
             let r = self.shapes(t, e, prefix, stack, out);
             prefix.pop();
@@ -150,7 +152,7 @@ impl<'p> Shared<'p> {
     }
 
     /// The path type of handles of element type `e` into `c`.
-    pub fn path_ty(&mut self, c: &Ty, e: &Ty) -> Result<PathTy, String> {
+    pub fn path_ty(&mut self, c: &Ty, e: &Ty) -> Result<PathTy, Message> {
         let key = path_key(c, e);
         if let Some(p) = self.paths.get(&key) {
             return p.clone();
@@ -160,21 +162,21 @@ impl<'p> Shared<'p> {
         r
     }
 
-    fn compute_path_ty(&self, c: &Ty, e: &Ty, may_enum: bool) -> Result<PathTy, String> {
+    fn compute_path_ty(&self, c: &Ty, e: &Ty, may_enum: bool) -> Result<PathTy, Message> {
         let cs = storage(c);
         if matches!(cs, Ty::Var(_)) {
-            return Err(format!("a handle into the generic container `{cs}` has no path on the Rust backend yet [rs-path]"));
+            return Err(messages::rs_path_generic_container(&cs));
         }
         let mut out = Vec::new();
         self.shapes(c, e, &mut Vec::new(), &mut Vec::new(), &mut out)?;
         if out.is_empty() {
-            return Err(format!("no storage of `{cs}` holds a `{}` [rs-path]", storage(e)));
+            return Err(messages::rs_path_no_storage_holds(&cs, &storage(e)));
         }
         if out.len() == 1 {
             return Ok(PathTy { shapes: out, enum_name: None, home: None, generic: None });
         }
         if !may_enum {
-            return Err(format!("internal: the path type of `{cs}` to `{}` was not declared ahead [rs-path]", storage(e)));
+            return Err(messages::rs_path_not_declared_ahead(&cs, &storage(e)));
         }
         let san = |t: &Ty| -> String { format!("{t}").chars().map(|ch| if ch.is_alphanumeric() { ch } else { '_' }).collect() };
         let name = format!("__Path_{}__{}", san(&cs), san(&storage(e)));
@@ -301,7 +303,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// The path type of a handle type (its `ref` names the container).
     pub fn handle_path_ty(&mut self, handle: &Ty) -> Option<PathTy> {
         let Some(c) = ref_container(handle).cloned() else {
-            self.error(format!("internal: the handle type `{handle}` names no container [rs-path]"));
+            self.error(messages::rs_path_handle_names_no_container(&handle));
             return None;
         };
         let e = storage(handle);
@@ -428,7 +430,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         }
         if steps.iter().any(|s| matches!(s, SStep::Walk(_))) || pt.generic.is_some() {
-            self.error("a handle into a generic container where another path type is expected [rs-path] [backend-never-wrong]");
+            self.error(messages::rs_path_generic_where_other_expected());
             return None;
         }
         // The value itself, when it already is one of this type.
@@ -462,7 +464,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             .collect();
         let codes: Vec<String> = steps.iter().filter_map(|s| if let SStep::Dyn(_, c) = s { Some(c.clone()) } else { None }).collect();
         let Some(v) = pt.shapes.iter().position(|s| *s == shape) else {
-            self.error("a handle whose path is not one its container's type allows [rs-path] [backend-never-wrong]");
+            self.error(messages::rs_path_path_not_allowed());
             return None;
         };
         if pt.enum_name.is_some() {
@@ -535,7 +537,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         match (a.first(), b.first()) {
             (None, None) => "panic!(\"salvo: two handles to one element\")".to_string(),
             (None, _) | (_, None) => {
-                self.error("two live handles where one contains the other [rs-path] [backend-never-wrong]");
+                self.error(messages::rs_path_nested_live_handles());
                 "panic!()".to_string()
             }
             (Some(x), Some(y)) => {
@@ -557,7 +559,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     }
                     None => {
                         let (SStep::Dyn(k, cx), SStep::Dyn(_, cy)) = (x, y) else {
-                            self.error("two handles whose paths differ in kind [rs-path] [backend-never-wrong]");
+                            self.error(messages::rs_path_paths_differ_in_kind());
                             return "panic!()".to_string();
                         };
                         let (k, cx, cy) = (k.clone(), cx.clone(), cy.clone());

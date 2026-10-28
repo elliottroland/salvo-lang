@@ -10,6 +10,7 @@ use salvo_core::ir::{Decl, Expr, ExprKind, FnDecl, ImplDecl, InterfaceDecl, Repl
 
 use super::{kt_local, ModuleEmitter};
 use crate::emit::{kotlin_package, kt_ident};
+use crate::messages;
 
 impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [kt-wire] The codec expression of a type.
@@ -40,7 +41,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     2 => format!("salvo.PairCodec({})", cs.join(", ")),
                     3 => format!("salvo.TripleCodec({})", cs.join(", ")),
                     n => {
-                        self.error(format!("no wire codec for a {n}-tuple"));
+                        self.error(messages::kt_wire_no_tuple_codec(n));
                         "salvo.UnitCodec".to_string()
                     }
                 }
@@ -89,7 +90,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         let cs: Vec<String> = args.iter().map(|a| self.codec(a)).collect();
                         return format!("{codec}({})", cs.join(", "));
                     }
-                    self.error(format!("no wire codec for `{name}`"));
+                    self.error(messages::kt_wire_no_codec(&name));
                     "salvo.UnitCodec".to_string()
                 }
             },
@@ -208,7 +209,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return;
         }
         if !self.decl_type_params(&i.name, &i.type_params).is_empty() {
-            self.error(format!("actor effect `{}` is generic over values, which the IR emitter cannot make a protocol of yet", i.name));
+            self.error(messages::kt_actor_generic_protocol(&i.name));
             return;
         }
     }
@@ -309,7 +310,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         for face in faces {
             let msg = self.msg_class(face);
             let Some(f) = dispatcher(self, &|k| matches!(k, salvo_core::ir::EnumKind::Message { interface } if *interface == face.id)) else {
-                self.error(format!("handler `{}` has no dispatcher for `{}`", h.name, face.name));
+                self.error(messages::kt_actor_ir_no_dispatcher(&h.name, &face.name));
                 continue;
             };
             handle_arms.push_str(&format!("            is {msg} -> {f}(handler, msg)\n"));
@@ -415,14 +416,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     pub(super) fn self_send(&mut self, member: &str, args: &[Expr], indent: usize) -> String {
         let a = self.exprs(args, indent).join(", ");
         let Some(hname) = self.current_impl.clone() else {
-            self.error("`@self` send outside an actor");
+            self.error(messages::kt_actor_self_send_outside_actor());
             return "kotlin.TODO()".to_string();
         };
         let Some(h) = self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
             Decl::Impl(h) if h.name == hname => Some(h),
             _ => None,
         }) else {
-            self.error(format!("internal: no impl `{hname}` for a self-send"));
+            self.error(messages::kt_actor_self_send_no_impl(&hname));
             return "kotlin.TODO()".to_string();
         };
         let faces = self.actor_faces(h);
@@ -448,7 +449,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// answer one addr per face [effect-handler-multi].
     pub(super) fn spawn(&mut self, e: &Expr, handler: &Expr, pool: Option<&Expr>, join: Option<&Expr>, indent: usize) -> String {
         let Ty::Named { name, .. } = handler.ty.strip_quals() else {
-            self.error("`spawn` of something that is not a handler");
+            self.error(messages::kt_actor_spawn_non_handler());
             return "kotlin.TODO()".to_string();
         };
         let plain = salvo_core::typekey::plain(name).to_string();
@@ -456,7 +457,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Decl::Impl(h) if h.name == plain => Some(h),
             _ => None,
         }) else {
-            self.error(format!("`spawn` of an unknown handler `{plain}`"));
+            self.error(messages::kt_actor_spawn_unknown_handler(&plain));
             return "kotlin.TODO()".to_string();
         };
         let faces = self.actor_faces(decl);
@@ -464,7 +465,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // [actor-mixed-handler] [kt-mixed] the mixed spawn: constructor
             // arguments evaluated once, shared by servant and façade.
             let ExprKind::Construct { fields } = &handler.kind else {
-                self.error("`spawn` of a mixed handler needs its construction");
+                self.error(messages::kt_mixed_spawn_no_construction());
                 return "kotlin.TODO()".to_string();
             };
             let mut lets = String::new();
@@ -496,7 +497,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // [actor-monitor-handler] a plain-effect spawn: the instance shared
             // behind the effect's monitor.
             if decl.faces.len() != 1 {
-                self.error(format!("handler `{plain}` implements several plain effects, and a shared instance behind several faces is not supported yet"));
+                self.error(messages::kt_monitor_several_plain_faces(&plain));
                 return "kotlin.TODO()".to_string();
             }
             let h = self.expr(handler, indent);
@@ -504,7 +505,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return format!("{}({h})", self.monitor_for(&face));
         }
         if faces.len() != decl.faces.len() {
-            self.error(format!("handler `{plain}` mixes actor and plain effects, which the IR emitter does not render yet"));
+            self.error(messages::kt_mixed_unrendered(&plain));
             return "kotlin.TODO()".to_string();
         }
         let h = self.expr(handler, indent);
@@ -522,11 +523,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let joined = match join {
             Some(g) => {
                 let Some(group) = self.interface_by_key("ActorGroup") else {
-                    self.error("`spawn … in group` needs std `net`");
+                    self.error(messages::kt_actor_group_needs_net());
                     return "kotlin.TODO()".to_string();
                 };
                 let Some(idx) = group.members.iter().position(|m| m.name == "join") else {
-                    self.error("`ActorGroup` has no `join` member");
+                    self.error(messages::kt_actor_group_no_join());
                     return "kotlin.TODO()".to_string();
                 };
                 let g_code = self.expr(g, indent);
@@ -540,7 +541,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             2 => "kotlin.Pair(__a, __a)".to_string(),
             3 => "kotlin.Triple(__a, __a, __a)".to_string(),
             n => {
-                self.error(format!("handler `{plain}` implements {n} effects, and the kotlin backend renders a spawn's addr tuple as `Pair`/`Triple` — at most three faces"));
+                self.error(messages::kt_actor_spawn_too_many_faces(&plain, n));
                 return "kotlin.TODO()".to_string();
             }
         };
@@ -576,7 +577,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             _ => None,
         });
         let Some(iface) = iface else {
-            self.error("send to an unknown interface");
+            self.error(messages::kt_actor_send_unknown_interface());
             return "kotlin.TODO()".to_string();
         };
         let m = &iface.members[member.index];
@@ -599,7 +600,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         match target {
             ReplyTarget::Member(member) => {
                 let Some(h) = self.current_impl.clone() else {
-                    self.error("`replyto` outside a handler");
+                    self.error(messages::kt_actor_replyto_outside_handler());
                     return "kotlin.TODO()".to_string();
                 };
                 let caps = self.exprs(captures, indent);
@@ -615,12 +616,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     Decl::Fn(f) if &f.id == target => Some(f),
                     _ => None,
                 }) else {
-                    self.error("`replyto` of an unknown task");
+                    self.error(messages::kt_actor_replyto_unknown_task());
                     return "kotlin.TODO()".to_string();
                 };
                 let declared: Vec<&salvo_core::ir::Param> = decl.params.iter().skip(decl.effect_params).collect();
                 let Some(last) = declared.last() else {
-                    self.error("a task target has no answer parameter");
+                    self.error(messages::kt_actor_task_no_answer_param());
                     return "kotlin.TODO()".to_string();
                 };
                 let payload = self.ty(&last.ty);
@@ -654,7 +655,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let payload_ty = match token_ty.strip_quals() {
             Ty::Named { name, args } if name == "Reply" && args.len() == 1 => args[0].clone(),
             _ => {
-                self.error("`waitfor` binds a `Reply<T>`");
+                self.error(messages::kt_actor_waitfor_not_reply());
                 return "kotlin.TODO()".to_string();
             }
         };

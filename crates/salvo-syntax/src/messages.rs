@@ -56,6 +56,17 @@ pub fn id_well_formed(id: &str) -> bool {
     matches!(id.split_once(':'), Some((label, name)) if part(label) && part(name))
 }
 
+/// [diag-id] What a message says when it leaves the compiler as a bare line
+/// of text (a codegen refusal, an IR build error): its text, led by `[id]`
+/// when ids are shown (`salvo -v`).
+pub fn rendered(m: &Message) -> String {
+    if crate::diag::ids_shown() {
+        format!("[{}] {}", m.id, m.text)
+    } else {
+        m.text.clone()
+    }
+}
+
 /// The label of `id`: what comes before the `:`.
 pub fn label_of(id: &str) -> &str {
     id.split_once(':').map_or(id, |(label, _)| label)
@@ -5059,6 +5070,222 @@ messages! {
     qual_whynot_lower_no_member = "qual-whynot:lower-no-member" (qualifier: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
         "qualifier `{qualifier}` has no `{member}`"
     );
+
+    // ===== manifest =====
+
+    // [manifest]
+    /// A `salvo.toml` that does not parse; `message` is the TOML reader's.
+    manifest_invalid_toml = "manifest:invalid-toml" (path: &dyn std::fmt::Display, message: &dyn std::fmt::Display) => format!(
+        "`{path}`: {message}"
+    );
+    /// A `backend` key naming no backend.
+    manifest_unknown_backend = "manifest:unknown-backend" (path: &dyn std::fmt::Display, section: &str, backend: &str) => format!(
+        "`{path}`: `[{section}] backend` is `{backend}`; it names a backend (`rust`, \
+         `kotlin`) or `*` for every backend"
+    );
+
+    // [manifest-deps]
+    /// `[dependencies]` in a manifest with no `[build] modules`.
+    manifest_deps_no_modules = "manifest-deps:no-modules" (path: &dyn std::fmt::Display, name: &str, manifest_file: &str) => format!(
+        "`{path}`: `[dependencies]` names `{name}`, but nothing says where dependencies \
+         live — add `[build] modules = \"salvo_modules\"` (the directory holding \
+         `{name}/{manifest_file}`)"
+    );
+    /// `[dependencies]` without `[build] modules`, in a manifest built by hand.
+    manifest_deps_without_modules = "manifest-deps:without-modules" (path: &dyn std::fmt::Display) => format!(
+        "`{path}`: `[dependencies]` without `[build] modules`"
+    );
+    /// A declared dependency whose directory has no manifest.
+    manifest_deps_missing_manifest = "manifest-deps:missing-manifest" (path: &dyn std::fmt::Display, name: &str, manifest_path: &dyn std::fmt::Display) => format!(
+        "`{path}`: dependency `{name}` is declared, but `{manifest_path}` does not exist"
+    );
+    /// A dependency whose manifest states another version than the one declared.
+    manifest_deps_version_mismatch = "manifest-deps:version-mismatch" (path: &dyn std::fmt::Display, name: &str, version: &str, manifest_path: &dyn std::fmt::Display, found: &str) => format!(
+        "`{path}`: dependency `{name}` is declared at version `{version}`, but `{manifest_path}` \
+         says `{found}`"
+    );
+
+    // [platform-host-deps]
+    /// One crate declared at two versions across the build.
+    platform_host_deps_crate_twice = "platform-host-deps:crate-twice" (name: &str, spec: &dyn std::fmt::Display, declared_by: &str, existing: &dyn std::fmt::Display) => format!(
+        "crate `{name}` is declared twice at different versions: `{spec}` by {declared_by} \
+         and `{existing}` earlier in the build — one version per crate"
+    );
+    /// A Kotlin artifact that is not a Maven coordinate.
+    platform_host_deps_bad_coordinate = "platform-host-deps:bad-coordinate" (path: &dyn std::fmt::Display, coord: &str) => format!(
+        "`{path}`: artifact `{coord}` is not `group:artifact:version`"
+    );
+    /// One Kotlin artifact declared at two versions across the build.
+    platform_host_deps_artifact_twice = "platform-host-deps:artifact-twice" (ga: &str, coord: &str, declared_by: &str, other: &str) => format!(
+        "artifact `{ga}` is declared twice at different versions: `{coord}` by \
+         {declared_by} and `{other}` earlier in the build — one version per artifact"
+    );
+
+    // [test-output]
+    /// A `[test]` output key outside its closed set; `allowed` lists the set.
+    test_output_unknown_value = "test-output:unknown-value" (path: &dyn std::fmt::Display, key: &str, value: &str, allowed: &dyn std::fmt::Display) => format!(
+        "`{path}`: `[test] {key}` is `{value}`; it is one of {allowed}"
+    );
+
+    // ===== sources =====
+
+    // [manifest-deps]
+    /// A dependency whose source directory is missing.
+    manifest_deps_missing_source_dir = "manifest-deps:missing-source-dir" (name: &str, src: &dyn std::fmt::Display) => format!(
+        "dependency `{name}`: source directory `{src}` does not exist"
+    );
+    /// A dependency, not `std = true`, declaring a module of the standard library.
+    manifest_deps_std_module = "manifest-deps:std-module" (file: &str, dep: &str, module: &dyn std::fmt::Display) => format!(
+        "`{file}`: dependency `{dep}` declares module `{module}`, which is the standard \
+         library's — a dependency may replace std modules only if its own \
+         manifest says `[project] std = true`"
+    );
+
+    // [platform-root]
+    /// A host file under the other backend's platform root; `lang` and `other` are `Kotlin` / `Rust`.
+    platform_root_other_backend_root = "platform-root:other-backend-root" (path: &dyn std::fmt::Display, lang: &str, other: &str) => format!(
+        "`{path}` is a {lang} file under the {other} platform root, which is not where {lang} \
+         platform files are read from"
+    );
+    /// A host file in a `platform/` directory, with no platform root for its backend.
+    platform_root_file_without_root = "platform-root:file-without-root" (path: &dyn std::fmt::Display, backend: &str) => format!(
+        "`{path}` is a platform file, but no platform root is set for {backend}: name it in \
+         `salvo.toml` — `[build] platform = \"…\"` for every backend, or `[{backend}] \
+         platform` for this one"
+    );
+    /// A host file in a `platform/` directory outside its backend's platform root.
+    platform_root_outside_root = "platform-root:outside-root" (path: &dyn std::fmt::Display, backend: &str, root: &dyn std::fmt::Display) => format!(
+        "`{path}` is outside the {backend} platform root `{root}`, so it is not read"
+    );
+
+    // [test-file]
+    /// A test annex with nothing in front of `.test.sv`.
+    test_file_nameless_annex = "test-file:nameless-annex" (path: &dyn std::fmt::Display) => format!(
+        "`{path}`: a test annex is named after the module it tests, so there \
+         has to be a name in front of `.test.sv`"
+    );
+    /// A test annex with no module beside it to test.
+    test_file_no_tested_module = "test-file:no-tested-module" (annex: &str, tested: &dyn std::fmt::Display, stem: &str) => format!(
+        "`{annex}`: no module `{tested}` to test — a test annex is named after \
+         the module it belongs to, so this one is looking for a \
+         `{stem}.sv` beside it"
+    );
+    /// A test annex whose module path another file also has.
+    test_file_module_collision = "test-file:module-collision" (annex: &str, other: &str, module: &dyn std::fmt::Display) => format!(
+        "`{annex}` and `{other}` are both module `{module}`: a test annex takes the \
+         module path of the file it is named after plus `test`, so the \
+         two spellings collide — rename one"
+    );
+
+    // ===== lock =====
+
+    // [actor-protocol-lock]
+    /// A lock file that does not parse; `message` is the TOML reader's.
+    actor_protocol_lock_invalid_toml = "actor-protocol-lock:invalid-toml" (path: &dyn std::fmt::Display, message: &dyn std::fmt::Display) => format!(
+        "`{path}`: {message}"
+    );
+    /// A locked protocol hash that changed without a version bump; `changed` lists them.
+    actor_protocol_lock_changed_without_bump = "actor-protocol-lock:changed-without-bump" (changed: &str, version: &str, path: &dyn std::fmt::Display) => format!(
+        "protocol changed without a version bump: {changed} — at version {version}, `{path}` locks the \
+         protocols a deployed peer was built against, so a rolling fleet would meet \
+         two shapes under one name. Bump `[project] version` in salvo.toml, and the \
+         lock is rewritten"
+    );
+
+    // ===== backend =====
+
+    // [backend-companion]
+    /// Two emitted files at one path.
+    backend_companion_duplicate_path = "backend-companion:duplicate-path" (path: &dyn std::fmt::Display, n: usize) => format!(
+        "two emitted files claim `{path}` ({n} of them): a module's path and a \
+         runtime file collide, so one would silently overwrite the other — \
+         rename the runtime file"
+    );
+
+    // [backend-host-tool]
+    /// A host build tool that is not there; `place` says where it was looked for.
+    backend_host_tool_not_found = "backend-host-tool:not-found" (place: &dyn std::fmt::Display, key: &str) => format!(
+        "{place}: it builds the declared host libraries — install it, or name the \
+         one to use with `{key} = \"…\"` in `salvo.toml`"
+    );
+
+    // ===== diag =====
+
+    // [diag-std-hidden]
+    /// The one line shown in place of errors hidden in the embedded std.
+    diag_std_hidden_std_errors = "diag-std-hidden:std-errors" (errors: usize) => format!(
+        "the standard library does not check with this program ({errors} error{} in std; \
+         this is a compiler bug)",
+        if errors == 1 { "" } else { "s" }
+    );
+
+    // ===== cli =====
+
+    // [cli-build]
+    /// `--backend '*'` with a backend that names no `out` of its own.
+    cli_build_star_needs_out = "cli-build:star-needs-out" (name: &str) => format!(
+        "`--backend '*'` builds every backend, so each needs its own \
+         artifact directory: give `[{name}] out` in the manifest (or pass \
+         `--out` and build one backend at a time)"
+    );
+    /// A build whose tests failed.
+    cli_build_tests_failed = "cli-build:tests-failed" () =>
+        "tests failed; no artifact was built";
+
+    // [cli-init]
+    /// `salvo init` where a manifest already exists.
+    cli_init_exists = "cli-init:exists" (path: &dyn std::fmt::Display) => format!(
+        "`{path}` already exists: `salvo init` will not overwrite an existing \
+         project"
+    );
+
+    // [manifest]
+    /// One `--target` for a command building both backends.
+    manifest_target_for_both_backends = "manifest:target-for-both-backends" (target: &dyn std::fmt::Display) => format!(
+        "`--target {target}` cannot serve both backends: drop it and give each a \
+         `target` in the manifest (`[rust]`, `[kotlin]`), or pass `--backend`"
+    );
+    /// No output directory for a backend.
+    manifest_no_target = "manifest:no-target" (backend: &str) => format!(
+        "no output directory for `{backend}`: pass `--target`, or state one in the \
+         manifest (`[build] target`, or `[{backend}] target`)"
+    );
+
+    // [manifest-discovery]
+    /// No manifest above the starting directory, and no `--src` or `--main`.
+    manifest_discovery_no_manifest = "manifest-discovery:no-manifest" (manifest_file: &str, start: &dyn std::fmt::Display) => format!(
+        "no `{manifest_file}` found above `{start}`: pass `--src` (or `--main`), or write a manifest"
+    );
+    /// The language server's note on a document no manifest covers.
+    manifest_discovery_workspace_fallback = "manifest-discovery:workspace-fallback" (manifest_file: &str, root: &dyn std::fmt::Display) => format!(
+        "no `{manifest_file}` above this file: analysed under the workspace root `{root}`"
+    );
+
+    // [manifest-src]
+    /// A `--src` inside, or containing, the project's source root.
+    manifest_src_overlaps_root = "manifest-src:overlaps-root" (src: &dyn std::fmt::Display, relation: &str, root: &str, manifest: &str) => format!(
+        "`{src}` {relation} the project's source root `{root}` (from `{manifest}`): pass \
+         `--src {root}`, or no `--src`; scope a command to one module with \
+         `--module` where it has one"
+    );
+
+    // [platform-stamp]
+    /// A dependency with platform code and no generated host project.
+    platform_stamp_no_host_project = "platform-stamp:no-host-project" (dep: &str, root: &dyn std::fmt::Display, regenerate: &str) => format!(
+        "dependency `{dep}` has platform code but no generated host project under `{root}`: \
+         {regenerate}"
+    );
+    /// A dependency's host project generated for another ABI or other signatures; `why` says which.
+    platform_stamp_stale = "platform-stamp:stale" (dep: &str, why: &str, path: &dyn std::fmt::Display, regenerate: &str) => format!(
+        "dependency `{dep}`'s host project {why} (`{path}`): {regenerate}"
+    );
+
+    // [test-file]
+    /// A test run with no tests; `matching` is "match `f` " under a filter, or empty.
+    test_file_no_tests = "test-file:no-tests" (matching: &str, src: &dyn std::fmt::Display) => format!(
+        "no tests {matching}in `{src}`: a test is a `test \"name\" {{ … }}` block in a \
+         `<module>.test.sv` file beside the module it tests"
+    );
 }
 
 #[cfg(test)]
@@ -5076,5 +5303,17 @@ mod tests {
         assert!(name_matches_id("op_unique_shape_bare_type_param", "op-unique-shape:bare-type-param"));
         assert!(!id_well_formed("op-unique-shape"));
         assert!(!id_well_formed("Op-x:y"));
+    }
+
+    /// [diag-id] A rendered message is its text, led by its id under `-v`.
+    #[test]
+    fn rendered_shows_the_id_only_when_ids_are_shown() {
+        let m = Message { id: "diag-id:example", text: "some text".into() };
+        assert_eq!(rendered(&m), "some text");
+        crate::diag::show_ids(true);
+        let shown = rendered(&m);
+        crate::diag::show_ids(false);
+        assert_eq!(shown, "[diag-id:example] some text");
+        assert_eq!(rendered(&m), "some text");
     }
 }

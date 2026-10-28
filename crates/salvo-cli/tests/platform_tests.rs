@@ -1206,7 +1206,7 @@ fn conflicting_host_libraries_are_refused() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains("`serde`") && stderr.contains("`1.0`") && stderr.contains("`2.0`") && stderr.contains("[platform-host-deps]"),
+        stderr.contains("`serde`") && stderr.contains("`1.0`") && stderr.contains("`2.0`") && stderr.contains("one version per crate"),
         "{stderr}"
     );
 }
@@ -1915,7 +1915,7 @@ fn a_dependencys_host_project_is_checked_before_its_code() {
     .unwrap();
     let (ok, stderr) = compile();
     assert!(!ok && stderr.contains("dependency `lib` has platform code but no generated host project"), "{stderr}");
-    assert!(stderr.contains("salvo platform generate --backend rust") && stderr.contains("[platform-stamp]"), "{stderr}");
+    assert!(stderr.contains("salvo platform generate --backend rust") && stderr.contains("and check in what it writes"), "{stderr}");
     // Generated: accepted.
     let out = salvo_in(&lib, &["platform", "generate", "--backend", "rust"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));

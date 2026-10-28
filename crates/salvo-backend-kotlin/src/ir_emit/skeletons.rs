@@ -13,6 +13,7 @@ use salvo_core::ir::{Decl, FnKind, Module as IrModule};
 
 use super::{host_package, kt_local, ModuleEmitter, Shared};
 use crate::emit::{kotlin_package, kt_ident};
+use crate::messages;
 
 pub fn platform_skeletons_ir(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
     // Errors only, never warnings [qual-refn]: the shared front.
@@ -141,7 +142,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let Some(Ty::Named { name: face_key, .. }) = h.faces.first().map(|f| f.strip_quals().clone()) else { continue };
             let plain = salvo_core::typekey::plain(&face_key).to_string();
             let Some(iface) = self.interface_by_key(&face_key) else {
-                self.error(format!("platform handler `{}` implements `{plain}`, which is not a declared effect", h.name));
+                self.error(messages::kt_platform_handler_effect_not_declared(&h.name, &plain));
                 continue;
             };
             if *iface.id.module() != m.path {

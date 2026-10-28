@@ -3,6 +3,7 @@
 mod emit;
 mod intrinsics;
 mod ir_emit;
+pub mod messages;
 
 pub use emit::{
     emit_abi, emit_program, emit_program_over, emit_program_reporting, emit_program_with_entry,
@@ -187,10 +188,9 @@ impl Backend for RustBackend {
         if host.has_rust() {
             let manifest = target_dir.join(CARGO_MANIFEST);
             if !manifest.is_file() {
-                return Err(BackendError::Other(format!(
-                    "crates are declared but `{}` was not written [rs-cargo]",
-                    manifest.display()
-                )));
+                return Err(BackendError::Other(salvo_syntax::messages::rendered(&messages::rs_cargo_manifest_missing(
+                    &manifest.display(),
+                ))));
             }
             let code = salvo_backend::run_host_tool(
                 &host.cargo_program(),
@@ -258,10 +258,9 @@ impl Backend for RustBackend {
         if host.has_rust() {
             let manifest = target_dir.join(CARGO_MANIFEST);
             if !manifest.is_file() {
-                return Err(BackendError::Other(format!(
-                    "crates are declared but `{}` was not written [rs-cargo]",
-                    manifest.display()
-                )));
+                return Err(BackendError::Other(salvo_syntax::messages::rendered(&messages::rs_cargo_manifest_missing(
+                    &manifest.display(),
+                ))));
             }
             // Cargo builds into the scratch target's bin dir; the finished
             // binary is then copied to the lasting output.

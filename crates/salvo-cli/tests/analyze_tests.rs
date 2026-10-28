@@ -180,7 +180,7 @@ fn a_project_module_under_std_is_refused() {
             && stderr.contains("move this file out of its `std/` directory --> std/core/extra/auto.sv:1:1"),
         "stderr: {stderr}"
     );
-    assert!(!stderr.contains("[diag-std-hidden]"), "std itself checks: {stderr}");
+    assert!(!stderr.contains("the standard library does not check"), "std itself checks: {stderr}");
     assert!(stderr.contains("2 errors, 0 warnings"), "stderr: {stderr}");
 }
 
@@ -2937,7 +2937,7 @@ fn a_src_inside_the_projects_source_root_is_refused() {
     let root = dir.join("src");
     let expected = format!(
         "error: `{}` is inside the project's source root `{}` (from `{}`): pass `--src {}`, or \
-         no `--src`; scope a command to one module with `--module` where it has one [manifest-src]",
+         no `--src`; scope a command to one module with `--module` where it has one",
         inner.display(),
         root.display(),
         dir.join("salvo.toml").display(),
@@ -2983,8 +2983,39 @@ fn a_src_around_the_projects_source_root_is_refused() {
         "error: `analyze_src_around_root` contains the project's source root \
          `analyze_src_around_root/src` (from `analyze_src_around_root/salvo.toml`): pass \
          `--src analyze_src_around_root/src`, or no `--src`; scope a command to one module \
-         with `--module` where it has one [manifest-src]"
+         with `--module` where it has one"
     );
+}
+
+/// [diag-id] Under `-v`, an error the project loader reports as a line of
+/// text leads with its id, and without it no id shows: a malformed manifest
+/// [manifest], and a `--src` inside the project's source root [manifest-src].
+#[test]
+fn a_manifest_error_shows_its_id_under_v() {
+    let dir = src_dir("manifest_error_id").canonicalize().unwrap();
+    fs::write(dir.join("salvo.toml"), "[project]\nname = \"p\"\n\n[build]\nbackend = \"wasm\"\n").unwrap();
+    fs::write(dir.join("main.sv"), CLEAN).unwrap();
+    let src = dir.to_str().unwrap();
+    let text = format!(
+        "`{}`: `[build] backend` is `wasm`; it names a backend (`rust`, `kotlin`) or `*` for every backend",
+        dir.join("salvo.toml").display()
+    );
+    let plain = salvo(&["analyze", "--src", src]);
+    assert!(!plain.status.success());
+    assert_eq!(String::from_utf8_lossy(&plain.stderr).trim(), format!("error: {text}"));
+    let verbose = salvo(&["-v", "analyze", "--src", src]);
+    assert!(!verbose.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&verbose.stderr).trim(),
+        format!("error: [manifest:unknown-backend] {text}")
+    );
+
+    let dir = src_root_project("src_inside_root_id");
+    let inner = dir.join("src/app");
+    let out = salvo(&["-v", "analyze", "--src", inner.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.trim().starts_with("error: [manifest-src:overlaps-root] `"), "{stderr}");
 }
 
 /// [manifest-src] What still works: `--src` equal to the root (spelled with

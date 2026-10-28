@@ -137,11 +137,8 @@ pub fn hidden_std_file(file: &SourceFile) -> bool {
 /// names no std position: an error there is the compiler's, not the
 /// program's.
 pub fn std_errors_line(errors: usize) -> String {
-    format!(
-        "error: the standard library does not check with this program ({errors} error{} in std; \
-         this is a compiler bug) [diag-std-hidden]",
-        if errors == 1 { "" } else { "s" }
-    )
+    let m = salvo_syntax::messages::diag_std_hidden_std_errors(errors);
+    format!("{}: {}", salvo_syntax::diag::severity_label(Severity::Error, Some(m.id)), m.text)
 }
 
 /// [diag-std-hidden] Drops from `diags` every diagnostic located in the
@@ -206,17 +203,21 @@ mod tests {
         ];
         let span = Span::new(0, 2);
         let diags = vec![
-            FileDiagnostic::error(0, span, "in the embedded std"),
-            FileDiagnostic::warning(0, span, "a warning in the embedded std"),
-            FileDiagnostic::error(0, span, "another in the embedded std"),
-            FileDiagnostic::error(1, span, "in a std tree"),
-            FileDiagnostic::warning(2, span, "in the project"),
+            FileDiagnostic::error(0, span, (None, "in the embedded std".to_string())),
+            FileDiagnostic::warning(0, span, (None, "a warning in the embedded std".to_string())),
+            FileDiagnostic::error(0, span, (None, "another in the embedded std".to_string())),
+            FileDiagnostic::error(1, span, (None, "in a std tree".to_string())),
+            FileDiagnostic::warning(2, span, (None, "in the project".to_string())),
         ];
         let rendered = render_shown(&diags, &files);
         assert_eq!(rendered.len(), 3, "{rendered:#?}");
         assert!(rendered[0].contains("in a std tree") && rendered[0].contains("core/list.sv:1:1"), "{rendered:#?}");
         assert!(rendered[1].contains("in the project"), "{rendered:#?}");
         assert_eq!(rendered[2], std_errors_line(2));
+        assert_eq!(
+            rendered[2],
+            "error: the standard library does not check with this program (2 errors in std; this is a compiler bug)"
+        );
         assert!(!rendered[2].contains("std/core"), "the line names no std position");
         assert!(rendered.iter().all(|r| !r.contains("embedded std")), "{rendered:#?}");
 
@@ -225,7 +226,7 @@ mod tests {
         let messages: Vec<&str> = kept.iter().map(|d| d.message.as_str()).collect();
         assert_eq!(messages, ["in a std tree", "in the project"]);
         // Only warnings hidden: nothing to say.
-        let warnings = vec![FileDiagnostic::warning(0, span, "a warning in the embedded std")];
+        let warnings = vec![FileDiagnostic::warning(0, span, (None, "a warning in the embedded std".to_string()))];
         assert!(render_shown(&warnings, &files).is_empty());
     }
 }

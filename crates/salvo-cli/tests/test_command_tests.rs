@@ -123,7 +123,7 @@ fn an_orphan_annex_is_refused() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "stdout: {:?}", out.stdout);
     assert!(
-        stderr.contains("no module `calc` to test") && stderr.contains("[test-file]"),
+        stderr.contains("no module `calc` to test") && stderr.contains("looking for a `calc.sv` beside it"),
         "{stderr}"
     );
 }

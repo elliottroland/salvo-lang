@@ -6,6 +6,7 @@ use salvo_core::types::Ty;
 use salvo_core::ir::{Decl, ExprKind, FnDecl, FnKind, ImplDecl, InterfaceDecl, Param, PassMode, Stmt, StructDecl, TypeParam};
 
 use super::{is_copy_ty, is_mut, is_proj, ModuleEmitter};
+use crate::messages;
 use crate::emit::{
     host_mod_name, platform_adapter_name, platform_trait_name, rs_ident, stateful_trait_name, stateless_trait_name,
 };
@@ -187,7 +188,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             },
             Ty::Never => "()".to_string(),
             Ty::FnName(_) | Ty::Any | Ty::Unknown => {
-                self.error(format!("a value of type `{t}` reached rust code generation"));
+                self.error(messages::rs_ir_unrenderable_type(&t));
                 "()".to_string()
             }
         }
@@ -517,7 +518,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let name = rs_ident(&i.name);
         for m in &i.members {
             if !m.type_params.is_empty() {
-                self.error(format!("effect member `{}` has its own generic parameters, which the rust backend cannot dispatch dynamically yet", m.name));
+                self.error(messages::effect_member_generics_no_dynamic_dispatch(&m.name));
             }
         }
         // [rs-path] A lending member is its path face, under its own name.
@@ -663,7 +664,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 _ => false,
             });
             if taken {
-                self.error(format!("the factories of `{target}` would be named like the type `{target}`: rename one [platform-factory]"));
+                self.error(messages::rs_platform_factory_named_like_type(&target));
                 return String::new();
             }
             out.push_str(&format!("pub struct {target};\n\n"));
@@ -772,7 +773,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     fn impl_decl(&mut self, h: &ImplDecl) {
         if h.intrinsic {
-            self.error(format!("intrinsic handler `{}` has no rust lowering", h.name));
+            self.error(messages::rs_intrinsic_handler_no_lowering(&h.name));
             return;
         }
         if h.platform {
@@ -801,7 +802,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let actor_faces = self.actor_faces(h);
         let is_actor = !actor_faces.is_empty();
         if is_actor && actor_faces.len() != h.faces.len() {
-            self.error(format!("handler `{}` mixes actor and plain effects, which the rust backend does not render", h.name));
+            self.error(messages::rs_mixed_unrendered(&h.name));
             return;
         }
         // [actor-mixed-handler] [rs-mixed] The servant is an actor of its send
@@ -954,7 +955,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             let Ty::Named { name: fname, args } = face.strip_quals() else { continue };
             let Some(iface) = self.s.interface(fname) else {
-                self.error(format!("handler `{}`: face `{fname}` not found", h.name));
+                self.error(messages::rs_ir_face_not_found(&h.name, &fname));
                 continue;
             };
             let prefix = self.type_prefix(fname);
@@ -975,7 +976,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     cands.first().copied()
                 };
                 let Some(body) = pick else {
-                    self.error(format!("handler `{}` has no member `{}`", h.name, m.name));
+                    self.error(messages::rs_ir_handler_no_member(&h.name, &m.name));
                     continue;
                 };
                 let code = self.member_fn(h, body, m, stateful, args, iface);
@@ -1409,7 +1410,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 for (q, m) in quals {
                     let decl = self.s.symbols.qualifiers.get(q.as_str()).and_then(|ds| ds.iter().copied().find(|d| self.s.symbols.qualifier_module(d) == Some(m)));
                     let Some(decl) = decl else {
-                        self.error(format!("internal: qualifier `{q}` of module `{m}` not found [platform-check]"));
+                        self.error(messages::rs_platform_check_qualifier_not_found(&q, &m));
                         continue;
                     };
                     let base = match salvo_core::refine::of_base(&decl.of, &decl.generics) {
@@ -1483,7 +1484,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.f = super::body::FnState::default();
         let name = super::body::rs_local(&st.local.0);
         let Some(Stmt::Let { value, .. }) = st.stmts.first() else {
-            self.error("a module-level `use` with no binding");
+            self.error(messages::rs_mod_use_no_binding());
             return;
         };
         let is_instance = matches!(st.ty.strip_quals(), Ty::Named { name, .. } if self.s.symbols.handlers.contains_key(name.as_str()));

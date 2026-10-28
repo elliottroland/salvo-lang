@@ -33,11 +33,12 @@ impl IntoMessage for Message {
     }
 }
 
-/// Bare text, without an id: what a diagnostic not yet given one says
-/// (TESTS.md T2). Goes when every diagnostic has one.
-impl<T: Into<String>> IntoMessage for T {
+/// A message already taken apart — what a funnel that rewords the text on
+/// its way out (the checker's operator and `for` wording, an origin prefix)
+/// hands on, its id kept.
+impl IntoMessage for (Option<&'static str>, String) {
     fn into_message(self) -> (Option<&'static str>, String) {
-        (None, self.into())
+        self
     }
 }
 

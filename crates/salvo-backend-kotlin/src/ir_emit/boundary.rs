@@ -7,6 +7,7 @@ use salvo_core::abi::{BoundaryCheck, Factories};
 
 use super::ModuleEmitter;
 use crate::emit::{escape_string, kotlin_package, kt_ident, kt_literal, tuple_field};
+use crate::messages;
 
 impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// The statements checking `v` against `plan`; `what` names the value
@@ -99,7 +100,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// each set, with the arm's check when it has one.
     pub(super) fn factory_object(&mut self, object: &str, sets: &[Factories]) {
         if self.s.symbols.structs.contains_key(object) || self.s.symbols.effects.contains_key(object) || self.s.symbols.type_aliases.contains_key(object) {
-            self.error(format!("the factories of `{object}` would be named like the type `{object}`: rename one [platform-factory]"));
+            self.error(messages::kt_platform_factory_named_like_type(&object));
             return;
         }
         let mut out = format!("\n// Factories for the host: one per arm of the union [platform-factory].\nobject {object} {{\n");

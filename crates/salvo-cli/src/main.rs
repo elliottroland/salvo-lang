@@ -29,6 +29,7 @@ use salvo_backend_kotlin::KotlinBackend;
 use salvo_backend_rust::RustBackend;
 use salvo_core::{FileDiagnostic, Program, SourceSet};
 use salvo_syntax::diag::Severity;
+use salvo_syntax::messages;
 
 use analysis::load_embedded_std;
 
@@ -278,6 +279,12 @@ enum LangCommand {
     },
 }
 
+/// [diag-id] One of the CLI's own errors as a line: `error: text`, or
+/// `error[id]: text` under `-v`.
+fn error_line(m: &messages::Message) -> String {
+    format!("{}: {}", salvo_syntax::diag::severity_label(Severity::Error, Some(m.id)), m.text)
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     // [diag-id] Ids are shown only when asked for (user decision 2026-10-28).
@@ -428,11 +435,7 @@ fn init(path: PathBuf) -> ExitCode {
 
     let manifest_path = path.join(salvo_core::MANIFEST_FILE);
     if manifest_path.exists() {
-        eprintln!(
-            "error: `{}` already exists: `salvo init` will not overwrite an existing \
-             project [cli-init]",
-            manifest_path.display()
-        );
+        eprintln!("{}", error_line(&messages::cli_init_exists(&manifest_path.display())));
         return ExitCode::FAILURE;
     }
 
@@ -1245,11 +1248,7 @@ fn build_command(
     if inputs.backends.len() > 1 && out.is_none() {
         for name in &inputs.backends {
             if !inputs.project.as_ref().is_some_and(|p| p.out_is_explicit(name)) {
-                eprintln!(
-                    "error: `--backend '*'` builds every backend, so each needs its own \
-                     artifact directory: give `[{name}] out` in the manifest (or pass \
-                     `--out` and build one backend at a time) [cli-build]"
-                );
+                eprintln!("{}", error_line(&messages::cli_build_star_needs_out(name)));
                 return ExitCode::FAILURE;
             }
         }
@@ -1319,7 +1318,7 @@ fn build_one(
         let policy = test_output_policy(test_inputs.project.as_ref(), None, None);
         let code = test_one(backend, &test_inputs, None, false, test_target, CleanTarget::Both, policy);
         if code != ExitCode::SUCCESS {
-            eprintln!("error: tests failed; no artifact was built [cli-build]");
+            eprintln!("{}", error_line(&messages::cli_build_tests_failed()));
             return code;
         }
     }
@@ -1500,15 +1499,11 @@ fn test_one(
     if selected.is_empty() {
         // Not a failure: a tree with no tests, or a filter that matched
         // none, is a run with nothing to do — and the count says which.
-        eprintln!(
-            "no tests {}in `{}`: a test is a `test \"name\" {{ … }}` block in a \
-             `<module>.test.sv` file beside the module it tests [test-file]",
-            match filter {
-                Some(f) => format!("match `{f}` "),
-                None => String::new(),
-            },
-            layout.src.display()
-        );
+        let matching = match filter {
+            Some(f) => format!("match `{f}` "),
+            None => String::new(),
+        };
+        eprintln!("{}", messages::rendered(&messages::test_file_no_tests(&matching, &layout.src.display())));
         return ExitCode::SUCCESS;
     }
 
@@ -1941,10 +1936,8 @@ fn check_dependency_stamps(
         let missing = !any;
         if missing {
             eprintln!(
-                "error: dependency `{}` has platform code but no generated host project under `{}`: \
-                 {regenerate} [platform-stamp]",
-                dep.name,
-                root.display()
+                "{}",
+                error_line(&messages::platform_stamp_no_host_project(&dep.name, &root.display(), &regenerate))
             );
             return Err(ExitCode::FAILURE);
         }
@@ -1958,9 +1951,8 @@ fn check_dependency_stamps(
                 _ => "was generated from platform signatures that have changed since".to_string(),
             };
             eprintln!(
-                "error: dependency `{}`'s host project {why} (`{}`): {regenerate} [platform-stamp]",
-                dep.name,
-                path.display()
+                "{}",
+                error_line(&messages::platform_stamp_stale(&dep.name, &why, &path.display(), &regenerate))
             );
             return Err(ExitCode::FAILURE);
         }
@@ -2206,12 +2198,10 @@ fn resolve_inputs(
         (_, s, m) => (s, m),
     };
     if src.is_none() && main_file.is_none() {
-        return Err(format!(
-            "no `{}` found above `{}`: pass `--src` (or `--main`), or write a manifest \
-             [manifest-discovery]",
+        return Err(messages::rendered(&messages::manifest_discovery_no_manifest(
             salvo_core::MANIFEST_FILE,
-            start.display()
-        ));
+            &start.display(),
+        )));
     }
     let mut layout = layout_of(src, main_file)?;
     layout.tests = tests;
@@ -2264,13 +2254,12 @@ fn check_src_is_the_root(project: &salvo_core::Project, src: &Path) -> Result<()
     // directory, unless they gave an absolute path.
     let shown = |p: &Path| if src.is_absolute() { p.display().to_string() } else { relative_to_cwd(p) };
     let root_shown = shown(&root);
-    Err(format!(
-        "`{}` {relation} the project's source root `{root_shown}` (from `{}`): pass \
-         `--src {root_shown}`, or no `--src`; scope a command to one module with \
-         `--module` where it has one [manifest-src]",
-        src.display(),
-        shown(&canonical(&manifest)),
-    ))
+    Err(messages::rendered(&messages::manifest_src_overlaps_root(
+        &src.display(),
+        relation,
+        &root_shown,
+        &shown(&canonical(&manifest)),
+    )))
 }
 
 /// A path as the user would type it from the working directory: relative
@@ -2326,12 +2315,7 @@ fn target_for(
                 per.push(format!("_{backend}"));
                 return Ok(PathBuf::from(per));
             }
-            return Err(format!(
-                "`--target {}` cannot serve both backends: drop it and give each a \
-                 `target` in the manifest (`[rust]`, `[kotlin]`), or pass `--backend` \
-                 [manifest]",
-                t.display()
-            ));
+            return Err(messages::rendered(&messages::manifest_target_for_both_backends(&t.display())));
         }
         return Ok(t.clone());
     }
@@ -2343,10 +2327,7 @@ fn target_for(
     match default {
         Some(d) if inputs.backends.len() == 1 => Ok(PathBuf::from(d)),
         Some(d) => Ok(PathBuf::from(format!("{d}_{backend}"))),
-        None => Err(format!(
-            "no output directory for `{backend}`: pass `--target`, or state one in the \
-             manifest (`[build] target`, or `[{backend}] target`) [manifest]"
-        )),
+        None => Err(messages::rendered(&messages::manifest_no_target(backend))),
     }
 }
 

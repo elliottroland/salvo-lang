@@ -3619,7 +3619,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let (span, msg, decl) = self.render_origin(span, msg);
         self.out
             .errors
-            .push(FileDiagnostic::error(self.file_idx, span, msg).with_id(id).in_decl(decl));
+            .push(FileDiagnostic::error(self.file_idx, span, (id, msg)).in_decl(decl));
     }
 
     /// [node-origin] [comptime-instantiate] A diagnostic at a node a stamp copied
@@ -3655,7 +3655,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.out
             .errors
-            .push(FileDiagnostic::warning(self.file_idx, span, msg).with_id(id));
+            .push(FileDiagnostic::warning(self.file_idx, span, (id, msg)));
     }
 
     /// [comptime-copy-warn] Where a span in a copy of an **expanded-in-place**
@@ -3678,14 +3678,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             if count >= declared {
                 self.out
                     .errors
-                    .push(FileDiagnostic::warning(self.file_idx, Span::new(start, end), msg).with_id(id));
+                    .push(FileDiagnostic::warning(self.file_idx, Span::new(start, end), (id, msg)));
             }
         }
         self.copy_decls.clear();
         let mut seen: HashSet<(u32, u32, String)> = HashSet::new();
         for (at, id, msg) in std::mem::take(&mut self.copy_warnings) {
             if seen.insert((at.start, at.end, msg.clone())) {
-                self.out.errors.push(FileDiagnostic::warning(self.file_idx, at, msg).with_id(id));
+                self.out.errors.push(FileDiagnostic::warning(self.file_idx, at, (id, msg)));
             }
         }
     }
@@ -3728,7 +3728,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let (span, msg, decl) = self.render_origin(span, msg);
         self.out
             .errors
-            .push(FileDiagnostic::error(self.file_idx, span, msg).with_id(id).with_imports(imports).in_decl(decl));
+            .push(FileDiagnostic::error(self.file_idx, span, (id, msg)).with_imports(imports).in_decl(decl));
     }
 
     // ================= module / function traversal =================

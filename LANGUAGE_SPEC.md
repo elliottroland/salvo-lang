@@ -12571,7 +12571,15 @@ replaced the working document TESTING.md).
     does not send it.
   * A message reworded on its way out (an operator's or a `for`'s site, a
     stamp's origin prefix) keeps its id.
-  * Being built (TESTS.md T2): a diagnostic not yet given an id has none.
+  * A refusal that leaves the compiler as a bare line of text — a backend's
+    codegen error, an IR build error, a manifest or source-loading error —
+    leads with `[id]` under `-v` (`messages::rendered`), so the CLI prints
+    `error: [manifest:unknown-backend] …`.
+  * Every diagnostic has one (2026-10-28): `IntoMessage` takes a `Message`,
+    or a message already taken apart by a funnel that rewords it, and no
+    bare text. `docs_tests` checks every id names a rule a spec defines, that
+    no two messages share one, and that a backend names no other backend's
+    rule.
 * [syntax-expected] **A token the grammar does not allow is an error saying
   what was expected there** (`expected …, found …`), at the token; the
   parser recovers at the next item, so one file can report several.

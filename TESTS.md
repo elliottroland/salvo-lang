@@ -1,8 +1,9 @@
 # Reorganizing the tests (working document)
 
 **Status:** rounds 1–3 decided (§6, 2026-10-28): TD1–TD12, nothing open.
-Sequence steps 1 (T6) and 2 (T3 with C2) are done (§7); step 3 (T2: the
-label rename with `@compilerrules`, then diagnostic ids) is in progress.
+Sequence steps 1 (T6), 2 (T3 with C2) and 3 (T2: the label rename,
+`@compilerrules`, diagnostic ids) are done (§7); step 4 (T1, data files) is
+next.
 Started at
 the user's request while PIPELINE.md Part II was paused (its §II.12 "Where it
 stands"): this run spent about half its logged time on tests (since Part II's
@@ -305,7 +306,7 @@ optionally a message fragment where the text itself is the point.
   * Order, one commit each, each green: (1, done) the machinery, `-v`, and the
     lexer, parser and desugar; (2, done) the core passes before the checker
     (expand, comptime, resolve, refine, deduce, unique_shape, platform,
-    deadlock); (3, done) the checker; (4, done) the IR passes; (5) the backends and the
+    deadlock); (3, done) the checker; (4, done) the IR passes; (5, done) the backends and the
     CLI's own errors, then the string impls go.
 
 ### T3. std checked once per test process
@@ -716,3 +717,7 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
 - **Step 3b part 4 (2026-10-28).** The IR passes: 32 messages; flow and
   linear-check diagnostics carry ids into `FileDiagnostic`; the builder's
   refusals have ids but still leave as strings (part 5).
+- **Step 3b part 5 (2026-10-28).** The backends' own messages files, the
+  loader and CLI errors, and the text impl of `IntoMessage` deleted: every
+  diagnostic has an id. T2 is done; next is T1 (check data files and their
+  runner, which needs ids to annotate).

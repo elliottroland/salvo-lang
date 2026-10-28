@@ -10,6 +10,7 @@ use salvo_core::ir::{Decl, Expr, ExprKind, FnDecl, ImplDecl, InterfaceDecl, Loca
 use super::body::rs_local;
 use super::{is_copy_ty, ModuleEmitter};
 use crate::emit::{rs_ident, stateful_trait_name, stateless_trait_name};
+use crate::messages;
 
 pub(crate) fn variant(member: &str) -> String {
     salvo_backend::emit_util::msg_variant_name(member)
@@ -144,7 +145,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return;
         }
         if !i.type_params.is_empty() && !self.s.erased.is_erased(&i.name) {
-            self.error(format!("effect `{}` is generic, which the rust backend cannot make an actor protocol of yet", i.name));
+            self.error(messages::rs_actor_generic_protocol(&i.name));
             return;
         }
     }
@@ -206,7 +207,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let msg = self.path_in(face.id.module(), &format!("__Msg_{}", rs_ident(&face.name)));
             match self.dispatch_fn(h, |k| matches!(k, salvo_core::ir::EnumKind::Message { interface } if *interface == face.id)) {
                 Some(f) => dispatch_names.push((msg, f)),
-                None => self.error(format!("handler `{}` has no dispatcher for `{}`", h.name, face.name)),
+                None => self.error(messages::rs_actor_ir_no_dispatcher(&h.name, &face.name)),
             }
         }
         let priv_fn = if has_priv { self.dispatch_fn(h, |k| matches!(k, salvo_core::ir::EnumKind::Private { handler } if *handler == h.id)) } else { None };
@@ -293,11 +294,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     pub fn spawn(&mut self, handler: &Expr, pool: Option<&Expr>, join: Option<&Expr>, indent: usize) -> String {
         let Ty::Named { name, .. } = handler.ty.strip_quals().clone() else {
-            self.error("`spawn` of something that is not a handler");
+            self.error(messages::rs_actor_spawn_non_handler());
             return "()".to_string();
         };
         let Some(decl) = self.s.impl_decl(&name) else {
-            self.error(format!("`spawn` of an unknown handler `{name}`"));
+            self.error(messages::rs_actor_spawn_unknown_handler(&name));
             return "()".to_string();
         };
         let faces = self.actor_faces(decl);
@@ -305,7 +306,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // [actor-mixed-handler] [rs-mixed] constructor arguments evaluated once,
             // cloned into the servant and moved into the façade.
             let ExprKind::Construct { fields } = &handler.kind else {
-                self.error("`spawn` of a mixed handler needs its construction");
+                self.error(messages::rs_mixed_spawn_no_construction());
                 return "()".to_string();
             };
             let mut lets = String::new();
@@ -350,7 +351,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if faces.is_empty() {
             // [actor-monitor-handler] the instance shared behind its face's handle.
             if decl.faces.len() != 1 {
-                self.error(format!("handler `{}` implements several plain effects, and a shared instance behind several faces is not supported yet", decl.name));
+                self.error(messages::actor_monitor_handler_several_plain_faces(&decl.name));
                 return "()".to_string();
             }
             let face = match decl.faces[0].strip_quals() {
@@ -362,7 +363,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return format!("{face}::{mk}({h})");
         }
         if !decl.type_params.is_empty() && !self.s.erased.is_erased(&decl.name) {
-            self.error(format!("spawning generic handler `{}` is not supported yet", decl.name));
+            self.error(messages::rs_actor_spawn_generic_handler(&decl.name));
             return "()".to_string();
         }
         let h = self.value(handler, indent);
@@ -382,11 +383,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let joined = match join {
             Some(g) => {
                 let Some(group) = self.s.interface("ActorGroup") else {
-                    self.error("`spawn … in group` needs std `net`");
+                    self.error(messages::rs_actor_group_needs_net());
                     return "()".to_string();
                 };
                 let Some(jm) = group.members.iter().find(|m| m.name == "join") else {
-                    self.error("`ActorGroup` has no `join` member");
+                    self.error(messages::rs_actor_group_no_join());
                     return "()".to_string();
                 };
                 let g_code = self.value(g, indent);
@@ -401,7 +402,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     pub fn send(&mut self, addr: &Expr, member: &salvo_core::ir::MemberRef, args: &[Expr], indent: usize) -> String {
         let Some(iface) = self.iface_by_id(&member.interface) else {
-            self.error("a send to an unknown interface");
+            self.error(messages::rs_actor_send_unknown_interface());
             return "()".to_string();
         };
         let m = &iface.members[member.index];
@@ -418,7 +419,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     pub fn addr_instance(&mut self, e: &Expr, addr: &Expr, indent: usize) -> String {
         let a = self.value(addr, indent);
         let Ty::Named { name, .. } = e.ty.strip_quals() else {
-            self.error("an addr instance of a non-effect type");
+            self.error(messages::rs_actor_addr_non_effect_type());
             return a;
         };
         match self.s.interface(name) {
@@ -429,7 +430,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             Some(_) => a,
             None => {
-                self.error(format!("`{name}` is not an effect, so an addr is not an instance of it"));
+                self.error(messages::rs_actor_addr_not_an_effect(&name));
                 a
             }
         }
@@ -439,12 +440,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         match target {
             ReplyTarget::Member(member) => {
                 let Some(h) = self.f.current_impl.clone() else {
-                    self.error("`replyto` outside a handler");
+                    self.error(messages::rs_actor_replyto_outside_handler());
                     return "()".to_string();
                 };
                 let Some(decl) = self.s.impl_decl(&h) else { return "()".to_string() };
                 let Some(m) = decl.members.iter().find(|m| m.name == *member) else {
-                    self.error(format!("`replyto {member}`: no such member"));
+                    self.error(messages::rs_actor_replyto_no_member(&member));
                     return "()".to_string();
                 };
                 let declared = Self::declared_params(m);
@@ -459,12 +460,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             ReplyTarget::Task { target, effects } => {
                 let Some(decl) = self.s.fn_decl(target) else {
-                    self.error("`replyto` of an unknown task");
+                    self.error(messages::rs_actor_replyto_unknown_task());
                     return "()".to_string();
                 };
                 let declared: Vec<salvo_core::ir::Param> = decl.params.iter().skip(decl.effect_params).cloned().collect();
                 let Some(last) = declared.last().cloned() else {
-                    self.error("a task target has no answer parameter");
+                    self.error(messages::rs_actor_task_no_answer_param());
                     return "()".to_string();
                 };
                 let payload = self.ty(&last.ty);
@@ -499,7 +500,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let payload_ty = match token_ty.strip_quals() {
             Ty::Named { name, args } if name == "Reply" && args.len() == 1 => args[0].clone(),
             _ => {
-                self.error("`waitfor` binds a `Reply<T>`");
+                self.error(messages::rs_actor_waitfor_not_reply());
                 return "()".to_string();
             }
         };
@@ -516,7 +517,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     pub fn self_send(&mut self, member: &str, args: &[Expr], indent: usize) -> String {
         let Some(hname) = self.f.current_impl.clone() else {
-            self.error("`@self` send outside an actor");
+            self.error(messages::rs_actor_self_send_outside_actor());
             return "()".to_string();
         };
         let Some(h) = self.s.impl_decl(&hname) else { return "()".to_string() };
@@ -628,7 +629,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 };
                 let iface = effect.and_then(|n| self.s.interface(&n)).filter(|i| i.protocol_hash.is_some());
                 let Some(iface) = iface else {
-                    self.error("`protocol<E>`: `E` has no wire form, so it cannot be a group's protocol");
+                    self.error(messages::rs_wire_protocol_no_wire_form());
                     return Some("()".to_string());
                 };
                 let proto = self.path_in(iface.id.module(), &format!("__PROTO_{}", rs_ident(&iface.name)));

@@ -4,6 +4,7 @@ mod emit;
 mod intrinsics;
 pub mod stdlib;
 pub mod ir_emit;
+pub mod messages;
 
 pub use emit::{
     emit_abi, emit_program, emit_program_over, emit_program_reporting, host_package, platform_skeletons,
@@ -328,11 +329,7 @@ impl Backend for KotlinBackend {
         let mut cp = vec![jar_abs];
         cp.extend(compiled.extra_classpath());
         let stdlib_jar = kotlin_stdlib_jar().ok_or_else(|| {
-            BackendError::Other(
-                "could not find `kotlin-stdlib.jar` beside the `kotlinc` on PATH; it is \
-                 needed on a persisted artifact's classpath [kt-build]"
-                    .to_string(),
-            )
+            BackendError::Other(salvo_syntax::messages::rendered(&messages::kt_build_no_kotlin_stdlib()))
         })?;
         cp.push(stdlib_jar);
         let cp_joined = std::env::join_paths(&cp)
@@ -402,10 +399,9 @@ impl KotlinBackend {
         let mut jars = Vec::new();
         if host.has_kotlin_artifacts() {
             if !target_dir.join(GRADLE_BUILD).is_file() {
-                return Err(BackendError::Other(format!(
-                    "artifacts are declared but `{}` was not written [kt-gradle]",
-                    target_dir.join(GRADLE_BUILD).display()
-                )));
+                return Err(BackendError::Other(salvo_syntax::messages::rendered(&messages::kt_gradle_build_file_missing(
+                    &target_dir.join(GRADLE_BUILD).display(),
+                ))));
             }
             let out = target_dir.join(GRADLE_CLASSPATH);
             let _ = std::fs::remove_file(&out);
@@ -420,15 +416,10 @@ impl KotlinBackend {
                 ],
             )?;
             if code != 0 {
-                return Err(BackendError::Other(format!(
-                    "Gradle failed with exit code {code} resolving `[kotlin] artifacts` [kt-gradle]"
-                )));
+                return Err(BackendError::Other(salvo_syntax::messages::rendered(&messages::kt_gradle_failed(&code))));
             }
             let listed = std::fs::read_to_string(&out).map_err(|e| {
-                BackendError::Other(format!(
-                    "Gradle ran but wrote no classpath to `{}`: {e} [kt-gradle]",
-                    out.display()
-                ))
+                BackendError::Other(salvo_syntax::messages::rendered(&messages::kt_gradle_no_classpath(&out.display(), &e)))
             })?;
             jars.extend(listed.lines().filter(|l| !l.trim().is_empty()).map(PathBuf::from));
         }

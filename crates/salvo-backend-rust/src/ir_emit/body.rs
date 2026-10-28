@@ -15,6 +15,7 @@ use super::decls::{fn_ty_param_mode, FnPos};
 use super::{is_copy_ty, is_mut, is_mut_borrow, is_proj, is_ref, ModuleEmitter};
 use crate::emit::{escape_char, escape_format_text, escape_string, rs_ident, stateful_trait_name, stateless_trait_name};
 use crate::intrinsics::Spread;
+use crate::messages;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Kind {
@@ -601,7 +602,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     Ty::Named { name, .. } => self.s.generated_enum(name),
                     _ => None,
                 }) else {
-                    self.error("an unpack of something that is not a generated enum");
+                    self.error(messages::rs_actor_ir_unpack_non_enum());
                     return String::new();
                 };
                 let v = &e.variants[*variant];
@@ -964,7 +965,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
                 super::paths::HandleBinding::Optional { var, prefix, pt } => {
                     if !p.steps.is_empty() {
-                        self.error("a field of an optional handle read before it was tested [rs-path]");
+                        self.error(messages::rs_path_optional_handle_untested());
                     }
                     // [rs-path] Used as a value, an optional handle is the
                     // optional element: its path, walked if present.
@@ -1160,7 +1161,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             self.f.tmp = tmp;
             self.s.errors.truncate(errs);
-            self.error("cannot lower this mutable use: the value it would mutate is a temporary of its own expression [backend-never-wrong]");
+            self.error(messages::rs_narrow_mut_mutable_temporary());
             return self.value(e, indent);
         }
         if let ExprKind::Read { place, .. } = &e.kind {
@@ -1257,7 +1258,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::MemberCall { instance, member, args, .. } => {
                 let inst = self.raw(instance, indent);
                 let Some(m) = self.member_decl(member) else {
-                    self.error("a member call to an unknown member");
+                    self.error(messages::rs_ir_unknown_member());
                     return "()".to_string();
                 };
                 // [rs-path] A lending member used as a value: its path, walked once.
@@ -1265,7 +1266,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     if let Some(mint) = self.mint(e, indent) {
                         return self.materialize(mint);
                     }
-                    self.error("a lending effect member called on something that is not a place [rs-path]");
+                    self.error(messages::rs_path_lending_member_not_place());
                 }
                 let ps = self.s.unalias_params(&m.params);
                 let a = self.args(&ps, args, FnPos::DynParam, indent);
@@ -1433,7 +1434,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 format!("({label}: {{\n{out}{}}})", Self::pad(indent))
             }
             ExprKind::Unsupported(what) => {
-                self.error(format!("unsupported IR node: {what}"));
+                self.error(messages::rs_ir_unsupported_node(&what));
                 "()".to_string()
             }
         }
@@ -1547,7 +1548,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     fn construct(&mut self, e: &Expr, fields: &[(String, Expr)], indent: usize) -> String {
         let Ty::Named { name, args } = e.ty.strip_quals().without_none().strip_quals().clone() else {
-            self.error("a construct of a non-named type");
+            self.error(messages::rs_ir_construct_non_named());
             return "()".to_string();
         };
         if let Some(h) = self.s.impl_decl(&name) {
@@ -1561,7 +1562,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     }
                     Some((_, v)) => a.push(self.value_into(v, &p.ty, indent)),
                     None => {
-                        self.error(format!("handler `{}` constructed without `{}`", h.name, p.local.0));
+                        self.error(messages::rs_ir_handler_missing_param(&h.name, &p.local.0));
                     }
                 }
             }
@@ -1855,17 +1856,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// the handler's own as an inherent method.
     fn handler_call(&mut self, instance: &Expr, member: &salvo_core::ir::HandlerMember, args: &[Expr], indent: usize) -> String {
         let Ty::Named { name, .. } = instance.ty.strip_quals().clone() else {
-            self.error("a handler call on something that is not a handler");
+            self.error(messages::rs_ir_handler_call_non_handler());
             return "()".to_string();
         };
         let Some(h) = self.s.impl_decl(&name) else {
-            self.error(format!("a handler call on `{name}`, which is not a handler"));
+            self.error(messages::rs_ir_handler_call_not_handler(&name));
             return "()".to_string();
         };
         match member {
             salvo_core::ir::HandlerMember::Face(m) => {
                 let Some(mem) = self.member_decl(m) else {
-                    self.error("a handler call of an unknown member");
+                    self.error(messages::rs_ir_handler_call_unknown_member());
                     return "()".to_string();
                 };
                 let Some(iface) = self.s.interface_by_id(&m.interface) else { return "()".to_string() };
@@ -2204,7 +2205,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         } else if self.f.lent_mut.contains(&local.0) {
             if root_kind == Kind::Ref {
                 let r = rs_local(&from.root.0);
-                self.error(format!("`{r}` is read-only here, so a `Mut` value cannot be mutated through its union arm: the arm's `Mut` is a claim about the arm, not about `{r}`, so this frame received it borrowed. Take the payload as its own parameter (`Mut List<T>`) and check the arm at the call site."));
+                self.error(messages::rs_narrow_mut_read_only_arm(&r));
             }
             let code = if nn >= 2 { format!("match &mut {src} {{ {} => __v, _ => unreachable!() }}", pat(i, "__v")) } else { format!("{src}.as_mut().unwrap()") };
             (code, Kind::RefMut)
@@ -2270,13 +2271,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         }
                     }
                     None => {
-                        self.error(format!("`for` over `{name}`, which has no rust iteration"));
+                        self.error(messages::rs_iter_pass_no_iteration(&name));
                         ("std::iter::empty()".to_string(), Kind::Owned)
                     }
                 }
             }
             other => {
-                self.error(format!("`for` over `{other}`, which has no rust iteration"));
+                self.error(messages::rs_iter_pass_no_iteration(&other));
                 ("std::iter::empty()".to_string(), Kind::Owned)
             }
         };
@@ -2488,9 +2489,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 if later && !is_copy_ty(&a.ty) && super::decls::ty_carries_mut(&inner.ty) {
                     if let Some(place) = read_place_text(inner) {
                         let at = self.location(a.span);
-                        self.error(format!(
-                            "cannot lower this call: `{place}` is read here while a later argument mutates it, and it is mutable data — a copy would be a snapshot on one backend and a live handle on the other, so the program has to choose: `copy({place})` for the snapshot, or give the mutating call its own statement first [rs-mut-arg-hoist] (at {at})"
-                        ));
+                        self.error(messages::rs_mut_arg_hoist_read_then_mutated(&place, &at));
                     }
                 }
                 let v = self.value(a, indent);
@@ -2547,7 +2546,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     _ => None,
                 };
                 let Some(value) = value else {
-                    self.error("a `ref(c)` argument that is not a handle into the argument passed as `c` [ref-anchor] [backend-never-wrong]");
+                    self.error(messages::ref_anchor_not_into_anchor());
                     out.push("panic!()".to_string());
                     continue;
                 };
@@ -2726,7 +2725,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         let (fo, topt) = (from.has_none_arm(), to.has_none_arm());
         let Some(map) = salvo_core::types::read_arm_map(from, to) else {
-            self.error(format!("cannot lend a `{from}` as a `{to}` [rs-opt-borrow] [backend-never-wrong]"));
+            self.error(messages::rs_opt_borrow_cannot_lend(&from, &to));
             return "panic!()".to_string();
         };
         let mut out = Vec::new();
@@ -2776,7 +2775,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let ta: Vec<Ty> = to.value_arms().into_iter().cloned().collect();
         let (fo, topt) = (from.has_none_arm(), to.has_none_arm());
         let Some(map) = salvo_core::types::read_arm_map(from, to) else {
-            self.error(format!("cannot lend a `{from}` as a `{to}` [rs-opt-borrow] [backend-never-wrong]"));
+            self.error(messages::rs_opt_borrow_cannot_lend(&from, &to));
             return "panic!()".to_string();
         };
         let pat = |s: &mut Self, arms: &[Ty], i: usize, opt: bool, inner: &str| -> String {
@@ -3168,7 +3167,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         };
         let (ps, modes) = self.closure_params_at(slot, &e.ty);
         let Ty::Fn { params, ret, effects, .. } = e.ty.strip_quals().clone() else {
-            self.error("a fn value of a non-fn type");
+            self.error(messages::rs_ir_fn_value_non_fn());
             return "()".to_string();
         };
         // [throw] A throw is not threaded in [rs-throw-controlflow].
@@ -3348,7 +3347,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 format!("return std::ops::ControlFlow::Break({conv})")
             }
             None => {
-                self.error("a throw outside a `try` in a fn that does not throw");
+                self.error(messages::throw_outside_try());
                 "unreachable!()".to_string()
             }
         }
@@ -3384,7 +3383,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         };
         let Some(pt) = self.f.loc_pt.clone() else {
-            self.error("internal: a locator with no path type [rs-path]");
+            self.error(messages::rs_path_locator_no_path_type());
             return "None".to_string();
         };
         let anchor_root = match self.f.loc.clone() {
@@ -3394,7 +3393,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         // A handle of the anchor, as this locator's path value.
         let value_of = |s: &mut Self, h: &super::paths::Handle| -> Option<String> {
             if h.root != anchor_root {
-                s.error("a locator answers a handle into something other than its anchor [rs-loc] [backend-never-wrong]");
+                s.error(messages::rs_loc_handle_outside_anchor());
                 return None;
             }
             s.path_value(&h.steps, &pt)
@@ -3426,7 +3425,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             },
             _ => {
                 let Some(m) = self.mint(e, indent) else {
-                    self.error("a locator returns something other than a handle of its anchor [rs-loc]");
+                    self.error(messages::rs_loc_returns_non_anchor_handle());
                     return "None".to_string();
                 };
                 let q = self.fresh("q");
@@ -3536,7 +3535,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let mut pre = Vec::new();
                 let anchor = ps.iter().zip(args).find(|(p, _)| !is_copy_ty(&p.ty)).and_then(|(_, a)| self.anchor_handle(a, indent, &mut pre));
                 let (Some(anchor), Some(pt)) = (anchor, self.handle_path_ty(&e.ty)) else {
-                    self.error("a lending callback called on something that is not a place [rs-loc]");
+                    self.error(messages::rs_loc_lending_callback_not_place());
                     return code;
                 };
                 let m = super::paths::Mint { pre, prefix: anchor, pt, code, opt: e.ty.strip_quals().has_none_arm() };
@@ -3549,7 +3548,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     }
                 }
                 let Some(f) = self.s.fn_decl(id) else {
-                    self.error(format!("a call to `{}`, which has no declaration in the IR", self.s.ir.ref_name(id)));
+                    self.error(messages::rs_ir_call_no_declaration(&self.s.ir.ref_name(id)));
                     return "()".to_string();
                 };
                 let mut ps = self.s.unalias_params(&f.params);
@@ -3739,7 +3738,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 None => code,
             },
             None => {
-                self.error(format!("intrinsic fn `{name}` has no rust lowering"));
+                self.error(messages::platform_intrinsic_fn_no_rust_lowering(&name));
                 let _ = e;
                 "()".to_string()
             }

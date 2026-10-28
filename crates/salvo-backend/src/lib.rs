@@ -292,9 +292,8 @@ pub fn run_host_tool(
             } else {
                 format!("`{}` was not found on PATH", program.display())
             };
-            Err(BackendError::Unsupported(format!(
-                "{place}: it builds the declared host libraries — install it, or name the \
-                 one to use with `{key} = \"…\"` in `salvo.toml` [backend-host-tool]"
+            Err(BackendError::Unsupported(salvo_syntax::messages::rendered(
+                &salvo_syntax::messages::backend_host_tool_not_found(&place, key),
             )))
         }
         Err(err) => Err(BackendError::Io(err)),

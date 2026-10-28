@@ -2617,7 +2617,7 @@ fn a_dependency_is_loaded_from_the_modules_directory() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains("`std.core.list`") && stderr.contains("std = true") && stderr.contains("[manifest-deps]"),
+        stderr.contains("`std.core.list`") && stderr.contains("manifest says `[project] std = true`"),
         "{stderr}"
     );
     fs::remove_dir_all(aws.join("std")).unwrap();

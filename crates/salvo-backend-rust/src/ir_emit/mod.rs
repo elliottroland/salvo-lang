@@ -18,6 +18,8 @@ use crate::emit::{
     host_mod_name, module_mod_names, relative_path, rs_ident, CRATE_ATTRS,
 };
 use crate::EmittedFile;
+use crate::messages;
+use salvo_syntax::messages::Message;
 
 mod actors;
 mod body;
@@ -98,7 +100,7 @@ fn run(
         union_sizes: BTreeSet::new(),
         needs_str: false,
         needs_seq: false,
-        errors: fn_names.errors.iter().map(|m| m.text.clone()).collect(),
+        errors: fn_names.errors.iter().map(salvo_syntax::messages::rendered).collect(),
         decls: HashMap::new(),
         platform_effects: reach.platform_effects.clone(),
         platform_hosts: BTreeSet::new(),
@@ -226,7 +228,7 @@ fn run(
     let mut seen_errors = HashSet::new();
     errors.retain(|e| seen_errors.insert(e.clone()));
     if needs_scheduler && !salvo_core::runtime_module(program).is_some_and(|m| reach.emitted.contains(m)) {
-        errors.push("internal: this program uses actors but the runtime module (`std/runtime.sv`) was not reached [runtime-sched]".to_string());
+        errors.push(salvo_syntax::messages::rendered(&messages::runtime_sched_runtime_not_reached()));
     }
     let (needs_str, needs_seq) = (shared.needs_str, shared.needs_seq);
     if needs_str {
@@ -258,11 +260,10 @@ fn run(
             continue;
         }
         if !abi && files.iter().any(|f| f.rel_path == comp.rel_path) {
-            errors.push(format!(
-                "companion file `{}` collides with the generated file of module `{}`: a companion cannot replace a module Salvo emits",
-                comp.rel_path.display(),
-                comp.module
-            ));
+            errors.push(salvo_syntax::messages::rendered(&messages::backend_companion_collides_with_module(
+                &comp.rel_path.display(),
+                &comp.module,
+            )));
             continue;
         }
         let mut name = if comp.platform { host_mod_name(&comp.module) } else { comp.module.0.join("_") };
@@ -299,7 +300,7 @@ fn run(
             continue;
         }
         let what: String = program.units().filter(|u| u.file.module == *module).map(|u| salvo_core::platform_declarations(u.ast)).collect::<Vec<_>>().join(", ");
-        errors.push(salvo_core::missing_handler_host_error(&what, module, &salvo_core::host_rel_path(module, "rs")).text);
+        errors.push(salvo_syntax::messages::rendered(&salvo_core::missing_handler_host_error(&what, module, &salvo_core::host_rel_path(module, "rs"))));
     }
     // Crate-root assembly [rs-crate].
     if !files.is_empty() {
@@ -427,7 +428,7 @@ pub(crate) struct Shared<'p> {
     /// [mod-use] Per module, its statics' locals.
     pub statics: HashMap<ModulePath, HashSet<String>>,
     /// [rs-path] Path types by (container, element).
-    pub paths: HashMap<(String, String), Result<paths::PathTy, String>>,
+    pub paths: HashMap<(String, String), Result<paths::PathTy, Message>>,
     /// [rs-path] The generated path enums, declared with their home module.
     pub path_enums: Vec<paths::PathTy>,
     /// [rs-path] The concrete (container, element) pairs, for `Walk` impls.
@@ -861,8 +862,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         ModuleEmitter { s, module, out: String::new(), f: body::FnState::default() }
     }
 
-    pub fn error(&mut self, msg: impl Into<String>) {
-        self.s.errors.push(format!("{}: {}", self.module.file_name, msg.into()));
+    pub fn error(&mut self, msg: Message) {
+        self.s.errors.push(format!("{}: {}", self.module.file_name, salvo_syntax::messages::rendered(&msg)));
     }
 
     fn module_with(mut self, keep: Option<&BTreeSet<String>>) -> String {

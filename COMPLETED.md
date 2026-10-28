@@ -144,6 +144,35 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Every diagnostic has an id (TESTS.md T2, step 3b part 5)
+
+**The backends got their own messages files and the last texts moved, so the
+text impl of `IntoMessage` is gone**: nothing reports a diagnostic without
+an id now, and the compiler would refuse a new site that tried.
+
+- **The backends**: `salvo_backend_kotlin::messages` (39) and
+  `salvo_backend_rust::messages` (65), each its own `messages!` with its own
+  `ALL` [backend-core-layers]. Where the two backends say the same thing the
+  ids differ by their backend rule (`kt-platform-factory:…`,
+  `rs-platform-factory:…`), since ids are unique across all three lists.
+  `ModuleEmitter::error` takes a `Message`.
+- **Bare lines of text** — codegen errors, the IR builder's refusals,
+  manifest, source, lock and CLI errors — are built with
+  `messages::rendered`, which leads with `[id]` under `-v`; the CLI's own
+  `error:` lines that had a severity in hand print `error[id]:`. 34 loader and
+  CLI messages joined the core file (`manifest`, `sources`, `lock`, `backend`,
+  `diag`, `cli` groups); the std-errors line is `diag-std-hidden:std-errors`.
+  The language server sends text only, as decided.
+- **Funnels that reword** pass `(id, text)`, the one other `IntoMessage`
+  form.
+- What still cites a rule label in a string is text written into generated
+  files (the lock header, skeleton and host-project headers, the test
+  harness) and panics.
+- **Tests**: a docs test checks backend ids name rules of LANGUAGE_SPEC.md or
+  that backend's spec and never the other backend's; `analyze_tests` checks a
+  manifest error's `[id]` under `-v`; expectations that matched a citation
+  match the message's own words.
+
 ### 2026-10-28 — The IR passes' diagnostics have ids (TESTS.md T2, step 3b part 4)
 
 **32 more messages, under `// ===== ir =====`**: the flow pass's uses after

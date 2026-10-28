@@ -158,10 +158,9 @@ pub fn prepare(cache_root: &Path, files: Vec<EmittedFile>) -> Result<StdLibrary,
         .map_err(|e| format!("cannot run kotlinc: {e}"))?;
     if !out.status.success() {
         let _ = std::fs::remove_dir_all(&staging);
-        return Err(format!(
-            "kotlinc failed compiling the standard library [kt-std-library]:\n{}",
-            String::from_utf8_lossy(&out.stderr)
-        ));
+        return Err(salvo_syntax::messages::rendered(&crate::messages::kt_std_library_kotlinc_failed(
+            &String::from_utf8_lossy(&out.stderr),
+        )));
     }
     std::fs::write(staging.join("done"), "").map_err(|e| e.to_string())?;
     if std::fs::rename(&staging, &entry).is_err() {
