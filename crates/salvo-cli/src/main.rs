@@ -13,10 +13,7 @@
 //! salvo lang tm-grammar [--out vscode/syntaxes/salvo.tmLanguage.json]
 //! ```
 
-mod analysis;
-mod docs;
-mod lang;
-mod lsp;
+use salvo_cli::{analysis, lang, lsp};
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

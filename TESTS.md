@@ -779,3 +779,8 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   checker data. Snapshots were not added: where the old tests asserted one
   construct's spelling, so do the annotations; the five goldens per backend
   stay the whole-module contract. Next: C6 (LSP and analyze in-process).
+- **C6 (2026-10-28).** salvo-cli gained a `[lib]`; `lsp::serve_connection`
+  over an in-memory connection runs 39 of 41 LSP tests in-process with one
+  std front (2s under `cargo test`, was ~29s); analyze_tests 72 → 25, the
+  program-diagnostic tests now checker data. Next: C7 (trim the CLI tests,
+  `std_tests_pass` per backend, content-keyed CLI stamps = C1).

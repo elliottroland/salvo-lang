@@ -187,7 +187,26 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
     // directory whose pid is no longer a live process is safe to remove.
     sweep_dead_std_copies();
     let (connection, io_threads) = Connection::stdio();
+    serve_connection(&connection, None)?;
+    // The writer thread only terminates once its channel sender — owned
+    // by the connection — is dropped; joining first would deadlock.
+    drop(connection);
+    io_threads.join()?;
+    // [lsp-std-source] Remove the read-only std copies this server extracted
+    // for navigation, so they do not accumulate in the temp dir across runs.
+    cleanup_std_copies();
+    Ok(())
+}
 
+/// [cli-lsp] The server over `connection`, from `initialize` to `exit`:
+/// `salvo lsp` runs it over stdio, and the tests over an in-memory connection
+/// (TESTS.md C6), handing in a `std_front` built once for every server of the
+/// test process ([lsp-std-front]). With `None`, the server builds its own on
+/// its first analysis.
+pub fn serve_connection(
+    connection: &Connection,
+    std_front: Option<std::sync::Arc<crate::analysis::StdFront>>,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
     let capabilities = serde_json::to_value(ServerCapabilities {
         // Full-document sync: the analysis re-reads everything anyway.
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -268,25 +287,16 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
         overlay: HashMap::new(),
         doc_uris: HashMap::new(),
         published: HashSet::new(),
-        connection: &connection,
+        connection,
         dirty: false,
         parse_cache: std::cell::RefCell::new(crate::analysis::ParseCache::new()),
-        std_front: std::cell::RefCell::new(None),
+        std_front: std::cell::RefCell::new(std_front),
         check_cache: std::cell::RefCell::new(salvo_core::CheckCache::new()),
         analyses: std::cell::RefCell::new(Vec::new()),
         std_analysis: std::cell::RefCell::new(None),
         snippets,
     };
-    server.main_loop()?;
-    drop(server);
-    // The writer thread only terminates once its channel sender — owned
-    // by the connection — is dropped; joining first would deadlock.
-    drop(connection);
-    io_threads.join()?;
-    // [lsp-std-source] Remove the read-only std copies this server extracted
-    // for navigation, so they do not accumulate in the temp dir across runs.
-    cleanup_std_copies();
-    Ok(())
+    server.main_loop()
 }
 
 /// [lsp-std-source] Delete the temp directory holding this build's extracted
@@ -426,7 +436,7 @@ struct Server<'c> {
     /// checked on its own, built on the first analysis and reused by every
     /// later one whose program starts with that std unshadowed. A `RefCell`
     /// for the same reason as `parse_cache`.
-    std_front: std::cell::RefCell<Option<crate::analysis::StdFront>>,
+    std_front: std::cell::RefCell<Option<std::sync::Arc<crate::analysis::StdFront>>>,
     /// [lsp-check-cache] The checker rows of every project file, kept across
     /// analyses: an edit re-walks only the files whose modules changed. A
     /// `RefCell` for the same reason as `parse_cache`.
@@ -644,10 +654,10 @@ impl Server<'_> {
         {
             let mut std_front = self.std_front.borrow_mut();
             if std_front.is_none() {
-                *std_front = Some(crate::analysis::build_std_front(""));
+                *std_front = Some(std::sync::Arc::new(crate::analysis::build_std_front("")));
             }
         }
-        std::cell::Ref::map(self.std_front.borrow(), |c| c.as_ref().expect("built above"))
+        std::cell::Ref::map(self.std_front.borrow(), |c| c.as_deref().expect("built above"))
     }
 
     /// [manifest-discovery] The analysis a document belongs to: its

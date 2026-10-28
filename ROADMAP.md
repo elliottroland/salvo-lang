@@ -1110,6 +1110,17 @@ repros are over the real std.
     program's comment says arithmetic must not grow a deref, but the emitted
     (and asserted) code is `i32::wrapping_add((*crate::std_core_list::get::<i32>(&xs, i)), 1i32)`;
     either the comment is stale or the emission is.
+- **From the analyze tests (TESTS.md C6)**, each kept in `analyze_tests.rs` as it was:
+  - **A std warning on every union `ToStr` by auto**: `export type Token = Str
+    | Int : ToStr<self> by auto` warns `expr-dead-code:unreachable` "in
+    `to_str` from `auto` for `Token`" — std's `to_str<T is Union>`
+    (`lib/std/core/auto.sv`) ends with a `return ""` after an exhaustive
+    `[when value]`
+    (`a_clause_stamps_its_own_declaration_beside_a_same_named_struct`);
+  - with no selector in scope, `use any g` reports
+    `actor-route-stub:no-selector` and the next call `one()` also
+    `effect-available:callee-no-handler`: one mistake, two diagnostics
+    (`route_binds_any_and_needs_a_selector`).
 
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 
@@ -1991,8 +2002,8 @@ container [interp-to-str], property testing's `?generate`, section 2c's
   accepted, and the variable simply stops being `NonEmpty` (the flow state already
   models exactly this — a mutating call drops claims the same way). Provenance
   qualifiers need thought: dropping one is harmless, re-*gaining* it must stay
-  impossible. Where it shows up today: `analyze_tests`'
-  `fate_links_merge_across_branches` and `inferred_moves_consume_arguments` had to
+  impossible. Where it shows up today: the checker data's
+  `fate/derived.sv#fate_links_merge_across_branches` and `ownership/consume.sv#inferred_moves_consume_arguments` had to
   annotate their `let`s when the constructors started claiming, and those
   annotations come back out.
 - **An inferred type argument is not widened by the expected type** — found

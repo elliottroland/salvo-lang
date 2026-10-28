@@ -144,6 +144,34 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — The language server's tests run in-process; analyze's program tests are data (TESTS.md C6)
+
+**salvo-cli is a library as well as a binary** (`src/lib.rs`: `analysis`,
+`docs`, `lang`, `lsp`), and `lsp::serve_connection(&Connection, Option<Arc<StdFront>>)`
+is the server from `initialize` to `exit`; `salvo lsp` wraps it with the
+watchdog, the std-copy sweep and cleanup over stdio. 39 of lsp_tests' 41
+tests drive it over `Connection::memory()` with one std front for the test
+process; two still spawn the binary: the stdio transport end to end
+(`diagnostics_hover_and_shutdown`) and the slow-pass dump, which reads its
+settings from the environment once. Under `cargo test` the file went from
+~29s to 2s; under nextest, where every test is its own process and builds
+its own front, from 29s to 25s summed.
+
+- **analyze_tests: 72 → 25.** 47 tests whose point was a program's
+  diagnostics are checker data (new areas `ownership/` and `fate/`, and
+  files in `linear`, `once`, `deduce`, `qualifiers`, `control`, `field_mut`,
+  `platform`, `refinements`, `overloads`, `carry`, `actors`, `unique_shape`,
+  `diagnostics`); one more was split. What stays tests `salvo analyze`
+  itself (rendering, JSON, `-v`, exit codes, `--src` and discovery,
+  manifests, dependencies, the std root, deadlines, the cross-command
+  gates, suggestion and chain text) or keeps a diagnostic that looks wrong
+  (two, ROADMAP §0ar: a dead-code warning from std's union `to_str` by
+  auto, and a no-selector cascade).
+- Not done: grouping the LSP feature tests into a few nextest processes,
+  which would save most of the remaining 25s summed; the wall-time gain is
+  ~2s, not worth the lost per-test reporting.
+- Suite: 776 tests, 99s warm under nextest (a relink).
+
 ### 2026-10-28 — What a backend writes is checked as data (TESTS.md C4, C5)
 
 **The emitted-text and refusal tests of both codegen files are emit data**

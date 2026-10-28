@@ -1,22 +1,90 @@
-//! Integration test for `salvo lsp` [cli-lsp]: speaks LSP (framed
-//! JSON-RPC over stdio) to the real binary — initialize, open a broken
-//! document (unsaved overlay), receive diagnostics, fix it, see them
-//! clear, hover for a type, and shut down cleanly.
+//! Integration tests for `salvo lsp` [cli-lsp]: initialize, open a broken
+//! document (unsaved overlay), receive diagnostics, fix it, see them clear,
+//! hover, complete, go to definitions, and shut down cleanly.
+//!
+//! Most tests drive the server **in-process** (TESTS.md C6): an in-memory
+//! connection to `salvo_cli::lsp::serve_connection`, with one std front for
+//! every server of the test process, so a test pays for its own analyses and
+//! not for a process and a std. The tests of the stdio transport, and of
+//! settings read from the environment at startup, still spawn the real
+//! binary ([`start_spawned`]).
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
-fn send(stdin: &mut ChildStdin, msg: Value) {
-    let body = msg.to_string();
-    write!(stdin, "Content-Length: {}\r\n\r\n{body}", body.len()).unwrap();
-    stdin.flush().unwrap();
+/// Where a test's messages go: the spawned server's stdin, or the client end
+/// of an in-memory connection.
+enum Stdin {
+    Pipe(ChildStdin),
+    Memory(lsp_server::Connection),
+}
+
+fn send(stdin: &mut Stdin, msg: Value) {
+    match stdin {
+        Stdin::Pipe(stdin) => {
+            let body = msg.to_string();
+            write!(stdin, "Content-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+            stdin.flush().unwrap();
+        }
+        Stdin::Memory(client) => {
+            let msg: lsp_server::Message = serde_json::from_value(msg).expect("a JSON-RPC message");
+            client.sender.send(msg).unwrap();
+        }
+    }
+}
+
+/// The server: a child process, or a thread of this one.
+enum Server {
+    Process(std::process::Child),
+    Thread(Option<std::thread::JoinHandle<Result<(), String>>>),
+}
+
+/// How a server ended.
+struct Exit {
+    ok: bool,
+    what: String,
+}
+
+impl Exit {
+    fn success(&self) -> bool {
+        self.ok
+    }
+}
+
+impl std::fmt::Display for Exit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.what)
+    }
+}
+
+impl Server {
+    /// Waits for the server to exit (after `shutdown` and `exit`).
+    fn wait(&mut self) -> std::io::Result<Exit> {
+        match self {
+            Server::Process(child) => child.wait().map(|s| Exit { ok: s.success(), what: s.to_string() }),
+            Server::Thread(handle) => {
+                let result = match handle.take() {
+                    Some(h) => h.join().map_err(|_| std::io::Error::other("the server thread panicked"))?,
+                    None => Ok(()),
+                };
+                Ok(Exit { ok: result.is_ok(), what: result.err().unwrap_or_else(|| "returned".into()) })
+            }
+        }
+    }
+}
+
+/// [lsp-std-front] One std front for every in-process server.
+fn std_front() -> Arc<salvo_cli::analysis::StdFront> {
+    static FRONT: OnceLock<Arc<salvo_cli::analysis::StdFront>> = OnceLock::new();
+    FRONT.get_or_init(|| Arc::new(salvo_cli::analysis::build_std_front(""))).clone()
 }
 
 /// Reads one framed JSON-RPC message.
@@ -67,27 +135,47 @@ fn expect_diagnostics(rx: &Receiver<Value>) -> Value {
 }
 
 struct Lsp {
-    child: Child,
-    stdin: ChildStdin,
+    child: Server,
+    stdin: Stdin,
     rx: Receiver<Value>,
 }
 
 impl Drop for Lsp {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        match &mut self.child {
+            Server::Process(child) => {
+                let _ = child.kill();
+            }
+            // Dropping the client's connection ends the server's loop.
+            Server::Thread(_) => {}
+        }
     }
 }
 
 fn start(root: &PathBuf) -> Lsp {
-    start_with_env(root, &[])
+    start_with(root, json!({}))
 }
 
-fn start_with_env(root: &PathBuf, env: &[(&str, &str)]) -> Lsp {
-    start_with(root, env, json!({}))
+/// A server initialized with the given client `capabilities`, in-process.
+fn start_with(root: &PathBuf, capabilities: serde_json::Value) -> Lsp {
+    let (server, client) = lsp_server::Connection::memory();
+    let front = std_front();
+    let handle = std::thread::spawn(move || salvo_cli::lsp::serve_connection(&server, Some(front)).map_err(|e| e.to_string()));
+    let (tx, rx) = mpsc::channel();
+    let incoming = client.receiver.clone();
+    std::thread::spawn(move || {
+        while let Ok(msg) = incoming.recv() {
+            if tx.send(serde_json::to_value(msg).unwrap()).is_err() {
+                break;
+            }
+        }
+    });
+    initialize(Lsp { child: Server::Thread(Some(handle)), stdin: Stdin::Memory(client), rx }, root, capabilities)
 }
 
-/// A server initialized with the given client `capabilities`.
-fn start_with(root: &PathBuf, env: &[(&str, &str)], capabilities: serde_json::Value) -> Lsp {
+/// [cli-lsp] The real binary over stdio, for what only it has: the framed
+/// transport, and settings it reads from its environment at startup.
+fn start_spawned(root: &PathBuf, env: &[(&str, &str)]) -> Lsp {
     let mut command = Command::new(env!("CARGO_BIN_EXE_salvo"));
     command
         .arg("lsp")
@@ -98,7 +186,7 @@ fn start_with(root: &PathBuf, env: &[(&str, &str)], capabilities: serde_json::Va
         command.env(k, v);
     }
     let mut child = command.spawn().expect("failed to spawn salvo lsp");
-    let mut stdin = child.stdin.take().unwrap();
+    let stdin = child.stdin.take().unwrap();
     let stdout = child.stdout.take().unwrap();
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
@@ -109,9 +197,13 @@ fn start_with(root: &PathBuf, env: &[(&str, &str)], capabilities: serde_json::Va
             }
         }
     });
+    initialize(Lsp { child: Server::Process(child), stdin: Stdin::Pipe(stdin), rx }, root, json!({}))
+}
 
+/// `initialize` and `initialized`, asserting the capabilities.
+fn initialize(mut lsp: Lsp, root: &PathBuf, capabilities: serde_json::Value) -> Lsp {
     send(
-        &mut stdin,
+        &mut lsp.stdin,
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {
@@ -120,7 +212,7 @@ fn start_with(root: &PathBuf, env: &[(&str, &str)], capabilities: serde_json::Va
             }
         }),
     );
-    let response = expect_response(&rx, 1);
+    let response = expect_response(&lsp.rx, 1);
     assert!(
         response["result"]["capabilities"]["hoverProvider"] == json!(true),
         "unexpected capabilities: {response}"
@@ -140,10 +232,10 @@ fn start_with(root: &PathBuf, env: &[(&str, &str)], capabilities: serde_json::Va
         "completion trigger characters: {response}"
     );
     send(
-        &mut stdin,
+        &mut lsp.stdin,
         json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}),
     );
-    Lsp { child, stdin, rx }
+    lsp
 }
 
 #[test]
@@ -157,7 +249,8 @@ fn diagnostics_hover_and_shutdown() {
     )
     .unwrap();
 
-    let mut lsp = start(&root);
+    // [cli-lsp] Over stdio: the framed transport, end to end.
+    let mut lsp = start_spawned(&root, &[]);
     let uri = format!("file://{}", root.join("bad.sv").display());
 
     // Open a broken document that exists only in the editor (overlay).
@@ -3366,7 +3459,7 @@ fn a_slow_pass_dumps_the_analysed_buffer() {
     // On disk: a trivial file. The overlay below is what must be dumped.
     std::fs::write(root.join("main.sv"), "fn main() [] {\n}\n").unwrap();
 
-    let mut lsp = start_with_env(
+    let mut lsp = start_spawned(
         &root,
         &[
             ("SALVO_LSP_SLOW_MS", "0"),
@@ -3790,7 +3883,7 @@ comptime fn names(p: P) [] -> Int => p {
 
     // With snippet support the cursor lands in the arm's body.
     let caps = json!({"textDocument": {"completion": {"completionItem": {"snippetSupport": true}}}});
-    let mut lsp = start_with(&root, &[], caps);
+    let mut lsp = start_with(&root, caps);
     open(&mut lsp);
     let items = complete(&mut lsp, 7, 7, 8);
     let square = items.iter().find(|i| i.0 == "is Square").unwrap();
